@@ -18,5 +18,5 @@
       }
     }
   },
-  "postAttachCommand": "printf '\nDuel 6 Reloaded Windows dev container is ready. Run: duel6r-build-windows\n\n'"
+  "postAttachCommand": "ln -sf /workspace/docker/build-windows.sh /usr/local/bin/duel6r-build-windows && printf '\nDuel 6 Reloaded Windows dev container is ready. Run: duel6r-build-windows\n\n'"
 }
