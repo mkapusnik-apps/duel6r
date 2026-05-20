@@ -8,7 +8,6 @@ services:
     volumes:
       - ..:/workspace:cached
     environment:
-      OUTPUT_DIR: build
       CLEAN_OUTPUT_DIR: "OFF"
       BUILD_TYPE: Release
       D6R_RENDERER: gl4

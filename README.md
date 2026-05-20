@@ -39,17 +39,15 @@ docker run --rm -v "$PWD:/workspace" ghcr.io/mkapusnik/duel6r-build:develop
 
 ### Shared Linux and Windows bundle from Docker
 
-The release and nightly workflows build both platforms into one shared `build/` directory. Run the Linux build first to create a clean bundle, then append the Windows executable and DLLs with the cross image:
+The release and nightly workflows build both platforms into one shared `build/` directory. The Linux and Windows builds can be run in either order; each appends its platform binary to the same runtime bundle. Set `CLEAN_OUTPUT_DIR=ON` only on the first build when you want to start from an empty bundle.
 
 ```sh
 docker run --rm \
-  -e OUTPUT_DIR=build \
   -e CLEAN_OUTPUT_DIR=ON \
   -v "$PWD:/workspace" \
   ghcr.io/mkapusnik/duel6r-build:develop
 
 docker run --rm \
-  -e OUTPUT_DIR=build \
   -e BUILD_TESTING=OFF \
   -e RUN_TESTS=OFF \
   -e CLEAN_OUTPUT_DIR=OFF \

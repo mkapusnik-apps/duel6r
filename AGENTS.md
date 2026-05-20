@@ -53,7 +53,6 @@ Build a release runtime bundle (default renderer is `gl4`, but `gl1`, `es2`, and
 
 ```sh
 docker run --rm \
-  -e OUTPUT_DIR=build \
   -e BUILD_TYPE=Release \
   -e D6R_RENDERER=gl4 \
   -e D6R_WITH_LUA=ON \
@@ -71,7 +70,6 @@ Build a debug runtime bundle:
 
 ```sh
 docker run --rm \
-  -e OUTPUT_DIR=build-debug \
   -e BUILD_TYPE=Debug \
   -e D6R_RENDERER=gl4 \
   -e D6R_WITH_LUA=ON \
@@ -85,18 +83,16 @@ Debug locally with gdb inside the container:
 docker run --rm -it \
   --cap-add=SYS_PTRACE \
   --security-opt seccomp=unconfined \
-  -e OUTPUT_DIR=build-debug \
   -e BUILD_TYPE=Debug \
   -v "$PWD:/workspace" \
   duel6r-build:local \
-  gdb --args /workspace/build-debug/duel6r
+  gdb --args /workspace/build/duel6r
 ```
 
 Test locally (build + automated tests via `ctest` inside the container):
 
 ```sh
 docker run --rm \
-  -e OUTPUT_DIR=build-test \
   -e BUILD_TYPE=Release \
   -e BUILD_TESTING=ON \
   -e D6R_RENDERER=gl4 \
@@ -123,7 +119,6 @@ Lint locally (no dedicated lint target exists in this repository):
 
 ```sh
 docker run --rm \
-  -e OUTPUT_DIR=build-lint \
   -e BUILD_TYPE=Debug \
   -e D6R_RENDERER=gl4 \
   -e D6R_WITH_LUA=ON \
@@ -135,7 +130,6 @@ Type-check locally (containerized compilation is the only type-safety gate in th
 
 ```sh
 docker run --rm \
-  -e OUTPUT_DIR=build-typecheck \
   -e BUILD_TYPE=Debug \
   -e D6R_RENDERER=gl4 \
   -e D6R_WITH_LUA=ON \
@@ -147,14 +141,13 @@ Create a release artifact similar to the legacy CI deploy flow:
 
 ```sh
 docker run --rm \
-  -e OUTPUT_DIR=build-release \
   -e BUILD_TYPE=Release \
   -e D6R_RENDERER=gl4 \
   -e D6R_WITH_LUA=ON \
   -v "$PWD:/workspace" \
   duel6r-build:local
 (
-  cd build-release &&
+  cd build &&
   zip -r duel-nightly.zip duel6r data levels profiles shaders sound textures
 )
 ```

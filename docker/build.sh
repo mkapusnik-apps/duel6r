@@ -2,13 +2,13 @@
 set -euo pipefail
 
 workspace_dir="${WORKSPACE_DIR:-/workspace}"
-output_dir="${OUTPUT_DIR:-build}"
+output_dir="build"
 build_type="${BUILD_TYPE:-Release}"
 renderer="${D6R_RENDERER:-gl4}"
 with_lua="${D6R_WITH_LUA:-ON}"
 build_testing="${BUILD_TESTING:-ON}"
 run_tests="${RUN_TESTS:-OFF}"
-clean_output_dir="${CLEAN_OUTPUT_DIR:-ON}"
+clean_output_dir="${CLEAN_OUTPUT_DIR:-OFF}"
 
 tmp_build_dir="$(mktemp -d /tmp/duel6r-build-XXXXXX)"
 cleanup() {

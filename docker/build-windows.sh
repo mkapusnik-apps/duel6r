@@ -2,7 +2,7 @@
 set -euo pipefail
 
 workspace_dir="${WORKSPACE_DIR:-/workspace}"
-output_dir="${OUTPUT_DIR:-build}"
+output_dir="build"
 build_type="${BUILD_TYPE:-Release}"
 renderer="${D6R_RENDERER:-gl4}"
 with_lua="${D6R_WITH_LUA:-ON}"

@@ -34,7 +34,6 @@ jobs:
       - name: Build Linux release files inside shared bundle
         run: |
           docker run --rm \
-            -e OUTPUT_DIR=build \
             -e CLEAN_OUTPUT_DIR=ON \
             -v "$PWD:/workspace" \
             ghcr.io/${{ github.repository }}/build:develop
@@ -42,7 +41,6 @@ jobs:
       - name: Build Windows release files inside shared bundle
         run: |
           docker run --rm \
-            -e OUTPUT_DIR=build \
             -e BUILD_TESTING=OFF \
             -e RUN_TESTS=OFF \
             -e CLEAN_OUTPUT_DIR=OFF \
