@@ -5,6 +5,7 @@
 
 #include "source/client/ConnectionPlan.h"
 #include "source/client/LocalServerLauncher.h"
+#include "source/client/LoopbackSession.h"
 #include "source/network/Protocol.h"
 #include "source/network/ProtocolSerialization.h"
 #include "source/server/HeadlessServer.h"
@@ -232,4 +233,58 @@ D6R_TEST_CASE("Local server command line quotes shell metacharacters in configur
     D6R_REQUIRE_EQ(std::string("duel6r-server-test --local-only --host=127.0.0.1 --port=29999 '--token=local&token'"),
                    launcher.buildCommandLine(plan));
 #endif
+}
+
+D6R_TEST_CASE("Loopback session connects local game through server handshake path") {
+    Duel6::Network::ClientConnectionConfig clientConfig;
+    clientConfig.mode = Duel6::Network::ConnectionMode::LocalGame;
+    clientConfig.localEndpoint.host = "127.0.0.1";
+    clientConfig.localEndpoint.port = 28888;
+    clientConfig.authToken = "loopback-token";
+
+    Duel6::Client::ConnectionPlan plan = Duel6::Client::createConnectionPlan(clientConfig);
+
+    Duel6::Server::ServerConfig serverConfig;
+    serverConfig.authToken = "loopback-token";
+    serverConfig.tickRate = 90;
+    Duel6::Server::HeadlessServer server(serverConfig);
+    Duel6::Client::LoopbackSession session(server);
+
+    Duel6::Network::HandshakeRequest request;
+    request.protocolVersion = Duel6::Network::ProtocolVersion;
+    request.authToken = "loopback-token";
+    request.clientName = "local-client";
+    request.buildVersion = "test";
+
+    Duel6::Client::LoopbackConnectionResult result = session.connect(plan, request);
+
+    D6R_REQUIRE(result.localServerLaunched);
+    D6R_REQUIRE(result.connected);
+    D6R_REQUIRE_EQ(std::string("127.0.0.1"), result.endpoint.host);
+    D6R_REQUIRE_EQ(28888, result.endpoint.port);
+    D6R_REQUIRE_EQ(1u, result.accept.clientId);
+    D6R_REQUIRE_EQ(90u, result.accept.serverTickRate);
+}
+
+D6R_TEST_CASE("Loopback session returns structured rejection without connecting") {
+    Duel6::Network::ClientConnectionConfig clientConfig;
+    clientConfig.mode = Duel6::Network::ConnectionMode::LocalGame;
+    clientConfig.authToken = "expected-token";
+    Duel6::Client::ConnectionPlan plan = Duel6::Client::createConnectionPlan(clientConfig);
+
+    Duel6::Server::ServerConfig serverConfig;
+    serverConfig.authToken = "expected-token";
+    Duel6::Server::HeadlessServer server(serverConfig);
+    Duel6::Client::LoopbackSession session(server);
+
+    Duel6::Network::HandshakeRequest request;
+    request.protocolVersion = Duel6::Network::ProtocolVersion;
+    request.authToken = "wrong-token";
+
+    Duel6::Client::LoopbackConnectionResult result = session.connect(plan, request);
+
+    D6R_REQUIRE(result.localServerLaunched);
+    D6R_REQUIRE(!result.connected);
+    D6R_REQUIRE_EQ(static_cast<int>(Duel6::Network::RejectReason::AuthenticationFailed),
+                   static_cast<int>(result.reject.reason));
 }

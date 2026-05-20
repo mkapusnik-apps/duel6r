@@ -508,6 +508,7 @@ if (BUILD_TESTING)
             tests/ResourceValidationTests.cpp
             source/client/ConnectionPlan.cpp
             source/client/LocalServerLauncher.cpp
+            source/client/LoopbackSession.cpp
             source/network/Protocol.cpp
             source/network/ProtocolSerialization.cpp
             source/server/HeadlessServer.cpp
