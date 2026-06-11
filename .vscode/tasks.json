@@ -18,7 +18,7 @@
     {
       "label": "Build Windows distribution (Debug)",
       "type": "shell",
-      "command": "BUILD_TYPE=Debug OUTPUT_DIR=build CLEAN_OUTPUT_DIR=OFF duel6r-build-windows",
+      "command": "BUILD_TYPE=Debug CLEAN_OUTPUT_DIR=OFF duel6r-build-windows",
       "group": "build",
       "problemMatcher": ["$gcc"],
       "presentation": {

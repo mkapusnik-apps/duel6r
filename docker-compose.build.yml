@@ -8,4 +8,3 @@ services:
       BUILD_TYPE: Release
       D6R_RENDERER: gl4
       D6R_WITH_LUA: "ON"
-      OUTPUT_DIR: build

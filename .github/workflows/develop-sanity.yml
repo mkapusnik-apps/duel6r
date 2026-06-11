@@ -55,12 +55,11 @@ jobs:
         run: |
           docker run --rm \
             -e BUILD_TYPE=Debug \
-            -e OUTPUT_DIR=build-lint \
             -v "$PWD:/workspace" \
             ghcr.io/${{ github.repository }}/build:develop
 
       - name: Verify lint-equivalent build output
-        run: test -x build-lint/duel6r
+        run: test -x build/duel6r
 
   tag:
     name: Tag - sanity
