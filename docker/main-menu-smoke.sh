@@ -7,6 +7,7 @@ smoke_dir="${SMOKE_DIR:-${build_dir}/smoke-main-menu}"
 display="${DISPLAY:-:99}"
 screen_size="${XVFB_SCREEN:-1280x900x24}"
 app_timeout="${SMOKE_APP_TIMEOUT:-30s}"
+expected_dimensions=""
 
 fail() {
   echo "main-menu-smoke: $*" >&2
@@ -15,6 +16,29 @@ fail() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
+}
+
+parse_screen_dimensions() {
+  local screen="$1"
+
+  if [[ "$screen" =~ ^([0-9]+)x([0-9]+)x[0-9]+$ ]]; then
+    expected_dimensions="${BASH_REMATCH[1]}x${BASH_REMATCH[2]}"
+  else
+    fail "XVFB_SCREEN must use WIDTHxHEIGHTxDEPTH format: $screen"
+  fi
+}
+
+window_point() {
+  local local_x="$1"
+  local local_y="$2"
+  local width="${expected_dimensions%x*}"
+  local height="${expected_dimensions#*x}"
+  local menu_width=850
+  local menu_height=700
+  local menu_origin_x=$(((width - menu_width) / 2))
+  local menu_origin_y=$(((height - menu_height) / 2))
+
+  printf '%s %s\n' "$((menu_origin_x + local_x))" "$((height - menu_origin_y - local_y))"
 }
 
 capture_root() {
@@ -37,9 +61,35 @@ check_image() {
     identify -verbose "$path"
   } >>"${smoke_dir}/image-info.txt"
 
-  [[ "$dimensions" == "1280x900" ]] || fail "$label screenshot has unexpected dimensions: $dimensions"
+  [[ "$dimensions" == "$expected_dimensions" ]] || fail "$label screenshot has unexpected dimensions: $dimensions (expected ${expected_dimensions})"
   [[ "$colors" =~ ^[0-9]+$ ]] || fail "$label unique color count is not numeric: $colors"
   (( colors >= 16 )) || fail "$label screenshot appears blank or nearly uniform: ${colors} unique colors"
+}
+
+assert_image_changed() {
+  local before="$1"
+  local after="$2"
+  local diff="$3"
+  local label="$4"
+  local minimum_pixels="$5"
+  local compare_status
+  local diff_pixels
+
+  set +e
+  compare -metric AE "$before" "$after" "$diff" 2>"${diff}.txt"
+  compare_status=$?
+  set -e
+
+  if (( compare_status > 1 )); then
+    fail "failed to compare $label screenshots"
+  fi
+
+  diff_pixels="$(<"${diff}.txt")"
+  diff_pixels="${diff_pixels%%.*}"
+  [[ "$diff_pixels" =~ ^[0-9]+$ ]] || fail "$label screenshot difference is not numeric: $diff_pixels"
+  (( diff_pixels >= minimum_pixels )) || fail "$label did not visibly change the menu: ${diff_pixels} pixels changed"
+
+  echo "$label: changed-pixels=${diff_pixels}" >>"${smoke_dir}/image-info.txt"
 }
 
 require_command Xvfb
@@ -48,6 +98,8 @@ require_command import
 require_command identify
 require_command compare
 require_command timeout
+
+parse_screen_dimensions "$screen_size"
 
 [[ -x "${build_dir}/duel6r" ]] || fail "game executable not found or not executable: ${build_dir}/duel6r"
 
@@ -91,6 +143,10 @@ done
 
 xdotool getdisplaygeometry >>"${smoke_dir}/display-geometry.txt" 2>>"${smoke_dir}/xvfb.log" \
   || fail "Xvfb did not become ready"
+display_geometry="$(<"${smoke_dir}/display-geometry.txt")"
+display_geometry="${display_geometry//$'\n'/ }"
+[[ "$display_geometry" == *"${expected_dimensions%x*} ${expected_dimensions#*x}"* ]] \
+  || fail "Xvfb display geometry does not match XVFB_SCREEN=${screen_size}: ${display_geometry}"
 
 (
   cd "$build_dir"
@@ -128,24 +184,33 @@ sleep 2
 capture_root "${smoke_dir}/main-menu.png"
 check_image "${smoke_dir}/main-menu.png" "main-menu"
 
+read -r click_x click_y < <(window_point 602 468)
+xdotool mousemove "$click_x" "$click_y" \
+  mousedown 1 sleep 0.1 mouseup 1 2>>"${smoke_dir}/automation.log"
+sleep 1
+capture_root "${smoke_dir}/quick-liquid-toggled.png"
+check_image "${smoke_dir}/quick-liquid-toggled.png" "quick-liquid-toggled"
+assert_image_changed \
+  "${smoke_dir}/main-menu.png" \
+  "${smoke_dir}/quick-liquid-toggled.png" \
+  "${smoke_dir}/quick-liquid-diff.png" \
+  "quick-liquid toggle" \
+  10
+
+xdotool mousemove "$click_x" "$click_y" \
+  mousedown 1 sleep 0.1 mouseup 1 2>>"${smoke_dir}/automation.log"
+sleep 0.25
+
 xdotool key --window "$window_id" grave
 sleep 1
 capture_root "${smoke_dir}/console-open.png"
 check_image "${smoke_dir}/console-open.png" "console-open"
-
-set +e
-compare -metric AE "${smoke_dir}/main-menu.png" "${smoke_dir}/console-open.png" "${smoke_dir}/console-diff.png" 2>"${smoke_dir}/console-diff.txt"
-compare_status=$?
-set -e
-
-if (( compare_status > 1 )); then
-  fail "failed to compare menu and console screenshots"
-fi
-
-diff_pixels="$(<"${smoke_dir}/console-diff.txt")"
-diff_pixels="${diff_pixels%%.*}"
-[[ "$diff_pixels" =~ ^[0-9]+$ ]] || fail "console screenshot difference is not numeric: $diff_pixels"
-(( diff_pixels >= 1000 )) || fail "console toggle did not visibly change the menu: ${diff_pixels} pixels changed"
+assert_image_changed \
+  "${smoke_dir}/main-menu.png" \
+  "${smoke_dir}/console-open.png" \
+  "${smoke_dir}/console-diff.png" \
+  "console toggle" \
+  1000
 
 xdotool key --window "$window_id" grave
 sleep 0.25
