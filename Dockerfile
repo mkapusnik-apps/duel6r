@@ -12,16 +12,22 @@ RUN apt-get update \
         libgl1-mesa-dev \
         libglew-dev \
         liblua5.3-dev \
+        libgl1-mesa-dri \
         libsdl2-dev \
         libsdl2-image-dev \
         libsdl2-mixer-dev \
         libsdl2-ttf-dev \
+        imagemagick \
+        xauth \
+        xdotool \
+        xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
 
 COPY docker/build.sh /usr/local/bin/duel6r-build
+COPY docker/main-menu-smoke.sh /usr/local/bin/duel6r-main-menu-smoke
 
-RUN chmod +x /usr/local/bin/duel6r-build
+RUN chmod +x /usr/local/bin/duel6r-build /usr/local/bin/duel6r-main-menu-smoke
 
 ENTRYPOINT ["/usr/local/bin/duel6r-build"]
