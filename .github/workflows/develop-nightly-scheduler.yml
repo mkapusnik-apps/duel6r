@@ -14,10 +14,10 @@ jobs:
     name: Scheduler
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - run: gh workflow disable "${{ github.workflow }}"
         env:
           GH_TOKEN: ${{ secrets.PAT }}
-      - run: gh workflow run nightly-builds.yml --ref sanity
+      - run: gh workflow run develop-nightly.yml --ref sanity
         env:
           GH_TOKEN: ${{ secrets.PAT }}

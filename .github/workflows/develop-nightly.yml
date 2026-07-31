@@ -1,4 +1,4 @@
-name: Nightly - Builds
+name: Develop - Nightly
 on:
   workflow_dispatch:
 
@@ -14,7 +14,7 @@ jobs:
       contents: read
       packages: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -100,7 +100,7 @@ jobs:
           path: release-assets
 
       - name: Publish nightly release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: nightly
           prerelease: true
@@ -114,7 +114,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build, release]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+
       - uses: mkapusnik/commons/.github/actions/tag@master
         with:
           tag: nightly

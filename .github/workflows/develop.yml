@@ -1,4 +1,4 @@
-name: Develop - Sanity check
+name: Develop - Sanity
 on:
   push:
     branches: [ develop ]
@@ -10,9 +10,9 @@ concurrency:
 jobs:
   sanity:
     name: Sanity Build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Build checked-out Linux build image
         run: docker build -t duel6r-build:sanity .
@@ -45,9 +45,9 @@ jobs:
 
   lint:
     name: Lint-equivalent Build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Build checked-out Linux build image
         run: docker build -t duel6r-build:lint .
@@ -66,10 +66,10 @@ jobs:
     name: Tag - sanity
     permissions:
       contents: 'write'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: [sanity, lint]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: mkapusnik/commons/.github/actions/tag@master
         with:
