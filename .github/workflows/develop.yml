@@ -71,7 +71,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: mkapusnik/commons/.github/actions/tag@master
+      - uses: mkapusnik-apps/commons/tag@v1
         with:
           tag: sanity
           token: ${{ secrets.PAT }}
