@@ -213,3 +213,7 @@ CI/CD workflow is leveraging GitHub Actions.
   - Requirements: Nightly version can be executed successfully
   - Tags:
     - `released` - Release artifacts are created and published to GitHub
+
+### Implementation details
+
+CI/CD workflow is leveraging GitHub Actions, detailed implementation described in [.github/workflows.md](.github/workflows.md)
