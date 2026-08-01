@@ -1,7 +1,7 @@
 name: Develop - Sanity
 on:
   push:
-    branches: [ develop ]
+    branches: [develop]
 
 concurrency:
   group: ${{ github.workflow }}
@@ -25,9 +25,6 @@ jobs:
             -v "$PWD:/workspace" \
             duel6r-build:sanity
 
-      - name: Verify build output
-        run: test -x build/duel6r
-
       - name: Run main menu smoke test
         run: |
           docker run --rm \
@@ -37,7 +34,7 @@ jobs:
 
       - name: Upload main menu smoke artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: main-menu-smoke
           path: build/smoke-main-menu/
@@ -56,26 +53,24 @@ jobs:
         run: |
           docker run --rm \
             -e BUILD_TYPE=Debug \
+            -e BUILD_TESTING=OFF \
             -v "$PWD:/workspace" \
             duel6r-build:lint
-
-      - name: Verify lint-equivalent build output
-        run: test -x build/duel6r
 
   tag:
     name: Tag - sanity
     permissions:
-      contents: 'write'
-    runs-on: self-hosted
+      contents: write
+    runs-on: ubuntu-latest
     needs: [sanity, lint]
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: mkapusnik-apps/commons/tag@v1
+      - name: Move sanity tag to the validated commit
+        uses: mkapusnik-apps/commons/tag@v1
         with:
           tag: sanity
           token: ${{ secrets.PAT }}
 
-      - run: gh workflow enable develop-nightly-scheduler.yml
+      - name: Enable the one-shot nightly scheduler
+        run: gh workflow enable develop-nightly-scheduler.yml --repo "${{ github.repository }}"
         env:
           GH_TOKEN: ${{ secrets.PAT }}

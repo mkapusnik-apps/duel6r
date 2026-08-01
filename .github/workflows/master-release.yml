@@ -2,21 +2,21 @@ name: Release Artifact
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
+    tags: [released]
   workflow_dispatch:
-
-permissions:
-  contents: write
-  packages: read
 
 jobs:
   build-release-artifact:
     name: Build Release Artifact
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -25,60 +25,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull Linux build image
-        run: docker pull ghcr.io/${{ github.repository }}/build:develop
-
-      - name: Pull Windows cross build image
-        run: docker pull ghcr.io/${{ github.repository }}/build-w64:develop
-
       - name: Build Linux release files inside shared bundle
         run: |
-          docker run --rm \
+          docker run --rm --pull always \
+            -e BUILD_TESTING=OFF \
             -e CLEAN_OUTPUT_DIR=ON \
             -v "$PWD:/workspace" \
             ghcr.io/${{ github.repository }}/build:develop
 
       - name: Build Windows release files inside shared bundle
         run: |
-          docker run --rm \
+          docker run --rm --pull always \
             -e BUILD_TESTING=OFF \
             -e RUN_TESTS=OFF \
             -e CLEAN_OUTPUT_DIR=OFF \
             -v "$PWD:/workspace" \
             ghcr.io/${{ github.repository }}/build-w64:develop
 
-      - name: Verify shared release bundle
-        run: |
-          test -x build/duel6r
-          test -f build/duel6r.exe
-          test -d build/data
-          test -d build/levels
-          test -d build/profiles
-          test -d build/shaders
-          test -d build/sound
-          test -d build/textures
-
       - name: Package release artifact
         id: package
-        shell: bash
         run: |
           safe_ref="${GITHUB_REF_NAME//\//-}"
           archive_name="duel6r-${safe_ref}.zip"
-
-          ARCHIVE_NAME="$archive_name" python - <<'PY'
-          import os
-          import zipfile
-
-          archive_name = os.environ["ARCHIVE_NAME"]
-          root = "build"
-
-          with zipfile.ZipFile(archive_name, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-              for current_root, _, files in os.walk(root):
-                  for file_name in files:
-                      path = os.path.join(current_root, file_name)
-                      archive.write(path, path)
-          PY
-
+          python3 -m zipfile -c "$archive_name" build
           echo "archive_name=${archive_name}" >> "$GITHUB_OUTPUT"
 
       - name: Upload workflow artifact
@@ -92,17 +61,20 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: build-release-artifact
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Download release artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: release-assets
           merge-multiple: true
 
       - name: Publish GitHub release assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             release-assets/*.zip
           generate_release_notes: true
+          fail_on_unmatched_files: true

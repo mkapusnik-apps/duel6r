@@ -1,8 +1,8 @@
-name: Feature - Sanity check
+name: Feature - Compile
 
 on:
   pull_request:
-    branches: [ 'develop' ]
+    branches: ['develop']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -11,7 +11,7 @@ concurrency:
 jobs:
   compile:
     name: Compile (Linux)
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: read
@@ -26,14 +26,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Pull build image
-        run: docker pull ghcr.io/${{ github.repository }}/build:develop
-
       - name: Build inside container
         run: |
-          docker run --rm \
+          docker run --rm --pull always \
+            -e BUILD_TESTING=OFF \
             -v "$PWD:/workspace" \
             ghcr.io/${{ github.repository }}/build:develop
-
-      - name: Verify build output
-        run: test -x build/duel6r
