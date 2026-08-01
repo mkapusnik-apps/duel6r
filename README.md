@@ -34,7 +34,7 @@ The command writes a runnable Linux release layout to `build/`, including the `d
 If you prefer not to use Docker Compose, run the Linux build container directly:
 
 ```sh
-docker run --rm -v "$PWD:/workspace" ghcr.io/mkapusnik/duel6r-build:develop
+docker run --rm -v "$PWD:/workspace" ghcr.io/mkapusnik-apps/duel6r/build:develop
 ```
 
 ### Shared Linux and Windows bundle from Docker
@@ -45,24 +45,24 @@ The release and nightly workflows build both platforms into one shared `build/` 
 docker run --rm \
   -e CLEAN_OUTPUT_DIR=ON \
   -v "$PWD:/workspace" \
-  ghcr.io/mkapusnik/duel6r-build:develop
+  ghcr.io/mkapusnik-apps/duel6r/build:develop
 
 docker run --rm \
   -e BUILD_TESTING=OFF \
   -e RUN_TESTS=OFF \
   -e CLEAN_OUTPUT_DIR=OFF \
   -v "$PWD:/workspace" \
-  ghcr.io/mkapusnik/duel6r-build-w64:develop
+  ghcr.io/mkapusnik-apps/duel6r/build-w64:develop
 ```
 
 The final shared release bundle is `build/` with the Linux binary (`duel6r`), the Windows binary (`duel6r.exe`), Windows DLL dependencies, and one shared copy of runtime assets.
 
 ### Build image publication
 
-The build images are published to GitHub Container Registry by the `Develop - Build Container Image` workflow whenever Docker build files change on the `develop` branch:
+The build images are published to GitHub Container Registry after the develop sanity and Debug compilation gates pass. Each develop commit receives a full-SHA tag, and `develop` remains the convenience tag for local and feature builds:
 
-- `ghcr.io/mkapusnik/duel6r/build` (Linux native build)
-- `ghcr.io/mkapusnik/duel6r/build-w64` (Windows x64 cross-build)
+- `ghcr.io/mkapusnik-apps/duel6r/build` (Linux native build)
+- `ghcr.io/mkapusnik-apps/duel6r/build-w64` (Windows x64 cross-build)
 
 ## Supported platforms
 

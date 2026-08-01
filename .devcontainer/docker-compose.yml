@@ -1,6 +1,6 @@
 services:
   duel6r-windows-dev:
-    image: ghcr.io/mkapusnik/duel6r/build-w64:develop
+    image: ghcr.io/mkapusnik-apps/duel6r/build-w64:develop
     entrypoint: /bin/bash
     command: -lc "trap 'exit 0' TERM INT; while sleep 3600; do :; done"
     working_dir: /workspace

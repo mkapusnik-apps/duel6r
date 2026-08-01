@@ -3,8 +3,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: true
+  group: canonical-release-publication
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -13,6 +13,9 @@ jobs:
     permissions:
       contents: read
       packages: read
+    outputs:
+      archive_name: ${{ steps.package.outputs.archive_name }}
+      provenance_name: ${{ steps.package.outputs.provenance_name }}
     steps:
       - uses: actions/checkout@v7
 
@@ -23,41 +26,93 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
+      - name: Resolve commit-bound build images
+        id: images
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          resolve_image() {
+            local repository="$1"
+            local tag="${repository}:sha-${GITHUB_SHA}"
+            local revision
+            local digest_reference
+
+            docker pull "${tag}" >&2
+            revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "${tag}")"
+            test "${revision}" = "${GITHUB_SHA}"
+            digest_reference="$(docker image inspect --format '{{ index .RepoDigests 0 }}' "${tag}")"
+            case "${digest_reference}" in
+              "${repository}@sha256:"????????????????????????????????????????????????????????????????) ;;
+              *) echo "Image did not resolve to an expected SHA-256 digest: ${digest_reference}" >&2; exit 1 ;;
+            esac
+            printf '%s\n' "${digest_reference}"
+          }
+
+          linux_image="$(resolve_image "ghcr.io/${GITHUB_REPOSITORY}/build")"
+          windows_image="$(resolve_image "ghcr.io/${GITHUB_REPOSITORY}/build-w64")"
+          printf 'linux=%s\nwindows=%s\n' "${linux_image}" "${windows_image}" >> "${GITHUB_OUTPUT}"
+
       - name: Build Linux nightly files inside shared bundle
         run: |
-          docker run --rm --pull always \
+          docker run --rm \
             -e BUILD_TESTING=ON \
             -e RUN_TESTS=ON \
             -e CLEAN_OUTPUT_DIR=ON \
             -v "$PWD:/workspace" \
-            ghcr.io/${{ github.repository }}/build:develop
+            "${{ steps.images.outputs.linux }}"
 
       - name: Build Windows nightly files inside shared bundle
         run: |
-          docker run --rm --pull always \
+          docker run --rm \
             -e BUILD_TESTING=OFF \
             -e RUN_TESTS=OFF \
             -e CLEAN_OUTPUT_DIR=OFF \
             -v "$PWD:/workspace" \
-            ghcr.io/${{ github.repository }}/build-w64:develop
+            "${{ steps.images.outputs.windows }}"
 
-      - name: Package nightly bundle
+      - name: Package provenance-bound nightly bundle
         id: package
+        shell: bash
         run: |
-          archive_name="duel6r-nightly.zip"
+          set -euo pipefail
+          archive_name="duel6r-nightly-${GITHUB_SHA}.zip"
+          provenance_name="duel6r-nightly-${GITHUB_SHA}.provenance.json"
+          tree_sha="$(git rev-parse 'HEAD^{tree}')"
+
           bash docker/validate-bundle.sh all build
-          python3 -m zipfile -c "$archive_name" build
-          echo "archive_name=${archive_name}" >> "$GITHUB_OUTPUT"
+          python3 -m zipfile -c "${archive_name}" build
+          python3 docker/nightly-provenance.py create \
+            --repository "${GITHUB_REPOSITORY}" \
+            --commit "${GITHUB_SHA}" \
+            --tree "${tree_sha}" \
+            --linux-image "${{ steps.images.outputs.linux }}" \
+            --windows-image "${{ steps.images.outputs.windows }}" \
+            --archive "${archive_name}" \
+            --output "${provenance_name}"
+          python3 docker/nightly-provenance.py verify \
+            --repository "${GITHUB_REPOSITORY}" \
+            --commit "${GITHUB_SHA}" \
+            --tree "${tree_sha}" \
+            --linux-image "${{ steps.images.outputs.linux }}" \
+            --windows-image "${{ steps.images.outputs.windows }}" \
+            --archive "${archive_name}" \
+            --provenance "${provenance_name}"
+
+          printf 'archive_name=%s\nprovenance_name=%s\n' \
+            "${archive_name}" "${provenance_name}" >> "${GITHUB_OUTPUT}"
 
       - name: Upload nightly artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.package.outputs.archive_name }}
-          path: ${{ steps.package.outputs.archive_name }}
+          name: nightly-bundle-${{ github.sha }}
+          path: |
+            ${{ steps.package.outputs.archive_name }}
+            ${{ steps.package.outputs.provenance_name }}
           if-no-files-found: error
 
   release:
-    name: Publish nightly pre-release
+    name: Stage immutable nightly assets
     needs: [build]
     runs-on: ubuntu-latest
     permissions:
@@ -66,33 +121,102 @@ jobs:
       - name: Download nightly artifact
         uses: actions/download-artifact@v8
         with:
-          name: duel6r-nightly.zip
+          name: nightly-bundle-${{ github.sha }}
           path: release-assets
 
-      - name: Confirm the canonical nightly pre-release exists
+      - name: Check canonical release and existing immutable assets
+        id: assets
+        shell: bash
         run: |
-          test "$(gh release view nightly --repo "${{ github.repository }}" --json isPrerelease --jq .isPrerelease)" = "true"
-          gh api "repos/${{ github.repository }}/git/ref/tags/nightly" >/dev/null
+          set -euo pipefail
+          archive_name="${{ needs.build.outputs.archive_name }}"
+          provenance_name="${{ needs.build.outputs.provenance_name }}"
+
+          test "$(gh release view nightly --repo "${GITHUB_REPOSITORY}" --json isPrerelease --jq .isPrerelease)" = "true"
+          nightly_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/nightly" --jq .object.sha)"
+          asset_count="$(gh release view nightly --repo "${GITHUB_REPOSITORY}" --json assets \
+            --jq "[.assets[].name | select(. == \"${archive_name}\" or . == \"${provenance_name}\")] | length")"
+
+          if [[ "${asset_count}" == "2" ]]; then
+            mkdir existing-assets
+            gh release download nightly --repo "${GITHUB_REPOSITORY}" \
+              --pattern "${archive_name}" --pattern "${provenance_name}" \
+              --dir existing-assets
+            cmp "release-assets/${archive_name}" "existing-assets/${archive_name}"
+            cmp "release-assets/${provenance_name}" "existing-assets/${provenance_name}"
+            echo "upload=false" >> "${GITHUB_OUTPUT}"
+          else
+            if [[ "${asset_count}" != "0" ]]; then
+              test "${nightly_sha}" != "${GITHUB_SHA}"
+              gh release view nightly --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' |
+                while IFS= read -r asset_name; do
+                  case "${asset_name}" in
+                    "${archive_name}"|"${provenance_name}")
+                      gh release delete-asset nightly "${asset_name}" --repo "${GITHUB_REPOSITORY}" --yes
+                      ;;
+                  esac
+                done
+            fi
+            echo "upload=true" >> "${GITHUB_OUTPUT}"
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Publish nightly release
+      - name: Upload immutable nightly assets
+        if: steps.assets.outputs.upload == 'true'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: nightly
           prerelease: true
-          files: release-assets/duel6r-nightly.zip
+          files: |
+            release-assets/${{ needs.build.outputs.archive_name }}
+            release-assets/${{ needs.build.outputs.provenance_name }}
           fail_on_unmatched_files: true
 
+      - name: Verify staged assets before moving the tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir published-assets
+          gh release download nightly --repo "${GITHUB_REPOSITORY}" \
+            --pattern "${{ needs.build.outputs.archive_name }}" \
+            --pattern "${{ needs.build.outputs.provenance_name }}" \
+            --dir published-assets
+          cmp "release-assets/${{ needs.build.outputs.archive_name }}" \
+            "published-assets/${{ needs.build.outputs.archive_name }}"
+          cmp "release-assets/${{ needs.build.outputs.provenance_name }}" \
+            "published-assets/${{ needs.build.outputs.provenance_name }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   tag:
-    name: Tag - nightly
+    name: Publish canonical nightly
     needs: [build, release]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Move nightly tag to the published commit
+      - name: Move nightly tag to the provenance-bound commit
         uses: mkapusnik-apps/commons/tag@v1
         with:
           tag: nightly
+          commit_sha: ${{ github.sha }}
           token: ${{ secrets.PAT }}
+
+      - name: Verify canonical tag and remove stale nightly assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/nightly" --jq .object.sha)" = "${GITHUB_SHA}"
+
+          gh release view nightly --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' |
+            while IFS= read -r asset_name; do
+              case "${asset_name}" in
+                "${{ needs.build.outputs.archive_name }}"|"${{ needs.build.outputs.provenance_name }}") ;;
+                duel6r-nightly.zip|duel6r-nightly-*)
+                  gh release delete-asset nightly "${asset_name}" --repo "${GITHUB_REPOSITORY}" --yes
+                  ;;
+              esac
+            done
+        env:
+          GH_TOKEN: ${{ github.token }}

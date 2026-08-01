@@ -23,8 +23,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT }}
 
-      - name: Restore scheduler after a failed dispatch
-        if: failure()
+      - name: Restore scheduler after an interrupted dispatch
+        if: failure() || cancelled()
         run: gh workflow enable develop-nightly-scheduler.yml --repo "${{ github.repository }}"
         env:
           GH_TOKEN: ${{ secrets.PAT }}
