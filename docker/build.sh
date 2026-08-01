@@ -29,7 +29,7 @@ if [[ "${run_tests}" == "ON" ]]; then
 fi
 
 if [[ "${clean_output_dir}" == "ON" ]]; then
-  rm -rf "${workspace_dir}/${output_dir}"
+  rm -rf "${workspace_dir:?}/${output_dir}"
 fi
 mkdir -p "${workspace_dir}/${output_dir}"
 
@@ -45,5 +45,7 @@ fi
 
 cp "${source_binary}" "${workspace_dir}/${output_dir}/duel6r"
 cp -R "${workspace_dir}/resources/." "${workspace_dir}/${output_dir}/"
+
+/usr/local/bin/duel6r-validate-bundle linux "${workspace_dir}/${output_dir}"
 
 echo "Linux runtime bundle written to ${workspace_dir}/${output_dir}"

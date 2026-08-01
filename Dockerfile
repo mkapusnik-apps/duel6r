@@ -27,7 +27,11 @@ WORKDIR /workspace
 
 COPY docker/build.sh /usr/local/bin/duel6r-build
 COPY docker/main-menu-smoke.sh /usr/local/bin/duel6r-main-menu-smoke
+COPY docker/validate-bundle.sh /usr/local/bin/duel6r-validate-bundle
 
-RUN chmod +x /usr/local/bin/duel6r-build /usr/local/bin/duel6r-main-menu-smoke
+RUN chmod +x \
+        /usr/local/bin/duel6r-build \
+        /usr/local/bin/duel6r-main-menu-smoke \
+        /usr/local/bin/duel6r-validate-bundle
 
 ENTRYPOINT ["/usr/local/bin/duel6r-build"]

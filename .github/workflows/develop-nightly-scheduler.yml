@@ -6,19 +6,25 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   scheduler:
     name: Scheduler
     runs-on: ubuntu-latest
     steps:
+      - name: Disable scheduler for this dispatch attempt
+        run: gh workflow disable develop-nightly-scheduler.yml --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+
       - name: Dispatch nightly build from the sanity tag
         run: gh workflow run develop-nightly.yml --ref sanity --repo "${{ github.repository }}"
         env:
           GH_TOKEN: ${{ secrets.PAT }}
 
-      - name: Disable scheduler until the next successful develop build
-        run: gh workflow disable develop-nightly-scheduler.yml --repo "${{ github.repository }}"
+      - name: Restore scheduler after a failed dispatch
+        if: failure()
+        run: gh workflow enable develop-nightly-scheduler.yml --repo "${{ github.repository }}"
         env:
           GH_TOKEN: ${{ secrets.PAT }}

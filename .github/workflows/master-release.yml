@@ -47,6 +47,7 @@ jobs:
         run: |
           safe_ref="${GITHUB_REF_NAME//\//-}"
           archive_name="duel6r-${safe_ref}.zip"
+          bash docker/validate-bundle.sh all build
           python3 -m zipfile -c "$archive_name" build
           echo "archive_name=${archive_name}" >> "$GITHUB_OUTPUT"
 
@@ -58,13 +59,32 @@ jobs:
           if-no-files-found: error
 
   publish-github-release-assets:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && github.ref == 'refs/tags/released'
     needs: build-release-artifact
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
+      - name: Check out promoted source
+        uses: actions/checkout@v7
+
+      - name: Validate stable promotion from master and nightly
+        run: |
+          git fetch --force --no-tags origin \
+            +refs/heads/master:refs/remotes/origin/master \
+            +refs/tags/nightly:refs/tags/nightly
+
+          release_commit="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          master_commit="$(git rev-parse "refs/remotes/origin/master^{commit}")"
+          nightly_commit="$(git rev-parse "refs/tags/nightly^{commit}")"
+
+          test "${release_commit}" = "${master_commit}"
+          test "$(git rev-parse "${release_commit}^{tree}")" = "$(git rev-parse "${nightly_commit}^{tree}")"
+          test "$(gh release view nightly --repo "${{ github.repository }}" --json isPrerelease,assets --jq '(.isPrerelease == true) and any(.assets[]; .name == "duel6r-nightly.zip")')" = "true"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Download release artifacts
         uses: actions/download-artifact@v8
         with:

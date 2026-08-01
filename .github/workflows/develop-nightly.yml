@@ -45,6 +45,7 @@ jobs:
         id: package
         run: |
           archive_name="duel6r-nightly.zip"
+          bash docker/validate-bundle.sh all build
           python3 -m zipfile -c "$archive_name" build
           echo "archive_name=${archive_name}" >> "$GITHUB_OUTPUT"
 
@@ -55,22 +56,9 @@ jobs:
           path: ${{ steps.package.outputs.archive_name }}
           if-no-files-found: error
 
-  tag:
-    name: Tag - nightly
-    needs: [build]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Move nightly tag to the built commit
-        uses: mkapusnik-apps/commons/tag@v1
-        with:
-          tag: nightly
-          token: ${{ secrets.PAT }}
-
   release:
     name: Publish nightly pre-release
-    needs: [build, tag]
+    needs: [build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -81,6 +69,13 @@ jobs:
           name: duel6r-nightly.zip
           path: release-assets
 
+      - name: Confirm the canonical nightly pre-release exists
+        run: |
+          test "$(gh release view nightly --repo "${{ github.repository }}" --json isPrerelease --jq .isPrerelease)" = "true"
+          gh api "repos/${{ github.repository }}/git/ref/tags/nightly" >/dev/null
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Publish nightly release
         uses: softprops/action-gh-release@v3
         with:
@@ -88,3 +83,16 @@ jobs:
           prerelease: true
           files: release-assets/duel6r-nightly.zip
           fail_on_unmatched_files: true
+
+  tag:
+    name: Tag - nightly
+    needs: [build, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Move nightly tag to the published commit
+        uses: mkapusnik-apps/commons/tag@v1
+        with:
+          tag: nightly
+          token: ${{ secrets.PAT }}

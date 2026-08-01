@@ -210,9 +210,9 @@ CI/CD workflow is leveraging GitHub Actions.
 
 - Branch: `master`
   - Contains: stable version
-  - Requirements: Nightly version can be executed successfully
+  - Requirements: The current master tip has the exact source tree published by the nightly workflow
   - Tags:
-    - `released` - Triggers creation and publication of the stable GitHub release artifact
+    - `released` - Publishes only when it points to that promoted master tip
 
 ### Implementation details
 

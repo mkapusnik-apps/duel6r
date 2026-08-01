@@ -38,8 +38,9 @@ RUN /opt/vcpkg/vcpkg install --triplet x64-mingw-dynamic \
 WORKDIR /workspace
 
 COPY docker/build-windows.sh /usr/local/bin/duel6r-build-windows
+COPY docker/validate-bundle.sh /usr/local/bin/duel6r-validate-bundle
 COPY docker/toolchains/mingw-w64-x86_64.cmake /opt/toolchains/mingw-w64-x86_64.cmake
 
-RUN chmod +x /usr/local/bin/duel6r-build-windows
+RUN chmod +x /usr/local/bin/duel6r-build-windows /usr/local/bin/duel6r-validate-bundle
 
 ENTRYPOINT ["/usr/local/bin/duel6r-build-windows"]

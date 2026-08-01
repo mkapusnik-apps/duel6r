@@ -9,6 +9,7 @@ on:
       - docker/build.sh
       - docker/main-menu-smoke.sh
       - docker/build-windows.sh
+      - docker/validate-bundle.sh
       - docker/toolchains/mingw-w64-x86_64.cmake
       - .github/workflows/develop-build-image.yml
   workflow_dispatch:

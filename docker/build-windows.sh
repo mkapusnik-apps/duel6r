@@ -38,7 +38,7 @@ if [[ "${run_tests}" == "ON" ]]; then
 fi
 
 if [[ "${clean_output_dir}" == "ON" ]]; then
-  rm -rf "${workspace_dir}/${output_dir}"
+  rm -rf "${workspace_dir:?}/${output_dir}"
 fi
 mkdir -p "${workspace_dir}/${output_dir}"
 
@@ -231,5 +231,7 @@ PY
 
 python3 "${workspace_dir}/tests/WindowsBundleDependencyTests.py" \
   --dist-dir "${workspace_dir}/${output_dir}"
+
+/usr/local/bin/duel6r-validate-bundle windows "${workspace_dir}/${output_dir}"
 
 echo "Windows runtime files written to ${workspace_dir}/${output_dir}"

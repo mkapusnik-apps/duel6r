@@ -1,6 +1,6 @@
 services:
   build:
-    image: ghcr.io/${GHCR_OWNER:-mkapusnik}/duel6r-build:develop
+    image: ghcr.io/${GHCR_REPOSITORY:-mkapusnik-apps/duel6r}/build:develop
     working_dir: /workspace
     volumes:
       - ./:/workspace
