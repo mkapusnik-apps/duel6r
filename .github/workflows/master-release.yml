@@ -1,9 +1,6 @@
 name: Release Artifact
 
 on:
-  push:
-    branches: [master]
-    tags: [released]
   workflow_dispatch:
 
 concurrency:
@@ -11,22 +8,48 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  prepare-promotion:
-    name: Validate Nightly Promotion
+  promote:
+    name: Promote Validated Nightly
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: read
-    outputs:
-      archive_name: ${{ steps.refs.outputs.archive_name }}
-      provenance_name: ${{ steps.refs.outputs.provenance_name }}
-      master_commit: ${{ steps.refs.outputs.master_commit }}
-      nightly_commit: ${{ steps.refs.outputs.nightly_commit }}
-      source_tree: ${{ steps.refs.outputs.source_tree }}
 
     steps:
-      - name: Check out repository tooling
+      - name: Resolve the current promotion candidate
+        id: refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/master"
+
+          master_commit="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/master" --jq .object.sha)"
+          nightly_commit="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/nightly" --jq .object.sha)"
+          master_tree="$(gh api "repos/${GITHUB_REPOSITORY}/git/commits/${master_commit}" --jq .tree.sha)"
+          nightly_tree="$(gh api "repos/${GITHUB_REPOSITORY}/git/commits/${nightly_commit}" --jq .tree.sha)"
+
+          test "${GITHUB_SHA}" = "${master_commit}"
+          test "${master_tree}" = "${nightly_tree}"
+          if gh release view released --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "A GitHub release must never be attached to the moving released ref" >&2
+            exit 1
+          fi
+          printf '%s\n' \
+            "master_commit=${master_commit}" \
+            "nightly_commit=${nightly_commit}" \
+            "source_tree=${nightly_tree}" \
+            "archive_name=duel6r-nightly-${nightly_commit}.zip" \
+            "provenance_name=duel6r-nightly-${nightly_commit}.provenance.json" \
+            "stable_tag=released-${master_commit}" \
+            >> "${GITHUB_OUTPUT}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Check out exact master tooling
         uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.refs.outputs.master_commit }}
+          persist-credentials: false
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -35,28 +58,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Resolve current promotion refs
-        id: refs
-        shell: bash
-        run: |
-          set -euo pipefail
-          master_commit="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/master" --jq .object.sha)"
-          nightly_commit="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/nightly" --jq .object.sha)"
-          master_tree="$(gh api "repos/${GITHUB_REPOSITORY}/git/commits/${master_commit}" --jq .tree.sha)"
-          nightly_tree="$(gh api "repos/${GITHUB_REPOSITORY}/git/commits/${nightly_commit}" --jq .tree.sha)"
-          test "${master_tree}" = "${nightly_tree}"
-
-          printf '%s\n' \
-            "master_commit=${master_commit}" \
-            "nightly_commit=${nightly_commit}" \
-            "source_tree=${nightly_tree}" \
-            "archive_name=duel6r-nightly-${nightly_commit}.zip" \
-            "provenance_name=duel6r-nightly-${nightly_commit}.provenance.json" \
-            >> "${GITHUB_OUTPUT}"
-        env:
-          GH_TOKEN: ${{ github.token }}
-
       - name: Download exact nightly release assets
+        shell: bash
         run: |
           set -euo pipefail
           test "$(gh release view nightly --repo "${GITHUB_REPOSITORY}" --json isPrerelease --jq .isPrerelease)" = "true"
@@ -67,7 +70,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Validate nightly provenance and bundle
+      - name: Validate nightly provenance, images, and bundle
         shell: bash
         run: |
           set -euo pipefail
@@ -89,71 +92,49 @@ jobs:
             test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "${image}")" \
               = "${{ steps.refs.outputs.nightly_commit }}"
           done
+
           mkdir extracted-bundle
-          python3 -m zipfile -e "${archive}" extracted-bundle
+          unzip -q "${archive}" -d extracted-bundle
           bash docker/validate-bundle.sh all extracted-bundle/build
 
       - name: Retain exact promotion candidate
         uses: actions/upload-artifact@v7
         with:
-          name: stable-promotion-${{ steps.refs.outputs.nightly_commit }}
+          name: stable-promotion-${{ steps.refs.outputs.master_commit }}
           path: promotion-assets/
           if-no-files-found: error
 
-  publish-github-release-assets:
-    name: Publish Provenance-bound Stable Release
-    if: github.event_name == 'push' && github.ref == 'refs/tags/released'
-    needs: prepare-promotion
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Check out repository tooling
-        uses: actions/checkout@v7
-
-      - name: Download validated promotion candidate
-        uses: actions/download-artifact@v8
-        with:
-          name: stable-promotion-${{ needs.prepare-promotion.outputs.nightly_commit }}
-          path: release-assets
-
-      - name: Revalidate downloaded provenance
-        shell: bash
-        run: |
-          set -euo pipefail
-          provenance="release-assets/${{ needs.prepare-promotion.outputs.provenance_name }}"
-          archive="release-assets/${{ needs.prepare-promotion.outputs.archive_name }}"
-          python3 docker/nightly-provenance.py verify \
-            --repository "${GITHUB_REPOSITORY}" \
-            --commit "${{ needs.prepare-promotion.outputs.nightly_commit }}" \
-            --tree "${{ needs.prepare-promotion.outputs.source_tree }}" \
-            --linux-image "$(jq -er '.build_images.linux' "${provenance}")" \
-            --windows-image "$(jq -er '.build_images.windows' "${provenance}")" \
-            --archive "${archive}" \
-            --provenance "${provenance}"
-
-      - name: Revalidate remote refs immediately before publication
-        shell: bash
-        run: |
-          set -euo pipefail
-          released_commit="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/released" --jq .object.sha)"
-          master_commit="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/master" --jq .object.sha)"
-          nightly_commit="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/nightly" --jq .object.sha)"
-
-          test "${released_commit}" = "${GITHUB_SHA}"
-          test "${released_commit}" = "${master_commit}"
-          test "${master_commit}" = "${{ needs.prepare-promotion.outputs.master_commit }}"
-          test "${nightly_commit}" = "${{ needs.prepare-promotion.outputs.nightly_commit }}"
+      - name: Stage and verify immutable stable release
+        run: >-
+          bash .github/scripts/publish-stable-release.sh
+          "${GITHUB_REPOSITORY}"
+          "${{ steps.refs.outputs.master_commit }}"
+          "promotion-assets/${{ steps.refs.outputs.archive_name }}"
+          "promotion-assets/${{ steps.refs.outputs.provenance_name }}"
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Publish exact nightly assets as the stable release
-        uses: softprops/action-gh-release@v3
+      - name: Revalidate remote refs immediately before canonical promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          master_commit="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/master" --jq .object.sha)"
+          nightly_commit="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/nightly" --jq .object.sha)"
+          stable_commit="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${{ steps.refs.outputs.stable_tag }}" --jq .object.sha)"
+
+          test "${master_commit}" = "${{ steps.refs.outputs.master_commit }}"
+          test "${nightly_commit}" = "${{ steps.refs.outputs.nightly_commit }}"
+          test "${stable_commit}" = "${master_commit}"
+          if gh release view released --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "A GitHub release must never be attached to the moving released ref" >&2
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Move canonical released ref to the completely published master tip
+        uses: mkapusnik-apps/commons/tag@v1
         with:
-          tag_name: released
-          files: |
-            release-assets/${{ needs.prepare-promotion.outputs.archive_name }}
-            release-assets/${{ needs.prepare-promotion.outputs.provenance_name }}
-          generate_release_notes: true
-          fail_on_unmatched_files: true
+          tag: released
+          commit_sha: ${{ steps.refs.outputs.master_commit }}
+          token: ${{ secrets.PAT }}

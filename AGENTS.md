@@ -185,7 +185,7 @@ The architecture is organized around a small set of shared application services 
 - End-to-end testing - Manual smoke tests should cover the full player loop: create at least two players, start a match, move, jump, crouch, shoot, pick up or swap weapons, collect bonuses, interact with water and elevators, finish a round, inspect the scoreboard, and return to the menu.
 - Mode coverage - Manual verification should include at least one Deathmatch session, one Predator session, and one team session with friendly fire behavior, plus split-screen toggling in matches with fewer than five players.
 - Console and scripting coverage - Validation should also confirm that the console opens during menu and gameplay, runtime commands alter behavior, and a profile script can observe match state and drive player actions.
-- CI behavior - Feature pull requests compile the game without building test targets. Develop sanity and nightly Linux builds run the existing automated tests in the container (`BUILD_TESTING=ON`, `RUN_TESTS=ON`) and fail if `ctest` reports failures. Develop also runs the main-menu smoke check and a Debug compilation as the lint-equivalent gate, then publishes commit-bound Linux and Windows build images before advancing `sanity`. Nightly records source, image-digest, and archive provenance; stable releases promote that exact validated archive instead of rebuilding it. Legacy `.travis.yml` remains historical context only. See [.github/workflows.md](.github/workflows.md) for operational details.
+- CI behavior - Feature pull requests compile the game without building test targets. Develop sanity and nightly Linux builds run the existing automated tests in the container (`BUILD_TESTING=ON`, `RUN_TESTS=ON`) and fail if `ctest` reports failures. Develop also runs the main-menu smoke check and a Debug compilation as the lint-equivalent gate, then publishes commit-bound Linux and Windows build images before advancing `sanity`. Nightly records source, image-digest, and archive provenance; a manual workflow dispatch from `master` promotes those exact validated bytes to an immutable commit-specific stable release before advancing `released`. Legacy `.travis.yml` remains historical context only. See [.github/workflows.md](.github/workflows.md) for operational details.
 
 ## Features
 
@@ -212,7 +212,7 @@ CI/CD workflow is leveraging GitHub Actions.
   - Contains: stable version
   - Requirements: The current master tip has the exact source tree published by the nightly workflow
   - Tags:
-    - `released` - Publishes only when it points to that promoted master tip
+    - `released` - Moves to the promoted master tip only after its immutable stable release is completely published and verified
 
 ### Implementation details
 

@@ -18,6 +18,8 @@ jobs:
       provenance_name: ${{ steps.package.outputs.provenance_name }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -220,3 +222,18 @@ jobs:
             done
         env:
           GH_TOKEN: ${{ github.token }}
+
+  scheduler-recovery:
+    name: Restore scheduler after unsuccessful nightly
+    if: >-
+      ${{ always() &&
+          (needs.build.result == 'failure' || needs.build.result == 'cancelled' ||
+           needs.release.result == 'failure' || needs.release.result == 'cancelled' ||
+           needs.tag.result == 'failure' || needs.tag.result == 'cancelled') }}
+    needs: [build, release, tag]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Re-enable the one-shot nightly scheduler
+        run: gh workflow enable develop-nightly-scheduler.yml --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}

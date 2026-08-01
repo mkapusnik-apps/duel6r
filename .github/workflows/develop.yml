@@ -13,6 +13,8 @@ jobs:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Build checked-out Linux build image
         run: docker build -t duel6r-build:sanity .
@@ -45,6 +47,8 @@ jobs:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Build checked-out Linux build image
         run: docker build -t duel6r-build:lint .
@@ -78,6 +82,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
