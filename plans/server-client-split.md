@@ -12,19 +12,19 @@ The client must support two connection modes:
 1. Remote Server: connect to an externally running server by endpoint.
 2. Local Game: automatically start a local server instance and connect to it through the same protocol used for remote servers.
 
-This design preserves the required feature set documented in [`docs/features.md`](../docs/features.md:3), including local multiplayer setup, round-based combat, multiple rulesets, persistent stats, data-driven resources, console behavior, and Lua profile hooks.
+This design preserves the required feature set documented in [`docs/features.md`](../docs/features.md), including local multiplayer setup, round-based combat, multiple rulesets, persistent stats, data-driven resources, console behavior, and Lua profile hooks.
 
 ## Current state summary
 
 The current application is a local monolith:
 
-- [`Application`](../source/Application.h:40) owns global services, including rendering, input, sound, console, scripting, menu, and game state.
-- [`AppService`](../source/AppService.h:40) groups client-only services such as video, font, textures, input, and sound with scripting.
-- [`Menu`](../source/Menu.h:55) owns roster setup, profile loading, controller assignment, stats display, level selection, settings, and direct game launch.
-- [`Game`](../source/Game.h:53) owns match-level state, players, game mode, current round, rendering support, and input event handling.
-- [`Round`](../source/Round.h:40) owns one live round, world updates, winner checks, split-screen behavior, script hooks, and local key handling.
-- [`World`](../source/World.h:43) owns live entities such as players, level, shots, bonuses, elevators, fire, explosions, messages, and water.
-- [`CMakeLists.txt`](../CMakeLists.txt:77) currently defines one large source list for one primary executable-oriented build.
+- [`Application`](../source/Application.h) owns global services, including rendering, input, sound, console, scripting, menu, and game state.
+- [`AppService`](../source/AppService.h) groups client-only services such as video, font, textures, input, and sound with scripting.
+- [`Menu`](../source/Menu.h) owns roster setup, profile loading, controller assignment, stats display, level selection, settings, and direct game launch.
+- [`Game`](../source/Game.h) owns match-level state, players, game mode, current round, rendering support, and input event handling.
+- [`Round`](../source/Round.h) owns one live round, world updates, winner checks, split-screen behavior, script hooks, and local key handling.
+- [`World`](../source/World.h) owns live entities such as players, level, shots, bonuses, elevators, fire, explosions, messages, and water.
+- [`CMakeLists.txt`](../CMakeLists.txt) currently defines one large source list for one primary executable-oriented build.
 
 The split therefore requires more than adding sockets: simulation ownership, services, persistence, rendering, and menu flow must be separated into explicit module boundaries.
 
@@ -51,8 +51,8 @@ The server is the sole authority for gameplay truth. It should be able to run wi
 Server responsibilities:
 
 - Own lobby/session lifecycle: connect, join, configure, ready, start match, start round, end round, end match, return to lobby, disconnect.
-- Validate roster size and rules required by [`docs/features.md`](../docs/features.md:3), including 2 to 15 players, game modes, teams, assistance, quick liquid, and round limits.
-- Own the authoritative simulation currently rooted in [`Game`](../source/Game.h:53), [`Round`](../source/Round.h:40), and [`World`](../source/World.h:43).
+- Validate roster size and rules required by [`docs/features.md`](../docs/features.md), including 2 to 15 players, game modes, teams, assistance, quick liquid, and round limits.
+- Own the authoritative simulation currently rooted in [`Game`](../source/Game.h), [`Round`](../source/Round.h), and [`World`](../source/World.h).
 - Own game mode rules, winner determination, scoring, penalties, Elo-relevant results, round progression, and match-over conditions.
 - Own deterministic random seeds for level order, mirrored levels, spawn positions, starting weapons, bonus spawns, dropped weapons, and any future randomized behavior.
 - Accept input commands from clients and apply them only at valid simulation ticks.
@@ -85,7 +85,7 @@ Client responsibilities:
 - Supervise an automatically launched local server process for Local Game mode.
 - Terminate the local server when the local session ends, unless explicitly configured to keep it alive.
 
-Client-side code should keep using rendering-oriented classes such as [`WorldRenderer`](../source/WorldRenderer.h), but those classes should read replicated state DTOs rather than directly reading mutable authoritative [`World`](../source/World.h:43) objects.
+Client-side code should keep using rendering-oriented classes such as [`WorldRenderer`](../source/WorldRenderer.h), but those classes should read replicated state DTOs rather than directly reading mutable authoritative [`World`](../source/World.h) objects.
 
 ### Shared modules
 
@@ -324,7 +324,7 @@ Recommended policy:
 
 ## Build and packaging plan
 
-Refactor [`CMakeLists.txt`](../CMakeLists.txt:77) from one monolithic source list into layered targets:
+Refactor [`CMakeLists.txt`](../CMakeLists.txt) from one monolithic source list into layered targets:
 
 - `duel6r_common` static library or object library;
 - `duel6r_resources` static library;
@@ -357,8 +357,8 @@ Packaging:
 11. Add Remote Server endpoint UI and connection handling.
 12. Add snapshot interpolation and minimal local player prediction.
 13. Move persistent stats and Lua policies into explicit server/client contracts.
-14. Split [`CMakeLists.txt`](../CMakeLists.txt:77) into final client/server/shared targets.
-15. Remove direct client access to authoritative [`Game`](../source/Game.h:53), [`Round`](../source/Round.h:40), and [`World`](../source/World.h:43) mutation paths.
+14. Split [`CMakeLists.txt`](../CMakeLists.txt) into final client/server/shared targets.
+15. Remove direct client access to authoritative [`Game`](../source/Game.h), [`Round`](../source/Round.h), and [`World`](../source/World.h) mutation paths.
 
 ## Validation gates
 

@@ -1,0 +1,40 @@
+# CONS-02 — Console over gameplay
+
+## Purpose and traceability
+
+This overlay provides runtime inspection and commands while the active arena remains visible.
+Entry occurs when backquote is pressed during gameplay.
+Exit occurs when backquote is pressed again or a console command closes the console.
+The overlay implements `CFG-001`–`CFG-002` and `CFG-008`–`CFG-020` from [`docs/features.md`](../features.md).
+Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, and `source/console/ConsoleRenderer.cpp`.
+
+## Layout and hierarchy
+
+- The overlay must match [`console-gameplay.md`](wireframes/console-gameplay.md).
+- The current gameplay frame and overlays must remain rendered behind the console.
+- The console must span the complete client width at the bottom in renderer coordinates.
+- The console must show history, red separator, input prompt, and cursor.
+- The opaque console surface may obscure the lower part of the arena.
+
+## States, controls, and recovery
+
+- The console must receive keyboard and text input while it is open.
+- The gameplay context must not receive keyboard input while the console is open.
+- The underlying fixed-step gameplay update must continue.
+- Long history and input must use the implemented scrolling cues.
+- Closing the console must restore gameplay keyboard input and stop text input.
+- The console has no pause cue.
+- The console has no translucent mode.
+- Mouse events continue to reach the underlying context, although gameplay has no mouse actions.
+
+## Accessibility and viewport behavior
+
+- Text history and prompt structure must supplement console color.
+- The console does not provide a visible pause warning or close control.
+- Console width and height must derive from client and font dimensions.
+- The overlay may appear over full-screen or split-screen gameplay without a separate layout.
+- The representative wireframe uses full-screen gameplay because the console geometry is unchanged.
+
+## Screenshot link
+
+Representative evidence: [`SS-014`](../screenshots/README.md#screenshot-matrix).

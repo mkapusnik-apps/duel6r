@@ -1,7 +1,9 @@
 # Duel 6 Reloaded
 
 ## Description
-Duel 6 Reloaded is a **cross-platform open-source last-man-standing 2D multi-player game**. The game currently supports up to **15 players** that can compete in **26 arenas**. The arenas consist of solid blocks, moving platforms and water sections. Players are able to move through the environment using walking, jumping and crouching and use weapons to eliminate their opponents. There is a diverse set of **12 available weapons** that differ in shot and reload speed, shot power and splash damage. In addition players can pick up various bonuses to boost their stamina and other characteristics. The number of rounds can be specified and the game collects player **statistics** during the gameplay such as number of wins, kills or accuracy. There are negative points for comitting suicide and drowning that discourage players from performing kamikaze attacks. The game features **customizable player profiles** and **level editor**.
+Duel 6 Reloaded is a **cross-platform open-source last-man-standing 2D multiplayer game**. The game currently supports up to **15 players** that can compete in **28 arenas**. The arenas consist of solid blocks, moving platforms, and water sections. Players move through the environment by walking, jumping, and crouching, and use weapons to eliminate their opponents. The implementation contains **17 weapons** with different shot and reload speeds, shot power, and splash damage; the shipped configuration disables four of them by default. In addition, players can pick up various bonuses that alter their capabilities. The number of rounds can be specified, and the game collects player **statistics** during gameplay, such as wins, kills, and accuracy. Suicide and drowning receive negative points to discourage kamikaze attacks. The game features **customizable player profiles** and a **level editor**.
+
+The canonical behavior specification is [`docs/features.md`](docs/features.md). The canonical visual design system, screen inventory, and screenshot manifest are [`docs/design.md`](docs/design.md), [`docs/screens/README.md`](docs/screens/README.md), and [`docs/screenshots/README.md`](docs/screenshots/README.md).
 
 ## History
 
@@ -11,9 +13,9 @@ The very first version of the game has been developed in **2002** by [Ondrej Dan
 
 The game is written using the following technologies:
 - C++ with C++11, C++14, C++17 features
-- [SDL 2](www.libsdl.org)
+- [SDL 2](https://www.libsdl.org/)
 - OpenGL (with a stable OpenGL 1 render backend and experimental OpenGL ES 2 and OpenGL 4 backends)
-- [CMake](www.cmake.org)
+- [CMake](https://cmake.org/)
 
 There is a **builtin quake-style console** that can be used to modify game aspects at runtime.
 
@@ -88,7 +90,7 @@ Levels are saved in JSON format and there is an [HTML5 level editor](https://git
 
 ### Scripting
 
-The game has built-in [Lua](https://www.lua.org/home.html) scripting. More information about the API can be found in **lua-scripting.txt**.
+The game has built-in [Lua](https://www.lua.org/home.html) scripting. More information about the API is in [`resources/lua-scripting.txt`](resources/lua-scripting.txt).
 
 ## Future plans and milestones
 
