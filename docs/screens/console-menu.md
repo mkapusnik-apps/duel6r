@@ -12,8 +12,8 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 
 - The overlay must match [`console-menu.md`](wireframes/console-menu.md).
 - The complete menu must remain rendered behind the console.
-- The console must span the complete client width at the bottom in renderer coordinates.
-- The console must show up to 10 recent history rows by default.
+- The console must span the complete client width at the top of the visible client area.
+- The console must show up to 15 recent history rows.
 - A red separator must sit between history and input.
 - The input row must start with `]` or `<`.
 - A black 3 px edge must bound the console.
@@ -39,4 +39,4 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 
 ## Screenshot link
 
-Representative evidence: [`SS-013`](../screenshots/README.md#screenshot-matrix).
+Representative evidence: [`SS-013`](../screenshots/README.md#ss-013).

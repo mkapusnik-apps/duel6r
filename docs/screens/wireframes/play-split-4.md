@@ -6,11 +6,11 @@ The screen has no mobile layout, so this single desktop wireframe covers the imp
 
 ```text
 ┌──────────────────────────────── 1280 × 900 ────────────────────────────────────┐
-│┌────────────── PLAYER 1 ──────────────┐red┌────────────── PLAYER 2 ────────────┐│
+│┌────────────── PLAYER 3 ──────────────┐red┌────────────── PLAYER 4 ────────────┐│
 ││ arena · local camera · messages      │   │ arena · local camera · messages    ││
 │└──────────────────────────────────────┘   └────────────────────────────────────┘│
 │                         4 px red horizontal gutter                              │
-│┌────────────── PLAYER 3 ──────────────┐red┌────────────── PLAYER 4 ────────────┐│
+│┌────────────── PLAYER 1 ──────────────┐red┌────────────── PLAYER 2 ────────────┐│
 ││ arena · local camera · messages      │   │ arena · local camera · messages    ││
 │└──────────────────────────────────────┘   └────────────────────────────────────┘│
 └────────────────────────────────────────────────────────────────────────────────┘
@@ -18,4 +18,4 @@ The screen has no mobile layout, so this single desktop wireframe covers the imp
 
 A dead camera receives a 50% red curtain.
 
-Representative screenshot: [`SS-006`](../../screenshots/README.md#screenshot-matrix).
+Representative screenshot: [`SS-006`](../../screenshots/README.md#ss-006).

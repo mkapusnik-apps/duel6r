@@ -20,4 +20,4 @@ The role cue materially changes a player, so this state has its own wireframe an
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Representative screenshot: [`SS-007`](../../screenshots/README.md#screenshot-matrix).
+Representative screenshot: [`SS-007`](../../screenshots/README.md#ss-007).

@@ -82,11 +82,11 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **INP-005** A game-controller preset must support the directional pad or left stick for crouch.
 - **INP-006** A game-controller preset must map jump, shoot, pick, and status to controller inputs.
 - **INP-007** The menu must let the user select the same control preset for more than one player.
-- **INP-008** Per-player detection must assign the first preset that reports a supported pressed control.
+- **INP-008** If multiple control presets match in one detection poll, the menu must assign the last matching preset in the available-preset order.
 - **INP-009** Batch detection must rescan controllers and then detect a control preset for each roster position.
 - **INP-010** The application must rescan controllers when a controller connects or disconnects.
 - **INP-011** Controller connection changes during a round must not automatically reassign a player.
-- **INP-012** A player must be able to move left, move right, jump, double-jump, crouch, shoot, pick a weapon, and show status.
+- **INP-012** The seven player actions are move left, move right, jump, crouch, shoot, pick a weapon, and show status. The player must repeat jump to double-jump.
 - **INP-013** A player must be stationary on a hard surface or elevator to pick a weapon.
 - **INP-014** When a player uses pick while holding a weapon, the player must first drop that weapon.
 - **INP-015** The status action must show all player indicators for five seconds.
@@ -136,7 +136,7 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **CMB-010** A dropped weapon must keep its ammo and remaining reload time.
 - **CMB-011** A spawned weapon pickup must contain a random enabled weapon and 10 through 19 ammo.
 - **CMB-012** Picking a weapon must transfer the pickup's weapon, ammo, and remaining reload time to the player.
-- **CMB-013** If the player's current weapon has ammo, a successful pickup must leave that weapon at the pickup position.
+- **CMB-013** If the player's current weapon has ammo, a successful pickup must create the replaced weapon at the player's collider position. The weapon must receive twice the player's horizontal and vertical velocity.
 - **CMB-014** If the player's current weapon has no ammo, a successful pickup must remove that old weapon.
 - **CMB-015** The game must show `You picked up gun <name>` after a successful weapon pickup.
 - **CMB-016** The world must make random attempts to add a bonus or weapon pickup during an active round.
@@ -233,7 +233,7 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **UI-001** Full-arena view must show the whole level in one shared view.
 - **UI-002** F2 must switch between full-arena and split-screen views only when the match has two through four players.
 - **UI-003** Split-screen must use two horizontal views for two players.
-- **UI-004** Split-screen must use two top views and one centered bottom view for three players.
+- **UI-004** For three players, split-screen must put Player 3 in the upper-center view. It must put Players 1 and 2 in the lower views.
 - **UI-005** Split-screen must use a two-by-two view grid for four players.
 - **UI-006** Each split-screen view must follow its assigned player.
 - **UI-007** A dead player's split-screen view must show a translucent red overlay.
@@ -263,7 +263,7 @@ Requirement IDs are stable references. Inventory notes are current observations 
 ## Console, configuration, and scripting
 
 - **CFG-001** The backquote key must open or close the console in the menu and during a match.
-- **CFG-002** While the console is open, keyboard text and key input must go to the console instead of the active menu or match.
+- **CFG-002** While the console is open, text input and discrete context key events must go to the console. The match simulation must continue. Shared held keyboard and controller state may still cause player actions.
 - **CFG-003** At startup, the game must enable all implemented weapons before it reads configuration.
 - **CFG-004** The game must execute `data/config.script` after it initializes resources, profiles, and the menu.
 - **CFG-005** The game must execute command-line console commands after `data/config.script` and in argument order.
@@ -272,7 +272,7 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **CFG-008** The console must support basic clear, echo, list, dump, file execution, alias, and archive commands.
 - **CFG-009** The console must support rendering mode, FPS, graphics information, vertical synchronization, volume, rounds, ghosts, level selection, and shot collision commands.
 - **CFG-010** The console must support music, controller scan, profile skin, map list, selected-map play, weapon enablement, and starting-ammo commands.
-- **CFG-011** The `map` command must reject a non-numeric or out-of-range map index with `Invalid map index <value>`.
+- **CFG-011** The `map` command must reject a value when its parsed index is outside the map list. It must reject a parsed zero unless the supplied value is exactly `0`. A valid nonzero parsed index may have trailing non-numeric text.
 - **CFG-012** A valid `map` command must use only the supplied map indexes and must then use the normal match-start validation and prompts.
 - **CFG-013** A weapon must be eligible for starting weapons and spawned weapon pickups only when it is enabled.
 - **CFG-014** When Lua support is not present, the game must continue without profile scripts.
@@ -280,14 +280,14 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **CFG-016** When a profile script fails to load, the game must report the script error in the console and continue without that script.
 - **CFG-017** A loaded profile script must receive `roundStart`, `roundUpdate`, and `roundEnd` callbacks.
 - **CFG-018** A loaded profile script must be able to inspect its person, player, other players, level, shots, weapon, bonus, life, air, ammo, movement, and round kills.
-- **CFG-019** A loaded profile script must be able to request the same seven player actions listed in INP-012.
+- **CFG-019** Lua must expose `pressLeft`, `pressRight`, `pressUp`, `pressDown`, `pressShoot`, `pressPick`, and `pressStatus`. A script must repeat `pressUp` to request a double-jump.
 - **CFG-020** Script-requested actions must use normal player action rules and must not directly edit world state.
 
 ## Implemented error, empty, and recovery behavior
 
 - **ERR-001** The menu must use SET-002 for empty or duplicate person names.
 - **ERR-002** The menu must use SET-006 and SET-007 for an insufficient roster.
-- **ERR-003** The console must use CFG-011 for an invalid selected-map index.
+- **ERR-003** For each value that CFG-011 rejects, the console must show `Invalid map index <value>` and must not start the match.
 - **ERR-004** Random pickup placement must skip an attempt when the level has no valid position.
 - **ERR-005** Profile scripting must use CFG-014 through CFG-016 when scripting is unavailable, absent, or invalid at load time.
 - **ERR-006** The current product has no user-facing recovery for malformed required JSON, missing required profile files, an empty level list, or an empty enabled-weapon set.
@@ -352,19 +352,19 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-007** Every Team deathmatch variant applies team assignment, team identity, friendly-fire, scoring, ranking, and winner rules.
 - **AC-008** A qualifying attack awards assists according to SCO-007 through SCO-017 in free-for-all and team scenarios.
 - **AC-009** Total points, ranking order, penalties, deaths, and Elo behavior follow SCO-001 through SCO-024.
-- **AC-010** Each supported player action works through an assigned keyboard or connected game-controller preset.
+- **AC-010** Each action in INP-012 works through an assigned keyboard or connected game-controller preset. Repeated jump input produces the implemented double-jump. INP-008 defines detection precedence.
 - **AC-011** Roster shuffle and Elo shuffle preserve each player's assigned control preset.
-- **AC-012** Starting weapons, ammo, shooting, charge, reload, drops, pickups, and empty-ammo behavior follow PLY-001 and CMB-001 through CMB-020.
+- **AC-012** Starting weapons, ammo, shooting, charge, reload, drops, pickups, and empty-ammo behavior follow PLY-001 and CMB-001 through CMB-020. A replaced non-empty weapon uses the origin and velocity in CMB-013.
 - **AC-013** Each immediate and timed bonus produces the applicable behavior in BON-001 through BON-020.
 - **AC-014** Spawn protection, indicators, water, drowning, elevators, stuck recovery, regeneration, and sudden death follow PLY-003 through ENV-013.
-- **AC-015** Full-arena and split-screen states follow UI-001 through UI-015 for two, three, four, and five-player matches.
+- **AC-015** Full-arena and split-screen states follow UI-001 through UI-015 for two through five players. With three players, Player 3 is upper-center and Players 1 and 2 are lower.
 - **AC-016** A completed round persists person statistics, roster membership, and played-round count for the next menu load.
 - **AC-017** A missing person-data file produces an empty usable menu, as specified by PER-002.
-- **AC-018** Matched, unmatched, partially defaulted, absent-script, invalid-script, and no-Lua profile cases follow PER-006 through CFG-020.
-- **AC-019** Startup configuration and command-line commands apply in CFG-003 through CFG-007 precedence order.
-- **AC-020** Console map and weapon controls follow validation, selection, and enablement rules in CFG-011 through CFG-013.
+- **AC-018** Matched, unmatched, partially defaulted, absent-script, invalid-script, and no-Lua profile cases follow PER-006 through CFG-020. Lua exposes only the seven action callbacks in CFG-019.
+- **AC-019** Console input and continued match input follow CFG-001 and CFG-002. Startup configuration and command-line commands apply in CFG-003 through CFG-007 precedence order.
+- **AC-020** Console map and weapon controls follow CFG-011 through CFG-013. Map selection accepts a valid nonzero numeric prefix and rejects only the cases in CFG-011.
 - **AC-021** The shipped content matches the mutable inventory or the inventory is updated from its named maintainable sources.
-- **AC-022** The product exposes only the recovery behavior in ERR-001 through ERR-007 and does not imply unimplemented recovery.
+- **AC-022** The product exposes only the recovery behavior in ERR-001 through ERR-007. Selected-map rejection is limited to the values that CFG-011 rejects.
 
 ## Source traceability
 

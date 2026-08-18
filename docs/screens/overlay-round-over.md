@@ -38,4 +38,4 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79`, and `so
 
 ## Screenshot link
 
-Representative evidence: [`SS-011`](../screenshots/README.md#screenshot-matrix).
+Representative evidence: [`SS-011`](../screenshots/README.md#ss-011).

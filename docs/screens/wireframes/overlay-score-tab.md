@@ -21,4 +21,4 @@ The screen has no mobile layout, so this single desktop wireframe covers the imp
 
 No winner curtain appears in this state.
 
-Representative screenshot: [`SS-010`](../../screenshots/README.md#screenshot-matrix).
+Representative screenshot: [`SS-010`](../../screenshots/README.md#ss-010).

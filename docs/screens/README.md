@@ -1,7 +1,7 @@
 # Screen inventory
 
 This inventory is authoritative for product screens and materially distinct full-screen visual states.
-The baseline uses the native implementation at branch `feature-documentation-audit-fixes`, source SHA `8f98d3679c4c9091e8973a1cb7a3278f04deb946`.
+The baseline uses the native implementation at branch `feature-documentation-audit-fixes`, capture source SHA `12cd6dca742b90293f552fefa3bfd3a8871aa7a2`.
 The product has no implemented URL routes.
 Each route value below therefore names a reproducible local workflow.
 

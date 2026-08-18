@@ -39,4 +39,4 @@ Primary source is `source/gamemodes/TeamDeathMatch.cpp`.
 
 ## Screenshot link
 
-Representative evidence: [`SS-008`](../screenshots/README.md#screenshot-matrix).
+Representative evidence: [`SS-008`](../screenshots/README.md#ss-008).

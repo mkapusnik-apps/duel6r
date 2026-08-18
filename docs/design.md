@@ -8,8 +8,8 @@ Screenshot evidence is in [`docs/screenshots`](screenshots/README.md).
 The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a second source of truth.
 
 The current native implementation is the source of truth for this baseline.
-This baseline describes the presentation at branch `feature-documentation-audit-fixes`, source SHA `8f98d3679c4c9091e8973a1cb7a3278f04deb946`.
-The audit date is 2026-08-17.
+This baseline describes the presentation at branch `feature-documentation-audit-fixes`, capture source SHA `12cd6dca742b90293f552fefa3bfd3a8871aa7a2`.
+The audit date is 2026-08-18.
 
 ## Visual principles
 
@@ -101,7 +101,7 @@ The following values come from renderer and GUI source.
 ## Imagery and assets
 
 - The menu must use the animated stack at `resources/textures/menu/` as its banner source.
-- The menu banner must render at 200 by 95 px near the lower center of the client area.
+- The menu banner must render at 200 by 95 px near the upper center of the client area.
 - Gameplay must use the indexed images in `resources/textures/backgrounds/` behind level geometry.
 - Gameplay must use level geometry from `resources/levels/*.json` and block definitions from `resources/data/blocks.json`.
 - Gameplay must use `resources/textures/blocks/`, `resources/textures/man/`, `resources/textures/weapon/`, `resources/textures/bonus/`, and `resources/textures/elevator/` for visible world objects.
@@ -172,8 +172,8 @@ The following values come from renderer and GUI source.
 - The backquote key must toggle the console over the current menu or gameplay frame.
 - The console must take keyboard and text input while it is open.
 - The console must span the complete client width.
-- The console height must contain 10 history rows, one separator row, one input row, and its lower edge.
-- The console must sit against the bottom edge in renderer coordinates.
+- The console height must contain 15 history rows, one separator row, one input row, and its lower edge.
+- The console must sit against the top edge of the visible client area.
 - The console must use `=` for the separator and `^` when history is scrolled.
 - The input prompt must use `]` or `<` when the input is horizontally scrolled.
 
@@ -196,9 +196,9 @@ The following values come from renderer and GUI source.
 
 - The menu must remain a centered fixed canvas on supported desktop display sizes.
 - The gameplay camera must use the current client dimensions.
-- Two-player split-screen must center two half-width views in a vertical stack.
-- Three-player split-screen must use two upper quadrants and one centered lower quadrant.
-- Four-player split-screen must use a two-by-two grid.
+- Two-player split-screen must place Player 2 in the upper centered view and Player 1 in the lower centered view.
+- Three-player split-screen must place Player 3 in the upper centered view and Players 1 and 2 in the lower row.
+- Four-player split-screen must place Players 3 and 4 in the upper row and Players 1 and 2 in the lower row.
 - Split-screen must be available only when the match has fewer than five players.
 - More than four players must use the full-screen arena presentation.
 - Overlay panels must calculate their horizontal and vertical centers from the current client dimensions where the source does so.

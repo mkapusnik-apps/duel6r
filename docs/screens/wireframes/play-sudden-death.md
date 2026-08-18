@@ -21,4 +21,4 @@ The raised environmental boundary materially changes the task, so this state has
 The water rises in timed discrete steps.
 The state has no sudden-death banner.
 
-Representative screenshot: [`SS-009`](../../screenshots/README.md#screenshot-matrix).
+Representative screenshot: [`SS-009`](../../screenshots/README.md#ss-009).

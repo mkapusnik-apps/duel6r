@@ -21,4 +21,4 @@ The screen has no mobile layout, so this single desktop wireframe covers all imp
 
 Variants replace only the message text and computed width.
 
-Representative screenshot: [`SS-002`](../../screenshots/README.md#screenshot-matrix).
+Representative screenshot: [`SS-002`](../../screenshots/README.md#ss-002).

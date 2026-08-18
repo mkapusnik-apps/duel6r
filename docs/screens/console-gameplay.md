@@ -12,9 +12,10 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 
 - The overlay must match [`console-gameplay.md`](wireframes/console-gameplay.md).
 - The current gameplay frame and overlays must remain rendered behind the console.
-- The console must span the complete client width at the bottom in renderer coordinates.
+- The console must span the complete client width at the top of the visible client area.
+- The console must show up to 15 recent history rows.
 - The console must show history, red separator, input prompt, and cursor.
-- The opaque console surface may obscure the lower part of the arena.
+- The opaque console surface may obscure the upper part of the arena.
 
 ## States, controls, and recovery
 
@@ -37,4 +38,4 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 
 ## Screenshot link
 
-Representative evidence: [`SS-014`](../screenshots/README.md#screenshot-matrix).
+Representative evidence: [`SS-014`](../screenshots/README.md#ss-014).

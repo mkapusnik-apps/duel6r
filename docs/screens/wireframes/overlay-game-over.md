@@ -20,4 +20,4 @@ This material exit state has its own wireframe and evidence entry.
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Representative screenshot: [`SS-012`](../../screenshots/README.md#screenshot-matrix).
+Representative screenshot: [`SS-012`](../../screenshots/README.md#ss-012).

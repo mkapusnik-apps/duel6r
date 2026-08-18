@@ -11,10 +11,10 @@ Primary sources are `source/Round.cpp:136-142` and `source/WorldRenderer.cpp:389
 ## Layout and hierarchy
 
 - The layout must match [`play-split-4.md`](wireframes/play-split-4.md).
-- Player 1 must use the upper-left view.
-- Player 2 must use the upper-right view.
-- Player 3 must use the lower-left view.
-- Player 4 must use the lower-right view.
+- Player 3 must use the upper-left view.
+- Player 4 must use the upper-right view.
+- Player 1 must use the lower-left view.
+- Player 2 must use the lower-right view.
 - Red gutters must form the two-by-two boundaries.
 - Each view must render its own arena camera and applicable player messages.
 
@@ -36,4 +36,4 @@ Primary sources are `source/Round.cpp:136-142` and `source/WorldRenderer.cpp:389
 
 ## Screenshot link
 
-Representative evidence: [`SS-006`](../screenshots/README.md#screenshot-matrix).
+Representative evidence: [`SS-006`](../screenshots/README.md#ss-006).

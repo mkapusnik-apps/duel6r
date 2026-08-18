@@ -6,16 +6,16 @@ The screen has no mobile layout, so this single desktop wireframe covers the imp
 
 ```text
 ┌──────────────────────────────── 1280 × 900 ────────────────────────────────────┐
+│ black unused    ┌────────────── PLAYER 3 CAMERA ──────────────┐ black unused   │
+│                 │ arena · local camera · messages             │                │
+│                 └─────────────────────────────────────────────┘                │
+│                         4 px red camera boundaries                              │
 │┌────────────── PLAYER 1 ──────────────┐red┌────────────── PLAYER 2 ────────────┐│
 ││ arena · local camera · messages      │   │ arena · local camera · messages    ││
 │└──────────────────────────────────────┘   └────────────────────────────────────┘│
-│                         4 px red horizontal gutter                              │
-│ red unused edge ┌────────────── PLAYER 3 CAMERA ──────────────┐ red unused edge│
-│                 │ arena · local camera · messages             │                │
-│                 └─────────────────────────────────────────────┘                │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 A dead camera receives a 50% red curtain.
 
-Representative screenshot: [`SS-005`](../../screenshots/README.md#screenshot-matrix).
+Representative screenshot: [`SS-005`](../../screenshots/README.md#ss-005).

@@ -46,4 +46,4 @@ Primary source is `source/Menu.cpp:368-486`.
 
 ## Screenshot link
 
-Representative evidence: [`SS-002`](../screenshots/README.md#screenshot-matrix).
+Representative evidence: [`SS-002`](../screenshots/README.md#ss-002).

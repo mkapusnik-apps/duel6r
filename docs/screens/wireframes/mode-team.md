@@ -20,4 +20,4 @@ Three-team and four-team variants add team groups without changing the layout mo
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Representative screenshot: [`SS-008`](../../screenshots/README.md#screenshot-matrix).
+Representative screenshot: [`SS-008`](../../screenshots/README.md#ss-008).

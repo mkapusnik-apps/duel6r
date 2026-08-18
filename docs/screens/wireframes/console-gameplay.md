@@ -6,20 +6,20 @@ The screen has no mobile layout, so this single desktop wireframe covers the imp
 
 ```text
 ┌──────────────────────────────── 1280 × 900 ────────────────────────────────────┐
+│████████████████████ full-width console surface █████████████████████████████████│
+│ recent game or command history                                                  │
+│ ...                                                                            │
+│ ... up to 15 visible history rows                                               │
+│================================================================================│ red
+│]_                                                                              │
+│──────────────────────────────── 3 px black edge ────────────────────────────────│
 │ event feed · active arena · ranking                                             │
 │                                                                                │
 │ players and world continue to update                                            │
 │                                                                                │
-│████████████████████ full-width console surface █████████████████████████████████│
-│ recent game or command history                                                  │
-│ ...                                                                            │
-│ ... up to 10 visible history rows                                               │
-│================================================================================│ red
-│]_                                                                              │
-│──────────────────────────────── 3 px black edge ────────────────────────────────│
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The console obscures the lower arena and captures keyboard input.
+The console obscures the upper arena and captures keyboard input.
 
-Representative screenshot: [`SS-014`](../../screenshots/README.md#screenshot-matrix).
+Representative screenshot: [`SS-014`](../../screenshots/README.md#ss-014).

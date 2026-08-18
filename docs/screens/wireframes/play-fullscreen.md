@@ -24,4 +24,4 @@ The screen has no mobile layout, so this single desktop wireframe covers the imp
 Start variant: blue-dark fade plus yellow spiked location rings.
 Optional variants: FPS at upper right, ranking hidden, round counter absent.
 
-Representative screenshot: [`SS-003`](../../screenshots/README.md#screenshot-matrix).
+Representative screenshot: [`SS-003`](../../screenshots/README.md#ss-003).

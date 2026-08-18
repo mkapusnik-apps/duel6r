@@ -53,4 +53,4 @@ Primary sources are `source/Game.cpp`, `source/Round.cpp`, `source/WorldRenderer
 
 ## Screenshot link
 
-Representative evidence: [`SS-003`](../screenshots/README.md#screenshot-matrix).
+Representative evidence: [`SS-003`](../screenshots/README.md#ss-003).

@@ -11,10 +11,11 @@ Primary sources are `source/Round.cpp:100-127` and `source/WorldRenderer.cpp:389
 ## Layout and hierarchy
 
 - The layout must match [`play-split-2.md`](wireframes/play-split-2.md).
-- Player 1 must use a centered upper half-size view.
-- Player 2 must use a centered lower half-size view.
+- Player 1 must use a centered lower half-size view.
+- Player 2 must use a centered upper half-size view.
 - Each view must use half the client width minus 4 px and half the client height minus 4 px.
-- Red gutters must separate the views from unused side regions and each other.
+- Black unused side regions must remain visible.
+- A 4 px red frame must bound each camera and separate the two views.
 - Each view must render its own arena camera.
 - Each view must show only that player's event messages.
 
@@ -30,7 +31,7 @@ Primary sources are `source/Round.cpp:100-127` and `source/WorldRenderer.cpp:389
 
 ## Accessibility and viewport behavior
 
-- Spatial order must identify Player 1 above Player 2.
+- Spatial order must identify Player 2 above Player 1.
 - Red boundaries must identify view separation.
 - The dead-view curtain must supplement the player's absent live state.
 - View dimensions must derive from the current client dimensions.
@@ -38,4 +39,4 @@ Primary sources are `source/Round.cpp:100-127` and `source/WorldRenderer.cpp:389
 
 ## Screenshot link
 
-Representative evidence: [`SS-004`](../screenshots/README.md#screenshot-matrix).
+Representative evidence: [`SS-004`](../screenshots/README.md#ss-004).

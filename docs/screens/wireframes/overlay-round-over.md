@@ -20,4 +20,4 @@ The screen has no mobile layout, so this single desktop wireframe covers the imp
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Representative screenshot: [`SS-011`](../../screenshots/README.md#screenshot-matrix).
+Representative screenshot: [`SS-011`](../../screenshots/README.md#ss-011).

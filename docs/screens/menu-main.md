@@ -17,11 +17,11 @@ Primary sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`,
 ## Layout and hierarchy
 
 - The screen must use the centered 850 by 700 menu canvas from [`menu-main.md`](wireframes/menu-main.md).
-- The top action row must contain `Play (F1)`, `Clear (F3)`, and `Quit (ESC)`.
-- The lower setup row must contain the Elo list, Persons list, Players list, controller spinners, and Game Settings.
+- The upper area must contain the banner and version text.
+- The setup row must contain the Elo list, Persons list, Players list, controller spinners, and Game Settings.
 - The person action row must contain `Remove`, `<<`, `>>`, `Add`, and the person-name field.
 - The full persistent score table must span the middle width.
-- The banner and version text must remain visible near the lower part of the client area.
+- The bottom action row must contain `Play (F1)`, `Clear (F3)`, and `Quit (ESC)`.
 
 ## Visible behavior and state variants
 
@@ -54,7 +54,7 @@ Primary sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`,
 
 ## Accessibility and viewport behavior
 
-- Shortcut text must remain visible in the three top action captions.
+- Shortcut text must remain visible in the three bottom action captions.
 - Labels must identify all major lists and settings.
 - Team rows must use color and ordered team assignment, but the menu does not add team-name text to each player row.
 - The canvas must remain centered at desktop client sizes.
@@ -63,4 +63,4 @@ Primary sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`,
 
 ## Screenshot link
 
-Representative evidence: [`SS-001`](../screenshots/README.md#screenshot-matrix).
+Representative evidence: [`SS-001`](../screenshots/README.md#ss-001).

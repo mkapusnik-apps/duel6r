@@ -9,7 +9,7 @@ The screen has no mobile layout and does not reflow, so this single desktop wire
 ┌────────────────────────────── 1280 × 900 client ──────────────────────────────┐
 │ #C0C0C0                                                                       │
 │          ┌────────────────── 850 × 700 logical canvas ──────────────────┐      │
-│          │                         [Play (F1)] [Clear (F3)] [Quit (ESC)] │      │
+│          │                    [animated menu banner 200×95] version x.y │      │
 │          │                                                              │      │
 │          │ [Elo scoreboard] [Persons] [Players n] [E][S] [Controller][D]│      │
 │          │ ┌──────────────┐ ┌─────────┐ ┌───────┐ ┌────────┐ ┌────────┐ │      │
@@ -20,12 +20,11 @@ The screen has no mobile layout and does not reflow, so this single desktop wire
 │          │ │              │ │         │ │       │ │        │ │ liquid │ │      │
 │          │ └──────────────┘ └─────────┘ └───────┘ └────────┘ │ rounds │ │      │
 │          │ [Remove] [<<] [>>] [Add] [new person____________] └────────┘ │      │
-│          │                                                              │      │
 │          │ Name | Elo | Pts | Win | Kill | Assist | Pen | Death | ...   │      │
 │          │ ┌──────────────── full persistent score table ─────────────┐ │      │
 │          │ │ 12 compact rows                                          │ │      │
 │          │ └──────────────────────────────────────────────────────────┘ │      │
-│          │                    [animated menu banner 200×95] version x.y │      │
+│          │                         [Play (F1)] [Clear (F3)] [Quit (ESC)] │      │
 │          └──────────────────────────────────────────────────────────────┘      │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -38,4 +37,4 @@ Implementation notes:
 - Selected rows are blue with white text.
 - Team-mode player rows use team background colors.
 
-Representative screenshot: [`SS-001`](../../screenshots/README.md#screenshot-matrix).
+Representative screenshot: [`SS-001`](../../screenshots/README.md#ss-001).
