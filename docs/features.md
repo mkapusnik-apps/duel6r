@@ -137,7 +137,7 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **CMB-011** A spawned weapon pickup must contain a random enabled weapon and 10 through 19 ammo.
 - **CMB-012** Picking a weapon must transfer the pickup's weapon, ammo, and remaining reload time to the player.
 - **CMB-013** If the player's current weapon has ammo, a successful pickup must create the replaced weapon at the player's collider position. The weapon must receive twice the player's horizontal and vertical velocity.
-- **CMB-014** If the player's current weapon has no ammo, a successful pickup must remove that old weapon.
+- **CMB-014** If the player's current weapon has no ammo, a successful pickup must remove the selected weapon pickup. The old weapon must remain in the world as a dropped weapon with zero ammo. It must start at the player's collider position and receive twice the player's horizontal and vertical velocity.
 - **CMB-015** The game must show `You picked up gun <name>` after a successful weapon pickup.
 - **CMB-016** The world must make random attempts to add a bonus or weapon pickup during an active round.
 - **CMB-017** A pickup must not spawn in water that has risen to its position.
@@ -354,7 +354,7 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-009** Total points, ranking order, penalties, deaths, and Elo behavior follow SCO-001 through SCO-024.
 - **AC-010** Each action in INP-012 works through an assigned keyboard or connected game-controller preset. Repeated jump input produces the implemented double-jump. INP-008 defines detection precedence.
 - **AC-011** Roster shuffle and Elo shuffle preserve each player's assigned control preset.
-- **AC-012** Starting weapons, ammo, shooting, charge, reload, drops, pickups, and empty-ammo behavior follow PLY-001 and CMB-001 through CMB-020. A replaced non-empty weapon uses the origin and velocity in CMB-013.
+- **AC-012** Starting weapons, ammo, shooting, charge, reload, drops, pickups, and empty-ammo behavior follow PLY-001 and CMB-001 through CMB-020. A replaced weapon must remain in the world at the player's collider position. It must receive twice the player's horizontal and vertical velocity. This behavior must also apply when the replaced weapon has zero ammo.
 - **AC-013** Each immediate and timed bonus produces the applicable behavior in BON-001 through BON-020.
 - **AC-014** Spawn protection, indicators, water, drowning, elevators, stuck recovery, regeneration, and sudden death follow PLY-003 through ENV-013.
 - **AC-015** Full-arena and split-screen states follow UI-001 through UI-015 for two through five players. With three players, Player 3 is upper-center and Players 1 and 2 are lower.

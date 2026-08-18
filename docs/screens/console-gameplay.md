@@ -19,11 +19,12 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 
 ## States, controls, and recovery
 
-- The console must receive keyboard and text input while it is open.
-- The gameplay context must not receive keyboard input while the console is open.
+- The console must receive text input and discrete key-down events while it is open.
+- Those discrete key-down events must not reach the gameplay context while the console is open.
+- Independently, key-down and key-up events must update shared held-keyboard state, and controller controls must continue reading shared controller state. Either state may continue to cause player actions while the console is open.
 - The underlying fixed-step gameplay update must continue.
 - Long history and input must use the implemented scrolling cues.
-- Closing the console must restore gameplay keyboard input and stop text input.
+- Closing the console must route subsequent discrete key-down events to the gameplay context and stop text input.
 - The console has no pause cue.
 - The console has no translucent mode.
 - Mouse events continue to reach the underlying context, although gameplay has no mouse actions.

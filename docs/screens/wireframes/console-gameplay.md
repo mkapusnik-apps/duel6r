@@ -20,6 +20,7 @@ The screen has no mobile layout, so this single desktop wireframe covers the imp
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The console obscures the upper arena and captures keyboard input.
+The console obscures the upper arena and receives text input and discrete key-down events instead of routing those events to the gameplay context.
+Key-down and key-up events still update shared held-keyboard state, and controller controls still read shared controller state. Either state may continue to cause player actions while the simulation continues.
 
 Representative screenshot: [`SS-014`](../../screenshots/README.md#ss-014).
