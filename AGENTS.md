@@ -217,3 +217,5 @@ CI/CD workflow is leveraging GitHub Actions.
 ### Implementation details
 
 CI/CD workflow is leveraging GitHub Actions, detailed implementation described in [.github/workflows.md](.github/workflows.md)
+
+Self-hosted Docker jobs transfer the checkout through the Docker API. See the workspace contract in [.github/workflows.md](.github/workflows.md).
