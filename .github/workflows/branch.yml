@@ -31,8 +31,9 @@ jobs:
 
       - name: Build inside container
         run: |
-          docker run --rm \
-            -v "$PWD:/workspace" \
+          bash docker/run-with-daemon-workspace.sh \
+            -e BUILD_TESTING=ON \
+            -e RUN_TESTS=ON \
             ghcr.io/${{ github.repository }}/build:develop
 
       - name: Verify build output
