@@ -19,10 +19,9 @@ jobs:
 
       - name: Build runtime bundle inside container
         run: |
-          docker run --rm \
+          bash docker/run-with-daemon-workspace.sh \
             -e BUILD_TESTING=ON \
             -e RUN_TESTS=ON \
-            -v "$PWD:/workspace" \
             duel6r-build:sanity
 
       - name: Verify build output
@@ -30,9 +29,8 @@ jobs:
 
       - name: Run main menu smoke test
         run: |
-          docker run --rm \
+          bash docker/run-with-daemon-workspace.sh \
             --entrypoint /usr/local/bin/duel6r-main-menu-smoke \
-            -v "$PWD:/workspace" \
             duel6r-build:sanity
 
       - name: Upload main menu smoke artifacts
@@ -54,9 +52,8 @@ jobs:
 
       - name: Run lint-equivalent debug build inside container
         run: |
-          docker run --rm \
+          bash docker/run-with-daemon-workspace.sh \
             -e BUILD_TYPE=Debug \
-            -v "$PWD:/workspace" \
             duel6r-build:lint
 
       - name: Verify lint-equivalent build output
