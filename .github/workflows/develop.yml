@@ -71,8 +71,8 @@ jobs:
       - uses: mkapusnik-apps/commons/tag@v1
         with:
           tag: sanity
-          token: ${{ secrets.PAT }}
+          token: ${{ secrets.PAT_ACTIONS }}
 
       - run: gh workflow enable develop-nightly-scheduler.yml
         env:
-          GH_TOKEN: ${{ secrets.PAT }}
+          GH_TOKEN: ${{ secrets.PAT_ACTIONS }}
