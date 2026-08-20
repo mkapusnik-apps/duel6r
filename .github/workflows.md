@@ -17,8 +17,8 @@
 - The sanity job compiles the game, runs configured `ctest` tests, verifies output, and runs the main-menu smoke check.
 - The lint-equivalent job performs a Debug compilation and verifies output.
 - The tag job moves `sanity` after both build jobs succeed.
-- The tag job needs the `PAT` secret and `contents: write` permission.
-- The tag job enables `develop-nightly-scheduler.yml` with the `PAT` secret.
+- The tag job needs the `PAT_ACTIONS` secret and `contents: write` permission.
+- The tag job enables `develop-nightly-scheduler.yml` with the `PAT_ACTIONS` secret.
 
 ## Self-hosted Docker workspace contract
 
