@@ -119,4 +119,4 @@ jobs:
       - uses: mkapusnik-apps/commons/tag@v1
         with:
           tag: nightly
-          token: ${{ secrets.PAT }}
+          token: ${{ secrets.PAT_ACTIONS }}

@@ -39,6 +39,7 @@
 - `Develop - Nightly Scheduler` dispatches `develop-nightly.yml` from the `sanity` tag.
 - `Develop - Nightly` builds Linux and Windows files on a GitHub-hosted runner.
 - The nightly workflow runs configured Linux `ctest` tests and publishes the `nightly` pre-release.
+- The nightly tag job needs the `PAT_ACTIONS` secret with `contents: write` access.
 - `Release Artifact` builds release files after a push to `master` or a manual dispatch.
 - GitHub-hosted jobs use direct bind mounts because their Docker daemon shares the runner host filesystem.
 - Nightly and release publication need the permissions and secrets declared in their workflow files.
