@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v7
       - run: gh workflow disable "${{ github.workflow }}"
         env:
-          GH_TOKEN: ${{ secrets.PAT }}
+          GH_TOKEN: ${{ secrets.PAT_ACTIONS }}
       - run: gh workflow run develop-nightly.yml --ref sanity
         env:
-          GH_TOKEN: ${{ secrets.PAT }}
+          GH_TOKEN: ${{ secrets.PAT_ACTIONS }}
