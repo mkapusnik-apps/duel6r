@@ -197,9 +197,11 @@ If your task contradicts any of the requirements, explicitly ask what to do and 
 
 CI/CD workflow is leveraging GitHub Actions.
 
-- Branch: `feature-*`
+- Work branch
+  - Naming: Follow the applicable global developer-agent work-branch convention
   - Contains: unstable changes, prototypes, etc.
   - Requirements: Game compilation successful
+  - Pull request target: `develop`
 
 - Branch: `develop`
   - Contains: bleeding edge features
