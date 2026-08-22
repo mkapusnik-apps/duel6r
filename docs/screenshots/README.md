@@ -4,7 +4,8 @@
 
 This manifest records exactly one representative implementation screenshot for each wireframe.
 The UX assessment reviewed all 14 supplied PNG files on 2026-08-18.
-All 14 files meet the applicable visual requirements after the documented baseline corrections in this change.
+The approved issue #7 start-prerequisite design change invalidates `SS-001`, `SS-002`, and `SS-003` before implementation.
+The other 11 files remain current and conforming.
 `PLAY-03` conforms after product corrected `UI-004` to describe the implemented Player 3 upper-center layout.
 
 ## Packet provenance
@@ -33,9 +34,9 @@ The artifact commit date provides packet chronology, but it does not replace a s
 
 | ID | Screen ID | Wireframe | Scenario and setup | Viewport | Artifact | UX assessment | Status |
 |---|---|---|---|---:|---|---|---|
-| <a id="ss-001"></a>`SS-001` | `MENU-01` | [Main menu](../screens/wireframes/menu-main.md) | Launch to a populated Deathmatch menu with four saved people, two selected players, persistent score data, Assistance on, Quick Liquid on, and Rounds `0`. | 1280x900 | [`default-1280x900.png`](MENU-01/default-1280x900.png) | The fixed grey canvas is centered. The banner and version are in the upper area. The populated setup lists, tables, settings, and bottom action row agree with the implementation. | Conforms |
-| <a id="ss-002"></a>`SS-002` | `MENU-02` | [Menu message](../screens/wireframes/menu-message.md) | Select Clear or press F3 from the populated menu. | 1280x900 | [`confirmation-1280x900.png`](MENU-02/confirmation-1280x900.png) | The centered strip shows `Really delete? (Y/N)` with a pink surface, red text, and black frame over the unchanged menu. | Conforms |
-| <a id="ss-003"></a>`SS-003` | `PLAY-01` | [Full-screen play](../screens/wireframes/play-fullscreen.md) | Run active two-player Deathmatch after the start fade with ranking on and a finite round limit. | 1280x900 | [`live-1280x900.png`](PLAY-01/live-1280x900.png) | The arena fills the client. The event message, live ranking, round counter, world objects, and player status cues are visible. | Conforms |
+| <a id="ss-001"></a>`SS-001` | `MENU-01` | [Main menu](../screens/wireframes/menu-main.md) | Use two selected players, no successfully loaded levels, and no enabled weapons. Select Play, dismiss the blocking message with a keyboard key, and capture the recovered menu. | 1280x900 | [`failed-start-recovered-1280x900.png`](MENU-01/failed-start-recovered-1280x900.png) | The complete centered menu is visible and usable. The roster and settings retain their values. The screen has no added warning, disabled Play style, resume prompt, or statistics-clear prompt. | Pending implementation and capture |
+| <a id="ss-002"></a>`SS-002` | `MENU-02` | [Menu message](../screens/wireframes/menu-message.md) | Use two selected players, no successfully loaded levels, and no enabled weapons. Select Play and capture before dismissal. | 1280x900 | [`start-blocked-no-levels-no-weapons-1280x900.png`](MENU-02/start-blocked-no-levels-no-weapons-1280x900.png) | The centered one-line strip shows `No usable levels loaded. No weapons enabled. Correct content/configuration, restart the application, then try again. Press any key.` with the error colors and frame over the unchanged menu. No resume or statistics-clear prompt is visible. | Pending implementation and capture |
+| <a id="ss-003"></a>`SS-003` | `PLAY-01` | [Full-screen play](../screens/wireframes/play-fullscreen.md) | Use two selected players, at least one successfully loaded level, and at least one enabled weapon. Complete the existing valid-start prompts and capture active Deathmatch after the start fade. | 1280x900 | [`valid-start-live-1280x900.png`](PLAY-01/valid-start-live-1280x900.png) | The valid start enters the unchanged full-screen arena. The event message, live ranking, round counter, world objects, and player status cues remain visible. Invalid setup is evidenced by `SS-002` because it must not create a PLAY-01 frame. | Pending implementation and capture |
 | <a id="ss-004"></a>`SS-004` | `PLAY-02` | [Two-player split](../screens/wireframes/play-split-2.md) | Run active two-player Deathmatch and press F2 while both players are alive. | 1280x900 | [`live-1280x900.png`](PLAY-02/live-1280x900.png) | Two centered half-size cameras form a vertical stack. Black side regions and red camera boundaries agree with the renderer. | Conforms |
 | <a id="ss-005"></a>`SS-005` | `PLAY-03` | [Three-player split](../screens/wireframes/play-split-3.md) | Run active three-player Deathmatch and press F2 while all players are alive. | 1280x900 | [`live-1280x900.png`](PLAY-03/live-1280x900.png) | Player 3 uses the centered upper camera while Players 1 and 2 use the lower cameras, matching the renderer and corrected `UI-004`. | Conforms |
 | <a id="ss-006"></a>`SS-006` | `PLAY-04` | [Four-player split](../screens/wireframes/play-split-4.md) | Run active four-player Deathmatch and press F2 while all players are alive. | 1280x900 | [`live-1280x900.png`](PLAY-04/live-1280x900.png) | Four equal cameras use the implemented two-by-two grid and red boundaries. | Conforms |
@@ -70,14 +71,30 @@ The artifact commit date provides packet chronology, but it does not replace a s
 
 - Required wireframes: 14.
 - Required representative screenshots: 14.
-- Supplied screenshots: 14.
-- Assessed screenshots: 14.
-- Conforming screenshots: 14.
+- Current representative screenshots supplied: 11.
+- Current representative screenshots assessed: 11.
+- Conforming screenshots: 11.
 - Nonconforming screenshots: 0.
-- Pending screenshots: 0.
+- Pending screenshots: 3.
+- Stale baseline screenshots excluded from current coverage: 3.
 - Extra screenshots: 0.
 - Screenshots per wireframe: exactly 1.
 - Covered screen specifications: 14.
 - Manifest assessment date: 2026-08-18.
 - Manifest freshness basis: capture source SHA `12cd6dca742b90293f552fefa3bfd3a8871aa7a2` and screenshot artifact commit `9cacfbf1eb9bcd1334522b2a4390605d42d1a076`.
-- Current coverage status: complete, fresh, and conforming.
+- Current coverage status: incomplete pending implementation and fresh capture for `SS-001`, `SS-002`, and `SS-003`.
+
+## Pending issue #7 screenshot matrix
+
+| Screen ID | Route or workflow | Representative state and setup | Viewport | Expected visible behavior | Destination path |
+|---|---|---|---:|---|---|
+| `MENU-01` | Local workflow: Play → prerequisite message → any keyboard key | Two selected players; no successfully loaded levels; no enabled weapons; capture after dismissal. | 1280x900 | The complete menu is usable. The roster and settings are unchanged. No warning, resume prompt, statistics-clear prompt, or disabled Play style remains visible. | `docs/screenshots/MENU-01/failed-start-recovered-1280x900.png` |
+| `MENU-02` | Local workflow: Play → blocked start | Two selected players; no successfully loaded levels; no enabled weapons; capture before dismissal. | 1280x900 | One centered error strip reports both missing prerequisites with the exact specified copy. The unchanged menu remains visible. No start-related confirmation appears. | `docs/screenshots/MENU-02/start-blocked-no-levels-no-weapons-1280x900.png` |
+| `PLAY-01` | Local workflow: Play → existing valid-start prompts → active Deathmatch | Two selected players; at least one successfully loaded level; at least one enabled weapon; capture after the start fade. | 1280x900 | The existing valid flow enters the unchanged full-screen arena. A missing prerequisite never creates a PLAY-01 frame. | `docs/screenshots/PLAY-01/valid-start-live-1280x900.png` |
+
+This matrix requires exactly one fresh representative screenshot for each affected wireframe.
+
+## Pending issue #7 capture provenance
+
+The three pending artifacts must record the implementation branch, source SHA, environment, workflow, state, viewport, and artifact path.
+The capture packet must not reuse the invalidated baseline files.

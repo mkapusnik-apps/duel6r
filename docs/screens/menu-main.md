@@ -13,6 +13,9 @@ Primary sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`,
 - The application must initialize video, font, resources, controls, and saved person data before interaction.
 - Starting a match must require at least two selected players.
 - Each selected player must have an available control entry.
+- A start attempt must require at least one successfully loaded level.
+- A start attempt must require at least one enabled weapon.
+- The application must check the level and weapon prerequisites before it shows `Resume previous game? (Y/N)` or `Clear statistics? (Y/N)`.
 
 ## Layout and hierarchy
 
@@ -38,6 +41,11 @@ Primary sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`,
 - Duplicate or empty person names must produce no new row.
 - The implementation has no visual loading state.
 - The implementation has no disabled control style.
+- A failed level or weapon prerequisite must leave the complete menu layout visible under `MENU-02`.
+- Dismissal of the prerequisite message must return to this screen without changing the roster or match settings.
+- A new Play attempt may repeat the prerequisite check.
+- The Play action must not enter `PLAY-01` while either prerequisite is missing.
+- A valid start must keep the existing prompt and entry flow unchanged.
 
 ## Controls and focus
 

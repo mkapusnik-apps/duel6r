@@ -10,15 +10,29 @@ The screen has no mobile layout, so this single desktop wireframe covers all imp
 │                              MAIN MENU                                         │
 │                                                                                │
 │                                                                                │
-│               ┌─────────────────────────────────────────────┐                  │
-│               │          Really delete? (Y/N)               │  20 px high     │
-│               └─────────────────────────────────────────────┘                  │
+│   ┌───────────────────────────────────────────────────────────────────────┐    │
+│   │             [exact both-missing message on one line]                 │20px│
+│   └───────────────────────────────────────────────────────────────────────┘    │
 │                 pink surface · 2 px black frame · red text                     │
 │                                                                                │
 │                         unchanged menu remains visible                          │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Variants replace only the message text and computed width.
+The implementation must render each exact message on one 20 px high line.
+The implementation must calculate the panel width from the complete message length.
+
+Start-prerequisite variants:
+
+- No level: `No usable levels loaded. Correct content/configuration, restart the application, then try again. Press any key.`
+- No weapon: `No weapons enabled. Correct content/configuration, restart the application, then try again. Press any key.`
+- Both missing: `No usable levels loaded. No weapons enabled. Correct content/configuration, restart the application, then try again. Press any key.`
+
+The both-missing variant is the representative state for this wireframe.
+Any keyboard key dismisses this variant and reveals the unchanged usable menu.
+The application consumes the dismissal key without activating its normal menu action.
+Mouse actions do not dismiss this variant.
+The window close action remains available.
+Other message variants replace only the message text and computed width.
 
 Representative screenshot: [`SS-002`](../../screenshots/README.md#ss-002).

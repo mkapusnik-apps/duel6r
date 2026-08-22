@@ -20,6 +20,10 @@ Primary sources are `source/Game.cpp`, `source/Round.cpp`, `source/WorldRenderer
 
 ## Visible behavior and state variants
 
+- Entry must require at least one successfully loaded level and at least one enabled weapon.
+- A failed level or weapon prerequisite must prevent creation of this screen.
+- A failed prerequisite must keep the user in the menu workflow and must show `MENU-02`.
+- A valid start must keep the existing arena entry and start presentation unchanged.
 - Round start must use a blue-dark fade and yellow player-location rings.
 - Live ranking must show name and points.
 - Living ranking text must be yellow.
