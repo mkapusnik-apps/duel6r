@@ -36,5 +36,8 @@ Implementation notes:
 - List surfaces are white with black text.
 - Selected rows are blue with white text.
 - Team-mode player rows use team background colors.
+- Failed-start recovery variant: after the user dismisses the prerequisite message, this complete layout remains visible and interactive.
+- Failed-start recovery does not add an empty-level indicator, an enabled-weapon indicator, or a disabled Play style.
+- The roster, settings, score table, and bottom actions retain their values and positions after recovery.
 
 Representative screenshot: [`SS-001`](../../screenshots/README.md#ss-001).

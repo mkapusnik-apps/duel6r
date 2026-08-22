@@ -2,13 +2,15 @@
 
 ## Purpose and status
 
-This document specifies the implemented user-facing behavior of Duel 6 Reloaded.
+This document specifies the required user-facing behavior of Duel 6 Reloaded.
 
-The requirements describe the implementation at commit `8f98d3679c4c9091e8973a1cb7a3278f04deb946`.
+Unless a requirement identifies an approved change, the requirements describe the implementation at commit `8f98d3679c4c9091e8973a1cb7a3278f04deb946`.
 
 The word **person** means a persistent named record. The word **player** means a person in the active match roster.
 
 A **match** contains consecutive rounds. A **round** contains one level and ends when its selected game mode finds a winner or no winner.
+
+A **playable level** is any level that the application successfully loads.
 
 Requirement IDs are stable references. Inventory notes are current observations and are not permanent product requirements.
 
@@ -283,17 +285,32 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **CFG-019** Lua must expose `pressLeft`, `pressRight`, `pressUp`, `pressDown`, `pressShoot`, `pressPick`, and `pressStatus`. A script must repeat `pressUp` to request a double-jump.
 - **CFG-020** Script-requested actions must use normal player action rules and must not directly edit world state.
 
-## Implemented error, empty, and recovery behavior
+## Error, empty, and recovery behavior
 
 - **ERR-001** The menu must use SET-002 for empty or duplicate person names.
 - **ERR-002** The menu must use SET-006 and SET-007 for an insufficient roster.
 - **ERR-003** For each value that CFG-011 rejects, the console must show `Invalid map index <value>` and must not start the match.
 - **ERR-004** Random pickup placement must skip an attempt when the level has no valid position.
 - **ERR-005** Profile scripting must use CFG-014 through CFG-016 when scripting is unavailable, absent, or invalid at load time.
-- **ERR-006** The current product has no user-facing recovery for malformed required JSON, missing required profile files, an empty level list, or an empty enabled-weapon set.
+- **ERR-006** The current product has no user-facing recovery for malformed required JSON or missing required profile files.
 - **ERR-007** The current product has no setup validation for duplicate control ownership, team population, or disconnected assigned controls.
+- **ERR-008** Before a continuation prompt, the menu must validate match-start prerequisites for normal Play and a valid `map` command.
+- **ERR-009** For normal Play, the requested level set must contain all playable levels that are available to the menu.
+- **ERR-010** For a valid `map` command, the requested level set must contain the playable levels at the accepted map indexes.
+- **ERR-011** The level prerequisite is satisfied when the requested level set contains one or more playable levels.
+- **ERR-012** The weapon prerequisite is satisfied when one or more weapons are enabled.
+- **ERR-013** If a match-start prerequisite is not satisfied, the menu must not start the match or show a continuation prompt.
+- **ERR-014** The menu must show one blocking report that identifies each match-start prerequisite that is not satisfied.
+- **ERR-015** A rejected match-start request must preserve the roster, selected mode, and match settings.
+- **ERR-016** A rejected match-start request must preserve all person statistics and the played-round count.
+- **ERR-017** The user must be able to dismiss the report and continue to use the menu.
+- **ERR-018** The report must tell the user to correct the content or configuration and restart the application.
+- **ERR-019** The application must not load corrected content files or configuration files during the current application session.
+- **ERR-020** When both prerequisites are satisfied, the validation must not change the existing match-start prompts or match behavior.
 
-Product decisions that are not defined by the implementation are tracked in [GitHub issue #7](https://github.com/mkapusnik-apps/duel6r/issues/7). Until those decisions are made and implemented, ERR-001 through ERR-007 remain the source of truth.
+ERR-008 through ERR-020 specify the approved safe match-start behavior for implementation.
+
+Other product decisions that are not defined by the implementation are tracked in [GitHub issue #7](https://github.com/mkapusnik-apps/duel6r/issues/7). The requirements in this section remain the source of truth.
 
 ## Mutable implementation inventory
 
@@ -364,7 +381,14 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-019** Console input and continued match input follow CFG-001 and CFG-002. Startup configuration and command-line commands apply in CFG-003 through CFG-007 precedence order.
 - **AC-020** Console map and weapon controls follow CFG-011 through CFG-013. Map selection accepts a valid nonzero numeric prefix and rejects only the cases in CFG-011.
 - **AC-021** The shipped content matches the mutable inventory or the inventory is updated from its named maintainable sources.
-- **AC-022** The product exposes only the recovery behavior in ERR-001 through ERR-007. Selected-map rejection is limited to the values that CFG-011 rejects.
+- **AC-022** Malformed required JSON and missing required profile files retain the behavior in ERR-006. ERR-001 through ERR-005 and ERR-007 remain unchanged. Selected-map index rejection remains limited to CFG-011.
+- **AC-023** For normal Play, no playable level blocks the start and identifies the missing level prerequisite. No enabled weapon blocks the start and identifies the missing weapon prerequisite.
+- **AC-024** A valid selected-map start applies the same prerequisite validation to its requested level set and the enabled-weapon set.
+- **AC-025** When both prerequisites are missing, one blocking report identifies both errors. The menu shows this report before any resume or statistics-clear prompt.
+- **AC-026** A prerequisite rejection preserves the roster, selected mode, match settings, all person statistics, and the played-round count.
+- **AC-027** After the user dismisses the report, the menu remains usable. The report instructs the user to correct the content or configuration and restart the application.
+- **AC-028** Corrected content files or configuration files do not affect prerequisite validation until the user restarts the application.
+- **AC-029** With one or more requested playable levels and one or more enabled weapons, normal Play and valid selected-map starts retain their existing prompts and match behavior.
 
 ## Source traceability
 

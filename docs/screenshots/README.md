@@ -3,11 +3,12 @@
 ## Assessment status
 
 This manifest records exactly one representative implementation screenshot for each wireframe.
-The UX assessment reviewed all 14 supplied PNG files on 2026-08-18.
-All 14 files meet the applicable visual requirements after the documented baseline corrections in this change.
-`PLAY-03` conforms after product corrected `UI-004` to describe the implemented Player 3 upper-center layout.
+The final UX assessment reviewed the three-artifact issue #15 packet at PR #17 head `d9f4ca824be64661b2517404ceaa2d21a790ff73` on 2026-08-22.
+The assessment confirms that `SS-001`, `SS-002`, and `SS-003` replace their invalidated baseline evidence and conform.
+The other 11 representative files remain current and conforming.
+All 14 wireframes now have current representative evidence.
 
-## Packet provenance
+## Baseline packet provenance
 
 - Branch: `feature-documentation-audit-fixes`.
 - Capture source SHA: `12cd6dca742b90293f552fefa3bfd3a8871aa7a2`.
@@ -29,13 +30,32 @@ This manifest assessment is recorded by a later documentation commit.
 The packet therefore has a coherent source-to-artifact chain.
 The artifact commit date provides packet chronology, but it does not replace a separate capture timestamp.
 
+## Issue #15 replacement packet provenance
+
+- Pull request: `#17`.
+- Branch: `feature/safe-empty-match-start`.
+- Capture source SHA: `e193fe1`.
+- Final assessed head and artifact commit: `d9f4ca824be64661b2517404ceaa2d21a790ff73`.
+- Capture date: The packet does not provide a separate capture timestamp.
+- Operating system: Ubuntu 24.04 Docker.
+- Build type: Release.
+- Renderer: GL4.
+- Lua: Enabled.
+- Graphics environment: Mesa software rendering.
+- Display environment: Xvfb.
+- Client viewport: 1280 by 900 px for all three screenshots.
+- Capture workflow: The developer reproduced each matrix workflow from source SHA `e193fe1` and stored each unchanged PNG at the matrix destination.
+
+The final head commits the three captured artifacts without changing their pixels.
+The source-to-artifact chain is coherent for final visual assessment.
+
 ## Screenshot matrix
 
 | ID | Screen ID | Wireframe | Scenario and setup | Viewport | Artifact | UX assessment | Status |
 |---|---|---|---|---:|---|---|---|
-| <a id="ss-001"></a>`SS-001` | `MENU-01` | [Main menu](../screens/wireframes/menu-main.md) | Launch to a populated Deathmatch menu with four saved people, two selected players, persistent score data, Assistance on, Quick Liquid on, and Rounds `0`. | 1280x900 | [`default-1280x900.png`](MENU-01/default-1280x900.png) | The fixed grey canvas is centered. The banner and version are in the upper area. The populated setup lists, tables, settings, and bottom action row agree with the implementation. | Conforms |
-| <a id="ss-002"></a>`SS-002` | `MENU-02` | [Menu message](../screens/wireframes/menu-message.md) | Select Clear or press F3 from the populated menu. | 1280x900 | [`confirmation-1280x900.png`](MENU-02/confirmation-1280x900.png) | The centered strip shows `Really delete? (Y/N)` with a pink surface, red text, and black frame over the unchanged menu. | Conforms |
-| <a id="ss-003"></a>`SS-003` | `PLAY-01` | [Full-screen play](../screens/wireframes/play-fullscreen.md) | Run active two-player Deathmatch after the start fade with ranking on and a finite round limit. | 1280x900 | [`live-1280x900.png`](PLAY-01/live-1280x900.png) | The arena fills the client. The event message, live ranking, round counter, world objects, and player status cues are visible. | Conforms |
+| <a id="ss-001"></a>`SS-001` | `MENU-01` | [Main menu](../screens/wireframes/menu-main.md) | Use two selected players, no successfully loaded levels, and no enabled weapons. Select Play, dismiss the blocking message with a keyboard key, and capture the recovered menu. | 1280x900 | [`failed-start-recovered-1280x900.png`](MENU-01/failed-start-recovered-1280x900.png) | The complete centered menu remains visible after dismissal. Alpha and Beta remain in the roster. Deathmatch, checked Assistance, checked Quick Liquid, Rounds 0, and the visible person statistics remain unchanged. No warning, disabled Play style, resume prompt, or statistics-clear prompt remains visible. | Conforms |
+| <a id="ss-002"></a>`SS-002` | `MENU-02` | [Menu message](../screens/wireframes/menu-message.md) | Use two selected players, no successfully loaded levels, and no enabled weapons. Select Play and capture before dismissal. | 1280x900 | [`start-blocked-no-levels-no-weapons-1280x900.png`](MENU-02/start-blocked-no-levels-no-weapons-1280x900.png) | The centered one-line strip shows `No usable levels loaded. No weapons enabled. Correct content/configuration, restart the application, then try again. Press any key.` with the specified pink surface, red text, and black frame over the unchanged menu. The report identifies both errors in separate sentences. No resume or statistics-clear prompt is visible. | Conforms |
+| <a id="ss-003"></a>`SS-003` | `PLAY-01` | [Full-screen play](../screens/wireframes/play-fullscreen.md) | Use two selected players, at least one successfully loaded level, and at least one enabled weapon. Complete the existing valid-start prompts and capture active Deathmatch after the start fade. | 1280x900 | [`valid-start-live-1280x900.png`](PLAY-01/valid-start-live-1280x900.png) | The valid start enters the unchanged full-screen arena. The live ranking, level geometry, background, elevators, water, players, weapons, pickups, and player status cues are visible. The empty event area and absent round counter agree with an empty event queue and the captured unlimited-round setting. Invalid setup is evidenced by `SS-002` because it must not create a PLAY-01 frame. | Conforms |
 | <a id="ss-004"></a>`SS-004` | `PLAY-02` | [Two-player split](../screens/wireframes/play-split-2.md) | Run active two-player Deathmatch and press F2 while both players are alive. | 1280x900 | [`live-1280x900.png`](PLAY-02/live-1280x900.png) | Two centered half-size cameras form a vertical stack. Black side regions and red camera boundaries agree with the renderer. | Conforms |
 | <a id="ss-005"></a>`SS-005` | `PLAY-03` | [Three-player split](../screens/wireframes/play-split-3.md) | Run active three-player Deathmatch and press F2 while all players are alive. | 1280x900 | [`live-1280x900.png`](PLAY-03/live-1280x900.png) | Player 3 uses the centered upper camera while Players 1 and 2 use the lower cameras, matching the renderer and corrected `UI-004`. | Conforms |
 | <a id="ss-006"></a>`SS-006` | `PLAY-04` | [Four-player split](../screens/wireframes/play-split-4.md) | Run active four-player Deathmatch and press F2 while all players are alive. | 1280x900 | [`live-1280x900.png`](PLAY-04/live-1280x900.png) | Four equal cameras use the implemented two-by-two grid and red boundaries. | Conforms |
@@ -50,11 +70,13 @@ The artifact commit date provides packet chronology, but it does not replace a s
 
 ## Findings
 
-### Resolved finding
+### Resolved findings
 
 - `PLAY-03` shows Player 3 in the centered upper camera and Players 1 and 2 in the lower cameras.
 - Product corrected `UI-004` to make that implemented layout authoritative.
 - The existing artifact now conforms without implementation work or recapture.
+- `SS-001`, `SS-002`, and `SS-003` now provide current replacement evidence for the approved safe-start behavior.
+- The three replacement artifacts conform to their screen specifications and wireframes.
 
 ### Non-blocking findings
 
@@ -65,19 +87,25 @@ The artifact commit date provides packet chronology, but it does not replace a s
 - Developer implementation work and replacement capture are not required for these corrected documentation differences.
 - The packet does not supply a separate capture timestamp.
 - A future packet should include the capture timestamp directly instead of relying on the artifact commit date for chronology.
+- The red prerequisite text on the pink message surface has low contrast for normal-size text.
+- The contrast limitation is part of the approved implemented color tokens and does not make this issue #15 packet nonconforming.
+- The three screenshots provide representative visual evidence for the affected wireframes.
+- Static screenshots do not independently prove keyboard event consumption, mouse blocking, selected-map validation, preservation of non-visible played-round data, or restart-only content reload behavior.
 
 ## Coverage and freshness
 
 - Required wireframes: 14.
 - Required representative screenshots: 14.
-- Supplied screenshots: 14.
-- Assessed screenshots: 14.
+- Current representative screenshots supplied: 14.
+- Current representative screenshots assessed: 14.
 - Conforming screenshots: 14.
 - Nonconforming screenshots: 0.
 - Pending screenshots: 0.
-- Extra screenshots: 0.
+- Stale baseline screenshots excluded from current representative coverage: 3.
+- Extra current representative screenshots: 0.
 - Screenshots per wireframe: exactly 1.
 - Covered screen specifications: 14.
-- Manifest assessment date: 2026-08-18.
-- Manifest freshness basis: capture source SHA `12cd6dca742b90293f552fefa3bfd3a8871aa7a2` and screenshot artifact commit `9cacfbf1eb9bcd1334522b2a4390605d42d1a076`.
-- Current coverage status: complete, fresh, and conforming.
+- Manifest assessment date: 2026-08-22.
+- Baseline freshness basis for 11 unchanged representatives: capture source SHA `12cd6dca742b90293f552fefa3bfd3a8871aa7a2` and screenshot artifact commit `9cacfbf1eb9bcd1334522b2a4390605d42d1a076`.
+- Issue #15 freshness basis for `SS-001`, `SS-002`, and `SS-003`: capture source SHA `e193fe1` and final artifact commit `d9f4ca824be64661b2517404ceaa2d21a790ff73`.
+- Current coverage status: complete and conforming.

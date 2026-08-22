@@ -164,6 +164,10 @@ The following values come from renderer and GUI source.
 - The panel width must equal eight times the message length plus 60 px.
 - The panel must use a 2 px black frame.
 - Confirmation copy must include its implemented keyboard choices.
+- A start-prerequisite message must name each missing prerequisite in a separate sentence.
+- A start-prerequisite message must tell the user to correct content or configuration and restart the application.
+- A start-prerequisite message must show `Press any key.` as its dismissal instruction.
+- A start-prerequisite message must keep the unchanged menu visible behind the panel.
 - Controller detection must remain open until an accepted control input is detected.
 - The one-player validation message must remain open until any event is received.
 
@@ -233,7 +237,7 @@ The following values come from renderer and GUI source.
 
 ## Stitch synchronization
 
-No corresponding Duel 6 Reloaded Stitch project was identified on 2026-08-17.
+No corresponding Duel 6 Reloaded Stitch project was identified on 2026-08-22.
 The available projects had unrelated titles.
 No Stitch design system or screen was changed.
 Project selection remains an open design-workspace question in [GitHub issue #7](https://github.com/mkapusnik-apps/duel6r/issues/7).

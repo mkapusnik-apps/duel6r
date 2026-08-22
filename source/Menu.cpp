@@ -457,6 +457,10 @@ namespace Duel6 {
     }
 
     void Menu::play(std::vector<std::string> levels) {
+        if (!validateStartPrerequisites(levels)) {
+            return;
+        }
+
         applyRoundsTextbox();
 
         if (playerListBox->size() < 2) {
@@ -517,6 +521,42 @@ namespace Duel6 {
         // Start
         Context::push(*game);
         game->start(playerDefinitions, levels, backgrounds, screenMode, screenZoom, selectedMode);
+    }
+
+    bool Menu::validateStartPrerequisites(const std::vector<std::string> &levels) {
+        std::string message;
+        if (levels.empty()) {
+            message = "No usable levels loaded.";
+        }
+        if (game->getSettings().getEnabledWeapons().empty()) {
+            if (!message.empty()) {
+                message += " ";
+            }
+            message += "No weapons enabled.";
+        }
+        if (message.empty()) {
+            return true;
+        }
+
+        message += " Correct content/configuration, restart the application, then try again. Press any key.";
+        render();
+        showMessage(message);
+
+        SDL_Event event;
+        while (true) {
+            if (SDL_PollEvent(&event)) {
+                if (event.type == SDL_QUIT) {
+                    close();
+                    return false;
+                }
+                if (event.type == SDL_KEYDOWN) {
+                    SDL_FlushEvents(SDL_KEYDOWN, SDL_KEYUP);
+                    return false;
+                }
+            } else {
+                SDL_Delay(1);
+            }
+        }
     }
 
     void Menu::addPlayer(Int32 index) {

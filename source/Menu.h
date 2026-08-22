@@ -136,6 +136,8 @@ namespace Duel6 {
 
         void showMessage(const std::string &message);
 
+        bool validateStartPrerequisites(const std::vector<std::string> &levels);
+
         void detectControls(Size playerIndex);
 
         void play();
