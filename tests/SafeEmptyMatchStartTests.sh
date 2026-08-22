@@ -6,6 +6,7 @@ set -euo pipefail
 
 workspace_dir="${WORKSPACE_DIR:-/workspace}"
 build_dir="${BUILD_DIR:-${workspace_dir}/build}"
+resource_dir="${RESOURCE_DIR:-${workspace_dir}/resources}"
 test_root="${TEST_ROOT:-/tmp/duel6r-safe-empty-match-start}"
 display_number="${DISPLAY_NUMBER:-:97}"
 
@@ -23,6 +24,8 @@ for command in Xvfb xdotool import compare identify timeout python3; do
   command -v "$command" >/dev/null 2>&1 || fail "required command not found: ${command}"
 done
 [[ -x "${build_dir}/duel6r" ]] || fail "runtime bundle not found at ${build_dir}"
+[[ -d "${resource_dir}/data" && -d "${resource_dir}/levels" ]] \
+  || fail "runtime resources not found at ${resource_dir}"
 
 rm -rf "$test_root"
 mkdir -p "$test_root"
@@ -78,7 +81,8 @@ new_scenario() {
   local name="$1"
   scenario_dir="${test_root}/${name}"
   mkdir -p "$scenario_dir"
-  cp -a "${build_dir}/." "$scenario_dir/"
+  cp "${build_dir}/duel6r" "$scenario_dir/duel6r"
+  cp -a "${resource_dir}/." "$scenario_dir/"
   write_people_fixture "${scenario_dir}/data/persons.json"
   cp "${scenario_dir}/data/persons.json" "${scenario_dir}/people-before.json"
 }

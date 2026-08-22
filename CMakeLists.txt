@@ -503,6 +503,28 @@ if (BUILD_TESTING)
     endif (MINGW)
 
     add_test(NAME ${D6R_TEST_APP_NAME} COMMAND ${D6R_TEST_APP_NAME})
+
+    if (UNIX)
+        find_program(D6R_BASH_EXECUTABLE bash)
+        if (NOT D6R_BASH_EXECUTABLE)
+            message(FATAL_ERROR "bash is required for the safe-empty-match-start behavior test")
+        endif ()
+
+        add_test(
+            NAME safe-empty-match-start
+            COMMAND ${D6R_BASH_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/SafeEmptyMatchStartTests.sh
+        )
+        set_tests_properties(
+            safe-empty-match-start
+            PROPERTIES
+            ENVIRONMENT
+                "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/safe-empty-match-start"
+            LABELS "application;regression"
+            RUN_SERIAL TRUE
+            TIMEOUT 300
+        )
+    endif ()
 endif (BUILD_TESTING)
 
 if (WIN32)
