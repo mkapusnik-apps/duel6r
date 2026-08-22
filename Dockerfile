@@ -18,6 +18,7 @@ RUN apt-get update \
         libsdl2-mixer-dev \
         libsdl2-ttf-dev \
         imagemagick \
+        python3 \
         xauth \
         xdotool \
         xvfb \
