@@ -233,7 +233,41 @@ The following values come from renderer and GUI source.
 
 ## Stitch synchronization
 
-No corresponding Duel 6 Reloaded Stitch project was identified on 2026-08-17.
-The available projects had unrelated titles.
-No Stitch design system or screen was changed.
-Project selection remains an open design-workspace question in [GitHub issue #7](https://github.com/mkapusnik-apps/duel6r/issues/7).
+- Project title: `Duel 6`.
+- Product scope: Dedicated Duel 6 Reloaded visual workspace.
+- Project ID: `1219346282527961142`.
+- Project URL: [Duel 6 Stitch project](https://stitch.withgoogle.com/projects/1219346282527961142).
+- Owner scope: The currently authenticated Stitch account is the owner.
+- Access scope: The project is private.
+- Collaborator scope: This synchronization does not request an additional collaborator.
+- Design system: `Duel 6 Reloaded — Native Baseline` (`assets/7257739717738214874`).
+- Synchronization date: 2026-08-22.
+- Verification status: Blocked.
+
+The available Stitch project API does not provide a project-title update operation.
+The project title therefore remains `Duel 6`.
+The user accepts this existing project as the dedicated product workspace.
+The project is private and owner-only access is the intended final scope.
+
+The final Stitch screen listing returns three screen records and no duplicate stable screen ID.
+Eleven required screen records remain unavailable after individual generation requests and completion checks.
+The active project theme reports an unapproved dark glass style with cyan accents.
+The active project theme does not conform to this native baseline.
+A baseline design-system application was requested twice for every available screen instance.
+Stitch timed out and still reports Aura Kinetic as the active project theme.
+The project must confirm the baseline design system before coverage can pass review.
+
+Manual Stitch UI action is required if the asynchronous operations do not appear later.
+The owner must rename the project to `Duel 6 Reloaded` when the UI supports project-title editing.
+The owner must set `Duel 6 Reloaded — Native Baseline` as the project design system and remove the Aura Kinetic design-system instance.
+The owner must create only the 11 pending stable screen IDs in the screen inventory.
+The owner must edit `MENU-01` and `PLAY-02` in place against their canonical wireframes.
+The owner must not create replacement records for those two existing IDs.
+
+The Stitch workspace must preserve the documented native baseline.
+The workspace must contain one representative artifact for each of the 14 authoritative wireframes.
+The artifact name must start with the stable screen ID.
+The artifact notes must contain applicable variants and workflows.
+Stitch artifacts must not replace implementation screenshot evidence.
+The local screen inventory records the required stable artifact identifiers.
+The mapping must not be treated as complete until Stitch returns one screen record for each identifier.
