@@ -237,7 +237,10 @@ The following values come from renderer and GUI source.
 
 ## Stitch synchronization
 
-No corresponding Duel 6 Reloaded Stitch project was identified on 2026-08-22.
-The available projects had unrelated titles.
-No Stitch design system or screen was changed.
-Project selection remains an open design-workspace question in [GitHub issue #7](https://github.com/mkapusnik-apps/duel6r/issues/7).
+The dedicated Duel 6 and Duel 6 Reloaded Stitch project has project ID `1219346282527961142`.
+Stitch must remain a supplementary design workspace only.
+The native implementation and the version-controlled local design sources must remain authoritative.
+Stitch artifacts must not serve as runtime evidence.
+The Stitch workspace must preserve the native Duel 6 Reloaded visual intent.
+The Stitch workspace must not use the unapproved Aura Kinetic design setting or theme.
+Remote removal of Aura Kinetic remains pending and must be verified through a Stitch read/mutate/read-back workflow when Stitch tooling is available.
