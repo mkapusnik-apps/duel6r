@@ -39,7 +39,7 @@ The replacement shared-arena artifacts have this provenance:
 
 - Branch: `feature/remove-split-screen`.
 - Implementation source SHA: `be5c9f5315a60eb9b1052e914fab22254d41c5f0`.
-- Screenshot artifact commit: pending in the current worktree.
+- Screenshot artifact commit: `1fe5b617ef88d0e66a781f11db7757155a1e8364`.
 - Environment: Debug, GL4, Lua enabled, Ubuntu 24.04 Docker, Mesa software rendering, and Xvfb.
 - Viewport: 1280 by 900 px.
 - Worktree state: the application binary was built from the implementation source SHA; the UX-owned manifest, tester-owned regression harness, and changelog integration changes were present while the replacement artifacts were captured.
