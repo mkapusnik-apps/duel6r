@@ -1,11 +1,12 @@
 # OVER-03 wireframe — Game-over summary
 
 Representative viewport: 1280 by 900 debug client.
-The visual table matches round over, but the workflow is final and does not start another round.
+The visual table matches round over over the undivided shared arena.
+The workflow is final and does not start another round.
 This material exit state has its own wireframe and evidence entry.
 
 ```text
-┌──────────────────────── arena under dark red curtain ──────────────────────────┐
+┌───────────────── undivided shared arena under dark red curtain ────────────────┐
 │ final outcome event                                   final round counter       │
 │                                                                                │
 │                 ┌──────────────────────────────────────┐                       │

@@ -168,7 +168,6 @@ set(D6R_SOURCES
         source/resource.h
         source/Round.cpp
         source/Round.h
-        source/ScreenMode.h
         source/ScreenParameters.h
         source/Shot.h
         source/ShotList.cpp
@@ -509,6 +508,8 @@ if (BUILD_TESTING)
         if (NOT D6R_BASH_EXECUTABLE)
             message(FATAL_ERROR "bash is required for the safe-empty-match-start behavior test")
         endif ()
+
+        include(${CMAKE_SOURCE_DIR}/tests/SharedArenaCTestRegistration.cmake)
 
         add_test(
             NAME safe-empty-match-start

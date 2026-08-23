@@ -97,49 +97,13 @@ namespace Duel6 {
         }
     }
 
-    void Round::splitScreenView(Player &player, Int32 x, Int32 y) {
-        const Video &video = game.getAppService().getVideo();
-        PlayerView view(x, y, video.getScreen().getClientWidth() / 2 - 4, video.getScreen().getClientHeight() / 2 - 4);
-        player.setView(view);
-    }
-
     void Round::setPlayerViews() {
         const Video &video = game.getAppService().getVideo();
         std::vector<Player> &players = world.getPlayers();
 
         for (Player &player : players) {
-            player.prepareCam(video, game.getSettings().getScreenMode(), game.getSettings().getScreenZoom(),
-                              world.getLevel().getWidth(), world.getLevel().getHeight());
-        }
-
-        if (game.getSettings().getScreenMode() == ScreenMode::FullScreen) {
-            for (Player &player : players) {
-                player.setView(
-                        PlayerView(0, 0, video.getScreen().getClientWidth(), video.getScreen().getClientHeight()));
-            }
-
-            return;
-        } else {
-            if (players.size() == 2) {
-                splitScreenView(players[0], video.getScreen().getClientWidth() / 4 + 2, 2);
-                splitScreenView(players[1], video.getScreen().getClientWidth() / 4 + 2,
-                                video.getScreen().getClientHeight() / 2 + 2);
-            }
-
-            if (players.size() == 3) {
-                splitScreenView(players[0], 2, 2);
-                splitScreenView(players[1], video.getScreen().getClientWidth() / 2 + 2, 2);
-                splitScreenView(players[2], video.getScreen().getClientWidth() / 4 + 2,
-                                video.getScreen().getClientHeight() / 2 + 2);
-            }
-
-            if (players.size() == 4) {
-                splitScreenView(players[0], 2, 2);
-                splitScreenView(players[1], video.getScreen().getClientWidth() / 2 + 2, 2);
-                splitScreenView(players[2], 2, video.getScreen().getClientHeight() / 2 + 2);
-                splitScreenView(players[3], video.getScreen().getClientWidth() / 2 + 2,
-                                video.getScreen().getClientHeight() / 2 + 2);
-            }
+            player.prepareCam(video, world.getLevel().getWidth(), world.getLevel().getHeight());
+            player.setView(PlayerView(0, 0, video.getScreen().getClientWidth(), video.getScreen().getClientHeight()));
         }
     }
 
@@ -182,7 +146,7 @@ namespace Duel6 {
         for (Player &player : world.getPlayers()) {
             player.updateControllerStatus();
             scriptUpdate(player);
-            player.update(world, game.getSettings().getScreenMode(), elapsedTime);
+            player.update(world, elapsedTime);
             if (game.getSettings().isGhostEnabled() && !player.isInGame() && !player.isGhost()) {
                 player.makeGhost();
             }
@@ -203,11 +167,6 @@ namespace Duel6 {
     }
 
     void Round::keyEvent(const KeyPressEvent &event) {
-        // Switch between fullscreen and split screen mode
-        if (event.getCode() == SDLK_F2 && world.getPlayers().size() < 5) {
-            switchScreenMode();
-        }
-
         // Turn on/off player statistics
         if (event.getCode() == SDLK_F4) {
             game.getSettings().setShowRanking(!game.getSettings().isShowRanking());
@@ -219,13 +178,6 @@ namespace Duel6 {
             std::string name = image.saveScreenshot();
             game.getAppService().getConsole().printLine(Format("Screenshot saved to {0}") << name);
         }
-    }
-
-    void Round::switchScreenMode() {
-        GameSettings &settings = game.getSettings();
-        settings.setScreenMode((settings.getScreenMode() == ScreenMode::FullScreen) ? ScreenMode::SplitScreen
-                                                                                    : ScreenMode::FullScreen);
-        setPlayerViews();
     }
 
     bool Round::isOver() const {

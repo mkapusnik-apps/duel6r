@@ -38,7 +38,6 @@
 #include "input/PlayerControls.h"
 #include "PlayerSounds.h"
 #include "Orientation.h"
-#include "ScreenMode.h"
 #include "Bonus.h"
 #include "Sound.h"
 #include "Video.h"
@@ -104,8 +103,6 @@ namespace Duel6 {
         Person &person;
         PlayerSkin skin;
         Camera camera;
-        Vector cameraFov;
-        Vector cameraTolerance;
         const PlayerAnimations &animations;
         const PlayerSounds &sounds;
         const PlayerControls &controls;
@@ -155,9 +152,9 @@ namespace Duel6 {
 
         void updateControllerStatus();
 
-        void update(World &world, ScreenMode screenMode, Float32 elapsedTime);
+        void update(World &world, Float32 elapsedTime);
 
-        void prepareCam(const Video &video, ScreenMode screenMode, Int32 zoom, Int32 levelSizeX, Int32 levelSizeY);
+        void prepareCam(const Video &video, Int32 levelSizeX, Int32 levelSizeY);
 
         bool hit(Float32 pw); // Returns true if the shot caused the player to die
         bool hitByShot(Float32 pw, Shot &s, bool directHit, const Vector &hitPoint, const Vector &shotVector);
@@ -425,8 +422,6 @@ namespace Duel6 {
         void setAnm();
 
         void unstuck();
-
-        void updateCam(Int32 levelSizeX, Int32 levelSizeY);
 
         void switchToOriginalSkin();
 

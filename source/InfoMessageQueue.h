@@ -47,8 +47,6 @@ namespace Duel6 {
 
         InfoMessageQueue &update(float elapsedTime);
 
-        void renderPlayerMessages(Renderer &renderer, const Player &player, const Font &font) const;
-
         void renderAllMessages(Renderer &renderer, const PlayerView &view, Int32 offsetY, const Font &font) const;
 
         void clear();

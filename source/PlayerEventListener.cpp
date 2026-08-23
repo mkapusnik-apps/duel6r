@@ -81,14 +81,8 @@ namespace Duel6 {
 
     void PlayerEventListener::onKill(Player &player, Player &killer, Shot &shot, bool suicide) {
         if (suicide) {
-            if (gameSettings.getScreenMode() == ScreenMode::SplitScreen) {
-                messageQueue.add(player, Format("killed by suicide of [{0}]") << killer.getPerson().getName());
-            }
             killer.getPerson().addPenalties(1);
         } else {
-            if (gameSettings.getScreenMode() == ScreenMode::SplitScreen) {
-                messageQueue.add(player, Format("killed by [{0}]") << killer.getPerson().getName());
-            }
             killer.getPerson().addKills(1);
             killer.addRoundKills(1);
         }

@@ -34,7 +34,6 @@
 #include <string>
 #include <algorithm>
 #include "Type.h"
-#include "ScreenMode.h"
 #include "Context.h"
 #include "World.h"
 #include "Player.h"
@@ -109,7 +108,7 @@ namespace Duel6 {
         Game(AppService &appService, GameResources &resources, GameSettings &settings);
 
         void start(const std::vector<PlayerDefinition> &playerDefinitions, const std::vector<std::string> &levels,
-                   const std::vector<Size> &backgrounds, ScreenMode screenMode, Int32 screenZoom, GameMode &gameMode);
+                   const std::vector<Size> &backgrounds, GameMode &gameMode);
 
         void keyEvent(const KeyPressEvent &event) override;
 

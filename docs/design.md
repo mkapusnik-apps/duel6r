@@ -7,9 +7,9 @@ Screen-specific requirements are in [`docs/screens`](screens/README.md).
 Screenshot evidence is in [`docs/screenshots`](screenshots/README.md).
 The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a second source of truth.
 
-The current native implementation is the source of truth for this baseline.
-This baseline describes the presentation at branch `feature-documentation-audit-fixes`, capture source SHA `12cd6dca742b90293f552fefa3bfd3a8871aa7a2`.
-The audit date is 2026-08-18.
+The approved product requirements are the source of truth for visual-impact changes.
+The current native implementation remains the source for unchanged visual details.
+This target baseline includes the shared arena view requirements approved on 2026-08-23.
 
 ## Visual principles
 
@@ -31,8 +31,11 @@ The audit date is 2026-08-18.
 - The menu background must fill the complete client area with `#C0C0C0`.
 - The menu must not reflow its internal controls for narrow or wide displays.
 - The gameplay renderer must fill the current client area.
-- Full-screen gameplay must give each player the same complete client-area view.
-- Split-screen gameplay must use the implemented half-screen view rectangles and 4 px red separators.
+- Gameplay must use one undivided arena view for each match.
+- The shared arena view must show the whole level and all players.
+- The shared arena view must support two through 15 players.
+- Each game mode and player count must use the same client-area view model.
+- The gameplay view must not contain player-specific camera regions or camera separators.
 - The implementation does not define a mobile layout.
 - Documentation must not claim mobile support until the implementation defines a mobile viewport and input model.
 - The implementation does not add letterboxing to the menu or the arena.
@@ -75,8 +78,6 @@ The following values come from renderer and GUI source.
 | `summary-inner` | `rgba(0,0,255,0.31)` | Score summary inner panel |
 | `summary-header` | `#0000FF` | Score summary heading strip |
 | `winner-curtain` | animated `rgba(128,0,0,0..0.78)` | Full-screen round-end curtain |
-| `dead-view-curtain` | `rgba(255,0,0,0.50)` | Dead split-screen player view |
-| `split-divider` | `#FF0000` | Split-screen gutters |
 | `console-surface` | `#EEDD00` | Console panel |
 | `console-separator` | `#FF0000` | Console separator text |
 | `console-edge` | `#000000` | Console lower edge |
@@ -157,6 +158,9 @@ The following values come from renderer and GUI source.
 - Team ranking must group named team rows and nested player rows.
 - Team identity must also change headband, trousers, and hair-top colors.
 - Predator identity must use a body alpha of 0.1 while the weapon remains visible.
+- Live ranking must remain available for every supported player count.
+- Event messages, player status, score summaries, and round progress must remain available in the shared arena view.
+- F2 must not change the gameplay view.
 
 ### Blocking menu messages
 
@@ -189,8 +193,6 @@ The following values come from renderer and GUI source.
 - Team names must accompany team colors in rankings.
 - Player names must accompany player color and status cues when their indicators are visible.
 - Living and dead ranking entries use both state-dependent text color and continued row placement.
-- Split-screen player regions must use spatial separation and red boundaries.
-- A dead split-screen view must use a translucent red curtain in addition to the absent live state.
 - Status bars currently rely on color and fill length without text labels.
 - Team apparel currently relies on color during direct arena play.
 - The implementation has no documented focus traversal, focus ring, screen reader output, reduced-motion mode, high-contrast mode, or text scaling mode.
@@ -200,11 +202,9 @@ The following values come from renderer and GUI source.
 
 - The menu must remain a centered fixed canvas on supported desktop display sizes.
 - The gameplay camera must use the current client dimensions.
-- Two-player split-screen must place Player 2 in the upper centered view and Player 1 in the lower centered view.
-- Three-player split-screen must place Player 3 in the upper centered view and Players 1 and 2 in the lower row.
-- Four-player split-screen must place Players 3 and 4 in the upper row and Players 1 and 2 in the lower row.
-- Split-screen must be available only when the match has fewer than five players.
-- More than four players must use the full-screen arena presentation.
+- Every match must keep one undivided arena at each supported desktop viewport.
+- The camera must keep the complete level and all active players in the shared view.
+- A player count change must not create another viewport layout.
 - Overlay panels must calculate their horizontal and vertical centers from the current client dimensions where the source does so.
 
 ## Freshness and change control
@@ -237,7 +237,9 @@ The following values come from renderer and GUI source.
 
 ## Stitch synchronization
 
-No corresponding Duel 6 Reloaded Stitch project was identified on 2026-08-22.
-The available projects had unrelated titles.
-No Stitch design system or screen was changed.
-Project selection remains an open design-workspace question in [GitHub issue #7](https://github.com/mkapusnik-apps/duel6r/issues/7).
+The corresponding Stitch project is `projects/1219346282527961142` (`Duel 6 Reloaded`).
+The project includes screens for Predator, Team gameplay, sudden death, and the score overlay.
+An alignment edit was requested for those four screens on 2026-08-23.
+The Stitch request timed out, so the screen update result is not confirmed.
+The Stitch design system uses an exploratory dark tactical style that does not match this native visual baseline.
+The local native baseline remains authoritative until product approves a style migration.

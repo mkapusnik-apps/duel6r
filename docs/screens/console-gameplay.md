@@ -12,6 +12,7 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 
 - The overlay must match [`console-gameplay.md`](wireframes/console-gameplay.md).
 - The current gameplay frame and overlays must remain rendered behind the console.
+- The gameplay frame must remain one undivided shared arena.
 - The console must span the complete client width at the top of the visible client area.
 - The console must show up to 15 recent history rows.
 - The console must show history, red separator, input prompt, and cursor.
@@ -34,8 +35,8 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 - Text history and prompt structure must supplement console color.
 - The console does not provide a visible pause warning or close control.
 - Console width and height must derive from client and font dimensions.
-- The overlay may appear over full-screen or split-screen gameplay without a separate layout.
-- The representative wireframe uses full-screen gameplay because the console geometry is unchanged.
+- The overlay must use the same geometry for every supported player count and mode.
+- The console must not expose a command or status that activates separate player views.
 
 ## Screenshot link
 

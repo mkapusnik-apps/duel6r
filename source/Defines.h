@@ -71,8 +71,6 @@
 
 #define D6_RAISE_WATER_WAIT      3.0f
 
-#define D6_CAM_TOLPER_X          30
-#define D6_CAM_TOLPER_Y          30
 
 #define D6_MAX_LIFE              100.0f
 #define D6_MAX_AIR               200.0f

@@ -31,14 +31,12 @@
 #include "Type.h"
 #include "FaceList.h"
 #include "Level.h"
-#include "ScreenMode.h"
 
 namespace Duel6 {
     class LevelRenderData {
     private:
         const Level &level;
         Renderer &renderer;
-        ScreenMode screenMode;
         FaceList walls;
         FaceList sprites;
         FaceList water;
@@ -46,7 +44,7 @@ namespace Duel6 {
         Float32 animWait;
 
     public:
-        LevelRenderData(const Level &level, Renderer &renderer, ScreenMode screenMode, Float32 animationSpeed);
+        LevelRenderData(const Level &level, Renderer &renderer, Float32 animationSpeed);
 
         void generateFaces();
 

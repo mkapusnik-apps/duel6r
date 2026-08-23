@@ -12,6 +12,7 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79`, and `so
 
 - The overlay must match [`overlay-round-over.md`](wireframes/overlay-round-over.md).
 - The arena must remain visible behind a dark red curtain.
+- The arena must remain one undivided shared view.
 - The centered score panel must use the same structure as the score-tab overlay.
 - Outcome event messages may remain visible with the arena overlays.
 - The round counter must remain visible when a finite limit exists.
@@ -21,6 +22,7 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79`, and `so
 - A sole Deathmatch survivor must receive `You have won!`.
 - A no-winner result must produce `End of round - no winner`.
 - Predator and team modes must use their implemented outcome messages.
+- Deathmatch, Predator, and Team deathmatch must use the same shared arena overlay geometry.
 - The dark red curtain must fade in during the game-over wait.
 - F1 must advance after a winner exists when the round is not final.
 - Shift+F1 must advance before the normal winner condition permits it.

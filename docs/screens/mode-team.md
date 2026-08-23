@@ -11,6 +11,8 @@ Primary source is `source/gamemodes/TeamDeathMatch.cpp`.
 ## Layout and hierarchy
 
 - The state must use the arena structure in [`mode-team.md`](wireframes/mode-team.md).
+- The arena must remain one undivided view for every team count and roster size.
+- The arena must show all players.
 - Player assignment must alternate by roster index across the selected team count.
 - Team color must override headband, trousers, and hair-top color.
 - A player with no hair or short hair must receive a headband before the team color is applied.
@@ -34,8 +36,8 @@ Primary source is `source/gamemodes/TeamDeathMatch.cpp`.
 - Standard gameplay controls and overlays must remain available.
 - Team names in ranking must supplement team colors.
 - Team apparel uses color without an in-world text team label.
-- The viewport must follow standard full-screen or split-screen rules.
-- The representative wireframe uses two teams in full-screen mode because all team counts use the same ranking layout.
+- The viewport must follow the shared arena rules for every supported player count.
+- The representative wireframe uses two teams because all team counts use the same ranking layout.
 
 ## Screenshot link
 

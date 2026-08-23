@@ -509,10 +509,6 @@ namespace Duel6 {
             backgrounds.push_back(i);
         }
 
-        // Screen
-        ScreenMode screenMode = ScreenMode::FullScreen;
-        Int32 screenZoom = 13;
-
         // Clear elo trend
         for (auto &person : persons.list()) {
             person.setEloTrend(0);
@@ -520,7 +516,7 @@ namespace Duel6 {
 
         // Start
         Context::push(*game);
-        game->start(playerDefinitions, levels, backgrounds, screenMode, screenZoom, selectedMode);
+        game->start(playerDefinitions, levels, backgrounds, selectedMode);
     }
 
     bool Menu::validateStartPrerequisites(const std::vector<std::string> &levels) {

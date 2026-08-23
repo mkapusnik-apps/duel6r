@@ -1,11 +1,11 @@
 # OVER-02 wireframe — Round-over summary
 
 Representative viewport: 1280 by 900 debug client.
-This non-final result retains the arena and adds the winner curtain and score panel.
+This non-final result retains the undivided shared arena and adds the winner curtain and score panel.
 The screen has no mobile layout, so this single desktop wireframe covers the implemented overlay.
 
 ```text
-┌──────────────────────── arena under dark red curtain ──────────────────────────┐
+┌───────────────── undivided shared arena under dark red curtain ────────────────┐
 │ winner event text                                     round counter             │
 │                                                                                │
 │                 ┌──────────────────────────────────────┐                       │
@@ -19,5 +19,7 @@ The screen has no mobile layout, so this single desktop wireframe covers the imp
 │                     next-round input has no visible prompt                      │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+Deathmatch, Predator, and Team outcomes use this overlay geometry.
 
 Representative screenshot: [`SS-011`](../../screenshots/README.md#ss-011).
