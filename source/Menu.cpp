@@ -119,8 +119,8 @@ namespace Duel6 {
         gameSettingsPanel->setPosition(650, 578, 190, 326);
         gameSettingsPanel->setCaption("GAME SETTINGS");
 
-        scoreListBox = new Gui::ListBox(gui, false);
-        scoreListBox->setPosition(10, 222, 103, 8, 16);
+        scoreListBox = new Gui::ListBox(gui, true);
+        scoreListBox->setPosition(10, 222, 101, 8, 16);
 
         personListBox = new Gui::ListBox(gui, true);
         personListBox->setPosition(204, 553, 20, 12, 18);
@@ -134,8 +134,8 @@ namespace Duel6 {
             removePlayer(index);
         });
 
-        eloListBox = new Gui::ListBox(gui, false);
-        eloListBox->setPosition(14, 553, 22, 15, 18);
+        eloListBox = new Gui::ListBox(gui, true);
+        eloListBox->setPosition(14, 553, 20, 15, 18);
 
         loadPersonProfiles(D6_FILE_PROFILES);
 
@@ -242,8 +242,12 @@ namespace Duel6 {
 
         initializeGameModes();
         gameModeSwitch = new Gui::Spinner(gui);
-        for (auto &gameMode : gameModes) {
-            gameModeSwitch->addItem(gameMode->getName());
+        for (Size i = 0; i < gameModes.size(); i++) {
+            if (i < 2) {
+                gameModeSwitch->addItem(gameModes[i]->getName());
+            } else {
+                gameModeSwitch->addItem(Format("{0} teams, FF: {1}") << (1 + i / 2) << (i % 2 ? "on" : "off"));
+            }
         }
         gameModeSwitch->setPosition(654, 540, 182, 20);
         gameModeSwitch->onToggled([this](Int32 selectedIndex) {
@@ -357,7 +361,7 @@ namespace Duel6 {
             auto trend = person->getEloTrend();
             auto sign = trend > 0 ? "+" : "-";
             std::string trendStr = trend == 0 ? std::string() : Format("{0}{1}") << sign << std::abs(trend);
-            eloListBox->addItem(Format("{0,2|0} {1,-10} {2,4} {3,3}") << index << person->getName() << person->getElo() << trendStr);
+            eloListBox->addItem(Format("{0,2|0} {1,-8} {2,4} {3,3}") << index << person->getName() << person->getElo() << trendStr);
             index++;
         }
     }
