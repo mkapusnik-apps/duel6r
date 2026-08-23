@@ -361,7 +361,7 @@ namespace Duel6 {
             auto trend = person->getEloTrend();
             auto sign = trend > 0 ? "+" : "-";
             std::string trendStr = trend == 0 ? std::string() : Format("{0}{1}") << sign << std::abs(trend);
-            eloListBox->addItem(Format("{0,2|0} {1,-8} {2,4} {3,3}") << index << person->getName() << person->getElo() << trendStr);
+            eloListBox->addItem(Format("{0,2|0}{1,-10}{2,4}{3,4}") << index << person->getName() << person->getElo() << trendStr);
             index++;
         }
     }
