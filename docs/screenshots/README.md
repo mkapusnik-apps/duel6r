@@ -44,6 +44,17 @@ The PR #22 retro-menu packet has this provenance:
 - Runtime setup: normal startup loaded four saved people with two selected players, persistent Elo and score data, Deathmatch, Assistance on, Quick Liquid on, and Rounds `0`; F3 opened the documented confirmation, and backquote opened the console.
 - Artifact paths: `MENU-01/default-1706x938.png`, `MENU-02/confirmation-1706x938.png`, and `CONS-01/open-1706x938.png` under this directory.
 
+The player-count replacement captures have this provenance:
+
+- Branch: `feature/menu-redesign`.
+- Implementation source SHA: `3b44dc2cfc912e8ff40a068ea83d78e0fd61f819`.
+- Screenshot artifact commit: `b62a97afc16b6449cc0c3657438ad898caf230f0`.
+- Environment: Release, GL4, Lua enabled, Ubuntu 24.04 Docker, Mesa software rendering, and Xvfb.
+- Viewport: 1706 by 938 px.
+- Worktree state: the implementation worktree was clean at the source SHA; capture used a Docker-built runtime bundle and the same deterministic saved-person fixture as the original packet.
+- Runtime setup: normal startup loaded four saved people with two selected players, persistent Elo and score data, Deathmatch, Assistance on, Quick Liquid on, and Rounds `0`; F3 opened the documented confirmation.
+- Recaptured artifact paths: `MENU-01/default-1706x938.png` and `MENU-02/confirmation-1706x938.png` under this directory. `CONS-01/open-1706x938.png` was not recaptured.
+
 The fresh shared-arena packet has this provenance:
 
 - Branch: `feature/remove-split-screen`.
