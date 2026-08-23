@@ -273,6 +273,8 @@ set(D6R_SOURCES
         source/gui/Label.h
         source/gui/ListBox.cpp
         source/gui/ListBox.h
+        source/gui/Panel.cpp
+        source/gui/Panel.h
         source/gui/Slider.cpp
         source/gui/Slider.h
         source/gui/Spinner.cpp

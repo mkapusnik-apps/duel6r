@@ -171,15 +171,19 @@ assert_report_width() {
   local left=$((640 - expected_width / 2))
   local right=$((left + expected_width - 1))
   local center_y=450
-  local left_pixel right_pixel outside_left outside_right
+  local left_pixel right_pixel inside_left inside_right
   left_pixel="$(identify -format "%[pixel:p{${left},${center_y}}]" "$screenshot")"
   right_pixel="$(identify -format "%[pixel:p{${right},${center_y}}]" "$screenshot")"
-  outside_left="$(identify -format "%[pixel:p{$((left - 2)),${center_y}}]" "$screenshot")"
-  outside_right="$(identify -format "%[pixel:p{$((right + 2)),${center_y}}]" "$screenshot")"
+  inside_left="$(identify -format "%[pixel:p{$((left + 3)),${center_y}}]" "$screenshot")"
+  inside_right="$(identify -format "%[pixel:p{$((right - 3)),${center_y}}]" "$screenshot")"
   [[ "$left_pixel" == *"(0,0,0"* && "$right_pixel" == *"(0,0,0"* ]] \
     || fail "$label does not have the expected framed report width ${expected_width}"
-  [[ "$outside_left" != "$left_pixel" && "$outside_right" != "$right_pixel" ]] \
-    || fail "$label report extends outside expected width ${expected_width}"
+  # The redesigned fixed-size menu intentionally uses a black matte outside
+  # its 850x700 canvas. Long reports extend into that matte, so pixels outside
+  # the black frame no longer distinguish the frame boundary. Verify the pink
+  # report body immediately inside both expected edges instead.
+  [[ "$inside_left" != "$left_pixel" && "$inside_right" != "$right_pixel" ]] \
+    || fail "$label does not fill inside expected width ${expected_width}"
 }
 
 close_cleanly() {
@@ -230,8 +234,8 @@ rm -f "${scenario_dir}/levels/"*.json
 start_app "$scenario_dir"
 # Exercise preservation with non-default visible settings: toggle Quick Liquid
 # and advance the selected mode once before attempting Play.
-xdotool mousemove 817 332 click 1
-xdotool mousemove 999 277 click 1
+xdotool mousemove 877 332 click 1
+xdotool mousemove 1043 269 click 1
 sleep 0.5
 capture "${scenario_dir}/menu-before.png"
 xdotool key F1

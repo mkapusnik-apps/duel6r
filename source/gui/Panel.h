@@ -25,49 +25,32 @@
 * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef DUEL6_GUI_DESKTOP_H
-#define DUEL6_GUI_DESKTOP_H
+#ifndef DUEL6_GUI_PANEL_H
+#define DUEL6_GUI_PANEL_H
 
-#include <memory>
-#include "../SysEvent.h"
 #include "Control.h"
 
 namespace Duel6 {
     namespace Gui {
-        class Desktop {
+        class Panel : public Control {
         private:
-            Renderer &renderer;
-            Int32 screenWidth;
-            Int32 screenHeight;
-            Int32 canvasWidth;
-            Int32 canvasHeight;
-            Int32 trX; // x translation
-            Int32 trY; // y translation
-            std::vector<std::unique_ptr<Control>> controls;
+            Int32 width;
+            Int32 height;
+            std::string caption;
 
         public:
-            Desktop(Renderer &renderer);
+            explicit Panel(Desktop &desk);
 
-            ~Desktop();
+            Type getType() const override {
+                return Type::Panel;
+            }
 
-            void screenSize(Int32 scrWidth, Int32 scrHeight, Int32 canvasWidth, Int32 canvasHeight,
-                            Int32 trX, Int32 trY);
+            void setPosition(Int32 x, Int32 y, Int32 width, Int32 height);
 
-            void update(Float32 elpasedTime);
+            void setCaption(const std::string &caption);
 
-            void draw(const Font &font) const;
-
-            void keyEvent(const KeyPressEvent &event);
-
-            void textInputEvent(const TextInputEvent &event);
-
-            void mouseButtonEvent(const MouseButtonEvent &event);
-
-            void mouseMotionEvent(const MouseMotionEvent &event);
-
-            void mouseWheelEvent(const MouseWheelEvent &event);
-
-            void addControl(Control *control);
+        protected:
+            void draw(Renderer &renderer, const Font &font) const override;
         };
     }
 }

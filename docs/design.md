@@ -9,7 +9,7 @@ The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a seco
 
 The approved product requirements are the source of truth for visual-impact changes.
 The current native implementation remains the source for unchanged visual details.
-This target baseline includes the shared arena view requirements approved on 2026-08-23.
+This target baseline includes the shared arena view requirements and the retro menu layout approved on 2026-08-23.
 
 ## Visual principles
 
@@ -28,7 +28,8 @@ This target baseline includes the shared arena view requirements approved on 202
 - The release build must use the current display width and height in exclusive full-screen mode.
 - The debug build must use a 1280 by 900 window.
 - The menu must center its fixed 850 by 700 logical canvas in the current client area.
-- The menu background must fill the complete client area with `#C0C0C0`.
+- The client area outside the menu canvas must use `#000000`.
+- The 850 by 700 menu canvas must use `#C0C0C0`.
 - The menu must not reflow its internal controls for narrow or wide displays.
 - The gameplay renderer must fill the current client area.
 - Gameplay must use one undivided arena view for each match.
@@ -38,7 +39,8 @@ This target baseline includes the shared arena view requirements approved on 202
 - The gameplay view must not contain player-specific camera regions or camera separators.
 - The implementation does not define a mobile layout.
 - Documentation must not claim mobile support until the implementation defines a mobile viewport and input model.
-- The implementation does not add letterboxing to the menu or the arena.
+- The menu must use the black area around its fixed canvas as an intentional matte.
+- The gameplay renderer must not add letterboxing.
 - A capture must show the complete client area without external window chrome unless the environment requires windowed debug mode.
 
 ## Typography
@@ -59,8 +61,11 @@ The following values come from renderer and GUI source.
 
 | Token | Value | Implemented use |
 |---|---:|---|
-| `menu-surface` | `#C0C0C0` | Complete menu background |
+| `menu-matte` | `#000000` | Client area outside the fixed menu canvas |
+| `menu-surface` | `#C0C0C0` | Fixed menu canvas and control surfaces |
 | `menu-label-surface` | `#AAAAAA` | Label strip background |
+| `menu-panel-header` | `#0000C8` | Setup panel title strips |
+| `menu-panel-header-text` | `#FFFFFF` | Setup panel title text |
 | `field-surface` | `#FFFFFF` | List, spinner, and text field surface |
 | `text-default` | `#000000` | Menu and console text |
 | `frame-light` | `#EBEBEB` | Raised top and left edges |
@@ -95,6 +100,9 @@ The following values come from renderer and GUI source.
 - Controls must use the implemented two-line light and dark frame.
 - A pressed control must reverse the light and dark frame and must offset its caption by 1 px.
 - The menu must use compact control spacing and must not add decorative whitespace.
+- The menu must use four raised panel groups for Elo scoreboard, Persons, Players, and Game Settings.
+- Each setup panel must use the blue panel header and white panel header text.
+- The Players panel must keep each player next to that player's control assignment.
 - Gameplay overlays must use flat translucent fills without drop shadows.
 - The score summary must use two translucent rectangular layers and a solid blue heading strip.
 - New documentation must not specify rounded corners, shadows, gradients, or blur that the implementation does not provide.
@@ -102,7 +110,9 @@ The following values come from renderer and GUI source.
 ## Imagery and assets
 
 - The menu must use the animated stack at `resources/textures/menu/` as its banner source.
-- The menu banner must render at 200 by 95 px near the upper center of the client area.
+- The menu banner must render at 200 by 95 px near the upper center of the menu canvas.
+- The menu must show the runtime application version with the banner.
+- The menu must not use a version value, person name, score value, or copyright line from a Stitch sample.
 - Gameplay must use the indexed images in `resources/textures/backgrounds/` behind level geometry.
 - Gameplay must use level geometry from `resources/levels/*.json` and block definitions from `resources/data/blocks.json`.
 - Gameplay must use `resources/textures/blocks/`, `resources/textures/man/`, `resources/textures/weapon/`, `resources/textures/bonus/`, and `resources/textures/elevator/` for visible world objects.
@@ -189,6 +199,8 @@ The following values come from renderer and GUI source.
 
 - Documentation must identify keyboard-only actions and mouse-only actions.
 - Visible shortcut labels such as `F1`, `F3`, and `ESC` must remain in button captions.
+- The menu action captions must use `Play (F1)`, `Clear (F3)`, and `Quit (ESC)`.
+- The menu action captions must not place a bracketed shortcut before the action name.
 - A confirmation must show `Y/N` in its message.
 - Team names must accompany team colors in rankings.
 - Player names must accompany player color and status cues when their indicators are visible.
@@ -201,6 +213,8 @@ The following values come from renderer and GUI source.
 ## Responsive behavior
 
 - The menu must remain a centered fixed canvas on supported desktop display sizes.
+- A supported menu client area must be at least 850 by 700 px.
+- A larger desktop client area must increase only the black matte around the menu canvas.
 - The gameplay camera must use the current client dimensions.
 - Every match must keep one undivided arena at each supported desktop viewport.
 - The camera must keep the complete level and all active players in the shared view.
@@ -238,8 +252,12 @@ The following values come from renderer and GUI source.
 ## Stitch synchronization
 
 The corresponding Stitch project is `projects/1219346282527961142` (`Duel 6 Reloaded`).
-The project includes screens for Predator, Team gameplay, sudden death, and the score overlay.
+The project includes two `MENU-01 — Main menu and session setup` explorations at screens `681ae093051749fd922ab74454f47121` and `e26294cba3d946a0af458bcf33c275a0`.
+Screen `681ae093051749fd922ab74454f47121` is the visual reference for the retro grey canvas, black matte, four-panel hierarchy, score table, and footer actions.
+The application behavior and copy in `docs/features.md` override illustrative Stitch names, statistics, settings, version text, and shortcut syntax.
+The project also includes screens for Predator, Team gameplay, sudden death, and the score overlay.
 An alignment edit was requested for those four screens on 2026-08-23.
 The Stitch request timed out, so the screen update result is not confirmed.
 The Stitch design system uses an exploratory dark tactical style that does not match this native visual baseline.
-The local native baseline remains authoritative until product approves a style migration.
+The retro `MENU-01` screen direction is an approved screen-specific exception to that exploratory design system.
+This file and `docs/features.md` remain authoritative for implementation details that the Stitch samples do not represent accurately.

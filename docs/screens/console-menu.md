@@ -12,6 +12,7 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 
 - The overlay must match [`console-menu.md`](wireframes/console-menu.md).
 - The complete menu must remain rendered behind the console.
+- The visible menu area behind the console must use the approved black matte and four-panel canvas.
 - The console must span the complete client width at the top of the visible client area.
 - The console must show up to 15 recent history rows.
 - A red separator must sit between history and input.
@@ -35,6 +36,7 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 - The console does not provide completion hints or a visible close control.
 - Console width must recalculate from client width and font character width.
 - Console height must derive from font character height and visible-row count.
+- The menu canvas under the console must remain centered in the complete client area.
 - No mobile layout exists, so one desktop wireframe is sufficient.
 
 ## Screenshot link

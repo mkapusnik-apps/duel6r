@@ -100,45 +100,61 @@ namespace Duel6 {
         menuBannerTexture = appService.getTextureManager().loadStack(D6_TEXTURE_MENU_PATH, TextureFilter::Linear, true);
         appService.getConsole().printLine("...Starting GUI library");
         gui.screenSize(video.getScreen().getClientWidth(), video.getScreen().getClientHeight(),
+                       D6_MENU_WIDTH, D6_MENU_HEIGHT,
                        (video.getScreen().getClientWidth() - D6_MENU_WIDTH) / 2,
                        (video.getScreen().getClientHeight() - D6_MENU_HEIGHT) / 2);
 
+        auto eloPanel = new Gui::Panel(gui);
+        eloPanel->setPosition(10, 578, 185, 326);
+        eloPanel->setCaption("ELO SCOREBOARD");
+
+        auto personsPanel = new Gui::Panel(gui);
+        personsPanel->setPosition(200, 578, 185, 326);
+        personsPanel->setCaption("PERSONS");
+
+        playersPanel = new Gui::Panel(gui);
+        playersPanel->setPosition(390, 578, 255, 326);
+
+        auto gameSettingsPanel = new Gui::Panel(gui);
+        gameSettingsPanel->setPosition(650, 578, 190, 326);
+        gameSettingsPanel->setCaption("GAME SETTINGS");
+
         scoreListBox = new Gui::ListBox(gui, true);
-        scoreListBox->setPosition(10, 199, 103, 12, 16);
+        scoreListBox->setPosition(10, 222, 101, 8, 16);
 
         personListBox = new Gui::ListBox(gui, true);
-        personListBox->setPosition(210, 539, 18, 15, 18);
+        personListBox->setPosition(204, 553, 20, 12, 18);
         personListBox->onDoubleClick([this](Int32 index, const std::string &item) {
             addPlayer(index);
         });
 
         playerListBox = new Gui::ListBox(gui, false);
-        playerListBox->setPosition(370, 541, 13, D6_MAX_PLAYERS, 18);
+        playerListBox->setPosition(394, 553, 10, D6_MAX_PLAYERS, 18);
         playerListBox->onDoubleClick([this](Int32 index, const std::string &item) {
             removePlayer(index);
         });
 
         eloListBox = new Gui::ListBox(gui, true);
-        eloListBox->setPosition(10, 539, 23, 15, 18);
+        eloListBox->setPosition(14, 553, 20, 15, 18);
 
         loadPersonProfiles(D6_FILE_PROFILES);
 
         auto addPlayerButton = new Gui::Button(gui);
-        addPlayerButton->setPosition(390, 253, 80, 25);
+        addPlayerButton->setPosition(294, 301, 35, 25);
         addPlayerButton->setCaption(">>");
         addPlayerButton->onClick([this](Gui::Button &) {
             addPlayer(personListBox->selectedIndex());
         });
 
         auto removePlayerButton = new Gui::Button(gui);
-        removePlayerButton->setPosition(300, 253, 85, 25);
+        removePlayerButton->setPosition(257, 301, 35, 25);
         removePlayerButton->setCaption("<<");
         removePlayerButton->onClick([this](Gui::Button &) {
             removePlayer(playerListBox->selectedIndex());
         });
 
         auto removePersonButton = new Gui::Button(gui);
-        removePersonButton->setPosition(210, 253, 85, 25);
+        removePersonButton->setPosition(204, 301, 51, 25);
         removePersonButton->setCaption("Remove");
         removePersonButton->onClick([this](Gui::Button &) {
             deletePerson();
@@ -146,21 +162,21 @@ namespace Duel6 {
         });
 
         auto addPersonButton = new Gui::Button(gui);
-        addPersonButton->setPosition(475, 253, 80, 25);
+        addPersonButton->setPosition(331, 301, 50, 25);
         addPersonButton->setCaption("Add");
         addPersonButton->onClick([this](Gui::Button &) {
             addPerson();
         });
 
         auto playButton = new Gui::Button(gui);
-        playButton->setPosition(350, 0, 150, 50);
+        playButton->setPosition(50, 70, 150, 50);
         playButton->setCaption("Play (F1)");
         playButton->onClick([this](Gui::Button &) {
             play();
         });
 
         auto clearButton = new Gui::Button(gui);
-        clearButton->setPosition(505, 0, 150, 50);
+        clearButton->setPosition(350, 70, 150, 50);
         clearButton->setCaption("Clear (F3)");
         clearButton->onClick([this](Gui::Button &) {
             if (deleteQuestion()) {
@@ -169,59 +185,44 @@ namespace Duel6 {
         });
 
         auto quitButton = new Gui::Button(gui);
-        quitButton->setPosition(660, 0, 150, 50);
+        quitButton->setPosition(650, 70, 150, 50);
         quitButton->setCaption("Quit (ESC)");
         quitButton->onClick([this](Gui::Button &) {
             close();
         });
 
         auto scoreLabel = new Gui::Label(gui);
-        scoreLabel->setPosition(10, 219, 830, 18);
+        scoreLabel->setPosition(10, 243, 830, 18);
         scoreLabel->setCaption(
                 "    Name   |   Elo | Pts | Win | Kill | Assist | Pen | Death |  K/D | Shot | Acc. | GmTm |  Dmg ");
-
-        auto eloLabel = new Gui::Label(gui);
-        eloLabel->setPosition(10, 560, 185, 18);
-        eloLabel->setCaption("Elo scoreboard");
-
-        auto personsLabel = new Gui::Label(gui);
-        personsLabel->setPosition(210, 560, 145, 18);
-        personsLabel->setCaption("Persons");
-
-        playersLabel = new Gui::Label(gui);
-        playersLabel->setPosition(370, 560, 88, 18);
 
         updatePlayerCount();
 
         Gui::Button *shuffleButton = new Gui::Button(gui);
         shuffleButton->setCaption("S");
-        shuffleButton->setPosition(477, 560, 17, 17);
+        shuffleButton->setPosition(413, 274, 17, 17);
         shuffleButton->onClick([this](Gui::Button &) {
             shufflePlayers();
         });
 
         Gui::Button *eloShuffleButton = new Gui::Button(gui);
         eloShuffleButton->setCaption("E");
-        eloShuffleButton->setPosition(460, 560, 17, 17);
+        eloShuffleButton->setPosition(394, 274, 17, 17);
         eloShuffleButton->onClick([this](Gui::Button &) {
             eloShufflePlayers();
         });
 
-        auto controllerLabel = new Gui::Label(gui);
-        controllerLabel->setPosition(500, 560, 90, 18);
-        controllerLabel->setCaption("Controller");
-
         textbox = new Gui::Textbox(gui);
-        textbox->setPosition(560, 252, 14, 10, D6_ALL_CHR);
+        textbox->setPosition(204, 326, 20, 10, D6_ALL_CHR);
 
         // Player controls
         for (Size i = 0; i < D6_MAX_PLAYERS; i++) {
             controlSwitch[i] = new Gui::Spinner(gui);
-            controlSwitch[i]->setPosition(500, 539 - Int32(i) * 18, 90, 0);
+            controlSwitch[i]->setPosition(478, 553 - Int32(i) * 18, 142, 0);
 
             Gui::Button *button = new Gui::Button(gui);
             button->setCaption("D");
-            button->setPosition(590, 537 - Int32(i) * 18, 17, 17);
+            button->setPosition(623, 552 - Int32(i) * 18, 17, 17);
             button->onClick([this, i](Gui::Button &) {
                 detectControls(i);
             });
@@ -230,7 +231,7 @@ namespace Duel6 {
         // Button to detect all user's controllers in a batch
         Gui::Button *button = new Gui::Button(gui);
         button->setCaption("D");
-        button->setPosition(590, 558, 17, 17);
+        button->setPosition(623, 274, 17, 17);
         button->onClick([this](Gui::Button &) {
             joyRescan();
             Size curPlayersCount = playerListBox->size();
@@ -241,10 +242,14 @@ namespace Duel6 {
 
         initializeGameModes();
         gameModeSwitch = new Gui::Spinner(gui);
-        for (auto &gameMode : gameModes) {
-            gameModeSwitch->addItem(gameMode->getName());
+        for (Size i = 0; i < gameModes.size(); i++) {
+            if (i < 2) {
+                gameModeSwitch->addItem(gameModes[i]->getName());
+            } else {
+                gameModeSwitch->addItem(Format("{0} teams, FF: {1}") << (1 + i / 2) << (i % 2 ? "on" : "off"));
+            }
         }
-        gameModeSwitch->setPosition(594, 532, 200, 20);
+        gameModeSwitch->setPosition(654, 540, 182, 20);
         gameModeSwitch->onToggled([this](Int32 selectedIndex) {
             if (selectedIndex < 2) {
                 playerListBox->onColorize(Gui::ListBox::defaultColorize);
@@ -256,22 +261,18 @@ namespace Duel6 {
             }
         });
 
-        auto gameSettingsLabel = new Gui::Label(gui);
-        gameSettingsLabel->setPosition(594, 560, 210, 18);
-        gameSettingsLabel->setCaption("Game Settings");
-
         globalAssistanceCheckBox = new Gui::CheckBox(gui, true);
         globalAssistanceCheckBox->setLabel("Assistance");
-        globalAssistanceCheckBox->setPosition(594, 504, 170, 20);
+        globalAssistanceCheckBox->setPosition(654, 510, 170, 20);
 
         quickLiquidCheckBox = new Gui::CheckBox(gui, true);
         quickLiquidCheckBox->setLabel("Quick Liquid");
-        quickLiquidCheckBox->setPosition(594, 476, 170, 20);
+        quickLiquidCheckBox->setPosition(654, 482, 170, 20);
 
         roundsTextbox = new Gui::Textbox(gui);
         roundsTextbox->setLabel("Rounds");
-        roundsTextbox->setLabelLeft(false);
-        roundsTextbox->setPosition(594, 452, 2, 4, D6_NUM_CHR);
+        roundsTextbox->setLabelLeft(true);
+        roundsTextbox->setPosition(792, 452, 4, 4, D6_NUM_CHR);
         updateRoundsTextbox();
 
         backgroundCount = File::countFiles(D6_TEXTURE_BCG_PATH);
@@ -360,7 +361,7 @@ namespace Duel6 {
             auto trend = person->getEloTrend();
             auto sign = trend > 0 ? "+" : "-";
             std::string trendStr = trend == 0 ? std::string() : Format("{0}{1}") << sign << std::abs(trend);
-            eloListBox->addItem(Format("{0,2|0} {1,-11} {2,4} {3,4}") << index << person->getName() << person->getElo() << trendStr);
+            eloListBox->addItem(Format("{0,2|0}{1,-10}{2,4}{3,4}") << index << person->getName() << person->getElo() << trendStr);
             index++;
         }
     }
@@ -578,7 +579,7 @@ namespace Duel6 {
     }
 
     void Menu::updatePlayerCount() {
-        playersLabel->setCaption(Format("Players {0,3}") << playerListBox->size());
+        playersPanel->setCaption("PLAYERS " + std::to_string(playerListBox->size()) + "  CONTROLLER");
     }
 
     void Menu::updateRoundsTextbox() {
@@ -646,14 +647,13 @@ namespace Duel6 {
 
         gui.draw(font);
 
-        renderer.setViewMatrix(Matrix::translate(Float32(trX), -Float32(trY), 0));
+        renderer.setViewMatrix(Matrix::translate(Float32(trX), Float32(trY), 0));
 
-        font.print(687, video.getScreen().getClientHeight() - 20, Color::WHITE,
-                   Format("{0} {1}") << "version" << APP_VERSION);
+        std::string version = Format("{0} {1}") << "version" << APP_VERSION;
+        font.print((D6_MENU_WIDTH - Int32(version.size()) * 8) / 2, 581, Color::BLACK, version);
 
-        Int32 clientHeight = video.getScreen().getClientHeight();
         Material material = Material::makeTexture(menuBannerTexture);
-        renderer.quadXY(Vector(300, clientHeight - 100), Vector(200, 95), Vector(0, 1), Vector(1, -1), material);
+        renderer.quadXY(Vector(325, 600), Vector(200, 95), Vector(0, 1), Vector(1, -1), material);
 
         renderer.setViewMatrix(Matrix::IDENTITY);
     }

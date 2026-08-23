@@ -23,3 +23,18 @@ set_tests_properties(
     RUN_SERIAL TRUE
     TIMEOUT 420
 )
+
+add_test(
+    NAME menu-redesign-behavior
+    COMMAND ${D6R_BASH_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/MenuRedesignBehaviorTests.sh
+)
+set_tests_properties(
+    menu-redesign-behavior
+    PROPERTIES
+    ENVIRONMENT
+        "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/menu-redesign-behavior;DISPLAY=:96"
+    LABELS "application;regression;e2e;menu"
+    RUN_SERIAL TRUE
+    TIMEOUT 300
+)

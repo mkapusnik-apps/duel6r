@@ -6,7 +6,8 @@ The screen builds the local roster, assigns controls, selects match settings, sh
 Entry occurs when the application starts or when gameplay closes.
 Exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action.
 The screen implements `SET-001`–`SET-023`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, and `PER-001`–`PER-005` from [`docs/features.md`](../features.md).
-Primary sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`, and `resources/textures/menu/`.
+The visual source is Stitch screen `681ae093051749fd922ab74454f47121` in project `1219346282527961142`.
+Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`, and `resources/textures/menu/`.
 
 ## Prerequisites
 
@@ -20,11 +21,18 @@ Primary sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`,
 ## Layout and hierarchy
 
 - The screen must use the centered 850 by 700 menu canvas from [`menu-main.md`](wireframes/menu-main.md).
-- The upper area must contain the banner and version text.
-- The setup row must contain the Elo list, Persons list, Players list, controller spinners, and Game Settings.
-- The person action row must contain `Remove`, `<<`, `>>`, `Add`, and the person-name field.
+- The client area outside the menu canvas must use the black matte.
+- The upper area must contain the existing 200 by 95 px animated banner and runtime version text.
+- The setup row must contain four panel groups in this order: Elo scoreboard, Persons, Players, and Game Settings.
+- Each setup panel must use a blue title strip with white text.
+- The Persons panel must contain the available-person list, person-name field, `Remove`, `<<`, `>>`, and `Add`.
+- The Players panel must contain the selected-player list, each player's control spinner, each player's `D` action, the `E` action, the `S` action, and the batch `D` action.
+- The Players panel must align each control spinner and `D` action with the applicable player row.
+- The Game Settings panel must contain the mode spinner, Assistance checkbox, Quick Liquid checkbox, and Rounds field.
 - The full persistent score table must span the middle width.
 - The bottom action row must contain `Play (F1)`, `Clear (F3)`, and `Quit (ESC)`.
+- The bottom action row must use action-first captions.
+- The screen must not use `[F1] PLAY`, `[F3] CLEAR`, or `[ESC] QUIT`.
 
 ## Visible behavior and state variants
 
@@ -46,6 +54,9 @@ Primary sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`,
 - A new Play attempt may repeat the prerequisite check.
 - The Play action must not enter `PLAY-01` while either prerequisite is missing.
 - A valid start must keep the existing prompt and entry flow unchanged.
+- The visible version must come from the runtime application version.
+- Names, statistics, and settings in the Stitch screen are examples only.
+- The screen must not add a copyright line from the Stitch sample.
 
 ## Controls and focus
 
@@ -67,6 +78,8 @@ Primary sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`,
 - Team rows must use color and ordered team assignment, but the menu does not add team-name text to each player row.
 - The canvas must remain centered at desktop client sizes.
 - The internal layout must not reflow.
+- A 1706 by 938 px client must show a 428 px black matte on the left and right and a 119 px black matte above and below the 850 by 700 px canvas.
+- A supported client must be at least 850 by 700 px.
 - No mobile layout exists, so one desktop wireframe is sufficient.
 
 ## Screenshot link
