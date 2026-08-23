@@ -579,7 +579,7 @@ namespace Duel6 {
     }
 
     void Menu::updatePlayerCount() {
-        playersPanel->setCaption(Format("PLAYERS {0,2}  CONTROLLER") << playerListBox->size());
+        playersPanel->setCaption("PLAYERS " + std::to_string(playerListBox->size()) + "  CONTROLLER");
     }
 
     void Menu::updateRoundsTextbox() {
