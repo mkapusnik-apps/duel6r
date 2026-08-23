@@ -25,51 +25,35 @@
 * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef DUEL6_GUI_DESKTOP_H
-#define DUEL6_GUI_DESKTOP_H
-
-#include <memory>
-#include "../SysEvent.h"
-#include "Control.h"
+#include "Panel.h"
+#include "Desktop.h"
+#include "../Video.h"
 
 namespace Duel6 {
     namespace Gui {
-        class Desktop {
-        private:
-            Renderer &renderer;
-            Int32 screenWidth;
-            Int32 screenHeight;
-            Int32 canvasWidth;
-            Int32 canvasHeight;
-            Int32 trX; // x translation
-            Int32 trY; // y translation
-            std::vector<std::unique_ptr<Control>> controls;
+        namespace {
+            Color panelHeaderColor(0, 0, 200);
+        }
 
-        public:
-            Desktop(Renderer &renderer);
+        Panel::Panel(Desktop &desk)
+                : Control(desk) {
+        }
 
-            ~Desktop();
+        void Panel::setPosition(Int32 x, Int32 y, Int32 width, Int32 height) {
+            this->x = x;
+            this->y = y;
+            this->width = width;
+            this->height = height;
+        }
 
-            void screenSize(Int32 scrWidth, Int32 scrHeight, Int32 canvasWidth, Int32 canvasHeight,
-                            Int32 trX, Int32 trY);
+        void Panel::setCaption(const std::string &caption) {
+            this->caption = caption;
+        }
 
-            void update(Float32 elpasedTime);
-
-            void draw(const Font &font) const;
-
-            void keyEvent(const KeyPressEvent &event);
-
-            void textInputEvent(const TextInputEvent &event);
-
-            void mouseButtonEvent(const MouseButtonEvent &event);
-
-            void mouseMotionEvent(const MouseMotionEvent &event);
-
-            void mouseWheelEvent(const MouseWheelEvent &event);
-
-            void addControl(Control *control);
-        };
+        void Panel::draw(Renderer &renderer, const Font &font) const {
+            drawFrame(renderer, x, y, width, height, false);
+            renderer.quadXY(Vector(x + 2, y - 20), Vector(width - 4, 18), panelHeaderColor);
+            font.print(x + 5, y - 18, Color::WHITE, caption);
+        }
     }
 }
-
-#endif

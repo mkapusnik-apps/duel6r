@@ -11,6 +11,7 @@ Primary source is `source/Menu.cpp:368-486`.
 ## Layout and hierarchy
 
 - The state must place the message strip over the unchanged main menu.
+- The unchanged main menu must include the black matte and the approved four-panel canvas.
 - The strip must use the centered layout in [`menu-message.md`](wireframes/menu-message.md).
 - The message must be the top visual layer.
 - The strip must use the error surface, error text, and black frame from `docs/design.md`.
@@ -55,6 +56,7 @@ Primary source is `source/Menu.cpp:368-486`.
 - The strip width must derive from the message length.
 - The strip must stay centered in the current client area.
 - The background menu must keep its centered fixed canvas.
+- The black matte must remain visible around the background canvas on a larger client.
 - No mobile layout exists, so one desktop wireframe is sufficient.
 
 ## Screenshot link

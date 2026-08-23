@@ -45,6 +45,7 @@ namespace Duel6 {
                 Button,
                 Checkbox,
                 Label,
+                Panel,
                 Textbox,
                 Listbox,
                 Switchbox,

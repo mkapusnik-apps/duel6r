@@ -1,13 +1,13 @@
 # MENU-02 wireframe — Menu blocking message
 
-Representative viewport: 1280 by 900 debug client.
+Representative viewport: 1706 by 938 px desktop client.
 The background is the complete MENU-01 layout.
 The strip uses message-dependent width and stays centered.
 The screen has no mobile layout, so this single desktop wireframe covers all implemented message variants.
 
 ```text
-┌──────────────────────────────── 1280 × 900 ────────────────────────────────────┐
-│                              MAIN MENU                                         │
+┌──────────────────────────────── 1706 × 938 ────────────────────────────────────┐
+│                         black matte around MAIN MENU                            │
 │                                                                                │
 │                                                                                │
 │   ┌───────────────────────────────────────────────────────────────────────┐    │
@@ -21,6 +21,7 @@ The screen has no mobile layout, so this single desktop wireframe covers all imp
 
 The implementation must render each exact message on one 20 px high line.
 The implementation must calculate the panel width from the complete message length.
+The implementation must keep the approved four-panel MENU-01 canvas unchanged behind the message.
 
 Start-prerequisite variants:
 

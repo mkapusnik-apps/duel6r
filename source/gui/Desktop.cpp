@@ -32,6 +32,7 @@
 namespace Duel6 {
     namespace Gui {
         namespace {
+            Color matteColor(0, 0, 0);
             Color bcgColor(192, 192, 192);
         }
 
@@ -45,9 +46,12 @@ namespace Duel6 {
             controls.push_back(std::unique_ptr<Control>(control));
         }
 
-        void Desktop::screenSize(Int32 scrWidth, Int32 scrHeight, Int32 trX, Int32 trY) {
+        void Desktop::screenSize(Int32 scrWidth, Int32 scrHeight, Int32 canvasWidth, Int32 canvasHeight,
+                                 Int32 trX, Int32 trY) {
             screenWidth = scrWidth;
             screenHeight = scrHeight;
+            this->canvasWidth = canvasWidth;
+            this->canvasHeight = canvasHeight;
             this->trX = trX;
             this->trY = trY;
         }
@@ -59,8 +63,9 @@ namespace Duel6 {
         }
 
         void Desktop::draw(const Font &font) const {
-            renderer.quadXY(Vector(0, 0), Vector(screenWidth, screenHeight), bcgColor);
+            renderer.quadXY(Vector(0, 0), Vector(screenWidth, screenHeight), matteColor);
             renderer.setViewMatrix(Matrix::translate(Float32(trX), Float32(trY), 0));
+            renderer.quadXY(Vector(0, 0), Vector(canvasWidth, canvasHeight), bcgColor);
 
             for (auto &control : controls) {
                 control->draw(renderer, font);

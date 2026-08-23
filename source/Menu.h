@@ -45,6 +45,7 @@
 #include "gui/CheckBox.h"
 #include "gui/ListBox.h"
 #include "gui/Label.h"
+#include "gui/Panel.h"
 #include "gui/TextBox.h"
 #include "gui/Spinner.h"
 #include "GameMode.h"
@@ -78,7 +79,7 @@ namespace Duel6 {
         Gui::Spinner *gameModeSwitch;
         Gui::CheckBox *globalAssistanceCheckBox;
         Gui::CheckBox *quickLiquidCheckBox;
-        Gui::Label *playersLabel;
+        Gui::Panel *playersPanel;
         Size backgroundCount;
         Texture menuBannerTexture;
         Sound::Track menuTrack;
