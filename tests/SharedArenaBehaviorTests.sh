@@ -146,10 +146,10 @@ PY
     sleep 1
     import -window root "${scenario_dir}/menu.png"
 
-    # The mode spinner's right arrow is at GUI (784, 531), translated to the
-    # centered 850x700 menu in the 1280x900 test viewport.
+    # The redesigned mode spinner's right arrow is at GUI (818..836, 539),
+    # translated to the centered 850x700 menu in the 1280x900 test viewport.
     for ((i = 0; i < mode_index; i++)); do
-        xdotool mousemove 999 269 mousedown 1 sleep 0.08 mouseup 1
+        xdotool mousemove 1043 269 mousedown 1 sleep 0.08 mouseup 1
         sleep 0.1
     done
 
@@ -160,7 +160,10 @@ PY
     xdotool mousemove 900 332 mousedown 1 sleep 0.08 mouseup 1
     sleep 0.2
     import -window root "${scenario_dir}/mode-selected.png"
-    convert "${scenario_dir}/mode-selected.png" -crop 330x28+806+254 +repage \
+    # Team-mode names intentionally overflow the compact spinner field; keep
+    # the full friendly-fire suffix in the crop so all eight modes remain
+    # distinguishable.
+    convert "${scenario_dir}/mode-selected.png" -crop 330x28+869+250 +repage \
         "${scenario_dir}/mode-crop.png"
     for previous_crop in "${mode_crops[@]}"; do
         mode_delta="$(image_distance "$previous_crop" "${scenario_dir}/mode-crop.png")"
