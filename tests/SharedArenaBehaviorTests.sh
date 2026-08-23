@@ -152,6 +152,13 @@ PY
         xdotool mousemove 999 269 mousedown 1 sleep 0.08 mouseup 1
         sleep 0.1
     done
+
+    # Disable Quick Liquid so the test can inspect live rankings and open the
+    # score overlay before an unattended match reaches sudden death.
+    # Click the label area, clear of the per-player controller-detect buttons
+    # that overlap the checkbox's left edge for larger rosters.
+    xdotool mousemove 900 332 mousedown 1 sleep 0.08 mouseup 1
+    sleep 0.2
     import -window root "${scenario_dir}/mode-selected.png"
     convert "${scenario_dir}/mode-selected.png" -crop 330x28+806+254 +repage \
         "${scenario_dir}/mode-crop.png"
@@ -188,9 +195,9 @@ PY
     import -window root "${scenario_dir}/after-console-command.png"
 
     python3 "$image_assertions" "${scenario_dir}/after-f2.png" "$label-after-f2" \
-        "$player_count" "$team_count"
+        "$player_count" "$team_count" --viewport-only
     python3 "$image_assertions" "${scenario_dir}/after-console-command.png" "$label-after-console" \
-        "$player_count" "$team_count"
+        "$player_count" "$team_count" --viewport-only
 
     local baseline_delta f2_delta
     baseline_delta="$(image_distance "${scenario_dir}/live-a.png" "${scenario_dir}/live-b.png")"
@@ -226,11 +233,22 @@ PY
     xdotool key --window "$window_id" F4
     sleep 0.2
     import -window root "${scenario_dir}/ranking-toggled.png"
+    python3 "$image_assertions" "${scenario_dir}/after-console-command.png" "$label-live-ranking" \
+        "$player_count" "$team_count" --without-ranking "${scenario_dir}/ranking-toggled.png"
     xdotool key --window "$window_id" Tab
-    sleep 0.2
-    import -window root "${scenario_dir}/score-tab.png"
-    python3 "$image_assertions" "${scenario_dir}/score-tab.png" "$label-score-tab" \
-        "$player_count" "$team_count" --score
+    score_assertion=""
+    score_ready=false
+    for _ in {1..30}; do
+        sleep 0.1
+        import -window root "${scenario_dir}/score-tab.png"
+        if score_assertion="$(python3 "$image_assertions" "${scenario_dir}/score-tab.png" \
+                "$label-score-tab" "$player_count" "$team_count" --score 2>&1)"; then
+            score_ready=true
+            printf '%s\n' "$score_assertion"
+            break
+        fi
+    done
+    [[ "$score_ready" == true ]] || fail "$score_assertion"
     local ranking_delta score_delta
     ranking_delta="$(image_distance "${scenario_dir}/after-console-command.png" "${scenario_dir}/ranking-toggled.png")"
     score_delta="$(image_distance "${scenario_dir}/ranking-toggled.png" "${scenario_dir}/score-tab.png")"

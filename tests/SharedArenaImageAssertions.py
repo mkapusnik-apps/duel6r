@@ -49,16 +49,40 @@ def blue_strength(rgb):
     return blue - max(red, green)
 
 
-def team_color(rgb):
-    red, green, blue = rgb
-    scores = {
-        "Alpha": red - max(green, blue),
-        "Bravo": green - max(red, blue),
-        "Charlie": min(red, green) - blue,
-        "Delta": min(red, blue) - green,
+def region_pixels(data, left, top, right, bottom):
+    return [pixel(data, x, y)
+            for y in range(top, bottom)
+            for x in range(left, right)]
+
+
+def region_delta(first, second, left, top, right, bottom):
+    total = count = 0
+    for y in range(top, bottom):
+        for x in range(left, right):
+            rgb_first = pixel(first, x, y)
+            rgb_second = pixel(second, x, y)
+            total += sum(abs(a - b) for a, b in zip(rgb_first, rgb_second))
+            count += 3
+    return total / count
+
+
+def fraction(values, predicate):
+    return sum(predicate(rgb) for rgb in values) / len(values)
+
+
+def blue_overlay_fraction(values):
+    # A 178-alpha blue ranking rectangle guarantees this channel range for
+    # every background pixel, independently of the animated arena beneath it.
+    return fraction(values, lambda rgb: rgb[2] >= 175 and rgb[0] <= 82 and rgb[1] <= 82)
+
+
+def parent_team_fractions(values):
+    return {
+        "Alpha": fraction(values, lambda rgb: rgb[0] >= 170 and rgb[1] <= 90 and rgb[2] <= 90),
+        "Bravo": fraction(values, lambda rgb: rgb[1] >= 170 and rgb[0] <= 90 and rgb[2] <= 90),
+        "Charlie": fraction(values, lambda rgb: rgb[0] >= 170 and rgb[1] >= 170 and rgb[2] <= 90),
+        "Delta": fraction(values, lambda rgb: rgb[0] >= 170 and rgb[2] >= 170 and rgb[1] <= 90),
     }
-    name = max(scores, key=scores.get)
-    return name, scores[name]
 
 
 def max_red_run(values):
@@ -102,21 +126,24 @@ def ranking_geometry(players, teams):
     return WIDTH - width - 3, width, players + teams
 
 
-def assert_live_ranking(data, label, players, teams):
+def assert_live_ranking(data, without_ranking, label, players, teams):
     left, width, rows = ranking_geometry(players, teams)
     groups = []
     for index in range(rows):
         center_y = 12 + 16 * index
-        rgb = region_median(data, left + 1, center_y - 5,
-                            left + width - 1, center_y + 5)
+        values = region_pixels(data, left + 1, center_y - 5,
+                               left + width - 1, center_y + 5)
+        delta = region_delta(data, without_ranking, left + 1, center_y - 5,
+                             left + width - 1, center_y + 5)
+        if delta < 12:
+            fail(f"{label}: live ranking row {index + 1}/{rows} missing: delta={delta:.3f}")
         if not teams:
-            if blue_strength(rgb) < 35:
-                fail(f"{label}: live ranking row {index + 1}/{rows} missing: rgb={rgb}")
+            continue
         else:
-            color, strength = team_color(rgb)
-            if strength < 12:
-                fail(f"{label}: grouped ranking row {index + 1}/{rows} missing: rgb={rgb}")
-            if strength >= 120:
+            parent_fractions = parent_team_fractions(values)
+            color = max(parent_fractions, key=parent_fractions.get)
+            parent_coverage = parent_fractions[color]
+            if parent_coverage >= 0.25:
                 groups.append(color)
     if teams and (len(groups) != teams or len(set(groups)) != teams):
         fail(f"{label}: expected {teams} grouped ranking headers, got {groups}")
@@ -140,14 +167,16 @@ def assert_score_overlay(data, label, players, teams):
     groups = []
     for index in range(rows):
         center_y = first_y + 32 * index
-        rgb = region_median(data, left + 2, center_y - 9,
-                            left + width - 2, center_y + 9)
+        values = region_pixels(data, left + 2, center_y - 9,
+                               left + width - 2, center_y + 9)
         if not teams:
-            if blue_strength(rgb) < 30:
-                fail(f"{label}: score row {index + 1}/{rows} missing: rgb={rgb}")
+            coverage = blue_overlay_fraction(values)
+            if coverage < 0.25:
+                fail(f"{label}: score row {index + 1}/{rows} missing: blue={coverage:.3f}")
         else:
-            color, strength = team_color(rgb)
-            if strength >= 120:
+            parent_fractions = parent_team_fractions(values)
+            color = max(parent_fractions, key=parent_fractions.get)
+            if parent_fractions[color] >= 0.25:
                 groups.append(color)
     if teams and (len(groups) != teams or len(set(groups)) != teams):
         fail(f"{label}: expected {teams} score group headers, got {groups}")
@@ -167,17 +196,26 @@ def main():
     parser.add_argument("players", type=int)
     parser.add_argument("teams", type=int)
     parser.add_argument("--score", action="store_true")
+    parser.add_argument("--viewport-only", action="store_true")
+    parser.add_argument("--without-ranking")
     args = parser.parse_args()
 
     data = load_rgb(args.image)
     horizontal, vertical, edge_count, edge_total = assert_shared_viewport(data, args.label)
-    if args.score:
+    if args.viewport_only:
+        print(f"{args.label}: viewport dividers={horizontal}/{vertical} "
+              f"edge={edge_count}/{edge_total}")
+    elif args.score:
         groups, header = assert_score_overlay(
             data, args.label, args.players, args.teams)
         print(f"{args.label}: score-rows={args.players + args.teams} groups={groups} "
               f"header={header} dividers={horizontal}/{vertical} edge={edge_count}/{edge_total}")
     else:
-        groups = assert_live_ranking(data, args.label, args.players, args.teams)
+        if not args.without_ranking:
+            fail("live ranking assertions require --without-ranking")
+        without_ranking = load_rgb(args.without_ranking)
+        groups = assert_live_ranking(
+            data, without_ranking, args.label, args.players, args.teams)
         print(f"{args.label}: live-rows={args.players + args.teams} players={args.players} "
               f"groups={groups} dividers={horizontal}/{vertical} edge={edge_count}/{edge_total}")
 
