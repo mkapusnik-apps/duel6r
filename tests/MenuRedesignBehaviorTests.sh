@@ -121,6 +121,72 @@ PY
   cp "${scenario_dir}/data/persons.json" "${scenario_dir}/before.json"
 }
 
+write_elo_name_fixture() {
+  python3 - "${scenario_dir}/data/persons.json" <<'PY'
+import json, sys
+cases = [
+    ("EightPos", 2000, 12), ("EightNeg", 1990, -12),
+    ("NinePos09", 1980, 23), ("NineNeg09", 1970, -23),
+    ("TenPos0010", 1960, 34), ("TenNeg0010", 1950, -34),
+]
+persons = []
+for i, (name, elo, trend) in enumerate(cases):
+    persons.append({
+        "name": name, "shots": 10, "hits": 5, "kills": 2, "deaths": 1,
+        "assistances": 0, "wins": 1, "penalties": 0, "games": 2,
+        "timeAlive": 10, "totalGameTime": 20, "totalDamage": 30,
+        "assistedDamage": 0, "elo": elo, "eloTrend": trend, "eloGames": 2,
+    })
+for i in range(14):
+    persons.append(dict(persons[0], name=f"Extra{i:02d}", elo=1900 - i, eloTrend=i - 7))
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump({"persons": persons, "playing": [], "rounds": 0}, f, indent=2)
+PY
+}
+
+echo "[RUN] complete Elo rows for 8-, 9-, and 10-character names and signed trends"
+new_scenario elo-name-widths
+write_elo_name_fixture
+start_app
+capture "${scenario_dir}/elo-name-widths.png"
+python3 - "${scenario_dir}/elo-name-widths.png" <<'PY'
+import subprocess, sys
+
+image = sys.argv[1]
+left = 231
+first_top = 247
+
+def rgb_crop(x, y, width, height=18):
+    return subprocess.check_output([
+        "convert", image, "-crop", f"{width}x{height}+{x}+{y}",
+        "+repage", "-alpha", "off", "-depth", "8", "rgb:-",
+    ])
+
+def dark_pixels(data):
+    return sum(max(data[i:i + 3]) < 100 for i in range(0, len(data), 3))
+
+lengths = (8, 8, 9, 9, 10, 10)
+signs = []
+for row, length in enumerate(lengths):
+    top = first_top + 18 * row
+    final_name_x = left + (2 + length - 1) * 8
+    if dark_pixels(rgb_crop(final_name_x, top, 8)) < 4:
+        raise SystemExit(f"Elo row {row + 1}: final character of {length}-character name is not visible")
+    # All fixture trends have two digits: the sign occupies field character 17
+    # and the final digit occupies character 19 of the exact 20-character row.
+    sign = rgb_crop(left + 17 * 8, top, 8)
+    if dark_pixels(sign) < 3:
+        raise SystemExit(f"Elo row {row + 1}: trend sign is not visible")
+    if dark_pixels(rgb_crop(left + 19 * 8, top, 8)) < 4:
+        raise SystemExit(f"Elo row {row + 1}: final trend digit is clipped")
+    signs.append(sign)
+
+for positive, negative in ((0, 1), (2, 3), (4, 5)):
+    if signs[positive] == signs[negative]:
+        raise SystemExit(f"Elo rows {positive + 1}/{negative + 1}: positive and negative signs are indistinguishable")
+PY
+close_app
+
 echo "[RUN] overflowing Elo and persistent score lists: wheel, arrows, track/thumb"
 new_scenario overflow-scroll
 write_overflow_fixture
@@ -324,7 +390,9 @@ assert_row_pairs_preserved() {
   done
 }
 
-assert_changed "${scenario_dir}/before-shuffle.png" "${scenario_dir}/after-random.png" "random shuffle"
+# A random shuffle may legitimately produce the identity permutation. Verify
+# the behavioral invariant directly without requiring the visible order to
+# change: every player must remain paired with the same selected control.
 assert_row_pairs_preserved "${scenario_dir}/before-shuffle.png" "${scenario_dir}/after-random.png" "random"
 assert_changed "${scenario_dir}/after-random.png" "${scenario_dir}/after-elo.png" "Elo shuffle"
 assert_row_pairs_preserved "${scenario_dir}/after-random.png" "${scenario_dir}/after-elo.png" "elo"
