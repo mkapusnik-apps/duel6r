@@ -7,19 +7,23 @@ set -euo pipefail
 
 workspace_dir="${WORKSPACE_DIR:-/workspace}"
 build_dir="${BUILD_DIR:-${workspace_dir}/build}"
+resource_dir="${RESOURCE_DIR:-${build_dir}}"
 test_root="${TEST_ROOT:-${build_dir}/shared-arena-behavior}"
 display="${DISPLAY:-:98}"
+image_assertions="${workspace_dir}/tests/SharedArenaImageAssertions.py"
 
 fail() {
     echo "shared-arena-behavior: $*" >&2
     exit 1
 }
 
-for command in Xvfb xdotool import compare python3 timeout; do
+for command in Xvfb xdotool import identify convert compare python3 timeout; do
     command -v "$command" >/dev/null 2>&1 || fail "required command not found: $command"
 done
 
 [[ -x "${build_dir}/duel6r" ]] || fail "application binary is missing: ${build_dir}/duel6r"
+[[ -f "$image_assertions" ]] || fail "image assertion helper is missing: $image_assertions"
+[[ -d "${resource_dir}/data" ]] || fail "application resources are missing: $resource_dir"
 
 rm -rf "$test_root"
 mkdir -p "$test_root"
@@ -88,17 +92,20 @@ with open(path, "w", encoding="utf-8") as output:
 PY
 }
 
+mode_crops=()
+
 run_scenario() {
     local mode_index="$1"
     local player_count="$2"
-    local label="$3"
+    local team_count="$3"
+    local label="$4"
     local scenario_dir="${test_root}/${label}"
     local runtime_dir="${scenario_dir}/runtime"
     mkdir -p "${runtime_dir}/data"
     cp "${build_dir}/duel6r" "${runtime_dir}/duel6r"
-    cp -R "${build_dir}/data/." "${runtime_dir}/data/"
-    cp -R "${build_dir}/levels" "${build_dir}/profiles" "${build_dir}/shaders" \
-        "${build_dir}/sound" "${build_dir}/textures" "$runtime_dir/"
+    cp -R "${resource_dir}/data/." "${runtime_dir}/data/"
+    cp -R "${resource_dir}/levels" "${resource_dir}/profiles" "${resource_dir}/shaders" \
+        "${resource_dir}/sound" "${resource_dir}/textures" "$runtime_dir/"
     seed_people "${runtime_dir}/data/persons.json" "$player_count"
     # Stale saved/startup settings must be inert rather than restoring a
     # player-specific view. They are deliberately unknown after removal.
@@ -145,6 +152,18 @@ PY
         xdotool mousemove 999 269 mousedown 1 sleep 0.08 mouseup 1
         sleep 0.1
     done
+    import -window root "${scenario_dir}/mode-selected.png"
+    convert "${scenario_dir}/mode-selected.png" -crop 330x28+806+254 +repage \
+        "${scenario_dir}/mode-crop.png"
+    for previous_crop in "${mode_crops[@]}"; do
+        mode_delta="$(image_distance "$previous_crop" "${scenario_dir}/mode-crop.png")"
+        python3 - "$mode_delta" "$label" <<'PY'
+import sys
+if float(sys.argv[1]) < 0.01:
+    raise SystemExit(f"{sys.argv[2]}: mode selector did not advance to a distinct mode ({sys.argv[1]})")
+PY
+    done
+    mode_crops+=("${scenario_dir}/mode-crop.png")
 
     xdotool key --window "$window_id" F1
     sleep 0.5
@@ -167,6 +186,11 @@ PY
     xdotool key --window "$window_id" grave
     sleep 0.15
     import -window root "${scenario_dir}/after-console-command.png"
+
+    python3 "$image_assertions" "${scenario_dir}/after-f2.png" "$label-after-f2" \
+        "$player_count" "$team_count"
+    python3 "$image_assertions" "${scenario_dir}/after-console-command.png" "$label-after-console" \
+        "$player_count" "$team_count"
 
     local baseline_delta f2_delta
     baseline_delta="$(image_distance "${scenario_dir}/live-a.png" "${scenario_dir}/live-b.png")"
@@ -205,6 +229,8 @@ PY
     xdotool key --window "$window_id" Tab
     sleep 0.2
     import -window root "${scenario_dir}/score-tab.png"
+    python3 "$image_assertions" "${scenario_dir}/score-tab.png" "$label-score-tab" \
+        "$player_count" "$team_count" --score
     local ranking_delta score_delta
     ranking_delta="$(image_distance "${scenario_dir}/after-console-command.png" "${scenario_dir}/ranking-toggled.png")"
     score_delta="$(image_distance "${scenario_dir}/ranking-toggled.png" "${scenario_dir}/score-tab.png")"
@@ -235,13 +261,13 @@ PY
 
 # Every selectable mode is exercised. Counts cover the supported minimum,
 # historical 2/3/4-way split layouts, intermediate teams, and maximum roster.
-run_scenario 0 2 deathmatch-2
-run_scenario 1 3 predator-3
-run_scenario 2 4 team2-ff-off-4
-run_scenario 3 4 team2-ff-on-4
-run_scenario 4 6 team3-ff-off-6
-run_scenario 5 6 team3-ff-on-6
-run_scenario 6 8 team4-ff-off-8
-run_scenario 7 15 team4-ff-on-15
+run_scenario 0 2 0 deathmatch-2
+run_scenario 1 3 0 predator-3
+run_scenario 2 4 2 team2-ff-off-4
+run_scenario 3 4 2 team2-ff-on-4
+run_scenario 4 6 3 team3-ff-off-6
+run_scenario 5 6 3 team3-ff-on-6
+run_scenario 6 8 4 team4-ff-off-8
+run_scenario 7 15 4 team4-ff-on-15
 
 echo "Shared arena behavior test passed. Artifacts: ${test_root}"

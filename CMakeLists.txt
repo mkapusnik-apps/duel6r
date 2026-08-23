@@ -509,6 +509,8 @@ if (BUILD_TESTING)
             message(FATAL_ERROR "bash is required for the safe-empty-match-start behavior test")
         endif ()
 
+        include(${CMAKE_SOURCE_DIR}/tests/SharedArenaCTestRegistration.cmake)
+
         add_test(
             NAME safe-empty-match-start
             COMMAND ${D6R_BASH_EXECUTABLE}
