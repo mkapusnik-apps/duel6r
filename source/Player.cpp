@@ -401,7 +401,7 @@ namespace Duel6 {
         }
     }
 
-    void Player::update(World &world, ScreenMode screenMode, Float32 elapsedTime) {
+    void Player::update(World &world, Float32 elapsedTime) {
         checkWater(world, elapsedTime);
         if (isAlive()) {
             world.getBonusList().checkBonus(*this);
@@ -440,10 +440,6 @@ namespace Duel6 {
             if ((tempSkinDuration -= elapsedTime) <= 0) {
                 switchToOriginalSkin();
             }
-        }
-
-        if (screenMode == ScreenMode::SplitScreen) {
-            updateCam(world.getLevel().getWidth(), world.getLevel().getHeight());
         }
 
         timeSinceHit += elapsedTime;
@@ -523,19 +519,15 @@ namespace Duel6 {
                 .setAlpha(alpha);
     }
 
-    void Player::prepareCam(const Video &video, ScreenMode screenMode, Int32 zoom, Int32 levelSizeX, Int32 levelSizeY) {
+    void Player::prepareCam(const Video &video, Int32 levelSizeX, Int32 levelSizeY) {
         Float32 fovX, fovY, mZ, dX = 0.0, dY = 0.0;
         fovY = Math::degTan(video.getView().getFieldOfView() / 2.0f);
         fovX = video.getScreen().getAspect() * fovY;
 
-        if (screenMode == ScreenMode::FullScreen) {
-            if (levelSizeX > video.getScreen().getAspect() * levelSizeY)
-                dX = (Float32) levelSizeX;
-            else
-                dY = (Float32) levelSizeY;
-        } else {
-            dX = (Float32) std::min(zoom, std::max(levelSizeX, levelSizeY));
-        }
+        if (levelSizeX > video.getScreen().getAspect() * levelSizeY)
+            dX = (Float32) levelSizeX;
+        else
+            dY = (Float32) levelSizeY;
 
         if (dX == 0.0) {
             mZ = dY / (2.0f * fovY);
@@ -550,53 +542,7 @@ namespace Duel6 {
         position.y = levelSizeY / 2.0f;
         position.z = mZ + 1.0f;
 
-        cameraFov.x = dX / 2.0f;
-        cameraFov.y = dY / 2.0f;
-        cameraTolerance.x = (dX * D6_CAM_TOLPER_X) / 200.0f;
-        cameraTolerance.y = (dY * D6_CAM_TOLPER_Y) / 200.0f;
-
         camera.setPosition(position);
-
-        if (screenMode == ScreenMode::SplitScreen) {
-            updateCam(levelSizeX, levelSizeY);
-        }
-    }
-
-    void Player::updateCam(Int32 levelSizeX, Int32 levelSizeY) {
-        Float32 mX = 0.0, mY = 0.0;
-        Vector centre = getCentre();
-        Vector position = camera.getPosition();
-        Vector tolerance = cameraTolerance;
-        Vector fov = cameraFov;
-
-        if (centre.x < position.x - tolerance.x) {
-            mX = centre.x - (position.x - tolerance.x);
-            if (position.x - fov.x + mX < 0.0f)
-                mX = fov.x - position.x;
-        } else if (centre.x > position.x + tolerance.x) {
-            mX = centre.x - (position.x + tolerance.x);
-            if (position.x + fov.x + mX > (Float32) levelSizeX)
-                mX = (Float32) levelSizeX - (position.x + fov.x);
-        }
-        if (centre.y < position.y - tolerance.y) {
-            mY = centre.y - (position.y - tolerance.y);
-            if (position.y - fov.y + mY < 0.0f)
-                mY = fov.y - position.y;
-        } else if (centre.y > position.y + tolerance.y) {
-            mY = centre.y - (position.y + tolerance.y);
-            if (position.y + fov.y + mY > (Float32) levelSizeY)
-                mY = (Float32) levelSizeY - (position.y + fov.y);
-        }
-
-        if (mX != 0.0) {
-            position.x += mX;
-        }
-        if (mY != 0.0) {
-            position.y += mY;
-        }
-        if (mX != 0.0 || mY != 0.0) {
-            camera.setPosition(position);
-        }
     }
 
     bool

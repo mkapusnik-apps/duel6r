@@ -386,12 +386,6 @@ namespace Duel6 {
         }
     }
 
-    void WorldRenderer::splitBox(const PlayerView &view) const {
-        const auto &screen = video.getScreen();
-        setView(view.getX() - 2, view.getY() - 2, view.getWidth() + 4, view.getHeight() + 4);
-        renderer.quadXY(Vector::ZERO, Vector(screen.getClientWidth(), screen.getClientHeight()), Color::RED);
-    }
-
     void WorldRenderer::screenCurtain(const Color &color) const {
         const auto &screen = video.getScreen();
 
@@ -405,13 +399,7 @@ namespace Duel6 {
     void WorldRenderer::infoMessages() const {
         const InfoMessageQueue &messageQueue = game.getRound().getWorld().getMessageQueue();
 
-        if (game.getSettings().getScreenMode() == ScreenMode::FullScreen) {
-            messageQueue.renderAllMessages(renderer, game.getPlayers().front().getView(), 20, font);
-        } else {
-            for (const Player &player : game.getPlayers()) {
-                messageQueue.renderPlayerMessages(renderer, player, font);
-            }
-        }
+        messageQueue.renderAllMessages(renderer, game.getPlayers().front().getView(), 20, font);
     }
 
     void WorldRenderer::shotCollisionBox(const ShotList &shotList) const {
@@ -485,7 +473,7 @@ namespace Duel6 {
         return result;
     }
 
-    void WorldRenderer::fullScreen() const {
+    void WorldRenderer::sharedArena() const {
         const Player &player = game.getPlayers().front();
         Float32 remainingTime = game.getRound().getRemainingYouAreHere();
         setView(player.getView());
@@ -505,27 +493,6 @@ namespace Duel6 {
         }
     }
 
-    void WorldRenderer::splitScreen() const {
-        renderer.clearBuffers();
-
-        for (const Player &player : game.getPlayers()) {
-            video.setMode(Video::Mode::Orthogonal);
-            splitBox(player.getView());
-
-            setView(player.getView());
-            background(game.getResources().getBcgTextures().at(game.getRound().getWorld().getBackground()));
-
-            video.setMode(Video::Mode::Perspective);
-            setPlayerCamera(player);
-            renderStaticGeometry();
-            view(player);
-
-            if (!player.isAlive()) {
-                screenCurtain(Color(255, 0, 0, 128));
-            }
-        }
-    }
-
     void WorldRenderer::prerender() const {
         target->record([this]() {
             renderBackground();
@@ -535,11 +502,7 @@ namespace Duel6 {
     void WorldRenderer::render() const {
         const GameSettings &settings = game.getSettings();
 
-        if (settings.getScreenMode() == ScreenMode::FullScreen) {
-            fullScreen();
-        } else {
-            splitScreen();
-        }
+        sharedArena();
 
         video.setMode(Video::Mode::Orthogonal);
         setView(0, 0, video.getScreen().getClientWidth(), video.getScreen().getClientHeight());
@@ -550,7 +513,7 @@ namespace Duel6 {
             fpsCounter();
         }
 
-        if (settings.isShowRanking() && settings.getScreenMode() == ScreenMode::FullScreen) {
+        if (settings.isShowRanking()) {
             playerRankings();
         }
 

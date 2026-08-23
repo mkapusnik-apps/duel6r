@@ -95,8 +95,7 @@ namespace Duel6 {
     void Game::joyDeviceRemovedEvent(const JoyDeviceRemovedEvent &event) {}
 
     void Game::start(const std::vector<PlayerDefinition> &playerDefinitions, const std::vector<std::string> &levels,
-                     const std::vector<Size> &backgrounds, ScreenMode screenMode, Int32 screenZoom,
-                     GameMode &gameMode) {
+                     const std::vector<Size> &backgrounds, GameMode &gameMode) {
         Console &console = appService.getConsole();
         console.printLine("\n=== Starting new game ===");
         console.printLine(Format("...Rounds: {0}") << settings.getMaxRounds());
@@ -124,8 +123,6 @@ namespace Duel6 {
 
         this->backgrounds = backgrounds;
         this->gameMode = &gameMode;
-        settings.setScreenMode(screenMode);
-        settings.setScreenZoom(screenZoom);
         gameMode.initializeGame(*this, players, settings.isQuickLiquid(), settings.isGlobalAssistances());
         startRound();
     }

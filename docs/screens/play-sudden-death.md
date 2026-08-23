@@ -17,6 +17,7 @@ Primary sources are `source/Round.cpp:146-200`, `source/gamemodes/GameModeBase.c
 ## Layout and hierarchy
 
 - The state must preserve the active arena and overlay layout in [`play-sudden-death.md`](wireframes/play-sudden-death.md).
+- The state must keep one undivided arena that shows all remaining players.
 - Water must remain in the world geometry layer.
 - Water must rise in discrete steps after each implemented wait interval.
 - The water surface must become a dominant moving boundary as safe space decreases.
@@ -36,8 +37,8 @@ Primary sources are `source/Round.cpp:146-200`, `source/gamemodes/GameModeBase.c
 - Rising geometry and the changing safe area must supplement water color.
 - Air-bar fill length must supplement its blue color.
 - The implementation does not provide a textual sudden-death cue.
-- Water must follow the level and camera dimensions for full-screen or split-screen play.
-- The representative wireframe uses full-screen because the hazard does not define another viewport layout.
+- Water must follow the shared arena and level dimensions.
+- The hazard must not create another viewport layout.
 
 ## Screenshot link
 

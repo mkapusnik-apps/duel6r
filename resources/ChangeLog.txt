@@ -195,7 +195,6 @@
 
 3.7.14
 =======
-- Screen turns red in split screen mode after player death
 - Player names in status bars
 - Library converted to PCK2
 - Unixove line endings in config.txt.def
@@ -211,7 +210,6 @@
 =======
 - When deleting player database the game asks
 - Fixed saving of screenshots (via F10). Now much faster and continues from the last saved number.
-- Option to switch between split-screen and full screen in-game using F2
 - Default zoom changed to 13
 - Fixed readme.txt to include all keyboard shortcuts and console commands
 - Fixed refresh rate switching to 60 Hz under windows

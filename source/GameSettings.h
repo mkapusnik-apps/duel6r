@@ -31,7 +31,6 @@
 #include <unordered_set>
 #include <utility>
 #include "Type.h"
-#include "ScreenMode.h"
 #include "Weapon.h"
 
 namespace Duel6 {
@@ -53,8 +52,6 @@ namespace Duel6 {
     private:
         std::pair<Int32, Int32> ammoRange;
         Int32 maxRounds;
-        ScreenMode screenMode;
-        Int32 screenZoom;
         bool wireframe;
         bool showFps;
         bool showRanking;
@@ -67,24 +64,6 @@ namespace Duel6 {
 
     public:
         GameSettings();
-
-        ScreenMode getScreenMode() const {
-            return screenMode;
-        }
-
-        GameSettings &setScreenMode(const ScreenMode &screenMode) {
-            this->screenMode = screenMode;
-            return *this;
-        }
-
-        Int32 getScreenZoom() const {
-            return screenZoom;
-        }
-
-        GameSettings &setScreenZoom(Int32 screenZoom) {
-            this->screenZoom = screenZoom;
-            return *this;
-        }
 
         const std::pair<Int32, Int32> &getAmmoRange() const {
             return ammoRange;

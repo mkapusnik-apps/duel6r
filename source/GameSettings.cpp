@@ -29,8 +29,7 @@
 
 namespace Duel6 {
     GameSettings::GameSettings()
-            : ammoRange(15, 15), maxRounds(0), screenMode(ScreenMode::FullScreen),
-              screenZoom(13), wireframe(false), showFps(false), showRanking(true),
+            : ammoRange(15, 15), maxRounds(0), wireframe(false), showFps(false), showRanking(true),
               ghostMode(false), quickLiquid(true), globalAssistances(true),
               shotCollision(ShotCollisionSetting::Large),
               levelSelectionMode(LevelSelectionMode::Random) {}

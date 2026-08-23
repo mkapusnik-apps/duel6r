@@ -5,6 +5,7 @@
 This document specifies the required user-facing behavior of Duel 6 Reloaded.
 
 Unless a requirement identifies an approved change, the requirements describe the implementation at commit `8f98d3679c4c9091e8973a1cb7a3278f04deb946`.
+The split-screen removal requirements define target product behavior that supersedes the earlier implementation baseline.
 
 The word **person** means a persistent named record. The word **player** means a person in the active match roster.
 
@@ -42,7 +43,7 @@ Requirement IDs are stable references. Inventory notes are current observations 
 
 ## Match and round lifecycle
 
-- **LIF-001** A new match must start in full-arena view with a screen zoom value of 13.
+- **LIF-001** A new match must start in the shared arena view showing the whole level.
 - **LIF-002** The game must keep the active roster, selected mode, match settings, and accumulated statistics between rounds.
 - **LIF-003** At the start of a match, the game must randomly reorder the supplied level list.
 - **LIF-004** In shuffle level selection, each round must use the next level in the reordered list.
@@ -230,23 +231,35 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **MOD-TM-010** Team rankings must total each team's player points and sort teams by points.
 - **MOD-TM-011** Team rankings must sort players inside each team by points.
 
-## Status, ranking, and views
+## Status, ranking, and shared arena view
 
-- **UI-001** Full-arena view must show the whole level in one shared view.
-- **UI-002** F2 must switch between full-arena and split-screen views only when the match has two through four players.
-- **UI-003** Split-screen must use two horizontal views for two players.
-- **UI-004** For three players, split-screen must put Player 3 in the upper-center view. It must put Players 1 and 2 in the lower views.
-- **UI-005** Split-screen must use a two-by-two view grid for four players.
-- **UI-006** Each split-screen view must follow its assigned player.
-- **UI-007** A dead player's split-screen view must show a translucent red overlay.
-- **UI-008** Full-arena view must show live ranking when ranking display is on.
+The **shared arena view** is one gameplay view that shows the whole level to all players.
+
+- **UI-001** The game must use the shared arena view for every match.
+- **UI-002** The shared arena view must show all players in one gameplay view.
+- **UI-003** The game must not divide gameplay into separate player views.
+- **UI-004** F2 must not change the gameplay view.
+- **UI-005** The menu and match settings must not offer a screen-layout selection.
+- **UI-006** The console, configuration, and startup commands must not activate separate player views.
+- **UI-007** The game must not save or restore a screen-layout selection.
+- **UI-008** The shared arena view must show live ranking when ranking display is on.
 - **UI-009** F4 must toggle live ranking display.
-- **UI-010** Split-screen must not show the live ranking panel.
+- **UI-010** Live ranking behavior must be the same for each supported player count.
 - **UI-011** Before a winner exists, Tab must toggle the score summary.
 - **UI-012** After a winner exists, the game must show the round summary.
 - **UI-013** After the last limited round ends, the game must show the game summary.
 - **UI-014** A limited match must show round progress.
 - **UI-015** Status and event messages must identify relevant winners, kills, teammates, assistants, deaths, bonuses, and weapon pickups.
+
+### Split-screen removal scope
+
+- **UI-016** The product must not describe split-screen as an available feature in user-visible text or maintained product documentation.
+- **UI-017** The release package must not include an asset that is used only for split-screen presentation.
+- **UI-018** Split-screen removal must not reduce the supported roster of two through 15 players.
+- **UI-019** Split-screen removal must not remove or change a selectable multiplayer mode.
+- **UI-020** Split-screen removal must not change player controls, combat rules, scoring rules, or match progression.
+
+Separate-player camera behavior and split-screen renderer behavior are obsolete product behavior. The specification does not require a replacement camera mode.
 
 ## Persistence and profiles
 
@@ -285,7 +298,7 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **CFG-019** Lua must expose `pressLeft`, `pressRight`, `pressUp`, `pressDown`, `pressShoot`, `pressPick`, and `pressStatus`. A script must repeat `pressUp` to request a double-jump.
 - **CFG-020** Script-requested actions must use normal player action rules and must not directly edit world state.
 
-## Error, empty, and recovery behavior
+## Implemented error, empty, and recovery behavior
 
 - **ERR-001** The menu must use SET-002 for empty or duplicate person names.
 - **ERR-002** The menu must use SET-006 and SET-007 for an insufficient roster.
@@ -374,7 +387,7 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-012** Starting weapons, ammo, shooting, charge, reload, drops, pickups, and empty-ammo behavior follow PLY-001 and CMB-001 through CMB-020. A replaced weapon must remain in the world at the player's collider position. It must receive twice the player's horizontal and vertical velocity. This behavior must also apply when the replaced weapon has zero ammo.
 - **AC-013** Each immediate and timed bonus produces the applicable behavior in BON-001 through BON-020.
 - **AC-014** Spawn protection, indicators, water, drowning, elevators, stuck recovery, regeneration, and sudden death follow PLY-003 through ENV-013.
-- **AC-015** Full-arena and split-screen states follow UI-001 through UI-015 for two through five players. With three players, Player 3 is upper-center and Players 1 and 2 are lower.
+- **AC-015** Each selectable mode uses one shared arena view for each supported player count. The view does not divide into separate player regions.
 - **AC-016** A completed round persists person statistics, roster membership, and played-round count for the next menu load.
 - **AC-017** A missing person-data file produces an empty usable menu, as specified by PER-002.
 - **AC-018** Matched, unmatched, partially defaulted, absent-script, invalid-script, and no-Lua profile cases follow PER-006 through CFG-020. Lua exposes only the seven action callbacks in CFG-019.
@@ -382,13 +395,17 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-020** Console map and weapon controls follow CFG-011 through CFG-013. Map selection accepts a valid nonzero numeric prefix and rejects only the cases in CFG-011.
 - **AC-021** The shipped content matches the mutable inventory or the inventory is updated from its named maintainable sources.
 - **AC-022** Malformed required JSON and missing required profile files retain the behavior in ERR-006. ERR-001 through ERR-005 and ERR-007 remain unchanged. Selected-map index rejection remains limited to CFG-011.
-- **AC-023** For normal Play, no playable level blocks the start and identifies the missing level prerequisite. No enabled weapon blocks the start and identifies the missing weapon prerequisite.
-- **AC-024** A valid selected-map start applies the same prerequisite validation to its requested level set and the enabled-weapon set.
-- **AC-025** When both prerequisites are missing, one blocking report identifies both errors. The menu shows this report before any resume or statistics-clear prompt.
-- **AC-026** A prerequisite rejection preserves the roster, selected mode, match settings, all person statistics, and the played-round count.
-- **AC-027** After the user dismisses the report, the menu remains usable. The report instructs the user to correct the content or configuration and restart the application.
-- **AC-028** Corrected content files or configuration files do not affect prerequisite validation until the user restarts the application.
-- **AC-029** With one or more requested playable levels and one or more enabled weapons, normal Play and valid selected-map starts retain their existing prompts and match behavior.
+- **AC-023** F2, the menu, match settings, the console, configuration, startup commands, and saved data do not activate separate player views.
+- **AC-024** Live ranking, score summaries, round progress, status, and event messages remain available in the shared arena view as specified by UI-008 through UI-015.
+- **AC-025** Product documentation and user-visible text do not present split-screen as an available feature. The release contains no split-screen-only asset.
+- **AC-026** Matches support two through 15 players after split-screen removal. Every selectable mode preserves its specified controls, rules, scoring, and progression.
+- **AC-027** For normal Play, no playable level blocks the start and identifies the missing level prerequisite. No enabled weapon blocks the start and identifies the missing weapon prerequisite.
+- **AC-028** A valid selected-map start applies the same prerequisite validation to its requested level set and the enabled-weapon set.
+- **AC-029** When both prerequisites are missing, one blocking report identifies both errors. The menu shows this report before any resume or statistics-clear prompt.
+- **AC-030** A prerequisite rejection preserves the roster, selected mode, match settings, all person statistics, and the played-round count.
+- **AC-031** After the user dismisses the report, the menu remains usable. The report instructs the user to correct the content or configuration and restart the application.
+- **AC-032** Corrected content files or configuration files do not affect prerequisite validation until the user restarts the application.
+- **AC-033** With one or more requested playable levels and one or more enabled weapons, normal Play and valid selected-map starts retain their existing prompts and match behavior.
 
 ## Source traceability
 

@@ -12,10 +12,12 @@ Primary sources are `source/Game.cpp:62-83` and `source/WorldRenderer.cpp:120-16
 
 - The overlay must match [`overlay-score-tab.md`](wireframes/overlay-score-tab.md).
 - The active arena must remain visible behind the centered panel.
+- The active arena must remain one undivided shared view.
 - The panel must contain the heading `---SCORE---`.
 - The panel must contain the column heading `K`, `A`, `D`, `K/D`, and `PTS`.
 - Rows must use the current game mode ranking structure.
 - Team mode must use team rows with nested player rows.
+- Predator and free-for-all modes must preserve their ranking rows.
 - The panel must use the translucent outer and inner surfaces from `docs/design.md`.
 
 ## States, controls, and recovery

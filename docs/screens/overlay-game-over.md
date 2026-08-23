@@ -12,6 +12,7 @@ Primary sources are `source/Game.cpp:51-79,158-164`, `source/Round.cpp:231-237`,
 
 - The overlay must match [`overlay-game-over.md`](wireframes/overlay-game-over.md).
 - The arena must remain visible behind the dark red curtain.
+- The arena must remain one undivided shared view.
 - The final centered score panel must use the same visual table structure as round over.
 - The final score must include K, A, D, K/D, and PTS.
 - Final Elo updates do not appear as a separate gameplay panel.
@@ -20,6 +21,7 @@ Primary sources are `source/Game.cpp:51-79,158-164`, `source/Round.cpp:231-237`,
 
 - The state must occur only when Rounds is greater than zero and the final configured round ends.
 - A completed finite Deathmatch must update Elo on the final round; Predator and Team deathmatch must not update Elo.
+- Every mode must preserve the shared arena overlay geometry.
 - Escape must close gameplay when the round is over.
 - Shift+Escape must close gameplay at any time.
 - The state must not automatically start another round.

@@ -1,14 +1,16 @@
-# PLAY-01 wireframe — Live full-screen gameplay
+# PLAY-01 wireframe — Live shared arena gameplay
 
 Representative viewport: 1280 by 900 debug client.
 The client dimensions are fluid, but the overlay anchors remain screen-relative.
-The screen has no mobile layout, so this single desktop wireframe covers the implemented full-screen layout.
+The screen has no mobile layout, so this single desktop wireframe covers the shared arena layout.
+The layout applies to Deathmatch, Predator, and Team deathmatch with two through 15 players.
 
 ```text
 ┌──────────────────────────────── 1280 × 900 ────────────────────────────────────┐
 │ event messages                 [Rounds: current|max]        live ranking       │
 │ Player: event text                                          name | points       │
 │                                                                                │
+│  one undivided view · whole level · all players                                 │
 │  background texture · level walls · decorative sprites                         │
 │                                                                                │
 │       pickup                 ┌ name · ammo · bonus ┐                            │
@@ -25,6 +27,8 @@ Start variant: blue-dark fade plus yellow spiked location rings.
 Optional variants: FPS at upper right, ranking hidden, round counter absent.
 Entry guard variant: if no successfully loaded level or no enabled weapon exists, no arena frame is created.
 The entry guard keeps MENU-02 over MENU-01, so it has no separate PLAY-01 visual layout.
-The representative PLAY-01 evidence must use a valid configuration and must confirm that the existing live layout is unchanged.
+The representative PLAY-01 evidence must use a valid configuration.
+F2 does not change this layout.
+Mode, player count, score, result, sudden-death, and console variants do not create another arena view.
 
 Representative screenshot: [`SS-003`](../../screenshots/README.md#ss-003).

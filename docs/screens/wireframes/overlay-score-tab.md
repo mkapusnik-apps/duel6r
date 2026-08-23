@@ -5,7 +5,7 @@ The panel size depends on name length and ranking row count.
 The screen has no mobile layout, so this single desktop wireframe covers the implemented centered overlay.
 
 ```text
-┌──────────────────────────── live arena continues ──────────────────────────────┐
+┌────────────────── one undivided live shared arena continues ───────────────────┐
 │                                                                                │
 │                 ┌──────────────────────────────────────┐                       │
 │                 │              ---SCORE---             │ blue header strip     │
@@ -20,5 +20,6 @@ The screen has no mobile layout, so this single desktop wireframe covers the imp
 ```
 
 No winner curtain appears in this state.
+Free-for-all, Predator, and Team ranking structures use this centered overlay model.
 
 Representative screenshot: [`SS-010`](../../screenshots/README.md#ss-010).
