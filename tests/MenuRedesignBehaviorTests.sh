@@ -102,6 +102,18 @@ assert_changed() {
   echo "$label: changed-pixels=$pixels"
 }
 
+assert_same() {
+  local before="$1" after="$2" label="$3" output status pixels
+  set +e
+  output="$(compare -metric AE "$before" "$after" null: 2>&1)"
+  status=$?
+  set -e
+  (( status <= 1 )) || fail "could not compare $label"
+  pixels="${output%%.*}"
+  [[ "$pixels" =~ ^[0-9]+$ ]] || fail "$label returned invalid difference: $output"
+  (( pixels == 0 )) || fail "$label changed $pixels pixels"
+}
+
 write_overflow_fixture() {
   python3 - "${scenario_dir}/data/persons.json" <<'PY'
 import json, sys
@@ -266,6 +278,7 @@ PY
 echo "[RUN] no-saved-person roster, names, transfer, 15-player cap, delete confirmation"
 new_scenario no-saved-roster
 start_app
+capture "${scenario_dir}/players-0.png"
 
 # Focus the centered name field. Empty Enter is ignored.
 xdotool mousemove 500 484 click 1
@@ -279,13 +292,37 @@ xdotool type --window "$window_id" --delay 5 P01
 xdotool key --window "$window_id" Return
 xdotool key --window "$window_id" BackSpace BackSpace BackSpace
 
-# Double-click transfer once, button transfer fourteen times, then verify the
-# sixteenth person cannot exceed the roster cap. Remove and re-add one player.
+# Double-click transfer once and button-transfer a second player.
 xdotool mousemove 450 255 click --repeat 2 --delay 80 1
-for _ in {1..14}; do
+xdotool mousemove 450 255 click 1
+xdotool mousemove 526 499 click 1
+capture "${scenario_dir}/players-2.png"
+
+# Button-transfer thirteen more players, then verify the sixteenth person
+# cannot exceed the roster cap. Remove and re-add one player.
+for _ in {1..13}; do
   xdotool mousemove 450 255 click 1
   xdotool mousemove 526 499 click 1
 done
+capture "${scenario_dir}/players-15.png"
+
+# The player count is the only changing content in the panel header, while the
+# controller controls below remain aligned at every requested roster size.
+for count in 0 2 15; do
+  convert "${scenario_dir}/players-${count}.png" -crop 255x22+605+222 +repage \
+    "${scenario_dir}/players-${count}-header.png"
+  convert "${scenario_dir}/players-${count}.png" -crop 166x274+693+246 +repage \
+    "${scenario_dir}/players-${count}-controllers.png"
+done
+assert_changed "${scenario_dir}/players-0-header.png" "${scenario_dir}/players-2-header.png" \
+  "Players header 0 to 2"
+assert_changed "${scenario_dir}/players-2-header.png" "${scenario_dir}/players-15-header.png" \
+  "Players header 2 to 15"
+assert_same "${scenario_dir}/players-0-controllers.png" "${scenario_dir}/players-2-controllers.png" \
+  "controller alignment at 0 and 2 players"
+assert_same "${scenario_dir}/players-2-controllers.png" "${scenario_dir}/players-15-controllers.png" \
+  "controller alignment at 2 and 15 players"
+
 xdotool mousemove 450 255 click --repeat 2 --delay 80 1
 xdotool mousemove 650 255 click --repeat 2 --delay 80 1
 xdotool mousemove 450 255 click 1
