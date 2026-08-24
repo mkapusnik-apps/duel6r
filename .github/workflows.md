@@ -42,12 +42,20 @@
 - The workflow packages the shared Linux and Windows files as `duel6r-nightly.zip`.
 - The ZIP root contains the files from `build` without a `build` directory.
 - GitHub Actions uses a one-day transport artifact between the build and release jobs.
-- The release job updates the `nightly` pre-release and replaces `duel6r-nightly.zip`.
+- The release job stages the new ZIP under a temporary asset name before it changes the stable nightly.
+- The release job keeps the prior ZIP as a rollback asset while it changes the canonical asset and `nightly` tag.
+- The release job moves `nightly` only after the canonical asset is ready.
+- The release job removes the rollback asset after the pre-release update succeeds.
 - The release keeps the title `nightly` and does not create a nightly release history.
 - A failed build does not change the prior successful nightly release.
+- A publication failure before the stable update restores the prior tag and canonical asset when GitHub accepts the rollback requests.
+- A cleanup failure keeps the new tag and canonical asset, and can leave one rollback asset.
+- A queued retry repairs an interrupted asset swap before it starts a new publication.
+- A queued retry removes a rollback asset that remains after a cleanup failure.
+- A rollback API failure leaves the workflow failed and requires operator repair.
 - Nightly runs wait for an active nightly run to finish before release publication starts.
 - The release job uses `contents: write` permission with `GITHUB_TOKEN`.
-- The nightly tag step needs the `PAT_ACTIONS` secret with `contents: write` access.
+- The release job uses `PAT_ACTIONS` to move the `nightly` tag.
 - `Release Artifact` builds release files after a push to `master` or a manual dispatch.
 - GitHub-hosted jobs use direct bind mounts because their Docker daemon shares the runner host filesystem.
 - Nightly and release publication need the permissions and secrets declared in their workflow files.

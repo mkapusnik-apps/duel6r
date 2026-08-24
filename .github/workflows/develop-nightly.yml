@@ -103,28 +103,231 @@ jobs:
           name: nightly-release-asset
           path: release-assets
 
-      - name: Publish nightly release
-        uses: softprops/action-gh-release@v3
+      - name: Publish coordinated nightly release
+        uses: actions/github-script@v9
+        env:
+          ASSET_PATH: release-assets/duel6r-nightly.zip
+          TAG_TOKEN: ${{ secrets.PAT_ACTIONS }}
         with:
-          tag_name: nightly
-          target_commitish: ${{ github.sha }}
-          name: nightly
-          prerelease: true
-          make_latest: false
-          overwrite_files: true
-          fail_on_unmatched_files: true
-          files: release-assets/duel6r-nightly.zip
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
 
-  tag:
-    name: Tag - nightly
-    permissions:
-      contents: 'write'
-    runs-on: ubuntu-latest
-    needs: [build, release]
-    steps:
-      - uses: actions/checkout@v7
+            const { owner, repo } = context.repo;
+            const tag = 'nightly';
+            const canonicalName = 'duel6r-nightly.zip';
+            const sha = context.sha;
+            const candidateName = `${canonicalName}.candidate-${context.runId}-${context.runAttempt}`;
+            const candidateLabel = `nightly-sha:${sha}`;
+            const tagToken = (process.env.TAG_TOKEN ?? '').trim();
+            if (!tagToken) throw new Error('PAT_ACTIONS must be configured');
 
-      - uses: mkapusnik-apps/commons/tag@v1
-        with:
-          tag: nightly
-          token: ${{ secrets.PAT_ACTIONS }}
+            const tagClient = getOctokit(tagToken);
+            const props = { owner, repo };
+
+            const getTagSha = async () => {
+              try {
+                const response = await tagClient.rest.git.getRef({ ...props, ref: `tags/${tag}` });
+                return response.data.object.sha;
+              } catch (error) {
+                if (error.status === 404) return '';
+                throw error;
+              }
+            };
+
+            const setTag = async (target) => {
+              const current = await getTagSha();
+              if (target) {
+                if (current) {
+                  await tagClient.rest.git.updateRef({
+                    ...props,
+                    ref: `tags/${tag}`,
+                    sha: target,
+                    force: true,
+                  });
+                } else {
+                  await tagClient.rest.git.createRef({
+                    ...props,
+                    ref: `refs/tags/${tag}`,
+                    sha: target,
+                  });
+                }
+              } else if (current) {
+                await tagClient.rest.git.deleteRef({ ...props, ref: `tags/${tag}` });
+              }
+            };
+
+            const listAssets = (releaseId) => github.paginate(
+              github.rest.repos.listReleaseAssets,
+              { ...props, release_id: releaseId, per_page: 100 },
+            );
+
+            const renameAsset = (assetId, name) => github.rest.repos.updateReleaseAsset({
+              ...props,
+              asset_id: assetId,
+              name,
+            });
+
+            const deleteAsset = (assetId) => github.rest.repos.deleteReleaseAsset({
+              ...props,
+              asset_id: assetId,
+            });
+
+            const previousTagSha = await getTagSha();
+            const archive = await fs.promises.readFile(process.env.ASSET_PATH);
+            let release;
+            let createdDraft = false;
+
+            try {
+              release = (await github.rest.repos.getReleaseByTag({ ...props, tag })).data;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              const drafts = await github.paginate(
+                github.rest.repos.listReleases,
+                { ...props, per_page: 100 },
+                (response) => response.data.filter((item) => item.draft && item.tag_name === tag),
+              );
+              if (drafts.length > 1) {
+                throw new Error(`Found multiple draft releases for ${tag}`);
+              }
+              release = drafts[0] ?? (await github.rest.repos.createRelease({
+                  ...props,
+                  tag_name: tag,
+                  target_commitish: previousTagSha || sha,
+                  name: tag,
+                  draft: true,
+                  prerelease: true,
+                  make_latest: 'false',
+                })).data;
+              createdDraft = true;
+            }
+
+            const rollbackPrefix = `${canonicalName}.rollback-`;
+            const candidatePrefix = `${canonicalName}.candidate-`;
+
+            if (createdDraft) {
+              for (const asset of await listAssets(release.id)) {
+                await deleteAsset(asset.id);
+              }
+            } else {
+              let assets = await listAssets(release.id);
+              let canonical = assets.find((asset) => asset.name === canonicalName);
+              const backups = assets.filter((asset) => asset.name.startsWith(rollbackPrefix));
+              const matchingBackup = backups.find((asset) =>
+                previousTagSha && asset.name.startsWith(`${rollbackPrefix}${previousTagSha}-`));
+              const canonicalSha = canonical?.label?.startsWith('nightly-sha:')
+                ? canonical.label.slice('nightly-sha:'.length)
+                : '';
+
+              if (!canonical && matchingBackup) {
+                await renameAsset(matchingBackup.id, canonicalName);
+                canonical = { ...matchingBackup, name: canonicalName };
+              } else if (canonicalSha && canonicalSha !== previousTagSha && matchingBackup) {
+                const interruptedName = `${candidatePrefix}interrupted-${context.runId}`;
+                await renameAsset(canonical.id, interruptedName);
+                await renameAsset(matchingBackup.id, canonicalName);
+                await deleteAsset(canonical.id);
+                canonical = { ...matchingBackup, name: canonicalName };
+              }
+
+              assets = await listAssets(release.id);
+              for (const asset of assets) {
+                if (
+                  asset.name !== canonicalName
+                  && (asset.name.startsWith(rollbackPrefix) || asset.name.startsWith(candidatePrefix))
+                ) {
+                  await deleteAsset(asset.id);
+                }
+              }
+            }
+
+            let candidateId = 0;
+            let backupId = 0;
+            let backupName = '';
+            let tagMoved = false;
+            let published = false;
+
+            try {
+              const uploaded = await github.rest.repos.uploadReleaseAsset({
+                ...props,
+                release_id: release.id,
+                name: candidateName,
+                label: candidateLabel,
+                data: archive,
+                headers: {
+                  'content-type': 'application/zip',
+                  'content-length': archive.length,
+                },
+              });
+              candidateId = uploaded.data.id;
+
+              const assets = await listAssets(release.id);
+              const canonical = assets.find((asset) => asset.name === canonicalName);
+              if (canonical) {
+                const prior = previousTagSha || 'untagged';
+                backupName = `${rollbackPrefix}${prior}-${context.runId}-${context.runAttempt}`;
+                await renameAsset(canonical.id, backupName);
+                backupId = canonical.id;
+              }
+
+              await renameAsset(candidateId, canonicalName);
+              await setTag(sha);
+              tagMoved = true;
+
+              await github.rest.repos.updateRelease({
+                ...props,
+                release_id: release.id,
+                tag_name: tag,
+                target_commitish: sha,
+                name: tag,
+                draft: false,
+                prerelease: true,
+                make_latest: 'false',
+              });
+              published = true;
+
+              if (backupId) await deleteAsset(backupId);
+            } catch (publicationError) {
+              const rollbackErrors = [];
+              if (!published) {
+                if (tagMoved || await getTagSha() === sha) {
+                  try {
+                    await setTag(previousTagSha);
+                  } catch (error) {
+                    rollbackErrors.push(`tag: ${error.message}`);
+                  }
+                }
+
+                try {
+                  const assets = await listAssets(release.id);
+                  const newCanonical = assets.find((asset) =>
+                    asset.id === candidateId || asset.name === candidateName);
+                  const backup = assets.find((asset) =>
+                    asset.id === backupId || (backupName && asset.name === backupName));
+                  if (newCanonical && backup) {
+                    await renameAsset(newCanonical.id, candidateName);
+                    await renameAsset(backup.id, canonicalName);
+                    await deleteAsset(newCanonical.id);
+                  } else if (newCanonical) {
+                    await deleteAsset(newCanonical.id);
+                  } else if (backup && !assets.some((asset) => asset.name === canonicalName)) {
+                    await renameAsset(backup.id, canonicalName);
+                  }
+                } catch (error) {
+                  rollbackErrors.push(`asset: ${error.message}`);
+                }
+
+                if (createdDraft) {
+                  try {
+                    await github.rest.repos.deleteRelease({ ...props, release_id: release.id });
+                  } catch (error) {
+                    rollbackErrors.push(`draft release: ${error.message}`);
+                  }
+                }
+              }
+
+              const rollback = rollbackErrors.length
+                ? ` Rollback also failed (${rollbackErrors.join('; ')}).`
+                : '';
+              throw new Error(`Nightly publication failed: ${publicationError.message}.${rollback}`);
+            }
