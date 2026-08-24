@@ -4,7 +4,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -71,11 +71,13 @@ jobs:
           archive_name = os.environ["ARCHIVE_NAME"]
           root = "build"
 
-          with zipfile.ZipFile(archive_name, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+          with zipfile.ZipFile(
+              archive_name, "w", compression=zipfile.ZIP_DEFLATED
+          ) as archive:
               for current_root, _, files in os.walk(root):
                   for file_name in files:
                       path = os.path.join(current_root, file_name)
-                      archive.write(path, path)
+                      archive.write(path, os.path.relpath(path, root))
           PY
 
           echo "archive_name=${archive_name}" >> "$GITHUB_OUTPUT"
@@ -83,9 +85,10 @@ jobs:
       - name: Upload nightly artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.package.outputs.archive_name }}
+          name: nightly-release-asset
           path: ${{ steps.package.outputs.archive_name }}
           if-no-files-found: error
+          retention-days: 1
 
   release:
     name: Publish nightly pre-release
@@ -97,15 +100,20 @@ jobs:
       - name: Download nightly artifact
         uses: actions/download-artifact@v8
         with:
+          name: nightly-release-asset
           path: release-assets
 
       - name: Publish nightly release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: nightly
+          target_commitish: ${{ github.sha }}
+          name: nightly
           prerelease: true
-          files: |
-            release-assets/**/*.zip
+          make_latest: false
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          files: release-assets/duel6r-nightly.zip
 
   tag:
     name: Tag - nightly
