@@ -5,7 +5,7 @@
 The screen builds the local roster, assigns controls, selects match settings, shows persistent results, starts a match, and exits the application.
 Entry occurs when the application starts or when gameplay closes.
 Exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action.
-The screen implements `SET-001`–`SET-023`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, and `PER-001`–`PER-005` from [`docs/features.md`](../features.md).
+The screen implements `SET-001`–`SET-029`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, and `PER-001`–`PER-005` from [`docs/features.md`](../features.md).
 The visual source is Stitch screen `681ae093051749fd922ab74454f47121` in project `1219346282527961142`.
 Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`, and `resources/textures/menu/`.
 

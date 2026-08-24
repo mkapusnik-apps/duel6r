@@ -16,6 +16,8 @@ A **playable level** is any level that the application successfully loads.
 
 The **Burnable Trees** setting controls explosion-triggered burn behavior for coniferous and broad-leaved decorative trees.
 
+A **tree-burning explosion** is an explosion that could burn an applicable tree in the documented implementation baseline.
+
 Requirement IDs are stable references. Inventory notes are current observations and are not permanent product requirements.
 
 ## Match setup
@@ -137,12 +139,13 @@ Requirement IDs are stable references. Inventory notes are current observations 
 ### Decorative tree burning
 
 - **ENV-014** Burnable Trees must apply only to coniferous trees at block index 7 and broad-leaved trees at block index 8.
-- **ENV-015** When Burnable Trees is on, an explosion that reaches an intact applicable tree must start the existing burn behavior.
+- **ENV-015** When Burnable Trees is on, a tree-burning explosion that reaches an intact applicable tree must start the existing burn behavior.
 - **ENV-016** After ENV-015 occurs, the tree must show its burn animation and then remain in its burned visual state for the round.
 - **ENV-017** An applicable tree must burn no more than once in a round.
 - **ENV-018** When Burnable Trees is off, explosions must not change applicable trees from their intact visual state.
 - **ENV-019** The Burnable Trees value must not make terrain, walls, or other decorative map elements burn or become destroyed.
 - **ENV-020** The Burnable Trees value must not change explosion effects on players, shots, terrain, walls, or other world objects.
+- **ENV-021** The `shit thrower` explosion must not burn an applicable tree, regardless of the Burnable Trees value.
 
 ## Combat, weapons, and pickups
 
@@ -426,11 +429,11 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-032** Corrected content files or configuration files do not affect prerequisite validation until the user restarts the application.
 - **AC-033** With one or more requested playable levels and one or more enabled weapons, normal Play and valid selected-map starts retain their existing prompts and match behavior.
 - **AC-034** The main menu shows `Burnable Trees` as a checked pre-game checkbox after each application start.
-- **AC-035** With Burnable Trees on, a reaching explosion burns each applicable tree once. The tree remains in its burned visual state for that round.
-- **AC-036** With Burnable Trees off, the same explosion does not change an applicable tree from its intact visual state.
+- **AC-035** With Burnable Trees on, a reaching tree-burning explosion burns each applicable tree once. The tree remains in its burned visual state for that round.
+- **AC-036** With Burnable Trees off, the same tree-burning explosion does not change an applicable tree from its intact visual state.
 - **AC-037** The selected Burnable Trees value remains in effect across rounds and after a return to the menu during the same application session.
 - **AC-038** After an application restart, Burnable Trees is on without regard to the value from the prior application session.
-- **AC-039** In both Burnable Trees states, terrain, walls, other decorations, and other explosion effects remain unchanged.
+- **AC-039** In both Burnable Trees states, terrain, walls, other decorations, and other explosion effects remain unchanged. The `shit thrower` explosion does not burn applicable trees.
 
 ## Source traceability
 
@@ -440,7 +443,7 @@ The principal behavior sources for this specification are:
 - Match lifecycle: `source/Game.cpp`, `source/Round.cpp`, and `source/World.cpp`.
 - Modes and scoring: `source/gamemodes/*`, `source/PlayerEventListener.cpp`, and `source/Person.h`.
 - Player and environment: `source/Player.cpp`, `source/Water.cpp`, and `source/BonusList.cpp`.
-- Decorative tree burning: `source/Fire.cpp`, `source/Fire.h`, and `source/weapon/LegacyShot.cpp`.
+- Decorative tree burning: `source/Fire.cpp`, `source/Fire.h`, `source/weapon/LegacyShot.cpp`, and `source/weapon/impl/ShitThrowerShot.cpp`.
 - Input: `source/input/PlayerControls.cpp`, `source/input/Input.cpp`, and `source/Application.cpp`.
 - Weapons and bonuses: `source/Weapon.cpp`, `source/weapon/impl/*`, `source/Bonus.cpp`, and `source/bonus/*`.
 - Console and configuration: `source/ConsoleCommands.cpp`, `source/Application.cpp`, and `resources/data/config.script`.
