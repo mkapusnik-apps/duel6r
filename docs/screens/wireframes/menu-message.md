@@ -22,6 +22,7 @@ The screen has no mobile layout, so this single desktop wireframe covers all imp
 The implementation must render each exact message on one 20 px high line.
 The implementation must calculate the panel width from the complete message length.
 The implementation must keep the approved four-panel MENU-01 canvas unchanged behind the message.
+The visible Game Settings panel must show the checked Burnable Trees checkbox in the representative default setup.
 
 Start-prerequisite variants:
 

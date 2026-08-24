@@ -13,6 +13,7 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 - The overlay must match [`console-menu.md`](wireframes/console-menu.md).
 - The complete menu must remain rendered behind the console.
 - The visible menu area behind the console must use the approved black matte and four-panel canvas.
+- The visible Game Settings area must include the Burnable Trees checkbox from `MENU-01`.
 - The console must span the complete client width at the top of the visible client area.
 - The console must show up to 15 recent history rows.
 - A red separator must sit between history and input.

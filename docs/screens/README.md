@@ -9,6 +9,9 @@ The implementation supports desktop display viewports only.
 Each screen uses one desktop wireframe because the implementation does not define a mobile layout.
 The `MENU-01` visual baseline was updated on 2026-08-23 from the approved retro menu direction in the connected Stitch project.
 The update changes the menu presentation and control layout without adding a screen or changing product behavior.
+The 2026-08-24 Game Settings update adds a default-enabled Burnable Trees checkbox below Quick Liquid and moves Rounds down by one row.
+This update affects `MENU-01`, the menu background in `MENU-02`, and the visible menu area in `CONS-01`.
+This update does not add a screen or a wireframe.
 
 | Screen ID | Screen or state | Specification | Wireframe | Functional requirements | Primary source |
 |---|---|---|---|---|---|
