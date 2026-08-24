@@ -54,7 +54,8 @@
 - The release keeps the title `nightly` and does not create a nightly release history.
 - A failed build does not change the prior successful nightly release.
 - A package failure does not change the prior successful nightly release.
-- A publication failure starts a best-effort rollback before the workflow reports failure.
+- A failure before the release update is considered published starts a best-effort rollback before the workflow reports failure.
+- After the release update is considered published, cleanup or final-state verification failures rely on the next queued retry or operator recovery instead of the guarded rollback path.
 - An interrupted publication can leave the tag, canonical asset, or temporary assets in a partial state.
 - A queued retry repairs an interrupted asset swap before it starts a new publication.
 - A queued retry removes a rollback asset that remains after a cleanup failure.
