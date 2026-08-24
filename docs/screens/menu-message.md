@@ -12,6 +12,7 @@ Primary source is `source/Menu.cpp:368-486`.
 
 - The state must place the message strip over the unchanged main menu.
 - The unchanged main menu must include the black matte and the approved four-panel canvas.
+- The background Game Settings panel must include the Burnable Trees checkbox from `MENU-01`.
 - The strip must use the centered layout in [`menu-message.md`](wireframes/menu-message.md).
 - The message must be the top visual layer.
 - The strip must use the error surface, error text, and black frame from `docs/design.md`.

@@ -33,8 +33,8 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 │        ││rank name Elo Δ ││available    ││name │ controller │ D ││Mode spinner   ││
 │        ││                ││people       ││1 …  │ preset      │ D ││☑ Assistance  ││
 │        ││                ││             ││… up to 15 rows       ││☑ Quick Liquid ││
-│        ││                ││             ││                      ││Rounds [0___]  ││
-│        ││                ││             ││[E] [S] [batch D]     ││               ││
+│        ││                ││             ││                      ││☑ Burnable Trees││
+│        ││                ││             ││[E] [S] [batch D]     ││Rounds [0___]  ││
 │        ││                ││[name_______]││                      ││               ││
 │        ││                ││[Remove][<<][>>][Add]                 ││               ││
 │        │└────────────────┘└──────────────┘└──────────────────────┘└───────────────┘│
@@ -61,6 +61,11 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 - `S` must mean random shuffle.
 - The batch `D` action must remain visually separate from the row-level `D` actions.
 - The mode spinner must expose Deathmatch, Predator, and all six Team deathmatch variants.
+- The Burnable Trees checkbox must use the same size, bevel, label alignment, and compact row spacing as Assistance and Quick Liquid.
+- The Burnable Trees checkbox must appear directly below Quick Liquid.
+- The Rounds field must move down by one compact control row.
+- The default wireframe state must show Assistance, Quick Liquid, and Burnable Trees checked.
+- All Game Settings controls must remain inside the existing panel bounds.
 - The footer captions must put the action before the shortcut.
 - The banner must use `resources/textures/menu/` and may animate.
 - The version must use the current runtime value and must not use the Stitch sample value.

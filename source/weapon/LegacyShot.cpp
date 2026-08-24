@@ -153,7 +153,9 @@ namespace Duel6 {
     }
 
     void LegacyShot::onExplode(const Vector &centre, Float32 range, World &world) {
-        world.getFireList().check(centre, range);
+        if (world.getGameSettings().isBurnableTrees()) {
+            world.getFireList().check(centre, range);
+        }
     }
 
     void LegacyShot::onHitPlayer(Player &player, bool directHit, const Vector &hitPoint, World &world) {

@@ -5,7 +5,7 @@
 The screen builds the local roster, assigns controls, selects match settings, shows persistent results, starts a match, and exits the application.
 Entry occurs when the application starts or when gameplay closes.
 Exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action.
-The screen implements `SET-001`–`SET-023`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, and `PER-001`–`PER-005` from [`docs/features.md`](../features.md).
+The screen implements `SET-001`–`SET-029`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, and `PER-001`–`PER-005` from [`docs/features.md`](../features.md).
 The visual source is Stitch screen `681ae093051749fd922ab74454f47121` in project `1219346282527961142`.
 Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`, and `resources/textures/menu/`.
 
@@ -28,7 +28,10 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The Persons panel must contain the available-person list, person-name field, `Remove`, `<<`, `>>`, and `Add`.
 - The Players panel must contain the selected-player list, each player's control spinner, each player's `D` action, the `E` action, the `S` action, and the batch `D` action.
 - The Players panel must align each control spinner and `D` action with the applicable player row.
-- The Game Settings panel must contain the mode spinner, Assistance checkbox, Quick Liquid checkbox, and Rounds field.
+- The Game Settings panel must contain the mode spinner, Assistance checkbox, Quick Liquid checkbox, Burnable Trees checkbox, and Rounds field.
+- The Burnable Trees checkbox must appear directly below the Quick Liquid checkbox.
+- The Rounds field must move down by one compact control row.
+- The Game Settings panel bounds must not change.
 - The full persistent score table must span the middle width.
 - The bottom action row must contain `Play (F1)`, `Clear (F3)`, and `Quit (ESC)`.
 - The bottom action row must use action-first captions.
@@ -42,7 +45,11 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - `S` must reorder players by random shuffle logic.
 - Team mode selection must color player rows by team assignment.
 - The game mode spinner must contain Deathmatch, Predator, and the six implemented team variants.
-- The Assistance and Quick Liquid checkboxes must start checked in the default settings state.
+- The Assistance, Quick Liquid, and Burnable Trees checkboxes must start checked in the default settings state.
+- The Burnable Trees label must use exactly `Burnable Trees`.
+- A checked Burnable Trees checkbox must allow explosions to ignite burnable decorative trees during the match.
+- An unchecked Burnable Trees checkbox must prevent explosions from igniting burnable decorative trees during the match.
+- A Burnable Trees selection must remain in effect when the user starts the match.
 - The Rounds value `0` must mean no round limit.
 - An empty people dataset must show empty list surfaces and must retain the complete setup layout.
 - A person with no matching profile must remain selectable and must use runtime fallback customization when play starts.
@@ -75,6 +82,7 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 
 - Shortcut text must remain visible in the three bottom action captions.
 - Labels must identify all major lists and settings.
+- The Burnable Trees control must use a visible text label and must not rely only on its checked state.
 - Team rows must use color and ordered team assignment, but the menu does not add team-name text to each player row.
 - The canvas must remain centered at desktop client sizes.
 - The internal layout must not reflow.

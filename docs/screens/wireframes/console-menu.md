@@ -23,5 +23,6 @@ The console surface is `#EEDD00`.
 The input cursor blinks.
 The complete client width determines the console width.
 The fixed 850 by 700 px menu canvas remains centered under the console.
+The visible Game Settings area below the console must show the checked Burnable Trees checkbox in the representative default setup.
 
 Representative screenshot: [`SS-013`](../../screenshots/README.md#ss-013).

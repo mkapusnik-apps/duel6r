@@ -442,4 +442,65 @@ if data["playing"] != expected:
     raise SystemExit(f"Elo shuffle did not persist descending Elo order: {data['playing']}")
 PY
 
+echo "[RUN] Burnable Trees default, round/menu retention, and application restart reset"
+new_scenario burnable-trees-session
+python3 - "${scenario_dir}/data/persons.json" <<'PY'
+import json, sys
+
+def person(name):
+    return {"name": name, "shots": 0, "hits": 0, "kills": 0, "deaths": 0,
+            "assistances": 0, "wins": 0, "penalties": 0, "games": 0,
+            "timeAlive": 0, "totalGameTime": 0, "totalDamage": 0,
+            "assistedDamage": 0, "elo": 1000, "eloTrend": 0, "eloGames": 0}
+
+with open(sys.argv[1], "w", encoding="utf-8") as output:
+    json.dump({"persons": [person("Alpha"), person("Beta")],
+               "playing": ["Alpha", "Beta"], "rounds": 0}, output)
+PY
+
+crop_burnable_trees_control() {
+  # The 850x700 client is centered in the 1280x900 Xvfb root. GUI control Y
+  # coordinates originate at the lower edge of that client.
+  convert "$1" -crop 180x24+865+348 +repage "$2"
+}
+
+start_app
+capture "${scenario_dir}/burnable-default.png"
+crop_burnable_trees_control "${scenario_dir}/burnable-default.png" "${scenario_dir}/burnable-default-crop.png"
+
+# Toggle only the Burnable Trees control off.
+xdotool mousemove 875 355 click 1
+sleep 0.25
+capture "${scenario_dir}/burnable-disabled.png"
+crop_burnable_trees_control "${scenario_dir}/burnable-disabled.png" "${scenario_dir}/burnable-disabled-crop.png"
+assert_changed "${scenario_dir}/burnable-default-crop.png" "${scenario_dir}/burnable-disabled-crop.png" \
+  "Burnable Trees checkbox"
+
+# Apply the selection to a match, cross two round boundaries, and return to the
+# same menu. Unlimited-round games ask whether to clear statistics first.
+xdotool key --window "$window_id" F1
+sleep 0.4
+xdotool key --window "$window_id" n
+sleep 3
+xdotool key --window "$window_id" Shift+F1
+sleep 2
+xdotool key --window "$window_id" Shift+F1
+sleep 2
+xdotool key --window "$window_id" Shift+Escape
+sleep 2
+capture "${scenario_dir}/burnable-disabled-after-rounds.png"
+crop_burnable_trees_control "${scenario_dir}/burnable-disabled-after-rounds.png" \
+  "${scenario_dir}/burnable-disabled-after-rounds-crop.png"
+assert_same "${scenario_dir}/burnable-disabled-crop.png" \
+  "${scenario_dir}/burnable-disabled-after-rounds-crop.png" \
+  "Burnable Trees disabled selection after rounds and menu return"
+
+close_app
+start_app
+capture "${scenario_dir}/burnable-restarted.png"
+crop_burnable_trees_control "${scenario_dir}/burnable-restarted.png" "${scenario_dir}/burnable-restarted-crop.png"
+assert_same "${scenario_dir}/burnable-default-crop.png" "${scenario_dir}/burnable-restarted-crop.png" \
+  "Burnable Trees fresh-start enabled state"
+close_app
+
 echo "Menu redesign behavior test passed. Artifacts: $test_root"

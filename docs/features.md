@@ -6,12 +6,17 @@ This document specifies the required user-facing behavior of Duel 6 Reloaded.
 
 Unless a requirement identifies an approved change, the requirements describe the implementation at commit `8f98d3679c4c9091e8973a1cb7a3278f04deb946`.
 The split-screen removal requirements define target product behavior that supersedes the earlier implementation baseline.
+The Burnable Trees requirements define an approved change to the earlier implementation baseline.
 
 The word **person** means a persistent named record. The word **player** means a person in the active match roster.
 
 A **match** contains consecutive rounds. A **round** contains one level and ends when its selected game mode finds a winner or no winner.
 
 A **playable level** is any level that the application successfully loads.
+
+The **Burnable Trees** setting controls explosion-triggered burn behavior for coniferous and broad-leaved decorative trees.
+
+A **tree-burning explosion** is an explosion that could burn an applicable tree in the documented implementation baseline.
 
 Requirement IDs are stable references. Inventory notes are current observations and are not permanent product requirements.
 
@@ -26,7 +31,7 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **SET-007** After SET-006 occurs, the menu must show `Can't play alone ...` and wait for an input event.
 - **SET-008** The menu must let the user select Deathmatch, Predator, or one of six Team deathmatch variants.
 - **SET-009** The Team deathmatch variants must combine two, three, or four teams with friendly fire on or off.
-- **SET-010** The menu must let the user set Assistance, Quick Liquid, and the round limit before a match.
+- **SET-010** The menu must let the user set Assistance, Quick Liquid, Burnable Trees, and the round limit before a match.
 - **SET-011** The round-limit field must accept digits only.
 - **SET-012** An empty round-limit field must set the round limit to zero.
 - **SET-013** A round limit of zero must mean that the match has no last round.
@@ -40,6 +45,12 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **SET-021** The roster must show Team deathmatch assignments with the applicable team colors.
 - **SET-022** The Clear button and F3 must ask `Really delete? (Y/N)` before clearing statistics for every person.
 - **SET-023** Accepting SET-022 must clear every person's non-Elo statistics, preserve Elo data, rebuild the score table, and save person data.
+- **SET-024** The main menu must provide a checkbox labeled `Burnable Trees` in the pre-game settings.
+- **SET-025** The Burnable Trees checkbox must be checked when the application starts.
+- **SET-026** The menu must keep the selected Burnable Trees value during the current application session.
+- **SET-027** The application must not save the Burnable Trees value for a later application session.
+- **SET-028** When the user starts a match, the game must apply the selected Burnable Trees value to that match.
+- **SET-029** The game must keep the applied Burnable Trees value for all rounds in the active match.
 
 ## Match and round lifecycle
 
@@ -124,6 +135,17 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **ENV-011** Without Quick Liquid, Deathmatch and Predator must start sudden death when two of more than two original players remain.
 - **ENV-012** In Team deathmatch, Quick Liquid must start sudden death immediately.
 - **ENV-013** Without Quick Liquid, Team deathmatch must start sudden death when any configured team has fewer than two living players.
+
+### Decorative tree burning
+
+- **ENV-014** Burnable Trees must apply only to coniferous trees at block index 7 and broad-leaved trees at block index 8.
+- **ENV-015** When Burnable Trees is on, a tree-burning explosion that reaches an intact applicable tree must start the existing burn behavior.
+- **ENV-016** After ENV-015 occurs, the tree must show its burn animation and then remain in its burned visual state for the round.
+- **ENV-017** An applicable tree must burn no more than once in a round.
+- **ENV-018** When Burnable Trees is off, explosions must not change applicable trees from their intact visual state.
+- **ENV-019** The Burnable Trees value must not make terrain, walls, or other decorative map elements burn or become destroyed.
+- **ENV-020** The Burnable Trees value must not change explosion effects on players, shots, terrain, walls, or other world objects.
+- **ENV-021** The `shit thrower` explosion must not burn an applicable tree, regardless of the Burnable Trees value.
 
 ## Combat, weapons, and pickups
 
@@ -406,6 +428,12 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-031** After the user dismisses the report, the menu remains usable. The report instructs the user to correct the content or configuration and restart the application.
 - **AC-032** Corrected content files or configuration files do not affect prerequisite validation until the user restarts the application.
 - **AC-033** With one or more requested playable levels and one or more enabled weapons, normal Play and valid selected-map starts retain their existing prompts and match behavior.
+- **AC-034** The main menu shows `Burnable Trees` as a checked pre-game checkbox after each application start.
+- **AC-035** With Burnable Trees on, a reaching tree-burning explosion burns each applicable tree once. The tree remains in its burned visual state for that round.
+- **AC-036** With Burnable Trees off, the same tree-burning explosion does not change an applicable tree from its intact visual state.
+- **AC-037** The selected Burnable Trees value remains in effect across rounds and after a return to the menu during the same application session.
+- **AC-038** After an application restart, Burnable Trees is on without regard to the value from the prior application session.
+- **AC-039** In both Burnable Trees states, terrain, walls, other decorations, and other explosion effects remain unchanged. The `shit thrower` explosion does not burn applicable trees.
 
 ## Source traceability
 
@@ -415,6 +443,7 @@ The principal behavior sources for this specification are:
 - Match lifecycle: `source/Game.cpp`, `source/Round.cpp`, and `source/World.cpp`.
 - Modes and scoring: `source/gamemodes/*`, `source/PlayerEventListener.cpp`, and `source/Person.h`.
 - Player and environment: `source/Player.cpp`, `source/Water.cpp`, and `source/BonusList.cpp`.
+- Decorative tree burning: `source/Fire.cpp`, `source/Fire.h`, `source/weapon/LegacyShot.cpp`, and `source/weapon/impl/ShitThrowerShot.cpp`.
 - Input: `source/input/PlayerControls.cpp`, `source/input/Input.cpp`, and `source/Application.cpp`.
 - Weapons and bonuses: `source/Weapon.cpp`, `source/weapon/impl/*`, `source/Bonus.cpp`, and `source/bonus/*`.
 - Console and configuration: `source/ConsoleCommands.cpp`, `source/Application.cpp`, and `resources/data/config.script`.

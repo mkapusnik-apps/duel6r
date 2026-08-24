@@ -57,6 +57,7 @@ namespace Duel6 {
         bool showRanking;
         bool ghostMode;
         bool quickLiquid;
+        bool burnableTrees;
         bool globalAssistances;
         ShotCollisionSetting shotCollision;
         EnabledWeapons enabledWeapons;
@@ -163,6 +164,15 @@ namespace Duel6 {
 
         bool isQuickLiquid() const {
             return quickLiquid;
+        }
+
+        GameSettings &setBurnableTrees(bool enabled) {
+            burnableTrees = enabled;
+            return *this;
+        }
+
+        bool isBurnableTrees() const {
+            return burnableTrees;
         }
     };
 }

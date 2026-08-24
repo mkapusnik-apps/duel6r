@@ -79,6 +79,7 @@ namespace Duel6 {
         Gui::Spinner *gameModeSwitch;
         Gui::CheckBox *globalAssistanceCheckBox;
         Gui::CheckBox *quickLiquidCheckBox;
+        Gui::CheckBox *burnableTreesCheckBox;
         Gui::Panel *playersPanel;
         Size backgroundCount;
         Texture menuBannerTexture;

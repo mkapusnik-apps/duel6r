@@ -4,6 +4,16 @@
 #include <string>
 
 #include "source/json/JsonParser.h"
+#include "source/GameSettings.h"
+
+// GameSettings' weapon collection is not exercised here, but its translation
+// unit references Weapon equality. Keep the narrow settings test independent
+// of the complete gameplay/renderer link graph.
+bool Duel6::Weapon::operator==(const Weapon &weapon) const {
+    return impl == weapon.impl;
+}
+
+#include "source/GameSettings.cpp"
 #include "tests/TestHarness.h"
 
 namespace {
@@ -39,6 +49,26 @@ namespace {
 
         return true;
     }
+}
+
+D6R_TEST_CASE("Burnable Trees defaults on for each fresh application settings instance") {
+    Duel6::GameSettings priorSession;
+    priorSession.setBurnableTrees(false);
+
+    const Duel6::GameSettings restartedSession;
+
+    D6R_REQUIRE(!priorSession.isBurnableTrees());
+    D6R_REQUIRE(restartedSession.isBurnableTrees());
+}
+
+D6R_TEST_CASE("Burnable Trees selection remains mutable in the active settings instance") {
+    Duel6::GameSettings settings;
+
+    D6R_REQUIRE(settings.isBurnableTrees());
+    settings.setBurnableTrees(false);
+    D6R_REQUIRE(!settings.isBurnableTrees());
+    settings.setBurnableTrees(true);
+    D6R_REQUIRE(settings.isBurnableTrees());
 }
 
 D6R_TEST_CASE("Block metadata JSON is structurally valid") {

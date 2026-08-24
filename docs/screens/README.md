@@ -9,10 +9,13 @@ The implementation supports desktop display viewports only.
 Each screen uses one desktop wireframe because the implementation does not define a mobile layout.
 The `MENU-01` visual baseline was updated on 2026-08-23 from the approved retro menu direction in the connected Stitch project.
 The update changes the menu presentation and control layout without adding a screen or changing product behavior.
+The 2026-08-24 Game Settings update adds a default-enabled Burnable Trees checkbox below Quick Liquid and moves Rounds down by one row.
+This update affects `MENU-01`, the menu background in `MENU-02`, and the visible menu area in `CONS-01`.
+This update does not add a screen or a wireframe.
 
 | Screen ID | Screen or state | Specification | Wireframe | Functional requirements | Primary source |
 |---|---|---|---|---|---|
-| `MENU-01` | Main menu and session setup | [Specification](menu-main.md) | [Wireframe](wireframes/menu-main.md) | `SET-001`–`SET-023`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005` | Stitch screen `681ae093051749fd922ab74454f47121`; behavior: `source/Menu.cpp` |
+| `MENU-01` | Main menu and session setup | [Specification](menu-main.md) | [Wireframe](wireframes/menu-main.md) | `SET-001`–`SET-029`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005` | Stitch screen `681ae093051749fd922ab74454f47121`; behavior: `source/Menu.cpp` |
 | `MENU-02` | Menu blocking message | [Specification](menu-message.md) | [Wireframe](wireframes/menu-message.md) | `SET-003`, `SET-006`–`SET-007`, `SET-022`, `LIF-023`–`LIF-029`, `INP-008`–`INP-009` | `source/Menu.cpp:368-486` |
 | `PLAY-01` | Live shared arena gameplay for 2–15 players | [Specification](play-fullscreen.md) | [Wireframe](wireframes/play-fullscreen.md) | `LIF-001`–`LIF-022`, `INP-012`–`INP-017`, `PLY-001`–`PLY-010`, `ENV-001`–`ENV-013`, `CMB-001`–`CMB-020`, `BON-001`–`BON-020`, `SCO-001`–`SCO-018`, `UI-001`–`UI-020` | Target: `docs/features.md`; context: `source/WorldRenderer.cpp` |
 | `MODE-01` | Predator live gameplay | [Specification](mode-predator.md) | [Wireframe](wireframes/mode-predator.md) | `MOD-PR-001`–`MOD-PR-008`, `UI-001`–`UI-020` | `source/gamemodes/Predator.cpp` |

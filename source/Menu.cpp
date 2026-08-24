@@ -269,10 +269,14 @@ namespace Duel6 {
         quickLiquidCheckBox->setLabel("Quick Liquid");
         quickLiquidCheckBox->setPosition(654, 482, 170, 20);
 
+        burnableTreesCheckBox = new Gui::CheckBox(gui, game->getSettings().isBurnableTrees());
+        burnableTreesCheckBox->setLabel("Burnable Trees");
+        burnableTreesCheckBox->setPosition(654, 454, 170, 20);
+
         roundsTextbox = new Gui::Textbox(gui);
         roundsTextbox->setLabel("Rounds");
         roundsTextbox->setLabelLeft(true);
-        roundsTextbox->setPosition(792, 452, 4, 4, D6_NUM_CHR);
+        roundsTextbox->setPosition(792, 424, 4, 4, D6_NUM_CHR);
         updateRoundsTextbox();
 
         backgroundCount = File::countFiles(D6_TEXTURE_BCG_PATH);
@@ -477,6 +481,7 @@ namespace Duel6 {
             return;
         }
         game->getSettings().setQuickLiquid(quickLiquidCheckBox->isChecked());
+        game->getSettings().setBurnableTrees(burnableTreesCheckBox->isChecked());
         game->getSettings().setGlobalAssistances(globalAssistanceCheckBox->isChecked());
         if (game->getSettings().isRoundLimit()) {
             if (game->getPlayedRounds() == 0 || game->getPlayedRounds() >= game->getSettings().getMaxRounds() || !question("Resume previous game? (Y/N)")) {
