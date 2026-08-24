@@ -461,7 +461,7 @@ PY
 crop_burnable_trees_control() {
   # The 850x700 client is centered in the 1280x900 Xvfb root. GUI control Y
   # coordinates originate at the lower edge of that client.
-  convert "$1" -crop 180x24+865+320 +repage "$2"
+  convert "$1" -crop 180x24+865+348 +repage "$2"
 }
 
 start_app
@@ -469,7 +469,7 @@ capture "${scenario_dir}/burnable-default.png"
 crop_burnable_trees_control "${scenario_dir}/burnable-default.png" "${scenario_dir}/burnable-default-crop.png"
 
 # Toggle only the Burnable Trees control off.
-xdotool mousemove 875 335 click 1
+xdotool mousemove 875 355 click 1
 sleep 0.25
 capture "${scenario_dir}/burnable-disabled.png"
 crop_burnable_trees_control "${scenario_dir}/burnable-disabled.png" "${scenario_dir}/burnable-disabled-crop.png"
