@@ -137,24 +137,13 @@ jobs:
 
             const setTag = async (target) => {
               const current = await getTagSha();
-              if (target) {
-                if (current) {
-                  await tagClient.rest.git.updateRef({
-                    ...props,
-                    ref: `tags/${tag}`,
-                    sha: target,
-                    force: true,
-                  });
-                } else {
-                  await tagClient.rest.git.createRef({
-                    ...props,
-                    ref: `refs/tags/${tag}`,
-                    sha: target,
-                  });
-                }
-              } else if (current) {
-                await tagClient.rest.git.deleteRef({ ...props, ref: `tags/${tag}` });
-              }
+              if (!current) throw new Error(`Required tag ${tag} no longer exists`);
+              await tagClient.rest.git.updateRef({
+                ...props,
+                ref: `tags/${tag}`,
+                sha: target,
+                force: true,
+              });
             };
 
             const listAssets = (releaseId) => github.paginate(
@@ -174,70 +163,57 @@ jobs:
             });
 
             const previousTagSha = await getTagSha();
-            const archive = await fs.promises.readFile(process.env.ASSET_PATH);
-            let release;
-            let createdDraft = false;
+            if (!previousTagSha) {
+              throw new Error(`Required tag ${tag} does not exist; initial publication is out of scope`);
+            }
 
+            let release;
             try {
               release = (await github.rest.repos.getReleaseByTag({ ...props, tag })).data;
             } catch (error) {
-              if (error.status !== 404) throw error;
-              const drafts = await github.paginate(
-                github.rest.repos.listReleases,
-                { ...props, per_page: 100 },
-                (response) => response.data.filter((item) => item.draft && item.tag_name === tag),
-              );
-              if (drafts.length > 1) {
-                throw new Error(`Found multiple draft releases for ${tag}`);
+              if (error.status === 404) {
+                throw new Error(
+                  `Required published pre-release ${tag} does not exist; initial publication is out of scope`,
+                );
               }
-              release = drafts[0] ?? (await github.rest.repos.createRelease({
-                  ...props,
-                  tag_name: tag,
-                  target_commitish: previousTagSha || sha,
-                  name: tag,
-                  draft: true,
-                  prerelease: true,
-                  make_latest: 'false',
-                })).data;
-              createdDraft = true;
+              throw error;
             }
+            if (release.draft || !release.prerelease) {
+              throw new Error(`Required release ${tag} must be a published pre-release`);
+            }
+
+            const archive = await fs.promises.readFile(process.env.ASSET_PATH);
 
             const rollbackPrefix = `${canonicalName}.rollback-`;
             const candidatePrefix = `${canonicalName}.candidate-`;
 
-            if (createdDraft) {
-              for (const asset of await listAssets(release.id)) {
+            let assets = await listAssets(release.id);
+            let canonical = assets.find((asset) => asset.name === canonicalName);
+            const backups = assets.filter((asset) => asset.name.startsWith(rollbackPrefix));
+            const matchingBackup = backups.find((asset) =>
+              asset.name.startsWith(`${rollbackPrefix}${previousTagSha}-`));
+            const canonicalSha = canonical?.label?.startsWith('nightly-sha:')
+              ? canonical.label.slice('nightly-sha:'.length)
+              : '';
+
+            if (!canonical && matchingBackup) {
+              await renameAsset(matchingBackup.id, canonicalName);
+              canonical = { ...matchingBackup, name: canonicalName };
+            } else if (canonicalSha && canonicalSha !== previousTagSha && matchingBackup) {
+              const interruptedName = `${candidatePrefix}interrupted-${context.runId}`;
+              await renameAsset(canonical.id, interruptedName);
+              await renameAsset(matchingBackup.id, canonicalName);
+              await deleteAsset(canonical.id);
+              canonical = { ...matchingBackup, name: canonicalName };
+            }
+
+            assets = await listAssets(release.id);
+            for (const asset of assets) {
+              if (
+                asset.name !== canonicalName
+                && (asset.name.startsWith(rollbackPrefix) || asset.name.startsWith(candidatePrefix))
+              ) {
                 await deleteAsset(asset.id);
-              }
-            } else {
-              let assets = await listAssets(release.id);
-              let canonical = assets.find((asset) => asset.name === canonicalName);
-              const backups = assets.filter((asset) => asset.name.startsWith(rollbackPrefix));
-              const matchingBackup = backups.find((asset) =>
-                previousTagSha && asset.name.startsWith(`${rollbackPrefix}${previousTagSha}-`));
-              const canonicalSha = canonical?.label?.startsWith('nightly-sha:')
-                ? canonical.label.slice('nightly-sha:'.length)
-                : '';
-
-              if (!canonical && matchingBackup) {
-                await renameAsset(matchingBackup.id, canonicalName);
-                canonical = { ...matchingBackup, name: canonicalName };
-              } else if (canonicalSha && canonicalSha !== previousTagSha && matchingBackup) {
-                const interruptedName = `${candidatePrefix}interrupted-${context.runId}`;
-                await renameAsset(canonical.id, interruptedName);
-                await renameAsset(matchingBackup.id, canonicalName);
-                await deleteAsset(canonical.id);
-                canonical = { ...matchingBackup, name: canonicalName };
-              }
-
-              assets = await listAssets(release.id);
-              for (const asset of assets) {
-                if (
-                  asset.name !== canonicalName
-                  && (asset.name.startsWith(rollbackPrefix) || asset.name.startsWith(candidatePrefix))
-                ) {
-                  await deleteAsset(asset.id);
-                }
               }
             }
 
@@ -264,8 +240,7 @@ jobs:
               const assets = await listAssets(release.id);
               const canonical = assets.find((asset) => asset.name === canonicalName);
               if (canonical) {
-                const prior = previousTagSha || 'untagged';
-                backupName = `${rollbackPrefix}${prior}-${context.runId}-${context.runAttempt}`;
+                backupName = `${rollbackPrefix}${previousTagSha}-${context.runId}-${context.runAttempt}`;
                 await renameAsset(canonical.id, backupName);
                 backupId = canonical.id;
               }
@@ -287,6 +262,28 @@ jobs:
               published = true;
 
               if (backupId) await deleteAsset(backupId);
+
+              const finalTagSha = await getTagSha();
+              const finalRelease = (await github.rest.repos.getRelease({
+                ...props,
+                release_id: release.id,
+              })).data;
+              const finalAssets = await listAssets(release.id);
+              const finalCanonical = finalAssets.filter((asset) => asset.name === canonicalName);
+              const temporaryAssets = finalAssets.filter((asset) =>
+                asset.name.startsWith(rollbackPrefix) || asset.name.startsWith(candidatePrefix));
+              if (
+                finalTagSha !== sha
+                || finalRelease.draft
+                || !finalRelease.prerelease
+                || finalRelease.tag_name !== tag
+                || finalRelease.name !== tag
+                || finalCanonical.length !== 1
+                || finalCanonical[0].label !== candidateLabel
+                || temporaryAssets.length
+              ) {
+                throw new Error('Nightly publication final-state verification failed');
+              }
             } catch (publicationError) {
               const rollbackErrors = [];
               if (!published) {
@@ -315,14 +312,6 @@ jobs:
                   }
                 } catch (error) {
                   rollbackErrors.push(`asset: ${error.message}`);
-                }
-
-                if (createdDraft) {
-                  try {
-                    await github.rest.repos.deleteRelease({ ...props, release_id: release.id });
-                  } catch (error) {
-                    rollbackErrors.push(`draft release: ${error.message}`);
-                  }
                 }
               }
 
