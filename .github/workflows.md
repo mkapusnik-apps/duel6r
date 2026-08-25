@@ -38,8 +38,20 @@
 
 - `Develop - Nightly Scheduler` dispatches `develop-nightly.yml` from the `sanity` tag.
 - `Develop - Nightly` builds Linux and Windows files on a GitHub-hosted runner.
-- The nightly workflow runs configured Linux `ctest` tests and publishes the `nightly` pre-release.
-- The nightly tag job needs the `PAT_ACTIONS` secret with `contents: write` access.
+- The nightly workflow runs configured Linux `ctest` tests.
+- The workflow packages the shared Linux and Windows files as `duel6r-nightly.zip`.
+- The ZIP root contains the files from `build` without a `build` directory.
+- GitHub Actions uses a one-day transport artifact between the build and release jobs.
+- The repository provides the existing stable `nightly` tag and pre-release.
+- The release job moves the `nightly` tag to the workflow commit.
+- The release job overwrites `duel6r-nightly.zip` on the existing pre-release.
+- Publication is non-transactional; a failure after moving the tag may require rerunning the workflow.
+- The release keeps the title `nightly` and does not create a nightly release history.
+- A failed build does not change the prior successful nightly release.
+- A package failure does not change the prior successful nightly release.
+- Nightly runs wait for an active nightly run to finish before release publication starts.
+- The release job uses `contents: write` permission with `GITHUB_TOKEN`.
+- The release job uses `PAT_ACTIONS` to move the `nightly` tag.
 - `Release Artifact` builds release files after a push to `master` or a manual dispatch.
 - GitHub-hosted jobs use direct bind mounts because their Docker daemon shares the runner host filesystem.
 - Nightly and release publication need the permissions and secrets declared in their workflow files.
