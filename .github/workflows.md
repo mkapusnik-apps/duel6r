@@ -42,24 +42,13 @@
 - The workflow packages the shared Linux and Windows files as `duel6r-nightly.zip`.
 - The ZIP root contains the files from `build` without a `build` directory.
 - GitHub Actions uses a one-day transport artifact between the build and release jobs.
-- The release job stages the new ZIP under a temporary asset name before it changes the stable nightly.
-- The release job keeps the prior ZIP as a rollback asset while it changes the canonical asset and `nightly` tag.
-- The `nightly` tag and published `nightly` pre-release must exist before the release job makes a change.
-- The workflow does not create the first `nightly` tag or pre-release.
-- The release job moves `nightly` only after the canonical asset is ready.
-- The asset can briefly identify the new build before the tag moves.
-- The tag can briefly identify the new build before the pre-release update completes.
-- The release job removes temporary candidate and rollback assets before a successful run ends.
-- The release job verifies that the tag and canonical asset identify the same build.
+- The repository provides the existing stable `nightly` tag and pre-release.
+- The release job moves the `nightly` tag to the workflow commit.
+- The release job overwrites `duel6r-nightly.zip` on the existing pre-release.
+- Publication is non-transactional; a failure after moving the tag may require rerunning the workflow.
 - The release keeps the title `nightly` and does not create a nightly release history.
 - A failed build does not change the prior successful nightly release.
 - A package failure does not change the prior successful nightly release.
-- A failure before the release update is considered published starts a best-effort rollback before the workflow reports failure.
-- After the release update is considered published, cleanup or final-state verification failures rely on the next queued retry or operator recovery instead of the guarded rollback path.
-- An interrupted publication can leave the tag, canonical asset, or temporary assets in a partial state.
-- A queued retry repairs an interrupted asset swap before it starts a new publication.
-- A queued retry removes a rollback asset that remains after a cleanup failure.
-- An operator must repair the release when rollback or retry recovery cannot restore a consistent state.
 - Nightly runs wait for an active nightly run to finish before release publication starts.
 - The release job uses `contents: write` permission with `GITHUB_TOKEN`.
 - The release job uses `PAT_ACTIONS` to move the `nightly` tag.

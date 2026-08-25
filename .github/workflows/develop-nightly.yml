@@ -47,46 +47,15 @@ jobs:
             -v "$PWD:/workspace" \
             ghcr.io/${{ github.repository }}/build-w64:develop
 
-      - name: Verify shared nightly bundle
-        run: |
-          test -x build/duel6r
-          test -f build/duel6r.exe
-          test -d build/data
-          test -d build/levels
-          test -d build/profiles
-          test -d build/shaders
-          test -d build/sound
-          test -d build/textures
-
       - name: Package nightly bundle
-        id: package
-        shell: bash
-        run: |
-          archive_name="duel6r-nightly.zip"
-
-          ARCHIVE_NAME="$archive_name" python - <<'PY'
-          import os
-          import zipfile
-
-          archive_name = os.environ["ARCHIVE_NAME"]
-          root = "build"
-
-          with zipfile.ZipFile(
-              archive_name, "w", compression=zipfile.ZIP_DEFLATED
-          ) as archive:
-              for current_root, _, files in os.walk(root):
-                  for file_name in files:
-                      path = os.path.join(current_root, file_name)
-                      archive.write(path, os.path.relpath(path, root))
-          PY
-
-          echo "archive_name=${archive_name}" >> "$GITHUB_OUTPUT"
+        working-directory: build
+        run: zip -r ../duel6r-nightly.zip .
 
       - name: Upload nightly artifact
         uses: actions/upload-artifact@v7
         with:
           name: nightly-release-asset
-          path: ${{ steps.package.outputs.archive_name }}
+          path: duel6r-nightly.zip
           if-no-files-found: error
           retention-days: 1
 
@@ -103,220 +72,21 @@ jobs:
           name: nightly-release-asset
           path: release-assets
 
-      - name: Publish coordinated nightly release
-        uses: actions/github-script@v9
-        env:
-          ASSET_PATH: release-assets/duel6r-nightly.zip
-          TAG_TOKEN: ${{ secrets.PAT_ACTIONS }}
+      - name: Move nightly tag
+        uses: mkapusnik-apps/commons/git-ref@v1
         with:
-          github-token: ${{ github.token }}
-          script: |
-            const fs = require('fs');
+          ref: refs/tags/nightly
+          commit_sha: ${{ github.sha }}
+          token: ${{ secrets.PAT_ACTIONS }}
+          create_if_missing: 'false'
 
-            const { owner, repo } = context.repo;
-            const tag = 'nightly';
-            const canonicalName = 'duel6r-nightly.zip';
-            const sha = context.sha;
-            const candidateName = `${canonicalName}.candidate-${context.runId}-${context.runAttempt}`;
-            const candidateLabel = `nightly-sha:${sha}`;
-            const tagToken = (process.env.TAG_TOKEN ?? '').trim();
-            if (!tagToken) throw new Error('PAT_ACTIONS must be configured');
-
-            const tagClient = getOctokit(tagToken);
-            const props = { owner, repo };
-
-            const getTagSha = async () => {
-              try {
-                const response = await tagClient.rest.git.getRef({ ...props, ref: `tags/${tag}` });
-                return response.data.object.sha;
-              } catch (error) {
-                if (error.status === 404) return '';
-                throw error;
-              }
-            };
-
-            const setTag = async (target) => {
-              const current = await getTagSha();
-              if (!current) throw new Error(`Required tag ${tag} no longer exists`);
-              await tagClient.rest.git.updateRef({
-                ...props,
-                ref: `tags/${tag}`,
-                sha: target,
-                force: true,
-              });
-            };
-
-            const listAssets = (releaseId) => github.paginate(
-              github.rest.repos.listReleaseAssets,
-              { ...props, release_id: releaseId, per_page: 100 },
-            );
-
-            const renameAsset = (assetId, name) => github.rest.repos.updateReleaseAsset({
-              ...props,
-              asset_id: assetId,
-              name,
-            });
-
-            const deleteAsset = (assetId) => github.rest.repos.deleteReleaseAsset({
-              ...props,
-              asset_id: assetId,
-            });
-
-            const previousTagSha = await getTagSha();
-            if (!previousTagSha) {
-              throw new Error(`Required tag ${tag} does not exist; initial publication is out of scope`);
-            }
-
-            let release;
-            try {
-              release = (await github.rest.repos.getReleaseByTag({ ...props, tag })).data;
-            } catch (error) {
-              if (error.status === 404) {
-                throw new Error(
-                  `Required published pre-release ${tag} does not exist; initial publication is out of scope`,
-                );
-              }
-              throw error;
-            }
-            if (release.draft || !release.prerelease) {
-              throw new Error(`Required release ${tag} must be a published pre-release`);
-            }
-
-            const archive = await fs.promises.readFile(process.env.ASSET_PATH);
-
-            const rollbackPrefix = `${canonicalName}.rollback-`;
-            const candidatePrefix = `${canonicalName}.candidate-`;
-
-            let assets = await listAssets(release.id);
-            let canonical = assets.find((asset) => asset.name === canonicalName);
-            const backups = assets.filter((asset) => asset.name.startsWith(rollbackPrefix));
-            const matchingBackup = backups.find((asset) =>
-              asset.name.startsWith(`${rollbackPrefix}${previousTagSha}-`));
-            const canonicalSha = canonical?.label?.startsWith('nightly-sha:')
-              ? canonical.label.slice('nightly-sha:'.length)
-              : '';
-
-            if (!canonical && matchingBackup) {
-              await renameAsset(matchingBackup.id, canonicalName);
-              canonical = { ...matchingBackup, name: canonicalName };
-            } else if (canonicalSha && canonicalSha !== previousTagSha && matchingBackup) {
-              const interruptedName = `${candidatePrefix}interrupted-${context.runId}`;
-              await renameAsset(canonical.id, interruptedName);
-              await renameAsset(matchingBackup.id, canonicalName);
-              await deleteAsset(canonical.id);
-              canonical = { ...matchingBackup, name: canonicalName };
-            }
-
-            assets = await listAssets(release.id);
-            for (const asset of assets) {
-              if (
-                asset.name !== canonicalName
-                && (asset.name.startsWith(rollbackPrefix) || asset.name.startsWith(candidatePrefix))
-              ) {
-                await deleteAsset(asset.id);
-              }
-            }
-
-            let candidateId = 0;
-            let backupId = 0;
-            let backupName = '';
-            let tagMoved = false;
-            let published = false;
-
-            try {
-              const uploaded = await github.rest.repos.uploadReleaseAsset({
-                ...props,
-                release_id: release.id,
-                name: candidateName,
-                label: candidateLabel,
-                data: archive,
-                headers: {
-                  'content-type': 'application/zip',
-                  'content-length': archive.length,
-                },
-              });
-              candidateId = uploaded.data.id;
-
-              const assets = await listAssets(release.id);
-              const canonical = assets.find((asset) => asset.name === canonicalName);
-              if (canonical) {
-                backupName = `${rollbackPrefix}${previousTagSha}-${context.runId}-${context.runAttempt}`;
-                await renameAsset(canonical.id, backupName);
-                backupId = canonical.id;
-              }
-
-              await renameAsset(candidateId, canonicalName);
-              await setTag(sha);
-              tagMoved = true;
-
-              await github.rest.repos.updateRelease({
-                ...props,
-                release_id: release.id,
-                tag_name: tag,
-                target_commitish: sha,
-                name: tag,
-                draft: false,
-                prerelease: true,
-                make_latest: 'false',
-              });
-              published = true;
-
-              if (backupId) await deleteAsset(backupId);
-
-              const finalTagSha = await getTagSha();
-              const finalRelease = (await github.rest.repos.getRelease({
-                ...props,
-                release_id: release.id,
-              })).data;
-              const finalAssets = await listAssets(release.id);
-              const finalCanonical = finalAssets.filter((asset) => asset.name === canonicalName);
-              const temporaryAssets = finalAssets.filter((asset) =>
-                asset.name.startsWith(rollbackPrefix) || asset.name.startsWith(candidatePrefix));
-              if (
-                finalTagSha !== sha
-                || finalRelease.draft
-                || !finalRelease.prerelease
-                || finalRelease.tag_name !== tag
-                || finalRelease.name !== tag
-                || finalCanonical.length !== 1
-                || finalCanonical[0].label !== candidateLabel
-                || temporaryAssets.length
-              ) {
-                throw new Error('Nightly publication final-state verification failed');
-              }
-            } catch (publicationError) {
-              const rollbackErrors = [];
-              if (!published) {
-                if (tagMoved || await getTagSha() === sha) {
-                  try {
-                    await setTag(previousTagSha);
-                  } catch (error) {
-                    rollbackErrors.push(`tag: ${error.message}`);
-                  }
-                }
-
-                try {
-                  const assets = await listAssets(release.id);
-                  const newCanonical = assets.find((asset) =>
-                    asset.id === candidateId || asset.name === candidateName);
-                  const backup = assets.find((asset) =>
-                    asset.id === backupId || (backupName && asset.name === backupName));
-                  if (newCanonical && backup) {
-                    await renameAsset(newCanonical.id, candidateName);
-                    await renameAsset(backup.id, canonicalName);
-                    await deleteAsset(newCanonical.id);
-                  } else if (newCanonical) {
-                    await deleteAsset(newCanonical.id);
-                  } else if (backup && !assets.some((asset) => asset.name === canonicalName)) {
-                    await renameAsset(backup.id, canonicalName);
-                  }
-                } catch (error) {
-                  rollbackErrors.push(`asset: ${error.message}`);
-                }
-              }
-
-              const rollback = rollbackErrors.length
-                ? ` Rollback also failed (${rollbackErrors.join('; ')}).`
-                : '';
-              throw new Error(`Nightly publication failed: ${publicationError.message}.${rollback}`);
-            }
+      - name: Update nightly pre-release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: nightly
+          name: nightly
+          prerelease: true
+          make_latest: false
+          files: release-assets/duel6r-nightly.zip
+          overwrite_files: true
+          fail_on_unmatched_files: true
