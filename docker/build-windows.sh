@@ -53,6 +53,11 @@ if [[ ! -f "${source_binary}" ]]; then
 fi
 
 cp "${source_binary}" "${workspace_dir}/${output_dir}/duel6r.exe"
+if [[ ! -f "${tmp_build_dir}/duel6r-server.exe" ]]; then
+  echo "Unable to find built Windows server scaffold in ${tmp_build_dir}" >&2
+  exit 1
+fi
+cp "${tmp_build_dir}/duel6r-server.exe" "${workspace_dir}/${output_dir}/duel6r-server.exe"
 cp -R "${workspace_dir}/resources/." "${workspace_dir}/${output_dir}/"
 
 python3 - "${workspace_dir}/${output_dir}/duel6r.exe" "${workspace_dir}/${output_dir}" <<'PY'

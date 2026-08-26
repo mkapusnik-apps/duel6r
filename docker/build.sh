@@ -44,6 +44,11 @@ if [[ ! -f "${source_binary}" ]]; then
 fi
 
 cp "${source_binary}" "${workspace_dir}/${output_dir}/duel6r"
+if [[ ! -f "${tmp_build_dir}/duel6r-server" ]]; then
+  echo "Unable to find built server scaffold in ${tmp_build_dir}" >&2
+  exit 1
+fi
+cp "${tmp_build_dir}/duel6r-server" "${workspace_dir}/${output_dir}/duel6r-server"
 cp -R "${workspace_dir}/resources/." "${workspace_dir}/${output_dir}/"
 
 echo "Linux runtime bundle written to ${workspace_dir}/${output_dir}"
