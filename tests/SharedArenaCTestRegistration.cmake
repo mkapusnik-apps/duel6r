@@ -2,6 +2,22 @@
 # Include this file from the root BUILD_TESTING/UNIX block after
 # D6R_BASH_EXECUTABLE has been resolved.
 
+add_executable(
+    duel6r-networking-prototype-tests
+    ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+    ${CMAKE_SOURCE_DIR}/tests/NetworkingPrototypeTests.cpp
+)
+target_include_directories(duel6r-networking-prototype-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(duel6r-networking-prototype-tests duel6r-network-scaffold)
+
+add_test(NAME networking-prototype-behavior COMMAND duel6r-networking-prototype-tests)
+set_tests_properties(
+    networking-prototype-behavior
+    PROPERTIES
+    LABELS "application;networking;prototype;regression"
+    TIMEOUT 60
+)
+
 foreach(D6R_SHARED_ARENA_TOOL Xvfb xdotool import identify convert compare python3 timeout)
     find_program(D6R_SHARED_ARENA_${D6R_SHARED_ARENA_TOOL} ${D6R_SHARED_ARENA_TOOL})
     if (NOT D6R_SHARED_ARENA_${D6R_SHARED_ARENA_TOOL})
