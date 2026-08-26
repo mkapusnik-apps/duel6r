@@ -12,6 +12,9 @@ The update changes the menu presentation and control layout without adding a scr
 The 2026-08-24 Game Settings update adds a default-enabled Burnable Trees checkbox below Quick Liquid and moves Rounds down by one row.
 This update affects `MENU-01`, the menu background in `MENU-02`, and the visible menu area in `CONS-01`.
 This update does not add a screen or a wireframe.
+The 2026-08-26 approved menu presentation preserves that 850 by 700 logical layout while uniformly scaling and centering it, replacing the black matte with one session-persistent blurred gameplay still under a 55% black scrim, and adding a black canvas keyline.
+The same presentation appears in `MENU-01`, behind messages in `MENU-02`, and below the unscaled full-width console in `CONS-01`.
+This presentation change invalidates the prior representative screenshots for those three existing wireframes but does not add a screen or wireframe.
 
 | Screen ID | Screen or state | Specification | Wireframe | Functional requirements | Primary source |
 |---|---|---|---|---|---|

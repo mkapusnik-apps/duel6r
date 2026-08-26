@@ -83,6 +83,12 @@ namespace Duel6 {
         Gui::Panel *playersPanel;
         Size backgroundCount;
         Texture menuBannerTexture;
+        Texture menuBackgroundTexture;
+        std::string menuBackgroundFilename;
+        bool hasMenuBackground;
+        Float32 menuScale;
+        Int32 menuTranslationX;
+        Int32 menuTranslationY;
         Sound::Track menuTrack;
         bool playMusic;
 
@@ -135,6 +141,12 @@ namespace Duel6 {
         void beforeClose(Context *nextContext) override;
 
         void initializeGameModes();
+
+        void initializePresentation();
+
+        void initializeMenuBackground();
+
+        void renderMenuBackground() const;
 
         void showMessage(const std::string &message);
 

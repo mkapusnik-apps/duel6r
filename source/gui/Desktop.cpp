@@ -32,12 +32,11 @@
 namespace Duel6 {
     namespace Gui {
         namespace {
-            Color matteColor(0, 0, 0);
             Color bcgColor(192, 192, 192);
         }
 
         Desktop::Desktop(Renderer &renderer)
-                : renderer(renderer) {}
+                : renderer(renderer), scale(1.0f) {}
 
         Desktop::~Desktop() {
         }
@@ -47,13 +46,14 @@ namespace Duel6 {
         }
 
         void Desktop::screenSize(Int32 scrWidth, Int32 scrHeight, Int32 canvasWidth, Int32 canvasHeight,
-                                 Int32 trX, Int32 trY) {
+                                 Int32 trX, Int32 trY, Float32 scale) {
             screenWidth = scrWidth;
             screenHeight = scrHeight;
             this->canvasWidth = canvasWidth;
             this->canvasHeight = canvasHeight;
             this->trX = trX;
             this->trY = trY;
+            this->scale = scale;
         }
 
         void Desktop::update(Float32 elapsedTime) {
@@ -63,8 +63,9 @@ namespace Duel6 {
         }
 
         void Desktop::draw(const Font &font) const {
-            renderer.quadXY(Vector(0, 0), Vector(screenWidth, screenHeight), matteColor);
-            renderer.setViewMatrix(Matrix::translate(Float32(trX), Float32(trY), 0));
+            renderer.setViewMatrix(Matrix::translate(Float32(trX), Float32(trY), 0) *
+                                   Matrix::scale(scale, scale, 1.0f));
+            renderer.quadXY(Vector(-2, -2), Vector(canvasWidth + 4, canvasHeight + 4), Color::BLACK);
             renderer.quadXY(Vector(0, 0), Vector(canvasWidth, canvasHeight), bcgColor);
 
             for (auto &control : controls) {
@@ -87,21 +88,21 @@ namespace Duel6 {
         }
 
         void Desktop::mouseButtonEvent(const MouseButtonEvent &event) {
-            MouseButtonEvent translatedEvent = event.translate(-trX, -trY);
+            MouseButtonEvent translatedEvent = event.inverseTransform(scale, trX, trY);
             for (auto &control : controls) {
                 control->mouseButtonEvent(translatedEvent);
             }
         }
 
         void Desktop::mouseMotionEvent(const MouseMotionEvent &event) {
-            MouseMotionEvent translatedEvent = event.translate(-trX, -trY);
+            MouseMotionEvent translatedEvent = event.inverseTransform(scale, trX, trY);
             for (auto &control : controls) {
                 control->mouseMotionEvent(translatedEvent);
             }
         }
 
         void Desktop::mouseWheelEvent(const MouseWheelEvent &event) {
-            MouseWheelEvent translatedEvent = event.translate(-trX, -trY);
+            MouseWheelEvent translatedEvent = event.inverseTransform(scale, trX, trY);
             for (auto &control : controls) {
                 control->mouseWheelEvent(translatedEvent);
             }

@@ -9,7 +9,7 @@ The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a seco
 
 The approved product requirements are the source of truth for visual-impact changes.
 The current native implementation remains the source for unchanged visual details.
-This target baseline includes the shared arena view requirements and the retro menu layout approved on 2026-08-23.
+This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, and the scaled photographic menu presentation approved on 2026-08-26.
 
 ## Visual principles
 
@@ -27,8 +27,12 @@ This target baseline includes the shared arena view requirements and the retro m
 - A wireframe note must identify any important bottom-left renderer position.
 - The release build must use the current display width and height in exclusive full-screen mode.
 - The debug build must use a 1280 by 900 window.
-- The menu must center its fixed 850 by 700 logical canvas in the current client area.
-- The client area outside the menu canvas must use `#000000`.
+- The menu must preserve its fixed 850 by 700 logical canvas and uniformly scale it by `min(1.35, clientWidth/850, clientHeight/700)`.
+- The menu must center the scaled canvas in the current client area.
+- An 850 by 700 client is the compatibility floor and renders the canvas at 100%.
+- A 1280 by 720 client is the modern evaluation minimum.
+- A 1920 by 1080 or larger client uses the 135% scale cap.
+- The complete client area behind the canvas must show the session-selected menu background, or solid black after all eligible images fail to load.
 - The 850 by 700 menu canvas must use `#C0C0C0`.
 - The menu must not reflow its internal controls for narrow or wide displays.
 - The gameplay renderer must fill the current client area.
@@ -39,7 +43,7 @@ This target baseline includes the shared arena view requirements and the retro m
 - The gameplay view must not contain player-specific camera regions or camera separators.
 - The implementation does not define a mobile layout.
 - Documentation must not claim mobile support until the implementation defines a mobile viewport and input model.
-- The menu must use the black area around its fixed canvas as an intentional matte.
+- The menu canvas must have a 2-logical-pixel black perimeter keyline.
 - The gameplay renderer must not add letterboxing.
 - A capture must show the complete client area without external window chrome unless the environment requires windowed debug mode.
 
@@ -61,7 +65,8 @@ The following values come from renderer and GUI source.
 
 | Token | Value | Implemented use |
 |---|---:|---|
-| `menu-matte` | `#000000` | Client area outside the fixed menu canvas |
+| `menu-background-scrim` | `rgba(0,0,0,0.55)` | Full-client layer over the blurred menu gameplay still |
+| `menu-keyline` | `#000000` | 2-logical-pixel perimeter around the scaled menu canvas |
 | `menu-surface` | `#C0C0C0` | Fixed menu canvas and control surfaces |
 | `menu-label-surface` | `#AAAAAA` | Label strip background |
 | `menu-panel-header` | `#0000C8` | Setup panel title strips |
@@ -105,13 +110,20 @@ The following values come from renderer and GUI source.
 - The Players panel must keep each player next to that player's control assignment.
 - Gameplay overlays must use flat translucent fills without drop shadows.
 - The score summary must use two translucent rectangular layers and a solid blue heading strip.
-- New documentation must not specify rounded corners, shadows, gradients, or blur that the implementation does not provide.
+- New documentation must not specify rounded corners, shadows, or gradients that the implementation does not provide. Blur is reserved for the approved full-client menu background.
 
 ## Imagery and assets
 
 - The menu must use the animated stack at `resources/textures/menu/` as its banner source.
 - The menu banner must render at 200 by 95 px near the upper center of the menu canvas.
 - The menu must show the runtime application version with the banner.
+- The menu must choose one eligible still from `resources/textures/menu-backgrounds/` with equal probability when the menu first initializes.
+- The selected still must remain unchanged for the application session, including menu navigation and returns from gameplay.
+- The still must fill the complete client with a centered aspect-ratio-preserving cover crop and no distortion.
+- The rendered still must use a Gaussian-equivalent blur near sigma 12 px with a sampling radius of at least 24 px at client resolution, followed by the 55% black scrim.
+- The grey canvas, its controls, and its keyline must remain unblurred and undimmed.
+- A failed still must cause an untried eligible still to be attempted without an error dialog. Exhausting all eligible stills must fall back to solid black without blocking menu initialization.
+- The selected background filename must be available in non-user-facing startup diagnostics.
 - The menu must not use a version value, person name, score value, or copyright line from a Stitch sample.
 - Gameplay must use the indexed images in `resources/textures/backgrounds/` behind level geometry.
 - Gameplay must use level geometry from `resources/levels/*.json` and block definitions from `resources/data/blocks.json`.
@@ -174,8 +186,10 @@ The following values come from renderer and GUI source.
 
 ### Blocking menu messages
 
-- A blocking menu message must use a centered 20 px high panel.
-- The panel width must equal eight times the message length plus 60 px.
+- A short blocking menu message must use a centered 20-logical-pixel high panel and remain on one line.
+- A short panel width must equal eight times the message length plus 60 logical px.
+- A long blocking message may wrap at word boundaries within the logical menu canvas; sentence boundaries should be preferred where practical.
+- A wrapped message panel must grow vertically by one 16-logical-pixel text row per additional line.
 - The panel must use a 2 px black frame.
 - Confirmation copy must include its implemented keyboard choices.
 - A start-prerequisite message must name each missing prerequisite in a separate sentence.
@@ -190,6 +204,7 @@ The following values come from renderer and GUI source.
 - The backquote key must toggle the console over the current menu or gameplay frame.
 - The console must take keyboard and text input while it is open.
 - The console must span the complete client width.
+- The console must remain unscaled while the menu below it uses the menu presentation transform.
 - The console height must contain 15 history rows, one separator row, one input row, and its lower edge.
 - The console must sit against the top edge of the visible client area.
 - The console must use `=` for the separator and `^` when history is scrolled.
@@ -212,9 +227,11 @@ The following values come from renderer and GUI source.
 
 ## Responsive behavior
 
-- The menu must remain a centered fixed canvas on supported desktop display sizes.
+- The menu must remain a centered, uniformly scaled fixed-layout canvas on supported desktop display sizes.
 - A supported menu client area must be at least 850 by 700 px.
-- A larger desktop client area must increase only the black matte around the menu canvas.
+- The 850 by 700 logical positions, proportions, text, controls, banner, lists, score table, bevels, and interaction bounds must scale together.
+- Pointer coordinates must use the inverse menu transform before GUI hit testing.
+- Menu scaling must not alter the gameplay camera, world rendering, or gameplay overlays.
 - The gameplay camera must use the current client dimensions.
 - Every match must keep one undivided arena at each supported desktop viewport.
 - The camera must keep the complete level and all active players in the shared view.
@@ -227,7 +244,7 @@ The following values come from renderer and GUI source.
 - A visual-impact change must update each affected screen specification and wireframe.
 - A visual-impact change must invalidate each affected screenshot entry.
 - A shared token or component change must trigger an assessment of all screens.
-- Screenshot provenance must record branch, source SHA, environment, workflow, state, viewport, and artifact path.
+- Screenshot provenance must record branch, source SHA, environment, workflow, state, viewport, artifact path, selected menu background filename, runtime asset manifest revision, and session identifier where the menu background is visible.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
 
 ## Reviewed implementation sources

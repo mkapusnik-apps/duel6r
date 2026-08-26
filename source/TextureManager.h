@@ -43,6 +43,7 @@
 #define D6_TEXTURE_BCG_PATH      "textures/backgrounds/"
 #define D6_TEXTURE_EXPL_PATH     "textures/explosion/"
 #define D6_TEXTURE_MENU_PATH     "textures/menu/"
+#define D6_TEXTURE_MENU_BACKGROUND_PATH "textures/menu-backgrounds/"
 #define D6_TEXTURE_BLOCK_PATH    "textures/blocks/"
 #define D6_TEXTURE_WATER_PATH    "textures/water/"
 #define D6_TEXTURE_ELEVATOR_PATH "textures/elevator/"

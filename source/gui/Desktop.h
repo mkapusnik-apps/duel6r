@@ -43,6 +43,7 @@ namespace Duel6 {
             Int32 canvasHeight;
             Int32 trX; // x translation
             Int32 trY; // y translation
+            Float32 scale;
             std::vector<std::unique_ptr<Control>> controls;
 
         public:
@@ -51,7 +52,7 @@ namespace Duel6 {
             ~Desktop();
 
             void screenSize(Int32 scrWidth, Int32 scrHeight, Int32 canvasWidth, Int32 canvasHeight,
-                            Int32 trX, Int32 trY);
+                            Int32 trX, Int32 trY, Float32 scale = 1.0f);
 
             void update(Float32 elpasedTime);
 
