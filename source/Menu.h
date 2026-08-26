@@ -167,6 +167,8 @@ namespace Duel6 {
 
         void publishPreparedMenuBackground() const noexcept;
 
+        void publishPreparedMenuBackgroundTransaction() const;
+
         void retryPreparedMenuBackground(PreparedMenuBackground &prepared) const noexcept;
 
         void freeOptionalTexture(Texture texture) const noexcept;

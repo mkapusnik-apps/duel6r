@@ -526,6 +526,16 @@ namespace Duel6 {
     }
 
     void Menu::publishPreparedMenuBackground() const noexcept {
+        try {
+            publishPreparedMenuBackgroundTransaction();
+        } catch (...) {
+            menuBackgroundPreparationActive = false;
+            menuBackgroundFinished = true;
+            printMenuBackgroundDiagnostic("Menu background processing failed; using solid black.");
+        }
+    }
+
+    void Menu::publishPreparedMenuBackgroundTransaction() const {
         PreparedMenuBackground prepared;
         Texture texture = Texture();
         try {
