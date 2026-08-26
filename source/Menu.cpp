@@ -449,7 +449,9 @@ namespace Duel6 {
         if (hasMenuBackground) {
             renderer.quadXY(Vector::ZERO, Vector(clientWidth, clientHeight), Vector(0, 1), Vector(1, -1),
                             Material::makeTexture(menuBackgroundTexture));
+            renderer.setBlendFunc(BlendFunc::SrcAlpha);
             renderer.quadXY(Vector::ZERO, Vector(clientWidth, clientHeight), Color(0, 0, 0, 140));
+            renderer.setBlendFunc(BlendFunc::None);
         }
     }
 
