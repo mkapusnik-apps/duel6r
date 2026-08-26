@@ -123,6 +123,11 @@ namespace Duel6 {
         return textureId;
     }
 
+    bool GLES3Renderer::isTextureValid(Texture texture) {
+        GLenum error = glGetError();
+        return texture != 0 && glIsTexture(texture) == GL_TRUE && error == GL_NO_ERROR;
+    }
+
     void GLES3Renderer::freeTexture(Texture textureId) {
         GLuint id = textureId;
         glDeleteTextures(1, &id);

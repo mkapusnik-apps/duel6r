@@ -66,6 +66,10 @@ namespace Duel6 {
 
         virtual Texture createTexture(const Image &image, TextureFilter filtering, bool clamp) = 0;
 
+        virtual bool isTextureValid(Texture texture) {
+            return texture != Texture();
+        }
+
         virtual void freeTexture(Texture textureId) = 0;
 
         virtual Image makeScreenshot() = 0;

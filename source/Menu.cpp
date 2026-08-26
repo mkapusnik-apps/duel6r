@@ -26,6 +26,7 @@
 */
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <random>
 #include <sstream>
@@ -159,8 +160,24 @@ namespace Duel6 {
             : appService(appService), font(appService.getFont()), video(appService.getVideo()),
               renderer(video.getRenderer()), sound(appService.getSound()), gui(video.getRenderer()),
               controlsManager(appService.getControlsManager()),
-              defaultPlayerSounds(PlayerSounds::makeDefault(sound)), hasMenuBackground(false), menuScale(1.0f),
-              menuTranslationX(0), menuTranslationY(0), playMusic(false) {}
+              defaultPlayerSounds(PlayerSounds::makeDefault(sound)), menuBackgroundTexture(Texture()),
+              hasMenuBackground(false), menuBackgroundPreparationActive(false), menuBackgroundFinished(false),
+              menuBackgroundInitialFrameRendered(false), menuScale(1.0f), menuTranslationX(0),
+              menuTranslationY(0), playMusic(false) {}
+
+    Menu::~Menu() {
+        if (menuBackgroundPreparation.valid()) {
+            try {
+                menuBackgroundPreparation.wait();
+                menuBackgroundPreparation.get();
+            } catch (...) {
+                // Optional background work must not interfere with application teardown.
+            }
+        }
+        if (hasMenuBackground) {
+            renderer.freeTexture(menuBackgroundTexture);
+        }
+    }
 
     void Menu::loadPersonData(const std::string &filePath) {
         if (!File::exists(filePath)) {
@@ -207,7 +224,6 @@ namespace Duel6 {
         appService.getConsole().printLine("\n===Menu initialization===");
         menuBannerTexture = appService.getTextureManager().loadStack(D6_TEXTURE_MENU_PATH, TextureFilter::Linear, true);
         initializePresentation();
-        initializeMenuBackground();
         appService.getConsole().printLine("...Starting GUI library");
         gui.screenSize(video.getScreen().getClientWidth(), video.getScreen().getClientHeight(),
                        D6_MENU_WIDTH, D6_MENU_HEIGHT,
@@ -392,6 +408,7 @@ namespace Duel6 {
         levelList.initialize(D6_FILE_LEVEL, D6_LEVEL_EXTENSION);
 
         menuTrack = sound.loadModule("sound/undead.xm");
+        startMenuBackgroundPreparation({}, true);
     }
 
     void Menu::initializePresentation() {
@@ -406,39 +423,141 @@ namespace Duel6 {
                                           << menuScale << menuTranslationX << menuTranslationY);
     }
 
-    void Menu::initializeMenuBackground() {
-        std::vector<std::string> candidates;
+    Menu::PreparedMenuBackground Menu::prepareMenuBackground(Int32 clientWidth, Int32 clientHeight,
+                                                             std::vector<std::string> candidates,
+                                                             bool discoverCandidates) {
+        PreparedMenuBackground result;
+        if (discoverCandidates) {
+            try {
+                candidates = File::listDirectory(D6_TEXTURE_MENU_BACKGROUND_PATH);
+                candidates.erase(std::remove_if(candidates.begin(), candidates.end(), [](const std::string &name) {
+                    Size dot = name.find_last_of('.');
+                    if (dot == std::string::npos) return true;
+                    std::string extension = name.substr(dot);
+                    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+                    return extension != ".png" && extension != ".jpg" && extension != ".jpeg";
+                }), candidates.end());
+                std::shuffle(candidates.begin(), candidates.end(), std::mt19937(std::random_device{}()));
+            } catch (...) {
+                result.directoryAvailable = false;
+                return result;
+            }
+        }
+
+        while (!candidates.empty()) {
+            std::string candidate = candidates.front();
+            candidates.erase(candidates.begin());
+            try {
+                Image source = Image::load(D6_TEXTURE_MENU_BACKGROUND_PATH + candidate);
+                if (source.getWidth() == 0 || source.getHeight() == 0) {
+                    result.failedCandidates.push_back(candidate);
+                    continue;
+                }
+                Image covered = coverImage(source, clientWidth, clientHeight);
+                result.image = blurMenuBackground(covered);
+                result.filename = candidate;
+                result.remainingCandidates = std::move(candidates);
+                result.hasImage = true;
+                return result;
+            } catch (...) {
+                result.failedCandidates.push_back(candidate);
+            }
+        }
+        return result;
+    }
+
+    void Menu::startMenuBackgroundPreparation(std::vector<std::string> candidates, bool discoverCandidates) const {
+        if (menuBackgroundFinished || menuBackgroundPreparationActive) {
+            return;
+        }
+        Int32 clientWidth = video.getScreen().getClientWidth();
+        Int32 clientHeight = video.getScreen().getClientHeight();
         try {
-            candidates = File::listDirectory(D6_TEXTURE_MENU_BACKGROUND_PATH);
-        } catch (const Exception &error) {
+            menuBackgroundPreparation = std::async(std::launch::async,
+                                                   [clientWidth, clientHeight,
+                                                    candidates = std::move(candidates),
+                                                    discoverCandidates]() mutable {
+                return prepareMenuBackground(clientWidth, clientHeight, std::move(candidates),
+                                             discoverCandidates);
+            });
+            menuBackgroundPreparationActive = true;
+        } catch (...) {
+            menuBackgroundFinished = true;
+            appService.getConsole().printLine("Menu background worker unavailable; using solid black.");
+        }
+    }
+
+    void Menu::publishPreparedMenuBackground() const {
+        if (!menuBackgroundPreparationActive || !menuBackgroundPreparation.valid()) {
+            return;
+        }
+        try {
+            if (menuBackgroundPreparation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                return;
+            }
+        } catch (...) {
+            menuBackgroundPreparationActive = false;
+            menuBackgroundFinished = true;
+            appService.getConsole().printLine("Menu background worker failed; using solid black.");
+            return;
+        }
+
+        menuBackgroundPreparationActive = false;
+        PreparedMenuBackground prepared;
+        try {
+            prepared = menuBackgroundPreparation.get();
+        } catch (...) {
+            menuBackgroundFinished = true;
+            appService.getConsole().printLine("Menu background processing failed; using solid black.");
+            return;
+        }
+
+        for (const std::string &failed : prepared.failedCandidates) {
+            appService.getConsole().printLine("Menu background failed: " + failed + "; trying another.");
+        }
+        if (!prepared.directoryAvailable) {
+            menuBackgroundFinished = true;
             appService.getConsole().printLine("Menu background directory unavailable; using solid black.");
             return;
         }
-        candidates.erase(std::remove_if(candidates.begin(), candidates.end(), [](const std::string &name) {
-            Size dot = name.find_last_of('.');
-            if (dot == std::string::npos) return true;
-            std::string extension = name.substr(dot);
-            std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
-            return extension != ".png" && extension != ".jpg" && extension != ".jpeg";
-        }), candidates.end());
+        if (!prepared.hasImage) {
+            menuBackgroundFinished = true;
+            appService.getConsole().printLine("No menu background could be loaded; using solid black.");
+            return;
+        }
 
-        std::shuffle(candidates.begin(), candidates.end(), std::mt19937(std::random_device{}()));
-        for (const std::string &candidate : candidates) {
+        Texture texture = Texture();
+        bool valid = false;
+        try {
+            texture = renderer.createTexture(prepared.image, TextureFilter::Linear, true);
+            valid = renderer.isTextureValid(texture);
+        } catch (...) {
+            valid = false;
+        }
+        if (valid) {
+            menuBackgroundTexture = texture;
+            menuBackgroundFilename = prepared.filename;
+            hasMenuBackground = true;
+            menuBackgroundFinished = true;
+            appService.getConsole().printLine("Menu background selected: " + prepared.filename);
+            return;
+        }
+
+        if (texture != Texture()) {
             try {
-                Image source = Image::load(D6_TEXTURE_MENU_BACKGROUND_PATH + candidate);
-                Image covered = coverImage(source, video.getScreen().getClientWidth(),
-                                            video.getScreen().getClientHeight());
-                Image blurred = blurMenuBackground(covered);
-                menuBackgroundTexture = renderer.createTexture(blurred, TextureFilter::Linear, true);
-                menuBackgroundFilename = candidate;
-                hasMenuBackground = true;
-                appService.getConsole().printLine("Menu background selected: " + candidate);
-                return;
-            } catch (const Exception &error) {
-                appService.getConsole().printLine("Menu background failed: " + candidate + "; trying another.");
+                renderer.freeTexture(texture);
+            } catch (...) {
+                // Continue retries even if cleanup of a failed optional texture reports an error.
             }
         }
-        appService.getConsole().printLine("No menu background could be loaded; using solid black.");
+        appService.getConsole().printLine("Menu background upload failed: " + prepared.filename +
+                                          "; trying another.");
+        if (prepared.remainingCandidates.empty()) {
+            menuBackgroundFinished = true;
+            appService.getConsole().printLine("No menu background could be loaded; using solid black.");
+            return;
+        }
+        startMenuBackgroundPreparation(std::move(prepared.remainingCandidates), false);
     }
 
     void Menu::renderMenuBackground() const {
@@ -826,6 +945,11 @@ namespace Duel6 {
     }
 
     void Menu::render() const {
+        if (menuBackgroundInitialFrameRendered) {
+            publishPreparedMenuBackground();
+        } else {
+            menuBackgroundInitialFrameRendered = true;
+        }
         renderMenuBackground();
         gui.draw(font);
 

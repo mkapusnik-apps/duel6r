@@ -46,6 +46,8 @@ namespace Duel6 {
 
         Texture createTexture(const Image &image, TextureFilter filtering, bool clamp) override;
 
+        bool isTextureValid(Texture texture) override;
+
         void freeTexture(Texture textureId) override;
 
         Image makeScreenshot() override;

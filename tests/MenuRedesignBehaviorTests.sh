@@ -89,6 +89,21 @@ capture() {
   import -window root "$1"
 }
 
+# Release fills the 1280x900 Xvfb display. The 850x700 logical menu therefore
+# uses scale 9/7 and origin (93, 0). Convert points from the former centered
+# 1:1 canvas, and normalize captures when assertions operate on logical pixels.
+menu_x() {
+  printf '%s' $((93 + ($1 - 215) * 9 / 7))
+}
+
+menu_y() {
+  printf '%s' $((($1 - 100) * 9 / 7))
+}
+
+normalize_menu() {
+  convert "$1" -crop 1093x900+93+0 +repage -filter point -resize 850x700! "$2"
+}
+
 assert_changed() {
   local before="$1" after="$2" label="$3" output status pixels
   set +e
@@ -160,13 +175,14 @@ echo "[RUN] complete Elo rows for 8-, 9-, and 10-character names and signed tren
 new_scenario elo-name-widths
 write_elo_name_fixture
 start_app
-capture "${scenario_dir}/elo-name-widths.png"
+capture "${scenario_dir}/elo-name-widths-screen.png"
+normalize_menu "${scenario_dir}/elo-name-widths-screen.png" "${scenario_dir}/elo-name-widths.png"
 python3 - "${scenario_dir}/elo-name-widths.png" <<'PY'
 import subprocess, sys
 
 image = sys.argv[1]
-left = 231
-first_top = 247
+left = 16
+first_top = 147
 
 def rgb_crop(x, y, width, height=18):
     return subprocess.check_output([
@@ -206,37 +222,39 @@ start_app
 capture "${scenario_dir}/initial.png"
 
 # Elo list (15 visible of 20): wheel, down arrow, track, then thumb drag.
-xdotool mousemove 300 400 click 5
+xdotool mousemove "$(menu_x 300)" "$(menu_y 400)" click 5
 sleep 0.2
 capture "${scenario_dir}/elo-wheel.png"
 assert_changed "${scenario_dir}/initial.png" "${scenario_dir}/elo-wheel.png" "Elo wheel"
-xdotool mousemove 400 513 mousedown 1 sleep 0.15 mouseup 1
+xdotool mousemove "$(menu_x 400)" "$(menu_y 513)" mousedown 1 sleep 0.15 mouseup 1
 sleep 0.2
 capture "${scenario_dir}/elo-arrow.png"
 assert_changed "${scenario_dir}/elo-wheel.png" "${scenario_dir}/elo-arrow.png" "Elo down arrow"
-xdotool mousemove 400 300 click 1
+xdotool mousemove "$(menu_x 400)" "$(menu_y 300)" click 1
 sleep 0.2
 capture "${scenario_dir}/elo-track.png"
 assert_changed "${scenario_dir}/elo-arrow.png" "${scenario_dir}/elo-track.png" "Elo track"
-xdotool mousemove 400 300 mousedown 1 mousemove 400 470 sleep 0.1 mouseup 1
+xdotool mousemove "$(menu_x 400)" "$(menu_y 300)" mousedown 1 \
+  mousemove "$(menu_x 400)" "$(menu_y 470)" sleep 0.1 mouseup 1
 sleep 0.2
 capture "${scenario_dir}/elo-thumb.png"
 assert_changed "${scenario_dir}/elo-track.png" "${scenario_dir}/elo-thumb.png" "Elo thumb drag"
 
 # Persistent score list (8 visible of 20): wheel, down arrow, track/thumb.
-xdotool mousemove 700 630 click 5
+xdotool mousemove "$(menu_x 700)" "$(menu_y 630)" click 5
 sleep 0.2
 capture "${scenario_dir}/score-wheel.png"
 assert_changed "${scenario_dir}/elo-thumb.png" "${scenario_dir}/score-wheel.png" "score wheel"
-xdotool mousemove 1045 702 mousedown 1 sleep 0.15 mouseup 1
+xdotool mousemove "$(menu_x 1045)" "$(menu_y 702)" mousedown 1 sleep 0.15 mouseup 1
 sleep 0.2
 capture "${scenario_dir}/score-arrow.png"
 assert_changed "${scenario_dir}/score-wheel.png" "${scenario_dir}/score-arrow.png" "score down arrow"
-xdotool mousemove 1045 660 click 1
+xdotool mousemove "$(menu_x 1045)" "$(menu_y 660)" click 1
 sleep 0.2
 capture "${scenario_dir}/score-track.png"
 assert_changed "${scenario_dir}/score-arrow.png" "${scenario_dir}/score-track.png" "score track"
-xdotool mousemove 1045 660 mousedown 1 mousemove 1045 610 sleep 0.1 mouseup 1
+xdotool mousemove "$(menu_x 1045)" "$(menu_y 660)" mousedown 1 \
+  mousemove "$(menu_x 1045)" "$(menu_y 610)" sleep 0.1 mouseup 1
 sleep 0.2
 capture "${scenario_dir}/score-thumb.png"
 assert_changed "${scenario_dir}/score-track.png" "${scenario_dir}/score-thumb.png" "score thumb drag"
@@ -256,7 +274,7 @@ PY
 
 # Clear button acceptance resets non-Elo stats but retains Elo fields.
 start_app
-xdotool mousemove 640 755 click 1
+xdotool mousemove "$(menu_x 640)" "$(menu_y 755)" click 1
 sleep 0.2
 xdotool key --window "$window_id" y
 close_app
@@ -281,7 +299,7 @@ start_app
 capture "${scenario_dir}/players-0.png"
 
 # Focus the centered name field. Empty Enter is ignored.
-xdotool mousemove 500 484 click 1
+xdotool mousemove "$(menu_x 500)" "$(menu_y 484)" click 1
 xdotool key --window "$window_id" Return
 for i in $(seq -w 1 16); do
   xdotool type --window "$window_id" --delay 5 "P${i}"
@@ -293,25 +311,26 @@ xdotool key --window "$window_id" Return
 xdotool key --window "$window_id" BackSpace BackSpace BackSpace
 
 # Double-click transfer once and button-transfer a second player.
-xdotool mousemove 450 255 click --repeat 2 --delay 80 1
-xdotool mousemove 450 255 click 1
-xdotool mousemove 526 499 click 1
+xdotool mousemove "$(menu_x 450)" "$(menu_y 255)" click --repeat 2 --delay 80 1
+xdotool mousemove "$(menu_x 450)" "$(menu_y 255)" click 1
+xdotool mousemove "$(menu_x 526)" "$(menu_y 499)" click 1
 capture "${scenario_dir}/players-2.png"
 
 # Button-transfer thirteen more players, then verify the sixteenth person
 # cannot exceed the roster cap. Remove and re-add one player.
 for _ in {1..13}; do
-  xdotool mousemove 450 255 click 1
-  xdotool mousemove 526 499 click 1
+  xdotool mousemove "$(menu_x 450)" "$(menu_y 255)" click 1
+  xdotool mousemove "$(menu_x 526)" "$(menu_y 499)" click 1
 done
 capture "${scenario_dir}/players-15.png"
 
 # The player count is the only changing content in the panel header, while the
 # controller controls below remain aligned at every requested roster size.
 for count in 0 2 15; do
-  convert "${scenario_dir}/players-${count}.png" -crop 255x22+605+222 +repage \
+  normalize_menu "${scenario_dir}/players-${count}.png" "${scenario_dir}/players-${count}-normalized.png"
+  convert "${scenario_dir}/players-${count}-normalized.png" -crop 255x22+390+122 +repage \
     "${scenario_dir}/players-${count}-header.png"
-  convert "${scenario_dir}/players-${count}.png" -crop 166x274+693+246 +repage \
+  convert "${scenario_dir}/players-${count}-normalized.png" -crop 166x274+478+146 +repage \
     "${scenario_dir}/players-${count}-controllers.png"
 done
 assert_changed "${scenario_dir}/players-0-header.png" "${scenario_dir}/players-2-header.png" \
@@ -323,17 +342,17 @@ assert_same "${scenario_dir}/players-0-controllers.png" "${scenario_dir}/players
 assert_same "${scenario_dir}/players-2-controllers.png" "${scenario_dir}/players-15-controllers.png" \
   "controller alignment at 2 and 15 players"
 
-xdotool mousemove 450 255 click --repeat 2 --delay 80 1
-xdotool mousemove 650 255 click --repeat 2 --delay 80 1
-xdotool mousemove 450 255 click 1
-xdotool mousemove 526 499 click 1
+xdotool mousemove "$(menu_x 450)" "$(menu_y 255)" click --repeat 2 --delay 80 1
+xdotool mousemove "$(menu_x 650)" "$(menu_y 255)" click --repeat 2 --delay 80 1
+xdotool mousemove "$(menu_x 450)" "$(menu_y 255)" click 1
+xdotool mousemove "$(menu_x 526)" "$(menu_y 499)" click 1
 
 # One available person remains. Reject deletion, then accept it.
-xdotool mousemove 450 255 click 1
-xdotool mousemove 444 499 click 1
+xdotool mousemove "$(menu_x 450)" "$(menu_y 255)" click 1
+xdotool mousemove "$(menu_x 444)" "$(menu_y 499)" click 1
 sleep 0.2
 xdotool key --window "$window_id" n
-xdotool mousemove 444 499 click 1
+xdotool mousemove "$(menu_x 444)" "$(menu_y 499)" click 1
 sleep 0.2
 xdotool key --window "$window_id" y
 close_app
@@ -389,36 +408,40 @@ start_app
 # Assign K1 through K6 to the six visible players.
 for i in {0..5}; do
   for ((step = 0; step < i; step++)); do
-    xdotool mousemove 825 $((255 + 18 * i)) mousedown 1 sleep 0.06 mouseup 1
+    xdotool mousemove "$(menu_x 825)" "$(menu_y $((255 + 18 * i)))" mousedown 1 sleep 0.06 mouseup 1
     sleep 0.05
   done
 done
 capture "${scenario_dir}/before-shuffle.png"
-xdotool mousemove 636 534 click 1
+xdotool mousemove "$(menu_x 636)" "$(menu_y 534)" click 1
 sleep 0.3
 capture "${scenario_dir}/after-random.png"
-xdotool mousemove 617 534 click 1
+xdotool mousemove "$(menu_x 617)" "$(menu_y 534)" click 1
 sleep 0.3
 capture "${scenario_dir}/after-elo.png"
 
 assert_row_pairs_preserved() {
   local before="$1" after="$2" label="$3" before_crop after_crop metric status matched
+  normalize_menu "$before" "${scenario_dir}/${label}-before-normalized.png"
+  normalize_menu "$after" "${scenario_dir}/${label}-after-normalized.png"
   for i in {0..5}; do
     before_crop="${scenario_dir}/${label}-before-${i}.png"
-    convert "$before" -crop "250x18+609+$((247 + 18 * i))" +repage "$before_crop"
+    convert "${scenario_dir}/${label}-before-normalized.png" \
+      -crop "250x18+394+$((147 + 18 * i))" +repage "$before_crop"
     matched=false
     for j in {0..5}; do
       after_crop="${scenario_dir}/${label}-after-${j}.png"
-      convert "$after" -crop "250x18+609+$((247 + 18 * j))" +repage "$after_crop"
+      convert "${scenario_dir}/${label}-after-normalized.png" \
+        -crop "250x18+394+$((147 + 18 * j))" +repage "$after_crop"
       set +e
       metric="$(compare -metric AE "$before_crop" "$after_crop" null: 2>&1)"
       status=$?
       set -e
       (( status <= 1 )) || fail "$label row comparison failed"
-      # Font rasterization differs slightly by vertical screen position even
-      # for the same row content. Matching name/control pairs stay below 300
-      # changed pixels; different pairs are substantially farther apart.
-      if (( ${metric%%.*} < 300 )); then
+      # Scaled font rasterization differs by vertical screen position even for
+      # the same row content. Matching pairs stay below 700 changed pixels;
+      # distinct pairs in this fixture remain above 1000.
+      if (( ${metric%%.*} < 700 )); then
         matched=true
         break
       fi
@@ -461,7 +484,9 @@ PY
 crop_burnable_trees_control() {
   # The 850x700 client is centered in the 1280x900 Xvfb root. GUI control Y
   # coordinates originate at the lower edge of that client.
-  convert "$1" -crop 180x24+865+348 +repage "$2"
+  local normalized="${2%.png}-normalized.png"
+  normalize_menu "$1" "$normalized"
+  convert "$normalized" -crop 180x24+650+248 +repage "$2"
 }
 
 start_app
@@ -469,7 +494,7 @@ capture "${scenario_dir}/burnable-default.png"
 crop_burnable_trees_control "${scenario_dir}/burnable-default.png" "${scenario_dir}/burnable-default-crop.png"
 
 # Toggle only the Burnable Trees control off.
-xdotool mousemove 875 355 click 1
+xdotool mousemove "$(menu_x 875)" "$(menu_y 355)" click 1
 sleep 0.25
 capture "${scenario_dir}/burnable-disabled.png"
 crop_burnable_trees_control "${scenario_dir}/burnable-disabled.png" "${scenario_dir}/burnable-disabled-crop.png"
@@ -501,6 +526,29 @@ capture "${scenario_dir}/burnable-restarted.png"
 crop_burnable_trees_control "${scenario_dir}/burnable-restarted.png" "${scenario_dir}/burnable-restarted-crop.png"
 assert_same "${scenario_dir}/burnable-default-crop.png" "${scenario_dir}/burnable-restarted-crop.png" \
   "Burnable Trees fresh-start enabled state"
+close_app
+
+echo "[RUN] invalid background load retry and solid-black fallback"
+new_scenario background-fallback
+python3 - "${scenario_dir}/textures/menu-backgrounds" <<'PY'
+import os
+import sys
+
+directory = sys.argv[1]
+for name in os.listdir(directory):
+    path = os.path.join(directory, name)
+    if os.path.isfile(path):
+        os.remove(path)
+for name in ("broken-first.png", "broken-second.JPG"):
+    with open(os.path.join(directory, name), "wb") as output:
+        output.write(b"not an image")
+with open(os.path.join(directory, "ignored.txt"), "w", encoding="utf-8") as output:
+    output.write("not eligible")
+PY
+start_app
+capture "${scenario_dir}/fallback.png"
+corner="$(identify -format '%[pixel:p{0,0}]' "${scenario_dir}/fallback.png")"
+[[ "$corner" == *"(0,0,0"* ]] || fail "background fallback is not solid black at viewport edge"
 close_app
 
 echo "Menu redesign behavior test passed. Artifacts: $test_root"

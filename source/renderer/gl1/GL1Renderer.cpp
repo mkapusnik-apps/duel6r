@@ -112,6 +112,11 @@ namespace Duel6 {
         return firstId;
     }
 
+    bool GL1Renderer::isTextureValid(Texture texture) {
+        GLenum error = glGetError();
+        return texture != 0 && glIsTexture(texture) == GL_TRUE && error == GL_NO_ERROR;
+    }
+
     void GL1Renderer::freeTexture(Texture textureId) {
         auto iterator = textureIdMap.find(textureId);
         if (iterator == textureIdMap.end()) {
