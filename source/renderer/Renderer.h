@@ -64,11 +64,8 @@ namespace Duel6 {
 
         virtual Extensions getExtensions() = 0;
 
+        // Returns an empty texture after cleaning up when the upload cannot complete.
         virtual Texture createTexture(const Image &image, TextureFilter filtering, bool clamp) = 0;
-
-        virtual bool isTextureValid(Texture texture) {
-            return texture != Texture();
-        }
 
         virtual void freeTexture(Texture textureId) = 0;
 

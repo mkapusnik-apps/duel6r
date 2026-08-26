@@ -158,13 +158,23 @@ namespace Duel6 {
 
         void initializePresentation();
 
-        void startMenuBackgroundPreparation(std::vector<std::string> candidates, bool discoverCandidates) const;
+        void startMenuBackgroundPreparation(std::vector<std::string> candidates,
+                                            bool discoverCandidates) const noexcept;
 
         static PreparedMenuBackground prepareMenuBackground(Int32 clientWidth, Int32 clientHeight,
                                                             std::vector<std::string> candidates,
                                                             bool discoverCandidates);
 
-        void publishPreparedMenuBackground() const;
+        void publishPreparedMenuBackground() const noexcept;
+
+        void retryPreparedMenuBackground(PreparedMenuBackground &prepared) const noexcept;
+
+        void freeOptionalTexture(Texture texture) const noexcept;
+
+        void printMenuBackgroundDiagnostic(const char *message) const noexcept;
+
+        void printMenuBackgroundDiagnostic(const char *prefix, const std::string &value,
+                                           const char *suffix) const noexcept;
 
         void renderMenuBackground() const;
 

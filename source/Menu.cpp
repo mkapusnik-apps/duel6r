@@ -466,13 +466,14 @@ namespace Duel6 {
         return result;
     }
 
-    void Menu::startMenuBackgroundPreparation(std::vector<std::string> candidates, bool discoverCandidates) const {
-        if (menuBackgroundFinished || menuBackgroundPreparationActive) {
-            return;
-        }
-        Int32 clientWidth = video.getScreen().getClientWidth();
-        Int32 clientHeight = video.getScreen().getClientHeight();
+    void Menu::startMenuBackgroundPreparation(std::vector<std::string> candidates,
+                                              bool discoverCandidates) const noexcept {
         try {
+            if (menuBackgroundFinished || menuBackgroundPreparationActive) {
+                return;
+            }
+            Int32 clientWidth = video.getScreen().getClientWidth();
+            Int32 clientHeight = video.getScreen().getClientHeight();
             menuBackgroundPreparation = std::async(std::launch::async,
                                                    [clientWidth, clientHeight,
                                                     candidates = std::move(candidates),
@@ -483,81 +484,111 @@ namespace Duel6 {
             menuBackgroundPreparationActive = true;
         } catch (...) {
             menuBackgroundFinished = true;
-            appService.getConsole().printLine("Menu background worker unavailable; using solid black.");
+            printMenuBackgroundDiagnostic("Menu background worker unavailable; using solid black.");
         }
     }
 
-    void Menu::publishPreparedMenuBackground() const {
-        if (!menuBackgroundPreparationActive || !menuBackgroundPreparation.valid()) {
+    void Menu::printMenuBackgroundDiagnostic(const char *message) const noexcept {
+        try {
+            appService.getConsole().printLine(message);
+        } catch (...) {
+            // Optional diagnostics must never interfere with menu rendering.
+        }
+    }
+
+    void Menu::printMenuBackgroundDiagnostic(const char *prefix, const std::string &value,
+                                             const char *suffix) const noexcept {
+        try {
+            appService.getConsole().printLine(std::string(prefix) + value + suffix);
+        } catch (...) {
+            // Optional diagnostics must never interfere with menu rendering.
+        }
+    }
+
+    void Menu::freeOptionalTexture(Texture texture) const noexcept {
+        if (texture == Texture()) {
             return;
         }
         try {
-            if (menuBackgroundPreparation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-                return;
-            }
+            renderer.freeTexture(texture);
         } catch (...) {
-            menuBackgroundPreparationActive = false;
-            menuBackgroundFinished = true;
-            appService.getConsole().printLine("Menu background worker failed; using solid black.");
-            return;
+            // Cleanup remains best-effort for an optional visual enhancement.
         }
+    }
 
-        menuBackgroundPreparationActive = false;
-        PreparedMenuBackground prepared;
-        try {
-            prepared = menuBackgroundPreparation.get();
-        } catch (...) {
-            menuBackgroundFinished = true;
-            appService.getConsole().printLine("Menu background processing failed; using solid black.");
-            return;
-        }
-
-        for (const std::string &failed : prepared.failedCandidates) {
-            appService.getConsole().printLine("Menu background failed: " + failed + "; trying another.");
-        }
-        if (!prepared.directoryAvailable) {
-            menuBackgroundFinished = true;
-            appService.getConsole().printLine("Menu background directory unavailable; using solid black.");
-            return;
-        }
-        if (!prepared.hasImage) {
-            menuBackgroundFinished = true;
-            appService.getConsole().printLine("No menu background could be loaded; using solid black.");
-            return;
-        }
-
-        Texture texture = Texture();
-        bool valid = false;
-        try {
-            texture = renderer.createTexture(prepared.image, TextureFilter::Linear, true);
-            valid = renderer.isTextureValid(texture);
-        } catch (...) {
-            valid = false;
-        }
-        if (valid) {
-            menuBackgroundTexture = texture;
-            menuBackgroundFilename = prepared.filename;
-            hasMenuBackground = true;
-            menuBackgroundFinished = true;
-            appService.getConsole().printLine("Menu background selected: " + prepared.filename);
-            return;
-        }
-
-        if (texture != Texture()) {
-            try {
-                renderer.freeTexture(texture);
-            } catch (...) {
-                // Continue retries even if cleanup of a failed optional texture reports an error.
-            }
-        }
-        appService.getConsole().printLine("Menu background upload failed: " + prepared.filename +
-                                          "; trying another.");
+    void Menu::retryPreparedMenuBackground(PreparedMenuBackground &prepared) const noexcept {
         if (prepared.remainingCandidates.empty()) {
             menuBackgroundFinished = true;
-            appService.getConsole().printLine("No menu background could be loaded; using solid black.");
+            printMenuBackgroundDiagnostic("No menu background could be loaded; using solid black.");
             return;
         }
         startMenuBackgroundPreparation(std::move(prepared.remainingCandidates), false);
+    }
+
+    void Menu::publishPreparedMenuBackground() const noexcept {
+        PreparedMenuBackground prepared;
+        Texture texture = Texture();
+        try {
+            if (!menuBackgroundPreparationActive || !menuBackgroundPreparation.valid()) {
+                return;
+            }
+            if (menuBackgroundPreparation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                return;
+            }
+
+            menuBackgroundPreparationActive = false;
+            prepared = menuBackgroundPreparation.get();
+
+            for (const std::string &failed : prepared.failedCandidates) {
+                printMenuBackgroundDiagnostic("Menu background failed: ", failed, "; trying another.");
+            }
+            if (!prepared.directoryAvailable) {
+                menuBackgroundFinished = true;
+                printMenuBackgroundDiagnostic("Menu background directory unavailable; using solid black.");
+                return;
+            }
+            if (!prepared.hasImage) {
+                menuBackgroundFinished = true;
+                printMenuBackgroundDiagnostic("No menu background could be loaded; using solid black.");
+                return;
+            }
+
+            texture = renderer.createTexture(prepared.image, TextureFilter::Linear, true);
+            if (texture == Texture()) {
+                printMenuBackgroundDiagnostic("Menu background upload failed: ", prepared.filename,
+                                              "; trying another.");
+                retryPreparedMenuBackground(prepared);
+                return;
+            }
+
+            try {
+                menuBackgroundFilename = prepared.filename;
+            } catch (...) {
+                freeOptionalTexture(texture);
+                texture = Texture();
+                printMenuBackgroundDiagnostic("Menu background publication failed: ", prepared.filename,
+                                              "; trying another.");
+                retryPreparedMenuBackground(prepared);
+                return;
+            }
+
+            menuBackgroundTexture = texture;
+            texture = Texture();
+            hasMenuBackground = true;
+            menuBackgroundFinished = true;
+            printMenuBackgroundDiagnostic("Menu background selected: ", menuBackgroundFilename, "");
+        } catch (...) {
+            freeOptionalTexture(texture);
+            menuBackgroundPreparationActive = false;
+            if (prepared.hasImage) {
+                printMenuBackgroundDiagnostic("Menu background publication failed: ", prepared.filename,
+                                              "; trying another.");
+                retryPreparedMenuBackground(prepared);
+            } else {
+                menuBackgroundFinished = true;
+                printMenuBackgroundDiagnostic("Menu background processing failed; using solid black.");
+            }
+        }
     }
 
     void Menu::renderMenuBackground() const {

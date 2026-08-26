@@ -30,6 +30,16 @@
 #include "GLES3RendererTarget.h"
 
 namespace Duel6 {
+    namespace {
+        bool drainGlErrors() {
+            bool foundError = false;
+            while (glGetError() != GL_NO_ERROR) {
+                foundError = true;
+            }
+            return foundError;
+        }
+    }
+
     struct ColorVertex {
         Vector xyz;
     };
@@ -107,7 +117,8 @@ namespace Duel6 {
     }
 
     Texture GLES3Renderer::createTexture(const Image &image, TextureFilter filtering, bool clamp) {
-        GLuint textureId;
+        GLuint textureId = 0;
+        drainGlErrors();
         glGenTextures(1, &textureId);
         glBindTexture(GL_TEXTURE_2D_ARRAY, textureId);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -120,12 +131,16 @@ namespace Duel6 {
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, clamp ? GL_CLAMP_TO_EDGE : GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, clamp ? GL_CLAMP_TO_EDGE : GL_REPEAT);
 
+        bool validObject = textureId != 0 && glIsTexture(textureId) == GL_TRUE;
+        bool uploadFailed = drainGlErrors() || !validObject;
+        if (uploadFailed) {
+            if (textureId != 0) {
+                glDeleteTextures(1, &textureId);
+                drainGlErrors();
+            }
+            return Texture();
+        }
         return textureId;
-    }
-
-    bool GLES3Renderer::isTextureValid(Texture texture) {
-        GLenum error = glGetError();
-        return texture != 0 && glIsTexture(texture) == GL_TRUE && error == GL_NO_ERROR;
     }
 
     void GLES3Renderer::freeTexture(Texture textureId) {
