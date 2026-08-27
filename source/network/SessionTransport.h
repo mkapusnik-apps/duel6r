@@ -1,9 +1,11 @@
 #ifndef DUEL6_NETWORK_SESSIONTRANSPORT_H
 #define DUEL6_NETWORK_SESSIONTRANSPORT_H
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -68,6 +70,50 @@ namespace Duel6::Network {
         std::vector<std::uint8_t> payload;
     };
 
+    using TransportTimePoint = std::chrono::steady_clock::time_point;
+
+    struct ResolvedIpv4Endpoint {
+        std::array<std::uint8_t, 4> address{};
+        std::uint16_t port = 0;
+    };
+
+    enum class ResolveStatus {
+        Resolved,
+        Failed,
+        Cancelled,
+        TimedOut
+    };
+
+    struct ResolveOutcome {
+        ResolveStatus status = ResolveStatus::Failed;
+        std::vector<ResolvedIpv4Endpoint> endpoints;
+    };
+
+    enum class ConnectStatus {
+        Connected,
+        ConnectionRefused,
+        Unreachable,
+        Failed,
+        Cancelled,
+        TimedOut
+    };
+
+    struct ConnectOutcome {
+        ConnectStatus status = ConnectStatus::Failed;
+        std::intptr_t nativeSocket = -1;
+    };
+
+    // Optional dependency seams for deterministic lifecycle tests. Empty functions select
+    // the real platform resolver, monotonic clock, and non-blocking TCP connector.
+    // Injected operations must observe cancelled and return without retaining workers.
+    struct SessionTransportDependencies {
+        std::function<TransportTimePoint()> now;
+        std::function<ResolveOutcome(const std::string &, std::uint16_t, TransportTimePoint,
+                                     const std::function<bool()> &)> resolve;
+        std::function<ConnectOutcome(const std::vector<ResolvedIpv4Endpoint> &, TransportTimePoint,
+                                     const std::function<bool()> &)> connect;
+    };
+
     class TcpConnection {
     public:
         ~TcpConnection();
@@ -96,6 +142,7 @@ namespace Duel6::Network {
     class TcpClient {
     public:
         TcpClient();
+        explicit TcpClient(SessionTransportDependencies dependencies);
         ~TcpClient();
 
         TcpClient(const TcpClient &) = delete;
@@ -118,6 +165,7 @@ namespace Duel6::Network {
     class TcpListener {
     public:
         explicit TcpListener(std::size_t maxConnections = MaxTransportConnections);
+        TcpListener(std::size_t maxConnections, SessionTransportDependencies dependencies);
         ~TcpListener();
 
         TcpListener(const TcpListener &) = delete;
