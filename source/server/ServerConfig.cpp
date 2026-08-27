@@ -82,11 +82,16 @@ namespace Duel6::Server {
             } else if (argument == "--local-only") {
                 config.localOnly = true;
                 config.listenEndpoint.host = "127.0.0.1";
+            } else if (argument == "--transport-echo") {
+                config.transportEnabled = true;
+                config.transportEcho = true;
+            } else if (argument == "--transport") {
+                config.transportEnabled = true;
             } else if (argument == "--help") {
                 throw std::invalid_argument(
                         "Usage: duel6r-server [--host=ADDR] [--port=PORT] [--name=NAME] "
                         "[--build-version=VERSION] [--resources=PATH] [--tick-rate=N] "
-                        "[--max-clients=N] [--local-only]");
+                        "[--max-clients=N] [--local-only] [--transport] [--transport-echo]");
             } else {
                 throw std::invalid_argument("Unknown server argument: " + argument);
             }

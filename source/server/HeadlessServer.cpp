@@ -1,8 +1,23 @@
 #include "HeadlessServer.h"
 
+#include <atomic>
+#include <chrono>
+#include <csignal>
 #include <iostream>
 #include <stdexcept>
+#include <thread>
 #include <utility>
+#include <vector>
+
+#include "../network/SessionTransport.h"
+
+namespace {
+    std::atomic<bool> stopRequested{false};
+
+    void requestStop(int) {
+        stopRequested.store(true);
+    }
+}
 
 namespace Duel6::Server {
     HeadlessServer::HeadlessServer(ServerConfig config)
@@ -97,10 +112,62 @@ namespace Duel6::Server {
     }
 
     int HeadlessServer::run(std::ostream &output) {
-        output << "duel6r-server configuration valid for " << config.listenEndpoint.host << ':'
+        if (!config.transportEnabled) {
+            output << "duel6r-server configuration valid for " << config.listenEndpoint.host << ':'
+                   << config.listenEndpoint.port << ".\n"
+                   << "unsupported: no network transport or playable remote-session runtime is implemented; "
+                   << "the server did not listen for clients.\n";
+            return 2;
+        }
+
+        stopRequested.store(false);
+        std::signal(SIGINT, requestStop);
+        std::signal(SIGTERM, requestStop);
+
+        Network::TcpListener listener(config.maxClients);
+        if (!listener.start(config.listenEndpoint)
+            || !listener.waitForReady(std::chrono::seconds(10))) {
+            output << "duel6r-server transport startup failed (state="
+                   << static_cast<int>(listener.state()) << ", reason="
+                   << static_cast<int>(listener.failure()) << ").\n";
+            listener.shutdown();
+            return 2;
+        }
+
+        output << "duel6r-server transport ready on " << config.listenEndpoint.host << ':'
                << config.listenEndpoint.port << ".\n"
-               << "unsupported: no network transport or playable remote-session runtime is implemented; "
-               << "the server did not listen for clients.\n";
-        return 2;
+               << "scaffold warning: transport is active, but no lobby, admission, simulation, or playable "
+               << "network session is implemented.\n";
+        if (config.transportEcho) {
+            output << "diagnostic echo is active; received opaque application frames are returned only "
+                   << "to their originating connection.\n";
+        }
+        output.flush();
+
+        std::vector<std::shared_ptr<Network::TcpConnection>> connections;
+        while (!stopRequested.load()) {
+            while (auto connection = listener.acceptConnection()) connections.push_back(std::move(connection));
+            for (auto iterator = connections.begin(); iterator != connections.end();) {
+                auto &connection = *iterator;
+                if (config.transportEcho) {
+                    Network::TransportFrame frame;
+                    while (connection->receive(frame)) {
+                        if (connection->send(std::move(frame.payload)) != Network::SendResult::Accepted) break;
+                    }
+                }
+                Network::ClientState state = connection->state();
+                if (state == Network::ClientState::Closed || state == Network::ClientState::Failed
+                    || state == Network::ClientState::Cancelled || state == Network::ClientState::TimedOut) {
+                    iterator = connections.erase(iterator);
+                } else {
+                    ++iterator;
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+
+        listener.shutdown();
+        output << "duel6r-server transport stopped.\n";
+        return 0;
     }
 }

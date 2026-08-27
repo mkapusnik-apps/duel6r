@@ -16,6 +16,8 @@ namespace Duel6::Server {
         std::uint32_t tickRate = 60;
         std::uint32_t maxClients = 15;
         bool localOnly = false;
+        bool transportEnabled = false;
+        bool transportEcho = false;
     };
 
     ServerConfig parseServerConfig(int argc, char **argv);

@@ -11,6 +11,10 @@ cmake_minimum_required(VERSION 3.5)
 # project name
 project(Duel6r)
 
+if (WIN32)
+    add_compile_definitions(D6R_TRANSPORT_WINDOWS)
+endif ()
+
 include(CTest)
 
 #########################################################################
@@ -486,6 +490,8 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/network/Protocol.h
         source/network/ProtocolSerialization.cpp
         source/network/ProtocolSerialization.h
+        source/network/SessionTransport.cpp
+        source/network/SessionTransport.h
         source/server/HeadlessServer.cpp
         source/server/HeadlessServer.h
         source/server/ServerConfig.cpp
@@ -494,6 +500,12 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
 
 add_library(duel6r-network-scaffold STATIC ${D6R_NETWORK_SCAFFOLD_SOURCES})
 target_include_directories(duel6r-network-scaffold PUBLIC ${CMAKE_SOURCE_DIR}/source)
+if (WIN32)
+    target_link_libraries(duel6r-network-scaffold PUBLIC ws2_32)
+else ()
+    find_package(Threads REQUIRED)
+    target_link_libraries(duel6r-network-scaffold PUBLIC Threads::Threads)
+endif ()
 
 set(D6R_SERVER_APP_NAME "duel6r-server" CACHE STRING "Filename of the experimental server scaffold.")
 add_executable(${D6R_SERVER_APP_NAME} source/server/ServerMain.cpp)
