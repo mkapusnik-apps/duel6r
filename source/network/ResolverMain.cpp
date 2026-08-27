@@ -1,5 +1,4 @@
 #include "ResolverProtocol.h"
-#include "Protocol.h"
 
 #include <array>
 #include <cstdint>
@@ -18,6 +17,9 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <signal.h>
+#include <sys/prctl.h>
+#include <unistd.h>
 #endif
 
 namespace {
@@ -42,28 +44,44 @@ namespace {
     }
 }
 
-int main() {
+int main(int argumentCount, char **arguments) {
 #ifdef _WIN32
     if (_setmode(_fileno(stdin), _O_BINARY) == -1 || _setmode(_fileno(stdout), _O_BINARY) == -1) return 2;
     WSADATA data{};
     if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return 2;
+#else
+    pid_t originalParent = getppid();
+    if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || getppid() != originalParent) return 2;
 #endif
 
-    std::array<std::uint8_t, Duel6::Network::ResolverProtocol::HeaderBytes> request{};
-    if (!readAll(request.data(), request.size())) return 2;
-    std::uint32_t magic = Duel6::Network::ResolverProtocol::readU32(request.data());
-    std::uint32_t hostLength = Duel6::Network::ResolverProtocol::readU32(request.data() + 4);
-    if (magic != Duel6::Network::ResolverProtocol::RequestMagic || hostLength == 0
-        || hostLength > Duel6::Network::MaxProtocolStringBytes) return 2;
-    std::string host(hostLength, '\0');
-    if (!readAll(reinterpret_cast<std::uint8_t *>(host.data()), host.size())) return 2;
+    std::string host;
+    std::string service;
+    if (argumentCount == 3) {
+        host = arguments[1];
+        service = arguments[2];
+    } else if (argumentCount == 1) {
+        // Retained as a bounded direct helper diagnostic; the transport always uses arguments.
+        std::array<std::uint8_t, Duel6::Network::ResolverProtocol::HeaderBytes> request{};
+        if (!readAll(request.data(), request.size())) return 2;
+        std::uint32_t magic = Duel6::Network::ResolverProtocol::readU32(request.data());
+        std::uint32_t hostLength = Duel6::Network::ResolverProtocol::readU32(request.data() + 4);
+        if (magic != Duel6::Network::ResolverProtocol::RequestMagic || hostLength == 0
+            || hostLength > Duel6::Network::ResolverProtocol::MaxHostBytes) return 2;
+        host.assign(hostLength, '\0');
+        if (!readAll(reinterpret_cast<std::uint8_t *>(host.data()), host.size())) return 2;
+        service = "1";
+    } else {
+        return 2;
+    }
+    if (!Duel6::Network::ResolverProtocol::validHost(host)
+        || !Duel6::Network::ResolverProtocol::validService(service)) return 2;
 
     addrinfo hints{};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
     addrinfo *addresses = nullptr;
-    int resolution = getaddrinfo(host.c_str(), nullptr, &hints, &addresses);
+    int resolution = getaddrinfo(host.c_str(), service.c_str(), &hints, &addresses);
     std::vector<std::array<std::uint8_t, 4>> resolved;
     if (resolution == 0) {
         for (addrinfo *address = addresses; address != nullptr

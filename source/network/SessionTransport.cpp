@@ -49,10 +49,99 @@ namespace Duel6::Network {
         constexpr std::uint16_t ApplicationFrame = 0;
         constexpr std::uint16_t LivenessPing = 1;
         constexpr std::uint16_t LivenessPong = 2;
+        constexpr std::size_t MaxQueuedControlFrames = 2;
         constexpr std::size_t MaxResolverResponseBytes = ResolverProtocol::HeaderBytes
                                                          + ResolverProtocol::MaxAddresses * 4;
+        constexpr std::size_t MaxOutstandingResolverProcesses = 32;
+        constexpr auto ResolverTerminationPollBudget = std::chrono::milliseconds(100);
 
 #ifdef D6R_TRANSPORT_WINDOWS
+        class ResolverProcessSupervisor {
+        public:
+            bool reserve() {
+                std::lock_guard<std::mutex> lock(mutex);
+                if (ownedProcesses >= MaxOutstandingResolverProcesses) return false;
+                ++ownedProcesses;
+                return true;
+            }
+
+            void releaseReservation() {
+                std::lock_guard<std::mutex> lock(mutex);
+                --ownedProcesses;
+            }
+
+            void complete(HANDLE process) {
+                CloseHandle(process);
+                releaseReservation();
+            }
+
+            void terminateOrDefer(HANDLE process) {
+                const bool terminationRequested = TerminateProcess(process, 3) != 0;
+                const auto deadline = Clock::now() + ResolverTerminationPollBudget;
+                do {
+                    DWORD status = WaitForSingleObject(process, 0);
+                    if (status == WAIT_OBJECT_0) {
+                        complete(process);
+                        return;
+                    }
+                    if (status == WAIT_FAILED) break;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                } while (Clock::now() < deadline);
+
+                bool startReaper = false;
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    delayed.push_back({process, terminationRequested});
+                    if (!reaperRunning) {
+                        reaperRunning = true;
+                        startReaper = true;
+                    }
+                }
+                if (startReaper) std::thread([this] { reapLoop(); }).detach();
+            }
+
+        private:
+            struct DelayedProcess {
+                HANDLE handle;
+                bool terminationRequested;
+            };
+
+            std::mutex mutex;
+            std::vector<DelayedProcess> delayed;
+            std::size_t ownedProcesses = 0;
+            bool reaperRunning = false;
+
+            void reapLoop() {
+                while (true) {
+                    {
+                        std::lock_guard<std::mutex> lock(mutex);
+                        for (auto iterator = delayed.begin(); iterator != delayed.end();) {
+                            iterator->terminationRequested = TerminateProcess(iterator->handle, 3) != 0
+                                                              || iterator->terminationRequested;
+                            DWORD status = WaitForSingleObject(iterator->handle, 0);
+                            if (status == WAIT_OBJECT_0) {
+                                CloseHandle(iterator->handle);
+                                iterator = delayed.erase(iterator);
+                                --ownedProcesses;
+                            } else {
+                                ++iterator;
+                            }
+                        }
+                        if (delayed.empty()) {
+                            reaperRunning = false;
+                            return;
+                        }
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                }
+            }
+        };
+
+        ResolverProcessSupervisor &resolverProcessSupervisor() {
+            static auto *supervisor = new ResolverProcessSupervisor();
+            return *supervisor;
+        }
+
         class SocketRuntime {
         public:
             SocketRuntime() {
@@ -86,6 +175,92 @@ namespace Duel6::Network {
             return TransportFailure::SystemError;
         }
 #else
+        class ResolverProcessSupervisor {
+        public:
+            bool reserve() {
+                std::lock_guard<std::mutex> lock(mutex);
+                if (ownedProcesses >= MaxOutstandingResolverProcesses) return false;
+                ++ownedProcesses;
+                return true;
+            }
+
+            void releaseReservation() {
+                std::lock_guard<std::mutex> lock(mutex);
+                --ownedProcesses;
+            }
+
+            void complete() {
+                releaseReservation();
+            }
+
+            void terminateOrDefer(pid_t process) {
+                bool terminationRequested = kill(process, SIGKILL) == 0 || errno == ESRCH;
+                const auto deadline = Clock::now() + ResolverTerminationPollBudget;
+                do {
+                    int status = 0;
+                    pid_t result = waitpid(process, &status, WNOHANG);
+                    if (result == process || (result < 0 && errno == ECHILD)) {
+                        complete();
+                        return;
+                    }
+                    if (result < 0 && errno != EINTR) break;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                } while (Clock::now() < deadline);
+
+                bool startReaper = false;
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    delayed.push_back({process, terminationRequested});
+                    if (!reaperRunning) {
+                        reaperRunning = true;
+                        startReaper = true;
+                    }
+                }
+                if (startReaper) std::thread([this] { reapLoop(); }).detach();
+            }
+
+        private:
+            struct DelayedProcess {
+                pid_t process;
+                bool terminationRequested;
+            };
+
+            std::mutex mutex;
+            std::vector<DelayedProcess> delayed;
+            std::size_t ownedProcesses = 0;
+            bool reaperRunning = false;
+
+            void reapLoop() {
+                while (true) {
+                    {
+                        std::lock_guard<std::mutex> lock(mutex);
+                        for (auto iterator = delayed.begin(); iterator != delayed.end();) {
+                            iterator->terminationRequested = kill(iterator->process, SIGKILL) == 0 || errno == ESRCH
+                                                              || iterator->terminationRequested;
+                            int status = 0;
+                            pid_t result = waitpid(iterator->process, &status, WNOHANG);
+                            if (result == iterator->process || (result < 0 && errno == ECHILD)) {
+                                iterator = delayed.erase(iterator);
+                                --ownedProcesses;
+                            } else {
+                                ++iterator;
+                            }
+                        }
+                        if (delayed.empty()) {
+                            reaperRunning = false;
+                            return;
+                        }
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                }
+            }
+        };
+
+        ResolverProcessSupervisor &resolverProcessSupervisor() {
+            static auto *supervisor = new ResolverProcessSupervisor();
+            return *supervisor;
+        }
+
         class SocketRuntime {
         public:
             bool ready() const { return true; }
@@ -180,15 +355,6 @@ namespace Duel6::Network {
             return address;
         }
 
-        std::vector<std::uint8_t> resolverRequest(const std::string &host) {
-            std::vector<std::uint8_t> request(ResolverProtocol::HeaderBytes + host.size());
-            ResolverProtocol::writeU32(request.data(), ResolverProtocol::RequestMagic);
-            ResolverProtocol::writeU32(request.data() + 4, static_cast<std::uint32_t>(host.size()));
-            ResolverProtocol::writeU32(request.data() + 8, 0);
-            std::memcpy(request.data() + ResolverProtocol::HeaderBytes, host.data(), host.size());
-            return request;
-        }
-
         ResolveOutcome resolverResponse(const std::vector<std::uint8_t> &response, std::uint16_t port) {
             if (response.size() < ResolverProtocol::HeaderBytes
                 || ResolverProtocol::readU32(response.data()) != ResolverProtocol::ResponseMagic
@@ -222,61 +388,72 @@ namespace Duel6::Network {
         ResolveOutcome realResolve(const std::string &host, std::uint16_t port, TransportTimePoint deadline,
                                    const std::function<bool()> &cancelled,
                                    const std::function<TransportTimePoint()> &now) {
+            std::string service = std::to_string(port);
+            if (!ResolverProtocol::validHost(host) || !ResolverProtocol::validService(service)) return {};
             SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
-            HANDLE childInputRead = nullptr, parentInputWrite = nullptr;
             HANDLE parentOutputRead = nullptr, childOutputWrite = nullptr;
-            if (!CreatePipe(&childInputRead, &parentInputWrite, &attributes, 0)
+            HANDLE nullInput = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                           &attributes, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            HANDLE nullError = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                           &attributes, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (nullInput == INVALID_HANDLE_VALUE || nullError == INVALID_HANDLE_VALUE
                 || !CreatePipe(&parentOutputRead, &childOutputWrite, &attributes, 0)) {
-                if (childInputRead) CloseHandle(childInputRead);
-                if (parentInputWrite) CloseHandle(parentInputWrite);
+                if (nullInput != INVALID_HANDLE_VALUE) CloseHandle(nullInput);
+                if (nullError != INVALID_HANDLE_VALUE) CloseHandle(nullError);
                 if (parentOutputRead) CloseHandle(parentOutputRead);
                 if (childOutputWrite) CloseHandle(childOutputWrite);
                 return {};
             }
-            SetHandleInformation(parentInputWrite, HANDLE_FLAG_INHERIT, 0);
-            SetHandleInformation(parentOutputRead, HANDLE_FLAG_INHERIT, 0);
+            if (!SetHandleInformation(parentOutputRead, HANDLE_FLAG_INHERIT, 0)) {
+                CloseHandle(nullInput);
+                CloseHandle(nullError);
+                CloseHandle(parentOutputRead);
+                CloseHandle(childOutputWrite);
+                return {};
+            }
             SIZE_T attributeBytes = 0;
             InitializeProcThreadAttributeList(nullptr, 1, 0, &attributeBytes);
             std::vector<std::uint8_t> attributeStorage(attributeBytes);
             STARTUPINFOEXW startup{};
             startup.StartupInfo.cb = sizeof(startup);
             startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-            startup.StartupInfo.hStdInput = childInputRead;
+            startup.StartupInfo.hStdInput = nullInput;
             startup.StartupInfo.hStdOutput = childOutputWrite;
-            startup.StartupInfo.hStdError = childOutputWrite;
+            startup.StartupInfo.hStdError = nullError;
             startup.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attributeStorage.data());
-            HANDLE inheritedHandles[] = {childInputRead, childOutputWrite};
+            HANDLE inheritedHandles[] = {nullInput, childOutputWrite, nullError};
             bool attributesReady = InitializeProcThreadAttributeList(startup.lpAttributeList, 1, 0, &attributeBytes)
                                    && UpdateProcThreadAttribute(startup.lpAttributeList, 0,
                                                                PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inheritedHandles,
                                                                sizeof(inheritedHandles), nullptr, nullptr);
             PROCESS_INFORMATION process{};
             std::wstring executable = resolverExecutablePath();
-            std::wstring command = L'"' + executable + L'"';
+            if (executable.find(L'"') != std::wstring::npos) executable.clear();
+            std::wstring wideHost(host.begin(), host.end());
+            std::wstring wideService(service.begin(), service.end());
+            std::wstring command = L'"' + executable + L"\" " + wideHost + L" " + wideService;
             std::vector<wchar_t> mutableCommand(command.begin(), command.end());
             mutableCommand.push_back('\0');
-            BOOL created = attributesReady && !executable.empty()
+            bool reserved = resolverProcessSupervisor().reserve();
+            BOOL created = reserved && attributesReady && !executable.empty()
                            && CreateProcessW(executable.c_str(), mutableCommand.data(), nullptr, nullptr, TRUE,
                                              CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr,
                                              &startup.StartupInfo, &process);
             if (startup.lpAttributeList) DeleteProcThreadAttributeList(startup.lpAttributeList);
-            CloseHandle(childInputRead);
+            CloseHandle(nullInput);
+            CloseHandle(nullError);
             CloseHandle(childOutputWrite);
             if (!created) {
-                CloseHandle(parentInputWrite);
                 CloseHandle(parentOutputRead);
+                if (reserved) resolverProcessSupervisor().releaseReservation();
                 return {};
             }
             CloseHandle(process.hThread);
-            std::vector<std::uint8_t> request = resolverRequest(host);
-            DWORD written = 0;
-            bool requestSent = WriteFile(parentInputWrite, request.data(), static_cast<DWORD>(request.size()),
-                                         &written, nullptr) && written == request.size();
-            CloseHandle(parentInputWrite);
             std::vector<std::uint8_t> response;
             response.reserve(MaxResolverResponseBytes);
             bool responseValid = true;
-            while (requestSent && !cancelled() && now() < deadline) {
+            bool exited = false;
+            while (!cancelled() && now() < deadline) {
                 DWORD available = 0;
                 if (!PeekNamedPipe(parentOutputRead, nullptr, 0, nullptr, &available, nullptr)) break;
                 if (available > 0) {
@@ -291,6 +468,7 @@ namespace Duel6::Network {
                     response.insert(response.end(), buffer.begin(), buffer.begin() + count);
                 }
                 if (WaitForSingleObject(process.hProcess, 0) == WAIT_OBJECT_0) {
+                    exited = true;
                     while (true) {
                         DWORD remaining = 0;
                         if (!PeekNamedPipe(parentOutputRead, nullptr, 0, nullptr, &remaining, nullptr)
@@ -311,15 +489,12 @@ namespace Duel6::Network {
             }
             bool wasCancelled = cancelled();
             bool wasTimedOut = now() >= deadline;
-            if (WaitForSingleObject(process.hProcess, 0) != WAIT_OBJECT_0) {
-                TerminateProcess(process.hProcess, 3);
-                WaitForSingleObject(process.hProcess, 900);
-            }
             CloseHandle(parentOutputRead);
-            CloseHandle(process.hProcess);
+            if (exited) resolverProcessSupervisor().complete(process.hProcess);
+            else resolverProcessSupervisor().terminateOrDefer(process.hProcess);
             if (wasCancelled) return {ResolveStatus::Cancelled, {}};
             if (wasTimedOut) return {ResolveStatus::TimedOut, {}};
-            return requestSent && responseValid ? resolverResponse(response, port) : ResolveOutcome{};
+            return exited && responseValid ? resolverResponse(response, port) : ResolveOutcome{};
         }
 #else
         std::string resolverExecutablePath() {
@@ -330,23 +505,6 @@ namespace Duel6::Network {
             std::size_t separator = executable.find_last_of('/');
             if (separator == std::string::npos) return "duel6r-resolver";
             return executable.substr(0, separator + 1) + "duel6r-resolver";
-        }
-
-        void stopResolverProcess(pid_t process) {
-            if (process <= 0) return;
-            kill(process, SIGKILL);
-            while (waitpid(process, nullptr, 0) < 0 && errno == EINTR) {}
-        }
-
-        bool writeAll(int descriptor, const std::vector<std::uint8_t> &data) {
-            std::size_t offset = 0;
-            while (offset < data.size()) {
-                ssize_t count = send(descriptor, data.data() + offset, data.size() - offset, MSG_NOSIGNAL);
-                if (count > 0) offset += static_cast<std::size_t>(count);
-                else if (count < 0 && errno == EINTR) continue;
-                else return false;
-            }
-            return true;
         }
 
         bool moveAboveStandardDescriptors(int &descriptor) {
@@ -361,15 +519,11 @@ namespace Duel6::Network {
         ResolveOutcome realResolve(const std::string &host, std::uint16_t port, TransportTimePoint deadline,
                                    const std::function<bool()> &cancelled,
                                    const std::function<TransportTimePoint()> &now) {
-            int requestPipe[2], responsePipe[2];
-            if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, requestPipe) != 0) return {};
-            if (pipe2(responsePipe, O_CLOEXEC) != 0) {
-                close(requestPipe[0]); close(requestPipe[1]);
-                return {};
-            }
-            if (!moveAboveStandardDescriptors(requestPipe[0]) || !moveAboveStandardDescriptors(requestPipe[1])
-                || !moveAboveStandardDescriptors(responsePipe[0]) || !moveAboveStandardDescriptors(responsePipe[1])) {
-                close(requestPipe[0]); close(requestPipe[1]);
+            std::string service = std::to_string(port);
+            if (!ResolverProtocol::validHost(host) || !ResolverProtocol::validService(service)) return {};
+            int responsePipe[2];
+            if (pipe2(responsePipe, O_CLOEXEC) != 0) return {};
+            if (!moveAboveStandardDescriptors(responsePipe[0]) || !moveAboveStandardDescriptors(responsePipe[1])) {
                 close(responsePipe[0]); close(responsePipe[1]);
                 return {};
             }
@@ -377,7 +531,7 @@ namespace Duel6::Network {
             int actionStatus = posix_spawn_file_actions_init(&actions);
             bool actionsInitialized = actionStatus == 0;
             if (actionStatus == 0)
-                actionStatus = posix_spawn_file_actions_adddup2(&actions, requestPipe[0], STDIN_FILENO);
+                actionStatus = posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
             if (actionStatus == 0)
                 actionStatus = posix_spawn_file_actions_adddup2(&actions, responsePipe[1], STDOUT_FILENO);
             if (actionStatus == 0)
@@ -385,28 +539,32 @@ namespace Duel6::Network {
             if (actionStatus == 0)
                 actionStatus = posix_spawn_file_actions_addclosefrom_np(&actions, STDERR_FILENO + 1);
             std::string executable = resolverExecutablePath();
-            char *arguments[] = {executable.empty() ? nullptr : executable.data(), nullptr};
+            std::string hostArgument = host;
+            char *arguments[] = {
+                    executable.empty() ? nullptr : executable.data(), hostArgument.data(), service.data(), nullptr};
             pid_t process = 0;
-            int spawned = actionStatus != 0 ? actionStatus
-                                            : (executable.empty() ? ENOENT
-                                                                  : posix_spawn(&process, executable.c_str(), &actions,
-                                                                                nullptr, arguments, environ));
+            bool reserved = resolverProcessSupervisor().reserve();
+            int spawned = !reserved ? EAGAIN : actionStatus != 0 ? actionStatus
+                                                                 : (executable.empty() ? ENOENT
+                                                                                       : posix_spawn(
+                                                                                               &process,
+                                                                                               executable.c_str(),
+                                                                                               &actions, nullptr,
+                                                                                               arguments, environ));
             if (actionsInitialized) posix_spawn_file_actions_destroy(&actions);
-            close(requestPipe[0]);
             close(responsePipe[1]);
             if (spawned != 0) {
-                close(requestPipe[1]); close(responsePipe[0]);
+                close(responsePipe[0]);
+                if (reserved) resolverProcessSupervisor().releaseReservation();
                 return {};
             }
-            std::vector<std::uint8_t> request = resolverRequest(host);
-            bool requestSent = writeAll(requestPipe[1], request);
-            close(requestPipe[1]);
             bool responseConfigured = setNonBlocking(responsePipe[0]);
             std::vector<std::uint8_t> response;
             response.reserve(MaxResolverResponseBytes);
             bool responseValid = true;
             bool exited = false;
-            while (requestSent && responseConfigured && !cancelled() && now() < deadline) {
+            bool ownershipReleased = false;
+            while (responseConfigured && !cancelled() && now() < deadline) {
                 if (waitSocket(responsePipe[0], false, std::chrono::milliseconds(10))) {
                     std::array<std::uint8_t, 256> buffer{};
                     ssize_t count = read(responsePipe[0], buffer.data(), buffer.size());
@@ -420,6 +578,11 @@ namespace Duel6::Network {
                 }
                 pid_t status = waitpid(process, nullptr, WNOHANG);
                 if (status == process) { exited = true; break; }
+                if (status < 0 && errno == ECHILD) {
+                    resolverProcessSupervisor().complete();
+                    ownershipReleased = true;
+                    break;
+                }
                 if (status < 0 && errno != EINTR) break;
             }
             if (exited) {
@@ -435,13 +598,13 @@ namespace Duel6::Network {
                     }
                     else break;
                 }
-            } else {
-                stopResolverProcess(process);
             }
             close(responsePipe[0]);
+            if (exited) resolverProcessSupervisor().complete();
+            else if (!ownershipReleased) resolverProcessSupervisor().terminateOrDefer(process);
             if (cancelled()) return {ResolveStatus::Cancelled, {}};
             if (now() >= deadline) return {ResolveStatus::TimedOut, {}};
-            return requestSent && responseConfigured && responseValid && exited
+            return responseConfigured && responseValid && exited
                    ? resolverResponse(response, port) : ResolveOutcome{};
         }
 #endif
@@ -565,12 +728,12 @@ namespace Duel6::Network {
             ClientState current = state.load();
             if (current == ClientState::Closing) return SendResult::Closing;
             if (current != ClientState::Connected) return SendResult::NotConnected;
-            if (output.size() + activeTransportFrames >= MaxQueuedTransportFrames
+            if (applicationOutput.size() + activeApplicationFrames >= MaxQueuedTransportFrames
                 || outputBytes + activeApplicationBytes + payload.size() > MaxQueuedTransportPayloadBytes) {
                 return SendResult::Backpressure;
             }
             outputBytes += payload.size();
-            output.push_back({ApplicationFrame, std::move(payload)});
+            applicationOutput.push_back({ApplicationFrame, std::move(payload)});
             outputChanged.notify_one();
             return SendResult::Accepted;
         }
@@ -630,9 +793,12 @@ namespace Duel6::Network {
         std::size_t inputBytes = 0;
         std::mutex outputMutex;
         std::condition_variable outputChanged;
-        std::deque<PendingFrame> output;
+        std::deque<PendingFrame> applicationOutput;
+        std::deque<PendingFrame> controlOutput;
         std::size_t outputBytes = 0;
-        std::size_t activeTransportFrames = 0;
+        std::size_t activeApplicationFrames = 0;
+        std::size_t activeControlFrames = 0;
+        std::uint16_t activeControlKind = ApplicationFrame;
         std::size_t activeApplicationBytes = 0;
         Clock::time_point closeDeadline = Clock::time_point::max();
         std::atomic<Clock::time_point> lastReceive;
@@ -655,10 +821,13 @@ namespace Duel6::Network {
 
         void queueControl(std::uint16_t kind) {
             std::lock_guard<std::mutex> lock(outputMutex);
-            if (!stop.load() && output.size() + activeTransportFrames < MaxQueuedTransportFrames) {
-                output.push_back({kind, {}});
-                outputChanged.notify_one();
-            }
+            if (stop.load() || controlOutput.size() + activeControlFrames >= MaxQueuedControlFrames) return;
+            if ((activeControlFrames != 0 && activeControlKind == kind)
+                || std::any_of(controlOutput.begin(), controlOutput.end(), [kind](const PendingFrame &frame) {
+                    return frame.kind == kind;
+                })) return;
+            controlOutput.push_back({kind, {}});
+            outputChanged.notify_one();
         }
 
         bool readExact(std::uint8_t *target, std::size_t size) {
@@ -790,29 +959,42 @@ namespace Duel6::Network {
         void writeLoop() {
             while (!stop.load()) {
                 PendingFrame frame;
+                bool controlFrame = false;
                 {
                     std::unique_lock<std::mutex> lock(outputMutex);
                     outputChanged.wait_for(lock, std::chrono::milliseconds(100), [this] {
-                        return !output.empty() || closeRequested.load() || stop.load();
+                        return !controlOutput.empty() || !applicationOutput.empty()
+                               || closeRequested.load() || stop.load();
                     });
                     if (stop.load()) break;
-                    if (output.empty()) {
+                    if (controlOutput.empty() && applicationOutput.empty()) {
                         if (closeRequested.load()) break;
                         continue;
                     }
-                    frame = std::move(output.front());
-                    output.pop_front();
-                    outputBytes -= frame.payload.size();
-                    activeTransportFrames = 1;
-                    if (frame.kind == ApplicationFrame) {
+                    if (!controlOutput.empty()) {
+                        controlFrame = true;
+                        frame = std::move(controlOutput.front());
+                        controlOutput.pop_front();
+                        activeControlFrames = 1;
+                        activeControlKind = frame.kind;
+                    } else {
+                        frame = std::move(applicationOutput.front());
+                        applicationOutput.pop_front();
+                        outputBytes -= frame.payload.size();
+                        activeApplicationFrames = 1;
                         activeApplicationBytes = frame.payload.size();
                     }
                 }
                 bool written = writeFrame(frame);
                 {
                     std::lock_guard<std::mutex> lock(outputMutex);
-                    activeTransportFrames = 0;
-                    activeApplicationBytes = 0;
+                    if (controlFrame) {
+                        activeControlFrames = 0;
+                        activeControlKind = ApplicationFrame;
+                    } else {
+                        activeApplicationFrames = 0;
+                        activeApplicationBytes = 0;
+                    }
                 }
                 if (!written) break;
             }
