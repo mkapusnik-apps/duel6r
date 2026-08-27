@@ -51,11 +51,19 @@ int main(int argumentCount, char **arguments) {
     if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return 2;
 #else
     pid_t originalParent = getppid();
-    if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || getppid() != originalParent) return 2;
+    if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0) return 2;
 #endif
 
     std::string host;
     std::string service;
+#ifndef _WIN32
+    pid_t expectedParent = originalParent;
+    if (argumentCount == 4) {
+        if (!Duel6::Network::ResolverProtocol::validParentProcessId(arguments[3])) return 2;
+        expectedParent = static_cast<pid_t>(std::stoul(arguments[3]));
+        argumentCount = 3;
+    }
+#endif
     if (argumentCount == 3) {
         host = arguments[1];
         service = arguments[2];
@@ -75,6 +83,9 @@ int main(int argumentCount, char **arguments) {
     }
     if (!Duel6::Network::ResolverProtocol::validHost(host)
         || !Duel6::Network::ResolverProtocol::validService(service)) return 2;
+#ifndef _WIN32
+    if (originalParent != expectedParent || getppid() != expectedParent) return 2;
+#endif
 
     addrinfo hints{};
     hints.ai_family = AF_INET;

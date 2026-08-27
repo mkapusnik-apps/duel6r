@@ -34,6 +34,16 @@ namespace Duel6::Network::ResolverProtocol {
         return value > 0 && value <= 65535;
     }
 
+    inline bool validParentProcessId(std::string_view processId) {
+        if (processId.empty() || processId.size() > 10) return false;
+        std::uint64_t value = 0;
+        for (unsigned char character: processId) {
+            if (character < '0' || character > '9') return false;
+            value = value * 10u + static_cast<std::uint64_t>(character - '0');
+        }
+        return value > 0 && value <= 2147483647u;
+    }
+
     inline void writeU32(std::uint8_t *target, std::uint32_t value) {
         target[0] = static_cast<std::uint8_t>(value >> 24u);
         target[1] = static_cast<std::uint8_t>(value >> 16u);

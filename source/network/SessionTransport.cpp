@@ -19,6 +19,9 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#ifndef PROC_THREAD_ATTRIBUTE_JOB_LIST
+#define PROC_THREAD_ATTRIBUTE_JOB_LIST ProcThreadAttributeValue(13, FALSE, TRUE, FALSE)
+#endif
 using SocketHandle = SOCKET;
 static constexpr SocketHandle InvalidSocket = INVALID_SOCKET;
 #else
@@ -27,6 +30,7 @@ static constexpr SocketHandle InvalidSocket = INVALID_SOCKET;
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <spawn.h>
 #include <signal.h>
 #include <sys/select.h>
@@ -44,12 +48,13 @@ namespace Duel6::Network {
         constexpr auto StartupDeadline = std::chrono::seconds(10);
         constexpr auto ProgressDeadline = std::chrono::seconds(5);
         constexpr auto ReceiveIdleDeadline = std::chrono::seconds(30);
-        constexpr auto LivenessInterval = std::chrono::seconds(10);
+        constexpr auto LivenessInterval = std::chrono::seconds(2);
         constexpr auto GracefulCloseDeadline = std::chrono::seconds(2);
         constexpr std::uint16_t ApplicationFrame = 0;
         constexpr std::uint16_t LivenessPing = 1;
         constexpr std::uint16_t LivenessPong = 2;
         constexpr std::size_t MaxQueuedControlFrames = 2;
+        constexpr int TransportSocketSendBufferBytes = 96 * 1024;
         constexpr std::size_t MaxResolverResponseBytes = ResolverProtocol::HeaderBytes
                                                          + ResolverProtocol::MaxAddresses * 4;
         constexpr std::size_t MaxOutstandingResolverProcesses = 32;
@@ -58,12 +63,25 @@ namespace Duel6::Network {
 #ifdef D6R_TRANSPORT_WINDOWS
         class ResolverProcessSupervisor {
         public:
+            ResolverProcessSupervisor() {
+                job = CreateJobObjectW(nullptr, nullptr);
+                JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+                limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                if (job == nullptr || !SetInformationJobObject(job, JobObjectExtendedLimitInformation,
+                                                                &limits, sizeof(limits))) {
+                    if (job != nullptr) CloseHandle(job);
+                    job = nullptr;
+                }
+            }
+
             bool reserve() {
                 std::lock_guard<std::mutex> lock(mutex);
-                if (ownedProcesses >= MaxOutstandingResolverProcesses) return false;
+                if (job == nullptr || ownedProcesses >= MaxOutstandingResolverProcesses) return false;
                 ++ownedProcesses;
                 return true;
             }
+
+            HANDLE jobHandle() const { return job; }
 
             void releaseReservation() {
                 std::lock_guard<std::mutex> lock(mutex);
@@ -107,6 +125,7 @@ namespace Duel6::Network {
             };
 
             std::mutex mutex;
+            HANDLE job = nullptr;
             std::vector<DelayedProcess> delayed;
             std::size_t ownedProcesses = 0;
             bool reaperRunning = false;
@@ -336,7 +355,11 @@ namespace Duel6::Network {
             if (!configureTransportSocket(socket)) return false;
             int enabled = 1;
             setsockopt(socket, SOL_SOCKET, SO_KEEPALIVE, reinterpret_cast<const char *>(&enabled), sizeof(enabled));
-            return true;
+            if (setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char *>(&enabled),
+                           sizeof(enabled)) != 0) return false;
+            int sendBuffer = TransportSocketSendBufferBytes;
+            return setsockopt(socket, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char *>(&sendBuffer),
+                              sizeof(sendBuffer)) == 0;
         }
 
         TransportTimePoint realNow() {
@@ -412,7 +435,7 @@ namespace Duel6::Network {
                 return {};
             }
             SIZE_T attributeBytes = 0;
-            InitializeProcThreadAttributeList(nullptr, 1, 0, &attributeBytes);
+            InitializeProcThreadAttributeList(nullptr, 2, 0, &attributeBytes);
             std::vector<std::uint8_t> attributeStorage(attributeBytes);
             STARTUPINFOEXW startup{};
             startup.StartupInfo.cb = sizeof(startup);
@@ -422,10 +445,14 @@ namespace Duel6::Network {
             startup.StartupInfo.hStdError = nullError;
             startup.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attributeStorage.data());
             HANDLE inheritedHandles[] = {nullInput, childOutputWrite, nullError};
-            bool attributesReady = InitializeProcThreadAttributeList(startup.lpAttributeList, 1, 0, &attributeBytes)
-                                   && UpdateProcThreadAttribute(startup.lpAttributeList, 0,
-                                                               PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inheritedHandles,
-                                                               sizeof(inheritedHandles), nullptr, nullptr);
+            HANDLE resolverJob = resolverProcessSupervisor().jobHandle();
+            bool attributesReady = InitializeProcThreadAttributeList(startup.lpAttributeList, 2, 0, &attributeBytes)
+                                    && UpdateProcThreadAttribute(startup.lpAttributeList, 0,
+                                                                PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inheritedHandles,
+                                                                sizeof(inheritedHandles), nullptr, nullptr)
+                                    && UpdateProcThreadAttribute(startup.lpAttributeList, 0,
+                                                                PROC_THREAD_ATTRIBUTE_JOB_LIST, &resolverJob,
+                                                                sizeof(resolverJob), nullptr, nullptr);
             PROCESS_INFORMATION process{};
             std::wstring executable = resolverExecutablePath();
             if (executable.find(L'"') != std::wstring::npos) executable.clear();
@@ -540,8 +567,10 @@ namespace Duel6::Network {
                 actionStatus = posix_spawn_file_actions_addclosefrom_np(&actions, STDERR_FILENO + 1);
             std::string executable = resolverExecutablePath();
             std::string hostArgument = host;
+            std::string parentProcess = std::to_string(static_cast<long long>(getpid()));
             char *arguments[] = {
-                    executable.empty() ? nullptr : executable.data(), hostArgument.data(), service.data(), nullptr};
+                    executable.empty() ? nullptr : executable.data(), hostArgument.data(), service.data(),
+                    parentProcess.data(), nullptr};
             pid_t process = 0;
             bool reserved = resolverProcessSupervisor().reserve();
             int spawned = !reserved ? EAGAIN : actionStatus != 0 ? actionStatus
