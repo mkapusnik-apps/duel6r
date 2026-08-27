@@ -1,8 +1,10 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <cstdint>
 #include <functional>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -20,6 +22,8 @@ using RawSocket = SOCKET;
 static constexpr RawSocket InvalidRawSocket = INVALID_SOCKET;
 #else
 #include <arpa/inet.h>
+#include <cerrno>
+#include <csignal>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -380,6 +384,150 @@ void startListener(TcpListener &listener, std::uint16_t port, const std::string 
     CHECK(listener.state() == ListenerState::Ready);
 }
 
+void mandatorySocketConfigurationFailure() {
+    for (int iteration = 0; iteration < 100; ++iteration) {
+        SessionTransportDependencies dependencies;
+        dependencies.resolve = [](const std::string &, std::uint16_t port, TransportTimePoint,
+                                  const std::function<bool()> &) {
+            return ResolveOutcome{ResolveStatus::Resolved, {fakeLoopback(port)}};
+        };
+        dependencies.connect = [](const auto &, TransportTimePoint, const auto &) {
+            RawSocket invalid = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            CHECK(invalid != InvalidRawSocket);
+            closeRaw(invalid);
+            return ConnectOutcome{ConnectStatus::Connected, static_cast<std::intptr_t>(invalid)};
+        };
+        TcpClient client(dependencies);
+        CHECK(client.start({"configuration-failure.test", 12345}));
+        CHECK(!client.waitForConnected(1s));
+        CHECK(client.state() == ClientState::Failed);
+        CHECK(client.failure() == TransportFailure::SystemError);
+        CHECK(!client.connection());
+        client.cancel(); client.cancel();
+        CHECK(client.state() == ClientState::Failed);
+    }
+}
+
+#ifndef D6R_TRANSPORT_WINDOWS
+std::vector<pid_t> resolverPids(const std::string &path) {
+    std::ifstream input(path);
+    std::vector<pid_t> result;
+    pid_t value = 0;
+    while (input >> value) result.push_back(value);
+    return result;
+}
+
+void realResolverHelperCleanupAndDescriptorEof() {
+    const char *pidPathValue = std::getenv("D6R_FAKE_RESOLVER_PID_FILE");
+    CHECK(pidPathValue != nullptr);
+    const std::string pidPath(pidPathValue);
+
+    SessionTransportDependencies listenerDependencies;
+    listenerDependencies.resolve = [](const std::string &, std::uint16_t port, TransportTimePoint,
+                                      const std::function<bool()> &) {
+        return ResolveOutcome{ResolveStatus::Resolved, {fakeLoopback(port)}};
+    };
+    const auto port = unusedPort();
+    TcpListener listener(1, listenerDependencies);
+    startListener(listener, port);
+    RawSocketOwner peer(connectRaw(port));
+    auto connection = awaitAccept(listener);
+
+    std::size_t expectedPidCount = 0;
+    auto cancelRealHelper = [&] {
+        TcpClient client;
+        CHECK(client.start({"resolver-will-stall.test", port}));
+        ++expectedPidCount;
+        CHECK(waitUntil([&] { return resolverPids(pidPath).size() >= expectedPidCount; }, 1s));
+        const pid_t process = resolverPids(pidPath).at(expectedPidCount - 1);
+        const auto started = std::chrono::steady_clock::now();
+        client.cancel(); client.cancel();
+        CHECK(std::chrono::steady_clock::now() - started < 1s);
+        CHECK(client.state() == ClientState::Cancelled);
+        CHECK(waitUntil([&] { return kill(process, 0) < 0 && errno == ESRCH; }, 1s));
+    };
+
+    cancelRealHelper();
+    connection->close();
+    timeval timeout{1, 0};
+    CHECK(setsockopt(peer.get(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == 0);
+    std::uint8_t byte = 0;
+    CHECK(recv(peer.get(), &byte, 1, 0) == 0);
+    for (int iteration = 0; iteration < 24; ++iteration) cancelRealHelper();
+    listener.shutdown(); listener.shutdown();
+}
+#endif
+
+void agedConnectionGetsFreshInboundQueueWindow() {
+    const auto port = unusedPort();
+    TcpListener listener(1);
+    startListener(listener, port);
+    RawSocketOwner peer(connectRaw(port));
+    auto connection = awaitAccept(listener);
+    std::this_thread::sleep_for(5500ms);
+    for (std::size_t index = 0; index <= MaxQueuedTransportFrames; ++index) sendFrame(peer.get(), {});
+    std::this_thread::sleep_for(4200ms);
+    CHECK(connection->state() == ClientState::Connected);
+    CHECK(connection->failure() == TransportFailure::None);
+    CHECK(waitUntil([&] { return connection->state() == ClientState::TimedOut; }, 2s));
+    CHECK(connection->failure() == TransportFailure::InboundStalled);
+    listener.shutdown();
+}
+
+void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
+    const auto port = unusedPort();
+    TcpListener listener(1);
+    startListener(listener, port);
+    TcpClient client;
+    CHECK(client.start({"127.0.0.1", port}));
+    CHECK(client.waitForConnected(2s));
+    auto server = awaitAccept(listener);
+    const auto deadline = std::chrono::steady_clock::now() + 31s;
+    std::uint32_t sequence = 0;
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::vector<std::uint8_t> payload{
+                static_cast<std::uint8_t>(sequence >> 24u), static_cast<std::uint8_t>(sequence >> 16u),
+                static_cast<std::uint8_t>(sequence >> 8u), static_cast<std::uint8_t>(sequence)};
+        CHECK(client.connection()->send(payload) == SendResult::Accepted);
+        TransportFrame frame;
+        CHECK(waitUntil([&] { return server->receive(frame); }, 1s));
+        CHECK(frame.payload == payload);
+        ++sequence;
+        std::this_thread::sleep_for(50ms);
+    }
+    CHECK(sequence > 500);
+    CHECK(client.state() == ClientState::Connected);
+    CHECK(server->state() == ClientState::Connected);
+    TransportFrame hidden;
+    CHECK(!client.connection()->receive(hidden));
+    CHECK(!server->receive(hidden));
+    listener.shutdown();
+}
+
+void concurrentTerminalPublicationIsCoherent() {
+    const auto port = unusedPort();
+    TcpListener listener(15);
+    startListener(listener, port);
+    for (int iteration = 0; iteration < 100; ++iteration) {
+        RawSocketOwner peer(connectRaw(port));
+        auto connection = awaitAccept(listener);
+        std::atomic<bool> incoherent{false};
+        std::thread observer([&] {
+            while (connection->state() == ClientState::Connected) std::this_thread::yield();
+            const ClientState observed = connection->state();
+            if ((observed == ClientState::Failed || observed == ClientState::TimedOut)
+                && connection->failure() == TransportFailure::None) incoherent.store(true);
+        });
+        auto malformed = envelope(0, TransportFramingVersion, 0, 0);
+        sendAll(peer.get(), malformed.data(), malformed.size());
+        CHECK(waitUntil([&] { return connection->state() == ClientState::Failed; }, 1s));
+        observer.join();
+        CHECK(!incoherent.load());
+        CHECK(connection->failure() == TransportFailure::ProtocolViolation);
+    }
+    listener.shutdown();
+}
+
 void lifecycleAndFailures() {
     {
         TcpClient cancelled;
@@ -605,7 +753,24 @@ int main() {
 #ifdef D6R_TRANSPORT_WINDOWS
     WSADATA data{}; if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return 2;
 #endif
+    const char *fakeResolverRun = std::getenv("D6R_RUN_FAKE_RESOLVER_TEST");
+#ifndef D6R_TRANSPORT_WINDOWS
+    if (fakeResolverRun != nullptr && std::string(fakeResolverRun) == "1") {
+        try {
+            realResolverHelperCleanupAndDescriptorEof();
+            std::cout << "[PASS] real resolver helper cleanup and descriptor EOF\n";
+            return 0;
+        } catch (const std::exception &error) {
+            std::cerr << "[FAIL] real resolver helper cleanup and descriptor EOF\n  " << error.what() << '\n';
+            return 1;
+        }
+    }
+#endif
     const std::vector<std::pair<const char *, void (*)()>> tests = {
+        {"mandatory socket configuration failure", mandatorySocketConfigurationFailure},
+        {"aged queue receives fresh progress window", agedConnectionGetsFreshInboundQueueWindow},
+        {"continuous one-way output liveness", continuousOneWayOutputKeepsReceiveQuietPeerAlive},
+        {"concurrent terminal publication", concurrentTerminalPublicationIsCoherent},
         {"deterministic resolver cancellation", deterministicResolverCancellation},
         {"shared deadline and classifications", sharedDeadlineAndClassifications},
         {"cancellation deadline races", cancellationDeadlineRacesAreTerminalAndJoined},

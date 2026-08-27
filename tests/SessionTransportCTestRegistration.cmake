@@ -23,4 +23,15 @@ if (UNIX)
     set_tests_properties(duel6r-session-transport-process-tests PROPERTIES
             LABELS "application;integration;network;transport"
             TIMEOUT 90)
+
+    add_test(
+            NAME duel6r-resolver-helper-process-tests
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/ResolverHelperProcessTests.py
+                    $<TARGET_FILE:duel6r-session-transport-tests>
+                    $<TARGET_FILE:${D6R_RESOLVER_APP_NAME}>
+    )
+    set_tests_properties(duel6r-resolver-helper-process-tests PROPERTIES
+            LABELS "application;integration;network;resolver"
+            TIMEOUT 45)
 endif ()
