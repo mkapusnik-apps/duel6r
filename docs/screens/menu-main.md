@@ -37,6 +37,7 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The full persistent score table must span the middle width.
 - The current bottom action row contains `Play (F1)`, `Clear (F3)`, and `Quit (ESC)`.
 - The target bottom action row must contain `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)`.
+- The four target footer buttons must have equal 150-logical-pixel widths, equal 46-logical-pixel gaps, and equal 46-logical-pixel outer margins within the `x=10–840` footer content span.
 - The bottom action row must use action-first captions.
 - The screen must not use `[F1] PLAY`, `[F3] CLEAR`, or `[ESC] QUIT`.
 - The planned `Network (F2)` control is not implemented by issue #28 and must not be treated as current runtime behavior.

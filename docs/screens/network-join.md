@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-This is a target screen for downstream issue #38; it is not implemented. It configures a guest's direct endpoint and local players, then truthfully reports connection progress. It implements `NET-AC-001`, `NET-AC-002`, `NET-AC-004`, `NET-AC-005`, and `NET-AC-007`–`NET-AC-009` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+This is a target screen for downstream issue #38; it is not implemented. It configures a guest's direct endpoint and local players, then truthfully reports connection progress. It implements `NET-AC-001`, `NET-AC-002`, `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 
 Entry is `NET-01` → Join. Confirmed admission enters `NET-04`; failure enters `NET-08`; Cancel during connection restores editable setup; Back returns to `NET-01`.
 
@@ -15,11 +15,12 @@ Entry is `NET-01` → Join. Confirmed admission enters `NET-04`; failure enters 
 
 ## Navigation and significant variants
 
-- Editable setup enables Connect only for a non-empty hostname/address, valid port, and one or more valid local players.
-- Resolving and Connecting states must name the endpoint and must not imply lobby admission.
-- Cancel stops the attempt and returns to editable setup without showing Disconnected as though a session existed.
-- Exact-release/content mismatch, capacity, host rejection, timeout, and unreachable endpoint enter `NET-08` with distinct available reasons.
+- Editable setup performs hostname/address and port validation inline. Invalid input never leaves `NET-03` and never starts the connection clock.
+- Resolving and Connecting states name the endpoint, show that the single 10-second boundary includes resolution through admission, and do not imply lobby admission.
+- Cancel stops the attempt and returns to editable setup with endpoint and local-player configuration retained; it does not show Disconnected as though a session existed.
+- A specific resolution, unreachable-host, host rejection, capacity, join-in-progress, release, or content failure confirmed before the deadline enters `NET-08` instead of generic timeout. At or after 10 seconds without a prior specific failure, show `Connection timed out`.
 - Successful admission alone enters `NET-04`; join-in-progress rejection is explicit when the host already started.
+- `NET-08` Retry repeats the retained attempt, Edit setup returns here with all data retained, and Return to Network enters `NET-01`.
 
 ## Truthful copy, disabled reasons, and input
 

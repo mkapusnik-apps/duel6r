@@ -16,6 +16,7 @@ Target representative viewport: 1280 by 900 px. The gameplay renderer fills the 
 
 - Existing arena, ranking, progress, event, and player-status presentation remains available.
 - Compact textual network status does not obscure play or create player-specific views.
-- Reconnect, intentional leave, score overlay, and host-loss variants remain in the specification.
+- Guest `Leave session` and host `End session` use consequence panels with Confirm and Cancel over this unchanged arena.
+- Reconnect, degraded-host-only continuation, atomic removals, score overlay, and host-ended/loss variants remain in the specification.
 
 Planned representative screenshot: [`SS-019`](../../screenshots/README.md#ss-019).

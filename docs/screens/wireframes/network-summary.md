@@ -17,7 +17,8 @@ Target representative viewport: 1280 by 900 px. The final arena context remains 
 ```
 
 - The exact `Session only` label is visible with the authoritative final results.
-- Guest waiting/leave, reconnect, end-session, and host-loss variants remain in the specification.
+- Retained lobby results label departed rows `Departed`; the next match replaces this set and session end/loss discards it.
+- Guest Leave, reconnect, host End session, and host-loss variants and confirmations remain in the specification.
 - Keyboard/controller focus is explicit and does not depend on color.
 
 Planned representative screenshot: [`SS-020`](../../screenshots/README.md#ss-020).

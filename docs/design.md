@@ -168,13 +168,16 @@ The following values come from renderer and GUI source.
 
 ### Target network controls and status
 
-- `MENU-01` and `NET-01`–`NET-04`, `NET-08`, and `NET-09` must use the retro 850 by 700 logical canvas and the same uniform scaling, centered presentation, photographic background, scrim, keyline, type, square controls, and compact density as the local menu.
+- `MENU-01`, `NET-01`–`NET-04`, and `NET-08` must use the retro 850 by 700 logical canvas and the same uniform scaling, centered presentation, photographic background, scrim, keyline, type, square controls, and compact density as the local menu.
 - `NET-05`–`NET-07` may overlay the undivided shared arena or summary context where their screen specifications require it; they must not introduce player-specific viewports.
-- Participant role, readiness, ownership, and connection state must always include text. Color may reinforce but must not replace `Host`, `Guest`, `Ready`, `Not ready`, `Connecting`, `Reconnecting`, `Disconnected`, or failure copy.
+- `NET-09` must be a blocking panel over the last confirmed lobby, arena, summary, or reconnect context. It must not replace that context with a fixed 850 by 700 canvas requirement.
+- Participant role, connection, readiness, and ownership must use separate textual fields or columns. Color may reinforce but must not replace `Host`, `Guest`, `Connected`, `Reconnecting`, `Ready`, or `Not ready`.
 - Connection copy must be truthful: the UI must not show a lobby, listening state, successful connection, or restored session before the runtime confirms it.
 - A disabled action must remain readable and must show a nearby textual reason, including the named unready participant or invalid configuration where applicable.
 - Host-owned fields must be visibly read-only to guests, and participant-owned player controls must not appear editable to another participant.
-- Reconnecting UI must show the remaining 30-second reservation time and state that active play continues when the match is active.
+- Reconnecting UI must show the positive ceiling seconds remaining from the host deadline, never active `0`, and state that active play continues when the match is active.
+- Guest Leave, reconnect Leave session, and host End session actions must use consequence confirmations and the destinations defined by the product specification.
+- Host-ended and unexpected-host-loss `NET-09` variants must use distinct headings and explanatory copy.
 - Final network results must show the exact label `Session only` near the summary heading or result table.
 - Target network UI must not offer discovery, matchmaking, Internet, NAT traversal, accounts, passwords, dedicated servers, join-in-progress, or host migration.
 
@@ -262,7 +265,7 @@ The following values come from renderer and GUI source.
 - A shared token or component change must trigger an assessment of all screens.
 - Screenshot provenance must record branch, source SHA, environment, workflow, state, viewport, artifact path, selected menu background filename, runtime asset manifest revision, and session identifier where the menu background is visible.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
-- Planned network screenshot entries remain `Planned` until issue #38 implements the applicable screen and captures it; existing local screenshots cannot be reused as network UI evidence.
+- The 12 affected screenshot entries remain `Planned` until issue #38 implements and captures the target `MENU-01`, `MENU-02`, `CONS-01`, and `NET-01`–`NET-09` states; existing local screenshots cannot be reused as target evidence.
 
 ## Reviewed implementation sources
 

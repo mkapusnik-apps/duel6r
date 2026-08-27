@@ -21,7 +21,7 @@ Each panel title strip must identify its panel.
 The panel layout may adjust internal column widths by 1 px to preserve integer coordinates.
 The banner bounds are `x=325–524` and `y=5–99`.
 The version line must stay centered below the banner at `y=103–120`.
-The target footer buttons use `x=25`, `x=225`, `x=425`, and `x=625` from left to right.
+Within the half-open footer content span `x=10–840`, the target footer buttons use `x=56–206`, `x=252–402`, `x=448–598`, and `x=644–794` from left to right. Every button is 150 logical px wide; every adjacent gap and both outer margins are 46 logical px.
 Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 
 ```text
@@ -71,6 +71,7 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 - The default wireframe state must show Assistance, Quick Liquid, and Burnable Trees checked.
 - All Game Settings controls must remain inside the existing panel bounds.
 - The footer captions must put the action before the shortcut.
+- Footer button widths, three internal gaps, and two outer margins must remain equal as specified above at every uniformly scaled viewport.
 - `Play (F1)` remains the independent local-only action; `Network (F2)` is a distinct target action leading to `NET-01`.
 - Issue #28 specifies this footer layout but does not implement it. The current application still has the three-action footer.
 - The banner must use `resources/textures/menu/` and may animate.

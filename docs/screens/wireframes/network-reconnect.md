@@ -12,13 +12,14 @@ Target representative viewport: 1280 by 900 px with active arena context. This w
 │            │ Match continues while you reconnect      │              │
 │            │ Reserved players receive no input and    │              │
 │            │ remain in play                           │              │
-│            │ [ Cancel reconnect ]                     │              │
+│            │ [ Leave session ]                        │              │
 │            └───────────────────────────────────────────┘              │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-- The countdown, continued simulation, reserved-player behavior, and cancellation consequence are textual.
-- Lobby, summary, success, expiry, and host-loss variants remain in the specification.
+- The positive ceiling countdown, continued simulation, reserved-player behavior, and action consequence are textual; active reconnect never shows `0`.
+- `Leave session` opens `Leave session? Your reserved players will be removed now and reconnect will stop.` Confirm enters `NET-01`; Cancel preserves the original deadline.
+- Lobby, summary, current-state success, atomic expiry, and host-ended/loss variants remain in the specification.
 - The state offers no Pause or host-migration action.
 
 Planned representative screenshot: [`SS-021`](../../screenshots/README.md#ss-021).

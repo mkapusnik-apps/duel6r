@@ -3,6 +3,7 @@
 ## Purpose and traceability
 
 This state requests confirmation, requests controller input, or reports why a match cannot start.
+The approved target background includes the four equal-width `MENU-01` footer actions with distinct `Network (F2)`. Issue #28 does not implement that background change.
 Entry occurs from Clear, person removal, Play, resume handling, statistics clearing, or a controller-detection button.
 Exit occurs after an accepted key or event, as defined by the active variant.
 The state implements `SET-003`, `SET-006`–`SET-007`, `SET-022`, `LIF-023`–`LIF-029`, and `INP-008`–`INP-009` from [`docs/features.md`](../features.md).
@@ -13,6 +14,7 @@ Primary source is `source/Menu.cpp:368-486`.
 - The state must place the message strip over the unchanged main menu.
 - The unchanged main menu must include the session-selected blurred and scrimmed gameplay still, the scaled approved four-panel canvas, and its keyline.
 - The background Game Settings panel must include the Burnable Trees checkbox from `MENU-01`.
+- The target background footer must show `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)` with the equal widths, gaps, and outer margins from `MENU-01`.
 - The strip must use the centered layout in [`menu-message.md`](wireframes/menu-message.md).
 - The message must be the top visual layer.
 - The strip must use the error surface, error text, and black frame from `docs/design.md`.
@@ -64,4 +66,4 @@ Primary source is `source/Menu.cpp:368-486`.
 
 ## Screenshot link
 
-Representative evidence: [`SS-002`](../screenshots/README.md#ss-002).
+Planned representative evidence for downstream issue #38: [`SS-002`](../screenshots/README.md#ss-002). The existing capture is not valid for the changed target footer.

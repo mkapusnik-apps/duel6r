@@ -10,7 +10,8 @@ Target representative viewport: 1920 by 1080 px. The 850 by 700 logical canvas u
 │             Same machine or LAN                                     │
 │             Direct address and port                                 │
 │             Linux / Windows x86-64                                  │
-│             Player-hosted • 2–15 participants • 2–15 players        │
+│             Player-hosted • Lobby 1–15 • Match 2–15                 │
+│             participants and players                                │
 │                                                                      │
 │                      [ Host ]                                        │
 │                      [ Join ]                                        │

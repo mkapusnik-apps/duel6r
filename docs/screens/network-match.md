@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-This is a target screen for downstream issue #38; it is not implemented. It presents the authoritative network match in the existing undivided shared arena. It implements `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, and `NET-AC-009`–`NET-AC-014` in [`docs/network-play-first-release.md`](../network-play-first-release.md) alongside the unchanged local gameplay presentation requirements.
+This is a target screen for downstream issue #38; it is not implemented. It presents the authoritative network match in the existing undivided shared arena. It implements `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-010`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md) alongside unchanged local gameplay presentation requirements.
 
 The host starts this screen from `NET-04` after all participants are ready. Match completion enters `NET-06`; guest disconnect enters `NET-07`; host loss enters `NET-09`.
 
@@ -17,16 +17,18 @@ The host starts this screen from `NET-04` after all participants are ready. Matc
 
 - Each participant's devices control only that participant's local players; all world and score outcomes are authoritative.
 - Tab continues to show the applicable authoritative score overlay. Network score context is `Session only`.
-- A connected participant's intentional Leave requires confirmation and is immediate; it is not a pause.
+- Guest `Leave session` opens `Leave session? Your players will be removed immediately and the match will continue without reconnect.` Confirm sends that guest to `NET-01`; Cancel returns to active play. Leaving is immediate and is not a pause.
+- Host `End session` opens `End session for everyone?` Confirm sends the host to `NET-01` and guests to host-ended `NET-09`; Cancel returns to active play.
 - A guest transport loss replaces that guest's view with `NET-07`; other connected participants continue seeing the live arena and a textual reconnecting status for reserved players.
 - Reserved players receive no input, remain targets, count for winner conditions, and follow normal damage, death, scoring, and round progression.
+- Same-clock leaves and expiries are removed atomically without removal combat statistics, followed by one winner evaluation. A match may continue with one connected host while at least two roster players remain; fewer than two ends without a winner.
 - Host loss replaces the guest view with `NET-09`; there is no migration state.
 
 ## Truthful copy, disabled reasons, and input
 
 - The screen must never show `Paused for reconnect`; active-round simulation continues.
 - Text must distinguish `Guest reconnecting (24s)` from an intentional departure or expired reservation.
-- Existing gameplay controls remain unchanged. Session actions use a deterministic keyboard/controller overlay focus with Continue/Cancel confirmation and must not capture player controls unless the session menu is visibly open.
+- Existing gameplay controls remain unchanged. Session actions use deterministic keyboard/controller focus. Confirmation actions are `Leave session`/`Cancel` for guests and `End session`/`Cancel` for the host and do not capture player controls unless visibly open.
 - No join, invite, migration, account, or persistent-statistics action may appear during the match.
 
 Planned representative screenshot: [`SS-019`](../screenshots/README.md#ss-019).
