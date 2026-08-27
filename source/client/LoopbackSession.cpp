@@ -11,11 +11,15 @@ namespace Duel6::Client {
         if (!plan.launchesLocalServer) {
             throw std::invalid_argument("Loopback session requires a local-game connection plan");
         }
+        const Network::Endpoint &serverEndpoint = server.getConfig().listenEndpoint;
+        if (plan.endpoint.host != serverEndpoint.host || plan.endpoint.port != serverEndpoint.port) {
+            throw std::invalid_argument("Loopback connection plan endpoint does not match the in-process server endpoint");
+        }
 
         LoopbackConnectionResult result;
         // This helper is an in-process protocol scaffold. It never starts a process.
         result.localServerLaunched = false;
-        result.endpoint = plan.endpoint;
+        result.endpoint = serverEndpoint;
 
         const Server::HandshakeResult handshake = server.validateHandshake(request);
         if (!handshake.accepted) {

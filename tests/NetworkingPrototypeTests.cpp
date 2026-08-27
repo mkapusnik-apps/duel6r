@@ -1,4 +1,6 @@
+#include <clocale>
 #include <limits>
+#include <locale>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -49,6 +51,76 @@ namespace {
         request.resources = {{"levels/arena.json", "sha256:1234"}};
         return request;
     }
+
+    class CommaDecimalPoint : public std::numpunct<char> {
+    protected:
+        char do_decimal_point() const override {
+            return ',';
+        }
+    };
+
+    class LocaleGuard {
+    private:
+        std::locale originalCppLocale;
+        std::string originalCLocale;
+
+    public:
+        LocaleGuard()
+                : originalCppLocale(std::locale()),
+                  originalCLocale(std::setlocale(LC_ALL, nullptr) == nullptr
+                                  ? "C"
+                                  : std::setlocale(LC_ALL, nullptr)) {}
+
+        ~LocaleGuard() {
+            std::locale::global(originalCppLocale);
+            std::setlocale(LC_ALL, originalCLocale.c_str());
+        }
+    };
+
+#ifdef _WIN32
+    std::vector<std::string> parseWindowsCrtCommandLine(const std::string &commandLine) {
+        std::vector<std::string> arguments;
+        std::size_t cursor = 0;
+        while (cursor < commandLine.size()) {
+            while (cursor < commandLine.size() && (commandLine[cursor] == ' ' || commandLine[cursor] == '\t')) {
+                ++cursor;
+            }
+            if (cursor == commandLine.size()) {
+                break;
+            }
+
+            std::string argument;
+            bool quoted = false;
+            while (cursor < commandLine.size()) {
+                std::size_t backslashes = 0;
+                while (cursor < commandLine.size() && commandLine[cursor] == '\\') {
+                    ++backslashes;
+                    ++cursor;
+                }
+
+                if (cursor < commandLine.size() && commandLine[cursor] == '"') {
+                    argument.append(backslashes / 2, '\\');
+                    if ((backslashes % 2) != 0) {
+                        argument += '"';
+                    } else {
+                        quoted = !quoted;
+                    }
+                    ++cursor;
+                    continue;
+                }
+
+                argument.append(backslashes, '\\');
+                if (cursor == commandLine.size()
+                    || (!quoted && (commandLine[cursor] == ' ' || commandLine[cursor] == '\t'))) {
+                    break;
+                }
+                argument += commandLine[cursor++];
+            }
+            arguments.push_back(argument);
+        }
+        return arguments;
+    }
+#endif
 }
 
 D6R_TEST_CASE("network endpoint and connection config round trip deterministically") {
@@ -167,6 +239,48 @@ D6R_TEST_CASE("lobby input snapshot event and disconnect DTOs round trip") {
     D6R_REQUIRE_EQ(disconnectText, Network::serializeDisconnect(decodedDisconnect));
 }
 
+D6R_TEST_CASE("protocol floats remain deterministic with a comma decimal locale") {
+    LocaleGuard localeGuard;
+    std::locale::global(std::locale(std::locale::classic(), new CommaDecimalPoint));
+
+    Network::Snapshot snapshot;
+    snapshot.snapshotId = 1;
+    snapshot.tick = 2;
+    snapshot.roundNumber = 3;
+    snapshot.players = {{4, 12.5f, -0.25f, 99.75f, true}};
+    const std::string serialized = Network::serializeSnapshot(snapshot);
+    D6R_REQUIRE(serialized.find("player.0.x=12.5\n") != std::string::npos);
+    D6R_REQUIRE(serialized.find("player.0.y=-0.25\n") != std::string::npos);
+    D6R_REQUIRE(serialized.find("%2C") == std::string::npos);
+    const auto decoded = Network::deserializeSnapshot(serialized);
+    D6R_REQUIRE_NEAR(12.5f, decoded.players[0].x, 0.00001f);
+    D6R_REQUIRE_NEAR(-0.25f, decoded.players[0].y, 0.00001f);
+}
+
+D6R_TEST_CASE("protocol escaping remains ASCII-defined under a non-classic C locale") {
+    LocaleGuard localeGuard;
+
+    const char *nonClassicLocale = nullptr;
+    for (const char *candidate: {"C.UTF-8", "C.utf8", ".UTF-8", "en_US.UTF-8"}) {
+        nonClassicLocale = std::setlocale(LC_CTYPE, candidate);
+        if (nonClassicLocale != nullptr) {
+            break;
+        }
+    }
+    D6R_REQUIRE(nonClassicLocale != nullptr);
+
+    std::string host = "AZaz09-_.~ %";
+    host += static_cast<char>(0x80);
+    host += static_cast<char>(0xE9);
+    host += "\xC3\xA9";
+    const std::string endpointText = Network::serializeEndpoint({host, 26660});
+    D6R_REQUIRE_EQ(
+            "endpoint.host=AZaz09-_.~%20%25%80%E9%C3%A9\nendpoint.port=26660\n",
+            endpointText);
+    const auto endpoint = Network::deserializeEndpoint(endpointText);
+    D6R_REQUIRE_EQ(host, endpoint.host);
+}
+
 D6R_TEST_CASE("protocol parser rejects malformed truncated oversized invalid and trailing input") {
     D6R_REQUIRE(rejects([] { Network::deserializeEndpoint("endpoint.host\nendpoint.port=26660\n"); }));
     D6R_REQUIRE(rejects([] { Network::deserializeEndpoint("endpoint.host=abc%2\nendpoint.port=26660\n"); }));
@@ -260,8 +374,21 @@ D6R_TEST_CASE("handshake policy rejects invalid requests and assigns bounded cli
     D6R_REQUIRE(result.reject.reason == Network::RejectReason::ServerFull);
 }
 
-D6R_TEST_CASE("loopback is explicitly in process and never reports a launched transport") {
-    Server::HeadlessServer server(Server::ServerConfig{});
+D6R_TEST_CASE("local connection plans normalize their endpoint and launch arguments to loopback") {
+    Network::ClientConnectionConfig config;
+    config.mode = Network::ConnectionMode::LocalGame;
+    config.localEndpoint = {"0.0.0.0", 27770};
+    const auto plan = Client::createConnectionPlan(config);
+    D6R_REQUIRE_EQ("127.0.0.1", plan.endpoint.host);
+    D6R_REQUIRE_EQ(27770, plan.endpoint.port);
+    D6R_REQUIRE_EQ("127.0.0.1", plan.config.localEndpoint.host);
+    D6R_REQUIRE_EQ("--host=127.0.0.1", plan.localServerArguments[2]);
+}
+
+D6R_TEST_CASE("loopback only connects to the actual in-process server endpoint") {
+    Server::ServerConfig serverConfig;
+    serverConfig.listenEndpoint = {"127.0.0.1", 27770};
+    Server::HeadlessServer server(serverConfig);
     Network::ClientConnectionConfig config;
     config.mode = Network::ConnectionMode::LocalGame;
     config.localEndpoint = {"127.0.0.1", 27770};
@@ -270,8 +397,8 @@ D6R_TEST_CASE("loopback is explicitly in process and never reports a launched tr
     const auto result = session.connect(plan, validHandshake());
     D6R_REQUIRE(result.connected);
     D6R_REQUIRE(!result.localServerLaunched);
-    D6R_REQUIRE_EQ(plan.endpoint.host, result.endpoint.host);
-    D6R_REQUIRE_EQ(plan.endpoint.port, result.endpoint.port);
+    D6R_REQUIRE_EQ(server.getConfig().listenEndpoint.host, result.endpoint.host);
+    D6R_REQUIRE_EQ(server.getConfig().listenEndpoint.port, result.endpoint.port);
     D6R_REQUIRE(result.accept.clientId != 0);
 
     auto rejectedRequest = validHandshake();
@@ -285,6 +412,52 @@ D6R_TEST_CASE("loopback is explicitly in process and never reports a launched tr
     const auto remotePlan = Client::createConnectionPlan(config);
     D6R_REQUIRE(rejects([&] { session.connect(remotePlan, validHandshake()); }));
 }
+
+D6R_TEST_CASE("loopback rejects an endpoint host that does not match the in-process server") {
+    Server::ServerConfig serverConfig;
+    serverConfig.listenEndpoint = {"127.0.0.1", 27770};
+    Server::HeadlessServer server(serverConfig);
+    Client::LoopbackSession session(server);
+    Network::ClientConnectionConfig config;
+    config.localEndpoint = {"127.0.0.1", 27770};
+    auto plan = Client::createConnectionPlan(config);
+    plan.endpoint.host = "127.0.0.2";
+    D6R_REQUIRE(rejects([&] { session.connect(plan, validHandshake()); }));
+}
+
+D6R_TEST_CASE("loopback rejects a port that does not match the in-process server") {
+    Server::ServerConfig serverConfig;
+    serverConfig.listenEndpoint = {"127.0.0.1", 27770};
+    Server::HeadlessServer server(serverConfig);
+    Client::LoopbackSession session(server);
+    Network::ClientConnectionConfig config;
+    config.localEndpoint = {"127.0.0.1", 27771};
+    const auto plan = Client::createConnectionPlan(config);
+    D6R_REQUIRE(rejects([&] { session.connect(plan, validHandshake()); }));
+}
+
+#ifdef _WIN32
+D6R_TEST_CASE("Windows CreateProcess command lines round trip through CRT argv parsing") {
+    Client::ConnectionPlan plan;
+    plan.launchesLocalServer = true;
+    plan.localServerArguments = {
+            R"(C:\Program Files\Duel 6\server.exe)",
+            "plain",
+            R"(C:\ordinary\path)",
+            R"(C:\path with space\)",
+            R"(say "hello")",
+            R"(before\"quoted)",
+            "%PATH%",
+            "&|<>^!"};
+
+    Client::LocalServerLauncher launcher;
+    const std::string commandLine = launcher.buildCommandLine(plan);
+    D6R_REQUIRE_EQ(
+            R"EXPECTED("C:\Program Files\Duel 6\server.exe" plain C:\ordinary\path "C:\path with space\\" "say \"hello\"" "before\\\"quoted" "%PATH%" "&|<>^!")EXPECTED",
+            commandLine);
+    D6R_REQUIRE(plan.localServerArguments == parseWindowsCrtCommandLine(commandLine));
+}
+#endif
 
 D6R_TEST_CASE("server config and nominal runtime clearly reject unsupported behavior and secrets") {
     const auto config = parseConfig({"duel6r-server", "--host=0.0.0.0", "--port=34567", "--name=QA Server",
@@ -326,6 +499,8 @@ D6R_TEST_CASE("local command planning quotes arguments without exposing authenti
     const auto plan = Client::createConnectionPlan(config);
     D6R_REQUIRE(plan.launchesLocalServer);
     D6R_REQUIRE_EQ(4u, plan.localServerArguments.size());
+    D6R_REQUIRE_EQ("127.0.0.1", plan.endpoint.host);
+    D6R_REQUIRE_EQ("--host=127.0.0.1", plan.localServerArguments[2]);
     for (const auto &argument: plan.localServerArguments) {
         D6R_REQUIRE(argument.find("token") == std::string::npos);
     }
@@ -333,10 +508,10 @@ D6R_TEST_CASE("local command planning quotes arguments without exposing authenti
     Client::LocalServerLauncher launcher;
     D6R_REQUIRE(plan.localServerArguments == launcher.buildCommand(plan));
 #ifdef _WIN32
-    D6R_REQUIRE_EQ("\"duel server's bin\" --local-only \"--host=local host\" --port=26660",
+    D6R_REQUIRE_EQ("\"duel server's bin\" --local-only --host=127.0.0.1 --port=26660",
                    launcher.buildCommandLine(plan));
 #else
-    D6R_REQUIRE_EQ("'duel server'\\''s bin' --local-only '--host=local host' --port=26660",
+    D6R_REQUIRE_EQ("'duel server'\\''s bin' --local-only --host=127.0.0.1 --port=26660",
                    launcher.buildCommandLine(plan));
 #endif
 

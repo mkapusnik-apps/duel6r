@@ -1,21 +1,31 @@
 #include "LocalServerLauncher.h"
 
-#include <cctype>
 #include <sstream>
 #include <stdexcept>
 
 namespace Duel6::Client {
     namespace {
-        bool isShellSafeUnquoted(char chr) {
-            unsigned char value = static_cast<unsigned char>(chr);
-            return std::isalnum(value) || chr == '-' || chr == '_' || chr == '.' || chr == '/' || chr == ':' || chr == '=';
+        bool isAsciiAlphaNumeric(char chr) {
+            return (chr >= '0' && chr <= '9')
+                   || (chr >= 'A' && chr <= 'Z')
+                   || (chr >= 'a' && chr <= 'z');
+        }
+
+        bool isCommandLineSafeUnquoted(char chr) {
+            return isAsciiAlphaNumeric(chr)
+                   || chr == '-' || chr == '_' || chr == '.' || chr == '/'
+                   || chr == ':' || chr == '='
+#ifdef _WIN32
+                   || chr == '\\'
+#endif
+                    ;
         }
 
         std::string quoteArgument(const std::string &argument) {
             if (!argument.empty()) {
                 bool safe = true;
                 for (char chr: argument) {
-                    if (!isShellSafeUnquoted(chr)) {
+                    if (!isCommandLineSafeUnquoted(chr)) {
                         safe = false;
                         break;
                     }
@@ -27,16 +37,23 @@ namespace Duel6::Client {
 
 #ifdef _WIN32
             std::string quoted = "\"";
+            std::size_t backslashes = 0;
             for (char chr: argument) {
-                if (chr == '"' || chr == '\\') {
-                    quoted += '\\';
-                } else if (chr == '%') {
-                    quoted += '%';
-                } else if (chr == '^' || chr == '&' || chr == '|' || chr == '<' || chr == '>' || chr == '!') {
-                    quoted += '^';
+                if (chr == '\\') {
+                    ++backslashes;
+                    continue;
                 }
+                if (chr == '"') {
+                    quoted.append(backslashes * 2 + 1, '\\');
+                    quoted += chr;
+                    backslashes = 0;
+                    continue;
+                }
+                quoted.append(backslashes, '\\');
+                backslashes = 0;
                 quoted += chr;
             }
+            quoted.append(backslashes * 2, '\\');
             quoted += '"';
             return quoted;
 #else

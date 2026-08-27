@@ -1,10 +1,10 @@
 #include "ProtocolSerialization.h"
 
 #include <algorithm>
-#include <cctype>
 #include <cmath>
 #include <iomanip>
 #include <limits>
+#include <locale>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -24,15 +24,19 @@ namespace Duel6::Network {
             requireBoundedSize(name, size, maximum);
         }
 
-        bool isUnescaped(char chr) {
-            return std::isalnum(static_cast<unsigned char>(chr)) || chr == '-' || chr == '_' || chr == '.' || chr == '~';
+        bool isUnescaped(unsigned char chr) {
+            return (chr >= '0' && chr <= '9')
+                   || (chr >= 'A' && chr <= 'Z')
+                   || (chr >= 'a' && chr <= 'z')
+                   || chr == '-' || chr == '_' || chr == '.' || chr == '~';
         }
 
         std::string escape(const std::string &value) {
             std::ostringstream stream;
+            stream.imbue(std::locale::classic());
             stream << std::uppercase << std::hex;
             for (unsigned char chr: value) {
-                if (isUnescaped(static_cast<char>(chr))) {
+                if (isUnescaped(chr)) {
                     stream << static_cast<char>(chr);
                 } else {
                     stream << '%' << std::setw(2) << std::setfill('0') << static_cast<int>(chr);
@@ -77,6 +81,7 @@ namespace Duel6::Network {
         std::string serializeProperties(const Properties &properties) {
             std::size_t propertyCount = 0;
             std::ostringstream stream;
+            stream.imbue(std::locale::classic());
             for (const auto &property: properties) {
                 requireBoundedSize("Protocol property key", property.first.size(), MaxProtocolKeyBytes);
                 for (const auto &value: property.second) {
@@ -97,6 +102,7 @@ namespace Duel6::Network {
             requireBoundedSize("Protocol payload", payload.size(), MaxPayloadBytes);
             Properties properties;
             std::istringstream stream(payload);
+            stream.imbue(std::locale::classic());
             std::string line;
             std::size_t propertyCount = 0;
             while (std::getline(stream, line)) {
@@ -187,9 +193,12 @@ namespace Duel6::Network {
 
         float requiredFloat(const Properties &properties, const std::string &key) {
             const std::string value = requiredString(properties, key);
-            std::size_t consumed = 0;
-            float parsed = std::stof(value, &consumed);
-            if (consumed != value.size() || !std::isfinite(parsed)) {
+            std::istringstream stream(value);
+            stream.imbue(std::locale::classic());
+            stream >> std::noskipws;
+            float parsed = 0.0f;
+            stream >> parsed;
+            if (!stream || !stream.eof() || !std::isfinite(parsed)) {
                 throw std::invalid_argument("Invalid float protocol property: " + key);
             }
             return parsed;
@@ -200,6 +209,7 @@ namespace Duel6::Network {
                 throw std::invalid_argument("Protocol float must be finite");
             }
             std::ostringstream stream;
+            stream.imbue(std::locale::classic());
             stream << std::setprecision(std::numeric_limits<float>::max_digits10) << value;
             return stream.str();
         }
