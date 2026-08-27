@@ -190,7 +190,7 @@ sleep 2
 capture_root "${smoke_dir}/main-menu.png"
 check_image "${smoke_dir}/main-menu.png" "main-menu"
 
-read -r click_x click_y < <(window_point 662 492)
+read -r click_x click_y < <(window_point 662 472)
 xdotool mousemove "$click_x" "$click_y" \
   mousedown 1 sleep 0.1 mouseup 1 2>>"${smoke_dir}/automation.log"
 sleep 1
