@@ -498,7 +498,20 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/server/ServerConfig.h
         )
 
+set(D6R_RESOLVER_APP_NAME "duel6r-resolver")
+add_executable(${D6R_RESOLVER_APP_NAME}
+        source/network/ResolverMain.cpp
+        source/network/ResolverProtocol.h
+        )
+if (WIN32)
+    target_link_libraries(${D6R_RESOLVER_APP_NAME} ws2_32)
+endif ()
+if (MINGW)
+    set_property(TARGET ${D6R_RESOLVER_APP_NAME} APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
+
 add_library(duel6r-network-scaffold STATIC ${D6R_NETWORK_SCAFFOLD_SOURCES})
+add_dependencies(duel6r-network-scaffold ${D6R_RESOLVER_APP_NAME})
 target_include_directories(duel6r-network-scaffold PUBLIC ${CMAKE_SOURCE_DIR}/source)
 if (WIN32)
     target_link_libraries(duel6r-network-scaffold PUBLIC ws2_32)

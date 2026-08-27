@@ -1,6 +1,5 @@
 #include "HeadlessServer.h"
 
-#include <atomic>
 #include <chrono>
 #include <csignal>
 #include <iostream>
@@ -12,10 +11,10 @@
 #include "../network/SessionTransport.h"
 
 namespace {
-    std::atomic<bool> stopRequested{false};
+    volatile std::sig_atomic_t stopRequested = 0;
 
     void requestStop(int) {
-        stopRequested.store(true);
+        stopRequested = 1;
     }
 }
 
@@ -120,7 +119,7 @@ namespace Duel6::Server {
             return 2;
         }
 
-        stopRequested.store(false);
+        stopRequested = 0;
         std::signal(SIGINT, requestStop);
         std::signal(SIGTERM, requestStop);
 
@@ -145,7 +144,7 @@ namespace Duel6::Server {
         output.flush();
 
         std::vector<std::shared_ptr<Network::TcpConnection>> connections;
-        while (!stopRequested.load()) {
+        while (!stopRequested) {
             while (auto connection = listener.acceptConnection()) connections.push_back(std::move(connection));
             for (auto iterator = connections.begin(); iterator != connections.end();) {
                 auto &connection = *iterator;

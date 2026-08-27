@@ -1,4 +1,5 @@
 #include "SessionTransport.h"
+#include "ResolverProtocol.h"
 
 #include <algorithm>
 #include <array>
@@ -17,10 +18,7 @@
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#if defined(__MINGW32__) && !defined(GetAddrInfoExCancel)
-extern "C" INT WSAAPI GetAddrInfoExCancel(LPHANDLE cancellationHandle);
-extern "C" INT WSAAPI GetAddrInfoExOverlappedResult(LPOVERLAPPED operation);
-#endif
+#include <windows.h>
 using SocketHandle = SOCKET;
 static constexpr SocketHandle InvalidSocket = INVALID_SOCKET;
 #else
@@ -29,11 +27,13 @@ static constexpr SocketHandle InvalidSocket = INVALID_SOCKET;
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <spawn.h>
 #include <signal.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
+extern char **environ;
 using SocketHandle = int;
 static constexpr SocketHandle InvalidSocket = -1;
 #endif
@@ -49,6 +49,8 @@ namespace Duel6::Network {
         constexpr std::uint16_t ApplicationFrame = 0;
         constexpr std::uint16_t LivenessPing = 1;
         constexpr std::uint16_t LivenessPong = 2;
+        constexpr std::size_t MaxResolverResponseBytes = ResolverProtocol::HeaderBytes
+                                                         + ResolverProtocol::MaxAddresses * 4;
 
 #ifdef D6R_TRANSPORT_WINDOWS
         class SocketRuntime {
@@ -72,6 +74,9 @@ namespace Duel6::Network {
             u_long enabled = 1;
             return ioctlsocket(socket, FIONBIO, &enabled) == 0;
         }
+        bool preventInheritance(SocketHandle socket) {
+            return SetHandleInformation(reinterpret_cast<HANDLE>(socket), HANDLE_FLAG_INHERIT, 0) != 0;
+        }
         bool connectPending(int error) {
             return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS || error == WSAEINVAL;
         }
@@ -94,6 +99,10 @@ namespace Duel6::Network {
         bool setNonBlocking(SocketHandle socket) {
             int flags = fcntl(socket, F_GETFL, 0);
             return flags >= 0 && fcntl(socket, F_SETFL, flags | O_NONBLOCK) == 0;
+        }
+        bool preventInheritance(SocketHandle socket) {
+            int flags = fcntl(socket, F_GETFD, 0);
+            return flags >= 0 && fcntl(socket, F_SETFD, flags | FD_CLOEXEC) == 0;
         }
         bool connectPending(int error) { return error == EINPROGRESS; }
         TransportFailure connectFailure(int error) {
@@ -144,10 +153,15 @@ namespace Duel6::Network {
             return result > 0;
         }
 
-        void configureConnectedSocket(SocketHandle socket) {
-            setNonBlocking(socket);
+        bool configureTransportSocket(SocketHandle socket) {
+            return preventInheritance(socket) && setNonBlocking(socket);
+        }
+
+        bool configureConnectedSocket(SocketHandle socket) {
+            if (!configureTransportSocket(socket)) return false;
             int enabled = 1;
             setsockopt(socket, SOL_SOCKET, SO_KEEPALIVE, reinterpret_cast<const char *>(&enabled), sizeof(enabled));
+            return true;
         }
 
         TransportTimePoint realNow() {
@@ -166,72 +180,157 @@ namespace Duel6::Network {
             return address;
         }
 
-        ResolvedIpv4Endpoint resolvedEndpoint(const sockaddr_in &address, std::uint16_t port) {
-            ResolvedIpv4Endpoint endpoint;
-            std::memcpy(endpoint.address.data(), &address.sin_addr.s_addr, endpoint.address.size());
-            endpoint.port = port;
-            return endpoint;
+        std::vector<std::uint8_t> resolverRequest(const std::string &host) {
+            std::vector<std::uint8_t> request(ResolverProtocol::HeaderBytes + host.size());
+            ResolverProtocol::writeU32(request.data(), ResolverProtocol::RequestMagic);
+            ResolverProtocol::writeU32(request.data() + 4, static_cast<std::uint32_t>(host.size()));
+            ResolverProtocol::writeU32(request.data() + 8, 0);
+            std::memcpy(request.data() + ResolverProtocol::HeaderBytes, host.data(), host.size());
+            return request;
+        }
+
+        ResolveOutcome resolverResponse(const std::vector<std::uint8_t> &response, std::uint16_t port) {
+            if (response.size() < ResolverProtocol::HeaderBytes
+                || ResolverProtocol::readU32(response.data()) != ResolverProtocol::ResponseMagic
+                || ResolverProtocol::readU32(response.data() + 4) != 0) return {};
+            std::uint32_t count = ResolverProtocol::readU32(response.data() + 8);
+            if (count == 0 || count > ResolverProtocol::MaxAddresses
+                || response.size() != ResolverProtocol::HeaderBytes + count * 4u) return {};
+            ResolveOutcome outcome;
+            outcome.status = ResolveStatus::Resolved;
+            for (std::uint32_t index = 0; index < count; ++index) {
+                ResolvedIpv4Endpoint endpoint;
+                std::memcpy(endpoint.address.data(),
+                            response.data() + ResolverProtocol::HeaderBytes + index * 4u, 4);
+                endpoint.port = port;
+                outcome.endpoints.push_back(endpoint);
+            }
+            return outcome;
         }
 
 #ifdef D6R_TRANSPORT_WINDOWS
+        std::wstring resolverExecutablePath() {
+            std::array<wchar_t, 32768> path{};
+            DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+            if (length == 0 || length >= path.size()) return {};
+            std::wstring executable(path.data(), length);
+            std::size_t separator = executable.find_last_of(L"/\\");
+            if (separator == std::wstring::npos) return L"duel6r-resolver.exe";
+            return executable.substr(0, separator + 1) + L"duel6r-resolver.exe";
+        }
+
         ResolveOutcome realResolve(const std::string &host, std::uint16_t port, TransportTimePoint deadline,
                                    const std::function<bool()> &cancelled,
                                    const std::function<TransportTimePoint()> &now) {
-            ADDRINFOEXA hints{};
-            hints.ai_family = AF_INET;
-            hints.ai_socktype = SOCK_STREAM;
-            hints.ai_protocol = IPPROTO_TCP;
-            PADDRINFOEXA addresses = nullptr;
-            OVERLAPPED operation{};
-            operation.hEvent = WSACreateEvent();
-            if (operation.hEvent == WSA_INVALID_EVENT) return {};
-            HANDLE cancellationHandle = nullptr;
-            std::string service = std::to_string(port);
-            int result = GetAddrInfoExA(host.c_str(), service.c_str(), NS_ALL, nullptr, &hints, &addresses,
-                                        nullptr, &operation, nullptr, &cancellationHandle);
-            if (result == WSA_IO_PENDING) {
-                while (!cancelled() && now() < deadline) {
-                    DWORD wait = WSAWaitForMultipleEvents(1, &operation.hEvent, TRUE, 20, FALSE);
-                    if (wait == WSA_WAIT_EVENT_0) break;
-                    if (wait == WSA_WAIT_FAILED) {
-                        GetAddrInfoExCancel(&cancellationHandle);
-                        WSACloseEvent(operation.hEvent);
-                        return {};
-                    }
-                }
-                if (cancelled() || now() >= deadline) {
-                    GetAddrInfoExCancel(&cancellationHandle);
-                    WSAWaitForMultipleEvents(1, &operation.hEvent, TRUE, 500, FALSE);
-                    if (addresses) FreeAddrInfoExA(addresses);
-                    WSACloseEvent(operation.hEvent);
-                    return {cancelled() ? ResolveStatus::Cancelled : ResolveStatus::TimedOut, {}};
-                }
-                result = GetAddrInfoExOverlappedResult(&operation);
+            SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+            HANDLE childInputRead = nullptr, parentInputWrite = nullptr;
+            HANDLE parentOutputRead = nullptr, childOutputWrite = nullptr;
+            if (!CreatePipe(&childInputRead, &parentInputWrite, &attributes, 0)
+                || !CreatePipe(&parentOutputRead, &childOutputWrite, &attributes, 0)) {
+                if (childInputRead) CloseHandle(childInputRead);
+                if (parentInputWrite) CloseHandle(parentInputWrite);
+                if (parentOutputRead) CloseHandle(parentOutputRead);
+                if (childOutputWrite) CloseHandle(childOutputWrite);
+                return {};
             }
-
-            ResolveOutcome outcome;
-            if (cancelled()) outcome.status = ResolveStatus::Cancelled;
-            else if (now() >= deadline) outcome.status = ResolveStatus::TimedOut;
-            else if (result == 0 && addresses != nullptr) {
-                outcome.status = ResolveStatus::Resolved;
-                for (PADDRINFOEXA address = addresses; address != nullptr; address = address->ai_next) {
-                    if (address->ai_family == AF_INET && address->ai_addrlen >= sizeof(sockaddr_in)) {
-                        outcome.endpoints.push_back(resolvedEndpoint(
-                                *reinterpret_cast<const sockaddr_in *>(address->ai_addr), port));
-                    }
-                }
-                if (outcome.endpoints.empty()) outcome.status = ResolveStatus::Failed;
+            SetHandleInformation(parentInputWrite, HANDLE_FLAG_INHERIT, 0);
+            SetHandleInformation(parentOutputRead, HANDLE_FLAG_INHERIT, 0);
+            SIZE_T attributeBytes = 0;
+            InitializeProcThreadAttributeList(nullptr, 1, 0, &attributeBytes);
+            std::vector<std::uint8_t> attributeStorage(attributeBytes);
+            STARTUPINFOEXW startup{};
+            startup.StartupInfo.cb = sizeof(startup);
+            startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+            startup.StartupInfo.hStdInput = childInputRead;
+            startup.StartupInfo.hStdOutput = childOutputWrite;
+            startup.StartupInfo.hStdError = childOutputWrite;
+            startup.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attributeStorage.data());
+            HANDLE inheritedHandles[] = {childInputRead, childOutputWrite};
+            bool attributesReady = InitializeProcThreadAttributeList(startup.lpAttributeList, 1, 0, &attributeBytes)
+                                   && UpdateProcThreadAttribute(startup.lpAttributeList, 0,
+                                                               PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inheritedHandles,
+                                                               sizeof(inheritedHandles), nullptr, nullptr);
+            PROCESS_INFORMATION process{};
+            std::wstring executable = resolverExecutablePath();
+            std::wstring command = L'"' + executable + L'"';
+            std::vector<wchar_t> mutableCommand(command.begin(), command.end());
+            mutableCommand.push_back('\0');
+            BOOL created = attributesReady && !executable.empty()
+                           && CreateProcessW(executable.c_str(), mutableCommand.data(), nullptr, nullptr, TRUE,
+                                             CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr,
+                                             &startup.StartupInfo, &process);
+            if (startup.lpAttributeList) DeleteProcThreadAttributeList(startup.lpAttributeList);
+            CloseHandle(childInputRead);
+            CloseHandle(childOutputWrite);
+            if (!created) {
+                CloseHandle(parentInputWrite);
+                CloseHandle(parentOutputRead);
+                return {};
             }
-            if (addresses) FreeAddrInfoExA(addresses);
-            WSACloseEvent(operation.hEvent);
-            return outcome;
+            CloseHandle(process.hThread);
+            std::vector<std::uint8_t> request = resolverRequest(host);
+            DWORD written = 0;
+            bool requestSent = WriteFile(parentInputWrite, request.data(), static_cast<DWORD>(request.size()),
+                                         &written, nullptr) && written == request.size();
+            CloseHandle(parentInputWrite);
+            std::vector<std::uint8_t> response;
+            response.reserve(MaxResolverResponseBytes);
+            bool responseValid = true;
+            while (requestSent && !cancelled() && now() < deadline) {
+                DWORD available = 0;
+                if (!PeekNamedPipe(parentOutputRead, nullptr, 0, nullptr, &available, nullptr)) break;
+                if (available > 0) {
+                    std::array<std::uint8_t, 256> buffer{};
+                    DWORD count = 0;
+                    if (!ReadFile(parentOutputRead, buffer.data(),
+                                  std::min<DWORD>(available, static_cast<DWORD>(buffer.size())), &count, nullptr)) break;
+                    if (response.size() + count > MaxResolverResponseBytes) {
+                        responseValid = false;
+                        break;
+                    }
+                    response.insert(response.end(), buffer.begin(), buffer.begin() + count);
+                }
+                if (WaitForSingleObject(process.hProcess, 0) == WAIT_OBJECT_0) {
+                    while (true) {
+                        DWORD remaining = 0;
+                        if (!PeekNamedPipe(parentOutputRead, nullptr, 0, nullptr, &remaining, nullptr)
+                            || remaining == 0) break;
+                        std::array<std::uint8_t, 256> buffer{};
+                        DWORD count = 0;
+                        if (!ReadFile(parentOutputRead, buffer.data(),
+                                      std::min<DWORD>(remaining, static_cast<DWORD>(buffer.size())), &count, nullptr)) break;
+                        if (response.size() + count > MaxResolverResponseBytes) {
+                            responseValid = false;
+                            break;
+                        }
+                        response.insert(response.end(), buffer.begin(), buffer.begin() + count);
+                    }
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            bool wasCancelled = cancelled();
+            bool wasTimedOut = now() >= deadline;
+            if (WaitForSingleObject(process.hProcess, 0) != WAIT_OBJECT_0) {
+                TerminateProcess(process.hProcess, 3);
+                WaitForSingleObject(process.hProcess, 900);
+            }
+            CloseHandle(parentOutputRead);
+            CloseHandle(process.hProcess);
+            if (wasCancelled) return {ResolveStatus::Cancelled, {}};
+            if (wasTimedOut) return {ResolveStatus::TimedOut, {}};
+            return requestSent && responseValid ? resolverResponse(response, port) : ResolveOutcome{};
         }
 #else
-        struct ResolverWireResult {
-            std::int32_t status = -1;
-            std::uint32_t count = 0;
-            std::array<std::uint32_t, 64> addresses{};
-        };
+        std::string resolverExecutablePath() {
+            std::array<char, 4096> path{};
+            ssize_t length = readlink("/proc/self/exe", path.data(), path.size() - 1);
+            if (length <= 0 || static_cast<std::size_t>(length) >= path.size()) return {};
+            std::string executable(path.data(), static_cast<std::size_t>(length));
+            std::size_t separator = executable.find_last_of('/');
+            if (separator == std::string::npos) return "duel6r-resolver";
+            return executable.substr(0, separator + 1) + "duel6r-resolver";
+        }
 
         void stopResolverProcess(pid_t process) {
             if (process <= 0) return;
@@ -239,83 +338,111 @@ namespace Duel6::Network {
             while (waitpid(process, nullptr, 0) < 0 && errno == EINTR) {}
         }
 
+        bool writeAll(int descriptor, const std::vector<std::uint8_t> &data) {
+            std::size_t offset = 0;
+            while (offset < data.size()) {
+                ssize_t count = send(descriptor, data.data() + offset, data.size() - offset, MSG_NOSIGNAL);
+                if (count > 0) offset += static_cast<std::size_t>(count);
+                else if (count < 0 && errno == EINTR) continue;
+                else return false;
+            }
+            return true;
+        }
+
+        bool moveAboveStandardDescriptors(int &descriptor) {
+            if (descriptor > STDERR_FILENO) return true;
+            int moved = fcntl(descriptor, F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
+            if (moved < 0) return false;
+            close(descriptor);
+            descriptor = moved;
+            return true;
+        }
+
         ResolveOutcome realResolve(const std::string &host, std::uint16_t port, TransportTimePoint deadline,
                                    const std::function<bool()> &cancelled,
                                    const std::function<TransportTimePoint()> &now) {
-            int channel[2];
-            if (pipe(channel) != 0) return {};
-            setNonBlocking(channel[0]);
-            pid_t process = fork();
-            if (process < 0) {
-                close(channel[0]);
-                close(channel[1]);
+            int requestPipe[2], responsePipe[2];
+            if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, requestPipe) != 0) return {};
+            if (pipe2(responsePipe, O_CLOEXEC) != 0) {
+                close(requestPipe[0]); close(requestPipe[1]);
                 return {};
             }
-            if (process == 0) {
-                close(channel[0]);
-                ResolverWireResult wire;
-                addrinfo hints{};
-                hints.ai_family = AF_INET;
-                hints.ai_socktype = SOCK_STREAM;
-                hints.ai_protocol = IPPROTO_TCP;
-                addrinfo *addresses = nullptr;
-                int result = getaddrinfo(host.c_str(), nullptr, &hints, &addresses);
-                wire.status = result;
-                if (result == 0) {
-                    for (addrinfo *address = addresses; address != nullptr
-                         && wire.count < wire.addresses.size(); address = address->ai_next) {
-                        if (address->ai_family == AF_INET && address->ai_addrlen >= sizeof(sockaddr_in)) {
-                            wire.addresses[wire.count++] =
-                                    reinterpret_cast<const sockaddr_in *>(address->ai_addr)->sin_addr.s_addr;
-                        }
-                    }
-                }
-                if (addresses) freeaddrinfo(addresses);
-                const std::uint8_t *data = reinterpret_cast<const std::uint8_t *>(&wire);
-                std::size_t remaining = sizeof(wire);
-                while (remaining > 0) {
-                    ssize_t count = write(channel[1], data, remaining);
+            if (!moveAboveStandardDescriptors(requestPipe[0]) || !moveAboveStandardDescriptors(requestPipe[1])
+                || !moveAboveStandardDescriptors(responsePipe[0]) || !moveAboveStandardDescriptors(responsePipe[1])) {
+                close(requestPipe[0]); close(requestPipe[1]);
+                close(responsePipe[0]); close(responsePipe[1]);
+                return {};
+            }
+            posix_spawn_file_actions_t actions;
+            int actionStatus = posix_spawn_file_actions_init(&actions);
+            bool actionsInitialized = actionStatus == 0;
+            if (actionStatus == 0)
+                actionStatus = posix_spawn_file_actions_adddup2(&actions, requestPipe[0], STDIN_FILENO);
+            if (actionStatus == 0)
+                actionStatus = posix_spawn_file_actions_adddup2(&actions, responsePipe[1], STDOUT_FILENO);
+            if (actionStatus == 0)
+                actionStatus = posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+            if (actionStatus == 0)
+                actionStatus = posix_spawn_file_actions_addclosefrom_np(&actions, STDERR_FILENO + 1);
+            std::string executable = resolverExecutablePath();
+            char *arguments[] = {executable.empty() ? nullptr : executable.data(), nullptr};
+            pid_t process = 0;
+            int spawned = actionStatus != 0 ? actionStatus
+                                            : (executable.empty() ? ENOENT
+                                                                  : posix_spawn(&process, executable.c_str(), &actions,
+                                                                                nullptr, arguments, environ));
+            if (actionsInitialized) posix_spawn_file_actions_destroy(&actions);
+            close(requestPipe[0]);
+            close(responsePipe[1]);
+            if (spawned != 0) {
+                close(requestPipe[1]); close(responsePipe[0]);
+                return {};
+            }
+            std::vector<std::uint8_t> request = resolverRequest(host);
+            bool requestSent = writeAll(requestPipe[1], request);
+            close(requestPipe[1]);
+            bool responseConfigured = setNonBlocking(responsePipe[0]);
+            std::vector<std::uint8_t> response;
+            response.reserve(MaxResolverResponseBytes);
+            bool responseValid = true;
+            bool exited = false;
+            while (requestSent && responseConfigured && !cancelled() && now() < deadline) {
+                if (waitSocket(responsePipe[0], false, std::chrono::milliseconds(10))) {
+                    std::array<std::uint8_t, 256> buffer{};
+                    ssize_t count = read(responsePipe[0], buffer.data(), buffer.size());
                     if (count > 0) {
-                        data += count;
-                        remaining -= static_cast<std::size_t>(count);
-                    } else if (count < 0 && errno == EINTR) {
-                        continue;
-                    } else {
-                        break;
+                        if (response.size() + static_cast<std::size_t>(count) > MaxResolverResponseBytes) {
+                            responseValid = false;
+                            break;
+                        }
+                        response.insert(response.end(), buffer.begin(), buffer.begin() + count);
                     }
                 }
-                close(channel[1]);
-                _exit(0);
+                pid_t status = waitpid(process, nullptr, WNOHANG);
+                if (status == process) { exited = true; break; }
+                if (status < 0 && errno != EINTR) break;
             }
-
-            close(channel[1]);
-            ResolverWireResult wire;
-            std::uint8_t *target = reinterpret_cast<std::uint8_t *>(&wire);
-            std::size_t received = 0;
-            while (!cancelled() && now() < deadline && received < sizeof(wire)) {
-                if (!waitSocket(channel[0], false, std::chrono::milliseconds(20))) continue;
-                ssize_t count = read(channel[0], target + received, sizeof(wire) - received);
-                if (count > 0) received += static_cast<std::size_t>(count);
-                else if (count == 0) break;
-                else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) break;
-            }
-            close(channel[0]);
-            if (cancelled() || now() >= deadline || received != sizeof(wire)) {
+            if (exited) {
+                while (true) {
+                    std::array<std::uint8_t, 256> buffer{};
+                    ssize_t count = read(responsePipe[0], buffer.data(), buffer.size());
+                    if (count > 0) {
+                        if (response.size() + static_cast<std::size_t>(count) > MaxResolverResponseBytes) {
+                            responseValid = false;
+                            break;
+                        }
+                        response.insert(response.end(), buffer.begin(), buffer.begin() + count);
+                    }
+                    else break;
+                }
+            } else {
                 stopResolverProcess(process);
-                if (cancelled()) return {ResolveStatus::Cancelled, {}};
-                if (now() >= deadline) return {ResolveStatus::TimedOut, {}};
-                return {};
             }
-            while (waitpid(process, nullptr, 0) < 0 && errno == EINTR) {}
-            if (wire.status != 0 || wire.count == 0) return {};
-            ResolveOutcome outcome;
-            outcome.status = ResolveStatus::Resolved;
-            for (std::uint32_t index = 0; index < wire.count; ++index) {
-                sockaddr_in address{};
-                address.sin_addr.s_addr = wire.addresses[index];
-                outcome.endpoints.push_back(resolvedEndpoint(address, port));
-            }
-            return outcome;
+            close(responsePipe[0]);
+            if (cancelled()) return {ResolveStatus::Cancelled, {}};
+            if (now() >= deadline) return {ResolveStatus::TimedOut, {}};
+            return requestSent && responseConfigured && responseValid && exited
+                   ? resolverResponse(response, port) : ResolveOutcome{};
         }
 #endif
 
@@ -327,10 +454,41 @@ namespace Duel6::Network {
             return realResolve(host, port, deadline, cancelled, now);
         }
 
+        class PendingSocket {
+        public:
+            void publish(SocketHandle socket) {
+                std::lock_guard<std::mutex> lock(mutex);
+                handle = socket;
+            }
+
+            void interrupt() {
+                std::lock_guard<std::mutex> lock(mutex);
+                shutdownSocket(handle);
+            }
+
+            void release(SocketHandle socket) {
+                std::lock_guard<std::mutex> lock(mutex);
+                if (handle == socket) handle = InvalidSocket;
+            }
+
+            void closeOwned(SocketHandle socket) {
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    if (handle != socket) return;
+                    handle = InvalidSocket;
+                }
+                closeSocket(socket);
+            }
+
+        private:
+            std::mutex mutex;
+            SocketHandle handle = InvalidSocket;
+        };
+
         ConnectOutcome realConnect(const std::vector<ResolvedIpv4Endpoint> &addresses, TransportTimePoint deadline,
                                    const std::function<bool()> &cancelled,
                                    const std::function<TransportTimePoint()> &now,
-                                   std::atomic<SocketHandle> &pendingSocket) {
+                                   PendingSocket &pendingSocket) {
             TransportFailure lastFailure = TransportFailure::Unreachable;
             for (const auto &resolved: addresses) {
                 if (cancelled()) return {ConnectStatus::Cancelled, -1};
@@ -338,13 +496,15 @@ namespace Duel6::Network {
                 sockaddr_in address = socketAddress(resolved);
                 SocketHandle socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
                 if (socket == InvalidSocket) continue;
-                pendingSocket.store(socket);
-                setNonBlocking(socket);
+                if (!configureTransportSocket(socket)) {
+                    closeSocket(socket);
+                    return {ConnectStatus::Failed, -1};
+                }
+                pendingSocket.publish(socket);
                 int result = ::connect(socket, reinterpret_cast<const sockaddr *>(&address), sizeof(address));
                 if (result != 0 && !connectPending(socketError())) {
                     lastFailure = connectFailure(socketError());
-                    closeSocket(socket);
-                    pendingSocket.store(InvalidSocket);
+                    pendingSocket.closeOwned(socket);
                     continue;
                 }
                 while (result != 0 && !cancelled() && now() < deadline) {
@@ -364,11 +524,10 @@ namespace Duel6::Network {
                     result = 0;
                 }
                 if (result == 0 && !cancelled() && now() < deadline) {
-                    pendingSocket.store(InvalidSocket);
+                    pendingSocket.release(socket);
                     return {ConnectStatus::Connected, static_cast<std::intptr_t>(socket)};
                 }
-                closeSocket(socket);
-                pendingSocket.store(InvalidSocket);
+                pendingSocket.closeOwned(socket);
             }
             if (cancelled()) return {ConnectStatus::Cancelled, -1};
             if (now() >= deadline) return {ConnectStatus::TimedOut, -1};
@@ -387,8 +546,13 @@ namespace Duel6::Network {
 
     class TcpConnection::Impl {
     public:
-        explicit Impl(SocketHandle socket) : socket(socket), lastReceive(Clock::now()), lastSend(Clock::now()) {
-            configureConnectedSocket(socket);
+        explicit Impl(SocketHandle socket) : socket(socket), lastReceive(Clock::now()), lastLivenessPing(Clock::now()) {
+            if (!configureConnectedSocket(socket)) {
+                failure.store(TransportFailure::SystemError);
+                state.store(ClientState::Failed);
+                closeSocketOnce();
+                return;
+            }
             reader = std::thread([this] { readLoop(); });
             writer = std::thread([this] { writeLoop(); });
         }
@@ -417,7 +581,6 @@ namespace Duel6::Network {
             frame = std::move(input.front());
             inputBytes -= frame.payload.size();
             input.pop_front();
-            inputProgress = Clock::now();
             return true;
         }
 
@@ -434,6 +597,7 @@ namespace Duel6::Network {
         }
 
         void requestClose() {
+            std::lock_guard<std::mutex> terminalLock(terminalMutex);
             ClientState expected = ClientState::Connected;
             if (state.compare_exchange_strong(expected, ClientState::Closing)) {
                 closeDeadline = Clock::now() + GracefulCloseDeadline;
@@ -458,12 +622,12 @@ namespace Duel6::Network {
         std::atomic<bool> socketClosed{false};
         std::atomic<bool> stop{false};
         std::atomic<bool> closeRequested{false};
+        std::mutex terminalMutex;
         std::thread reader;
         std::thread writer;
         std::mutex inputMutex;
         std::deque<TransportFrame> input;
         std::size_t inputBytes = 0;
-        Clock::time_point inputProgress = Clock::now();
         std::mutex outputMutex;
         std::condition_variable outputChanged;
         std::deque<PendingFrame> output;
@@ -472,24 +636,21 @@ namespace Duel6::Network {
         std::size_t activeApplicationBytes = 0;
         Clock::time_point closeDeadline = Clock::time_point::max();
         std::atomic<Clock::time_point> lastReceive;
-        std::atomic<Clock::time_point> lastSend;
+        Clock::time_point lastLivenessPing;
 
         void closeSocketOnce() {
             if (!socketClosed.exchange(true)) closeSocket(socket);
         }
 
         void fail(TransportFailure reason, bool timedOut = false) {
+            std::lock_guard<std::mutex> terminalLock(terminalMutex);
             ClientState current = state.load();
-            while (!terminal(current) && current != ClientState::Closing) {
-                ClientState target = timedOut ? ClientState::TimedOut : ClientState::Failed;
-                if (state.compare_exchange_weak(current, target)) {
-                    failure.store(reason);
-                    stop.store(true);
-                    shutdownSocket(socket);
-                    outputChanged.notify_all();
-                    return;
-                }
-            }
+            if (terminal(current) || current == ClientState::Closing) return;
+            failure.store(reason);
+            state.store(timedOut ? ClientState::TimedOut : ClientState::Failed);
+            stop.store(true);
+            shutdownSocket(socket);
+            outputChanged.notify_all();
         }
 
         void queueControl(std::uint16_t kind) {
@@ -511,7 +672,10 @@ namespace Duel6::Network {
                         return false;
                     }
                     if (now - lastReceive.load() >= LivenessInterval
-                        && now - lastSend.load() >= LivenessInterval) queueControl(LivenessPing);
+                        && now - lastLivenessPing >= LivenessInterval) {
+                        queueControl(LivenessPing);
+                        lastLivenessPing = now;
+                    }
                     if (offset > 0 && now - progress >= ProgressDeadline) {
                         fail(TransportFailure::InboundStalled, true);
                         return false;
@@ -564,9 +728,10 @@ namespace Duel6::Network {
                 if (kind == LivenessPong) continue;
 
                 std::unique_lock<std::mutex> lock(inputMutex);
+                const auto blockedSince = Clock::now();
                 while ((input.size() >= MaxQueuedTransportFrames
                         || inputBytes + payload.size() > MaxQueuedTransportPayloadBytes) && !stop.load()) {
-                    if (Clock::now() - inputProgress >= ProgressDeadline) {
+                    if (Clock::now() - blockedSince >= ProgressDeadline) {
                         lock.unlock();
                         fail(TransportFailure::InboundStalled, true);
                         return;
@@ -611,7 +776,6 @@ namespace Duel6::Network {
                 if (count > 0) {
                     offset += static_cast<std::size_t>(count);
                     progress = Clock::now();
-                    lastSend.store(progress);
                 } else if (count < 0) {
                     int error = socketError();
                     if (!wouldBlock(error) && !interrupted(error)) {
@@ -692,8 +856,7 @@ namespace Duel6::Network {
                    || current == ClientState::Connected) {
                 if (state.compare_exchange_weak(current, ClientState::Cancelled)) break;
             }
-            SocketHandle currentSocket = pendingSocket.load();
-            shutdownSocket(currentSocket);
+            pendingSocket.interrupt();
             changed.notify_all();
             if (worker.joinable() && worker.get_id() != std::this_thread::get_id()) worker.join();
             std::shared_ptr<TcpConnection> active;
@@ -728,7 +891,8 @@ namespace Duel6::Network {
 
         void connectLoop() {
             const auto deadline = dependencyNow(dependencies) + StartupDeadline;
-            if (!socketRuntime().ready() || endpoint.host.empty() || endpoint.port == 0) {
+            if (!socketRuntime().ready() || endpoint.host.empty() || endpoint.host.find('\0') != std::string::npos
+                || endpoint.host.size() > MaxProtocolStringBytes || endpoint.port == 0) {
                 finishFailure(TransportFailure::InvalidEndpoint);
                 return;
             }
@@ -760,6 +924,11 @@ namespace Duel6::Network {
                 && dependencyNow(dependencies) < deadline) {
                 auto active = std::shared_ptr<TcpConnection>(new TcpConnection(
                         std::make_unique<TcpConnection::Impl>(static_cast<SocketHandle>(outcome.nativeSocket))));
+                if (active->state() != ClientState::Connected) {
+                    active->close();
+                    finishFailure(TransportFailure::SystemError);
+                    return;
+                }
                 {
                     std::lock_guard<std::mutex> lock(mutex);
                     connection = active;
@@ -808,7 +977,7 @@ namespace Duel6::Network {
         std::atomic<ClientState> state{ClientState::NotStarted};
         std::atomic<TransportFailure> failure{TransportFailure::None};
         std::atomic<bool> cancelled{false};
-        std::atomic<SocketHandle> pendingSocket{InvalidSocket};
+        PendingSocket pendingSocket;
         mutable std::mutex mutex;
         std::condition_variable changed;
         std::shared_ptr<TcpConnection> connection;
@@ -908,7 +1077,8 @@ namespace Duel6::Network {
 
         void listenLoop() {
             const auto deadline = dependencyNow(dependencies) + StartupDeadline;
-            if (!socketRuntime().ready() || endpoint.host.empty() || endpoint.port == 0 || maxConnections == 0) {
+            if (!socketRuntime().ready() || endpoint.host.empty() || endpoint.host.find('\0') != std::string::npos
+                || endpoint.host.size() > MaxProtocolStringBytes || endpoint.port == 0 || maxConnections == 0) {
                 fail(TransportFailure::InvalidEndpoint);
                 return;
             }
@@ -930,18 +1100,23 @@ namespace Duel6::Network {
                 if (bound == InvalidSocket) continue;
                 int enabled = 1;
                 setsockopt(bound, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&enabled), sizeof(enabled));
+                if (!configureTransportSocket(bound)) {
+                    closeSocket(bound);
+                    fail(TransportFailure::SystemError);
+                    return;
+                }
                 if (::bind(bound, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) == 0
-                    && ::listen(bound, static_cast<int>(maxConnections)) == 0 && setNonBlocking(bound)) break;
+                    && ::listen(bound, static_cast<int>(maxConnections)) == 0) break;
                 closeSocket(bound);
                 bound = InvalidSocket;
             }
             if (cancelled.load()) { closeSocket(bound); return; }
             if (dependencyNow(dependencies) >= deadline) { closeSocket(bound); timeout(); return; }
             if (bound == InvalidSocket) { fail(TransportFailure::BindFailed); return; }
-            listener.store(bound);
+            listener.publish(bound);
             ListenerState expected = ListenerState::Starting;
             if (!state.compare_exchange_strong(expected, ListenerState::Ready)) {
-                closeListener();
+                listener.closeOwned(bound);
                 return;
             }
             changed.notify_all();
@@ -959,6 +1134,10 @@ namespace Duel6::Network {
 #endif
                 SocketHandle accepted = ::accept(bound, reinterpret_cast<sockaddr *>(&peer), &length);
                 if (accepted == InvalidSocket) continue;
+                if (!configureTransportSocket(accepted)) {
+                    closeSocket(accepted);
+                    continue;
+                }
                 std::lock_guard<std::mutex> lock(mutex);
                 reapClosedLocked();
                 if (connections.size() >= maxConnections) {
@@ -969,6 +1148,7 @@ namespace Duel6::Network {
                 connections.push_back(connection);
                 pending.push_back(connection);
             }
+            listener.closeOwned(bound);
         }
 
         void reapClosed() {
@@ -983,9 +1163,7 @@ namespace Duel6::Network {
         }
 
         void closeListener() {
-            SocketHandle value = listener.exchange(InvalidSocket);
-            shutdownSocket(value);
-            closeSocket(value);
+            listener.interrupt();
         }
 
         void fail(TransportFailure reason) {
@@ -1009,7 +1187,7 @@ namespace Duel6::Network {
         std::atomic<TransportFailure> failure{TransportFailure::None};
         std::atomic<bool> stop{false};
         std::atomic<bool> cancelled{false};
-        std::atomic<SocketHandle> listener{InvalidSocket};
+        PendingSocket listener;
         mutable std::mutex mutex;
         std::condition_variable changed;
         std::deque<std::shared_ptr<TcpConnection>> pending;
