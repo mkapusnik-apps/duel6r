@@ -149,8 +149,28 @@ PY
     # The logical mode spinner is scaled by 9/7 and centered at X=93 in this
     # 1280x900 Release viewport. Exercise the rendered arrow's aligned hitbox.
     for ((i = 0; i < mode_index; i++)); do
-        xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
-        sleep 0.1
+        import -window root "${scenario_dir}/mode-step-before.png"
+        convert "${scenario_dir}/mode-step-before.png" -crop 240x36+934+180 +repage \
+            "${scenario_dir}/mode-step-before-crop.png"
+        local mode_advanced=false
+        for _ in {1..3}; do
+            xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
+            sleep 0.2
+            import -window root "${scenario_dir}/mode-step-after.png"
+            convert "${scenario_dir}/mode-step-after.png" -crop 240x36+934+180 +repage \
+                "${scenario_dir}/mode-step-after-crop.png"
+            step_delta="$(image_distance "${scenario_dir}/mode-step-before-crop.png" \
+                "${scenario_dir}/mode-step-after-crop.png")"
+            if python3 - "$step_delta" <<'PY'
+import sys
+raise SystemExit(0 if float(sys.argv[1]) >= 0.01 else 1)
+PY
+            then
+                mode_advanced=true
+                break
+            fi
+        done
+        [[ "$mode_advanced" == true ]] || fail "$label mode selector ignored repeated pointer clicks"
     done
 
     # Disable Quick Liquid so the test can inspect live rankings and open the
