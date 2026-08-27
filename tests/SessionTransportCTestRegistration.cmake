@@ -10,7 +10,7 @@ endif ()
 add_test(NAME duel6r-session-transport-tests COMMAND duel6r-session-transport-tests)
 set_tests_properties(duel6r-session-transport-tests PROPERTIES
         LABELS "application;network;transport"
-        TIMEOUT 120)
+        TIMEOUT 180)
 
 if (UNIX)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -43,6 +44,14 @@ void closeRaw(RawSocket socket) {
     if (socket != InvalidRawSocket) closesocket(socket);
 #else
     if (socket != InvalidRawSocket) ::close(socket);
+#endif
+}
+
+void shutdownRaw(RawSocket socket) {
+#ifdef D6R_TRANSPORT_WINDOWS
+    if (socket != InvalidRawSocket) ::shutdown(socket, SD_BOTH);
+#else
+    if (socket != InvalidRawSocket) ::shutdown(socket, SHUT_RDWR);
 #endif
 }
 
@@ -454,7 +463,40 @@ void realResolverHelperCleanupAndDescriptorEof() {
     std::uint8_t byte = 0;
     CHECK(recv(peer.get(), &byte, 1, 0) == 0);
     for (int iteration = 0; iteration < 24; ++iteration) cancelRealHelper();
+
+    std::vector<std::unique_ptr<TcpClient>> cappedClients;
+    for (int iteration = 0; iteration < 33; ++iteration) {
+        auto client = std::make_unique<TcpClient>();
+        CHECK(client->start({"resolver-cap-stall.test", port}));
+        cappedClients.push_back(std::move(client));
+    }
+    CHECK(waitUntil([&] { return resolverPids(pidPath).size() >= expectedPidCount + 32; }, 3s));
+    CHECK(waitUntil([&] {
+        int failed = 0;
+        for (const auto &client: cappedClients)
+            if (client->state() == ClientState::Failed
+                && client->failure() == TransportFailure::ResolveFailed) ++failed;
+        return failed == 1;
+    }, 2s));
+    const auto cappedPids = resolverPids(pidPath);
+    const auto cleanupStarted = std::chrono::steady_clock::now();
+    for (auto &client: cappedClients) { client->cancel(); client->cancel(); }
+    CHECK(std::chrono::steady_clock::now() - cleanupStarted < 4s);
+    for (std::size_t index = expectedPidCount; index < expectedPidCount + 32; ++index) {
+        const pid_t process = cappedPids.at(index);
+        CHECK(waitUntil([&] { return kill(process, 0) < 0 && errno == ESRCH; }, 2s));
+    }
+    expectedPidCount += 32;
+    cancelRealHelper();
     listener.shutdown(); listener.shutdown();
+}
+
+void malformedRealResolverResponseFails() {
+    TcpClient client;
+    CHECK(client.start({"malformed-helper-response.test", 12345}));
+    CHECK(!client.waitForConnected(2s));
+    CHECK(client.state() == ClientState::Failed);
+    CHECK(client.failure() == TransportFailure::ResolveFailed);
 }
 #endif
 
@@ -478,30 +520,141 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
     const auto port = unusedPort();
     TcpListener listener(1);
     startListener(listener, port);
-    TcpClient client;
-    CHECK(client.start({"127.0.0.1", port}));
-    CHECK(client.waitForConnected(2s));
+    RawSocketOwner peer(connectRaw(port));
     auto server = awaitAccept(listener);
-    const auto deadline = std::chrono::steady_clock::now() + 31s;
-    std::uint32_t sequence = 0;
-    while (std::chrono::steady_clock::now() < deadline) {
-        std::vector<std::uint8_t> payload{
-                static_cast<std::uint8_t>(sequence >> 24u), static_cast<std::uint8_t>(sequence >> 16u),
-                static_cast<std::uint8_t>(sequence >> 8u), static_cast<std::uint8_t>(sequence)};
-        CHECK(client.connection()->send(payload) == SendResult::Accepted);
-        TransportFrame frame;
-        CHECK(waitUntil([&] { return server->receive(frame); }, 1s));
-        CHECK(frame.payload == payload);
-        ++sequence;
-        std::this_thread::sleep_for(50ms);
+    int receiveBuffer = 1024;
+    CHECK(setsockopt(peer.get(), SOL_SOCKET, SO_RCVBUF,
+                     reinterpret_cast<const char *>(&receiveBuffer), sizeof(receiveBuffer)) == 0);
+    auto applicationPayload = [](std::uint64_t sequence) {
+        std::vector<std::uint8_t> payload(1024, 0xA6);
+        for (std::size_t index = 0; index < 8; ++index)
+            payload[index] = static_cast<std::uint8_t>(sequence >> ((7u - index) * 8u));
+        return payload;
+    };
+    std::size_t accepted = 0;
+    std::uint64_t nextSequence = 0;
+    bool backpressured = false;
+    for (std::size_t attempt = 0; attempt < 1024; ++attempt) {
+        SendResult result = server->send(applicationPayload(nextSequence));
+        if (result == SendResult::Backpressure) { backpressured = true; break; }
+        CHECK(result == SendResult::Accepted);
+        ++accepted;
+        ++nextSequence;
     }
-    CHECK(sequence > 500);
-    CHECK(client.state() == ClientState::Connected);
-    CHECK(server->state() == ClientState::Connected);
+    CHECK(backpressured);
+    CHECK(accepted >= MaxQueuedTransportFrames - 8);
+
+    std::atomic<bool> readerFailed{false};
+    std::atomic<std::size_t> applicationFrames{0};
+    std::atomic<std::size_t> pingFrames{0};
+    std::atomic<bool> slowReader{true};
+    std::thread reader([&] {
+        try {
+        auto receiveExact = [&](std::uint8_t *target, std::size_t size) {
+            while (size > 0) {
+#ifdef D6R_TRANSPORT_WINDOWS
+                int count = recv(peer.get(), reinterpret_cast<char *>(target), static_cast<int>(size), 0);
+#else
+                ssize_t count = recv(peer.get(), target, size, 0);
+#endif
+                if (count <= 0) return false;
+                target += count;
+                size -= static_cast<std::size_t>(count);
+            }
+            return true;
+        };
+        while (true) {
+            std::array<std::uint8_t, TransportEnvelopeBytes> header{};
+            if (!receiveExact(header.data(), header.size())) break;
+            const std::uint32_t magic = (std::uint32_t(header[0]) << 24u) | (std::uint32_t(header[1]) << 16u)
+                                        | (std::uint32_t(header[2]) << 8u) | header[3];
+            const std::uint16_t kind = std::uint16_t((header[6] << 8u) | header[7]);
+            const std::uint32_t size = (std::uint32_t(header[8]) << 24u) | (std::uint32_t(header[9]) << 16u)
+                                       | (std::uint32_t(header[10]) << 8u) | header[11];
+            if (magic != TransportFramingIdentifier || size > MaxPayloadBytes) { readerFailed.store(true); break; }
+            std::vector<std::uint8_t> payload(size);
+            if (size > 0 && !receiveExact(payload.data(), payload.size())) { readerFailed.store(true); break; }
+            if (kind == 0) {
+                if (payload.size() != 1024) { readerFailed.store(true); break; }
+                std::uint64_t sequence = 0;
+                for (std::size_t index = 0; index < 8; ++index)
+                    sequence = (sequence << 8u) | payload[index];
+                if (sequence != applicationFrames.load()
+                    || !std::all_of(payload.begin() + 8, payload.end(), [](std::uint8_t value) {
+                        return value == 0xA6;
+                    })) { readerFailed.store(true); break; }
+                applicationFrames.fetch_add(1);
+                if (slowReader.load()) std::this_thread::sleep_for(100ms);
+            } else if (kind == 1) {
+                pingFrames.fetch_add(1);
+                sendFrame(peer.get(), {}, 2);
+            } else if (kind != 2) {
+                readerFailed.store(true);
+                break;
+            }
+        }
+        } catch (...) {
+            readerFailed.store(true);
+        }
+    });
+
+    const auto deadline = std::chrono::steady_clock::now() + 31s;
+    std::size_t sustainedAccepted = 0;
+    std::size_t sustainedBackpressure = 0;
+    std::size_t progressAtTenSeconds = 0;
+    std::size_t progressAtTwentySeconds = 0;
+    const auto started = std::chrono::steady_clock::now();
+    bool unexpectedSendResult = false;
+    SendResult unexpectedResult = SendResult::Accepted;
+    while (std::chrono::steady_clock::now() < deadline) {
+        SendResult result = server->send(applicationPayload(nextSequence));
+        if (result == SendResult::Accepted) { ++sustainedAccepted; ++nextSequence; }
+        else if (result == SendResult::Backpressure) ++sustainedBackpressure;
+        else { unexpectedSendResult = true; unexpectedResult = result; break; }
+        const auto elapsed = std::chrono::steady_clock::now() - started;
+        if (elapsed >= 10s && progressAtTenSeconds == 0) progressAtTenSeconds = applicationFrames.load();
+        if (elapsed >= 20s && progressAtTwentySeconds == 0) progressAtTwentySeconds = applicationFrames.load();
+        std::this_thread::sleep_for(10ms);
+    }
+    const ClientState finalState = server->state();
+    const TransportFailure finalFailure = server->failure();
+    const std::size_t progressAtThirtySeconds = applicationFrames.load();
     TransportFrame hidden;
-    CHECK(!client.connection()->receive(hidden));
-    CHECK(!server->receive(hidden));
+    const bool controlHidden = !server->receive(hidden);
+    int drainReceiveBuffer = 1024 * 1024;
+    const bool drainBufferExpanded = setsockopt(peer.get(), SOL_SOCKET, SO_RCVBUF,
+                                                reinterpret_cast<const char *>(&drainReceiveBuffer),
+                                                sizeof(drainReceiveBuffer)) == 0;
+    slowReader.store(false);
+    const bool allAcceptedDelivered = waitUntil([&] {
+        return readerFailed.load() || applicationFrames.load() == nextSequence;
+    }, 45s) && !readerFailed.load() && applicationFrames.load() == nextSequence;
+    shutdownRaw(peer.get());
+    server->close();
+    reader.join();
     listener.shutdown();
+    if (unexpectedSendResult) {
+        throw Failure("saturated liveness send became terminal: send="
+                      + std::to_string(static_cast<int>(unexpectedResult))
+                      + ", state=" + std::to_string(static_cast<int>(finalState))
+                      + ", failure=" + std::to_string(static_cast<int>(finalFailure))
+                      + ", pings=" + std::to_string(pingFrames.load())
+                      + ", applicationFrames=" + std::to_string(applicationFrames.load()));
+    }
+    CHECK(sustainedAccepted > 0);
+    CHECK(sustainedBackpressure > 0);
+    CHECK(finalState == ClientState::Connected);
+    CHECK(controlHidden);
+    CHECK(drainBufferExpanded);
+    CHECK(pingFrames.load() >= 2);
+    CHECK(progressAtTenSeconds > 0);
+    CHECK(progressAtTwentySeconds > progressAtTenSeconds);
+    CHECK(progressAtThirtySeconds > progressAtTwentySeconds);
+    if (!allAcceptedDelivered) {
+        throw Failure("accepted application frames did not drain: accepted=" + std::to_string(nextSequence)
+                      + ", delivered=" + std::to_string(applicationFrames.load()));
+    }
+    CHECK(!readerFailed.load());
 }
 
 void concurrentTerminalPublicationIsCoherent() {
@@ -753,8 +906,19 @@ int main() {
 #ifdef D6R_TRANSPORT_WINDOWS
     WSADATA data{}; if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return 2;
 #endif
-    const char *fakeResolverRun = std::getenv("D6R_RUN_FAKE_RESOLVER_TEST");
 #ifndef D6R_TRANSPORT_WINDOWS
+    const char *fakeResolverRun = std::getenv("D6R_RUN_FAKE_RESOLVER_TEST");
+    const char *malformedResolverRun = std::getenv("D6R_RUN_MALFORMED_RESOLVER_TEST");
+    if (malformedResolverRun != nullptr && std::string(malformedResolverRun) == "1") {
+        try {
+            malformedRealResolverResponseFails();
+            std::cout << "[PASS] malformed real resolver response rejected\n";
+            return 0;
+        } catch (const std::exception &error) {
+            std::cerr << "[FAIL] malformed real resolver response rejected\n  " << error.what() << '\n';
+            return 1;
+        }
+    }
     if (fakeResolverRun != nullptr && std::string(fakeResolverRun) == "1") {
         try {
             realResolverHelperCleanupAndDescriptorEof();
