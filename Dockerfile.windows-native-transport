@@ -1,0 +1,37 @@
+# escape=`
+
+FROM mcr.microsoft.com/dotnet/framework/runtime:4.8.1-windowsservercore-ltsc2025
+
+ARG CMAKE_VERSION=3.31.8
+ARG NINJA_VERSION=1.12.1
+ARG PYTHON_VERSION=3.13.5
+
+SHELL ["powershell", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+
+RUN $ErrorActionPreference = 'Stop'; `
+    Invoke-WebRequest -UseBasicParsing https://aka.ms/vs/17/release/vs_buildtools.exe -OutFile C:\vs_buildtools.exe; `
+    $process = Start-Process C:\vs_buildtools.exe -ArgumentList '--quiet --wait --norestart --nocache --installPath C:\BuildTools --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended' -Wait -PassThru; `
+    if ($process.ExitCode -notin 0, 3010) { throw "Visual Studio Build Tools installation failed with exit code $($process.ExitCode)" }; `
+    Remove-Item C:\vs_buildtools.exe
+
+RUN $ErrorActionPreference = 'Stop'; `
+    Invoke-WebRequest -UseBasicParsing "https://github.com/Kitware/CMake/releases/download/v${env:CMAKE_VERSION}/cmake-${env:CMAKE_VERSION}-windows-x86_64.zip" -OutFile C:\cmake.zip; `
+    Expand-Archive C:\cmake.zip C:\Tools; `
+    Move-Item "C:\Tools\cmake-${env:CMAKE_VERSION}-windows-x86_64" C:\Tools\cmake; `
+    Remove-Item C:\cmake.zip; `
+    New-Item -ItemType Directory -Force C:\Tools\ninja | Out-Null; `
+    Invoke-WebRequest -UseBasicParsing "https://github.com/ninja-build/ninja/releases/download/v${env:NINJA_VERSION}/ninja-win.zip" -OutFile C:\ninja.zip; `
+    Expand-Archive C:\ninja.zip C:\Tools\ninja; `
+    Remove-Item C:\ninja.zip; `
+    Invoke-WebRequest -UseBasicParsing "https://www.python.org/ftp/python/${env:PYTHON_VERSION}/python-${env:PYTHON_VERSION}-amd64.exe" -OutFile C:\python.exe; `
+    $process = Start-Process C:\python.exe -ArgumentList '/quiet InstallAllUsers=1 TargetDir=C:\Python313 Include_pip=0 Include_launcher=0 Include_test=0 Shortcuts=0' -Wait -PassThru; `
+    if ($process.ExitCode -ne 0) { throw "Python installation failed with exit code $($process.ExitCode)" }; `
+    Remove-Item C:\python.exe
+
+ENV PATH="C:\Tools\cmake\bin;C:\Tools\ninja;C:\Python313;${PATH}"
+
+WORKDIR C:\workspace
+
+COPY docker/build-windows-native-transport.cmd C:\Tools\build-windows-native-transport.cmd
+
+ENTRYPOINT ["cmd", "/S", "/C", "C:\\Tools\\build-windows-native-transport.cmd"]

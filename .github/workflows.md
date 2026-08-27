@@ -20,6 +20,18 @@
 - The tag job needs the `PAT_ACTIONS` secret and `contents: write` permission.
 - The tag job enables `develop-nightly-scheduler.yml` with the `PAT_ACTIONS` secret.
 
+## Native Windows transport evidence
+
+- `Evidence - Native Windows Transport` starts manually or for relevant pull request changes that target `develop`.
+- GitHub runs the job on `windows-2025` with native `ltsc2025` Windows containers.
+- The container uses MSVC x64 to build the production transport, server, resolver, and registered transport tests.
+- The container runs both registered transport CTests with native Windows processes.
+- The job needs `contents: read` permission.
+- The job does not use repository secrets and does not create an artifact.
+- This workflow provides issue acceptance evidence.
+- Repository rules do not require this workflow unless an administrator changes those rules.
+- GitHub cancels an older run for the same pull request when a new run starts.
+
 ## Self-hosted Docker workspace contract
 
 - The self-hosted runner may run in a container that uses a Docker daemon on another filesystem namespace.

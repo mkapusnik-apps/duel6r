@@ -66,6 +66,13 @@ set(D6R_RENDERERS gl1 gl4 es2 es3)
 set(D6R_RENDERER "gl4" CACHE STRING "Renderer")  # Renderer: gl1/gl4/es2
 set_property (CACHE D6R_RENDERER PROPERTY STRINGS ${D6R_RENDERERS})
 set(D6R_WITH_LUA ON)     # Enable/disable lua scripting
+option(D6R_TRANSPORT_ONLY "Build only the native session transport and its tests" OFF)
+
+if (D6R_TRANSPORT_ONLY)
+    set(CMAKE_CXX_STANDARD 17)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_EXTENSIONS OFF)
+endif ()
 
 #########################################################################
 #
@@ -78,6 +85,7 @@ set(D6R_WITH_LUA ON)     # Enable/disable lua scripting
 ########################
 
 # set the list of source files
+if (NOT D6R_TRANSPORT_ONLY)
 set(D6R_SOURCES
         source/AnimationLooping.h
         source/Application.cpp
@@ -478,6 +486,7 @@ if (D6R_WITH_LUA)
             source/script/lua/LuaScriptLoader.cpp
             )
 endif (D6R_WITH_LUA)
+endif ()
 
 set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/client/ConnectionPlan.cpp
@@ -529,6 +538,7 @@ if (MINGW)
 endif (MINGW)
 
 if (BUILD_TESTING)
+    if (NOT D6R_TRANSPORT_ONLY)
     set(D6R_TEST_APP_NAME "duel6r-tests")
     file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}" D6R_TEST_SOURCE_DIR)
     set(D6R_TEST_SOURCES
@@ -557,10 +567,11 @@ if (BUILD_TESTING)
     endif (MINGW)
 
     add_test(NAME ${D6R_TEST_APP_NAME} COMMAND ${D6R_TEST_APP_NAME})
+    endif ()
 
     include(${CMAKE_SOURCE_DIR}/tests/SessionTransportCTestRegistration.cmake)
 
-    if (UNIX)
+    if (UNIX AND NOT D6R_TRANSPORT_ONLY)
         find_program(D6R_BASH_EXECUTABLE bash)
         if (NOT D6R_BASH_EXECUTABLE)
             message(FATAL_ERROR "bash is required for the safe-empty-match-start behavior test")
@@ -585,6 +596,7 @@ if (BUILD_TESTING)
     endif ()
 endif (BUILD_TESTING)
 
+if (NOT D6R_TRANSPORT_ONLY)
 if (WIN32)
     set(D6R_SOURCES ${D6R_SOURCES} source/duel6r.rc)
 endif (WIN32)
@@ -666,3 +678,4 @@ if (D6R_WITH_LUA)
         include_directories(${HEADERS_LUA}/lua5.3)
     endif (WIN32 AND NOT MINGW)
 endif (D6R_WITH_LUA)
+endif ()
