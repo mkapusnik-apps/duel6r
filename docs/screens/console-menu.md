@@ -12,9 +12,10 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 
 - The overlay must match [`console-menu.md`](wireframes/console-menu.md).
 - The complete menu must remain rendered behind the console.
-- The visible menu area behind the console must use the approved black matte and four-panel canvas.
+- The visible menu area behind the console must use the approved blurred and scrimmed session background plus the scaled four-panel canvas and keyline.
 - The visible Game Settings area must include the Burnable Trees checkbox from `MENU-01`.
 - The console must span the complete client width at the top of the visible client area.
+- The console must remain at client scale and must not inherit the menu transform.
 - The console must show up to 15 recent history rows.
 - A red separator must sit between history and input.
 - The input row must start with `]` or `<`.
@@ -37,7 +38,8 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 - The console does not provide completion hints or a visible close control.
 - Console width must recalculate from client width and font character width.
 - Console height must derive from font character height and visible-row count.
-- The menu canvas under the console must remain centered in the complete client area.
+- The uniformly scaled menu canvas under the console must remain centered in the complete client area.
+- The same session-selected background must remain visible below the console and after the console closes.
 - No mobile layout exists, so one desktop wireframe is sufficient.
 
 ## Screenshot link

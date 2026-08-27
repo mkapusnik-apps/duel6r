@@ -1,9 +1,11 @@
 # MENU-01 wireframe — Main menu
 
-Representative viewport: 1706 by 938 px desktop client.
+Representative viewport: 1920 by 1080 px desktop client.
 Wireframe coordinates use a top-left origin.
-The 850 by 700 px menu canvas starts at client coordinate `(428, 119)` at this viewport.
+The 850 by 700 logical menu canvas uses the 135% cap, renders at approximately 1148 by 945 client px, and starts near client coordinate `(386, 68)` at this viewport.
 The screen has no mobile layout and does not reflow.
+The complete client is filled by a centered-cover gameplay still with Gaussian-equivalent blur and a 55% black scrim.
+The scaled grey canvas is unblurred and undimmed and has a 2-logical-pixel black perimeter keyline.
 
 ## Canvas zones
 
@@ -23,8 +25,8 @@ The footer buttons use `x=50`, `x=350`, and `x=650` from left to right.
 Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 
 ```text
-┌──────────────────────────── 1706 × 938 client ─────────────────────────────┐
-│                              black matte                                  │
+┌──────────────────────────── 1920 × 1080 client ────────────────────────────┐
+│                blurred gameplay still + 55% black scrim                   │
 │        ┌──────────────────── 850 × 700 canvas ────────────────────┐        │
 │        │                   [animated banner 200×95]                │        │
 │        │                         version <runtime>                 │        │
@@ -44,13 +46,15 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 │        │└────────────────────────────────────────────────────────────────┘│
 │        │ [Play (F1)]                 [Clear (F3)]              [Quit (ESC)]│
 │        └──────────────────────────────────────────────────────────────────┘
-│                              black matte                                  │
+│                same session-selected background remains visible           │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Component and state notes
 
-- The black matte must remain visible on each side of the fixed canvas at the representative viewport.
+- The blurred, scrimmed gameplay still must remain visible on each side of the scaled canvas at the representative viewport.
+- The canvas and all internal content and bevels must scale uniformly to 135%; pointer mapping must use the inverse transform.
+- The black keyline must be 2 logical px and scale with the canvas.
 - The canvas and raised controls must use the retro grey beveled treatment in `docs/design.md`.
 - Each setup panel must use the blue panel header and white panel header text from `docs/design.md`.
 - White inset surfaces must contain lists, spinners, and text fields.
@@ -75,5 +79,6 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 - The failed-start recovery variant must restore this complete layout and its previous values.
 - The failed-start recovery variant must not add a disabled Play style or prerequisite status indicators.
 - Pressed controls must reverse their bevel and move their caption by 1 px.
+- Selection occurs once per application session; the still does not animate or change during menu navigation or a return from gameplay.
 
 Representative screenshot: [`SS-001`](../../screenshots/README.md#ss-001).

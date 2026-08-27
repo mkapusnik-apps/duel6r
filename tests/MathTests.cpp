@@ -1,6 +1,7 @@
 #include "source/math/Math.h"
 #include "source/math/Matrix.h"
 #include "source/math/Vector.h"
+#include "source/SysEvent.h"
 #include "tests/TestHarness.h"
 
 D6R_TEST_CASE("Vector operations stay numerically stable") {
@@ -33,4 +34,38 @@ D6R_TEST_CASE("Matrix subtraction assignment subtracts each component") {
     D6R_REQUIRE_NEAR(3.0, value(1, 1), 1e-6);
     D6R_REQUIRE_NEAR(3.0, value(2, 2), 1e-6);
     D6R_REQUIRE_NEAR(0.0, value(3, 3), 1e-6);
+}
+
+D6R_TEST_CASE("Pointer coordinates map back into a scaled and centered menu") {
+    const Duel6::MouseButtonEvent physical(967, 360, Duel6::SysEvent::MouseButton::LEFT,
+                                            Duel6::SysEvent::ButtonState::PRESSED, true);
+    const Duel6::MouseButtonEvent logical = physical.inverseTransform(1.35f, 386, 67);
+
+    D6R_REQUIRE_EQ(430, logical.getX());
+    D6R_REQUIRE_EQ(217, logical.getY());
+    D6R_REQUIRE(logical.getButton() == Duel6::SysEvent::MouseButton::LEFT);
+    D6R_REQUIRE(logical.isPressed());
+    D6R_REQUIRE(logical.isDoubleClick());
+}
+
+D6R_TEST_CASE("Scaled pointer motion preserves logical drag distance and button state") {
+    const Duel6::MouseMotionEvent physical(1183, 841, 27, -54,
+                                            static_cast<Duel6::Uint32>(Duel6::SysEvent::MouseButton::LEFT));
+    const Duel6::MouseMotionEvent logical = physical.inverseTransform(1.35f, 386, 67);
+
+    D6R_REQUIRE_EQ(590, logical.getX());
+    D6R_REQUIRE_EQ(573, logical.getY());
+    D6R_REQUIRE_EQ(20, logical.getXDiff());
+    D6R_REQUIRE_EQ(-40, logical.getYDiff());
+    D6R_REQUIRE(logical.isPressed(Duel6::SysEvent::MouseButton::LEFT));
+}
+
+D6R_TEST_CASE("Wheel mapping changes position but not scroll amount") {
+    const Duel6::MouseWheelEvent physical(202, 257, -2, 3);
+    const Duel6::MouseWheelEvent logical = physical.inverseTransform(9.0f / 7.0f, 93, 0);
+
+    D6R_REQUIRE_EQ(84, logical.getX());
+    D6R_REQUIRE_EQ(199, logical.getY());
+    D6R_REQUIRE_EQ(-2, logical.getAmountX());
+    D6R_REQUIRE_EQ(3, logical.getAmountY());
 }

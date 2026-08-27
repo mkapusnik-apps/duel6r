@@ -26,6 +26,10 @@
 */
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <random>
+#include <sstream>
 #include <stdlib.h>
 #include "Sound.h"
 #include "Video.h"
@@ -41,18 +45,139 @@
 #include "gamemodes/DeathMatch.h"
 #include "gamemodes/TeamDeathMatch.h"
 #include "gamemodes/Predator.h"
+#include "Exception.h"
 
 #define D6_ALL_CHR  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890 -=\\~!@#$%^&*()_+|[];',./<>?:{}"
 #define D6_NUM_CHR  "0123456789"
 #define D6_MENU_WIDTH 850
 #define D6_MENU_HEIGHT 700
+#define D6_MENU_MAX_SCALE 1.35f
+#define D6_MENU_MESSAGE_MAX_WIDTH 790
 
 namespace Duel6 {
+    namespace {
+        Image coverImage(const Image &source, Size width, Size height) {
+            Image result(width, height);
+            Float32 sourceAspect = Float32(source.getWidth()) / Float32(source.getHeight());
+            Float32 targetAspect = Float32(width) / Float32(height);
+            Float32 cropWidth = targetAspect > sourceAspect ? Float32(source.getWidth())
+                                                            : Float32(source.getHeight()) * targetAspect;
+            Float32 cropHeight = targetAspect > sourceAspect ? Float32(source.getWidth()) / targetAspect
+                                                             : Float32(source.getHeight());
+            Float32 cropX = (Float32(source.getWidth()) - cropWidth) * 0.5f;
+            Float32 cropY = (Float32(source.getHeight()) - cropHeight) * 0.5f;
+
+            for (Size y = 0; y < height; y++) {
+                Size sourceY = std::min(source.getHeight() - 1,
+                                        Size(cropY + (Float32(y) + 0.5f) * cropHeight / Float32(height)));
+                for (Size x = 0; x < width; x++) {
+                    Size sourceX = std::min(source.getWidth() - 1,
+                                            Size(cropX + (Float32(x) + 0.5f) * cropWidth / Float32(width)));
+                    const Color &pixel = source.at(sourceY * source.getWidth() + sourceX);
+                    result.at(y * width + x) = Color(pixel.getRed(), pixel.getGreen(), pixel.getBlue(), 255);
+                }
+            }
+            return result;
+        }
+
+        Image boxBlur(const Image &source, Int32 radius) {
+            Size width = source.getWidth();
+            Size height = source.getHeight();
+            Image horizontal(width, height);
+            Image result(width, height);
+            Int32 sampleCount = radius * 2 + 1;
+
+            for (Size y = 0; y < height; y++) {
+                Int32 red = 0, green = 0, blue = 0;
+                for (Int32 offset = -radius; offset <= radius; offset++) {
+                    Size x = Size(std::max<Int32>(0, std::min<Int32>(Int32(width) - 1, offset)));
+                    const Color &pixel = source.at(y * width + x);
+                    red += pixel.getRed(); green += pixel.getGreen(); blue += pixel.getBlue();
+                }
+                for (Size x = 0; x < width; x++) {
+                    horizontal.at(y * width + x) = Color(red / sampleCount, green / sampleCount, blue / sampleCount);
+                    Size removeX = Size(std::max<Int32>(0, Int32(x) - radius));
+                    Size addX = Size(std::min<Int32>(Int32(width) - 1, Int32(x) + radius + 1));
+                    const Color &remove = source.at(y * width + removeX);
+                    const Color &add = source.at(y * width + addX);
+                    red += add.getRed() - remove.getRed();
+                    green += add.getGreen() - remove.getGreen();
+                    blue += add.getBlue() - remove.getBlue();
+                }
+            }
+
+            for (Size x = 0; x < width; x++) {
+                Int32 red = 0, green = 0, blue = 0;
+                for (Int32 offset = -radius; offset <= radius; offset++) {
+                    Size y = Size(std::max<Int32>(0, std::min<Int32>(Int32(height) - 1, offset)));
+                    const Color &pixel = horizontal.at(y * width + x);
+                    red += pixel.getRed(); green += pixel.getGreen(); blue += pixel.getBlue();
+                }
+                for (Size y = 0; y < height; y++) {
+                    result.at(y * width + x) = Color(red / sampleCount, green / sampleCount, blue / sampleCount);
+                    Size removeY = Size(std::max<Int32>(0, Int32(y) - radius));
+                    Size addY = Size(std::min<Int32>(Int32(height) - 1, Int32(y) + radius + 1));
+                    const Color &remove = horizontal.at(removeY * width + x);
+                    const Color &add = horizontal.at(addY * width + x);
+                    red += add.getRed() - remove.getRed();
+                    green += add.getGreen() - remove.getGreen();
+                    blue += add.getBlue() - remove.getBlue();
+                }
+            }
+            return result;
+        }
+
+        Image blurMenuBackground(const Image &source) {
+            Image result = source;
+            for (Int32 pass = 0; pass < 3; pass++) {
+                result = boxBlur(result, 12);
+            }
+            return result;
+        }
+
+        std::vector<std::string> wrapMessage(const std::string &message, Size maxCharacters) {
+            if (message.size() <= maxCharacters) {
+                return {message};
+            }
+            std::istringstream words(message);
+            std::vector<std::string> lines;
+            std::string line;
+            std::string word;
+            while (words >> word) {
+                if (!line.empty() && line.size() + word.size() + 1 > maxCharacters) {
+                    lines.push_back(line);
+                    line.clear();
+                }
+                if (!line.empty()) line += " ";
+                line += word;
+            }
+            if (!line.empty()) lines.push_back(line);
+            return lines;
+        }
+    }
+
     Menu::Menu(AppService &appService)
             : appService(appService), font(appService.getFont()), video(appService.getVideo()),
               renderer(video.getRenderer()), sound(appService.getSound()), gui(video.getRenderer()),
               controlsManager(appService.getControlsManager()),
-              defaultPlayerSounds(PlayerSounds::makeDefault(sound)), playMusic(false) {}
+              defaultPlayerSounds(PlayerSounds::makeDefault(sound)), menuBackgroundTexture(Texture()),
+              hasMenuBackground(false), menuBackgroundPreparationActive(false), menuBackgroundFinished(false),
+              menuBackgroundInitialFrameRendered(false), menuScale(1.0f), menuTranslationX(0),
+              menuTranslationY(0), playMusic(false) {}
+
+    Menu::~Menu() {
+        if (menuBackgroundPreparation.valid()) {
+            try {
+                menuBackgroundPreparation.wait();
+                menuBackgroundPreparation.get();
+            } catch (...) {
+                // Optional background work must not interfere with application teardown.
+            }
+        }
+        if (hasMenuBackground) {
+            renderer.freeTexture(menuBackgroundTexture);
+        }
+    }
 
     void Menu::loadPersonData(const std::string &filePath) {
         if (!File::exists(filePath)) {
@@ -98,11 +223,11 @@ namespace Duel6 {
     void Menu::initialize() {
         appService.getConsole().printLine("\n===Menu initialization===");
         menuBannerTexture = appService.getTextureManager().loadStack(D6_TEXTURE_MENU_PATH, TextureFilter::Linear, true);
+        initializePresentation();
         appService.getConsole().printLine("...Starting GUI library");
         gui.screenSize(video.getScreen().getClientWidth(), video.getScreen().getClientHeight(),
                        D6_MENU_WIDTH, D6_MENU_HEIGHT,
-                       (video.getScreen().getClientWidth() - D6_MENU_WIDTH) / 2,
-                       (video.getScreen().getClientHeight() - D6_MENU_HEIGHT) / 2);
+                       menuTranslationX, menuTranslationY, menuScale);
 
         auto eloPanel = new Gui::Panel(gui);
         eloPanel->setPosition(10, 578, 185, 326);
@@ -283,6 +408,211 @@ namespace Duel6 {
         levelList.initialize(D6_FILE_LEVEL, D6_LEVEL_EXTENSION);
 
         menuTrack = sound.loadModule("sound/undead.xm");
+        startMenuBackgroundPreparation({}, true);
+    }
+
+    void Menu::initializePresentation() {
+        Int32 clientWidth = video.getScreen().getClientWidth();
+        Int32 clientHeight = video.getScreen().getClientHeight();
+        menuScale = std::min(D6_MENU_MAX_SCALE,
+                             std::min(Float32(clientWidth) / D6_MENU_WIDTH,
+                                      Float32(clientHeight) / D6_MENU_HEIGHT));
+        menuTranslationX = Int32((Float32(clientWidth) - D6_MENU_WIDTH * menuScale) * 0.5f);
+        menuTranslationY = Int32((Float32(clientHeight) - D6_MENU_HEIGHT * menuScale) * 0.5f);
+        appService.getConsole().printLine(Format("Menu presentation: scale={0}, origin=({1},{2})")
+                                          << menuScale << menuTranslationX << menuTranslationY);
+    }
+
+    Menu::PreparedMenuBackground Menu::prepareMenuBackground(Int32 clientWidth, Int32 clientHeight,
+                                                             std::vector<std::string> candidates,
+                                                             bool discoverCandidates) {
+        PreparedMenuBackground result;
+        if (discoverCandidates) {
+            try {
+                candidates = File::listDirectory(D6_TEXTURE_MENU_BACKGROUND_PATH);
+                candidates.erase(std::remove_if(candidates.begin(), candidates.end(), [](const std::string &name) {
+                    Size dot = name.find_last_of('.');
+                    if (dot == std::string::npos) return true;
+                    std::string extension = name.substr(dot);
+                    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+                    return extension != ".png" && extension != ".jpg" && extension != ".jpeg";
+                }), candidates.end());
+                std::shuffle(candidates.begin(), candidates.end(), std::mt19937(std::random_device{}()));
+            } catch (...) {
+                result.directoryAvailable = false;
+                return result;
+            }
+        }
+
+        while (!candidates.empty()) {
+            std::string candidate = candidates.front();
+            candidates.erase(candidates.begin());
+            try {
+                Image source = Image::load(D6_TEXTURE_MENU_BACKGROUND_PATH + candidate);
+                if (source.getWidth() == 0 || source.getHeight() == 0) {
+                    result.failedCandidates.push_back(candidate);
+                    continue;
+                }
+                Image covered = coverImage(source, clientWidth, clientHeight);
+                result.image = blurMenuBackground(covered);
+                result.filename = candidate;
+                result.remainingCandidates = std::move(candidates);
+                result.hasImage = true;
+                return result;
+            } catch (...) {
+                result.failedCandidates.push_back(candidate);
+            }
+        }
+        return result;
+    }
+
+    void Menu::startMenuBackgroundPreparation(std::vector<std::string> candidates,
+                                              bool discoverCandidates) const noexcept {
+        try {
+            if (menuBackgroundFinished || menuBackgroundPreparationActive) {
+                return;
+            }
+            Int32 clientWidth = video.getScreen().getClientWidth();
+            Int32 clientHeight = video.getScreen().getClientHeight();
+            menuBackgroundPreparation = std::async(std::launch::async,
+                                                   [clientWidth, clientHeight,
+                                                    candidates = std::move(candidates),
+                                                    discoverCandidates]() mutable {
+                return prepareMenuBackground(clientWidth, clientHeight, std::move(candidates),
+                                             discoverCandidates);
+            });
+            menuBackgroundPreparationActive = true;
+        } catch (...) {
+            menuBackgroundFinished = true;
+            printMenuBackgroundDiagnostic("Menu background worker unavailable; using solid black.");
+        }
+    }
+
+    void Menu::printMenuBackgroundDiagnostic(const char *message) const noexcept {
+        try {
+            appService.getConsole().printLine(message);
+        } catch (...) {
+            // Optional diagnostics must never interfere with menu rendering.
+        }
+    }
+
+    void Menu::printMenuBackgroundDiagnostic(const char *prefix, const std::string &value,
+                                             const char *suffix) const noexcept {
+        try {
+            appService.getConsole().printLine(std::string(prefix) + value + suffix);
+        } catch (...) {
+            // Optional diagnostics must never interfere with menu rendering.
+        }
+    }
+
+    void Menu::freeOptionalTexture(Texture texture) const noexcept {
+        if (texture == Texture()) {
+            return;
+        }
+        try {
+            renderer.freeTexture(texture);
+        } catch (...) {
+            // Cleanup remains best-effort for an optional visual enhancement.
+        }
+    }
+
+    void Menu::retryPreparedMenuBackground(PreparedMenuBackground &prepared) const noexcept {
+        if (prepared.remainingCandidates.empty()) {
+            menuBackgroundFinished = true;
+            printMenuBackgroundDiagnostic("No menu background could be loaded; using solid black.");
+            return;
+        }
+        startMenuBackgroundPreparation(std::move(prepared.remainingCandidates), false);
+    }
+
+    void Menu::publishPreparedMenuBackground() const noexcept {
+        try {
+            publishPreparedMenuBackgroundTransaction();
+        } catch (...) {
+            menuBackgroundPreparationActive = false;
+            menuBackgroundFinished = true;
+            printMenuBackgroundDiagnostic("Menu background processing failed; using solid black.");
+        }
+    }
+
+    void Menu::publishPreparedMenuBackgroundTransaction() const {
+        PreparedMenuBackground prepared;
+        Texture texture = Texture();
+        try {
+            if (!menuBackgroundPreparationActive || !menuBackgroundPreparation.valid()) {
+                return;
+            }
+            if (menuBackgroundPreparation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                return;
+            }
+
+            menuBackgroundPreparationActive = false;
+            prepared = menuBackgroundPreparation.get();
+
+            for (const std::string &failed : prepared.failedCandidates) {
+                printMenuBackgroundDiagnostic("Menu background failed: ", failed, "; trying another.");
+            }
+            if (!prepared.directoryAvailable) {
+                menuBackgroundFinished = true;
+                printMenuBackgroundDiagnostic("Menu background directory unavailable; using solid black.");
+                return;
+            }
+            if (!prepared.hasImage) {
+                menuBackgroundFinished = true;
+                printMenuBackgroundDiagnostic("No menu background could be loaded; using solid black.");
+                return;
+            }
+
+            texture = renderer.createTexture(prepared.image, TextureFilter::Linear, true);
+            if (texture == Texture()) {
+                printMenuBackgroundDiagnostic("Menu background upload failed: ", prepared.filename,
+                                              "; trying another.");
+                retryPreparedMenuBackground(prepared);
+                return;
+            }
+
+            try {
+                menuBackgroundFilename = prepared.filename;
+            } catch (...) {
+                freeOptionalTexture(texture);
+                texture = Texture();
+                printMenuBackgroundDiagnostic("Menu background publication failed: ", prepared.filename,
+                                              "; trying another.");
+                retryPreparedMenuBackground(prepared);
+                return;
+            }
+
+            menuBackgroundTexture = texture;
+            texture = Texture();
+            hasMenuBackground = true;
+            menuBackgroundFinished = true;
+            printMenuBackgroundDiagnostic("Menu background selected: ", menuBackgroundFilename, "");
+        } catch (...) {
+            freeOptionalTexture(texture);
+            menuBackgroundPreparationActive = false;
+            if (prepared.hasImage) {
+                printMenuBackgroundDiagnostic("Menu background publication failed: ", prepared.filename,
+                                              "; trying another.");
+                retryPreparedMenuBackground(prepared);
+            } else {
+                menuBackgroundFinished = true;
+                printMenuBackgroundDiagnostic("Menu background processing failed; using solid black.");
+            }
+        }
+    }
+
+    void Menu::renderMenuBackground() const {
+        Int32 clientWidth = video.getScreen().getClientWidth();
+        Int32 clientHeight = video.getScreen().getClientHeight();
+        renderer.setViewMatrix(Matrix::IDENTITY);
+        renderer.quadXY(Vector::ZERO, Vector(clientWidth, clientHeight), Color::BLACK);
+        if (hasMenuBackground) {
+            renderer.quadXY(Vector::ZERO, Vector(clientWidth, clientHeight), Vector(0, 1), Vector(1, -1),
+                            Material::makeTexture(menuBackgroundTexture));
+            renderer.setBlendFunc(BlendFunc::SrcAlpha);
+            renderer.quadXY(Vector::ZERO, Vector(clientWidth, clientHeight), Color(0, 0, 0, 140));
+            renderer.setBlendFunc(BlendFunc::None);
+        }
     }
 
     void Menu::initializeGameModes() {
@@ -371,14 +701,23 @@ namespace Duel6 {
     }
 
     void Menu::showMessage(const std::string &message) {
-        Int32 width = Int32(message.size()) * 8 + 60;
-        Int32 x = video.getScreen().getClientWidth() / 2 - width / 2,
-                y = video.getScreen().getClientHeight() / 2 - 10;
+        Size maxCharacters = (D6_MENU_MESSAGE_MAX_WIDTH - 60) / 8;
+        std::vector<std::string> lines = wrapMessage(message, maxCharacters);
+        Size longestLine = 0;
+        for (const std::string &line : lines) longestLine = std::max(longestLine, line.size());
+        Int32 width = std::min(D6_MENU_MESSAGE_MAX_WIDTH, Int32(longestLine) * 8 + 60);
+        Int32 height = Int32(lines.size()) * 16 + 4;
+        Int32 x = (D6_MENU_WIDTH - width) / 2;
+        Int32 y = (D6_MENU_HEIGHT - height) / 2;
 
-        renderer.quadXY(Vector(x, y), Vector(width, 20), Color(255, 204, 204));
-        renderer.frame(Vector(x, y), Vector(width, 20), 2, Color::BLACK);
-
-        font.print(x + 30, y + 2, Color::RED, message);
+        renderer.setViewMatrix(Matrix::translate(Float32(menuTranslationX), Float32(menuTranslationY), 0) *
+                               Matrix::scale(menuScale, menuScale, 1.0f));
+        renderer.quadXY(Vector(x, y), Vector(width, height), Color(255, 204, 204));
+        renderer.frame(Vector(x, y), Vector(width, height), 2, Color::BLACK);
+        for (Size line = 0; line < lines.size(); line++) {
+            font.print(x + 30, y + 2 + Int32(lines.size() - line - 1) * 16, Color::RED, lines[line]);
+        }
+        renderer.setViewMatrix(Matrix::IDENTITY);
         video.screenUpdate(appService.getConsole(), font);
     }
 
@@ -647,12 +986,16 @@ namespace Duel6 {
     }
 
     void Menu::render() const {
-        Int32 trX = (video.getScreen().getClientWidth() - D6_MENU_WIDTH) / 2;
-        Int32 trY = (video.getScreen().getClientHeight() - D6_MENU_HEIGHT) / 2;
-
+        if (menuBackgroundInitialFrameRendered) {
+            publishPreparedMenuBackground();
+        } else {
+            menuBackgroundInitialFrameRendered = true;
+        }
+        renderMenuBackground();
         gui.draw(font);
 
-        renderer.setViewMatrix(Matrix::translate(Float32(trX), Float32(trY), 0));
+        renderer.setViewMatrix(Matrix::translate(Float32(menuTranslationX), Float32(menuTranslationY), 0) *
+                               Matrix::scale(menuScale, menuScale, 1.0f));
 
         std::string version = Format("{0} {1}") << "version" << APP_VERSION;
         font.print((D6_MENU_WIDTH - Int32(version.size()) * 8) / 2, 581, Color::BLACK, version);

@@ -33,6 +33,21 @@
 namespace Duel6 {
     namespace {
         std::unordered_map<GLuint, std::vector<GLuint>> textureIdMap;
+
+        bool drainGlErrors() {
+            bool foundError = false;
+            while (glGetError() != GL_NO_ERROR) {
+                foundError = true;
+            }
+            return foundError;
+        }
+
+        void deleteTextures(const std::vector<GLuint> &textureIds) {
+            if (!textureIds.empty()) {
+                glDeleteTextures(static_cast<GLsizei>(textureIds.size()), textureIds.data());
+                drainGlErrors();
+            }
+        }
     }
 
     GL1Renderer::GL1Renderer()
@@ -85,8 +100,12 @@ namespace Duel6 {
         auto width = image.getWidth();
         auto height = image.getHeight();
         auto depth = image.getDepth();
+        if (depth <= 0) {
+            return Texture();
+        }
 
         std::vector<GLuint> idList(depth);
+        drainGlErrors();
         glGenTextures(depth, idList.data());
 
         auto imageSize = width * height;
@@ -107,7 +126,23 @@ namespace Duel6 {
         }
 
         GLuint firstId = idList[0];
-        textureIdMap[firstId] = idList;
+        bool validObject = firstId != 0 && glIsTexture(firstId) == GL_TRUE;
+        bool uploadFailed = drainGlErrors() || !validObject;
+        if (uploadFailed) {
+            deleteTextures(idList);
+            return Texture();
+        }
+
+        try {
+            auto inserted = textureIdMap.emplace(firstId, idList);
+            if (!inserted.second) {
+                deleteTextures(idList);
+                return Texture();
+            }
+        } catch (...) {
+            deleteTextures(idList);
+            return Texture();
+        }
 
         return firstId;
     }

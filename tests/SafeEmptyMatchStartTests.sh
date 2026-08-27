@@ -20,7 +20,7 @@ fail() {
   exit 1
 }
 
-for command in Xvfb xdotool import compare identify timeout python3; do
+for command in Xvfb xdotool import compare convert identify timeout python3; do
   command -v "$command" >/dev/null 2>&1 || fail "required command not found: ${command}"
 done
 [[ -x "${build_dir}/duel6r" ]] || fail "runtime bundle not found at ${build_dir}"
@@ -167,23 +167,48 @@ assert_same() {
 
 assert_report_width() {
   local screenshot="$1" expected_message="$2" label="$3"
-  local expected_width=$(( ${#expected_message} * 8 + 60 ))
-  local left=$((640 - expected_width / 2))
+  local normalized="${screenshot%.png}-normalized.png"
+  convert "$screenshot" -crop 1093x900+93+0 +repage -filter point -resize 850x700! "$normalized"
+  local geometry expected_width expected_height
+  geometry="$(python3 - "$expected_message" <<'PY'
+import sys
+
+message = sys.argv[1]
+max_characters = (790 - 60) // 8
+if len(message) <= max_characters:
+    lines = [message]
+else:
+    lines = []
+    line = ""
+    for word in message.split():
+        if line and len(line) + len(word) + 1 > max_characters:
+            lines.append(line)
+            line = ""
+        line = word if not line else f"{line} {word}"
+    if line:
+        lines.append(line)
+print(min(790, max(map(len, lines)) * 8 + 60), len(lines) * 16 + 4)
+PY
+)"
+  read -r expected_width expected_height <<<"$geometry"
+  local left=$((425 - expected_width / 2))
   local right=$((left + expected_width - 1))
-  local center_y=450
-  local left_pixel right_pixel inside_left inside_right
-  left_pixel="$(identify -format "%[pixel:p{${left},${center_y}}]" "$screenshot")"
-  right_pixel="$(identify -format "%[pixel:p{${right},${center_y}}]" "$screenshot")"
-  inside_left="$(identify -format "%[pixel:p{$((left + 3)),${center_y}}]" "$screenshot")"
-  inside_right="$(identify -format "%[pixel:p{$((right - 3)),${center_y}}]" "$screenshot")"
+  local top=$((350 - expected_height / 2))
+  local bottom=$((top + expected_height - 1))
+  local center_y=350
+  local left_pixel right_pixel top_pixel bottom_pixel inside_left inside_right
+  left_pixel="$(identify -format "%[pixel:p{$((left - 1)),${center_y}}] %[pixel:p{${left},${center_y}}] %[pixel:p{$((left + 1)),${center_y}}]" "$normalized")"
+  right_pixel="$(identify -format "%[pixel:p{$((right - 1)),${center_y}}] %[pixel:p{${right},${center_y}}] %[pixel:p{$((right + 1)),${center_y}}]" "$normalized")"
+  top_pixel="$(identify -format "%[pixel:p{425,$((top - 1))}] %[pixel:p{425,${top}}] %[pixel:p{425,$((top + 1))}]" "$normalized")"
+  bottom_pixel="$(identify -format "%[pixel:p{425,$((bottom - 1))}] %[pixel:p{425,${bottom}}] %[pixel:p{425,$((bottom + 1))}]" "$normalized")"
+  inside_left="$(identify -format "%[pixel:p{$((left + 3)),${center_y}}]" "$normalized")"
+  inside_right="$(identify -format "%[pixel:p{$((right - 3)),${center_y}}]" "$normalized")"
   [[ "$left_pixel" == *"(0,0,0"* && "$right_pixel" == *"(0,0,0"* ]] \
-    || fail "$label does not have the expected framed report width ${expected_width}"
-  # The redesigned fixed-size menu intentionally uses a black matte outside
-  # its 850x700 canvas. Long reports extend into that matte, so pixels outside
-  # the black frame no longer distinguish the frame boundary. Verify the pink
-  # report body immediately inside both expected edges instead.
+    || fail "$label does not have the expected logical report width ${expected_width}"
+  [[ "$top_pixel" == *"(0,0,0"* && "$bottom_pixel" == *"(0,0,0"* ]] \
+    || fail "$label does not have the expected wrapped report height ${expected_height}"
   [[ "$inside_left" != "$left_pixel" && "$inside_right" != "$right_pixel" ]] \
-    || fail "$label does not fill inside expected width ${expected_width}"
+    || fail "$label does not fill inside expected geometry ${expected_width}x${expected_height}"
 }
 
 close_cleanly() {
@@ -234,8 +259,8 @@ rm -f "${scenario_dir}/levels/"*.json
 start_app "$scenario_dir"
 # Exercise preservation with non-default visible settings: toggle Quick Liquid
 # and advance the selected mode once before attempting Play.
-xdotool mousemove 877 332 click 1
-xdotool mousemove 1043 269 click 1
+xdotool mousemove 943 298 click 1
+xdotool mousemove 1157 217 click 1
 sleep 0.5
 capture "${scenario_dir}/menu-before.png"
 xdotool key F1

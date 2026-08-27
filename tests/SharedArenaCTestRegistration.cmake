@@ -9,6 +9,11 @@ foreach(D6R_SHARED_ARENA_TOOL Xvfb xdotool import identify convert compare pytho
     endif ()
 endforeach()
 
+find_program(D6R_ASYNC_MENU_CC_EXECUTABLE cc)
+if (NOT D6R_ASYNC_MENU_CC_EXECUTABLE)
+    message(FATAL_ERROR "cc is required for the async menu background behavior test")
+endif ()
+
 add_test(
     NAME shared-arena-behavior
     COMMAND ${D6R_BASH_EXECUTABLE}
@@ -22,6 +27,21 @@ set_tests_properties(
     LABELS "application;regression;e2e;shared-arena"
     RUN_SERIAL TRUE
     TIMEOUT 420
+)
+
+add_test(
+    NAME async-menu-background-behavior
+    COMMAND ${D6R_BASH_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/AsyncMenuBackgroundBehaviorTests.sh
+)
+set_tests_properties(
+    async-menu-background-behavior
+    PROPERTIES
+    ENVIRONMENT
+        "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/async-menu-background-behavior;DISPLAY=:95"
+    LABELS "application;regression;e2e;menu;async"
+    RUN_SERIAL TRUE
+    TIMEOUT 120
 )
 
 add_test(

@@ -20,8 +20,10 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 
 ## Layout and hierarchy
 
-- The screen must use the centered 850 by 700 menu canvas from [`menu-main.md`](wireframes/menu-main.md).
-- The client area outside the menu canvas must use the black matte.
+- The screen must use the uniformly scaled and centered 850 by 700 logical menu canvas from [`menu-main.md`](wireframes/menu-main.md).
+- The canvas scale must be `min(1.35, clientWidth/850, clientHeight/700)` with no internal reflow.
+- The complete client behind the canvas must show one session-selected gameplay still using centered cover crop, Gaussian-equivalent blur near sigma 12 px, and a 55% black scrim.
+- The grey canvas must remain unblurred and undimmed inside a 2-logical-pixel black perimeter keyline.
 - The upper area must contain the existing 200 by 95 px animated banner and runtime version text.
 - The setup row must contain four panel groups in this order: Elo scoreboard, Persons, Players, and Game Settings.
 - Each setup panel must use a blue title strip with white text.
@@ -62,12 +64,15 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The Play action must not enter `PLAY-01` while either prerequisite is missing.
 - A valid start must keep the existing prompt and entry flow unchanged.
 - The visible version must come from the runtime application version.
+- The menu must select the still once during initialization, retain it when gameplay returns to the menu, retry untried eligible files after load failures, and silently use solid black if all eligible files fail.
+- Startup diagnostics must identify the selected background filename or the solid-black fallback.
 - Names, statistics, and settings in the Stitch screen are examples only.
 - The screen must not add a copyright line from the Stitch sample.
 
 ## Controls and focus
 
 - Mouse click must activate buttons, spinners, checkboxes, list selection, and text-field focus.
+- Pointer hit testing must apply the inverse canvas translation and scale.
 - Mouse wheel must scroll a list under the pointer.
 - Double-click on a person must add that person to Players.
 - Double-click on a player must return that player to Persons.
@@ -84,9 +89,12 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - Labels must identify all major lists and settings.
 - The Burnable Trees control must use a visible text label and must not rely only on its checked state.
 - Team rows must use color and ordered team assignment, but the menu does not add team-name text to each player row.
-- The canvas must remain centered at desktop client sizes.
+- The uniformly scaled canvas must remain centered at desktop client sizes.
 - The internal layout must not reflow.
-- A 1706 by 938 px client must show a 428 px black matte on the left and right and a 119 px black matte above and below the 850 by 700 px canvas.
+- An 850 by 700 px client must render at 100%.
+- A 1280 by 720 px client must evaluate at approximately 102.86%, limited by height.
+- A 1920 by 1080 px client must render at the 135% cap, producing an approximately 1148 by 945 px centered canvas.
+- Larger clients must retain the 135% cap and increase the visible photographic background area.
 - A supported client must be at least 850 by 700 px.
 - No mobile layout exists, so one desktop wireframe is sufficient.
 

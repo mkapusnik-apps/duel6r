@@ -11,11 +11,12 @@ Primary source is `source/Menu.cpp:368-486`.
 ## Layout and hierarchy
 
 - The state must place the message strip over the unchanged main menu.
-- The unchanged main menu must include the black matte and the approved four-panel canvas.
+- The unchanged main menu must include the session-selected blurred and scrimmed gameplay still, the scaled approved four-panel canvas, and its keyline.
 - The background Game Settings panel must include the Burnable Trees checkbox from `MENU-01`.
 - The strip must use the centered layout in [`menu-message.md`](wireframes/menu-message.md).
 - The message must be the top visual layer.
 - The strip must use the error surface, error text, and black frame from `docs/design.md`.
+- The strip and text must use the same menu scale as the canvas.
 
 ## Variants and recovery
 
@@ -54,10 +55,11 @@ Primary source is `source/Menu.cpp:368-486`.
 
 ## Viewport behavior
 
-- The strip width must derive from the message length.
+- A short strip width must derive from the message length and remain one line.
+- A long message may wrap at word boundaries within the logical canvas, with panel height growing for each line; sentence boundaries should be preferred where practical.
 - The strip must stay centered in the current client area.
-- The background menu must keep its centered fixed canvas.
-- The black matte must remain visible around the background canvas on a larger client.
+- The background menu must keep its centered, uniformly scaled fixed-layout canvas.
+- The same selected background image and scrim must remain visible around the canvas.
 - No mobile layout exists, so one desktop wireframe is sufficient.
 
 ## Screenshot link
