@@ -26,15 +26,19 @@ def request_graceful_shutdown(process):
     if IS_WINDOWS:
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.FreeConsole()
-        if not kernel32.AttachConsole(process.pid):
-            raise OSError(ctypes.get_last_error(), "AttachConsole failed")
-        if not kernel32.SetConsoleCtrlHandler(None, True):
-            raise OSError(ctypes.get_last_error(), "SetConsoleCtrlHandler failed")
         try:
+            if not kernel32.AttachConsole(process.pid):
+                raise OSError(ctypes.get_last_error(), "AttachConsole failed")
+            if not kernel32.SetConsoleCtrlHandler(None, True):
+                raise OSError(ctypes.get_last_error(), "SetConsoleCtrlHandler failed")
             if not kernel32.GenerateConsoleCtrlEvent(0, 0):
                 raise OSError(ctypes.get_last_error(), "GenerateConsoleCtrlEvent failed")
         finally:
             kernel32.FreeConsole()
+            restore_failed = not kernel32.SetConsoleCtrlHandler(None, False)
+            restore_error = ctypes.get_last_error()
+            if restore_failed and sys.exc_info()[0] is None:
+                raise OSError(restore_error, "restoring CTRL+C handling failed")
     else:
         process.send_signal(signal.SIGTERM)
 
