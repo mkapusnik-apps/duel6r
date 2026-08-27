@@ -2,10 +2,10 @@
 
 ## Purpose and traceability
 
-The screen builds the local roster, assigns controls, selects match settings, shows persistent results, starts a match, and exits the application.
+The implemented screen builds the local roster, assigns controls, selects match settings, shows persistent results, starts a local match, and exits the application. The approved target adds a distinct network entry without changing local Play.
 Entry occurs when the application starts or when gameplay closes.
-Exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action.
-The screen implements `SET-001`–`SET-029`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, and `PER-001`–`PER-005` from [`docs/features.md`](../features.md).
+Implemented exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action. In the target UI, `Network (F2)` enters `NET-01`.
+The screen implements `SET-001`–`SET-029`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, and `PER-001`–`PER-005` from [`docs/features.md`](../features.md). The planned Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 The visual source is Stitch screen `681ae093051749fd922ab74454f47121` in project `1219346282527961142`.
 Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`, and `resources/textures/menu/`.
 
@@ -35,9 +35,12 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The Rounds field must move down by one compact control row.
 - The Game Settings panel bounds must not change.
 - The full persistent score table must span the middle width.
-- The bottom action row must contain `Play (F1)`, `Clear (F3)`, and `Quit (ESC)`.
+- The current bottom action row contains `Play (F1)`, `Clear (F3)`, and `Quit (ESC)`.
+- The target bottom action row must contain `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)`.
+- The four target footer buttons must have equal 150-logical-pixel widths, equal 46-logical-pixel gaps, and equal 46-logical-pixel outer margins within the `x=10–840` footer content span.
 - The bottom action row must use action-first captions.
 - The screen must not use `[F1] PLAY`, `[F3] CLEAR`, or `[ESC] QUIT`.
+- The planned `Network (F2)` control is not implemented by issue #28 and must not be treated as current runtime behavior.
 
 ## Visible behavior and state variants
 
@@ -63,6 +66,8 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - A new Play attempt may repeat the prerequisite check.
 - The Play action must not enter `PLAY-01` while either prerequisite is missing.
 - A valid start must keep the existing prompt and entry flow unchanged.
+- `Play (F1)` must remain local-only and must not start, connect to, or require a network service.
+- In the target UI, `Network (F2)` must enter `NET-01` without starting a session and without changing the local roster, settings, or statistics.
 - The visible version must come from the runtime application version.
 - The menu must select the still once during initialization, retain it when gameplay returns to the menu, retry untried eligible files after load failures, and silently use solid black if all eligible files fail.
 - Startup diagnostics must identify the selected background filename or the solid-black fallback.
@@ -79,13 +84,14 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - Enter must add a person when the person-name field has focus.
 - Enter must apply Rounds when the rounds field has focus.
 - F1 must start the play workflow.
+- In the target UI, F2 must open `NET-01`; the current application has no network action.
 - F3 must open the clear confirmation.
 - Escape must close the menu context.
 - Focus must appear only as an underscore in the focused text field.
 
 ## Accessibility and viewport behavior
 
-- Shortcut text must remain visible in the three bottom action captions.
+- Shortcut text must remain visible in all bottom action captions; the target network entry adds a fourth caption.
 - Labels must identify all major lists and settings.
 - The Burnable Trees control must use a visible text label and must not rely only on its checked state.
 - Team rows must use color and ordered team assignment, but the menu does not add team-name text to each player row.
@@ -100,4 +106,4 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 
 ## Screenshot link
 
-Representative evidence: [`SS-001`](../screenshots/README.md#ss-001).
+Planned representative evidence for downstream issue #38: [`SS-001`](../screenshots/README.md#ss-001). No current application screenshot represents the target Network action.

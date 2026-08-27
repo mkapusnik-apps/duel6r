@@ -1,4 +1,4 @@
-# MENU-01 wireframe — Main menu
+# MENU-01 wireframe — Main menu with planned network entry
 
 Representative viewport: 1920 by 1080 px desktop client.
 Wireframe coordinates use a top-left origin.
@@ -14,14 +14,14 @@ The scaled grey canvas is unblurred and undimmed and has a 2-logical-pixel black
 | Header | `x=10–839`, `y=5–121` | Center the existing 200 by 95 px animated banner and show the runtime version below it. |
 | Setup panels | `x=10–839`, `y=122–447` | Show the four raised panel groups in one row. |
 | Statistics | `x=10–839`, `y=457–606` | Show the complete persistent statistics header and table. |
-| Footer actions | `x=10–839`, `y=620–689` | Show three 150 by 50 px actions with balanced horizontal spacing. |
+| Footer actions | `x=10–839`, `y=620–689` | Target: show four 150 by 50 px actions with balanced horizontal spacing. |
 
 The setup panel bounds are `x=10–194` for Elo scoreboard, `x=200–384` for Persons, `x=390–644` for Players, and `x=650–839` for Game Settings.
 Each panel title strip must identify its panel.
 The panel layout may adjust internal column widths by 1 px to preserve integer coordinates.
 The banner bounds are `x=325–524` and `y=5–99`.
 The version line must stay centered below the banner at `y=103–120`.
-The footer buttons use `x=50`, `x=350`, and `x=650` from left to right.
+Within the half-open footer content span `x=10–840`, the target footer buttons use `x=56–206`, `x=252–402`, `x=448–598`, and `x=644–794` from left to right. Every button is 150 logical px wide; every adjacent gap and both outer margins are 46 logical px.
 Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 
 ```text
@@ -44,7 +44,7 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 │        │┌──────────────── persistent statistics table ───────────────────┐│
 │        ││ compact rows; horizontal content remains inside the canvas     ││
 │        │└────────────────────────────────────────────────────────────────┘│
-│        │ [Play (F1)]                 [Clear (F3)]              [Quit (ESC)]│
+│        │[Play (F1)] [Network (F2)] [Clear (F3)] [Quit (ESC)]              │
 │        └──────────────────────────────────────────────────────────────────┘
 │                same session-selected background remains visible           │
 └───────────────────────────────────────────────────────────────────────────┘
@@ -71,6 +71,9 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 - The default wireframe state must show Assistance, Quick Liquid, and Burnable Trees checked.
 - All Game Settings controls must remain inside the existing panel bounds.
 - The footer captions must put the action before the shortcut.
+- Footer button widths, three internal gaps, and two outer margins must remain equal as specified above at every uniformly scaled viewport.
+- `Play (F1)` remains the independent local-only action; `Network (F2)` is a distinct target action leading to `NET-01`.
+- Issue #28 specifies this footer layout but does not implement it. The current application still has the three-action footer.
 - The banner must use `resources/textures/menu/` and may animate.
 - The version must use the current runtime value and must not use the Stitch sample value.
 - Sample names and statistics must not become hard-coded UI content.
@@ -81,4 +84,4 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 - Pressed controls must reverse their bevel and move their caption by 1 px.
 - Selection occurs once per application session; the still does not animate or change during menu navigation or a return from gameplay.
 
-Representative screenshot: [`SS-001`](../../screenshots/README.md#ss-001).
+Planned representative screenshot for downstream issue #38: [`SS-001`](../../screenshots/README.md#ss-001).

@@ -4,6 +4,8 @@
 
 The networking code is an experimental, incomplete developer scaffold. It does not add network play to Duel 6 Reloaded. Normal `duel6r` startup and every existing local game journey remain independent of this code: the game does not connect to a server, start a server, or expose network controls.
 
+The approved future first-release scope and journeys are defined in [`docs/network-play-first-release.md`](network-play-first-release.md). That target specification does not change the scaffold's current status and must not be read as implemented or playable network behavior.
+
 The scaffold provides transport-neutral data transfer objects and a prototype text serializer for these message families:
 
 - handshake request, acceptance, and rejection;

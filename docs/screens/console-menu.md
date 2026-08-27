@@ -3,6 +3,7 @@
 ## Purpose and traceability
 
 This overlay provides runtime inspection and commands while the menu remains visible.
+The approved target background includes the four equal-width `MENU-01` footer actions with distinct `Network (F2)`. Issue #28 does not implement that background change.
 Entry occurs when backquote is pressed from the menu.
 Exit occurs when backquote is pressed again or a console command closes the console.
 The overlay implements `CFG-001`–`CFG-002` and `CFG-008`–`CFG-020` from [`docs/features.md`](../features.md).
@@ -14,6 +15,7 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 - The complete menu must remain rendered behind the console.
 - The visible menu area behind the console must use the approved blurred and scrimmed session background plus the scaled four-panel canvas and keyline.
 - The visible Game Settings area must include the Burnable Trees checkbox from `MENU-01`.
+- The visible target footer must show `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)` with the equal widths, gaps, and outer margins from `MENU-01`.
 - The console must span the complete client width at the top of the visible client area.
 - The console must remain at client scale and must not inherit the menu transform.
 - The console must show up to 15 recent history rows.
@@ -44,4 +46,4 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 
 ## Screenshot link
 
-Representative evidence: [`SS-013`](../screenshots/README.md#ss-013).
+Planned representative evidence for downstream issue #38: [`SS-013`](../screenshots/README.md#ss-013). The existing capture is not valid for the changed target footer.

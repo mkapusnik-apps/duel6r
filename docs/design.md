@@ -9,7 +9,8 @@ The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a seco
 
 The approved product requirements are the source of truth for visual-impact changes.
 The current native implementation remains the source for unchanged visual details.
-This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, and the scaled photographic menu presentation approved on 2026-08-26.
+This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, and the planned first-release network UI defined for issue #28.
+The network additions are target specifications for downstream issue #38 and are not implemented UI or evidence of playable networking.
 
 ## Visual principles
 
@@ -18,7 +19,7 @@ This target baseline includes the shared arena view requirements, the retro menu
 - The interface must use direct labels and immediate visual feedback.
 - The interface must preserve player and team identity during fast play.
 - The interface must use text, position, shape, or motion with color when the implementation provides these cues.
-- New documentation must describe implemented behavior and must not invent a replacement style.
+- New documentation must distinguish implemented behavior from approved target behavior and must not invent a replacement style.
 
 ## Coordinate and viewport conventions
 
@@ -165,6 +166,24 @@ The following values come from renderer and GUI source.
 - The menu has no implemented disabled style.
 - Invalid actions may produce no visible change unless a blocking message is documented for that action.
 
+### Target network controls and status
+
+- `MENU-01`, `NET-01`–`NET-04`, and `NET-08` must use the retro 850 by 700 logical canvas and the same uniform scaling, centered presentation, photographic background, scrim, keyline, type, square controls, and compact density as the local menu.
+- `NET-05`–`NET-07` may overlay the undivided shared arena or summary context where their screen specifications require it; they must not introduce player-specific viewports.
+- `NET-09` must be a blocking panel over the last confirmed lobby, arena, summary, or reconnect context. It must not replace that context with a fixed 850 by 700 canvas requirement.
+- Participant role, connection, readiness, and ownership must use separate textual fields or columns. Color may reinforce but must not replace `Host`, `Guest`, `Connected`, `Reconnecting`, `Ready`, or `Not ready`.
+- Connection copy must be truthful: the UI must not show a lobby, listening state, successful connection, or restored session before the runtime confirms it.
+- A disabled action must remain readable and must show a nearby textual reason, including the named unready participant or invalid configuration where applicable.
+- Host-owned fields must be visibly read-only to guests, and participant-owned player controls must not appear editable to another participant.
+- Reconnecting UI must show the positive ceiling seconds remaining from the host deadline, never active `0`, and state that active play continues when the match is active.
+- Guest Leave, reconnect Leave session, and host End session actions must use consequence confirmations and the destinations defined by the product specification.
+- Silence, refusal, unreachable, reset, timeout, host crash, host-machine/listener loss, temporary failure, or no response must remain guest `NET-07` through the fixed deadline; it must not be presented as host end.
+- `NET-09` must use only the fixed intentional host-end copy after a valid End session notice is accepted through the current established session.
+- Host-local supervised hosted-service failure must use host `NET-08` with `Hosted session stopped unexpectedly.` and must never become guest evidence.
+- Release, manifest, content, admission, reconnect, and termination user copy must never interpolate a peer-supplied release ID, path, credential, policy value, payload, or raw filesystem value.
+- Final network results must show the exact label `Session only` near the summary heading or result table.
+- Target network UI must not offer discovery, matchmaking, Internet, NAT traversal, accounts, passwords, dedicated servers, join-in-progress, or host migration.
+
 ### Gameplay presentation
 
 - The arena must keep terrain, water, sprites, elevators, pickups, players, shots, and explosions in the implemented render order.
@@ -214,7 +233,7 @@ The following values come from renderer and GUI source.
 
 - Documentation must identify keyboard-only actions and mouse-only actions.
 - Visible shortcut labels such as `F1`, `F3`, and `ESC` must remain in button captions.
-- The menu action captions must use `Play (F1)`, `Clear (F3)`, and `Quit (ESC)`.
+- The current menu action captions use `Play (F1)`, `Clear (F3)`, and `Quit (ESC)`; the target network entry adds `Network (F2)` between Play and Clear.
 - The menu action captions must not place a bracketed shortcut before the action name.
 - A confirmation must show `Y/N` in its message.
 - Team names must accompany team colors in rankings.
@@ -224,6 +243,9 @@ The following values come from renderer and GUI source.
 - Team apparel currently relies on color during direct arena play.
 - The implementation has no documented focus traversal, focus ring, screen reader output, reduced-motion mode, high-contrast mode, or text scaling mode.
 - Screenshot evidence must not claim support for an accessibility mode that the implementation does not provide.
+- Target network screens must define a deterministic keyboard and controller focus order, preserve a visible focused-control state, and allow primary, Back, Cancel, Retry, Ready, and Return actions without a mouse.
+- Focus must not rely only on color, and status changes must remain as visible text rather than transient color or motion alone.
+- Unsupported actions must be absent rather than represented by ambiguous disabled affordances.
 
 ## Responsive behavior
 
@@ -246,6 +268,7 @@ The following values come from renderer and GUI source.
 - A shared token or component change must trigger an assessment of all screens.
 - Screenshot provenance must record branch, source SHA, environment, workflow, state, viewport, artifact path, selected menu background filename, runtime asset manifest revision, and session identifier where the menu background is visible.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
+- The 12 affected screenshot entries remain `Planned` until issue #38 implements and captures the target `MENU-01`, `MENU-02`, `CONS-01`, and `NET-01`–`NET-09` states; existing local screenshots cannot be reused as target evidence.
 
 ## Reviewed implementation sources
 
