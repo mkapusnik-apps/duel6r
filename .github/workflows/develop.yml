@@ -63,7 +63,7 @@ jobs:
     name: Tag - sanity
     permissions:
       contents: 'write'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     needs: [sanity, lint]
     steps:
       - uses: actions/checkout@v7

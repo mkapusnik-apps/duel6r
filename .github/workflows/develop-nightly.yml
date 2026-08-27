@@ -1,15 +1,16 @@
 name: Develop - Nightly
+
 on:
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
     name: Nightly Build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
       packages: read
@@ -62,7 +63,7 @@ jobs:
   release:
     name: Publish nightly pre-release
     needs: [build]
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: write
     steps:
@@ -90,3 +91,17 @@ jobs:
           files: release-assets/duel6r-nightly.zip
           overwrite_files: true
           fail_on_unmatched_files: true
+
+  tag:
+    name: Tag - nightly
+    permissions:
+      contents: 'write'
+    runs-on: ubuntu-latest
+    needs: [ release ]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: mkapusnik-apps/commons/tag@v1
+        with:
+          tag: nightly
+          token: ${{ secrets.PAT_ACTIONS }}
