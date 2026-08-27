@@ -17,8 +17,8 @@ Target representative viewport: 1280 by 900 px. The final arena context remains 
 ```
 
 - The exact `Session only` label is visible with the authoritative final results.
-- Final-summary departure never reevaluates the completed outcome; retained rows use `Departed`. Starting a new match clears this set, and host end or definitive termination discards it.
-- Guest Leave, full-deadline reconnect, host End session, and definitive-termination variants and confirmations remain in the specification.
+- Final-summary departure never reevaluates the completed outcome; retained rows use `Departed`. Starting a new match clears this set, while intentional host end or host-local supervised failure discards the host result.
+- Guest Leave, full-deadline reconnect, and intentional host End session variants and confirmations remain in the specification.
 - Keyboard/controller focus is explicit and does not depend on color.
 
 Planned representative screenshot: [`SS-020`](../../screenshots/README.md#ss-020).

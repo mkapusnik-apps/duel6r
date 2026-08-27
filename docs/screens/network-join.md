@@ -19,7 +19,7 @@ Entry is `NET-01` → Join. Confirmed admission enters `NET-04`; failure enters 
 - Resolving and Connecting states name the endpoint, show that the single 10-second boundary includes resolution through admission, and do not imply lobby admission.
 - Cancel stops the attempt and returns to editable setup with endpoint and local-player configuration retained; it does not show Disconnected as though a session existed.
 - After Cancel/local validation, a complete host response uses this fixed first-applicable order: malformed request, trust/authorization, release, invalid manifest, content mismatch, match started, capacity, other policy rejection, success.
-- Without a complete host response, initial transport outcomes use definitive name-resolution failure, definitive unreachable/refusal, reset/close before complete admission, then generic timeout. A complete response accepted before the deadline outranks later generic transport symptoms.
+- Without a complete host response, initial transport outcomes use name-resolution failure, unreachable/refusal, reset/close before complete admission, then generic timeout. A complete response accepted before the deadline outranks later generic transport symptoms.
 - User copy uses the exact fixed non-disclosing messages from the product specification and never includes peer release IDs, manifest paths, credentials, policy values, or raw payloads.
 - Successful admission alone enters `NET-04`; join-in-progress rejection is explicit when the host already started.
 - `NET-08` Retry repeats the retained attempt, Edit setup returns here with all data retained, and Return to Network enters `NET-01`.

@@ -19,6 +19,6 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 - Initial admission and transport failures use the fixed product precedence and non-disclosing copy. Endpoint validation remains inline in `NET-03`.
 - Retry repeats retained data; Edit setup returns to retained `NET-02` or `NET-03`; Return to Network enters `NET-01`.
 - Terminal reconnect rejection and expiry disable Retry when the original reservation cannot restore. Expiry copy never claims host end or player removal.
-- Compatibility, capacity, timeout, and reconnect variants remain in the specification; valid host end or definitive termination uses `NET-09`.
+- Compatibility, capacity, timeout, terminal reconnect, expiry, and host-local `Hosted session stopped unexpectedly.` variants remain in the specification. Only accepted intentional host End uses guest `NET-09`.
 
 Planned representative screenshot: [`SS-022`](../../screenshots/README.md#ss-022).

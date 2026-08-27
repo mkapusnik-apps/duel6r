@@ -4,7 +4,7 @@
 
 This is a target screen for downstream issue #38; it is not implemented. It presents final authoritative match results without implying local persistence. It implements `NET-AC-010`, `NET-AC-011`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 
-Normal match completion enters from `NET-05`. Host Return to lobby sends all connected participants to `NET-04` with readiness cleared; guest Leave returns to `NET-01`; ambiguous guest isolation enters `NET-07`. Only valid host end or independently definitive termination enters `NET-09`.
+Normal match completion enters from `NET-05`. Host Return to lobby sends all connected participants to `NET-04` with readiness cleared; guest Leave returns to `NET-01`; unexpected host contact failure enters guest `NET-07`. Only a valid End session notice accepted through the current established session enters guest `NET-09`.
 
 ## Representative layout
 
@@ -20,7 +20,7 @@ Normal match completion enters from `NET-05`. Host Return to lobby sends all con
 - Guest Leave opens `Leave session? Your players will be removed and you will return to Network.` Confirm enters guest `NET-01`; Cancel returns to the summary. A departed participant remains labeled `Departed` in retained result rows for participants still in session.
 - An unintentional guest disconnect receives the original host-clock 30-second reservation through `NET-07` and returns to the current summary on strictly-before-deadline success.
 - Final-summary removal never reevaluates or replaces the completed match outcome; it retains the result and labels affected rows `Departed`.
-- Valid host end or independently definitive termination enters `NET-09` and discards the result; ambiguous isolation remains `NET-07` until another terminal outcome.
+- Accepted intentional host End enters `NET-09` and discards the result; every unexpected host failure remains guest `NET-07` until terminal rejection or deadline expiry.
 - Starting a new match clears this result set; no result survives as local persistence.
 - The summary must not offer Save, Elo update, account upload, or local-statistics merge.
 

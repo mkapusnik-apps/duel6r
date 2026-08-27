@@ -1,12 +1,12 @@
-# NET-09 wireframe — Host-ended or definitive-termination overlay
+# NET-09 wireframe — Host-ended session overlay
 
 Target representative viewport: 1280 by 900 px with the last authoritative arena context. The same blocking panel overlays the last lobby, summary, or reconnect context without imposing a fixed 850 by 700 canvas. This wireframe is planned for issue #38 and is not implemented.
 
 ```text
 ┌──────────────────────────── 1280 × 900 client ───────────────────────┐
 │                    last authoritative arena frame                    │
-│            ┌──────────── SESSION TERMINATED ─────────────┐            │
-│            │ The session ended and cannot be restored.  │            │
+│            ┌──────────── HOST ENDED SESSION ─────────────┐            │
+│            │ The host ended the session.                 │            │
 │            │ This session cannot be resumed.            │            │
 │            │ Session-only results were not saved to     │            │
 │            │ local statistics or Elo.                   │            │
@@ -15,9 +15,9 @@ Target representative viewport: 1280 by 900 px with the last authoritative arena
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-- The representative independently definitive variant uses `SESSION TERMINATED`. The valid host-ended variant replaces the heading with `HOST ENDED SESSION` and says `The host ended the session`.
-- Terminal outcome, no migration/resume, and no persistence are explicit text.
-- Silence, refusal, unreachable, reset, temporary failure, no response, and deadline expiry cannot produce this overlay from guest isolation.
+- The representative state uses only the fixed valid host-end copy shown above.
+- Intentional terminal outcome, no migration/resume, and no persistence are explicit text.
+- Silence, refusal, unreachable, reset, timeout, host crash, host-machine/listener loss, temporary failure, no response, terminal rejection, and deadline expiry cannot produce this overlay.
 - Lobby, summary, and reconnect-context variants remain in the specification.
 - Return to Network is the only action and is keyboard/controller focused by default.
 
