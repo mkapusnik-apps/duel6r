@@ -95,22 +95,4 @@ set_tests_properties(
     RUN_SERIAL TRUE
     TIMEOUT 300
 )
-add_executable(duel6r-session-transport-tests
-        ${CMAKE_SOURCE_DIR}/tests/SessionTransportTests.cpp)
-target_include_directories(duel6r-session-transport-tests PRIVATE ${CMAKE_SOURCE_DIR})
-target_link_libraries(duel6r-session-transport-tests duel6r-network-scaffold)
-add_test(NAME duel6r-session-transport-tests COMMAND duel6r-session-transport-tests)
-set_tests_properties(duel6r-session-transport-tests PROPERTIES
-        LABELS "application;network;transport"
-        TIMEOUT 120)
-
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
-add_test(
-        NAME duel6r-session-transport-process-tests
-        COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_SOURCE_DIR}/tests/SessionTransportProcessTests.py
-                $<TARGET_FILE:${D6R_SERVER_APP_NAME}>
-)
-set_tests_properties(duel6r-session-transport-process-tests PROPERTIES
-        LABELS "application;integration;network;transport"
-        TIMEOUT 90)
+include(${CMAKE_SOURCE_DIR}/tests/SessionTransportCTestRegistration.cmake)

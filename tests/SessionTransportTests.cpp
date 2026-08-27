@@ -1,4 +1,5 @@
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -127,6 +128,250 @@ std::shared_ptr<TcpConnection> awaitAccept(TcpListener &listener) {
     std::shared_ptr<TcpConnection> result;
     CHECK(waitUntil([&] { result = listener.acceptConnection(); return bool(result); }, 2s));
     return result;
+}
+
+ResolvedIpv4Endpoint fakeLoopback(std::uint16_t port) {
+    return {{127, 0, 0, 1}, port};
+}
+
+class FakeClock {
+public:
+    TransportTimePoint now() const { return TransportTimePoint{} + std::chrono::milliseconds(ticks.load()); }
+    void advance(std::chrono::milliseconds amount) { ticks.fetch_add(amount.count()); }
+    void set(TransportTimePoint value) {
+        ticks.store(std::chrono::duration_cast<std::chrono::milliseconds>(value.time_since_epoch()).count());
+    }
+private:
+    std::atomic<std::int64_t> ticks{0};
+};
+
+void deterministicResolverCancellation() {
+    auto verifyClient = [] {
+        std::atomic<int> activeResolvers{0};
+        std::atomic<int> connectorCalls{0};
+        SessionTransportDependencies dependencies;
+        dependencies.resolve = [&](const std::string &, std::uint16_t, TransportTimePoint,
+                                   const std::function<bool()> &cancelled) {
+            activeResolvers.fetch_add(1);
+            while (!cancelled()) std::this_thread::yield();
+            activeResolvers.fetch_sub(1);
+            return ResolveOutcome{ResolveStatus::Cancelled, {}};
+        };
+        dependencies.connect = [&](const auto &, auto, const auto &) {
+            connectorCalls.fetch_add(1);
+            return ConnectOutcome{};
+        };
+        TcpClient client(dependencies);
+        CHECK(client.start({"deterministically-stalled.test", 12345}));
+        CHECK(waitUntil([&] { return activeResolvers.load() == 1; }, 1s));
+        const auto started = std::chrono::steady_clock::now();
+        client.cancel(); client.cancel(); client.cancel();
+        CHECK(std::chrono::steady_clock::now() - started < 1s);
+        CHECK(activeResolvers.load() == 0);
+        CHECK(connectorCalls.load() == 0);
+        CHECK(client.state() == ClientState::Cancelled);
+        std::this_thread::sleep_for(50ms);
+        CHECK(client.state() == ClientState::Cancelled);
+        CHECK(!client.connection());
+    };
+    auto verifyListener = [] {
+        std::atomic<int> activeResolvers{0};
+        SessionTransportDependencies dependencies;
+        dependencies.resolve = [&](const std::string &, std::uint16_t, TransportTimePoint,
+                                   const std::function<bool()> &cancelled) {
+            activeResolvers.fetch_add(1);
+            while (!cancelled()) std::this_thread::yield();
+            activeResolvers.fetch_sub(1);
+            return ResolveOutcome{ResolveStatus::Cancelled, {}};
+        };
+        TcpListener listener(1, dependencies);
+        CHECK(listener.start({"deterministically-stalled.test", 12345}));
+        CHECK(waitUntil([&] { return activeResolvers.load() == 1; }, 1s));
+        const auto started = std::chrono::steady_clock::now();
+        listener.cancel(); listener.cancel(); listener.shutdown(); listener.shutdown();
+        CHECK(std::chrono::steady_clock::now() - started < 1s);
+        CHECK(activeResolvers.load() == 0);
+        CHECK(listener.state() == ListenerState::Cancelled);
+        std::this_thread::sleep_for(50ms);
+        CHECK(listener.state() == ListenerState::Cancelled);
+        CHECK(!listener.acceptConnection());
+    };
+    verifyClient();
+    verifyListener();
+}
+
+void sharedDeadlineAndClassifications() {
+    auto classifyConnect = [](ConnectStatus status, ClientState expectedState, TransportFailure expectedFailure) {
+        FakeClock clock;
+        TransportTimePoint resolverDeadline{};
+        TransportTimePoint connectorDeadline{};
+        SessionTransportDependencies dependencies;
+        dependencies.now = [&] { return clock.now(); };
+        dependencies.resolve = [&](const std::string &, std::uint16_t port, TransportTimePoint deadline,
+                                   const std::function<bool()> &) {
+            resolverDeadline = deadline;
+            clock.advance(9s);
+            return ResolveOutcome{ResolveStatus::Resolved, {fakeLoopback(port)}};
+        };
+        dependencies.connect = [&](const auto &, TransportTimePoint deadline, const auto &) {
+            connectorDeadline = deadline;
+            CHECK(deadline == resolverDeadline);
+            CHECK(deadline - clock.now() == 1s);
+            return ConnectOutcome{status, -1};
+        };
+        TcpClient client(dependencies);
+        CHECK(client.start({"seam.test", 12345}));
+        CHECK(!client.waitForConnected(1s));
+        CHECK(client.state() == expectedState);
+        CHECK(client.failure() == expectedFailure);
+        CHECK(connectorDeadline == resolverDeadline);
+        client.cancel(); client.cancel();
+        CHECK(client.state() == expectedState);
+    };
+    classifyConnect(ConnectStatus::ConnectionRefused, ClientState::Failed, TransportFailure::ConnectionRefused);
+    classifyConnect(ConnectStatus::Unreachable, ClientState::Failed, TransportFailure::Unreachable);
+    classifyConnect(ConnectStatus::Failed, ClientState::Failed, TransportFailure::SystemError);
+    classifyConnect(ConnectStatus::TimedOut, ClientState::TimedOut, TransportFailure::None);
+
+    {
+        FakeClock clock;
+        std::atomic<int> connectorCalls{0};
+        SessionTransportDependencies dependencies;
+        dependencies.now = [&] { return clock.now(); };
+        dependencies.resolve = [&](const std::string &, std::uint16_t port, TransportTimePoint,
+                                   const std::function<bool()> &) {
+            clock.advance(10s);
+            return ResolveOutcome{ResolveStatus::Resolved, {fakeLoopback(port)}};
+        };
+        dependencies.connect = [&](const auto &, auto, const auto &) {
+            connectorCalls.fetch_add(1);
+            return ConnectOutcome{ConnectStatus::ConnectionRefused, -1};
+        };
+        TcpClient client(dependencies);
+        CHECK(client.start({"deadline.test", 12345}));
+        CHECK(!client.waitForConnected(1s));
+        CHECK(client.state() == ClientState::TimedOut);
+        CHECK(client.failure() == TransportFailure::None);
+        CHECK(connectorCalls.load() == 0);
+    }
+    {
+        FakeClock clock;
+        SessionTransportDependencies dependencies;
+        dependencies.now = [&] { return clock.now(); };
+        dependencies.resolve = [&](const std::string &, std::uint16_t port, TransportTimePoint,
+                                   const std::function<bool()> &) {
+            clock.advance(9999ms);
+            return ResolveOutcome{ResolveStatus::Resolved, {fakeLoopback(port)}};
+        };
+        dependencies.connect = [&](const auto &, TransportTimePoint deadline, const auto &) {
+            CHECK(deadline - clock.now() == 1ms);
+            clock.advance(1ms);
+            return ConnectOutcome{ConnectStatus::ConnectionRefused, -1};
+        };
+        TcpClient client(dependencies);
+        CHECK(client.start({"deadline-precedence.test", 12345}));
+        CHECK(!client.waitForConnected(1s));
+        CHECK(client.state() == ClientState::TimedOut);
+        CHECK(client.failure() == TransportFailure::None);
+    }
+    {
+        SessionTransportDependencies dependencies;
+        dependencies.resolve = [](const std::string &, std::uint16_t, TransportTimePoint,
+                                  const std::function<bool()> &) {
+            return ResolveOutcome{ResolveStatus::Failed, {}};
+        };
+        TcpClient client(dependencies);
+        CHECK(client.start({"resolve-failure.test", 12345}));
+        CHECK(!client.waitForConnected(1s));
+        CHECK(client.state() == ClientState::Failed);
+        CHECK(client.failure() == TransportFailure::ResolveFailed);
+    }
+    {
+        FakeClock clock;
+        SessionTransportDependencies dependencies;
+        dependencies.now = [&] { return clock.now(); };
+        dependencies.resolve = [&](const std::string &, std::uint16_t port, TransportTimePoint,
+                                   const std::function<bool()> &) {
+            clock.advance(10s);
+            return ResolveOutcome{ResolveStatus::Resolved, {fakeLoopback(port)}};
+        };
+        TcpListener listener(1, dependencies);
+        CHECK(listener.start({"listener-deadline.test", 12345}));
+        CHECK(!listener.waitForReady(1s));
+        CHECK(listener.state() == ListenerState::TimedOut);
+        CHECK(listener.failure() == TransportFailure::None);
+        listener.shutdown(); listener.shutdown();
+        CHECK(listener.state() == ListenerState::TimedOut);
+    }
+}
+
+void cancellationDeadlineRacesAreTerminalAndJoined() {
+    {
+        FakeClock clock;
+        std::atomic<int> activeResolvers{0};
+        std::atomic<bool> entered{false};
+        SessionTransportDependencies dependencies;
+        dependencies.now = [&] { return clock.now(); };
+        dependencies.resolve = [&](const std::string &, std::uint16_t, TransportTimePoint deadline,
+                                   const std::function<bool()> &cancelled) {
+            activeResolvers.fetch_add(1);
+            entered.store(true);
+            while (!cancelled()) std::this_thread::yield();
+            clock.set(deadline);
+            activeResolvers.fetch_sub(1);
+            return ResolveOutcome{ResolveStatus::TimedOut, {}};
+        };
+        TcpClient client(dependencies);
+        CHECK(client.start({"race.test", 12345}));
+        CHECK(waitUntil([&] { return entered.load(); }, 1s));
+        client.cancel(); client.cancel();
+        CHECK(activeResolvers.load() == 0);
+        CHECK(client.state() == ClientState::Cancelled);
+        std::this_thread::sleep_for(50ms);
+        CHECK(client.state() == ClientState::Cancelled);
+    }
+    {
+        FakeClock clock;
+        std::atomic<int> activeConnectors{0};
+        SessionTransportDependencies dependencies;
+        dependencies.now = [&] { return clock.now(); };
+        dependencies.resolve = [](const std::string &, std::uint16_t port, TransportTimePoint,
+                                  const std::function<bool()> &) {
+            return ResolveOutcome{ResolveStatus::Resolved, {fakeLoopback(port)}};
+        };
+        dependencies.connect = [&](const auto &, TransportTimePoint deadline, const std::function<bool()> &cancelled) {
+            activeConnectors.fetch_add(1);
+            while (!cancelled()) std::this_thread::yield();
+            clock.set(deadline);
+            activeConnectors.fetch_sub(1);
+            return ConnectOutcome{ConnectStatus::TimedOut, -1};
+        };
+        TcpClient client(dependencies);
+        CHECK(client.start({"connector-race.test", 12345}));
+        CHECK(waitUntil([&] { return activeConnectors.load() == 1; }, 1s));
+        const auto started = std::chrono::steady_clock::now();
+        client.cancel(); client.cancel(); client.cancel();
+        CHECK(std::chrono::steady_clock::now() - started < 1s);
+        CHECK(activeConnectors.load() == 0);
+        CHECK(client.state() == ClientState::Cancelled);
+        CHECK(!client.connection());
+    }
+    {
+        FakeClock clock;
+        SessionTransportDependencies dependencies;
+        dependencies.now = [&] { return clock.now(); };
+        dependencies.resolve = [&](const std::string &, std::uint16_t, TransportTimePoint deadline,
+                                   const std::function<bool()> &) {
+            clock.set(deadline);
+            return ResolveOutcome{ResolveStatus::TimedOut, {}};
+        };
+        TcpClient client(dependencies);
+        CHECK(client.start({"deadline-wins.test", 12345}));
+        CHECK(!client.waitForConnected(1s));
+        CHECK(client.state() == ClientState::TimedOut);
+        client.cancel(); client.cancel();
+        CHECK(client.state() == ClientState::TimedOut);
+    }
 }
 
 void startListener(TcpListener &listener, std::uint16_t port, const std::string &host = "127.0.0.1") {
@@ -361,6 +606,9 @@ int main() {
     WSADATA data{}; if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return 2;
 #endif
     const std::vector<std::pair<const char *, void (*)()>> tests = {
+        {"deterministic resolver cancellation", deterministicResolverCancellation},
+        {"shared deadline and classifications", sharedDeadlineAndClassifications},
+        {"cancellation deadline races", cancellationDeadlineRacesAreTerminalAndJoined},
         {"lifecycle and failures", lifecycleAndFailures}, {"15 isolated connections", fifteenIsolatedConnections},
         {"queue boundaries", queueBoundaries}, {"malformed isolation", malformedPeersAreIsolated},
         {"stalls and liveness", stallsAndLiveness}, {"close and shutdown bounds", closeAndShutdownBounds}};

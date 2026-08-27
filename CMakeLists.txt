@@ -545,6 +545,8 @@ if (BUILD_TESTING)
 
     add_test(NAME ${D6R_TEST_APP_NAME} COMMAND ${D6R_TEST_APP_NAME})
 
+    include(${CMAKE_SOURCE_DIR}/tests/SessionTransportCTestRegistration.cmake)
+
     if (UNIX)
         find_program(D6R_BASH_EXECUTABLE bash)
         if (NOT D6R_BASH_EXECUTABLE)
