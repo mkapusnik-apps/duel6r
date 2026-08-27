@@ -475,6 +475,34 @@ if (D6R_WITH_LUA)
             )
 endif (D6R_WITH_LUA)
 
+set(D6R_NETWORK_SCAFFOLD_SOURCES
+        source/client/ConnectionPlan.cpp
+        source/client/ConnectionPlan.h
+        source/client/LocalServerLauncher.cpp
+        source/client/LocalServerLauncher.h
+        source/client/LoopbackSession.cpp
+        source/client/LoopbackSession.h
+        source/network/Protocol.cpp
+        source/network/Protocol.h
+        source/network/ProtocolSerialization.cpp
+        source/network/ProtocolSerialization.h
+        source/server/HeadlessServer.cpp
+        source/server/HeadlessServer.h
+        source/server/ServerConfig.cpp
+        source/server/ServerConfig.h
+        )
+
+add_library(duel6r-network-scaffold STATIC ${D6R_NETWORK_SCAFFOLD_SOURCES})
+target_include_directories(duel6r-network-scaffold PUBLIC ${CMAKE_SOURCE_DIR}/source)
+
+set(D6R_SERVER_APP_NAME "duel6r-server" CACHE STRING "Filename of the experimental server scaffold.")
+add_executable(${D6R_SERVER_APP_NAME} source/server/ServerMain.cpp)
+target_link_libraries(${D6R_SERVER_APP_NAME} duel6r-network-scaffold)
+set_target_properties(${D6R_SERVER_APP_NAME} PROPERTIES VERSION 6.0.0)
+if (MINGW)
+    set_property(TARGET ${D6R_SERVER_APP_NAME} APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif (MINGW)
+
 if (BUILD_TESTING)
     set(D6R_TEST_APP_NAME "duel6r-tests")
     file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}" D6R_TEST_SOURCE_DIR)
