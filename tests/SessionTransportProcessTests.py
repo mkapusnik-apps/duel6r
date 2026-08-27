@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Separate-process behavioral checks for duel6r-server's diagnostic TCP transport."""
+import ctypes
+import os
 import signal
 import socket
 import struct
@@ -9,6 +11,32 @@ import threading
 import time
 
 MAGIC, VERSION, APPLICATION, MAX_PAYLOAD = 0x44365254, 1, 0, 1024 * 1024
+IS_WINDOWS = os.name == "nt"
+
+
+def start_server(executable, host, port):
+    creationflags = subprocess.CREATE_NEW_CONSOLE if IS_WINDOWS else 0
+    return subprocess.Popen(
+        [executable, "--transport-echo", f"--host={host}", f"--port={port}", "--max-clients=15"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+        creationflags=creationflags)
+
+
+def request_graceful_shutdown(process):
+    if IS_WINDOWS:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.FreeConsole()
+        if not kernel32.AttachConsole(process.pid):
+            raise OSError(ctypes.get_last_error(), "AttachConsole failed")
+        if not kernel32.SetConsoleCtrlHandler(None, True):
+            raise OSError(ctypes.get_last_error(), "SetConsoleCtrlHandler failed")
+        try:
+            if not kernel32.GenerateConsoleCtrlEvent(0, 0):
+                raise OSError(ctypes.get_last_error(), "GenerateConsoleCtrlEvent failed")
+        finally:
+            kernel32.FreeConsole()
+    else:
+        process.send_signal(signal.SIGTERM)
 
 def unused_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
@@ -46,8 +74,8 @@ def wait_ready(process, expected):
 
 def exercise(executable, host):
     port = unused_port()
-    process = subprocess.Popen([executable, "--transport-echo", f"--host={host}", f"--port={port}", "--max-clients=15"],
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    process = start_server(executable, host, port)
+    clients = []
     try:
         output = wait_ready(process, f"transport ready on {host}:{port}")
         output.append(process.stdout.readline())
@@ -69,13 +97,17 @@ def exercise(executable, host):
         try:
             assert not clients[0].recv(1), "frame duplication or merging produced trailing data"
         except socket.timeout: pass
-        for client in clients: client.close()
-        started = time.monotonic(); process.send_signal(signal.SIGTERM); process.wait(timeout=3)
+        for client in clients:
+            client.close()
+        clients.clear()
+        started = time.monotonic(); request_graceful_shutdown(process); process.wait(timeout=3)
         assert process.returncode == 0 and time.monotonic() - started < 3
         assert "transport stopped" in process.stdout.read()
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.settimeout(1); assert probe.connect_ex(("127.0.0.1", port)) != 0
     finally:
+        for client in clients:
+            client.close()
         if process.poll() is None: process.kill(); process.wait(timeout=3)
 
 def ordinary_startup_has_no_listener(executable):

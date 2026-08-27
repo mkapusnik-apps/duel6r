@@ -522,11 +522,11 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
     startListener(listener, port);
     RawSocketOwner peer(connectRaw(port));
     auto server = awaitAccept(listener);
-    int receiveBuffer = 1024;
+    int receiveBuffer = 32 * 1024;
     CHECK(setsockopt(peer.get(), SOL_SOCKET, SO_RCVBUF,
                      reinterpret_cast<const char *>(&receiveBuffer), sizeof(receiveBuffer)) == 0);
     auto applicationPayload = [](std::uint64_t sequence) {
-        std::vector<std::uint8_t> payload(1024, 0xA6);
+        std::vector<std::uint8_t> payload(sequence == 0 ? MaxPayloadBytes : 1024, 0xA6);
         for (std::size_t index = 0; index < 8; ++index)
             payload[index] = static_cast<std::uint8_t>(sequence >> ((7u - index) * 8u));
         return payload;
@@ -547,6 +547,9 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
     std::atomic<bool> readerFailed{false};
     std::atomic<std::size_t> applicationFrames{0};
     std::atomic<std::size_t> pingFrames{0};
+    std::atomic<std::size_t> pongFrames{0};
+    std::atomic<std::size_t> maximumBytesReceived{0};
+    std::atomic<bool> controlPrecededQueuedApplication{false};
     std::atomic<bool> slowReader{true};
     std::thread reader([&] {
         try {
@@ -573,13 +576,27 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
                                        | (std::uint32_t(header[10]) << 8u) | header[11];
             if (magic != TransportFramingIdentifier || size > MaxPayloadBytes) { readerFailed.store(true); break; }
             std::vector<std::uint8_t> payload(size);
-            if (size > 0 && !receiveExact(payload.data(), payload.size())) { readerFailed.store(true); break; }
+            if (size == MaxPayloadBytes && slowReader.load()) {
+                const auto pacedStart = std::chrono::steady_clock::now();
+                std::size_t offset = 0;
+                while (offset < payload.size()) {
+                    const std::size_t chunk = std::min<std::size_t>(16 * 1024, payload.size() - offset);
+                    if (!receiveExact(payload.data() + offset, chunk)) { readerFailed.store(true); break; }
+                    offset += chunk;
+                    maximumBytesReceived.store(offset);
+                    std::this_thread::sleep_until(pacedStart + std::chrono::milliseconds(32000 * offset / payload.size()));
+                }
+                if (readerFailed.load()) break;
+            } else if (size > 0 && !receiveExact(payload.data(), payload.size())) {
+                readerFailed.store(true);
+                break;
+            }
             if (kind == 0) {
-                if (payload.size() != 1024) { readerFailed.store(true); break; }
                 std::uint64_t sequence = 0;
                 for (std::size_t index = 0; index < 8; ++index)
                     sequence = (sequence << 8u) | payload[index];
-                if (sequence != applicationFrames.load()
+                const std::size_t expectedSize = sequence == 0 ? MaxPayloadBytes : 1024;
+                if (payload.size() != expectedSize || sequence != applicationFrames.load()
                     || !std::all_of(payload.begin() + 8, payload.end(), [](std::uint8_t value) {
                         return value == 0xA6;
                     })) { readerFailed.store(true); break; }
@@ -588,7 +605,10 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
             } else if (kind == 1) {
                 pingFrames.fetch_add(1);
                 sendFrame(peer.get(), {}, 2);
-            } else if (kind != 2) {
+            } else if (kind == 2) {
+                pongFrames.fetch_add(1);
+                if (applicationFrames.load() == 1) controlPrecededQueuedApplication.store(true);
+            } else {
                 readerFailed.store(true);
                 break;
             }
@@ -598,27 +618,34 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
         }
     });
 
-    const auto deadline = std::chrono::steady_clock::now() + 31s;
+    const auto deadline = std::chrono::steady_clock::now() + 34s;
     std::size_t sustainedAccepted = 0;
     std::size_t sustainedBackpressure = 0;
     std::size_t progressAtTenSeconds = 0;
     std::size_t progressAtTwentySeconds = 0;
+    std::size_t progressAtThirtySeconds = 0;
     const auto started = std::chrono::steady_clock::now();
     bool unexpectedSendResult = false;
     SendResult unexpectedResult = SendResult::Accepted;
+    bool peerPingSent = false;
+    ClientState stateAfterThirtySeconds = ClientState::NotStarted;
     while (std::chrono::steady_clock::now() < deadline) {
         SendResult result = server->send(applicationPayload(nextSequence));
         if (result == SendResult::Accepted) { ++sustainedAccepted; ++nextSequence; }
         else if (result == SendResult::Backpressure) ++sustainedBackpressure;
         else { unexpectedSendResult = true; unexpectedResult = result; break; }
         const auto elapsed = std::chrono::steady_clock::now() - started;
-        if (elapsed >= 10s && progressAtTenSeconds == 0) progressAtTenSeconds = applicationFrames.load();
-        if (elapsed >= 20s && progressAtTwentySeconds == 0) progressAtTwentySeconds = applicationFrames.load();
+        if (elapsed >= 10s && progressAtTenSeconds == 0) progressAtTenSeconds = maximumBytesReceived.load();
+        if (elapsed >= 15s && !peerPingSent) { sendFrame(peer.get(), {}, 1); peerPingSent = true; }
+        if (elapsed >= 20s && progressAtTwentySeconds == 0) progressAtTwentySeconds = maximumBytesReceived.load();
+        if (elapsed >= 30s && progressAtThirtySeconds == 0) {
+            progressAtThirtySeconds = maximumBytesReceived.load();
+            stateAfterThirtySeconds = server->state();
+        }
         std::this_thread::sleep_for(10ms);
     }
     const ClientState finalState = server->state();
     const TransportFailure finalFailure = server->failure();
-    const std::size_t progressAtThirtySeconds = applicationFrames.load();
     TransportFrame hidden;
     const bool controlHidden = !server->receive(hidden);
     int drainReceiveBuffer = 1024 * 1024;
@@ -646,10 +673,14 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
     CHECK(finalState == ClientState::Connected);
     CHECK(controlHidden);
     CHECK(drainBufferExpanded);
-    CHECK(pingFrames.load() >= 2);
+    CHECK(peerPingSent);
+    CHECK(pongFrames.load() >= 1);
+    CHECK(controlPrecededQueuedApplication.load());
     CHECK(progressAtTenSeconds > 0);
     CHECK(progressAtTwentySeconds > progressAtTenSeconds);
     CHECK(progressAtThirtySeconds > progressAtTwentySeconds);
+    CHECK(progressAtThirtySeconds < MaxPayloadBytes);
+    CHECK(stateAfterThirtySeconds == ClientState::Connected);
     if (!allAcceptedDelivered) {
         throw Failure("accepted application frames did not drain: accepted=" + std::to_string(nextSequence)
                       + ", delivered=" + std::to_string(applicationFrames.load()));
@@ -816,6 +847,8 @@ void queueBoundaries() {
     }
     CHECK(backpressured);
     CHECK(accepted > 0);
+    CHECK(waitUntil([&] { return stalledWriter->state() == ClientState::TimedOut; }, 7s));
+    CHECK(stalledWriter->failure() == TransportFailure::OutboundStalled);
     listener.shutdown();
 }
 

@@ -12,7 +12,7 @@ set_tests_properties(duel6r-session-transport-tests PROPERTIES
         LABELS "application;network;transport"
         TIMEOUT 180)
 
-if (UNIX)
+if (UNIX OR WIN32)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(
             NAME duel6r-session-transport-process-tests
@@ -23,7 +23,9 @@ if (UNIX)
     set_tests_properties(duel6r-session-transport-process-tests PROPERTIES
             LABELS "application;integration;network;transport"
             TIMEOUT 90)
+endif ()
 
+if (UNIX)
     add_test(
             NAME duel6r-resolver-helper-process-tests
             COMMAND ${Python3_EXECUTABLE}
