@@ -48,13 +48,13 @@ namespace Duel6::Network {
         constexpr auto StartupDeadline = std::chrono::seconds(10);
         constexpr auto ProgressDeadline = std::chrono::seconds(5);
         constexpr auto ReceiveIdleDeadline = std::chrono::seconds(30);
-        constexpr auto LivenessInterval = std::chrono::seconds(2);
+        constexpr auto LivenessInterval = std::chrono::seconds(10);
         constexpr auto GracefulCloseDeadline = std::chrono::seconds(2);
         constexpr std::uint16_t ApplicationFrame = 0;
         constexpr std::uint16_t LivenessPing = 1;
         constexpr std::uint16_t LivenessPong = 2;
         constexpr std::size_t MaxQueuedControlFrames = 2;
-        constexpr int TransportSocketSendBufferBytes = 96 * 1024;
+        constexpr int TransportSocketSendBufferBytes = 4 * 1024;
         constexpr std::size_t MaxResolverResponseBytes = ResolverProtocol::HeaderBytes
                                                          + ResolverProtocol::MaxAddresses * 4;
         constexpr std::size_t MaxOutstandingResolverProcesses = 32;
@@ -827,6 +827,7 @@ namespace Duel6::Network {
         std::size_t outputBytes = 0;
         std::size_t activeApplicationFrames = 0;
         std::size_t activeControlFrames = 0;
+        std::size_t consecutiveControlFrames = 0;
         std::uint16_t activeControlKind = ApplicationFrame;
         std::size_t activeApplicationBytes = 0;
         Clock::time_point closeDeadline = Clock::time_point::max();
@@ -1000,18 +1001,21 @@ namespace Duel6::Network {
                         if (closeRequested.load()) break;
                         continue;
                     }
-                    if (!controlOutput.empty()) {
+                    if (!controlOutput.empty()
+                        && (applicationOutput.empty() || consecutiveControlFrames < MaxQueuedControlFrames)) {
                         controlFrame = true;
                         frame = std::move(controlOutput.front());
                         controlOutput.pop_front();
                         activeControlFrames = 1;
                         activeControlKind = frame.kind;
+                        ++consecutiveControlFrames;
                     } else {
                         frame = std::move(applicationOutput.front());
                         applicationOutput.pop_front();
                         outputBytes -= frame.payload.size();
                         activeApplicationFrames = 1;
                         activeApplicationBytes = frame.payload.size();
+                        consecutiveControlFrames = 0;
                     }
                 }
                 bool written = writeFrame(frame);
