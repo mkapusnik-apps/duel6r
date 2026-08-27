@@ -33,12 +33,17 @@ window_point() {
   local local_y="$2"
   local width="${expected_dimensions%x*}"
   local height="${expected_dimensions#*x}"
-  local menu_width=850
-  local menu_height=700
-  local menu_origin_x=$(((width - menu_width) / 2))
-  local menu_origin_y=$(((height - menu_height) / 2))
 
-  printf '%s %s\n' "$((menu_origin_x + local_x))" "$((height - menu_origin_y - local_y))"
+  awk -v width="$width" -v height="$height" -v local_x="$local_x" -v local_y="$local_y" '
+    BEGIN {
+      scale = width / 850
+      if (height / 700 < scale) scale = height / 700
+      if (1.35 < scale) scale = 1.35
+      translation_x = int((width - 850 * scale) * 0.5)
+      translation_y = int((height - 700 * scale) * 0.5)
+      print int(translation_x + local_x * scale), int(height - translation_y - local_y * scale)
+    }
+  '
 }
 
 capture_root() {
@@ -98,6 +103,7 @@ require_command import
 require_command identify
 require_command compare
 require_command timeout
+require_command awk
 
 parse_screen_dimensions "$screen_size"
 
@@ -184,7 +190,7 @@ sleep 2
 capture_root "${smoke_dir}/main-menu.png"
 check_image "${smoke_dir}/main-menu.png" "main-menu"
 
-read -r click_x click_y < <(window_point 602 468)
+read -r click_x click_y < <(window_point 662 492)
 xdotool mousemove "$click_x" "$click_y" \
   mousedown 1 sleep 0.1 mouseup 1 2>>"${smoke_dir}/automation.log"
 sleep 1
