@@ -4,6 +4,7 @@ This inventory is authoritative for product screens and materially distinct full
 The target baseline uses the shared arena view requirements in `docs/features.md`.
 The product has no implemented URL routes.
 Each route value below therefore names a reproducible local workflow.
+`NET-01`–`NET-09` and the `MENU-01` Network action are approved target specifications for issue #28. They are not implemented screens or evidence of playable network support; downstream issue #38 owns implementation.
 
 The implementation supports desktop display viewports only.
 Each screen uses one desktop wireframe because the implementation does not define a mobile layout.
@@ -18,7 +19,7 @@ This presentation change invalidates the prior representative screenshots for th
 
 | Screen ID | Screen or state | Specification | Wireframe | Functional requirements | Primary source |
 |---|---|---|---|---|---|
-| `MENU-01` | Main menu and session setup | [Specification](menu-main.md) | [Wireframe](wireframes/menu-main.md) | `SET-001`–`SET-029`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005` | Stitch screen `681ae093051749fd922ab74454f47121`; behavior: `source/Menu.cpp` |
+| `MENU-01` | Main menu and session setup; planned Network entry | [Specification](menu-main.md) | [Wireframe](wireframes/menu-main.md) | Existing local requirements plus target `NET-AC-002`, `NET-AC-009`, `NET-AC-015` | Current: `source/Menu.cpp`; target: `docs/network-play-first-release.md` |
 | `MENU-02` | Menu blocking message | [Specification](menu-message.md) | [Wireframe](wireframes/menu-message.md) | `SET-003`, `SET-006`–`SET-007`, `SET-022`, `LIF-023`–`LIF-029`, `INP-008`–`INP-009` | `source/Menu.cpp:368-486` |
 | `PLAY-01` | Live shared arena gameplay for 2–15 players | [Specification](play-fullscreen.md) | [Wireframe](wireframes/play-fullscreen.md) | `LIF-001`–`LIF-022`, `INP-012`–`INP-017`, `PLY-001`–`PLY-010`, `ENV-001`–`ENV-013`, `CMB-001`–`CMB-020`, `BON-001`–`BON-020`, `SCO-001`–`SCO-018`, `UI-001`–`UI-020` | Target: `docs/features.md`; context: `source/WorldRenderer.cpp` |
 | `MODE-01` | Predator live gameplay | [Specification](mode-predator.md) | [Wireframe](wireframes/mode-predator.md) | `MOD-PR-001`–`MOD-PR-008`, `UI-001`–`UI-020` | `source/gamemodes/Predator.cpp` |
@@ -29,15 +30,39 @@ This presentation change invalidates the prior representative screenshots for th
 | `OVER-03` | Game-over summary | [Specification](overlay-game-over.md) | [Wireframe](wireframes/overlay-game-over.md) | `LIF-018`, `SCO-022`–`SCO-023`, `UI-013`–`UI-014` | `source/Game.cpp:51-79,158-164` |
 | `CONS-01` | Console over menu | [Specification](console-menu.md) | [Wireframe](wireframes/console-menu.md) | `CFG-001`–`CFG-002`, `CFG-008`–`CFG-020` | `source/console/ConsoleRenderer.cpp` |
 | `CONS-02` | Console over gameplay | [Specification](console-gameplay.md) | [Wireframe](wireframes/console-gameplay.md) | `CFG-001`–`CFG-002`, `CFG-008`–`CFG-020` | `source/console/ConsoleRenderer.cpp` |
+| `NET-01` | Target network entry | [Specification](network-entry.md) | [Wireframe](wireframes/network-entry.md) | `NET-AC-001`–`NET-AC-003`, `NET-AC-009`, `NET-AC-015` | Target: `docs/network-play-first-release.md` |
+| `NET-02` | Target host setup | [Specification](network-host-setup.md) | [Wireframe](wireframes/network-host-setup.md) | `NET-AC-001`–`NET-AC-006`, `NET-AC-008`–`NET-AC-009`, `NET-AC-015` | Target: `docs/network-play-first-release.md` |
+| `NET-03` | Target join setup and connecting | [Specification](network-join.md) | [Wireframe](wireframes/network-join.md) | `NET-AC-001`–`NET-AC-002`, `NET-AC-004`–`NET-AC-005`, `NET-AC-007`–`NET-AC-009` | Target: `docs/network-play-first-release.md` |
+| `NET-04` | Target lobby and readiness | [Specification](network-lobby.md) | [Wireframe](wireframes/network-lobby.md) | `NET-AC-004`–`NET-AC-009`, `NET-AC-015` | Target: `docs/network-play-first-release.md` |
+| `NET-05` | Target network match shared arena | [Specification](network-match.md) | [Wireframe](wireframes/network-match.md) | `NET-AC-004`–`NET-AC-005`, `NET-AC-007`, `NET-AC-009`–`NET-AC-014` | Target: `docs/network-play-first-release.md` |
+| `NET-06` | Target final session summary | [Specification](network-summary.md) | [Wireframe](wireframes/network-summary.md) | `NET-AC-009`–`NET-AC-011`, `NET-AC-014`–`NET-AC-015` | Target: `docs/network-play-first-release.md` |
+| `NET-07` | Target guest reconnect | [Specification](network-reconnect.md) | [Wireframe](wireframes/network-reconnect.md) | `NET-AC-009`, `NET-AC-011`–`NET-AC-014` | Target: `docs/network-play-first-release.md` |
+| `NET-08` | Target connection or session failure | [Specification](network-failure.md) | [Wireframe](wireframes/network-failure.md) | `NET-AC-002`, `NET-AC-007`–`NET-AC-009`, `NET-AC-011`–`NET-AC-014` | Target: `docs/network-play-first-release.md` |
+| `NET-09` | Target host loss | [Specification](network-host-loss.md) | [Wireframe](wireframes/network-host-loss.md) | `NET-AC-003`, `NET-AC-009`, `NET-AC-014`–`NET-AC-015` | Target: `docs/network-play-first-release.md` |
+
+## Target network navigation
+
+```text
+MENU-01 → NET-01 → Host → NET-02 → NET-04
+                   Join → NET-03 → NET-04
+NET-04 → NET-05 → NET-06 → NET-04
+connection failure → NET-08 → Retry or NET-01
+guest disconnect from NET-04, NET-05, or NET-06 → NET-07
+NET-07 → current authoritative prior state, or removal/failure
+host loss → NET-09 → NET-01
+```
+
+Back from `NET-01` returns to `MENU-01`. `Play (F1)` remains local-only and does not enter this graph. Match admission closes at `NET-04` → `NET-05`; the target has no join-in-progress or host-migration path.
 
 ## Coverage rules
 
 - Each listed screen must have one linked wireframe.
-- Each wireframe must have exactly one representative implementation screenshot entry.
+- Each wireframe must have exactly one representative screenshot entry, either conforming implementation evidence or a planned downstream capture.
 - Minor loading, empty, disabled, focus, and error variants must stay in the applicable screen specification.
 - A new full-screen flow state or a material layout change must receive a stable screen ID.
 - An overlay that materially changes the primary task must receive a stable screen ID.
 - Screenshot status must remain `Pending` until the requested implementation state is reached and captured.
+- Planned target screens must use `Planned` until downstream implementation exists; planned entries are not current evidence.
 
 `PLAY-02`, `PLAY-03`, and `PLAY-04` are retired identifiers.
 They must not be reused for another screen.
