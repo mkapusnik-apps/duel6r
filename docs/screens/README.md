@@ -38,7 +38,7 @@ This presentation change invalidates the prior representative screenshots for th
 | `NET-06` | Target final session summary | [Specification](network-summary.md) | [Wireframe](wireframes/network-summary.md) | `NET-AC-010`, `NET-AC-011`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018` | Target: `docs/network-play-first-release.md` |
 | `NET-07` | Target guest reconnect | [Specification](network-reconnect.md) | [Wireframe](wireframes/network-reconnect.md) | `NET-AC-006`, `NET-AC-009`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017` | Target: `docs/network-play-first-release.md` |
 | `NET-08` | Target connection or session failure | [Specification](network-failure.md) | [Wireframe](wireframes/network-failure.md) | `NET-AC-002`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-011`, `NET-AC-013`, `NET-AC-016`, `NET-AC-017`, `NET-AC-019` | Target: `docs/network-play-first-release.md` |
-| `NET-09` | Target host-ended or host-loss blocking overlay | [Specification](network-host-loss.md) | [Wireframe](wireframes/network-host-loss.md) | `NET-AC-003`, `NET-AC-009`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018` | Target: `docs/network-play-first-release.md` |
+| `NET-09` | Target host-ended or definitive-termination blocking overlay | [Specification](network-host-loss.md) | [Wireframe](wireframes/network-host-loss.md) | `NET-AC-003`, `NET-AC-009`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018` | Target: `docs/network-play-first-release.md` |
 
 ## Target network navigation
 
@@ -55,9 +55,10 @@ connection/startup failure → NET-08 → Retry, Edit NET-02/NET-03, or NET-01
 guest disconnect from NET-04, NET-05, or NET-06 → NET-07
 NET-07 success → current authoritative NET-04/NET-05/NET-06
 NET-07 Leave session confirm → guest NET-01; Cancel → NET-07 with deadline unchanged
-NET-07 expiry → removal/failure
+NET-07 retryable resolution/refusal/unreachable/reset/temporary/no-response → remain NET-07
+NET-07 terminal rejection or deadline expiry → NET-08 with reconnect Retry disabled
 host End session confirm from NET-04/NET-05/NET-06 → host NET-01; guests host-ended NET-09
-unexpected host loss from NET-04/NET-05/NET-06/NET-07 → host-loss NET-09 → NET-01
+independently definitive termination not caused solely by guest isolation → definitive-termination NET-09 → NET-01
 ```
 
 Back from `NET-01` returns to `MENU-01`. `Play (F1)` remains local-only and does not enter this graph. Match admission closes at `NET-04` → `NET-05`; the target has no join-in-progress or host-migration path.

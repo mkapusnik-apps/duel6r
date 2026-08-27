@@ -17,7 +17,7 @@ The target network screens in [`docs/screens`](screens/README.md) implement this
 - **Endpoint:** A directly entered hostname or IP address plus port.
 - **Lobby:** The pre-match and between-match state showing admission, connection, ownership, roster, readiness, and host settings.
 - **Ready:** A participant's confirmation of the current configuration. Clearing mutations invalidate every participant's readiness.
-- **Session:** The period from confirmed host startup until host End session, unexpected host loss, or shutdown.
+- **Session:** The period from confirmed host startup until a valid intentional host-end notice, independently definitive session termination, or shutdown.
 - **Host session clock:** The authoritative monotonic clock used for connection, disconnect, reservation, expiry, and same-instant ordering decisions.
 - **Supported release/content:** The exact network release ID and exact canonical gameplay-content manifest required by the host.
 
@@ -38,7 +38,7 @@ All normative deadlines and precedence rules in this document are evaluated on t
 | Degraded match | One connected host may continue while at least two roster players remain | Continuing after fewer than two roster players remain |
 | Admission | Lobby admission before match start | Join-in-progress and spectators |
 | Compatibility | Exact network release ID and canonical gameplay content | Cross-release or cross-content compatibility |
-| Results | Session-only network results retained until replacement or session end | Local statistics or Elo writes |
+| Results | Session-only network results retained until a new match starts or the session ends | Local statistics or Elo writes |
 
 Lobby invariants are `1 <= admitted participants <= roster players <= 15`. Match start invariants are `2 <= connected participants <= roster players <= 15`, with every participant owning at least one player. A started match may degrade to one connected host if reservations or retained roster ownership leave at least two roster players. Fewer than two roster players ends the match without a winner.
 
@@ -70,7 +70,7 @@ Same-machine support means separate running instances communicating through the 
 - Every host and guest provides a non-empty network release ID.
 - Equality is exact and case-sensitive. Whitespace is content and is not trimmed or normalized.
 - A missing or different value fails before lobby admission.
-- Exact release mismatch copy is `Network release mismatch. Host requires "<host-release-id>"; this client is "<client-release-id>".`
+- User-visible release mismatch copy is exactly `Network release mismatch. Use the same supported game release as the host.` It never includes either peer-supplied release ID.
 
 ### Canonical gameplay-content manifest
 
@@ -87,20 +87,33 @@ It excludes presentation-only and participant-local material:
 - local control assignments and controller presets;
 - documentation.
 
-Each manifest entry uses a non-empty session-relative UTF-8 logical path with `/` separators. Paths are case-sensitive, have no leading `/`, empty segment, `.` segment, `..` segment, or duplicate logical path. Entries are sorted in ascending bytewise UTF-8 logical-path order. Equality compares logical paths and file content; timestamps, permissions, owners, archive order, and other filesystem or package metadata do not affect equality.
+Each manifest entry uses a canonical session-relative logical path with all of these constraints:
 
-The exact content mismatch copy is `Gameplay content mismatch: <logical-path>. Use the host's exact gameplay content.` The path is the first differing logical path in canonical sorted order, including a path present on only one side. Invalid manifests fail with `Gameplay content manifest invalid: <logical-path>.`
+- ASCII only, with total path length from 1 through 240 bytes;
+- from 1 through 16 `/`-separated segments, with no leading or trailing slash;
+- each segment is from 1 through 64 characters and matches `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`;
+- no percent encoding, backslash, whitespace, control character, newline, Unicode, bidirectional-control character, raw filesystem path, empty segment, or duplicate case-sensitive logical path;
+- unique entries sorted in ascending unsigned-ASCII byte order.
+
+Equality compares canonical logical paths and file content. Timestamps, permissions, owners, archive order, and other filesystem or package metadata do not affect equality.
+
+User-visible copy is fixed and non-disclosing:
+
+- invalid manifest: `Gameplay content manifest is invalid. Use the host's exact supported gameplay content.`
+- content mismatch: `Gameplay content mismatch. Use the host's exact supported gameplay content.`
+
+User-visible copy, including errors and disabled reasons, never includes a peer-supplied release ID, path, value, hash, or raw payload. Diagnostics may identify the first differing path only after that path has independently passed every canonical-path rule above. Diagnostics never include an invalid path, raw payload, or other peer-supplied value.
 
 The following synthetic fixtures are normative compatibility examples, not shipped content:
 
 | Fixture | Host | Guest | Expected result |
 |---|---|---|---|
 | Release match | ID `release-fixture-a` | ID `release-fixture-a` | Continue to manifest comparison |
-| Case mismatch | ID `release-fixture-a` | ID `Release-Fixture-A` | `Network release mismatch. Host requires "release-fixture-a"; this client is "Release-Fixture-A".` |
+| Case mismatch | ID `release-fixture-a` | ID `Release-Fixture-A` | `Network release mismatch. Use the same supported game release as the host.` |
 | Content match | `config/gameplay.json` containing `fixture-a`; `levels/arena.json` containing `fixture-b` | Same paths and exact contents in any source enumeration order | Compatible |
-| Content mismatch | `levels/arena.json` containing `fixture-b` | `levels/arena.json` containing `fixture-c` | `Gameplay content mismatch: levels/arena.json. Use the host's exact gameplay content.` |
-| Path mismatch | `levels/arena.json` | `Levels/arena.json` | `Gameplay content mismatch: Levels/arena.json. Use the host's exact gameplay content.` because uppercase `L` sorts first in the fixture's exact path ordering |
-| Invalid path | Not applicable | `levels/../arena.json` | `Gameplay content manifest invalid: levels/../arena.json.` |
+| Content mismatch | `levels/arena.json` containing `fixture-b` | `levels/arena.json` containing `fixture-c` | `Gameplay content mismatch. Use the host's exact supported gameplay content.` |
+| Path mismatch | `levels/arena.json` | `Levels/arena.json` | `Gameplay content mismatch. Use the host's exact supported gameplay content.`; diagnostics may use canonical path `Levels/arena.json` |
+| Invalid path | Not applicable | a peer value containing a disallowed segment | `Gameplay content manifest is invalid. Use the host's exact supported gameplay content.`; user copy and diagnostics omit the raw value |
 
 Issue #30 owns canonical serialization, content digest choice, exchange, comparison mechanics, and protocol enforcement. Those mechanics must produce the exact policy, fixture outcomes, and user-visible copy above.
 
@@ -117,16 +130,54 @@ Issue #30 owns canonical serialization, content digest choice, exchange, compari
 
 - Hostname/address and port validation remains inline in editable `NET-03`; invalid input does not begin the connection clock.
 - A connection attempt has one 10-second total deadline covering name resolution, transport connection, compatibility, capacity, host admission, and lobby confirmation.
-- Success must be confirmed strictly before the deadline. At or after 10 seconds, the generic result is `Connection timed out` unless a more specific failure was confirmed first.
-- Specific resolution, unreachable-host, rejection, capacity, join-in-progress, release, or content failures take precedence over generic timeout when confirmed before the deadline.
+- Success must be confirmed strictly before the deadline. At or after 10 seconds, the generic result is `Connection timed out` unless a higher-precedence result below was established first.
 - Cancel returns to editable `NET-03` and retains endpoint and local-player setup.
 - `NET-08` Retry repeats the same retained attempt when still valid; Edit setup returns to editable `NET-02` or `NET-03` with all setup retained; Return to Network goes to `NET-01`.
 
-### Host connection loss
+### Initial admission precedence and fixed copy
 
-- A guest declares unexpected host loss when authoritative host contact has been continuously absent through the 5-second boundary on the session timing model.
-- Host End session is a confirmed intentional terminal event and takes precedence over unexpected-loss or guest-removal handling at the same clock instant.
-- Downstream issues own heartbeat, transport, and clock mechanics but must satisfy the 5-second user-visible boundary.
+User Cancel and local inline validation take precedence before any host or transport result. Once a valid request reaches the host, the host evaluates the first applicable admission result in this fixed order:
+
+1. malformed request — `Connection request rejected.`;
+2. trust or authorization rejection — `Connection not authorized.`;
+3. release mismatch — `Network release mismatch. Use the same supported game release as the host.`;
+4. invalid gameplay-content manifest — `Gameplay content manifest is invalid. Use the host's exact supported gameplay content.`;
+5. gameplay-content mismatch — `Gameplay content mismatch. Use the host's exact supported gameplay content.`;
+6. match already started — `Match already started. Join-in-progress is not supported.`;
+7. capacity reached — `Session is full.`;
+8. other host policy rejection — `Host rejected the connection.`;
+9. success.
+
+The host stops at the first applicable result. A complete valid host response accepted before the deadline takes precedence over a later generic transport symptom. Without a complete host response, initial connection outcomes use this order:
+
+1. definitive name-resolution failure — `Host name could not be resolved.`;
+2. definitive unreachable or refused connection — `Host unreachable.`;
+3. reset or closed transport before a complete admission response — `Connection ended before admission completed.`;
+4. no complete result at the deadline — `Connection timed out.`
+
+All copy is fixed and non-disclosing. It never interpolates a peer-supplied release ID, manifest path, credential, policy value, payload, or other untrusted value.
+
+### Reconnect outcome precedence
+
+Loss of contact, silence, connection refusal, unreachable host, reset, temporary transport failure, or no response is ambiguous. None proves host end or session termination. Every such outcome keeps the guest in `NET-07` and permits retries against the original fixed 30-second deadline.
+
+When reconnect outcomes compete, apply this fixed precedence:
+
+1. valid intentional host-end notice → host-ended `NET-09`;
+2. independently definitive session termination that cannot arise solely from guest isolation → definitive-termination `NET-09`;
+3. accepted reconnect strictly before the deadline → current authoritative prior state;
+4. terminal reconnect rejection → `NET-08` with Retry disabled;
+5. retryable ambiguous failure → remain in `NET-07` against the unchanged deadline;
+6. deadline expiry → `NET-08` with `Reconnect time expired. The session could not be restored.` and Retry disabled.
+
+Terminal reconnect rejection means an authoritative response establishes an invalid or expired reconnect credential, missing reservation or removed participant, or compatibility/trust rejection. Its fixed non-disclosing copy is one of:
+
+- `Reconnect authorization failed. This session cannot be restored.`;
+- `Reconnect reservation is no longer available. This session cannot be restored.`;
+- `Network release mismatch. This session cannot be restored.`;
+- `Gameplay content mismatch. This session cannot be restored.`
+
+No isolated guest state may claim that the host ended the session or that players were removed without a valid host-end notice, independently definitive termination evidence, or authoritative terminal rejection.
 
 ## User journeys and destinations
 
@@ -150,7 +201,7 @@ Issue #30 owns canonical serialization, content digest choice, exchange, compari
 2. Start is enabled only when all match-start cardinality, ownership, connection, compatibility, and readiness requirements hold.
 3. Start closes admission and enters authoritative shared-arena `NET-05`.
 4. Normal completion enters `NET-06`; host Return to lobby moves connected participants to `NET-04` with readiness cleared.
-5. Session-only result rows remain visible in summary and lobby until the next match replaces them or the session ends.
+5. Session-only result rows remain visible in summary and lobby until a new match starts and clears them or the session ends.
 
 ### Explicit cancel, leave, and end actions
 
@@ -159,7 +210,7 @@ Issue #30 owns canonical serialization, content digest choice, exchange, compari
 - Guest `Leave` from `NET-06` uses the lobby consequence copy and destination.
 - `NET-07` action is `Leave session`. It requires `Leave session? Your reserved players will be removed now and reconnect will stop.` Confirm → `NET-01`; Cancel → reconnect continues against the unchanged deadline.
 - Host `End session` in `NET-04`, `NET-05`, or `NET-06` requires `End session for everyone?` Confirm → host `NET-01`; guests see the host-ended variant of blocking `NET-09`. Cancel → current state.
-- Unexpected host loss shows the distinct host-loss variant of `NET-09`. Its Return to Network action → `NET-01`.
+- A valid intentional host-end notice shows host-ended `NET-09`. Independently definitive session termination shows definitive-termination `NET-09`. Return to Network → `NET-01`.
 - Back from `NET-01` → `MENU-01` without changing local setup or starting a network service.
 
 ## Guest disconnect and reconnect
@@ -172,22 +223,26 @@ Issue #30 owns canonical serialization, content digest choice, exchange, compari
 - Successful reconnect restores only the current authoritative lobby, match, or summary state; it never rewinds or makes an older snapshot current.
 - During an active round, simulation, timers, hazards, connected inputs, combat, scoring, winner rules, and round progression continue. Reserved players receive no input, remain valid targets, and count for winner conditions.
 - Normal damage, death, score, and winner rules apply during reservation.
+- Retryable resolution, refusal, unreachable, reset, temporary transport, and no-response outcomes remain in `NET-07` for the full remaining reservation. Terminal outcomes follow the fixed precedence above.
 
-## Atomic removal and winner evaluation
+## Lifecycle-specific atomic removal
 
-- At each host session clock instant, all guest intentional leaves effective at that instant and all reservations whose deadlines are at or before that instant form one removal batch.
-- The host removes all players in that batch atomically, adds no kill, death, assist, penalty, or other combat statistic for removal itself, then performs exactly one winner-condition evaluation after the batch.
-- If at least two roster players remain, normal match and round progression continues, including a degraded match with only the connected host.
-- If fewer than two roster players remain, the match ends without a winner and remaining connected participants return to `NET-04` with readiness cleared.
-- Host End session or declared host loss at the same instant takes precedence: the session ends and no removal-derived winner outcome is produced.
+At each host session clock instant, applicable confirmed intentional leaves and authoritative reservation expiries form one atomic removal batch. Removal itself adds no kill, death, assist, penalty, or other combat statistic. A valid host-end notice or independently definitive session termination takes precedence over every removal batch and discards session results.
+
+- **Lobby:** Remove the batch, label departed rows in any retained result, and clear every remaining participant's readiness. Do not evaluate a winner. The retained completed result remains until a new match starts or the session ends.
+- **Active round:** Remove the batch, then perform exactly one winner-condition evaluation. With at least two roster players, normal progression continues, including one connected host. With fewer than two, produce the current result `Session only • Interrupted • No winner`, retain it, and return remaining connected participants to `NET-04` with readiness cleared.
+- **Non-final round summary:** Preserve the completed round outcome. After the batch, continue to the next round when at least two roster players remain. Otherwise produce the current result `Session only • Interrupted • No winner`, retain the already completed round, and return remaining connected participants to `NET-04` with readiness cleared.
+- **Final summary:** Never reevaluate or replace the completed match outcome because of departure. Remove the batch and retain the completed result with affected participant/player rows labeled `Departed`.
+
+An isolated guest reaching its local deadline enters `NET-08`; it does not claim authoritative removal. The host applies authoritative expiry batching on its own session clock.
 
 ## Session-only result lifecycle
 
 - Authoritative network results are labeled `Session only` and never write local statistics, Elo, people, profiles, or saves.
 - Completed-match result rows remain available in `NET-06` and the following `NET-04` lobby.
 - A participant or player that leaves after results exist remains in those rows and is labeled `Departed`.
-- Starting and completing the next match replaces the prior session result set; results are not accumulated as persistent history.
-- Host End session, unexpected host loss, or application session shutdown discards the session result set.
+- Starting a new match clears the prior retained result before the new match begins; results are not accumulated as persistent history.
+- A valid host-end notice, independently definitive session termination, or application session shutdown discards the session result set.
 - Interrupted matches do not create a persistent or locally recoverable result.
 
 ## Local-only preservation
@@ -216,17 +271,17 @@ Issue #30 owns canonical serialization, content digest choice, exchange, compari
 - **NET-AC-005 — Ownership:** The host controls match settings and roster order; each participant controls only its local persons, profiles, and controls; authoritative input and state ownership are enforced.
 - **NET-AC-006 — Readiness:** Every participant must be connected, valid, and ready to start; clearing mutations clear all readiness; a disconnected admitted guest retains prior readiness as `Reconnecting` but blocks Start by name; reconnect restores retained readiness only when no later clearing mutation occurred.
 - **NET-AC-007 — Admission:** Admission occurs only before match start, and late attempts fail with explicit join-in-progress-prohibited behavior.
-- **NET-AC-008 — Compatibility:** Admission requires an exact case-sensitive non-empty network release ID and exact canonical gameplay-content manifest under the defined inclusion, exclusion, path, ordering, content, fixture, and mismatch-copy rules.
-- **NET-AC-009 — Timing and failures:** Host startup and complete guest connection each satisfy their 10-second boundaries; host loss is declared by the 5-second boundary; inline validation, specific-failure precedence, retained data, Retry, Edit setup, and Return destinations match this specification.
+- **NET-AC-008 — Compatibility:** Admission requires an exact case-sensitive non-empty network release ID and exact gameplay-content manifest whose logical paths satisfy every ASCII length, segment, character, separator, uniqueness, and unsigned-order rule; fixed user copy discloses no peer release ID, path, value, or raw payload, and diagnostics name only independently validated canonical paths.
+- **NET-AC-009 — Timing, admission, and initial failures:** Host startup and complete initial guest connection satisfy their 10-second boundaries; user Cancel and local validation precede the fixed host admission order, complete host responses, precise transport outcomes, and generic timeout; retained data, fixed non-disclosing copy, Retry, Edit setup, and Return destinations match this specification.
 - **NET-AC-010 — Authority:** Participants control only owned local players while the host owns canonical simulation, rounds, scoring, winner evaluation, and current state in one shared arena.
-- **NET-AC-011 — Reconnect:** A reservation begins at host-declared disconnect, expires at `D + 30s`, accepts only strictly-before-deadline restoration, shows positive ceiling seconds without active zero, retains one deadline across attempts, and restores only current state; a later disconnect starts a new reservation.
+- **NET-AC-011 — Reconnect:** A reservation begins at host-declared disconnect, expires at `D + 30s`, accepts only strictly-before-deadline restoration, shows positive ceiling seconds without active zero, retains one deadline across attempts, and restores only current state; silence, refusal, unreachable, reset, temporary failure, and no response remain retryable in `NET-07`, while host end, definitive termination, accepted restore, terminal rejection, retryable failure, and expiry follow the fixed precedence.
 - **NET-AC-012 — Active disconnect:** Active simulation, timers, hazards, connected input, combat, scoring, winner rules, and round progression continue while reserved players receive no input, remain targets, and count for winner conditions.
-- **NET-AC-013 — Atomic removal:** Same-clock leaves and expiries are removed in one atomic batch without removal combat statistics and receive one post-batch winner evaluation; fewer than two players ends without winner; host end/loss takes precedence.
-- **NET-AC-014 — Host end and loss:** Confirmed host End session returns the host to `NET-01` and guests to host-ended `NET-09`; unexpected host loss uses distinct `NET-09`; neither migrates, resumes, or persists results.
+- **NET-AC-013 — Lifecycle-specific atomic removal:** Same-clock confirmed leaves and authoritative expiries are batched without removal combat statistics; lobby batches clear readiness without winner evaluation, active-round batches evaluate once and may create `Session only • Interrupted • No winner`, non-final summaries preserve completed rounds before continuing or interrupting, and final summaries retain completed outcomes with departed labels; host end or definitive termination takes precedence.
+- **NET-AC-014 — Host end and definitive termination:** A valid intentional host-end notice returns the host to `NET-01` and guests to host-ended `NET-09`; independently definitive termination that cannot arise solely from guest isolation uses definitive-termination `NET-09`; ambiguous contact loss remains `NET-07` until another terminal outcome, and no path migrates or resumes the session.
 - **NET-AC-015 — Local independence:** `Play (F1)` starts and completes unchanged without starting or requiring any network service, while `Network (F2)` remains separate.
 - **NET-AC-016 — Cancellation and leave:** Host startup Cancel, guest connection Cancel, guest lobby/match/summary Leave, reconnect Leave session, host End session, and their confirmations retain or discard data and reach exactly the specified destinations.
-- **NET-AC-017 — Truthful UX:** Role, Connected/Reconnecting, readiness, pending, disabled, failure, timeout, endpoint, consequence, host-ended, and host-loss states use visible truthful text and never claim unsupported success or behavior.
-- **NET-AC-018 — Session-only results:** Results are labeled `Session only`, retained through summary and following lobby with departed rows labeled, replaced by the next match, discarded on session end/loss, and never persisted locally or to Elo.
+- **NET-AC-017 — Truthful and non-disclosing UX:** Role, Connected/Reconnecting, readiness, pending, retryable ambiguity, terminal rejection, disabled Retry, expiry, consequence, host-ended, and definitive-termination states use fixed visible copy, disclose no untrusted peer value, and never claim host end, player removal, or session termination from isolation alone.
+- **NET-AC-018 — Session-only results:** Results are labeled `Session only`; lifecycle-specific interruption uses `Session only • Interrupted • No winner`; completed or interrupted results remain through the following lobby with departed rows labeled, are cleared when a new match starts, are discarded on host end or definitive termination, and never persist locally or to Elo.
 - **NET-AC-019 — Explicit boundaries:** UI, packaging, and release claims omit every non-goal and exclude presentation/cosmetic/local persistence/control/documentation material from gameplay compatibility.
 
 ## Exact downstream issue mapping
@@ -256,7 +311,7 @@ Issue #28 approves this target but does not satisfy parent issue #27's implement
 - Product review traces each downstream issue to the exact criteria above and confirms non-goals remain excluded.
 - UX review traces `MENU-01`, `MENU-02`, `CONS-01`, and `NET-01`–`NET-09` to applicable criteria and assesses one representative wireframe per affected screen.
 - Issue #38 supplies one implementation screenshot for each of the 12 planned entries in [`docs/screenshots/README.md`](screenshots/README.md). No current screenshot is valid for the changed target UI.
-- Reviewer evidence checks lifecycle cardinality, timing boundaries, precedence, exact compatibility fixtures/copy, destinations, and local-only preservation.
+- Reviewer evidence checks lifecycle cardinality, initial admission order, full-deadline reconnect ambiguity, terminal-outcome precedence, lifecycle-specific removal, exact compatibility fixtures/copy, destinations, and local-only preservation.
 - Tester evidence independently verifies applicable criteria at downstream implementation SHAs. Issue #28 itself is documentation-only and requires no automated test implementation.
 - DevOps evidence confirms supported Linux and Windows x86-64 artifacts and hosted checks at the applicable release-candidate SHA.
 - Issue #41 validates the complete production path before parent issue #27 or release text claims playable network support.

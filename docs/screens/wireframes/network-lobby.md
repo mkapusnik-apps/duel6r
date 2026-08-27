@@ -20,6 +20,8 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 
 - Role, ownership, Connection, and Readiness occupy separate textual columns; guests see host settings as read-only.
 - Configuration, roster, or membership changes clear every participant's readiness and refresh the visible disabled reason.
-- A Reconnecting row retains readiness but blocks Start by participant name. Host-alone, reconnect, expiry, guest Leave confirmation, host End session confirmation, and retained `Session only` result variants remain in the specification.
+- A Reconnecting row retains readiness but blocks Start by participant name. Ambiguous isolation stays in reconnect for the full deadline.
+- Lobby removal batches clear all readiness, perform no winner evaluation, retain completed results, and label departed rows. Host-alone, Leave/End confirmations, and other variants remain in the specification.
+- An active-round or non-final-summary interruption returns here with `Session only • Interrupted • No winner` and any completed-round outcome retained.
 
 Planned representative screenshot: [`SS-018`](../../screenshots/README.md#ss-018).

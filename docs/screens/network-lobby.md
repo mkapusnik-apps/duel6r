@@ -4,7 +4,7 @@
 
 This is a target screen for downstream issue #38; it is not implemented. It exposes participant ownership, local-player configuration, host-owned match settings, authoritative roster order, readiness, and retained session results. It implements `NET-AC-004`, `NET-AC-005`, `NET-AC-006`, `NET-AC-007`, `NET-AC-008`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 
-Host or guest admission enters from `NET-02` or `NET-03`. Host Start match enters `NET-05`; final-summary Return to lobby enters here with readiness cleared. Confirmed guest Leave sends that guest to `NET-01`. Confirmed host End session sends the host to `NET-01` and guests to host-ended `NET-09`. Guest disconnect enters `NET-07` on that guest.
+Host or guest admission enters from `NET-02` or `NET-03`. Host Start match enters `NET-05`; final-summary Return to lobby enters here with readiness cleared. Confirmed guest Leave sends that guest to `NET-01`. Confirmed host End session sends the host to `NET-01` and guests to host-ended `NET-09`. Any ambiguous guest isolation enters `NET-07`; only a valid host-end notice or independently definitive termination enters `NET-09`.
 
 ## Representative layout
 
@@ -21,10 +21,12 @@ Host or guest admission enters from `NET-02` or `NET-03`. Host Start match enter
 - Any configuration, roster, admission, expiry, or intentional-leave mutation clears every participant's readiness and displays the reason.
 - A disconnected admitted guest row changes Connection to `Reconnecting`, retains its prior readiness text, and blocks Start with `Waiting for <participant> to reconnect`.
 - Reconnect restores prior readiness unless another clearing mutation occurred. Expiry or intentional Leave removes that participant and players and clears every remaining readiness value.
+- Lobby removals are one atomic batch: clear every remaining readiness value, perform no winner evaluation, retain the completed `Session only` result, and label affected retained rows `Departed`.
 - Guest Leave opens `Leave session? Your players will be removed and you will return to Network.` Confirm removes the guest and enters guest `NET-01`; Cancel returns to the lobby.
 - Host End session opens `End session for everyone?` Confirm sends host to `NET-01` and guests to host-ended `NET-09`; Cancel returns to the lobby.
 - Admission closes at match start; there is no join-in-progress control.
-- Completed result rows remain labeled `Session only`; departed rows show `Departed`; the next completed match replaces them and session end discards them.
+- Completed result rows remain labeled `Session only`; departed rows show `Departed`; starting a new match clears the retained result and session end discards it.
+- When an active-round or non-final-summary batch leaves fewer than two roster players, this lobby shows the current `Session only • Interrupted • No winner` result and retains any already completed round outcome.
 
 ## Truthful copy, disabled reasons, and input
 

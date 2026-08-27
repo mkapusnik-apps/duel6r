@@ -177,7 +177,9 @@ The following values come from renderer and GUI source.
 - Host-owned fields must be visibly read-only to guests, and participant-owned player controls must not appear editable to another participant.
 - Reconnecting UI must show the positive ceiling seconds remaining from the host deadline, never active `0`, and state that active play continues when the match is active.
 - Guest Leave, reconnect Leave session, and host End session actions must use consequence confirmations and the destinations defined by the product specification.
-- Host-ended and unexpected-host-loss `NET-09` variants must use distinct headings and explanatory copy.
+- Ambiguous silence, refusal, unreachable, reset, temporary failure, or no response must remain `NET-07` through the fixed deadline; it must not be presented as host end or definitive termination.
+- Host-ended and independently definitive-termination `NET-09` variants must use distinct fixed headings and explanatory copy without peer-supplied values.
+- Release, manifest, content, admission, reconnect, and termination user copy must never interpolate a peer-supplied release ID, path, credential, policy value, payload, or raw filesystem value.
 - Final network results must show the exact label `Session only` near the summary heading or result table.
 - Target network UI must not offer discovery, matchmaking, Internet, NAT traversal, accounts, passwords, dedicated servers, join-in-progress, or host migration.
 
