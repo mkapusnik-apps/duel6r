@@ -61,4 +61,4 @@ The following essential pieces are absent:
 - authentication and a secure secret-transfer mechanism;
 - network-facing UI.
 
-These items require a separate follow-up implementation issue. Until they are implemented and independently validated, the scaffold must not be described as network support.
+These items are tracked in [Complete end-to-end network-play support](https://github.com/mkapusnik-apps/duel6r/issues/27). Until they are implemented and independently validated, the scaffold must not be described as network support.
