@@ -738,7 +738,8 @@ namespace Duel6::Network {
 
     class TcpConnection::Impl {
     public:
-        explicit Impl(SocketHandle socket) : socket(socket), lastReceive(Clock::now()), lastLivenessPing(Clock::now()) {
+        explicit Impl(SocketHandle socket) : socket(socket), lastInboundActivity(Clock::now()),
+                                             lastOutboundProgress(Clock::now()), lastLivenessPing(Clock::now()) {
             if (!configureConnectedSocket(socket)) {
                 failure.store(TransportFailure::SystemError);
                 state.store(ClientState::Failed);
@@ -831,8 +832,20 @@ namespace Duel6::Network {
         std::uint16_t activeControlKind = ApplicationFrame;
         std::size_t activeApplicationBytes = 0;
         Clock::time_point closeDeadline = Clock::time_point::max();
-        std::atomic<Clock::time_point> lastReceive;
-        Clock::time_point lastLivenessPing;
+        std::atomic<Clock::time_point> lastInboundActivity;
+        std::atomic<Clock::time_point> lastOutboundProgress;
+        std::atomic<Clock::time_point> lastLivenessPing;
+
+        Clock::time_point lastTransportActivity() const {
+            return std::max(lastInboundActivity.load(), lastOutboundProgress.load());
+        }
+
+        void queueLivenessProbeIfDue(Clock::time_point activity) {
+            const auto current = Clock::now();
+            auto previousProbe = lastLivenessPing.load();
+            if (current - activity < LivenessInterval || current - previousProbe < LivenessInterval) return;
+            if (lastLivenessPing.compare_exchange_strong(previousProbe, current)) queueControl(LivenessPing);
+        }
 
         void closeSocketOnce() {
             if (!socketClosed.exchange(true)) closeSocket(socket);
@@ -866,15 +879,12 @@ namespace Duel6::Network {
             while (offset < size && !stop.load()) {
                 if (!waitSocket(socket, false, std::chrono::milliseconds(100))) {
                     auto now = Clock::now();
-                    if (now - lastReceive.load() >= ReceiveIdleDeadline) {
+                    const auto lastActivity = lastTransportActivity();
+                    if (now - lastActivity >= ReceiveIdleDeadline) {
                         fail(TransportFailure::IdleTimedOut, true);
                         return false;
                     }
-                    if (now - lastReceive.load() >= LivenessInterval
-                        && now - lastLivenessPing >= LivenessInterval) {
-                        queueControl(LivenessPing);
-                        lastLivenessPing = now;
-                    }
+                    queueLivenessProbeIfDue(lastActivity);
                     if (offset > 0 && now - progress >= ProgressDeadline) {
                         fail(TransportFailure::InboundStalled, true);
                         return false;
@@ -889,7 +899,7 @@ namespace Duel6::Network {
                 if (count > 0) {
                     offset += static_cast<std::size_t>(count);
                     progress = Clock::now();
-                    lastReceive.store(progress);
+                    lastInboundActivity.store(progress);
                 } else if (count == 0) {
                     fail(TransportFailure::PeerClosed);
                     return false;
@@ -975,6 +985,7 @@ namespace Duel6::Network {
                 if (count > 0) {
                     offset += static_cast<std::size_t>(count);
                     progress = Clock::now();
+                    if (frame.kind == ApplicationFrame) lastOutboundProgress.store(progress);
                 } else if (count < 0) {
                     int error = socketError();
                     if (!wouldBlock(error) && !interrupted(error)) {
@@ -1029,6 +1040,7 @@ namespace Duel6::Network {
                         activeApplicationBytes = 0;
                     }
                 }
+                if (written && !controlFrame) queueLivenessProbeIfDue(lastInboundActivity.load());
                 if (!written) break;
             }
             if (closeRequested.load()) {
