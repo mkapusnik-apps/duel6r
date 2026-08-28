@@ -133,6 +133,33 @@ D6R_TEST_CASE("pure local bind decisions honor interface prefixes and platform r
                 == Decision::UnsupportedAddress);
 }
 
+D6R_TEST_CASE("duplicate local interface records fail closed independent of enumeration order") {
+    using Decision = LocalListenerBindDecision;
+    const auto decideBothOrders = [](std::array<std::uint8_t, 4> requested,
+                                     const Ipv4InterfaceRecord &first,
+                                     const Ipv4InterfaceRecord &second,
+                                     Decision expected) {
+        D6R_REQUIRE(decideLocalListenerBind(requested, {first, second}) == expected);
+        D6R_REQUIRE(decideLocalListenerBind(requested, {second, first}) == expected);
+    };
+
+    decideBothOrders({10, 0, 0, 255}, {{10, 0, 0, 255}, 16, std::nullopt},
+                     {{10, 0, 0, 255}, 24, std::nullopt}, Decision::BroadcastAddress);
+    decideBothOrders({10, 0, 1, 0}, {{10, 0, 1, 0}, 16, std::nullopt},
+                     {{10, 0, 1, 0}, 24, std::nullopt}, Decision::NetworkAddress);
+    decideBothOrders({10, 0, 0, 9}, {{10, 0, 0, 9}, 24, std::nullopt},
+                     {{10, 0, 0, 9}, 33, std::nullopt}, Decision::InvalidPrefix);
+    decideBothOrders({10, 0, 0, 9}, {{10, 0, 0, 9}, 24, std::nullopt},
+                     {{10, 0, 0, 9}, 24, {{10, 0, 0, 9}}}, Decision::BroadcastAddress);
+    decideBothOrders({10, 0, 1, 9}, {{10, 0, 1, 9}, 16, std::nullopt},
+                     {{10, 0, 1, 9}, 24, {{10, 0, 1, 255}}}, Decision::Allowed);
+
+    D6R_REQUIRE(decideLocalListenerBind({10, 0, 1, 9},
+                                        {{{10, 0, 1, 8}, 24, {{10, 0, 1, 255}}},
+                                         {{10, 0, 1, 10}, 24, std::nullopt}})
+                == Decision::NotAssigned);
+}
+
 D6R_TEST_CASE("hostname syntax and resolver policy enforce exact boundaries before connect or bind") {
     const std::string label63(63, 'a');
     const std::string hostname253 = label63 + '.' + label63 + '.' + label63 + '.' + std::string(61, 'a');
