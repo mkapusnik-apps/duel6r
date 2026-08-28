@@ -137,6 +137,19 @@ def ordinary_startup_has_no_listener(executable):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.settimeout(1); assert probe.connect_ex(("127.0.0.1", port)) != 0
 
+def unsupported_listener_addresses_are_rejected_before_listen(executable):
+    expected = "Network session cannot use a public or wildcard address. Use loopback or a private LAN address.\n"
+    for host in ("0.0.0.0", "8.8.8.8", "169.254.1.1", "224.0.0.1", "255.255.255.255"):
+        port = unused_port()
+        completed = subprocess.run(
+            [executable, "--transport-echo", f"--host={host}", f"--port={port}"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=3, check=False)
+        assert completed.returncode == 2, (host, completed.returncode, completed.stdout)
+        assert completed.stdout == expected, (host, completed.stdout)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.settimeout(1)
+            assert probe.connect_ex(("127.0.0.1", port)) != 0, f"rejected host {host} created a listener"
+
 def hostname_startup_stress(executable, attempts=16):
     """Exercise the short-lived resolver pipe-close/process-exit ordering repeatedly."""
     for iteration in range(attempts):
@@ -154,6 +167,7 @@ def hostname_startup_stress(executable, attempts=16):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2: raise SystemExit("usage: SessionTransportProcessTests.py /path/to/duel6r-server")
-    ordinary_startup_has_no_listener(sys.argv[1]); hostname_startup_stress(sys.argv[1])
+    ordinary_startup_has_no_listener(sys.argv[1]); unsupported_listener_addresses_are_rejected_before_listen(sys.argv[1])
+    hostname_startup_stress(sys.argv[1])
     exercise(sys.argv[1], "127.0.0.1"); exercise(sys.argv[1], "localhost")
     print("separate-process transport behavior passed for IPv4 literal and hostname")
