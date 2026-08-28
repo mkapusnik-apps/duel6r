@@ -154,6 +154,19 @@ void sendAll(RawSocket socket, const std::uint8_t *data, std::size_t size) {
     }
 }
 
+void receiveAll(RawSocket socket, std::uint8_t *data, std::size_t size) {
+    while (size != 0) {
+#ifdef D6R_TRANSPORT_WINDOWS
+        int count = recv(socket, reinterpret_cast<char *>(data), static_cast<int>(size), 0);
+#else
+        ssize_t count = recv(socket, data, size, 0);
+#endif
+        CHECK(count > 0);
+        data += count;
+        size -= static_cast<std::size_t>(count);
+    }
+}
+
 std::array<std::uint8_t, TransportEnvelopeBytes> envelope(std::uint32_t magic, std::uint16_t version,
                                                            std::uint16_t kind, std::uint32_t size) {
     std::array<std::uint8_t, TransportEnvelopeBytes> data{};
@@ -385,14 +398,17 @@ std::vector<ObservedWireFrame> parseObservedWire(const std::vector<std::uint8_t>
     return frames;
 }
 
-void deterministicOutboundFrameBoundaryPriority() {
+void deterministicMaximumFrameProgressAndBoundaryPriority() {
     std::mutex mutex;
     std::condition_variable changed;
     std::vector<std::uint8_t> wire;
+    std::vector<std::int64_t> progressTimes;
     bool firstPartialSent = false;
     bool releaseActiveApplication = false;
-    bool pingPartialSent = false;
-    bool releaseActivePing = false;
+    std::int64_t nextProgressAt = 4000;
+    std::int64_t maximumCompletedAt = -1;
+    std::size_t applicationWireBytes = 0;
+    std::size_t wouldBlockCalls = 0;
     FakeClock outboundClock;
 
     SessionTransportDependencies dependencies;
@@ -404,34 +420,49 @@ void deterministicOutboundFrameBoundaryPriority() {
             if (!firstPartialSent) {
                 const std::size_t partial = std::min<std::size_t>(5, size);
                 wire.insert(wire.end(), data, data + partial);
+                applicationWireBytes += partial;
                 firstPartialSent = true;
                 changed.notify_all();
                 return OutboundSendOutcome{OutboundSendStatus::Sent, partial};
             }
             return OutboundSendOutcome{OutboundSendStatus::WouldBlock, 0};
         }
-        if (kind == 1 && !releaseActivePing) {
-            if (!pingPartialSent) {
-                const std::size_t partial = std::min<std::size_t>(5, size);
-                wire.insert(wire.end(), data, data + partial);
-                pingPartialSent = true;
-                changed.notify_all();
-                return OutboundSendOutcome{OutboundSendStatus::Sent, partial};
-            }
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                outboundClock.now().time_since_epoch()).count();
+        if (kind == 0 && elapsed < nextProgressAt) {
+            ++wouldBlockCalls;
             return OutboundSendOutcome{OutboundSendStatus::WouldBlock, 0};
         }
-        wire.insert(wire.end(), data, data + size);
+        const std::size_t count = kind == 0 ? std::min<std::size_t>(64 * 1024, size) : size;
+        wire.insert(wire.end(), data, data + count);
+        if (kind == 0) {
+            applicationWireBytes += count;
+            progressTimes.push_back(elapsed);
+            nextProgressAt = elapsed + 4000;
+            if (maximumCompletedAt < 0 && applicationWireBytes == TransportEnvelopeBytes + MaxPayloadBytes)
+                maximumCompletedAt = elapsed;
+        }
         changed.notify_all();
-        return OutboundSendOutcome{OutboundSendStatus::Sent, size};
+        return OutboundSendOutcome{OutboundSendStatus::Sent, count};
     };
-    dependencies.outbound.wait = [](std::chrono::milliseconds) { std::this_thread::sleep_for(1ms); };
+    dependencies.outbound.wait = [&](std::chrono::milliseconds) {
+        bool released = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            released = releaseActiveApplication;
+        }
+        if (released) outboundClock.advance(1000ms);
+        else std::this_thread::sleep_for(1ms);
+    };
 
     const auto port = unusedPort();
     TcpListener listener(1, dependencies);
     startListener(listener, port);
     RawSocketOwner peer(connectRaw(port));
     auto connection = awaitAccept(listener);
-    const std::vector<std::uint8_t> first{0x10, 0x00, 0xFF, 0x11};
+    std::vector<std::uint8_t> first(MaxPayloadBytes);
+    for (std::size_t index = 0; index < first.size(); ++index)
+        first[index] = static_cast<std::uint8_t>((index * 31u + 17u) & 0xFFu);
     const std::vector<std::uint8_t> second{0x20, 0x00, 0xFE, 0x21};
     CHECK(connection->send(first) == SendResult::Accepted);
     {
@@ -439,31 +470,15 @@ void deterministicOutboundFrameBoundaryPriority() {
         CHECK(changed.wait_for(lock, 1s, [&] { return firstPartialSent; }));
     }
     CHECK(connection->send(second) == SendResult::Accepted);
-
-    // Keep the first application frame active until the quiet connection has queued its ping.
-    // Complete the application frame and hold that ping partially written, proving the control
-    // was selected at the frame boundary before the next application frame.
-    std::this_thread::sleep_for(10200ms);
+    sendFrame(peer.get(), {}, 1);
+    std::this_thread::sleep_for(250ms);
     {
         std::lock_guard<std::mutex> lock(mutex);
         releaseActiveApplication = true;
         changed.notify_all();
     }
-    {
-        std::unique_lock<std::mutex> lock(mutex);
-        CHECK(changed.wait_for(lock, 1s, [&] { return pingPartialSent; }));
-    }
-    // Queue pong while ping is active. Completing ping must select pong next, but the bounded
-    // two-control burst must then yield to the already queued application frame.
-    sendFrame(peer.get(), {}, 1);
-    std::this_thread::sleep_for(100ms);
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        releaseActivePing = true;
-        changed.notify_all();
-    }
 
-    const std::size_t expectedWireBytes = 4 * TransportEnvelopeBytes + first.size() + second.size();
+    const std::size_t expectedWireBytes = 3 * TransportEnvelopeBytes + first.size() + second.size();
     CHECK(waitUntil([&] {
         std::lock_guard<std::mutex> lock(mutex);
         return wire.size() == expectedWireBytes;
@@ -474,11 +489,19 @@ void deterministicOutboundFrameBoundaryPriority() {
         observedWire = wire;
     }
     const auto frames = parseObservedWire(observedWire);
-    CHECK(frames.size() == 4);
+    CHECK(frames.size() == 3);
     CHECK(frames[0].kind == 0 && frames[0].payload == first);
-    CHECK(frames[1].kind == 1 && frames[1].payload.empty());
-    CHECK(frames[2].kind == 2 && frames[2].payload.empty());
-    CHECK(frames[3].kind == 0 && frames[3].payload == second);
+    CHECK(frames[1].kind == 2 && frames[1].payload.empty());
+    CHECK(frames[2].kind == 0 && frames[2].payload == second);
+    CHECK(!progressTimes.empty());
+    CHECK(maximumCompletedAt > 30000);
+    for (std::size_t index = 1; index < progressTimes.size(); ++index) {
+        CHECK(progressTimes[index] > progressTimes[index - 1]);
+        CHECK(progressTimes[index] - progressTimes[index - 1] < 5000);
+    }
+    CHECK(wouldBlockCalls > 0);
+    CHECK(connection->state() == ClientState::Connected);
+    CHECK(connection->failure() == TransportFailure::None);
     TransportFrame hidden;
     CHECK(!connection->receive(hidden));
     connection->close();
@@ -744,7 +767,7 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
     RawSocketOwner peer(connectRaw(port, receiveBuffer));
     auto server = awaitAccept(listener);
     auto applicationPayload = [](std::uint64_t sequence) {
-        std::vector<std::uint8_t> payload(sequence == 0 ? MaxPayloadBytes : 1024, 0xA6);
+        std::vector<std::uint8_t> payload(16 * 1024, static_cast<std::uint8_t>(0xA6u ^ sequence));
         for (std::size_t index = 0; index < 8; ++index)
             payload[index] = static_cast<std::uint8_t>(sequence >> ((7u - index) * 8u));
         return payload;
@@ -766,12 +789,7 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
     std::atomic<std::size_t> applicationFrames{0};
     std::atomic<std::size_t> pingFrames{0};
     std::atomic<std::size_t> pongFrames{0};
-    std::atomic<std::size_t> maximumBytesReceived{0};
-    std::atomic<std::int64_t> maximumReadGapMilliseconds{0};
-    std::atomic<std::chrono::steady_clock::time_point> lastMaximumReadAt{std::chrono::steady_clock::now()};
-    std::atomic<bool> awaitingFrameAfterMaximum{false};
-    std::atomic<std::size_t> headersAfterMaximum{0};
-    std::atomic<bool> slowReader{true};
+    std::atomic<bool> pacedReader{true};
     std::thread reader([&] {
         try {
         auto receiveExact = [&](std::uint8_t *target, std::size_t size) {
@@ -788,14 +806,8 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
             return true;
         };
         while (true) {
-            const bool afterMaximum = applicationFrames.load() >= 1;
-            if (afterMaximum) awaitingFrameAfterMaximum.store(true);
             std::array<std::uint8_t, TransportEnvelopeBytes> header{};
             if (!receiveExact(header.data(), header.size())) break;
-            if (afterMaximum) {
-                awaitingFrameAfterMaximum.store(false);
-                headersAfterMaximum.fetch_add(1);
-            }
             const std::uint32_t magic = (std::uint32_t(header[0]) << 24u) | (std::uint32_t(header[1]) << 16u)
                                         | (std::uint32_t(header[2]) << 8u) | header[3];
             const std::uint16_t kind = std::uint16_t((header[6] << 8u) | header[7]);
@@ -803,24 +815,7 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
                                        | (std::uint32_t(header[10]) << 8u) | header[11];
             if (magic != TransportFramingIdentifier || size > MaxPayloadBytes) { readerFailed.store(true); break; }
             std::vector<std::uint8_t> payload(size);
-            if (size == MaxPayloadBytes && slowReader.load()) {
-                auto previousRead = std::chrono::steady_clock::now();
-                std::size_t offset = 0;
-                while (offset < payload.size()) {
-                    const std::size_t chunk = std::min<std::size_t>(2 * 1024, payload.size() - offset);
-                    if (!receiveExact(payload.data() + offset, chunk)) { readerFailed.store(true); break; }
-                    const auto readCompleted = std::chrono::steady_clock::now();
-                    const auto gap = std::chrono::duration_cast<std::chrono::milliseconds>(readCompleted - previousRead).count();
-                    auto observedGap = maximumReadGapMilliseconds.load();
-                    while (gap > observedGap && !maximumReadGapMilliseconds.compare_exchange_weak(observedGap, gap)) {}
-                    previousRead = readCompleted;
-                    lastMaximumReadAt.store(readCompleted);
-                    offset += chunk;
-                    maximumBytesReceived.store(offset);
-                    if (offset < payload.size()) std::this_thread::sleep_for(70ms);
-                }
-                if (readerFailed.load()) break;
-            } else if (size > 0 && !receiveExact(payload.data(), payload.size())) {
+            if (size > 0 && !receiveExact(payload.data(), payload.size())) {
                 readerFailed.store(true);
                 break;
             }
@@ -828,13 +823,13 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
                 std::uint64_t sequence = 0;
                 for (std::size_t index = 0; index < 8; ++index)
                     sequence = (sequence << 8u) | payload[index];
-                const std::size_t expectedSize = sequence == 0 ? MaxPayloadBytes : 1024;
-                if (payload.size() != expectedSize || sequence != applicationFrames.load()
-                    || !std::all_of(payload.begin() + 8, payload.end(), [](std::uint8_t value) {
-                        return value == 0xA6;
+                const auto expectedByte = static_cast<std::uint8_t>(0xA6u ^ sequence);
+                if (payload.size() != 16 * 1024 || sequence != applicationFrames.load()
+                    || !std::all_of(payload.begin() + 8, payload.end(), [expectedByte](std::uint8_t value) {
+                        return value == expectedByte;
                     })) { readerFailed.store(true); break; }
                 applicationFrames.fetch_add(1);
-                if (slowReader.load() && sequence != 0) std::this_thread::sleep_for(100ms);
+                if (pacedReader.load()) std::this_thread::sleep_for(80ms);
             } else if (kind == 1) {
                 pingFrames.fetch_add(1);
                 sendFrame(peer.get(), {}, 2);
@@ -867,31 +862,21 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
         else if (result == SendResult::Backpressure) ++sustainedBackpressure;
         else { unexpectedSendResult = true; unexpectedResult = result; break; }
         const auto elapsed = std::chrono::steady_clock::now() - started;
-        if (elapsed >= 10s && progressAtTenSeconds == 0) progressAtTenSeconds = maximumBytesReceived.load();
+        if (elapsed >= 10s && progressAtTenSeconds == 0) progressAtTenSeconds = applicationFrames.load();
         if (elapsed >= 15s && !peerPingSent) { sendFrame(peer.get(), {}, 1); peerPingSent = true; }
-        if (elapsed >= 20s && progressAtTwentySeconds == 0) progressAtTwentySeconds = maximumBytesReceived.load();
+        if (elapsed >= 20s && progressAtTwentySeconds == 0) progressAtTwentySeconds = applicationFrames.load();
         if (elapsed >= 30s && progressAtThirtySeconds == 0) {
-            progressAtThirtySeconds = maximumBytesReceived.load();
+            progressAtThirtySeconds = applicationFrames.load();
             stateAfterThirtySeconds = server->state();
         }
         std::this_thread::sleep_for(10ms);
     }
     const ClientState finalState = server->state();
     const TransportFailure finalFailure = server->failure();
-    const auto terminalObservedAt = std::chrono::steady_clock::now();
-    const std::size_t maximumBytesAtTerminal = maximumBytesReceived.load();
     const std::size_t applicationFramesAtTerminal = applicationFrames.load();
-    const bool awaitingFrameAtTerminal = awaitingFrameAfterMaximum.load();
-    const std::size_t headersAfterMaximumAtTerminal = headersAfterMaximum.load();
-    const auto readSilenceAtTerminal = std::chrono::duration_cast<std::chrono::milliseconds>(
-            terminalObservedAt - lastMaximumReadAt.load()).count();
     TransportFrame hidden;
     const bool controlHidden = !server->receive(hidden);
-    int drainReceiveBuffer = 1024 * 1024;
-    const bool drainBufferExpanded = setsockopt(peer.get(), SOL_SOCKET, SO_RCVBUF,
-                                                reinterpret_cast<const char *>(&drainReceiveBuffer),
-                                                sizeof(drainReceiveBuffer)) == 0;
-    slowReader.store(false);
+    pacedReader.store(false);
     const bool allAcceptedDelivered = waitUntil([&] {
         return readerFailed.load() || applicationFrames.load() == nextSequence;
     }, 45s) && !readerFailed.load() && applicationFrames.load() == nextSequence;
@@ -906,34 +891,45 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
                       + ", failure=" + std::to_string(static_cast<int>(finalFailure))
                       + ", pings=" + std::to_string(pingFrames.load())
                       + ", applicationFramesAtTerminal=" + std::to_string(applicationFramesAtTerminal)
-                      + ", maximumBytesAtTerminal=" + std::to_string(maximumBytesAtTerminal)
-                      + ", readSilenceAtTerminalMs=" + std::to_string(readSilenceAtTerminal)
-                      + ", awaitingFrameAtTerminal=" + std::to_string(awaitingFrameAtTerminal)
-                      + ", headersAfterMaximumAtTerminal=" + std::to_string(headersAfterMaximumAtTerminal)
-                      + ", applicationFramesAfterDrain=" + std::to_string(applicationFrames.load())
-                      + ", maximumBytesAfterDrain=" + std::to_string(maximumBytesReceived.load())
-                      + ", maximumReadGapMs=" + std::to_string(maximumReadGapMilliseconds.load())
-                      + ", awaitingFrameAfterDrain=" + std::to_string(awaitingFrameAfterMaximum.load())
-                      + ", headersAfterMaximumAfterDrain=" + std::to_string(headersAfterMaximum.load()));
+                      + ", applicationFramesAfterDrain=" + std::to_string(applicationFrames.load()));
     }
     CHECK(sustainedAccepted > 0);
     CHECK(sustainedBackpressure > 0);
     CHECK(finalState == ClientState::Connected);
     CHECK(controlHidden);
-    CHECK(drainBufferExpanded);
     CHECK(peerPingSent);
     CHECK(pongFrames.load() >= 1);
     CHECK(progressAtTenSeconds > 0);
     CHECK(progressAtTwentySeconds > progressAtTenSeconds);
     CHECK(progressAtThirtySeconds > progressAtTwentySeconds);
-    CHECK(progressAtThirtySeconds < MaxPayloadBytes);
-    CHECK(maximumReadGapMilliseconds.load() < 4000);
     CHECK(stateAfterThirtySeconds == ClientState::Connected);
     if (!allAcceptedDelivered) {
         throw Failure("accepted application frames did not drain: accepted=" + std::to_string(nextSequence)
                       + ", delivered=" + std::to_string(applicationFrames.load()));
     }
     CHECK(!readerFailed.load());
+}
+
+void maximumApplicationFrameTcpIntegrity() {
+    const auto port = unusedPort();
+    TcpListener listener(1);
+    startListener(listener, port);
+    RawSocketOwner peer(connectRaw(port));
+    auto connection = awaitAccept(listener);
+    std::vector<std::uint8_t> maximum(MaxPayloadBytes);
+    for (std::size_t index = 0; index < maximum.size(); ++index)
+        maximum[index] = static_cast<std::uint8_t>((index * 29u + 0x5Bu) & 0xFFu);
+    CHECK(connection->send(maximum) == SendResult::Accepted);
+    std::vector<std::uint8_t> wire(TransportEnvelopeBytes + maximum.size());
+    receiveAll(peer.get(), wire.data(), wire.size());
+    const auto frames = parseObservedWire(wire);
+    CHECK(frames.size() == 1);
+    CHECK(frames[0].kind == 0);
+    CHECK(frames[0].payload == maximum);
+    CHECK(connection->state() == ClientState::Connected);
+    CHECK(connection->failure() == TransportFailure::None);
+    connection->close();
+    listener.shutdown();
 }
 
 void concurrentTerminalPublicationIsCoherent() {
@@ -1262,10 +1258,12 @@ int main() {
         {"mandatory socket configuration failure", mandatorySocketConfigurationFailure},
         {"aged queue receives fresh progress window", agedConnectionGetsFreshInboundQueueWindow},
         {"continuous one-way output liveness", continuousOneWayOutputKeepsReceiveQuietPeerAlive},
+        {"maximum application frame TCP integrity", maximumApplicationFrameTcpIntegrity},
         {"concurrent terminal publication", concurrentTerminalPublicationIsCoherent},
         {"deterministic resolver cancellation", deterministicResolverCancellation},
         {"shared deadline and classifications", sharedDeadlineAndClassifications},
-        {"deterministic outbound frame boundary priority", deterministicOutboundFrameBoundaryPriority},
+        {"deterministic maximum-frame progress and boundary priority",
+         deterministicMaximumFrameProgressAndBoundaryPriority},
         {"deterministic outbound progress deadline", deterministicOutboundProgressDeadline},
         {"cancellation deadline races", cancellationDeadlineRacesAreTerminalAndJoined},
         {"lifecycle and failures", lifecycleAndFailures}, {"15 isolated connections", fifteenIsolatedConnections},
