@@ -7,7 +7,6 @@ import socket
 import struct
 import subprocess
 import sys
-import threading
 import time
 
 MAGIC, VERSION, APPLICATION, MAX_PAYLOAD = 0x44365254, 1, 0, 1024 * 1024
@@ -75,6 +74,27 @@ def receive_application_frame(connection):
         assert kind in (1, 2) and not payload
         if kind == 1: connection.sendall(struct.pack("!IHHI", MAGIC, VERSION, 2, 0))
 
+def receive_for_client(connection, index, phase):
+    try:
+        return receive_application_frame(connection)
+    except (AssertionError, OSError, socket.timeout) as error:
+        raise AssertionError(f"client {index} failed during {phase}: {error!r}") from error
+
+def close_clients_gracefully(clients):
+    for index, client in enumerate(clients):
+        try:
+            client.shutdown(socket.SHUT_WR)
+        except OSError as error:
+            raise AssertionError(f"client {index} could not half-close its send side: {error!r}") from error
+    for index, client in enumerate(clients):
+        try:
+            while client.recv(4096):
+                pass
+        except (OSError, socket.timeout) as error:
+            raise AssertionError(f"client {index} did not complete graceful peer close: {error!r}") from error
+        finally:
+            client.close()
+
 def wait_ready(process, expected):
     lines, started = [], time.monotonic()
     deadline = started + 10
@@ -97,25 +117,29 @@ def exercise(executable, host):
         output = wait_ready(process, f"transport ready on {host}:{port}")
         output.append(process.stdout.readline())
         assert any("no lobby, admission, simulation" in line for line in output)
-        clients = [socket.create_connection((host, port), timeout=3) for _ in range(15)]
-        for client in clients: client.settimeout(5)
         payloads = [bytes([index, 0, 255]) + f"opaque-handshake-{index}".encode() for index in range(15)]
-        for client, payload in zip(clients, payloads): send_frame(client, payload)
-        results = [None] * 15
-        threads = [threading.Thread(target=lambda i=i: results.__setitem__(i, receive_application_frame(clients[i]))) for i in range(15)]
-        for thread in threads: thread.start()
-        for thread in threads:
-            thread.join(6); assert not thread.is_alive(), "isolated echo made no bounded progress"
-        assert results == payloads, "cross-client payload leakage or corruption"
+        for index, payload in enumerate(payloads):
+            client = socket.create_connection((host, port), timeout=3)
+            client.settimeout(5)
+            clients.append(client)
+            send_frame(client, payload)
+            assert receive_for_client(client, index, "admission echo") == payload
+        assert len(clients) == 15
+        assert all(client.fileno() >= 0 and client.getpeername()[1] == port for client in clients)
+
+        isolation_payloads = [bytes([0xD6, index, 0, 255]) + f"isolation-{index}".encode() for index in range(15)]
+        for client, payload in zip(clients, isolation_payloads): send_frame(client, payload)
+        isolation_results = [receive_for_client(client, index, "isolation echo")
+                             for index, client in enumerate(clients)]
+        assert isolation_results == isolation_payloads, "cross-client payload leakage or corruption"
         ordered = [b"", b"\x00\xffbinary\x00", bytes(range(256)), bytes([0xA5]) * MAX_PAYLOAD]
         clients[0].sendall(b"".join(struct.pack("!IHHI", MAGIC, VERSION, APPLICATION, len(value)) + value for value in ordered))
-        assert [receive_application_frame(clients[0]) for _ in ordered] == ordered
+        assert [receive_for_client(clients[0], 0, "ordered echo") for _ in ordered] == ordered
         clients[0].settimeout(.15)
         try:
             assert not clients[0].recv(1), "frame duplication or merging produced trailing data"
         except socket.timeout: pass
-        for client in clients:
-            client.close()
+        close_clients_gracefully(clients)
         clients.clear()
         started = time.monotonic(); request_graceful_shutdown(process); process.wait(timeout=3)
         shutdown_output = process.stdout.read()

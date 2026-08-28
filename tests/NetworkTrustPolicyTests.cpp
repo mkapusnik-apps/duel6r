@@ -103,6 +103,36 @@ D6R_TEST_CASE("local bind helper accepts assigned trusted interfaces and rejects
     D6R_REQUIRE(!isLocalIpv4AddressAssigned({192, 168, 0, 255}));
 }
 
+D6R_TEST_CASE("pure local bind decisions honor interface prefixes and platform record shapes") {
+    using Decision = LocalListenerBindDecision;
+    const auto decide = [](std::array<std::uint8_t, 4> requested,
+                           std::initializer_list<Ipv4InterfaceRecord> records) {
+        return decideLocalListenerBind(requested, std::vector<Ipv4InterfaceRecord>(records));
+    };
+
+    D6R_REQUIRE(decide({127, 0, 0, 1}, {{{127, 0, 0, 1}, 8, std::nullopt}}) == Decision::Allowed);
+    D6R_REQUIRE(decide({10, 1, 2, 3}, {{{10, 1, 2, 3}, 8, {{10, 255, 255, 255}}}}) == Decision::Allowed);
+    D6R_REQUIRE(decide({192, 168, 4, 9}, {{{192, 168, 4, 9}, 24, std::nullopt}}) == Decision::Allowed);
+    D6R_REQUIRE(decide({10, 9, 8, 7}, {{{10, 9, 8, 6}, 24, {{10, 9, 8, 255}}}}) == Decision::NotAssigned);
+
+    D6R_REQUIRE(decide({10, 0, 0, 255}, {{{10, 0, 0, 255}, 16, {{10, 0, 255, 255}}}}) == Decision::Allowed);
+    D6R_REQUIRE(decide({10, 0, 0, 255}, {{{10, 0, 0, 255}, 16, std::nullopt}}) == Decision::Allowed);
+    D6R_REQUIRE(decide({10, 0, 0, 255}, {{{10, 0, 0, 255}, 24, {{10, 0, 0, 255}}}})
+                == Decision::BroadcastAddress);
+    D6R_REQUIRE(decide({10, 0, 0, 255}, {{{10, 0, 0, 255}, 24, std::nullopt}})
+                == Decision::BroadcastAddress);
+    D6R_REQUIRE(decide({10, 0, 0, 0}, {{{10, 0, 0, 0}, 24, {{10, 0, 0, 255}}}})
+                == Decision::NetworkAddress);
+
+    D6R_REQUIRE(decide({10, 0, 0, 0}, {{{10, 0, 0, 0}, 31, std::nullopt}}) == Decision::Allowed);
+    D6R_REQUIRE(decide({10, 0, 0, 1}, {{{10, 0, 0, 1}, 31, std::nullopt}}) == Decision::Allowed);
+    D6R_REQUIRE(decide({10, 0, 0, 9}, {{{10, 0, 0, 9}, 32, std::nullopt}}) == Decision::Allowed);
+    D6R_REQUIRE(decide({10, 0, 0, 9}, {{{10, 0, 0, 9}, 33, std::nullopt}}) == Decision::InvalidPrefix);
+    D6R_REQUIRE(decide({10, 0, 0, 9}, {{{10, 0, 0, 9}, 255, std::nullopt}}) == Decision::InvalidPrefix);
+    D6R_REQUIRE(decide({255, 255, 255, 255}, {{{255, 255, 255, 255}, 32, std::nullopt}})
+                == Decision::UnsupportedAddress);
+}
+
 D6R_TEST_CASE("hostname syntax and resolver policy enforce exact boundaries before connect or bind") {
     const std::string label63(63, 'a');
     const std::string hostname253 = label63 + '.' + label63 + '.' + label63 + '.' + std::string(61, 'a');
