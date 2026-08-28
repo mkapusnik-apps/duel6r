@@ -556,6 +556,9 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
     std::atomic<std::size_t> pongFrames{0};
     std::atomic<std::size_t> maximumBytesReceived{0};
     std::atomic<std::int64_t> maximumReadGapMilliseconds{0};
+    std::atomic<std::chrono::steady_clock::time_point> lastMaximumReadAt{std::chrono::steady_clock::now()};
+    std::atomic<bool> awaitingFrameAfterMaximum{false};
+    std::atomic<std::size_t> headersAfterMaximum{0};
     std::atomic<bool> controlPrecededQueuedApplication{false};
     std::atomic<bool> slowReader{true};
     std::thread reader([&] {
@@ -574,8 +577,14 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
             return true;
         };
         while (true) {
+            const bool afterMaximum = applicationFrames.load() >= 1;
+            if (afterMaximum) awaitingFrameAfterMaximum.store(true);
             std::array<std::uint8_t, TransportEnvelopeBytes> header{};
             if (!receiveExact(header.data(), header.size())) break;
+            if (afterMaximum) {
+                awaitingFrameAfterMaximum.store(false);
+                headersAfterMaximum.fetch_add(1);
+            }
             const std::uint32_t magic = (std::uint32_t(header[0]) << 24u) | (std::uint32_t(header[1]) << 16u)
                                         | (std::uint32_t(header[2]) << 8u) | header[3];
             const std::uint16_t kind = std::uint16_t((header[6] << 8u) | header[7]);
@@ -594,9 +603,10 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
                     auto observedGap = maximumReadGapMilliseconds.load();
                     while (gap > observedGap && !maximumReadGapMilliseconds.compare_exchange_weak(observedGap, gap)) {}
                     previousRead = readCompleted;
+                    lastMaximumReadAt.store(readCompleted);
                     offset += chunk;
                     maximumBytesReceived.store(offset);
-                    std::this_thread::sleep_for(70ms);
+                    if (offset < payload.size()) std::this_thread::sleep_for(70ms);
                 }
                 if (readerFailed.load()) break;
             } else if (size > 0 && !receiveExact(payload.data(), payload.size())) {
@@ -613,7 +623,7 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
                         return value == 0xA6;
                     })) { readerFailed.store(true); break; }
                 applicationFrames.fetch_add(1);
-                if (slowReader.load()) std::this_thread::sleep_for(100ms);
+                if (slowReader.load() && sequence != 0) std::this_thread::sleep_for(100ms);
             } else if (kind == 1) {
                 pingFrames.fetch_add(1);
                 sendFrame(peer.get(), {}, 2);
@@ -658,6 +668,13 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
     }
     const ClientState finalState = server->state();
     const TransportFailure finalFailure = server->failure();
+    const auto terminalObservedAt = std::chrono::steady_clock::now();
+    const std::size_t maximumBytesAtTerminal = maximumBytesReceived.load();
+    const std::size_t applicationFramesAtTerminal = applicationFrames.load();
+    const bool awaitingFrameAtTerminal = awaitingFrameAfterMaximum.load();
+    const std::size_t headersAfterMaximumAtTerminal = headersAfterMaximum.load();
+    const auto readSilenceAtTerminal = std::chrono::duration_cast<std::chrono::milliseconds>(
+            terminalObservedAt - lastMaximumReadAt.load()).count();
     TransportFrame hidden;
     const bool controlHidden = !server->receive(hidden);
     int drainReceiveBuffer = 1024 * 1024;
@@ -678,9 +695,16 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
                       + ", state=" + std::to_string(static_cast<int>(finalState))
                       + ", failure=" + std::to_string(static_cast<int>(finalFailure))
                       + ", pings=" + std::to_string(pingFrames.load())
-                      + ", applicationFrames=" + std::to_string(applicationFrames.load())
-                      + ", maximumBytesReceived=" + std::to_string(maximumBytesReceived.load())
-                      + ", maximumReadGapMs=" + std::to_string(maximumReadGapMilliseconds.load()));
+                      + ", applicationFramesAtTerminal=" + std::to_string(applicationFramesAtTerminal)
+                      + ", maximumBytesAtTerminal=" + std::to_string(maximumBytesAtTerminal)
+                      + ", readSilenceAtTerminalMs=" + std::to_string(readSilenceAtTerminal)
+                      + ", awaitingFrameAtTerminal=" + std::to_string(awaitingFrameAtTerminal)
+                      + ", headersAfterMaximumAtTerminal=" + std::to_string(headersAfterMaximumAtTerminal)
+                      + ", applicationFramesAfterDrain=" + std::to_string(applicationFrames.load())
+                      + ", maximumBytesAfterDrain=" + std::to_string(maximumBytesReceived.load())
+                      + ", maximumReadGapMs=" + std::to_string(maximumReadGapMilliseconds.load())
+                      + ", awaitingFrameAfterDrain=" + std::to_string(awaitingFrameAfterMaximum.load())
+                      + ", headersAfterMaximumAfterDrain=" + std::to_string(headersAfterMaximum.load()));
     }
     CHECK(sustainedAccepted > 0);
     CHECK(sustainedBackpressure > 0);
@@ -781,18 +805,38 @@ void lifecycleAndFailures() {
     CHECK(!unresolved.waitForConnected(NativeOperationWait));
     CHECK(unresolved.failure() == TransportFailure::ResolveFailed);
 
-    const auto refusedPort = unusedPort();
+    RawSocketOwner refusedEndpoint(::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
+    CHECK(refusedEndpoint.get() != InvalidRawSocket);
+    sockaddr_in refusedAddress{};
+    refusedAddress.sin_family = AF_INET;
+    refusedAddress.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    CHECK(::bind(refusedEndpoint.get(), reinterpret_cast<sockaddr *>(&refusedAddress), sizeof(refusedAddress)) == 0);
+#ifdef D6R_TRANSPORT_WINDOWS
+    int refusedAddressSize = sizeof(refusedAddress);
+#else
+    socklen_t refusedAddressSize = sizeof(refusedAddress);
+#endif
+    CHECK(getsockname(refusedEndpoint.get(), reinterpret_cast<sockaddr *>(&refusedAddress), &refusedAddressSize) == 0);
+    const auto refusedPort = ntohs(refusedAddress.sin_port);
     TcpClient refused;
     CHECK(refused.start({"127.0.0.1", refusedPort}));
     CHECK(!refused.waitForConnected(NativeOperationWait));
-    CHECK(refused.failure() == TransportFailure::ConnectionRefused);
+    if (refused.failure() != TransportFailure::ConnectionRefused) {
+        throw Failure("non-listening bound endpoint classification: state="
+                      + std::to_string(static_cast<int>(refused.state()))
+                      + ", failure=" + std::to_string(static_cast<int>(refused.failure())));
+    }
 
     first.shutdown(); first.shutdown();
     CHECK(first.state() == ListenerState::Stopped);
     TcpClient afterShutdown;
     CHECK(afterShutdown.start({"127.0.0.1", occupiedPort}));
     CHECK(!afterShutdown.waitForConnected(NativeOperationWait));
-    CHECK(afterShutdown.failure() == TransportFailure::ConnectionRefused);
+    if (afterShutdown.failure() != TransportFailure::ConnectionRefused) {
+        throw Failure("stopped-listener refusal classification: state="
+                      + std::to_string(static_cast<int>(afterShutdown.state()))
+                      + ", failure=" + std::to_string(static_cast<int>(afterShutdown.failure())));
+    }
 }
 
 void fifteenIsolatedConnections() {

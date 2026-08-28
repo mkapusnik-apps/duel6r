@@ -338,6 +338,13 @@ namespace Duel6::Network {
         }
 
         bool waitSocket(SocketHandle socket, bool writing, std::chrono::milliseconds timeout) {
+#ifdef D6R_TRANSPORT_WINDOWS
+            WSAPOLLFD descriptor{};
+            descriptor.fd = socket;
+            descriptor.events = writing ? POLLWRNORM : POLLRDNORM;
+            int result = WSAPoll(&descriptor, 1, static_cast<int>(timeout.count()));
+            return result > 0 && (descriptor.revents & (descriptor.events | POLLERR | POLLHUP | POLLNVAL)) != 0;
+#else
             fd_set set;
             FD_ZERO(&set);
             FD_SET(socket, &set);
@@ -348,6 +355,25 @@ namespace Duel6::Network {
                          ? select(static_cast<int>(socket + 1), nullptr, &set, nullptr, &value)
                          : select(static_cast<int>(socket + 1), &set, nullptr, nullptr, &value);
             return result > 0;
+#endif
+        }
+
+        bool waitConnectSocket(SocketHandle socket, std::chrono::milliseconds timeout) {
+#ifdef D6R_TRANSPORT_WINDOWS
+            fd_set writeSet;
+            fd_set exceptionSet;
+            FD_ZERO(&writeSet);
+            FD_ZERO(&exceptionSet);
+            FD_SET(socket, &writeSet);
+            FD_SET(socket, &exceptionSet);
+            timeval value{};
+            value.tv_sec = static_cast<long>(timeout.count() / 1000);
+            value.tv_usec = static_cast<long>((timeout.count() % 1000) * 1000);
+            int result = select(0, nullptr, &writeSet, &exceptionSet, &value);
+            return result > 0 && (FD_ISSET(socket, &writeSet) || FD_ISSET(socket, &exceptionSet));
+#else
+            return waitSocket(socket, true, timeout);
+#endif
         }
 
         bool configureTransportSocket(SocketHandle socket) {
@@ -709,23 +735,28 @@ namespace Duel6::Network {
                 }
                 pendingSocket.publish(socket);
                 int result = ::connect(socket, reinterpret_cast<const sockaddr *>(&address), sizeof(address));
-                if (result != 0 && !connectPending(socketError())) {
-                    lastFailure = connectFailure(socketError());
-                    pendingSocket.closeOwned(socket);
-                    continue;
+                if (result != 0) {
+                    const int error = socketError();
+                    if (!connectPending(error)) {
+                        lastFailure = connectFailure(error);
+                        pendingSocket.closeOwned(socket);
+                        continue;
+                    }
                 }
                 while (result != 0 && !cancelled() && now() < deadline) {
                     auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now());
-                    if (!waitSocket(socket, true, std::min(remaining, std::chrono::milliseconds(20)))) continue;
+                    if (!waitConnectSocket(socket, std::min(remaining, std::chrono::milliseconds(20)))) continue;
                     int error = 0;
 #ifdef D6R_TRANSPORT_WINDOWS
                     int length = sizeof(error);
 #else
                     socklen_t length = sizeof(error);
 #endif
-                    if (getsockopt(socket, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&error), &length) != 0
-                        || error != 0) {
-                        lastFailure = connectFailure(error == 0 ? socketError() : error);
+                    const int optionResult = getsockopt(socket, SOL_SOCKET, SO_ERROR,
+                                                        reinterpret_cast<char *>(&error), &length);
+                    if (optionResult != 0) error = socketError();
+                    if (optionResult != 0 || error != 0) {
+                        lastFailure = connectFailure(error);
                         break;
                     }
                     result = 0;
