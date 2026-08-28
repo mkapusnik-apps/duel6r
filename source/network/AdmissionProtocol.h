@@ -2,7 +2,9 @@
 #define DUEL6_NETWORK_ADMISSIONPROTOCOL_H
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -48,9 +50,19 @@ namespace Duel6::Network {
         bool admitted() const { return code == AdmissionResultCode::Admitted; }
     };
 
-    struct AdmissionAcceptance {
+    struct AdmissionIdentitySet {
         std::uint64_t participantId = 0;
+        std::vector<std::uint64_t> playerIds;
     };
+
+    using AdmissionOfferPayload = AdmissionIdentitySet;
+    using AdmissionAcceptance = AdmissionIdentitySet;
+    using AdmissionConfirmation = AdmissionIdentitySet;
+
+    inline constexpr std::string_view InvalidHostAdmissionMessageIdentifier =
+            "invalid-host-admission-message";
+    inline constexpr std::string_view InvalidHostAdmissionMessageCopy =
+            "Connection ended before admission completed.";
 
     enum class ReconnectCompatibilityCode {
         ProtocolIncompatible,
@@ -64,8 +76,15 @@ namespace Duel6::Network {
     AdmissionRequest deserializeAdmissionRequest(const std::vector<std::uint8_t> &payload);
     std::vector<std::uint8_t> serializeAdmissionResult(const AdmissionResult &result);
     AdmissionResult deserializeAdmissionResult(const std::vector<std::uint8_t> &payload);
+    std::vector<std::uint8_t> serializeAdmissionOffer(const AdmissionOfferPayload &offer);
+    AdmissionOfferPayload deserializeAdmissionOffer(const std::vector<std::uint8_t> &payload);
     std::vector<std::uint8_t> serializeAdmissionAcceptance(const AdmissionAcceptance &acceptance);
     AdmissionAcceptance deserializeAdmissionAcceptance(const std::vector<std::uint8_t> &payload);
+    std::vector<std::uint8_t> serializeAdmissionConfirmation(const AdmissionConfirmation &confirmation);
+    AdmissionConfirmation deserializeAdmissionConfirmation(const std::vector<std::uint8_t> &payload);
+    bool validAdmissionIdentitySet(const AdmissionIdentitySet &identities,
+                                   std::optional<std::size_t> expectedPlayerCount = std::nullopt);
+    bool sameAdmissionIdentitySet(const AdmissionIdentitySet &left, const AdmissionIdentitySet &right);
 
     std::string_view admissionResultIdentifier(AdmissionResultCode code);
     std::string_view admissionResultUserCopy(AdmissionResultCode code);

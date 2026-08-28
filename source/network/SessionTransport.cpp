@@ -891,7 +891,12 @@ namespace Duel6::Network {
             admissionReservation.reset();
         }
 
-        void permitAdmissionAcceptance() { admissionAcceptancePermitted.store(true); }
+        bool permitAdmissionAcceptance() {
+            bool expected = false;
+            return admissionAcceptancePermitted.compare_exchange_strong(expected, true);
+        }
+
+        void revokeAdmissionAcceptance() { admissionAcceptancePermitted.store(false); }
 
         std::atomic<ClientState> state{ClientState::Connected};
         std::atomic<TransportFailure> failure{TransportFailure::None};
@@ -1249,7 +1254,8 @@ namespace Duel6::Network {
     TransportTimePoint TcpConnection::acceptedAt() const { return impl->acceptedAt(); }
     TransportTimePoint TcpConnection::terminalAt() const { return impl->terminalAt(); }
     void TcpConnection::markAdmissionSucceeded() { impl->markAdmissionSucceeded(); }
-    void TcpConnection::permitAdmissionAcceptance() { impl->permitAdmissionAcceptance(); }
+    bool TcpConnection::permitAdmissionAcceptance() { return impl->permitAdmissionAcceptance(); }
+    void TcpConnection::revokeAdmissionAcceptance() { impl->revokeAdmissionAcceptance(); }
     void TcpConnection::requestClose() { impl->requestClose(); }
     void TcpConnection::close() { impl->close(); }
 

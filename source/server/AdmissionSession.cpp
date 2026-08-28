@@ -165,10 +165,12 @@ namespace Duel6::Server {
 
     AdmissionPolicy::AdmissionPolicy(Network::GameplayManifest frozenHostManifest, std::uint8_t hostLocalPlayers,
                                      IdentitySource identities,
-                                     std::shared_ptr<Network::Trust::ConcurrentWorkLimiter> workLimiter)
+                                     std::shared_ptr<Network::Trust::ConcurrentWorkLimiter> workLimiter,
+                                     ValidationWorkGate validationWorkGate)
             : manifest(std::move(frozenHostManifest)), sessionAllocation(hostLocalPlayers, std::move(identities)),
               manifestWork(workLimiter ? std::move(workLimiter)
-                                       : std::make_shared<Network::Trust::ConcurrentWorkLimiter>()) {
+                                       : std::make_shared<Network::Trust::ConcurrentWorkLimiter>()),
+              validationWorkGate(std::move(validationWorkGate)) {
         if (!Network::validCanonicalManifest(manifest))
             throw std::invalid_argument("Host gameplay content manifest is invalid");
         const AdmittedParticipant &host = sessionAllocation.hostParticipant();
@@ -191,6 +193,12 @@ namespace Duel6::Server {
 
         WorkReservation work(*manifestWork);
         if (!work) return rejectedOffer(Network::AdmissionResultCode::HostPolicyRejected);
+        try {
+            if (validationWorkGate && !validationWorkGate())
+                return rejectedOffer(Network::AdmissionResultCode::HostPolicyRejected);
+        } catch (...) {
+            return rejectedOffer(Network::AdmissionResultCode::HostPolicyRejected);
+        }
         if (!Network::gameplayManifestsEqual(manifest, request.gameplayManifest))
             return rejectedOffer(Network::AdmissionResultCode::GameplayContentMismatch);
 

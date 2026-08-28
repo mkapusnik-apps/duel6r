@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -43,6 +44,18 @@ namespace Duel6::Network {
         bool valid() const { return status == ManifestStatus::Valid; }
     };
 
+    enum class ManifestFilesystemStage {
+        RootPinned,
+        DirectoryPinned,
+        EntryExamined,
+        FileOpened,
+        HashStarted,
+        BeforeRead,
+        HashCompleted
+    };
+    using ManifestFilesystemObserver =
+            std::function<bool(ManifestFilesystemStage, const std::string &logicalPath)>;
+
     class ManifestSource {
     public:
         virtual ~ManifestSource() = default;
@@ -54,7 +67,8 @@ namespace Duel6::Network {
     public:
         explicit CompatibilityManifestBuilder(std::string resourceRoot,
                                               std::vector<std::string> enabledGameplayScripts = {},
-                                              std::shared_ptr<const ManifestSource> source = {});
+                                              std::shared_ptr<const ManifestSource> source = {},
+                                              ManifestFilesystemObserver filesystemObserver = {});
 
         ManifestBuildResult build() const;
 

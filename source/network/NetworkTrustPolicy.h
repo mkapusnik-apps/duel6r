@@ -49,7 +49,6 @@ namespace Duel6::Network::Trust {
     constexpr std::size_t GlobalAcceptedInputsPerSecond = 1800;
 
     constexpr auto FirstAdmissionRequestDeadline = std::chrono::seconds(3);
-    constexpr auto AdmissionAcceptanceDeadline = std::chrono::seconds(3);
     constexpr auto ReconnectCredentialLifetime = std::chrono::seconds(30);
     constexpr std::size_t ReconnectCredentialBytes = 16;
     constexpr std::size_t MaxReconnectCredentialGenerationAttempts = 4;

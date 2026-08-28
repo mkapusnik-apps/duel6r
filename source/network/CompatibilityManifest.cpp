@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cwctype>
 #include <filesystem>
 #include <iomanip>
 #include <limits>
@@ -173,12 +172,19 @@ namespace Duel6::Network {
             const DWORD written = GetFinalPathNameByHandleW(handle, result.data(), required, FILE_NAME_NORMALIZED);
             if (written == 0 || written >= required) return {};
             result.resize(written);
-            std::transform(result.begin(), result.end(), result.begin(), ::towlower);
             return result;
         }
 
+        bool ordinalEqual(std::wstring_view left, std::wstring_view right) {
+            if (left.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)())
+                || right.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)())) return false;
+            return CompareStringOrdinal(left.data(), static_cast<int>(left.size()),
+                                        right.data(), static_cast<int>(right.size()), FALSE) == CSTR_EQUAL;
+        }
+
         bool insideFinalRoot(const std::wstring &root, const std::wstring &candidate) {
-            return candidate.size() > root.size() && candidate.compare(0, root.size(), root) == 0
+            return candidate.size() > root.size()
+                   && ordinalEqual(root, std::wstring_view(candidate.data(), root.size()))
                    && (candidate[root.size()] == L'\\' || candidate[root.size()] == L'/');
         }
 
@@ -195,18 +201,20 @@ namespace Duel6::Network {
 
         class SecureFilesystem {
         public:
-            explicit SecureFilesystem(const std::string &rootText) {
+            SecureFilesystem(const std::string &rootText, ManifestFilesystemObserver observer)
+                    : observer(std::move(observer)) {
                 try { rootPath = fs::absolute(fs::u8path(rootText)).lexically_normal(); } catch (...) { return; }
                 root = Handle(CreateFileW(rootPath.c_str(), FILE_READ_ATTRIBUTES,
-                                         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                         FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                                          OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
                 if (!root) return;
                 BY_HANDLE_FILE_INFORMATION information{};
                 if (!GetFileInformationByHandle(root.get(), &information)
                     || !(information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
                     || (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) return;
+                rootVolume = information.dwVolumeSerialNumber;
                 rootFinal = finalPath(root.get());
-                validRoot = !rootFinal.empty();
+                validRoot = !rootFinal.empty() && notify(ManifestFilesystemStage::RootPinned, {});
             }
 
             bool valid() const { return validRoot; }
@@ -230,6 +238,7 @@ namespace Duel6::Network {
                 BY_HANDLE_FILE_INFORMATION before{};
                 ManifestStatus status = openFile(logical, file, before);
                 if (status != ManifestStatus::Valid) return status;
+                if (!notify(ManifestFilesystemStage::HashStarted, logical)) return ManifestStatus::ReadFailed;
                 const std::uintmax_t sizeValue = (static_cast<std::uintmax_t>(before.nFileSizeHigh) << 32u)
                                                  | before.nFileSizeLow;
                 if (sizeValue != expected) return ManifestStatus::ReadFailed;
@@ -237,6 +246,7 @@ namespace Duel6::Network {
                 std::array<std::uint8_t, 64 * 1024> buffer{};
                 std::uintmax_t readBytes = 0;
                 for (;;) {
+                    if (!notify(ManifestFilesystemStage::BeforeRead, logical)) return ManifestStatus::ReadFailed;
                     DWORD read = 0;
                     if (!ReadFile(file.get(), buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr))
                         return ManifestStatus::ReadFailed;
@@ -252,6 +262,7 @@ namespace Duel6::Network {
                     || before.nFileSizeHigh != after.nFileSizeHigh || before.nFileSizeLow != after.nFileSizeLow
                     || CompareFileTime(&before.ftLastWriteTime, &after.ftLastWriteTime) != 0)
                     return ManifestStatus::ReadFailed;
+                if (!notify(ManifestFilesystemStage::HashCompleted, logical)) return ManifestStatus::ReadFailed;
                 identity = sha.finish();
                 return ManifestStatus::Valid;
             }
@@ -262,15 +273,61 @@ namespace Duel6::Network {
                 if (!approvedLogicalPath(logical)) return ManifestStatus::InvalidLogicalPath;
                 fs::path relative;
                 try { relative = fs::u8path(logical); } catch (...) { return ManifestStatus::InvalidLogicalPath; }
+                std::vector<Handle> pinnedParents;
+                const ManifestStatus pinned = pinParents(relative.parent_path(), pinnedParents);
+                if (pinned != ManifestStatus::Valid) return pinned;
                 file = Handle(CreateFileW((rootPath / relative).c_str(), GENERIC_READ,
                                           FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                           FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
                 if (!file || !GetFileInformationByHandle(file.get(), &information)) return ManifestStatus::ReadFailed;
-                if ((information.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))
-                    || information.nNumberOfLinks != 1) return ManifestStatus::UnsafeFilesystemEntry;
+                if ((information.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT
+                                                      | FILE_ATTRIBUTE_DEVICE))
+                    || information.nNumberOfLinks != 1 || information.dwVolumeSerialNumber != rootVolume)
+                    return ManifestStatus::UnsafeFilesystemEntry;
                 const std::wstring resolved = finalPath(file.get());
-                return insideFinalRoot(rootFinal, resolved) ? ManifestStatus::Valid
-                                                            : ManifestStatus::UnsafeFilesystemEntry;
+                std::wstring expected = rootFinal;
+                expected.push_back(L'\\');
+                std::wstring relativeText = relative.native();
+                std::replace(relativeText.begin(), relativeText.end(), L'/', L'\\');
+                expected += relativeText;
+                if (!insideFinalRoot(rootFinal, resolved) || !ordinalEqual(expected, resolved))
+                    return ManifestStatus::UnsafeFilesystemEntry;
+                return notify(ManifestFilesystemStage::FileOpened, logical) ? ManifestStatus::Valid
+                                                                            : ManifestStatus::ReadFailed;
+            }
+
+            ManifestStatus pinParents(const fs::path &relativeParent, std::vector<Handle> &pinned) const {
+                fs::path current = rootPath;
+                std::string logical;
+                for (const fs::path &segment: relativeParent) {
+                    if (segment.empty()) continue;
+                    current /= segment;
+                    Handle directory(CreateFileW(current.c_str(), FILE_READ_ATTRIBUTES,
+                                                 FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                                                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+                    BY_HANDLE_FILE_INFORMATION information{};
+                    if (!directory || !GetFileInformationByHandle(directory.get(), &information))
+                        return ManifestStatus::MissingRequiredContent;
+                    if (!(information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                        || (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                        || information.dwVolumeSerialNumber != rootVolume)
+                        return ManifestStatus::UnsafeFilesystemEntry;
+                    std::string name;
+                    if (!utf8Name(segment.c_str(), name)) return ManifestStatus::InvalidLogicalPath;
+                    if (!logical.empty()) logical += '/';
+                    logical += name;
+                    std::wstring expected = rootFinal + L"\\";
+                    std::wstring logicalWide(logical.begin(), logical.end());
+                    std::replace(logicalWide.begin(), logicalWide.end(), L'/', L'\\');
+                    expected += logicalWide;
+                    const std::wstring resolved = finalPath(directory.get());
+                    if (!insideFinalRoot(rootFinal, resolved) || !ordinalEqual(expected, resolved))
+                        return ManifestStatus::UnsafeFilesystemEntry;
+                    if (!notify(ManifestFilesystemStage::DirectoryPinned, logical))
+                        return ManifestStatus::ReadFailed;
+                    pinned.push_back(std::move(directory));
+                }
+                return ManifestStatus::Valid;
             }
 
             ManifestStatus enumerateDirectory(const fs::path &directory, const std::string &logicalPrefix,
@@ -279,7 +336,7 @@ namespace Duel6::Network {
                 if (depth > Trust::MaxLogicalPathSegments || ++directories > MaxManifestDirectories)
                     return ManifestStatus::TooManyEntries;
                 Handle directoryHandle(CreateFileW(directory.c_str(), FILE_READ_ATTRIBUTES,
-                                                   FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                                   FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                                                    OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
                                                    nullptr));
                 BY_HANDLE_FILE_INFORMATION directoryInfo{};
@@ -287,8 +344,17 @@ namespace Duel6::Network {
                     return ManifestStatus::MissingRequiredContent;
                 if (!(directoryInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
                     || (directoryInfo.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
-                    || !insideFinalRoot(rootFinal, finalPath(directoryHandle.get())))
+                    || directoryInfo.dwVolumeSerialNumber != rootVolume)
                     return ManifestStatus::UnsafeFilesystemEntry;
+                std::wstring expected = rootFinal + L"\\";
+                std::wstring logicalWide(logicalPrefix.begin(), logicalPrefix.end());
+                std::replace(logicalWide.begin(), logicalWide.end(), L'/', L'\\');
+                expected += logicalWide;
+                const std::wstring resolvedDirectory = finalPath(directoryHandle.get());
+                if (!insideFinalRoot(rootFinal, resolvedDirectory)
+                    || !ordinalEqual(expected, resolvedDirectory)) return ManifestStatus::UnsafeFilesystemEntry;
+                if (!notify(ManifestFilesystemStage::DirectoryPinned, logicalPrefix))
+                    return ManifestStatus::ReadFailed;
 
                 WIN32_FIND_DATAW data{};
                 HANDLE raw = FindFirstFileW((directory / L"*").c_str(), &data);
@@ -300,8 +366,10 @@ namespace Duel6::Network {
                     std::string name;
                     if (!utf8Name(data.cFileName, name)) return ManifestStatus::InvalidLogicalPath;
                     const std::string logical = logicalPrefix + "/" + name;
+                    if (!notify(ManifestFilesystemStage::EntryExamined, logical))
+                        return ManifestStatus::ReadFailed;
                     if (!Trust::validLogicalPath(logical)) return ManifestStatus::InvalidLogicalPath;
-                    if (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                    if (data.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DEVICE))
                         return ManifestStatus::UnsafeFilesystemEntry;
                     if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
                         const ManifestStatus status = enumerateDirectory(directory / data.cFileName, logical,
@@ -318,7 +386,14 @@ namespace Duel6::Network {
             fs::path rootPath;
             Handle root;
             std::wstring rootFinal;
+            DWORD rootVolume = 0;
             bool validRoot = false;
+            ManifestFilesystemObserver observer;
+
+            bool notify(ManifestFilesystemStage stage, const std::string &logical) const {
+                if (!observer) return true;
+                try { return observer(stage, logical); } catch (...) { return false; }
+            }
         };
 #else
         class FileDescriptor {
@@ -347,13 +422,14 @@ namespace Duel6::Network {
 
         class SecureFilesystem {
         public:
-            explicit SecureFilesystem(std::string rootText) {
+            SecureFilesystem(std::string rootText, ManifestFilesystemObserver observer)
+                    : observer(std::move(observer)) {
                 while (rootText.size() > 1 && (rootText.back() == '/' || rootText.back() == '\\')) rootText.pop_back();
                 struct stat pathStatus{};
                 if (::lstat(rootText.c_str(), &pathStatus) != 0 || S_ISLNK(pathStatus.st_mode)) return;
                 root = FileDescriptor(::open(rootText.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
                 if (!root || ::fstat(root.get(), &rootStatus) != 0 || !S_ISDIR(rootStatus.st_mode)) return;
-                validRoot = true;
+                validRoot = notify(ManifestFilesystemStage::RootPinned, {});
             }
 
             bool valid() const { return validRoot; }
@@ -385,10 +461,12 @@ namespace Duel6::Network {
                 if (opened != ManifestStatus::Valid || before.st_size < 0
                     || static_cast<std::uintmax_t>(before.st_size) != expected)
                     return opened == ManifestStatus::Valid ? ManifestStatus::ReadFailed : opened;
+                if (!notify(ManifestFilesystemStage::HashStarted, logical)) return ManifestStatus::ReadFailed;
                 Sha256 sha;
                 std::array<std::uint8_t, 64 * 1024> buffer{};
                 std::uintmax_t readBytes = 0;
                 for (;;) {
+                    if (!notify(ManifestFilesystemStage::BeforeRead, logical)) return ManifestStatus::ReadFailed;
                     const ssize_t count = ::read(file.get(), buffer.data(), buffer.size());
                     if (count < 0) { if (errno == EINTR) continue; return ManifestStatus::ReadFailed; }
                     if (count == 0) break;
@@ -399,6 +477,7 @@ namespace Duel6::Network {
                 struct stat after{};
                 if (readBytes != expected || ::fstat(file.get(), &after) != 0 || !unchanged(before, after))
                     return ManifestStatus::ReadFailed;
+                if (!notify(ManifestFilesystemStage::HashCompleted, logical)) return ManifestStatus::ReadFailed;
                 identity = sha.finish();
                 return ManifestStatus::Valid;
             }
@@ -434,7 +513,8 @@ namespace Duel6::Network {
                 if (::fstat(file.get(), &status) != 0) return ManifestStatus::ReadFailed;
                 if (!S_ISREG(status.st_mode) || status.st_nlink != 1 || status.st_dev != rootStatus.st_dev)
                     return ManifestStatus::UnsafeFilesystemEntry;
-                return ManifestStatus::Valid;
+                return notify(ManifestFilesystemStage::FileOpened, logical) ? ManifestStatus::Valid
+                                                                            : ManifestStatus::ReadFailed;
             }
 
             ManifestStatus enumerateDirectory(int descriptor, const std::string &prefix, std::size_t depth,
@@ -442,6 +522,7 @@ namespace Duel6::Network {
                                                std::vector<std::string> &paths) const {
                 if (depth > Trust::MaxLogicalPathSegments || ++directories > MaxManifestDirectories)
                     return ManifestStatus::TooManyEntries;
+                if (!notify(ManifestFilesystemStage::DirectoryPinned, prefix)) return ManifestStatus::ReadFailed;
                 const int duplicate = ::dup(descriptor);
                 if (duplicate < 0) return ManifestStatus::ReadFailed;
                 DIR *raw = ::fdopendir(duplicate);
@@ -453,6 +534,8 @@ namespace Duel6::Network {
                     if (++examined > MaxManifestTraversalEntries) return ManifestStatus::TooManyEntries;
                     const std::string name(entry->d_name);
                     const std::string logical = prefix + "/" + name;
+                    if (!notify(ManifestFilesystemStage::EntryExamined, logical))
+                        return ManifestStatus::ReadFailed;
                     if (!Trust::validLogicalPath(logical)) return ManifestStatus::InvalidLogicalPath;
                     struct stat status{};
                     if (::fstatat(descriptor, entry->d_name, &status, AT_SYMLINK_NOFOLLOW) != 0)
@@ -481,15 +564,24 @@ namespace Duel6::Network {
             FileDescriptor root;
             struct stat rootStatus{};
             bool validRoot = false;
+            ManifestFilesystemObserver observer;
+
+            bool notify(ManifestFilesystemStage stage, const std::string &logical) const {
+                if (!observer) return true;
+                try { return observer(stage, logical); } catch (...) { return false; }
+            }
         };
 #endif
 
         class NativeManifestSource final : public ManifestSource {
         public:
+            explicit NativeManifestSource(ManifestFilesystemObserver observer)
+                    : observer(std::move(observer)) {}
+
             ManifestBuildResult build(const std::string &resourceRoot,
-                                      const std::vector<std::string> &enabledScripts) const override {
+                                       const std::vector<std::string> &enabledScripts) const override {
                 ManifestBuildResult result;
-                SecureFilesystem filesystem(resourceRoot);
+                SecureFilesystem filesystem(resourceRoot, observer);
                 if (!filesystem.valid()) return result;
 
                 std::vector<std::string> paths;
@@ -549,14 +641,19 @@ namespace Duel6::Network {
                 if (!result.valid()) result.manifest.clear();
                 return result;
             }
+
+        private:
+            ManifestFilesystemObserver observer;
         };
     }
 
     CompatibilityManifestBuilder::CompatibilityManifestBuilder(std::string resourceRoot,
                                                                  std::vector<std::string> enabledGameplayScripts,
-                                                                 std::shared_ptr<const ManifestSource> source)
+                                                                 std::shared_ptr<const ManifestSource> source,
+                                                                 ManifestFilesystemObserver filesystemObserver)
             : resourceRoot(std::move(resourceRoot)), enabledGameplayScripts(std::move(enabledGameplayScripts)),
-              source(source ? std::move(source) : std::make_shared<NativeManifestSource>()) {}
+              source(source ? std::move(source)
+                            : std::make_shared<NativeManifestSource>(std::move(filesystemObserver))) {}
 
     ManifestBuildResult CompatibilityManifestBuilder::build() const {
         try {

@@ -18,14 +18,14 @@ Entry is `NET-01` → Join. Confirmed admission enters `NET-04`; failure enters 
 ## Navigation and significant variants
 
 - Editable setup performs hostname/address and port validation inline. Invalid input never leaves `NET-03` and never starts the connection clock.
-- Connect starts the single 10-second attempt. Guest-local gameplay-manifest validation, resolution, connection, the admission offer, guest acceptance, host commit, and lobby confirmation all share that boundary.
+- Connect starts the single 10-second attempt. Guest-local gameplay-manifest validation, resolution, connection, request, admission offer, exact guest acceptance, atomic host commit, final `admitted` confirmation, and lobby handoff all share that boundary. There is no separate offer timer.
 - Guest-local manifest validation must finish before resolution. An invalid result established before the deadline uses `guest-gameplay-content-manifest-invalid` and the exact `NET-08` copy, performs no connection, disables Retry until restart, and retains endpoint and local players for Edit setup.
 - Cancel stops the attempt and returns to editable setup with endpoint and local-player configuration retained; it does not show Disconnected as though a session existed.
 - After Cancel and local validation, a complete host response must use the first applicable result in this order: `malformed-request`, `not-authorized`, `protocol-incompatible`, `network-release-mismatch`, `required-capability-unsupported`, `gameplay-content-manifest-invalid`, `gameplay-content-mismatch`, `match-already-started`, `session-full`, `host-policy-rejected`, and `admitted`.
-- Without a complete host response, initial transport outcomes use name-resolution failure, unreachable/refusal, reset/close before complete admission, then generic timeout. A complete response accepted before the deadline outranks later generic transport symptoms.
+- Without a complete valid rejection or final confirmation, initial transport outcomes use name-resolution failure, unreachable/refusal, reset/close before complete admission, then generic timeout. A complete valid rejection or final confirmation accepted before the deadline outranks later generic transport symptoms; an offer alone does not.
 - User copy must use the exact fixed messages in `NET-08`.
 - User copy must not include a peer-supplied name, release ID, capability, path, hash, count, credential, source address, threshold, payload, or raw filesystem value.
-- Only a committed admission after the guest accepts the complete offer enters `NET-04`; join-in-progress rejection is explicit when the host already started.
+- Only a guest that validates the final confirmation with the exact offered participant identity, original player count, and ordered player identities enters `NET-04`. A malformed, trailing, unexpected, or inconsistent complete host offer, rejection, or confirmation closes the attempt as `invalid-host-admission-message` with `Connection ended before admission completed.`. Join-in-progress rejection is explicit when the host already started.
 - `NET-08` Retry repeats the retained attempt, Edit setup returns here with all data retained, and Return to Network enters `NET-01`.
 
 ## Truthful copy, disabled reasons, and input

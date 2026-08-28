@@ -12,7 +12,9 @@ namespace Duel6::Network {
     namespace {
         constexpr std::array<std::uint8_t, 4> RequestMagic{{'D', '6', 'R', 'A'}};
         constexpr std::array<std::uint8_t, 4> ResultMagic{{'D', '6', 'R', 'S'}};
+        constexpr std::array<std::uint8_t, 4> OfferMagic{{'D', '6', 'R', 'O'}};
         constexpr std::array<std::uint8_t, 4> AcceptanceMagic{{'D', '6', 'R', 'K'}};
+        constexpr std::array<std::uint8_t, 4> ConfirmationMagic{{'D', '6', 'R', 'C'}};
 
         class Writer {
         public:
@@ -114,6 +116,53 @@ namespace Duel6::Network {
             return code >= static_cast<std::uint16_t>(AdmissionResultCode::MalformedRequest)
                    && code <= static_cast<std::uint16_t>(AdmissionResultCode::Admitted);
         }
+
+        std::vector<std::uint8_t> serializeIdentitySet(const AdmissionIdentitySet &identities,
+                                                       const std::array<std::uint8_t, 4> &magic) {
+            if (!validAdmissionIdentitySet(identities))
+                throw std::invalid_argument("Admission identity set is invalid");
+            Writer writer;
+            writer.raw(magic);
+            writer.uint64(identities.participantId);
+            writer.byte(static_cast<std::uint8_t>(identities.playerIds.size()));
+            for (std::uint64_t playerId: identities.playerIds) writer.uint64(playerId);
+            return writer.finish();
+        }
+
+        AdmissionIdentitySet deserializeIdentitySet(const std::vector<std::uint8_t> &payload,
+                                                    const std::array<std::uint8_t, 4> &magic) {
+            Reader reader(payload);
+            expectMagic(reader, magic);
+            AdmissionIdentitySet identities;
+            identities.participantId = reader.uint64();
+            const std::size_t playerCount = reader.byte();
+            if (playerCount == 0 || playerCount > Trust::MaxParticipants)
+                throw std::length_error("Admission identity set player count is invalid");
+            identities.playerIds.reserve(playerCount);
+            for (std::size_t index = 0; index < playerCount; ++index)
+                identities.playerIds.push_back(reader.uint64());
+            reader.expectFinished();
+            if (!validAdmissionIdentitySet(identities))
+                throw std::invalid_argument("Admission identity set is invalid");
+            return identities;
+        }
+    }
+
+    bool validAdmissionIdentitySet(const AdmissionIdentitySet &identities,
+                                   std::optional<std::size_t> expectedPlayerCount) {
+        if (identities.participantId == 0 || identities.playerIds.empty()
+            || identities.playerIds.size() > Trust::MaxParticipants
+            || (expectedPlayerCount && identities.playerIds.size() != *expectedPlayerCount)
+            || std::find(identities.playerIds.begin(), identities.playerIds.end(), identities.participantId)
+               != identities.playerIds.end()
+            || std::any_of(identities.playerIds.begin(), identities.playerIds.end(),
+                           [](std::uint64_t value) { return value == 0; })) return false;
+        return std::set<std::uint64_t>(identities.playerIds.begin(), identities.playerIds.end()).size()
+               == identities.playerIds.size();
+    }
+
+    bool sameAdmissionIdentitySet(const AdmissionIdentitySet &left, const AdmissionIdentitySet &right) {
+        return left.participantId == right.participantId && left.playerIds == right.playerIds;
     }
 
     std::vector<std::uint8_t> serializeAdmissionRequest(const AdmissionRequest &request) {
@@ -220,23 +269,28 @@ namespace Duel6::Network {
         return result;
     }
 
+    std::vector<std::uint8_t> serializeAdmissionOffer(const AdmissionOfferPayload &offer) {
+        return serializeIdentitySet(offer, OfferMagic);
+    }
+
+    AdmissionOfferPayload deserializeAdmissionOffer(const std::vector<std::uint8_t> &payload) {
+        return deserializeIdentitySet(payload, OfferMagic);
+    }
+
     std::vector<std::uint8_t> serializeAdmissionAcceptance(const AdmissionAcceptance &acceptance) {
-        if (acceptance.participantId == 0)
-            throw std::invalid_argument("Admission acceptance participant identity is invalid");
-        Writer writer;
-        writer.raw(AcceptanceMagic);
-        writer.uint64(acceptance.participantId);
-        return writer.finish();
+        return serializeIdentitySet(acceptance, AcceptanceMagic);
     }
 
     AdmissionAcceptance deserializeAdmissionAcceptance(const std::vector<std::uint8_t> &payload) {
-        Reader reader(payload);
-        expectMagic(reader, AcceptanceMagic);
-        AdmissionAcceptance acceptance{reader.uint64()};
-        reader.expectFinished();
-        if (acceptance.participantId == 0)
-            throw std::invalid_argument("Admission acceptance participant identity is invalid");
-        return acceptance;
+        return deserializeIdentitySet(payload, AcceptanceMagic);
+    }
+
+    std::vector<std::uint8_t> serializeAdmissionConfirmation(const AdmissionConfirmation &confirmation) {
+        return serializeIdentitySet(confirmation, ConfirmationMagic);
+    }
+
+    AdmissionConfirmation deserializeAdmissionConfirmation(const std::vector<std::uint8_t> &payload) {
+        return deserializeIdentitySet(payload, ConfirmationMagic);
     }
 
     std::string_view admissionResultIdentifier(AdmissionResultCode code) {

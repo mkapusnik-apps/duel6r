@@ -16,6 +16,7 @@
 
 namespace Duel6::Server {
     using IdentitySource = std::function<std::optional<std::uint64_t>()>;
+    using ValidationWorkGate = std::function<bool()>;
     IdentitySource sequentialIdentitySource(std::uint64_t firstIdentity = 1);
 
     struct AdmittedParticipant {
@@ -71,7 +72,8 @@ namespace Duel6::Server {
     public:
         AdmissionPolicy(Network::GameplayManifest frozenHostManifest, std::uint8_t hostLocalPlayers,
                         IdentitySource identities = {},
-                        std::shared_ptr<Network::Trust::ConcurrentWorkLimiter> workLimiter = {});
+                        std::shared_ptr<Network::Trust::ConcurrentWorkLimiter> workLimiter = {},
+                        ValidationWorkGate validationWorkGate = {});
 
         Network::AdmissionResult evaluate(const Network::AdmissionRequest &request,
                                           AdmissionContext context = {});
@@ -95,6 +97,7 @@ namespace Duel6::Server {
         Network::GameplayManifest manifest;
         SessionAllocation sessionAllocation;
         std::shared_ptr<Network::Trust::ConcurrentWorkLimiter> manifestWork;
+        ValidationWorkGate validationWorkGate;
         Network::Trust::AuthorizationPolicy authorization;
         bool matchStarted = false;
         mutable std::mutex policyMutex;

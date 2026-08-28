@@ -131,7 +131,7 @@ The scaffold uses SHA-256 over each file's exact bytes as the 32-byte cross-plat
 
 The host and guest manifest builder includes every regular file under `levels/`, `data/blocks.json`, `data/config.script`, and each explicitly enabled `scripts/` path supplied through `--gameplay-script=`. It does not enumerate `profiles/`, people, controls, saves, statistics, documentation, or presentation directories. A profile script therefore cannot enter or execute through admission.
 
-The builder sorts logical paths before hashing and rejects symlinks or reparse points, hard-linked files, non-regular entries, root escape, cross-device traversal, duplicate or invalid paths, missing required content, more than 256 manifest entries, more than 256 traversed directories, more than 512 examined filesystem entries, an individual file above 64 MiB, or more than 256 MiB of included content. Native descriptor- or handle-based reads revalidate file identity, size, and modification metadata after hashing. These bounds limit pre-listener and pre-connection hashing work; they do not change the 262,144-byte admission-payload bound.
+The builder sorts logical paths before hashing and rejects symlinks or reparse points, hard-linked files, non-regular entries, root escape, cross-device or cross-volume traversal, unsafe aliases, duplicate or invalid paths, missing required content, more than 256 manifest entries, more than 256 traversed directories, more than 512 examined filesystem entries, an individual file above 64 MiB, or more than 256 MiB of included content. Native descriptor- or handle-based reads pin the root and every traversed parent without rename/delete sharing, use no-follow opens, compare final Windows paths with ordinal semantics, and revalidate file identity, size, and modification metadata after hashing. Mutation, replacement, unsafe alias, and read failure must fail closed without publishing a partial manifest. These bounds limit pre-listener and pre-connection hashing work; they do not change the 262,144-byte admission-payload bound.
 
 ## Host admission flow
 
@@ -168,11 +168,12 @@ Return to Network must enter `NET-01`. A confirmed invalid-manifest result befor
 6. The host must apply the trust and authorization decision from the trust policy.
 7. The host must check protocol, release, required capabilities, manifest validity, and manifest equality.
 8. The host must then check admission state and capacity.
-9. On success, the host must atomically reserve provisional participant and player identities and return one complete admission offer.
-10. The guest must validate and accept that complete offer before its total deadline.
-11. The host must commit the participant identity, player identities, immutable connection binding, ownership, and slots only after receiving the matching bounded acceptance. Lobby entry may occur only after that commit.
+9. On success, the host must atomically reserve provisional participant and player identities and return one complete `admission-offer` containing the nonzero participant identity, the requested player count, and the exact ordered player identities.
+10. The guest must validate the participant identity, original requested count, exact player ordering, nonzero and unique values, and separation of participant and player identities. It must return exactly one `admission-acceptance` that repeats the complete offer before the single total deadline.
+11. The host must reject an acceptance received at or after the total deadline or one that does not exactly match the offer. For one valid acceptance, it must atomically commit the participant identity, player identities, immutable connection binding, ownership, and slots.
+12. After commit, the host must return one final `admitted` confirmation containing the exact committed participant identity, player count, and ordered player identities. The guest may report success and enter the downstream lobby only after validating that confirmation strictly before its total deadline.
 
-A guest admission request must contain at least one local player. A rejection, send failure, invalid or missing acceptance, cancellation, timeout, or pre-admission disconnect must roll back the reservation and allocate no participant, playable slot, ownership, or committed session identity. Provisional identities may remain burned for the session so that a later entity never reuses them.
+A guest admission request must contain at least one local player. Before commit, a rejection, offer-send failure, invalid or missing acceptance, cancellation, timeout, or disconnect must roll back the reservation and allocate no participant, playable slot, ownership, or committed session identity. Provisional identities remain burned for the session so that a later entity never reuses them. Commit is the rollback boundary: failure or loss of the final confirmation does not undo host state, and the committed participant passes to the disconnect and reconnect lifecycle owned by issue #36 while the guest reports the applicable incomplete-admission close or timeout result.
 
 ### Invalid guest-local manifest
 
@@ -218,6 +219,8 @@ The following identifiers are exact, case-sensitive protocol values. They must n
 
 `admitted` is a success identifier. It is not a rejection identifier.
 
+Any malformed, trailing, unexpected, or semantically inconsistent complete host offer, rejection, or final confirmation must close the connection and use machine identifier `invalid-host-admission-message` with exactly `Connection ended before admission completed.`. No peer value or dynamic detail may be logged or displayed. A partial transport frame is not a complete host message and remains subject to close or the total deadline.
+
 ### Host evaluation precedence
 
 After local validation and user Cancel, the host must stop at the first applicable result in this order:
@@ -249,7 +252,8 @@ Issue #30 must keep all applicable limits from the trust and transport contracts
 - an immediate burst of 4 attempts;
 - one admission request for each connection;
 - a three-second first-request deadline;
-- a three-second admission-offer acceptance deadline;
+- exactly one admission acceptance for each successful offer;
+- one total 10-second Connect deadline covering manifest work and every admission message, with no separate offer timer;
 - 2 concurrent manifest validations;
 - a 262,144-byte initial admission payload;
 - 4,096 properties;
@@ -271,9 +275,9 @@ Missing the three-second request deadline must close the connection without admi
 
 The guest's 10-second deadline includes resolution, connection, compatibility, capacity, host admission, and lobby confirmation.
 
-Success must be confirmed strictly before the deadline. At or after 10 seconds, the generic result is `Connection timed out.`.
+Success must be confirmed by the exact final `admitted` message strictly before the deadline. At or after 10 seconds, the generic result is `Connection timed out.`. The host must reject an acceptance received at or after its attempt boundary even when the bytes are otherwise valid.
 
-A complete host response accepted before the deadline must take precedence over a later generic transport symptom.
+A complete valid rejection received before the deadline, or a complete valid final confirmation received before the deadline, must take precedence over a later generic transport symptom. An offer alone is not a complete admission result.
 
 Without a complete host response, initial transport outcomes must use this order and copy:
 
@@ -284,7 +288,7 @@ Without a complete host response, initial transport outcomes must use this order
 
 User Cancel and local inline validation must take precedence before host or transport outcomes. Cancel must preserve endpoint and local-player setup.
 
-Cancel, timeout, and pre-admission disconnect must allocate no participant, player slot, ownership, or committed identity. Every provisional reservation is rolled back; its burned identity values are never reused.
+Cancel, timeout, and disconnect before commit must allocate no participant, player slot, ownership, or committed identity. Every provisional reservation is rolled back; its burned identity values are never reused. Loss of the final confirmation after atomic commit does not roll host state back.
 
 A disconnect after complete admission is subject to issue #36. It is not an initial-admission failure.
 
@@ -345,7 +349,7 @@ These commands provide process-level protocol evidence only. Successful output r
 ## Acceptance criteria
 
 - **AC-001:** A host with a valid local manifest must complete local host admission with one stable nonzero participant identity.
-- **AC-002:** A compatible guest must receive stable nonzero participant and player identities before the admission deadline.
+- **AC-002:** A compatible guest must receive and validate a final confirmation containing stable nonzero participant and player identities before the admission deadline.
 - **AC-003:** Admission must assign each identity once and must not reuse it during the session.
 - **AC-004:** Missing, malformed, duplicate, excessive, or late admission data must fail before playable-slot allocation.
 - **AC-005:** A protocol mismatch must fail with `protocol-incompatible` and the fixed release-mismatch copy.
@@ -359,11 +363,11 @@ These commands provide process-level protocol evidence only. Successful output r
 - **AC-013:** The network session must not load or execute a participant profile script.
 - **AC-014:** Only host-installed and host-enabled gameplay scripts may enter the authoritative manifest.
 - **AC-015:** Admission must reject a request that would exceed 15 participants or 15 roster players.
-- **AC-016:** Rejection or pre-admission disconnect must allocate no participant, player slot, ownership, or identity.
+- **AC-016:** Rejection or disconnect before commit must allocate no participant, player slot, ownership, or committed identity; a lost final confirmation after commit must not roll host state back.
 - **AC-017:** The host must apply every admission outcome in the fixed precedence order.
 - **AC-018:** User-visible rejection copy must contain no untrusted or compatibility-sensitive value.
 - **AC-019:** Trust-policy quotas and concurrent-validation limits must remain effective during compatibility processing.
-- **AC-020:** A complete host result accepted before the deadline must take precedence over a later transport symptom.
+- **AC-020:** A complete valid rejection or final confirmation accepted before the deadline must take precedence over a later transport symptom; an offer alone must not report success.
 - **AC-021:** No complete result at the 10-second deadline must produce `Connection timed out.`.
 - **AC-022:** A transport close before complete admission must produce `Connection ended before admission completed.`.
 - **AC-023:** An admission attempt after match start must receive the fixed join-in-progress rejection.

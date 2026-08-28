@@ -21,6 +21,7 @@ Host startup or initial Join failure enters from `NET-02` or `NET-03`; terminal 
 - Endpoint validation remains inline in `NET-03` and does not enter this screen.
 - Guest-local manifest validation shares the initial 10-second attempt. A specific invalid result established before the deadline enters this screen without resolution or connection; otherwise the generic attempt timeout applies.
 - Initial admission uses the fixed malformed, trust/authorization, release, invalid-manifest, content, match-started, capacity, policy, and success order. Initial transport failure uses the fixed name-resolution, unreachable/refusal, incomplete-response, and timeout precedence.
+- A malformed, trailing, unexpected, or semantically inconsistent complete host offer, rejection, or final confirmation uses `invalid-host-admission-message` and exactly `Connection ended before admission completed.`. An undelivered partial frame remains subject to close or the total deadline.
 - Reconnect terminal variants use only fixed non-disclosing authorization, missing-reservation, release, content, or expiry copy. `Reconnect time expired. The session could not be restored.` never claims host end or player removal.
 - Host-local supervised failure uses exactly `Hosted session stopped unexpectedly.` It is shown only to the hosting application and is never evidence or copy sent to guests.
 - Host startup and complete guest connection have separate 10-second boundaries. A specific reason confirmed before the applicable deadline replaces generic timeout.
@@ -47,7 +48,7 @@ The runtime must stop at the first applicable complete host result in the table 
 | 8 | `match-already-started` | `Match already started. Join-in-progress is not supported.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 9 | `session-full` | `Session is full.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 10 | `host-policy-rejected` | `Host rejected the connection.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
-| 11 | `admitted` | No rejection copy. | Enter `NET-04`; do not show `NET-08`. |
+| 11 | `admitted` | No rejection copy. | Enter `NET-04` only after exact final-confirmation validation; do not show `NET-08`. |
 
 Without a complete host response, the runtime must use the first applicable transport result in this order.
 
@@ -58,7 +59,7 @@ Without a complete host response, the runtime must use the first applicable tran
 | 3 | Reset or close before complete admission | `Connection ended before admission completed.` | Retry the retained attempt; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 4 | No complete result at the deadline | `Connection timed out.` | Retry the retained attempt; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 
-A complete host response that the guest accepts before the deadline must take precedence over a later transport symptom.
+A complete valid rejection or exact final confirmation that the guest accepts before the deadline must take precedence over a later transport symptom. An admission offer alone must not report success.
 User Cancel and local inline validation must take precedence over every result in these tables.
 
 ## Host and reconnect outcome mapping
