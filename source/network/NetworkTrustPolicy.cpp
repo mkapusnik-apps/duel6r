@@ -1,23 +1,58 @@
 #include "NetworkTrustPolicy.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <iterator>
+#include <limits>
+#include <new>
 #include <sstream>
 #include <stdexcept>
 
 #ifdef D6R_TRANSPORT_WINDOWS
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <bcrypt.h>
+#include <iphlpapi.h>
 #else
 #include <cerrno>
+#include <ifaddrs.h>
+#include <netinet/in.h>
 #include <sys/random.h>
+#if defined(__GLIBC__) || defined(__linux__)
+#include <strings.h>
+#endif
 #endif
 
 namespace Duel6::Network::Trust {
     namespace {
         TimePoint realNow() { return std::chrono::steady_clock::now(); }
         Clock selectedClock(Clock clock) { return clock ? std::move(clock) : Clock(realNow); }
+
+        void secureErase(void *target, std::size_t size) noexcept {
+#ifdef D6R_TRANSPORT_WINDOWS
+            SecureZeroMemory(target, size);
+#elif defined(__GLIBC__) || defined(__linux__)
+            explicit_bzero(target, size);
+#else
+            auto *bytes = static_cast<volatile unsigned char *>(target);
+            while (size-- != 0) *bytes++ = 0;
+#endif
+        }
+
+        std::int64_t secondWindowIndex(TimePoint value) {
+            using Seconds = std::chrono::seconds;
+            const auto elapsed = value.time_since_epoch();
+            const auto truncated = std::chrono::duration_cast<Seconds>(elapsed);
+            std::int64_t index = truncated.count();
+            if (elapsed < truncated && index != (std::numeric_limits<std::int64_t>::min)()) --index;
+            return index;
+        }
 
         bool parseOctet(std::string_view value, std::uint8_t &result) {
             if (value.empty() || value.size() > 3 || (value.size() > 1 && value.front() == '0')) return false;
@@ -89,7 +124,6 @@ namespace Duel6::Network::Trust {
     }
 
     EndpointScope classifyIpv4(const std::array<std::uint8_t, 4> &address) {
-        if (address[3] == 255) return EndpointScope::Unsupported;
         if (address[0] == 127) return EndpointScope::Loopback;
         if (address[0] == 10 || (address[0] == 172 && address[1] >= 16 && address[1] <= 31)
             || (address[0] == 192 && address[1] == 168)) return EndpointScope::PrivateLan;
@@ -109,6 +143,47 @@ namespace Duel6::Network::Trust {
         }
         if (result) *result = address;
         return classifyIpv4(address);
+    }
+
+    bool isLocalIpv4AddressAssigned(const std::array<std::uint8_t, 4> &address) {
+#ifdef D6R_TRANSPORT_WINDOWS
+        ULONG size = 0;
+        constexpr ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST
+                                | GAA_FLAG_SKIP_DNS_SERVER | GAA_FLAG_SKIP_FRIENDLY_NAME;
+        if (GetAdaptersAddresses(AF_INET, flags, nullptr, nullptr, &size) != ERROR_BUFFER_OVERFLOW
+            || size == 0 || size > 1024 * 1024) return false;
+        try {
+            std::vector<std::max_align_t> storage(
+                    (size + sizeof(std::max_align_t) - 1) / sizeof(std::max_align_t));
+            auto *adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(storage.data());
+            if (GetAdaptersAddresses(AF_INET, flags, nullptr, adapters, &size) != NO_ERROR) return false;
+            for (auto *adapter = adapters; adapter; adapter = adapter->Next) {
+                for (auto *entry = adapter->FirstUnicastAddress; entry; entry = entry->Next) {
+                    if (!entry->Address.lpSockaddr || entry->Address.lpSockaddr->sa_family != AF_INET) continue;
+                    const auto *ipv4 = reinterpret_cast<const sockaddr_in *>(entry->Address.lpSockaddr);
+                    std::array<std::uint8_t, 4> assigned{};
+                    std::memcpy(assigned.data(), &ipv4->sin_addr.s_addr, assigned.size());
+                    if (assigned == address) return true;
+                }
+            }
+        } catch (const std::bad_alloc &) {
+            return false;
+        }
+        return false;
+#else
+        ifaddrs *interfaces = nullptr;
+        if (getifaddrs(&interfaces) != 0) return false;
+        bool assigned = false;
+        for (auto *entry = interfaces; entry && !assigned; entry = entry->ifa_next) {
+            if (!entry->ifa_addr || entry->ifa_addr->sa_family != AF_INET) continue;
+            const auto *ipv4 = reinterpret_cast<const sockaddr_in *>(entry->ifa_addr);
+            std::array<std::uint8_t, 4> candidate{};
+            std::memcpy(candidate.data(), &ipv4->sin_addr.s_addr, candidate.size());
+            assigned = candidate == address;
+        }
+        freeifaddrs(interfaces);
+        return assigned;
+#endif
     }
 
     bool validHostname(std::string_view value) {
@@ -269,8 +344,8 @@ namespace Duel6::Network::Trust {
         if (!sources.count(source) && sources.size() >= MaxTrackedAdmissionSources) return {};
         auto &state = sources[source];
         if (state.lastRefill == TimePoint{}) state.lastRefill = current;
-        const double elapsed = std::max(0.0, std::chrono::duration<double>(current - state.lastRefill).count());
-        state.burstTokens = std::min<double>(AdmissionAttemptBurst,
+        const double elapsed = (std::max)(0.0, std::chrono::duration<double>(current - state.lastRefill).count());
+        state.burstTokens = (std::min<double>)(AdmissionAttemptBurst,
                 state.burstTokens + elapsed * MaxAdmissionAttemptsPerSourcePerMinute / 60.0);
         state.lastRefill = current;
         while (!state.attempts.empty() && current - state.attempts.front() >= std::chrono::seconds(60))
@@ -316,13 +391,23 @@ namespace Duel6::Network::Trust {
 
     TokenBucket::TokenBucket(double tokensPerSecond, double burst, Clock clock)
             : rate(tokensPerSecond), capacity(burst), available(burst), clock(selectedClock(std::move(clock))),
-              updated(this->clock()) {}
+              updated(this->clock()) {
+        if (!std::isfinite(rate) || !std::isfinite(capacity) || rate < 0 || capacity < 0)
+            throw std::invalid_argument("Token bucket values must be finite and non-negative");
+    }
     bool TokenBucket::consume(double tokens) {
-        if (tokens < 0) return false;
+        if (!std::isfinite(tokens) || tokens < 0) return false;
         std::lock_guard<std::mutex> lock(mutex);
         const auto current = clock();
-        const double elapsed = std::max(0.0, std::chrono::duration<double>(current - updated).count());
-        available = std::min(capacity, available + elapsed * rate);
+        if (current < updated) {
+            updated = current;
+            return false;
+        }
+        const double elapsed = std::chrono::duration<double>(current - updated).count();
+        const double missing = capacity - available;
+        if (rate > 0 && missing > 0) {
+            available = elapsed >= missing / rate ? capacity : available + elapsed * rate;
+        }
         updated = current;
         if (tokens > available) return false;
         available -= tokens;
@@ -344,22 +429,28 @@ namespace Duel6::Network::Trust {
     }
 
     ConsecutiveWindowLimit::ConsecutiveWindowLimit(Clock clock)
-            : clock(selectedClock(std::move(clock))), window(this->clock()) {}
+            : clock(selectedClock(std::move(clock))), windowIndex(secondWindowIndex(this->clock())) {}
     bool ConsecutiveWindowLimit::recordOverLimit() {
         std::lock_guard<std::mutex> lock(mutex);
-        const auto current = clock();
-        if (current - window >= std::chrono::seconds(1)) {
-            consecutive = over ? consecutive + 1 : 0;
-            window = current;
+        const std::int64_t currentIndex = secondWindowIndex(clock());
+        bool previousAdjacentWindowWasOver = false;
+        if (currentIndex != windowIndex) {
+            previousAdjacentWindowWasOver = currentIndex > windowIndex
+                                             && windowIndex != (std::numeric_limits<std::int64_t>::max)()
+                                             && currentIndex == windowIndex + 1 && over;
+            windowIndex = currentIndex;
             over = false;
         }
         over = true;
-        return consecutive >= 1;
+        return previousAdjacentWindowWasOver;
     }
     void ConsecutiveWindowLimit::recordWithinLimit() {
         std::lock_guard<std::mutex> lock(mutex);
-        const auto current = clock();
-        if (current - window >= std::chrono::seconds(1)) { consecutive = 0; over = false; window = current; }
+        const std::int64_t currentIndex = secondWindowIndex(clock());
+        if (currentIndex != windowIndex) {
+            windowIndex = currentIndex;
+            over = false;
+        }
     }
 
     bool AppliedInputGate::reserve(std::uint32_t slot, std::uint64_t tick) { return applied.emplace(tick, slot).second; }
@@ -474,6 +565,28 @@ namespace Duel6::Network::Trust {
         return output.str();
     }
 
+    ReconnectCredential::~ReconnectCredential() { clear(); }
+    ReconnectCredential::ReconnectCredential(const ReconnectCredential &other) : bytes(other.bytes) {}
+    ReconnectCredential &ReconnectCredential::operator=(const ReconnectCredential &other) {
+        if (this != &other) {
+            clear();
+            bytes = other.bytes;
+        }
+        return *this;
+    }
+    ReconnectCredential::ReconnectCredential(ReconnectCredential &&other) noexcept : bytes(other.bytes) {
+        other.clear();
+    }
+    ReconnectCredential &ReconnectCredential::operator=(ReconnectCredential &&other) noexcept {
+        if (this != &other) {
+            clear();
+            bytes = other.bytes;
+            other.clear();
+        }
+        return *this;
+    }
+    void ReconnectCredential::clear() noexcept { secureErase(bytes.data(), bytes.size()); }
+
     ReconnectReservation::ReconnectReservation(std::uint64_t session, ParticipantId participant,
                                                std::uint64_t reservation, Clock clock, RandomFill random)
             : clock(selectedClock(std::move(clock))), random(random ? std::move(random) : RandomFill(secureRandom)),
@@ -491,7 +604,7 @@ namespace Duel6::Network::Trust {
         std::lock_guard<std::mutex> lock(mutex);
         expireIfDueLocked();
         if (!value) throw std::logic_error("Reconnect credential is unavailable");
-        return *value;
+        return ReconnectCredential(*value);
     }
     ReconnectAuthorizationResult ReconnectReservation::authorizeAndConsume(
             const ReconnectCredential &candidate, std::uint64_t expectedSession,
@@ -545,12 +658,12 @@ namespace Duel6::Network::Trust {
         expireIfDueLocked();
         if (!value || replacementReservation == 0 || session != expectedSession
             || participant != expectedParticipant || reservation != expectedReservation) return false;
-        ReconnectCredential replaced = *value;
-        invalidateLocked();
+        ReconnectCredential replaced(std::move(*value));
+        value.reset();
         reservation = replacementReservation;
         expiry = clock() + ReconnectCredentialLifetime;
         const bool generated = generateLocked(&replaced);
-        std::fill(replaced.bytes.begin(), replaced.bytes.end(), 0);
+        replaced.clear();
         return generated;
     }
     void ReconnectReservation::invalidate() {
@@ -563,11 +676,10 @@ namespace Duel6::Network::Trust {
             const bool generated = random(candidate.bytes.data(), candidate.bytes.size());
             const bool repeated = disallowed && constantTimeEqual(candidate, *disallowed);
             if (generated && !allZero(candidate) && !repeated) {
-                value = candidate;
-                std::fill(candidate.bytes.begin(), candidate.bytes.end(), 0);
+                value.emplace(std::move(candidate));
                 return true;
             }
-            std::fill(candidate.bytes.begin(), candidate.bytes.end(), 0);
+            candidate.clear();
         }
         value.reset();
         return false;
@@ -579,7 +691,7 @@ namespace Duel6::Network::Trust {
     }
     void ReconnectReservation::invalidateLocked() {
         if (value) {
-            std::fill(value->bytes.begin(), value->bytes.end(), 0);
+            value->clear();
             value.reset();
         }
     }

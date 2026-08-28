@@ -15,6 +15,7 @@ name: Evidence - Native Windows Transport
       - 'source/network/**'
       - 'source/server/**'
       - 'tests/SessionTransportCTestRegistration.cmake'
+      - 'tests/NetworkTrustPolicyTests.cpp'
       - 'tests/SessionTransportProcessTests.py'
       - 'tests/SessionTransportTests.cpp'
 

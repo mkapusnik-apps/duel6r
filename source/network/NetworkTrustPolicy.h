@@ -65,6 +65,7 @@ namespace Duel6::Network::Trust {
     enum class EndpointScope { Invalid, Loopback, PrivateLan, Unsupported };
     EndpointScope classifyIpv4(const std::array<std::uint8_t, 4> &address);
     EndpointScope classifyIpv4Literal(std::string_view value, std::array<std::uint8_t, 4> *address = nullptr);
+    bool isLocalIpv4AddressAssigned(const std::array<std::uint8_t, 4> &address);
     bool validHostname(std::string_view value);
     bool validGuestEndpointName(std::string_view value);
 
@@ -193,8 +194,7 @@ namespace Duel6::Network::Trust {
         void recordWithinLimit();
     private:
         Clock clock;
-        TimePoint window;
-        unsigned consecutive = 0;
+        std::int64_t windowIndex;
         bool over = false;
         std::mutex mutex;
     };
@@ -252,6 +252,13 @@ namespace Duel6::Network::Trust {
     using RandomFill = std::function<bool(std::uint8_t *, std::size_t)>;
     struct ReconnectCredential {
         std::array<std::uint8_t, ReconnectCredentialBytes> bytes{};
+        ReconnectCredential() = default;
+        ~ReconnectCredential();
+        ReconnectCredential(const ReconnectCredential &other);
+        ReconnectCredential &operator=(const ReconnectCredential &other);
+        ReconnectCredential(ReconnectCredential &&other) noexcept;
+        ReconnectCredential &operator=(ReconnectCredential &&other) noexcept;
+        void clear() noexcept;
     };
     struct ReconnectAuthorizationResult {
         bool accepted = false;

@@ -20,7 +20,7 @@ It also provides connection-plan and command-construction helpers, an in-process
 
 ## Explicit runtime exposure
 
-Only explicitly launching `duel6r-server` with `--transport` (or the diagnostic `--transport-echo`) can start a listener. Bind defaults to loopback; exact `localhost` is accepted only through loopback results. A LAN listener requires an explicit private RFC1918 IPv4 interface address; wildcard, unspecified, public, multicast, broadcast, link-local, and other listener-hostname values are rejected before a listener exists. Launching the executable without either flag preserves the no-transport scaffold result. Readiness is printed only after IPv4 bind/listen succeeds and the accept worker is active. `SIGINT` or `SIGTERM` requests bounded shutdown. The server still has no lobby, full #30 admission, compatibility, participant identity, gameplay simulation, reconnect exchange, or playable session behavior, and says so at startup.
+Only explicitly launching `duel6r-server` with `--transport` (or the diagnostic `--transport-echo`) can start a listener. Bind defaults to loopback; exact `localhost` is accepted only through loopback results. A LAN listener requires an explicit private RFC1918 IPv4 address confirmed by operating-system enumeration to be assigned to a local interface; wildcard, unspecified, unassigned private, public, multicast, limited-broadcast, link-local, and other listener-hostname values are rejected before a listener exists. The final octet does not determine directed-broadcast status: loopback and RFC1918 `.255` addresses retain their range classification and can bind only when actually assigned locally. Launching the executable without either flag preserves the no-transport scaffold result. Readiness is printed only after IPv4 bind/listen succeeds and the accept worker is active. `SIGINT` or `SIGTERM` requests bounded shutdown. The server still has no lobby, full #30 admission, compatibility, participant identity, gameplay simulation, reconnect exchange, or playable session behavior, and says so at startup.
 
 For example:
 
@@ -32,7 +32,7 @@ For separate-process transport diagnostics only, `--transport-echo` returns each
 
 ## TCP envelope
 
-The transport supports Linux x86-64 and Windows x86-64 over TCP/IPv4. Guest endpoints may be safe ASCII IPv4 literals or hostnames, but resolved targets are limited to loopback or private RFC1918 IPv4. Hosts bind only an explicit loopback/private IPv4 literal. IPv6, UDP, discovery, matchmaking, NAT traversal, public Internet, and dedicated-product claims are outside this layer.
+The transport supports Linux x86-64 and Windows x86-64 over TCP/IPv4. Guest endpoints may be safe ASCII IPv4 literals or hostnames, but resolved targets are limited to loopback or private RFC1918 IPv4. Remote `.255` results are retained when they are in those ranges because the destination prefix is unknown. Hosts bind only loopback or an explicit assigned local private IPv4 literal. IPv6, UDP, discovery, matchmaking, NAT traversal, public Internet, and dedicated-product claims are outside this layer.
 
 Every frame has this fixed 12-byte envelope followed by exactly `payload length` opaque bytes. All integers use unsigned network byte order (big-endian).
 

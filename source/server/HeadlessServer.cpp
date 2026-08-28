@@ -1,5 +1,6 @@
 #include "HeadlessServer.h"
 
+#include <array>
 #include <chrono>
 #include <csignal>
 #include <iostream>
@@ -120,10 +121,13 @@ namespace Duel6::Server {
             return 2;
         }
 
-        auto endpointScope = Network::Trust::classifyIpv4Literal(config.listenEndpoint.host);
+        std::array<std::uint8_t, 4> listenAddress{};
+        auto endpointScope = Network::Trust::classifyIpv4Literal(config.listenEndpoint.host, &listenAddress);
         if (config.listenEndpoint.host == "localhost") endpointScope = Network::Trust::EndpointScope::Loopback;
-        if (endpointScope != Network::Trust::EndpointScope::Loopback
-            && endpointScope != Network::Trust::EndpointScope::PrivateLan) {
+        if ((endpointScope != Network::Trust::EndpointScope::Loopback
+             && endpointScope != Network::Trust::EndpointScope::PrivateLan)
+            || (endpointScope == Network::Trust::EndpointScope::PrivateLan
+                && !Network::Trust::isLocalIpv4AddressAssigned(listenAddress))) {
             output << Network::Trust::UnsupportedAddressCopy << '\n';
             return 2;
         }
