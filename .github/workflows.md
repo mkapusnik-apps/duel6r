@@ -53,7 +53,9 @@
 ## Nightly and release paths
 
 - `Develop - Nightly Scheduler` dispatches `develop-nightly.yml` from the `sanity` tag.
-- `Develop - Nightly` builds Linux and Windows files on a GitHub-hosted runner.
+- `Develop - Nightly` builds Linux and Windows files on a self-hosted runner.
+- Both nightly builds use the Docker API workspace transfer helper.
+- The Windows build receives the Linux output and extends the shared bundle.
 - The nightly workflow runs configured Linux `ctest` tests.
 - The workflow packages the shared Linux and Windows files as `duel6r-nightly.zip`.
 - The ZIP root contains the files from `build` without a `build` directory.
