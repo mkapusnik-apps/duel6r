@@ -32,20 +32,18 @@ jobs:
 
       - name: Build Linux nightly files inside shared bundle
         run: |
-          docker run --rm \
+          bash docker/run-with-daemon-workspace.sh \
             -e BUILD_TESTING=ON \
             -e RUN_TESTS=ON \
             -e CLEAN_OUTPUT_DIR=ON \
-            -v "$PWD:/workspace" \
             ghcr.io/${{ github.repository }}/build:develop
 
       - name: Build Windows nightly files inside shared bundle
         run: |
-          docker run --rm \
+          bash docker/run-with-daemon-workspace.sh \
             -e BUILD_TESTING=ON \
             -e RUN_TESTS=OFF \
             -e CLEAN_OUTPUT_DIR=OFF \
-            -v "$PWD:/workspace" \
             ghcr.io/${{ github.repository }}/build-w64:develop
 
       - name: Package nightly bundle
