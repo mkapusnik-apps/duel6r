@@ -65,6 +65,23 @@ namespace Duel6::Network::Trust {
     enum class EndpointScope { Invalid, Loopback, PrivateLan, Unsupported };
     EndpointScope classifyIpv4(const std::array<std::uint8_t, 4> &address);
     EndpointScope classifyIpv4Literal(std::string_view value, std::array<std::uint8_t, 4> *address = nullptr);
+    struct Ipv4InterfaceRecord {
+        std::array<std::uint8_t, 4> address{};
+        std::uint8_t prefixLength = 0;
+        std::optional<std::array<std::uint8_t, 4>> broadcastAddress;
+    };
+    enum class LocalListenerBindDecision {
+        Allowed,
+        UnsupportedAddress,
+        NotAssigned,
+        InvalidPrefix,
+        NetworkAddress,
+        BroadcastAddress,
+        InterfaceEnumerationFailed
+    };
+    LocalListenerBindDecision decideLocalListenerBind(
+            const std::array<std::uint8_t, 4> &address, const std::vector<Ipv4InterfaceRecord> &interfaces);
+    LocalListenerBindDecision localListenerBindDecision(const std::array<std::uint8_t, 4> &address);
     bool isLocalIpv4AddressAssigned(const std::array<std::uint8_t, 4> &address);
     bool validHostname(std::string_view value);
     bool validGuestEndpointName(std::string_view value);

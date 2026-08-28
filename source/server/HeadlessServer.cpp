@@ -123,11 +123,13 @@ namespace Duel6::Server {
 
         std::array<std::uint8_t, 4> listenAddress{};
         auto endpointScope = Network::Trust::classifyIpv4Literal(config.listenEndpoint.host, &listenAddress);
-        if (config.listenEndpoint.host == "localhost") endpointScope = Network::Trust::EndpointScope::Loopback;
+        const bool loopbackHostname = config.listenEndpoint.host == "localhost";
+        if (loopbackHostname) endpointScope = Network::Trust::EndpointScope::Loopback;
         if ((endpointScope != Network::Trust::EndpointScope::Loopback
              && endpointScope != Network::Trust::EndpointScope::PrivateLan)
-            || (endpointScope == Network::Trust::EndpointScope::PrivateLan
-                && !Network::Trust::isLocalIpv4AddressAssigned(listenAddress))) {
+            || (!loopbackHostname
+                && Network::Trust::localListenerBindDecision(listenAddress)
+                   != Network::Trust::LocalListenerBindDecision::Allowed)) {
             output << Network::Trust::UnsupportedAddressCopy << '\n';
             return 2;
         }

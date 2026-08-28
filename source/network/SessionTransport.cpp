@@ -1529,7 +1529,9 @@ namespace Duel6::Network {
                 if (dependencies.enforceNetworkSessionPolicy) {
                     const auto resolvedScope = Trust::classifyIpv4(resolved.address);
                     if ((loopbackHostname && resolvedScope != Trust::EndpointScope::Loopback)
-                        || (!loopbackHostname && resolved.address != requestedAddress)) continue;
+                        || (!loopbackHostname && resolved.address != requestedAddress)
+                        || Trust::localListenerBindDecision(resolved.address)
+                           != Trust::LocalListenerBindDecision::Allowed) continue;
                 }
                 sockaddr_in address = socketAddress(resolved);
                 bound = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);

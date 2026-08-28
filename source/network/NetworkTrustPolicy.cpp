@@ -22,6 +22,7 @@
 #else
 #include <cerrno>
 #include <ifaddrs.h>
+#include <net/if.h>
 #include <netinet/in.h>
 #include <sys/random.h>
 #if defined(__GLIBC__) || defined(__linux__)
@@ -64,6 +65,35 @@ namespace Duel6::Network::Trust {
             if (parsed > 255) return false;
             result = static_cast<std::uint8_t>(parsed);
             return true;
+        }
+
+        std::uint32_t ipv4Value(const std::array<std::uint8_t, 4> &address) {
+            return static_cast<std::uint32_t>(address[0]) << 24u
+                   | static_cast<std::uint32_t>(address[1]) << 16u
+                   | static_cast<std::uint32_t>(address[2]) << 8u
+                   | static_cast<std::uint32_t>(address[3]);
+        }
+
+#ifndef D6R_TRANSPORT_WINDOWS
+        bool prefixLengthFromMask(const std::array<std::uint8_t, 4> &mask, std::uint8_t &prefixLength) {
+            const std::uint32_t value = ipv4Value(mask);
+            bool zeroSeen = false;
+            std::uint8_t result = 0;
+            for (int bit = 31; bit >= 0; --bit) {
+                const bool set = (value & (std::uint32_t{1} << static_cast<unsigned>(bit))) != 0;
+                if (!set) zeroSeen = true;
+                else if (zeroSeen) return false;
+                else ++result;
+            }
+            prefixLength = result;
+            return true;
+        }
+#endif
+
+        std::array<std::uint8_t, 4> socketIpv4(const sockaddr_in &address) {
+            std::array<std::uint8_t, 4> result{};
+            std::memcpy(result.data(), &address.sin_addr.s_addr, result.size());
+            return result;
         }
 
         bool validUtf8(std::string_view value) {
@@ -145,45 +175,108 @@ namespace Duel6::Network::Trust {
         return classifyIpv4(address);
     }
 
-    bool isLocalIpv4AddressAssigned(const std::array<std::uint8_t, 4> &address) {
+    LocalListenerBindDecision decideLocalListenerBind(
+            const std::array<std::uint8_t, 4> &address, const std::vector<Ipv4InterfaceRecord> &interfaces) {
+        const auto scope = classifyIpv4(address);
+        if (scope != EndpointScope::Loopback && scope != EndpointScope::PrivateLan)
+            return LocalListenerBindDecision::UnsupportedAddress;
+
+        bool assigned = false;
+        bool invalidPrefix = false;
+        bool networkAddress = false;
+        bool broadcastAddress = false;
+        const std::uint32_t requested = ipv4Value(address);
+        for (const auto &record: interfaces) {
+            if (record.address != address) continue;
+            assigned = true;
+            if (record.prefixLength > 32) {
+                invalidPrefix = true;
+                continue;
+            }
+            if (record.prefixLength >= 31) return LocalListenerBindDecision::Allowed;
+            const std::uint32_t mask = record.prefixLength == 0
+                                       ? 0 : ~std::uint32_t{0} << (32u - record.prefixLength);
+            const std::uint32_t network = requested & mask;
+            const std::uint32_t broadcast = network | ~mask;
+            if (requested == network) {
+                networkAddress = true;
+                continue;
+            }
+            if (requested == broadcast
+                || (record.broadcastAddress && *record.broadcastAddress == address)) {
+                broadcastAddress = true;
+                continue;
+            }
+            return LocalListenerBindDecision::Allowed;
+        }
+        if (!assigned) return LocalListenerBindDecision::NotAssigned;
+        if (broadcastAddress) return LocalListenerBindDecision::BroadcastAddress;
+        if (networkAddress) return LocalListenerBindDecision::NetworkAddress;
+        if (invalidPrefix) return LocalListenerBindDecision::InvalidPrefix;
+        return LocalListenerBindDecision::NotAssigned;
+    }
+
+    LocalListenerBindDecision localListenerBindDecision(const std::array<std::uint8_t, 4> &address) {
+        const auto scope = classifyIpv4(address);
+        if (scope != EndpointScope::Loopback && scope != EndpointScope::PrivateLan)
+            return LocalListenerBindDecision::UnsupportedAddress;
+        std::vector<Ipv4InterfaceRecord> interfaces;
 #ifdef D6R_TRANSPORT_WINDOWS
         ULONG size = 0;
         constexpr ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST
                                 | GAA_FLAG_SKIP_DNS_SERVER | GAA_FLAG_SKIP_FRIENDLY_NAME;
         if (GetAdaptersAddresses(AF_INET, flags, nullptr, nullptr, &size) != ERROR_BUFFER_OVERFLOW
-            || size == 0 || size > 1024 * 1024) return false;
+            || size == 0 || size > 1024 * 1024) return LocalListenerBindDecision::InterfaceEnumerationFailed;
         try {
             std::vector<std::max_align_t> storage(
                     (size + sizeof(std::max_align_t) - 1) / sizeof(std::max_align_t));
             auto *adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(storage.data());
-            if (GetAdaptersAddresses(AF_INET, flags, nullptr, adapters, &size) != NO_ERROR) return false;
+            if (GetAdaptersAddresses(AF_INET, flags, nullptr, adapters, &size) != NO_ERROR)
+                return LocalListenerBindDecision::InterfaceEnumerationFailed;
             for (auto *adapter = adapters; adapter; adapter = adapter->Next) {
                 for (auto *entry = adapter->FirstUnicastAddress; entry; entry = entry->Next) {
                     if (!entry->Address.lpSockaddr || entry->Address.lpSockaddr->sa_family != AF_INET) continue;
                     const auto *ipv4 = reinterpret_cast<const sockaddr_in *>(entry->Address.lpSockaddr);
-                    std::array<std::uint8_t, 4> assigned{};
-                    std::memcpy(assigned.data(), &ipv4->sin_addr.s_addr, assigned.size());
-                    if (assigned == address) return true;
+                    interfaces.push_back({socketIpv4(*ipv4), entry->OnLinkPrefixLength, std::nullopt});
                 }
             }
         } catch (const std::bad_alloc &) {
-            return false;
+            return LocalListenerBindDecision::InterfaceEnumerationFailed;
         }
-        return false;
 #else
-        ifaddrs *interfaces = nullptr;
-        if (getifaddrs(&interfaces) != 0) return false;
-        bool assigned = false;
-        for (auto *entry = interfaces; entry && !assigned; entry = entry->ifa_next) {
-            if (!entry->ifa_addr || entry->ifa_addr->sa_family != AF_INET) continue;
-            const auto *ipv4 = reinterpret_cast<const sockaddr_in *>(entry->ifa_addr);
-            std::array<std::uint8_t, 4> candidate{};
-            std::memcpy(candidate.data(), &ipv4->sin_addr.s_addr, candidate.size());
-            assigned = candidate == address;
+        ifaddrs *interfaceList = nullptr;
+        if (getifaddrs(&interfaceList) != 0) return LocalListenerBindDecision::InterfaceEnumerationFailed;
+        try {
+            for (auto *entry = interfaceList; entry; entry = entry->ifa_next) {
+                if (!entry->ifa_addr || entry->ifa_addr->sa_family != AF_INET) continue;
+                const auto *ipv4 = reinterpret_cast<const sockaddr_in *>(entry->ifa_addr);
+                Ipv4InterfaceRecord record;
+                record.address = socketIpv4(*ipv4);
+                if (!entry->ifa_netmask || entry->ifa_netmask->sa_family != AF_INET) {
+                    record.prefixLength = 33;
+                } else {
+                    const auto *mask = reinterpret_cast<const sockaddr_in *>(entry->ifa_netmask);
+                    if (!prefixLengthFromMask(socketIpv4(*mask), record.prefixLength))
+                        record.prefixLength = 33;
+                }
+                if ((entry->ifa_flags & IFF_BROADCAST) != 0 && entry->ifa_broadaddr
+                    && entry->ifa_broadaddr->sa_family == AF_INET) {
+                    const auto *broadcast = reinterpret_cast<const sockaddr_in *>(entry->ifa_broadaddr);
+                    record.broadcastAddress = socketIpv4(*broadcast);
+                }
+                interfaces.push_back(record);
+            }
+        } catch (const std::bad_alloc &) {
+            freeifaddrs(interfaceList);
+            return LocalListenerBindDecision::InterfaceEnumerationFailed;
         }
-        freeifaddrs(interfaces);
-        return assigned;
+        freeifaddrs(interfaceList);
 #endif
+        return decideLocalListenerBind(address, interfaces);
+    }
+
+    bool isLocalIpv4AddressAssigned(const std::array<std::uint8_t, 4> &address) {
+        return localListenerBindDecision(address) == LocalListenerBindDecision::Allowed;
     }
 
     bool validHostname(std::string_view value) {
