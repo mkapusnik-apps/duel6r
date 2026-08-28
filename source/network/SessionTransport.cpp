@@ -16,16 +16,11 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <sdkddkver.h>
-#ifndef NTDDI_VERSION
-#define NTDDI_VERSION NTDDI_WIN10_RS2
-#endif
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0600
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <mstcpip.h>
 #include <windows.h>
 #ifndef PROC_THREAD_ATTRIBUTE_JOB_LIST
 #define PROC_THREAD_ATTRIBUTE_JOB_LIST ProcThreadAttributeValue(13, FALSE, TRUE, FALSE)
@@ -202,36 +197,6 @@ namespace Duel6::Network {
             return TransportFailure::SystemError;
         }
 
-        class NativeOutboundProgress {
-        public:
-            bool sampleAcknowledgements(SocketHandle socket) {
-#ifdef SIO_TCP_INFO
-                if (unavailable) return false;
-                DWORD version = 0;
-                TCP_INFO_v0 info{};
-                DWORD returned = 0;
-                if (WSAIoctl(socket, SIO_TCP_INFO, &version, sizeof(version), &info, sizeof(info),
-                             &returned, nullptr, nullptr) != 0
-                    || returned < sizeof(info) || info.BytesOut < info.BytesInFlight) {
-                    unavailable = true;
-                    return false;
-                }
-                const std::uint64_t acknowledged = info.BytesOut - info.BytesInFlight;
-                const bool advanced = initialized && acknowledged > previousAcknowledged;
-                previousAcknowledged = acknowledged;
-                initialized = true;
-                return advanced;
-#else
-                (void) socket;
-                return false;
-#endif
-            }
-
-        private:
-            bool initialized = false;
-            bool unavailable = false;
-            std::uint64_t previousAcknowledged = 0;
-        };
 #else
         class ResolverProcessSupervisor {
         public:
@@ -557,36 +522,52 @@ namespace Duel6::Network {
             response.reserve(MaxResolverResponseBytes);
             bool responseValid = true;
             bool exited = false;
-            while (!cancelled() && now() < deadline) {
-                DWORD available = 0;
-                if (!PeekNamedPipe(parentOutputRead, nullptr, 0, nullptr, &available, nullptr)) break;
-                if (available > 0) {
+            bool exitedSuccessfully = false;
+            bool pipeOpen = true;
+            const auto appendResponse = [&](const std::uint8_t *data, DWORD count) {
+                if (response.size() + count > MaxResolverResponseBytes) {
+                    responseValid = false;
+                    return false;
+                }
+                response.insert(response.end(), data, data + count);
+                return true;
+            };
+            const auto drainResponse = [&] {
+                while (pipeOpen && responseValid) {
+                    DWORD available = 0;
+                    if (!PeekNamedPipe(parentOutputRead, nullptr, 0, nullptr, &available, nullptr)) {
+                        if (GetLastError() != ERROR_BROKEN_PIPE) responseValid = false;
+                        pipeOpen = false;
+                        return;
+                    }
+                    if (available == 0) return;
                     std::array<std::uint8_t, 256> buffer{};
                     DWORD count = 0;
-                    if (!ReadFile(parentOutputRead, buffer.data(),
-                                  std::min<DWORD>(available, static_cast<DWORD>(buffer.size())), &count, nullptr)) break;
-                    if (response.size() + count > MaxResolverResponseBytes) {
-                        responseValid = false;
-                        break;
+                    BOOL read = ReadFile(parentOutputRead, buffer.data(),
+                                         std::min<DWORD>(available, static_cast<DWORD>(buffer.size())),
+                                         &count, nullptr);
+                    if (count > 0 && !appendResponse(buffer.data(), count)) return;
+                    if (!read) {
+                        if (GetLastError() != ERROR_BROKEN_PIPE) responseValid = false;
+                        pipeOpen = false;
+                        return;
                     }
-                    response.insert(response.end(), buffer.begin(), buffer.begin() + count);
+                    if (count == 0) return;
                 }
-                if (WaitForSingleObject(process.hProcess, 0) == WAIT_OBJECT_0) {
+            };
+            while (!cancelled() && now() < deadline) {
+                drainResponse();
+                if (!responseValid) break;
+                DWORD processStatus = WaitForSingleObject(process.hProcess, 0);
+                if (processStatus == WAIT_OBJECT_0) {
                     exited = true;
-                    while (true) {
-                        DWORD remaining = 0;
-                        if (!PeekNamedPipe(parentOutputRead, nullptr, 0, nullptr, &remaining, nullptr)
-                            || remaining == 0) break;
-                        std::array<std::uint8_t, 256> buffer{};
-                        DWORD count = 0;
-                        if (!ReadFile(parentOutputRead, buffer.data(),
-                                      std::min<DWORD>(remaining, static_cast<DWORD>(buffer.size())), &count, nullptr)) break;
-                        if (response.size() + count > MaxResolverResponseBytes) {
-                            responseValid = false;
-                            break;
-                        }
-                        response.insert(response.end(), buffer.begin(), buffer.begin() + count);
-                    }
+                    drainResponse();
+                    DWORD exitCode = 0;
+                    exitedSuccessfully = GetExitCodeProcess(process.hProcess, &exitCode) && exitCode == 0;
+                    break;
+                }
+                if (processStatus == WAIT_FAILED) {
+                    responseValid = false;
                     break;
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -598,7 +579,8 @@ namespace Duel6::Network {
             else resolverProcessSupervisor().terminateOrDefer(process.hProcess);
             if (wasCancelled) return {ResolveStatus::Cancelled, {}};
             if (wasTimedOut) return {ResolveStatus::TimedOut, {}};
-            return exited && responseValid ? resolverResponse(response, port) : ResolveOutcome{};
+            return exited && exitedSuccessfully && responseValid
+                   ? resolverResponse(response, port) : ResolveOutcome{};
         }
 #else
         std::string resolverExecutablePath() {
@@ -820,8 +802,9 @@ namespace Duel6::Network {
 
     class TcpConnection::Impl {
     public:
-        explicit Impl(SocketHandle socket) : socket(socket), lastInboundActivity(Clock::now()),
-                                             lastOutboundProgress(Clock::now()), lastLivenessPing(Clock::now()) {
+        Impl(SocketHandle socket, OutboundTransportDependencies outbound)
+                : socket(socket), outbound(std::move(outbound)), lastInboundActivity(Clock::now()),
+                  lastOutboundProgress(Clock::now()), lastLivenessPing(Clock::now()) {
             if (!configureConnectedSocket(socket)) {
                 failure.store(TransportFailure::SystemError);
                 state.store(ClientState::Failed);
@@ -894,6 +877,7 @@ namespace Duel6::Network {
         };
 
         SocketHandle socket;
+        const OutboundTransportDependencies outbound;
         std::atomic<bool> socketClosed{false};
         std::atomic<bool> stop{false};
         std::atomic<bool> closeRequested{false};
@@ -1037,6 +1021,37 @@ namespace Duel6::Network {
             }
         }
 
+        TransportTimePoint outboundNow() const {
+            return outbound.now ? outbound.now() : Clock::now();
+        }
+
+        void outboundWait(std::chrono::milliseconds duration) const {
+            if (outbound.wait) outbound.wait(duration);
+            else std::this_thread::sleep_for(duration);
+        }
+
+        OutboundSendOutcome sendFrameSegment(std::uint16_t kind, const std::uint8_t *data, std::size_t size) const {
+            if (outbound.send) {
+                OutboundSendOutcome outcome = outbound.send(static_cast<std::intptr_t>(socket), kind, data, size);
+                if ((outcome.status == OutboundSendStatus::Sent && (outcome.bytes == 0 || outcome.bytes > size))
+                    || (outcome.status != OutboundSendStatus::Sent && outcome.bytes != 0)) {
+                    return {};
+                }
+                return outcome;
+            }
+#ifdef D6R_TRANSPORT_WINDOWS
+            int count = ::send(socket, reinterpret_cast<const char *>(data), static_cast<int>(size), 0);
+#else
+            ssize_t count = ::send(socket, data, size, MSG_NOSIGNAL);
+#endif
+            if (count > 0) return {OutboundSendStatus::Sent, static_cast<std::size_t>(count)};
+            if (count == 0) return {OutboundSendStatus::WouldBlock, 0};
+            int error = socketError();
+            if (wouldBlock(error)) return {OutboundSendStatus::WouldBlock, 0};
+            if (interrupted(error)) return {OutboundSendStatus::Interrupted, 0};
+            return {};
+        }
+
         bool writeFrame(const PendingFrame &frame) {
             std::array<std::uint8_t, TransportEnvelopeBytes> header{};
             writeU32(header.data(), TransportFramingIdentifier);
@@ -1045,15 +1060,12 @@ namespace Duel6::Network {
             writeU32(header.data() + 8, static_cast<std::uint32_t>(frame.payload.size()));
             std::size_t total = header.size() + frame.payload.size();
             std::size_t offset = 0;
-            Clock::time_point progress = Clock::now();
-#ifdef D6R_TRANSPORT_WINDOWS
-            NativeOutboundProgress nativeProgress;
-#endif
+            TransportTimePoint progress = outboundNow();
             while (offset < total && !stop.load()) {
                 if (closeRequested.load() && Clock::now() >= closeDeadline) return false;
 #ifndef D6R_TRANSPORT_WINDOWS
-                if (!waitSocket(socket, true, std::chrono::milliseconds(100))) {
-                    if (Clock::now() - progress >= ProgressDeadline) {
+                if (!outbound.send && !waitSocket(socket, true, std::chrono::milliseconds(100))) {
+                    if (outboundNow() - progress >= ProgressDeadline) {
                         fail(TransportFailure::OutboundStalled, true);
                         return false;
                     }
@@ -1064,38 +1076,26 @@ namespace Duel6::Network {
                                            ? header.data() + offset
                                            : frame.payload.data() + (offset - header.size());
                 std::size_t remaining = offset < header.size() ? header.size() - offset : total - offset;
+                OutboundSendOutcome outcome = sendFrameSegment(frame.kind, data, remaining);
+                if (outcome.status == OutboundSendStatus::Sent) {
+                    offset += outcome.bytes;
+                    progress = outboundNow();
+                    if (frame.kind == ApplicationFrame) lastOutboundProgress.store(Clock::now());
+                    continue;
+                }
+                if (outcome.status == OutboundSendStatus::Failed) {
+                    fail(TransportFailure::SystemError);
+                    return false;
+                }
+                if (outboundNow() - progress >= ProgressDeadline) {
+                    fail(TransportFailure::OutboundStalled, true);
+                    return false;
+                }
+                if (stop.load() || (closeRequested.load() && Clock::now() >= closeDeadline)) return false;
 #ifdef D6R_TRANSPORT_WINDOWS
-                int count = ::send(socket, reinterpret_cast<const char *>(data), static_cast<int>(remaining), 0);
+                outboundWait(std::chrono::milliseconds(20));
 #else
-                ssize_t count = ::send(socket, data, remaining, MSG_NOSIGNAL);
-#endif
-                if (count > 0) {
-                    offset += static_cast<std::size_t>(count);
-                    progress = Clock::now();
-                    if (frame.kind == ApplicationFrame) lastOutboundProgress.store(progress);
-                } else if (count < 0) {
-                    int error = socketError();
-                    if (!wouldBlock(error) && !interrupted(error)) {
-                        fail(TransportFailure::SystemError);
-                        return false;
-                    }
-                }
-#ifdef D6R_TRANSPORT_WINDOWS
-                if (count <= 0) {
-                    auto current = Clock::now();
-                    if (frame.kind == ApplicationFrame && offset > 0
-                        && nativeProgress.sampleAcknowledgements(socket)) {
-                        current = Clock::now();
-                        progress = current;
-                        lastOutboundProgress.store(current);
-                    }
-                    if (current - progress >= ProgressDeadline) {
-                        fail(TransportFailure::OutboundStalled, true);
-                        return false;
-                    }
-                    if (stop.load() || (closeRequested.load() && current >= closeDeadline)) return false;
-                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-                }
+                if (outbound.send) outboundWait(std::chrono::milliseconds(20));
 #endif
             }
             return offset == total;
@@ -1254,7 +1254,8 @@ namespace Duel6::Network {
             if (outcome.status == ConnectStatus::Connected && outcome.nativeSocket != -1
                 && dependencyNow(dependencies) < deadline) {
                 auto active = std::shared_ptr<TcpConnection>(new TcpConnection(
-                        std::make_unique<TcpConnection::Impl>(static_cast<SocketHandle>(outcome.nativeSocket))));
+                        std::make_unique<TcpConnection::Impl>(static_cast<SocketHandle>(outcome.nativeSocket),
+                                                              dependencies.outbound)));
                 if (active->state() != ClientState::Connected) {
                     active->close();
                     finishFailure(TransportFailure::SystemError);
@@ -1473,7 +1474,8 @@ namespace Duel6::Network {
                     closeSocket(accepted);
                     continue;
                 }
-                auto connection = std::shared_ptr<TcpConnection>(new TcpConnection(std::make_unique<TcpConnection::Impl>(accepted)));
+                auto connection = std::shared_ptr<TcpConnection>(new TcpConnection(
+                        std::make_unique<TcpConnection::Impl>(accepted, dependencies.outbound)));
                 connections.push_back(connection);
                 pending.push_back(connection);
             }

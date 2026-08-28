@@ -103,8 +103,29 @@ namespace Duel6::Network {
         std::intptr_t nativeSocket = -1;
     };
 
+    enum class OutboundSendStatus {
+        Sent,
+        WouldBlock,
+        Interrupted,
+        Failed
+    };
+
+    struct OutboundSendOutcome {
+        OutboundSendStatus status = OutboundSendStatus::Failed;
+        std::size_t bytes = 0;
+    };
+
+    // Optional connection-writer seam. The callback receives the native socket, wire frame kind,
+    // current frame segment, and segment size. Dependencies are copied before writer threads start;
+    // callbacks shared by multiple connections must synchronize their own captured state.
+    struct OutboundTransportDependencies {
+        std::function<OutboundSendOutcome(std::intptr_t, std::uint16_t, const std::uint8_t *, std::size_t)> send;
+        std::function<TransportTimePoint()> now;
+        std::function<void(std::chrono::milliseconds)> wait;
+    };
+
     // Optional dependency seams for deterministic lifecycle tests. Empty functions select
-    // the real platform resolver, monotonic clock, and non-blocking TCP connector.
+    // the real platform resolver, monotonic clock, non-blocking TCP connector, and socket writer.
     // Injected operations must observe cancelled and return without retaining workers.
     struct SessionTransportDependencies {
         std::function<TransportTimePoint()> now;
@@ -112,6 +133,7 @@ namespace Duel6::Network {
                                      const std::function<bool()> &)> resolve;
         std::function<ConnectOutcome(const std::vector<ResolvedIpv4Endpoint> &, TransportTimePoint,
                                      const std::function<bool()> &)> connect;
+        OutboundTransportDependencies outbound;
     };
 
     class TcpConnection {
