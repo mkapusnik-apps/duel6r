@@ -1,5 +1,6 @@
 @echo off
 setlocal
+set "PATH=C:\Tools\cmake\bin;C:\Tools\ninja;C:\Python313;%PATH%"
 
 call C:\BuildTools\Common7\Tools\VsDevCmd.bat -arch=amd64 -host_arch=amd64
 if errorlevel 1 exit /b %errorlevel%

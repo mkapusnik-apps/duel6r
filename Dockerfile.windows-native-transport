@@ -22,8 +22,6 @@ RUN $ErrorActionPreference = 'Stop'; `
     if ($process.ExitCode -ne 0) { throw "Python installation failed with exit code $($process.ExitCode)" }; `
     Remove-Item C:\python.exe
 
-ENV PATH="C:\Tools\cmake\bin;C:\Tools\ninja;C:\Python313;${PATH}"
-
 WORKDIR C:\workspace
 
 COPY docker/build-windows-native-transport.cmd C:\Tools\build-windows-native-transport.cmd
