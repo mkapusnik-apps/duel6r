@@ -182,6 +182,20 @@ namespace Duel6::Network {
                                         right.data(), static_cast<int>(right.size()), FALSE) == CSTR_EQUAL;
         }
 
+        bool validUnicode(std::wstring_view value) {
+            if (value.empty() || value.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
+                return false;
+            return WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
+                                       nullptr, 0, nullptr, nullptr) > 0;
+        }
+
+        bool sameFileIdentity(const BY_HANDLE_FILE_INFORMATION &left,
+                              const BY_HANDLE_FILE_INFORMATION &right) {
+            return left.dwVolumeSerialNumber == right.dwVolumeSerialNumber
+                   && left.nFileIndexHigh == right.nFileIndexHigh
+                   && left.nFileIndexLow == right.nFileIndexLow;
+        }
+
         bool insideFinalRoot(const std::wstring &root, const std::wstring &candidate) {
             return candidate.size() > root.size()
                    && ordinalEqual(root, std::wstring_view(candidate.data(), root.size()))
@@ -203,28 +217,35 @@ namespace Duel6::Network {
         public:
             SecureFilesystem(const std::string &rootText, ManifestFilesystemObserver observer)
                     : observer(std::move(observer)) {
-                try { rootPath = fs::absolute(fs::u8path(rootText)).lexically_normal(); } catch (...) { return; }
-                root = Handle(CreateFileW(rootPath.c_str(), FILE_READ_ATTRIBUTES,
-                                         FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                                         OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+                fs::path requestedRoot;
+                try { requestedRoot = fs::absolute(fs::u8path(rootText)).lexically_normal(); } catch (...) { return; }
+                if (!validUnicode(requestedRoot.native())) return;
+                root = Handle(CreateFileW(requestedRoot.c_str(), FILE_READ_ATTRIBUTES,
+                                          FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                                          OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
                 if (!root) return;
-                BY_HANDLE_FILE_INFORMATION information{};
-                if (!GetFileInformationByHandle(root.get(), &information)
-                    || !(information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-                    || (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) return;
-                rootVolume = information.dwVolumeSerialNumber;
+                if (!GetFileInformationByHandle(root.get(), &rootInformation)
+                    || !(rootInformation.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                    || (rootInformation.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) return;
+                rootVolume = rootInformation.dwVolumeSerialNumber;
                 rootFinal = finalPath(root.get());
-                validRoot = !rootFinal.empty() && notify(ManifestFilesystemStage::RootPinned, {});
+                if (rootFinal.empty() || !validUnicode(rootFinal)) return;
+                try { rootPath = fs::path(rootFinal).lexically_normal(); } catch (...) { return; }
+                if (!pinAncestorChain(requestedRoot) || !pinAncestorChain(rootPath)
+                    || !validatePinnedRoot()) return;
+                validRoot = notify(ManifestFilesystemStage::RootPinned, {});
             }
 
             bool valid() const { return validRoot; }
 
             ManifestStatus enumerate(std::vector<std::string> &paths) const {
+                if (!validatePinnedRoot()) return ManifestStatus::UnsafeFilesystemEntry;
                 std::size_t directories = 0, examined = 0;
                 return enumerateDirectory(rootPath / L"levels", "levels", 1, directories, examined, paths);
             }
 
             ManifestStatus size(const std::string &logical, std::uintmax_t &value) const {
+                if (!validatePinnedRoot()) return ManifestStatus::UnsafeFilesystemEntry;
                 Handle file;
                 BY_HANDLE_FILE_INFORMATION information{};
                 const ManifestStatus status = openFile(logical, file, information);
@@ -234,6 +255,7 @@ namespace Duel6::Network {
             }
 
             ManifestStatus hash(const std::string &logical, std::uintmax_t expected, ContentIdentity &identity) const {
+                if (!validatePinnedRoot()) return ManifestStatus::UnsafeFilesystemEntry;
                 Handle file;
                 BY_HANDLE_FILE_INFORMATION before{};
                 ManifestStatus status = openFile(logical, file, before);
@@ -268,14 +290,78 @@ namespace Duel6::Network {
             }
 
         private:
+            struct PinnedDirectory {
+                Handle handle;
+                BY_HANDLE_FILE_INFORMATION information{};
+                std::wstring resolved;
+
+                PinnedDirectory(Handle handle, BY_HANDLE_FILE_INFORMATION information, std::wstring resolved)
+                        : handle(std::move(handle)), information(information), resolved(std::move(resolved)) {}
+                PinnedDirectory(const PinnedDirectory &) = delete;
+                PinnedDirectory &operator=(const PinnedDirectory &) = delete;
+                PinnedDirectory(PinnedDirectory &&) noexcept = default;
+                PinnedDirectory &operator=(PinnedDirectory &&) noexcept = default;
+            };
+
+            bool pinAncestorChain(const fs::path &path) {
+                fs::path current = path.root_path();
+                if (current.empty() || !pinAncestor(current)) return false;
+                for (const fs::path &segment: path.relative_path()) {
+                    if (segment.empty() || segment == L".") continue;
+                    if (segment == L"..") return false;
+                    current /= segment;
+                    if (!pinAncestor(current)) return false;
+                }
+                return !pinnedAncestors.empty()
+                       && sameFileIdentity(pinnedAncestors.back().information, rootInformation);
+            }
+
+            bool pinAncestor(const fs::path &path) {
+                if (pinnedAncestors.size() >= 512 || !validUnicode(path.native())) return false;
+                Handle handle(CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
+                                          FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                                          FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+                BY_HANDLE_FILE_INFORMATION information{};
+                if (!handle || !GetFileInformationByHandle(handle.get(), &information)
+                    || !(information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                    || (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                    || information.dwVolumeSerialNumber != rootVolume) return false;
+                std::wstring resolved = finalPath(handle.get());
+                if (resolved.empty() || !validUnicode(resolved)) return false;
+                pinnedAncestors.emplace_back(std::move(handle), information, std::move(resolved));
+                return true;
+            }
+
+            bool validatePinnedRoot() const {
+                BY_HANDLE_FILE_INFORMATION currentRoot{};
+                if (!GetFileInformationByHandle(root.get(), &currentRoot)
+                    || !sameFileIdentity(rootInformation, currentRoot)
+                    || !(currentRoot.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                    || (currentRoot.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                    || currentRoot.dwVolumeSerialNumber != rootVolume
+                    || !ordinalEqual(rootFinal, finalPath(root.get()))) return false;
+                for (const PinnedDirectory &ancestor: pinnedAncestors) {
+                    BY_HANDLE_FILE_INFORMATION current{};
+                    if (!GetFileInformationByHandle(ancestor.handle.get(), &current)
+                        || !sameFileIdentity(ancestor.information, current)
+                        || !(current.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                        || (current.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                        || current.dwVolumeSerialNumber != rootVolume
+                        || !ordinalEqual(ancestor.resolved, finalPath(ancestor.handle.get()))) return false;
+                }
+                return true;
+            }
+
             ManifestStatus openFile(const std::string &logical, Handle &file,
-                                    BY_HANDLE_FILE_INFORMATION &information) const {
+                                     BY_HANDLE_FILE_INFORMATION &information) const {
                 if (!approvedLogicalPath(logical)) return ManifestStatus::InvalidLogicalPath;
+                if (!validatePinnedRoot()) return ManifestStatus::UnsafeFilesystemEntry;
                 fs::path relative;
                 try { relative = fs::u8path(logical); } catch (...) { return ManifestStatus::InvalidLogicalPath; }
                 std::vector<Handle> pinnedParents;
                 const ManifestStatus pinned = pinParents(relative.parent_path(), pinnedParents);
                 if (pinned != ManifestStatus::Valid) return pinned;
+                if (!validatePinnedRoot()) return ManifestStatus::UnsafeFilesystemEntry;
                 file = Handle(CreateFileW((rootPath / relative).c_str(), GENERIC_READ,
                                           FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                           FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
@@ -301,6 +387,7 @@ namespace Duel6::Network {
                 std::string logical;
                 for (const fs::path &segment: relativeParent) {
                     if (segment.empty()) continue;
+                    if (!validatePinnedRoot()) return ManifestStatus::UnsafeFilesystemEntry;
                     current /= segment;
                     Handle directory(CreateFileW(current.c_str(), FILE_READ_ATTRIBUTES,
                                                  FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
@@ -335,6 +422,7 @@ namespace Duel6::Network {
                                                std::vector<std::string> &paths) const {
                 if (depth > Trust::MaxLogicalPathSegments || ++directories > MaxManifestDirectories)
                     return ManifestStatus::TooManyEntries;
+                if (!validatePinnedRoot()) return ManifestStatus::UnsafeFilesystemEntry;
                 Handle directoryHandle(CreateFileW(directory.c_str(), FILE_READ_ATTRIBUTES,
                                                    FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                                                    OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
@@ -356,6 +444,7 @@ namespace Duel6::Network {
                 if (!notify(ManifestFilesystemStage::DirectoryPinned, logicalPrefix))
                     return ManifestStatus::ReadFailed;
 
+                if (!validatePinnedRoot()) return ManifestStatus::UnsafeFilesystemEntry;
                 WIN32_FIND_DATAW data{};
                 HANDLE raw = FindFirstFileW((directory / L"*").c_str(), &data);
                 if (raw == INVALID_HANDLE_VALUE) return ManifestStatus::ReadFailed;
@@ -386,7 +475,9 @@ namespace Duel6::Network {
             fs::path rootPath;
             Handle root;
             std::wstring rootFinal;
+            BY_HANDLE_FILE_INFORMATION rootInformation{};
             DWORD rootVolume = 0;
+            std::vector<PinnedDirectory> pinnedAncestors;
             bool validRoot = false;
             ManifestFilesystemObserver observer;
 

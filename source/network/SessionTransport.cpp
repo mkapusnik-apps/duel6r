@@ -855,6 +855,27 @@ namespace Duel6::Network {
             return true;
         }
 
+        TransportInputSnapshot sealAndDrainInput() {
+            TransportInputSnapshot snapshot;
+            std::size_t released = 0;
+            {
+                std::lock_guard<std::mutex> inputLock(inputMutex);
+                inputSealed = true;
+                snapshot.frames.reserve(input.size());
+                while (!input.empty()) {
+                    released += input.front().payload.size();
+                    snapshot.frames.push_back(std::move(input.front()));
+                    input.pop_front();
+                }
+                inputBytes = 0;
+                std::lock_guard<std::mutex> terminalLock(terminalMutex);
+                snapshot.state = state.load();
+                snapshot.terminalAt = terminalTime.load();
+            }
+            Trust::processQueueBudget().release(released);
+            return snapshot;
+        }
+
         void close() {
             requestClose();
 
@@ -922,6 +943,7 @@ namespace Duel6::Network {
         std::mutex inputMutex;
         std::deque<TransportFrame> input;
         std::size_t inputBytes = 0;
+        bool inputSealed = false;
         std::mutex outputMutex;
         std::condition_variable outputChanged;
         std::deque<PendingFrame> applicationOutput;
@@ -1088,6 +1110,11 @@ namespace Duel6::Network {
                 }
 
                 std::unique_lock<std::mutex> lock(inputMutex);
+                if (inputSealed) {
+                    lock.unlock();
+                    Trust::processQueueBudget().release(payload.size());
+                    break;
+                }
                 const auto blockedSince = Clock::now();
                 while ((input.size() >= MaxQueuedTransportFrames
                         || inputBytes + payload.size() > MaxQueuedTransportPayloadBytes) && !stop.load()) {
@@ -1101,7 +1128,7 @@ namespace Duel6::Network {
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                     lock.lock();
                 }
-                if (stop.load()) {
+                if (stop.load() || inputSealed) {
                     Trust::processQueueBudget().release(payload.size());
                     break;
                 }
@@ -1248,6 +1275,7 @@ namespace Duel6::Network {
     TcpConnection::~TcpConnection() = default;
     SendResult TcpConnection::send(std::vector<std::uint8_t> payload) { return impl->send(std::move(payload)); }
     bool TcpConnection::receive(TransportFrame &frame) { return impl->receive(frame); }
+    TransportInputSnapshot TcpConnection::sealAndDrainInput() { return impl->sealAndDrainInput(); }
     ClientState TcpConnection::state() const { return impl->state.load(); }
     TransportFailure TcpConnection::failure() const { return impl->failure.load(); }
     std::array<std::uint8_t, 4> TcpConnection::sourceIpv4() const { return impl->sourceIpv4(); }

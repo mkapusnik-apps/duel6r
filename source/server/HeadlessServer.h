@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "ServerConfig.h"
@@ -52,6 +53,14 @@ namespace Duel6::Server {
         virtual ~AdmissionRuntimeConnection() = default;
         virtual Network::SendResult send(std::vector<std::uint8_t> payload) = 0;
         virtual bool receive(Network::TransportFrame &frame) = 0;
+        virtual Network::TransportInputSnapshot sealAndDrainInput() {
+            Network::TransportInputSnapshot snapshot;
+            Network::TransportFrame frame;
+            while (receive(frame)) snapshot.frames.push_back(std::move(frame));
+            snapshot.state = state();
+            snapshot.terminalAt = terminalAt();
+            return snapshot;
+        }
         virtual Network::ClientState state() const = 0;
         virtual Network::TransportTimePoint acceptedAt() const = 0;
         virtual Network::TransportTimePoint terminalAt() const = 0;
@@ -59,6 +68,18 @@ namespace Duel6::Server {
         virtual void revokeAdmissionAcceptance() = 0;
         virtual void markAdmissionSucceeded() = 0;
         virtual void requestClose() = 0;
+    };
+
+    class AdmissionRuntimeClient {
+    public:
+        virtual ~AdmissionRuntimeClient() = default;
+        virtual bool start(const Network::Endpoint &endpoint) = 0;
+        virtual bool waitForConnected(std::chrono::milliseconds timeout) = 0;
+        virtual Network::ClientState state() const = 0;
+        virtual Network::TransportFailure failure() const = 0;
+        virtual std::shared_ptr<AdmissionRuntimeConnection> connection() const = 0;
+        virtual void cancel() = 0;
+        virtual void close() = 0;
     };
 
     class AdmissionRuntimeListener {
@@ -76,6 +97,7 @@ namespace Duel6::Server {
         Network::Trust::Clock now;
         std::function<bool()> cancelled;
         std::function<void(std::chrono::milliseconds)> wait;
+        std::function<std::unique_ptr<AdmissionRuntimeClient>()> clientFactory;
         std::function<std::unique_ptr<AdmissionRuntimeListener>(std::size_t, bool)> listenerFactory;
         std::function<Network::SendResult(AdmissionRuntimeConnection &, std::vector<std::uint8_t>)> outboundWriter;
         std::function<bool(const AdmissionLifecycleEvent &)> lifecycleObserver;

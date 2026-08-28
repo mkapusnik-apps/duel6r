@@ -23,6 +23,8 @@ Local Play remains subject to [`features.md`](features.md). This document does n
 
 The admission protocol version is separate from transport framing version `1`. Equal numeric values do not make these versions the same field.
 
+Admission success has no `D6RS` result encoding. `D6RS` carries only rejection codes `malformed-request` through `host-policy-rejected`, with zero participant identity and no player identities. Serializing or parsing `AdmissionResultCode::Admitted` as `D6RS` is invalid. The only network success stages are the provisional `D6RO` offer and the final `D6RC` confirmation; `D6RK` is the guest's exact acceptance echo.
+
 ## First-release constants
 
 First release must use these exact values:
@@ -131,7 +133,7 @@ The scaffold uses SHA-256 over each file's exact bytes as the 32-byte cross-plat
 
 The host and guest manifest builder includes every regular file under `levels/`, `data/blocks.json`, `data/config.script`, and each explicitly enabled `scripts/` path supplied through `--gameplay-script=`. It does not enumerate `profiles/`, people, controls, saves, statistics, documentation, or presentation directories. A profile script therefore cannot enter or execute through admission.
 
-The builder sorts logical paths before hashing and rejects symlinks or reparse points, hard-linked files, non-regular entries, root escape, cross-device or cross-volume traversal, unsafe aliases, duplicate or invalid paths, missing required content, more than 256 manifest entries, more than 256 traversed directories, more than 512 examined filesystem entries, an individual file above 64 MiB, or more than 256 MiB of included content. Native descriptor- or handle-based reads pin the root and every traversed parent without rename/delete sharing, use no-follow opens, compare final Windows paths with ordinal semantics, and revalidate file identity, size, and modification metadata after hashing. Mutation, replacement, unsafe alias, and read failure must fail closed without publishing a partial manifest. These bounds limit pre-listener and pre-connection hashing work; they do not change the 262,144-byte admission-payload bound.
+The builder sorts logical paths before hashing and rejects symlinks or reparse points, hard-linked files, non-regular entries, root escape, cross-device or cross-volume traversal, unsafe aliases, duplicate or invalid paths, missing required content, more than 256 manifest entries, more than 256 traversed directories, more than 512 examined filesystem entries, an individual file above 64 MiB, or more than 256 MiB of included content. Native descriptor- or handle-based reads use no-follow opens and revalidate file identity, size, and modification metadata after hashing. On Windows, the builder first opens and identifies the selected root object, obtains its final canonical path, then pins both the complete requested and resolved ancestor chains through that same root identity. Every pinned directory denies delete/rename sharing and must remain a non-reparse directory on the same volume with the same file identity and ordinal final path. All enumeration and file opens use the pinned root's final path and revalidate the root and ancestor chain before each pathname operation. Parent junctions, ancestor or root rename/replacement, root-identity changes, invalid UTF-16, case/Unicode alias mismatch, volume escape, mutation, and read failure therefore fail closed or remain bound to the originally pinned root object without publishing a partial manifest. These bounds limit pre-listener and pre-connection hashing work; they do not change the 262,144-byte admission-payload bound.
 
 ## Host admission flow
 
@@ -174,6 +176,8 @@ Return to Network must enter `NET-01`. A confirmed invalid-manifest result befor
 12. After commit, the host must return one final `admitted` confirmation containing the exact committed participant identity, player count, and ordered player identities. The guest may report success and enter the downstream lobby only after validating that confirmation strictly before its total deadline.
 
 A guest admission request must contain at least one local player. Before commit, a rejection, offer-send failure, invalid or missing acceptance, cancellation, timeout, or disconnect must roll back the reservation and allocate no participant, playable slot, ownership, or committed session identity. Provisional identities remain burned for the session so that a later entity never reuses them. Commit is the rollback boundary: failure or loss of the final confirmation does not undo host state, and the committed participant passes to the disconnect and reconnect lifecycle owned by issue #36 while the guest reports the applicable incomplete-admission close or timeout result.
+
+The guest must check Cancel before parsing every offer, rejection, or confirmation, immediately before acceptance enqueue, and immediately before publishing rejection, invalid-host, or success. It must re-read the monotonic clock immediately before acceptance enqueue and must never send acceptance at or after the original Connect-start deadline. The host independently retains its transport-acceptance-time plus 10-second hard bound and rejects acceptance at or after that boundary. This client check prevents avoidable late asymmetric commit; only acceptance already sent before the guest deadline followed by confirmation loss retains the documented post-commit issue #36 handoff.
 
 ### Invalid guest-local manifest
 
@@ -278,6 +282,8 @@ The guest's 10-second deadline includes resolution, connection, compatibility, c
 Success must be confirmed by the exact final `admitted` message strictly before the deadline. At or after 10 seconds, the generic result is `Connection timed out.`. The host must reject an acceptance received at or after its attempt boundary even when the bytes are otherwise valid.
 
 A complete valid rejection received before the deadline, or a complete valid final confirmation received before the deadline, must take precedence over a later generic transport symptom. An offer alone is not a complete admission result.
+
+At deadline or terminal-state selection, the guest transport must atomically seal application input against the reader and drain every complete frame queued before that linearization point together with terminal state. Each drained frame is decided by its authoritative `receivedAt`: a valid rejection or exact final confirmation received strictly before the deadline retains precedence even when polling resumes after the deadline, and a later recorded close cannot replace it. Invalid complete messages use `invalid-host-admission-message`. A frame timestamped at or after the deadline cannot cause acceptance or success. After the sealed drain, no racing reader enqueue may change the chosen close-versus-timeout outcome.
 
 Without a complete host response, initial transport outcomes must use this order and copy:
 

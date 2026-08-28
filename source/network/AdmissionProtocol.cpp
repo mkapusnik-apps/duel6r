@@ -114,7 +114,7 @@ namespace Duel6::Network {
 
         bool validResultCode(std::uint16_t code) {
             return code >= static_cast<std::uint16_t>(AdmissionResultCode::MalformedRequest)
-                   && code <= static_cast<std::uint16_t>(AdmissionResultCode::Admitted);
+                   && code <= static_cast<std::uint16_t>(AdmissionResultCode::HostPolicyRejected);
         }
 
         std::vector<std::uint8_t> serializeIdentitySet(const AdmissionIdentitySet &identities,
@@ -229,21 +229,14 @@ namespace Duel6::Network {
     std::vector<std::uint8_t> serializeAdmissionResult(const AdmissionResult &result) {
         if (!validResultCode(static_cast<std::uint16_t>(result.code)))
             throw std::invalid_argument("Admission result code is invalid");
-        const bool admitted = result.code == AdmissionResultCode::Admitted;
-        if (admitted != (result.participantId != 0) || admitted != !result.playerIds.empty()
-            || result.playerIds.size() > Trust::MaxParticipants
-            || std::find(result.playerIds.begin(), result.playerIds.end(), result.participantId) != result.playerIds.end()
-            || std::set<std::uint64_t>(result.playerIds.begin(), result.playerIds.end()).size() != result.playerIds.size())
+        if (result.participantId != 0 || !result.playerIds.empty())
             throw std::invalid_argument("Admission result identities are invalid");
         Writer writer;
         writer.raw(ResultMagic);
         writer.uint16(static_cast<std::uint16_t>(result.code));
         writer.uint64(result.participantId);
         writer.byte(static_cast<std::uint8_t>(result.playerIds.size()));
-        for (std::uint64_t playerId: result.playerIds) {
-            if (playerId == 0) throw std::invalid_argument("Admission player identity is invalid");
-            writer.uint64(playerId);
-        }
+        for (std::uint64_t playerId: result.playerIds) writer.uint64(playerId);
         return writer.finish();
     }
 
@@ -260,11 +253,7 @@ namespace Duel6::Network {
         result.playerIds.reserve(playerCount);
         for (std::size_t index = 0; index < playerCount; ++index) result.playerIds.push_back(reader.uint64());
         reader.expectFinished();
-        const bool admitted = result.code == AdmissionResultCode::Admitted;
-        if (admitted != (result.participantId != 0) || admitted != !result.playerIds.empty()
-            || std::any_of(result.playerIds.begin(), result.playerIds.end(), [](std::uint64_t id) { return id == 0; })
-            || std::find(result.playerIds.begin(), result.playerIds.end(), result.participantId) != result.playerIds.end()
-            || std::set<std::uint64_t>(result.playerIds.begin(), result.playerIds.end()).size() != result.playerIds.size())
+        if (result.participantId != 0 || !result.playerIds.empty())
             throw std::invalid_argument("Admission result identities are invalid");
         return result;
     }

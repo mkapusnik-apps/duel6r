@@ -85,6 +85,8 @@ The generic validation API exposes allocation-free `string_view`/count checks fo
 
 Malformed data fails closed. Count and `string_view` validators run before downstream allocation, logging, manifest comparison, or authority changes. Guest profile metadata is data only and cannot select or load a local file or script.
 
+The admission validation-work seam runs only after an actual concurrent-work reservation is acquired. A false result or exception fails as `host-policy-rejected`; scope-bound cleanup releases that work reservation on every return and exception path. Empty runtime seams select production client, connection, listener, clock, wait, outbound, identity, limiter, and manifest behavior. Injected runtime hooks that throw or report failure close or reject fail-closed and still execute applicable transaction, listener, connection, and worker cleanup.
+
 ## Queues, bandwidth, and processing
 
 The existing per-connection queue limits remain 256 frames and 4 MiB in each direction. A process-wide 32 MiB aggregate application-payload queue budget now applies in addition. Outbound reservation is atomic: failure returns backpressure without accepting, evicting, dropping, or reordering existing admitted output. Inbound payload reservation occurs before allocation; exhaustion waits only for the existing bounded progress interval and then closes the offending connection. Dequeue, completion, close, and failure release reservations safely.

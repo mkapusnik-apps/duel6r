@@ -74,6 +74,12 @@ namespace Duel6::Network {
         TransportTimePoint receivedAt{};
     };
 
+    struct TransportInputSnapshot {
+        std::vector<TransportFrame> frames;
+        ClientState state = ClientState::NotStarted;
+        TransportTimePoint terminalAt{};
+    };
+
     struct ResolvedIpv4Endpoint {
         std::array<std::uint8_t, 4> address{};
         std::uint16_t port = 0;
@@ -151,6 +157,9 @@ namespace Duel6::Network {
 
         SendResult send(std::vector<std::uint8_t> payload);
         bool receive(TransportFrame &frame);
+        // Atomically prevents later inbound application delivery and drains every frame
+        // queued before the seal together with terminal state at that linearization point.
+        TransportInputSnapshot sealAndDrainInput();
         ClientState state() const;
         TransportFailure failure() const;
         std::array<std::uint8_t, 4> sourceIpv4() const;
