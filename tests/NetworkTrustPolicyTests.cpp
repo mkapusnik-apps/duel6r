@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <set>
 #include <string>
 #include <thread>
@@ -23,6 +24,7 @@ namespace {
         TimePoint value{};
         Clock clock() { return [this] { return value; }; }
         void advance(std::chrono::milliseconds amount) { value += amount; }
+        void set(TimePoint next) { value = next; }
     };
 
     ReconnectCredential credential(std::uint8_t seed) {
@@ -71,14 +73,13 @@ D6R_TEST_CASE("network trust constants retain exact approved limits") {
 D6R_TEST_CASE("listener and guest endpoints fail closed outside loopback and RFC1918") {
     using Scope = EndpointScope;
     const std::vector<std::pair<std::string, Scope>> corpus{
-        {"127.0.0.1", Scope::Loopback}, {"127.255.255.254", Scope::Loopback},
-        {"10.0.0.1", Scope::PrivateLan}, {"10.255.255.254", Scope::PrivateLan},
-        {"172.16.0.1", Scope::PrivateLan}, {"172.31.255.254", Scope::PrivateLan},
-        {"192.168.0.1", Scope::PrivateLan}, {"192.168.255.254", Scope::PrivateLan},
+        {"127.0.0.1", Scope::Loopback}, {"127.0.0.255", Scope::Loopback}, {"127.255.255.254", Scope::Loopback},
+        {"10.0.0.1", Scope::PrivateLan}, {"10.0.0.255", Scope::PrivateLan}, {"10.255.255.254", Scope::PrivateLan},
+        {"172.16.0.1", Scope::PrivateLan}, {"172.16.0.255", Scope::PrivateLan}, {"172.31.255.254", Scope::PrivateLan},
+        {"192.168.0.1", Scope::PrivateLan}, {"192.168.0.255", Scope::PrivateLan}, {"192.168.255.254", Scope::PrivateLan},
         {"0.0.0.0", Scope::Unsupported}, {"8.8.8.8", Scope::Unsupported},
         {"169.254.1.1", Scope::Unsupported}, {"224.0.0.1", Scope::Unsupported},
         {"239.255.255.255", Scope::Unsupported}, {"255.255.255.255", Scope::Unsupported},
-        {"192.168.1.255", Scope::Unsupported}, {"10.0.0.255", Scope::Unsupported},
         {"172.15.0.1", Scope::Unsupported}, {"172.32.0.1", Scope::Unsupported},
         {"", Scope::Invalid}, {"1.2.3", Scope::Invalid}, {"1.2.3.4.5", Scope::Invalid},
         {"01.2.3.4", Scope::Invalid}, {"256.2.3.4", Scope::Invalid}, {"1..3.4", Scope::Invalid},
@@ -91,6 +92,15 @@ D6R_TEST_CASE("listener and guest endpoints fail closed outside loopback and RFC
                    std::string(PrivateLanExposureCopy));
     D6R_REQUIRE_EQ("Network session cannot use a public or wildcard address. Use loopback or a private LAN address.",
                    std::string(UnsupportedAddressCopy));
+}
+
+D6R_TEST_CASE("local bind helper accepts assigned trusted interfaces and rejects unassigned values") {
+    D6R_REQUIRE(isLocalIpv4AddressAssigned({127, 0, 0, 1}));
+    D6R_REQUIRE(!isLocalIpv4AddressAssigned({0, 0, 0, 0}));
+    D6R_REQUIRE(!isLocalIpv4AddressAssigned({255, 255, 255, 255}));
+    D6R_REQUIRE(!isLocalIpv4AddressAssigned({10, 0, 0, 255}));
+    D6R_REQUIRE(!isLocalIpv4AddressAssigned({172, 16, 0, 255}));
+    D6R_REQUIRE(!isLocalIpv4AddressAssigned({192, 168, 0, 255}));
 }
 
 D6R_TEST_CASE("hostname syntax and resolver policy enforce exact boundaries before connect or bind") {
@@ -225,6 +235,57 @@ D6R_TEST_CASE("validation APIs accept exact limits and reject one above") {
         D6R_REQUIRE(!validLogicalPath(path));
 }
 
+D6R_TEST_CASE("bounded validators reject deterministic malformed and mutation corpus without crashing") {
+    const std::vector<std::string> malformedUtf8{
+        std::string("\x80", 1), std::string("\xBF", 1), std::string("\xC2", 1),
+        std::string("\xE2\x82", 2), std::string("\xF0\x9F\x92", 3),
+        std::string("\xC0\x80", 2), std::string("\xC1\xBF", 2),
+        std::string("\xE0\x80\x80", 3), std::string("\xF0\x80\x80\x80", 4),
+        std::string("\xED\xA0\x80", 3), std::string("\xED\xBF\xBF", 3),
+        std::string("\xF4\x90\x80\x80", 4), std::string("\xF5\x80\x80\x80", 4),
+        std::string("\xFF", 1), std::string("ok\xC2\x80", 4),
+        std::string("ok\xD8\x9C", 4), std::string("ok\xE2\x80\x8E", 5),
+        std::string("ok\xE2\x80\x8F", 5), std::string("ok\xE2\x80\xAA", 5),
+        std::string("ok\xE2\x80\xAE", 5), std::string("ok\xE2\x81\xA6", 5),
+        std::string("ok\xE2\x81\xA9", 5)};
+    for (const auto &value: malformedUtf8) D6R_REQUIRE(!validParticipantName(value));
+
+    for (unsigned byte = 0; byte <= 255; ++byte) {
+        const std::string mutation(1, static_cast<char>(byte));
+        if (byte < 0x20 || byte >= 0x7f) {
+            D6R_REQUIRE(!validAsciiReason(mutation));
+            D6R_REQUIRE(!validPropertyKey("k" + mutation));
+            D6R_REQUIRE(!validLogicalPath("p" + mutation));
+        }
+    }
+    for (std::size_t index = 0; index < 64; ++index) {
+        std::string name(64, 'n');
+        name[index] = index % 2 == 0 ? '\0' : '\n';
+        D6R_REQUIRE(!validParticipantName(name));
+    }
+
+    const std::vector<std::string> malformedHosts{
+        std::string(MaxHostnameBytes + 1, 'h'), std::string(64, 'a') + ".test", "a..b", ".a", "a.",
+        "-a", "a-", "a_b", "a b", std::string("a\0b", 3), std::string("a\xFF", 2)};
+    for (const auto &value: malformedHosts) {
+        D6R_REQUIRE(!validHostname(value));
+        D6R_REQUIRE(!validGuestEndpointName(value));
+    }
+
+    const std::vector<std::string> malformedPaths{
+        std::string(MaxLogicalPathBytes + 1, 'p'), std::string(65, 'p'), std::string("p\0q", 3),
+        "/p", "p/", "p//q", "../p", "p/../q", "p\\q", "p q", std::string("p\xFF", 2)};
+    for (const auto &value: malformedPaths) D6R_REQUIRE(!validLogicalPath(value));
+
+    D6R_REQUIRE(!validPropertyCount((std::numeric_limits<std::size_t>::max)()));
+    D6R_REQUIRE(!validCollectionSize((std::numeric_limits<std::size_t>::max)()));
+    D6R_REQUIRE(!validManifestEntryCount((std::numeric_limits<std::size_t>::max)()));
+    D6R_REQUIRE(!validGeneralString(std::string(MaxStringBytes + 257, 's')));
+    D6R_REQUIRE(!validAsciiReason(std::string(MaxReasonBytes + 257, 'r')));
+    D6R_REQUIRE(!validPropertyKey(std::string(MaxKeyBytes + 257, 'k')));
+    D6R_REQUIRE(!validParticipantName(std::string(MaxParticipantNameBytes + 257, 'n')));
+}
+
 D6R_TEST_CASE("admission gate enforces payload one-request and exact deadline without granting policy") {
     ManualClock time;
     int hookCalls = 0;
@@ -349,6 +410,80 @@ D6R_TEST_CASE("rate primitives enforce burst refill windows isolation and input 
     D6R_REQUIRE(applied.reserve(4, 101));
     applied.clearBefore(101);
     D6R_REQUIRE(applied.reserve(4, 100));
+}
+
+D6R_TEST_CASE("token buckets reject nonfinite and negative values without poisoning valid state") {
+    const double nan = (std::numeric_limits<double>::quiet_NaN)();
+    const double infinity = (std::numeric_limits<double>::infinity)();
+    D6R_REQUIRE_THROW(TokenBucket(-1, 1), std::invalid_argument);
+    D6R_REQUIRE_THROW(TokenBucket(1, -1), std::invalid_argument);
+    D6R_REQUIRE_THROW(TokenBucket(nan, 1), std::invalid_argument);
+    D6R_REQUIRE_THROW(TokenBucket(1, nan), std::invalid_argument);
+    D6R_REQUIRE_THROW(TokenBucket(infinity, 1), std::invalid_argument);
+    D6R_REQUIRE_THROW(TokenBucket(1, infinity), std::invalid_argument);
+    D6R_REQUIRE_THROW(TokenBucket(-infinity, 1), std::invalid_argument);
+    D6R_REQUIRE_THROW(TokenBucket(1, -infinity), std::invalid_argument);
+
+    ManualClock time;
+    TokenBucket bucket(10, 20, time.clock());
+    D6R_REQUIRE(!bucket.consume(-1));
+    D6R_REQUIRE(!bucket.consume(nan));
+    D6R_REQUIRE(!bucket.consume(infinity));
+    D6R_REQUIRE(!bucket.consume(-infinity));
+    D6R_REQUIRE(bucket.consume(20));
+    D6R_REQUIRE(!bucket.consume(1));
+    time.advance(1s);
+    D6R_REQUIRE(bucket.consume(10));
+
+    TokenBucket zero(0, 0, time.clock());
+    D6R_REQUIRE(zero.consume(0));
+    D6R_REQUIRE(!zero.consume(1));
+    ManualClock hugeTime;
+    TokenBucket huge(1, 5, hugeTime.clock());
+    D6R_REQUIRE(huge.consume(5));
+    hugeTime.set(TimePoint::max());
+    D6R_REQUIRE(huge.consume(5));
+}
+
+D6R_TEST_CASE("consecutive rate windows handle adjacency gaps rollback and extreme time") {
+    ManualClock adjacentTime;
+    adjacentTime.set(TimePoint{} + 999ms);
+    ConsecutiveWindowLimit adjacent(adjacentTime.clock());
+    D6R_REQUIRE(!adjacent.recordOverLimit());
+    adjacentTime.advance(1ms);
+    D6R_REQUIRE(adjacent.recordOverLimit());
+
+    ManualClock gapTime;
+    ConsecutiveWindowLimit gaps(gapTime.clock());
+    D6R_REQUIRE(!gaps.recordOverLimit());
+    gapTime.advance(2s);
+    D6R_REQUIRE(!gaps.recordOverLimit());
+    gapTime.advance(1s);
+    D6R_REQUIRE(gaps.recordOverLimit());
+    gapTime.advance(3s);
+    D6R_REQUIRE(!gaps.recordOverLimit());
+    gapTime.advance(1s);
+    gaps.recordWithinLimit();
+    gapTime.advance(1s);
+    D6R_REQUIRE(!gaps.recordOverLimit());
+
+    ManualClock rollbackTime;
+    rollbackTime.set(TimePoint{} + 10s);
+    ConsecutiveWindowLimit rollback(rollbackTime.clock());
+    D6R_REQUIRE(!rollback.recordOverLimit());
+    rollbackTime.set(TimePoint{} + 9s);
+    D6R_REQUIRE(!rollback.recordOverLimit());
+    rollbackTime.set(TimePoint{} + 10s);
+    D6R_REQUIRE(rollback.recordOverLimit());
+
+    ManualClock extremeTime;
+    extremeTime.set(TimePoint::min());
+    ConsecutiveWindowLimit extreme(extremeTime.clock());
+    D6R_REQUIRE(!extreme.recordOverLimit());
+    extremeTime.set(TimePoint::max());
+    D6R_REQUIRE(!extreme.recordOverLimit());
+    extremeTime.set(TimePoint::min());
+    D6R_REQUIRE(!extreme.recordOverLimit());
 }
 
 D6R_TEST_CASE("authorization is immutable owner scoped revoked on disconnect and fail closed") {
@@ -584,6 +719,41 @@ D6R_TEST_CASE("independent reconnect reservations rotate credentials") {
         std::copy(value.bytes.begin(), value.bytes.end(), target); return size == ReconnectCredentialBytes;
     });
     D6R_REQUIRE(first.credential().bytes != rotated.credential().bytes);
+}
+
+D6R_TEST_CASE("reconnect credential RAII copies moves and assignments preserve scoped single use") {
+    ManualClock time;
+    auto fill = [](std::uint8_t *target, std::size_t size) {
+        const auto value = credential(21);
+        std::copy(value.bytes.begin(), value.bytes.end(), target);
+        return size == value.bytes.size();
+    };
+    ReconnectReservation reservation(7, 8, 9, time.clock(), fill);
+    ReconnectCredential original = reservation.credential();
+    ReconnectCredential copied(original);
+    ReconnectCredential copyAssigned;
+    copyAssigned = original;
+    D6R_REQUIRE(copied.bytes == original.bytes);
+    D6R_REQUIRE(copyAssigned.bytes == original.bytes);
+
+    ReconnectCredential moved(std::move(copied));
+    D6R_REQUIRE(moved.bytes == original.bytes);
+    D6R_REQUIRE(allZero(copied));
+    ReconnectCredential moveAssigned;
+    moveAssigned = std::move(copyAssigned);
+    D6R_REQUIRE(moveAssigned.bytes == original.bytes);
+    D6R_REQUIRE(allZero(copyAssigned));
+
+    ReconnectCredential survivesInnerDestruction;
+    {
+        ReconnectCredential temporary(original);
+        survivesInnerDestruction = temporary;
+    }
+    D6R_REQUIRE(survivesInnerDestruction.bytes == original.bytes);
+    D6R_REQUIRE(!reservation.consume(moved, 7, 8, 10));
+    D6R_REQUIRE(reservation.valid());
+    D6R_REQUIRE(reservation.consume(survivesInnerDestruction, 7, 8, 9));
+    D6R_REQUIRE(!reservation.consume(original, 7, 8, 9));
 }
 
 D6R_TEST_CASE("operating system reconnect randomness is nonzero and sampling does not repeat") {
