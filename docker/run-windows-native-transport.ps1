@@ -8,11 +8,12 @@ if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
     throw "vswhere.exe is not available at $vswhere"
 }
 
-$vsRoot = [string](& $vswhere -latest -version '[17.0,18.0)' -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
-$vsRoot = $vsRoot.Trim()
-if (-not $vsRoot) {
+$installations = @(& $vswhere -all -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json | ConvertFrom-Json)
+$visualStudio2022 = $installations | Where-Object { ([version]$_.installationVersion).Major -eq 17 } | Select-Object -First 1
+if (-not $visualStudio2022) {
     throw 'Visual Studio 2022 with the x64 C++ toolchain is not available.'
 }
+$vsRoot = ([string]$visualStudio2022.installationPath).Trim()
 
 $vsDevCmd = Join-Path $vsRoot 'Common7\Tools\VsDevCmd.bat'
 if (-not (Test-Path -LiteralPath $vsDevCmd -PathType Leaf)) {
