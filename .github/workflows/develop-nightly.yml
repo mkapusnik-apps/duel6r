@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: true
+  group: develop-nightly-publication
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -63,7 +63,7 @@ jobs:
     needs: [build]
     runs-on: self-hosted
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Download nightly artifact
         uses: actions/download-artifact@v8
@@ -82,7 +82,6 @@ jobs:
       - name: Delete existing nightly release
         uses: actions/github-script@v9
         with:
-          github-token: ${{ secrets.PAT_ACTIONS }}
           script: |
             let release;
 
@@ -116,7 +115,6 @@ jobs:
           make_latest: false
           files: release-assets/duel6r-nightly.zip
           fail_on_unmatched_files: true
-          token: ${{ secrets.PAT_ACTIONS }}
 
   tag:
     name: Tag - nightly
