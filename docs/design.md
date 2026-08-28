@@ -11,6 +11,7 @@ The approved product requirements are the source of truth for visual-impact chan
 The current native implementation remains the source for unchanged visual details.
 This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, and the planned first-release network UI defined for issue #28.
 The network additions are target specifications for downstream issue #38 and are not implemented UI or evidence of playable networking.
+Issue #30 may implement protocol, command-line, or scaffold outcomes, but it must not add graphical network UI.
 
 ## Visual principles
 
@@ -180,7 +181,9 @@ The following values come from renderer and GUI source.
 - Silence, refusal, unreachable, reset, timeout, host crash, host-machine/listener loss, temporary failure, or no response must remain guest `NET-07` through the fixed deadline; it must not be presented as host end.
 - `NET-09` must use only the fixed intentional host-end copy after a valid End session notice is accepted through the current established session.
 - Host-local supervised hosted-service failure must use host `NET-08` with `Hosted session stopped unexpectedly.` and must never become guest evidence.
-- Release, manifest, content, admission, reconnect, and termination user copy must never interpolate a peer-supplied release ID, path, credential, policy value, payload, or raw filesystem value.
+- Release, manifest, content, admission, reconnect, and termination user copy must not include a peer-supplied name, release ID, capability, path, hash, count, credential, source address, threshold, payload, or raw filesystem value.
+- Trusted diagnostics may identify one differing path only after the application validates that path against every canonical-path rule.
+- Trusted diagnostics must not include an invalid path or raw payload.
 - Final network results must show the exact label `Session only` near the summary heading or result table.
 - Target network UI must not offer discovery, matchmaking, Internet, NAT traversal, accounts, passwords, dedicated servers, join-in-progress, or host migration.
 

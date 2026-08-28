@@ -23,6 +23,7 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 - Start session is enabled only when port and local-player configuration are valid; its disabled reason remains visible.
 - Pending startup shows `Starting session…`, the 10-second boundary, and Cancel. Cancel returns to editable setup with all values retained and no listener.
 - Failure variants and Retry/Edit setup/Return destinations remain in the screen specification rather than separate wireframes.
+- An invalid host manifest uses the exact blocking reason in the screen specification, disables Retry for the application session, and leaves no listener or session.
 - Keyboard/controller focus follows fields, roster controls, Start session, then Back.
 
 Planned representative screenshot: [`SS-016`](../../screenshots/README.md#ss-016).

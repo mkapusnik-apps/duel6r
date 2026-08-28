@@ -9,6 +9,9 @@ The previously conforming `MENU-01/default-1706x938.png`, `MENU-02/confirmation-
 The prior `SS-002` and `SS-013` artifacts remain valid historical evidence for the current three-action menu, but they are not evidence for the changed target footer visible behind those overlays.
 The other eight existing representative screenshots remain current because their target presentation is unchanged.
 Issue #28 changes target `MENU-01`, its visible background in `MENU-02` and `CONS-01`, and adds `NET-01`–`NET-09`. Exactly 12 planned entries cover those 12 affected wireframes. No current application screenshot is valid for those changed targets because the Network action and network screens are not implemented; downstream issue #38 owns implementation and recapture.
+Issue #30 defines protocol, command-line, or scaffold outcomes only.
+Issue #30 has zero capturable graphical entries because it must not implement the planned network screens.
+The existing 12 planned issue #38 entries remain unchanged and must not be used as issue #30 evidence.
 The obsolete `PLAY-02`, `PLAY-03`, and `PLAY-04` artifacts are not evidence and are not in this manifest.
 
 ## Provenance requirements
@@ -124,7 +127,7 @@ The replacement shared-arena artifacts have this provenance:
 | <a id="ss-019"></a>`SS-019` | `NET-05` | [Network match](../screens/wireframes/network-match.md) | Start a LAN Deathmatch after all participants are ready. | Six living players across connected participants during active play. | 1280x900 | One undivided arena must preserve full level, six players, ranking, round progress, events, status, and compact truthful LAN session context. | `docs/screenshots/NET-05/six-player-lan-deathmatch-1280x900.png` | `Planned` for downstream issue #38; no playable network session exists. |
 | <a id="ss-020"></a>`SS-020` | `NET-06` | [Final summary](../screens/wireframes/network-summary.md) | Complete a configured three-round network match. | Final authoritative three-round result for all connected participants. | 1280x900 | Summary shows totals, `Session only`, no persistence, applicable actions, retained/departed rows, clearing at new-match start, and discard on session end. | `docs/screenshots/NET-06/final-three-round-summary-1280x900.png` | `Planned` for downstream issue #38; no current network UI exists. |
 | <a id="ss-021"></a>`SS-021` | `NET-07` | [Guest reconnect](../screens/wireframes/network-reconnect.md) | Interrupt a guest connection during an active network match. | Reconnecting with 24 positive ceiling seconds remaining after host crash or another ambiguous transport failure. | 1280x900 | Endpoint, unchanged reservation deadline, no-input state, active simulation, retryable status, and `Leave session` consequence are visible; the state does not claim host end or player removal. | `docs/screenshots/NET-07/reconnecting-24s-1280x900.png` | `Planned` for downstream issue #38; reconnect is not implemented. |
-| <a id="ss-022"></a>`SS-022` | `NET-08` | [Connection failure](../screens/wireframes/network-failure.md) | Attempt to join an unavailable direct endpoint. | Initial `Host unreachable` with endpoint context, Retry, Edit setup, and Return to Network. | 1920x1080 | Initial admission uses fixed precedence; terminal reconnect disables Retry; expiry uses truthful copy; host-local service failure uses `Hosted session stopped unexpectedly.` only for the host. | `docs/screenshots/NET-08/host-unreachable-1920x1080.png` | `Planned` for downstream issue #38; no current network UI exists. |
+| <a id="ss-022"></a>`SS-022` | `NET-08` | [Connection failure](../screens/wireframes/network-failure.md) | Attempt to join an unavailable direct endpoint. | Initial `Host unreachable.` with endpoint context, Retry, Edit setup, and Return to Network. | 1920x1080 | Initial admission uses fixed precedence; terminal reconnect disables Retry; expiry uses truthful copy; host-local service failure uses `Hosted session stopped unexpectedly.` only for the host. | `docs/screenshots/NET-08/host-unreachable-1920x1080.png` | `Planned` for downstream issue #38; no current network UI exists. |
 | <a id="ss-023"></a>`SS-023` | `NET-09` | [Host-ended session overlay](../screens/wireframes/network-host-ended.md) | Receive a valid intentional host End session notice during an active network match. | Host-ended outcome over the last authoritative arena context. | 1280x900 | A blocking `HOST ENDED SESSION` overlay states no migration/resume or persistence and can arise only from an End notice accepted through the current established session. | `docs/screenshots/NET-09/host-ended-1280x900.png` | `Planned` for downstream issue #38; host-ended UI is not implemented. |
 
 ## Coverage
@@ -141,3 +144,24 @@ The replacement shared-arena artifacts have this provenance:
 
 The matrix uses one representative state for each wireframe.
 The screen specifications and wireframes document other player counts, modes, interaction states, and accessibility limits without multiplying screenshot entries.
+
+## Issue #30 pre-implementation evidence matrix
+
+This matrix was prepared for issue #30 and draft PR #50 at reviewed head `4eb4291d3090e2a3b9de8fc83f130671d8b3eb5e`.
+The issue #30 graphical screenshot matrix contains exactly zero entries.
+No affected wireframe has an implemented graphical state in issue #30.
+Terminal or command-line output is operational evidence and is not an implementation screenshot.
+Operational evidence must record the implementation branch, source SHA, environment, command or test scenario, exact machine outcome, exact visible output when applicable, and artifact path.
+
+| Operational scenario | Required substitute evidence |
+|---|---|
+| Host-local invalid manifest | A test or recorded protocol/CLI artifact must show `host-gameplay-content-manifest-invalid`, the exact host-visible copy, no listener or session, and Retry-disabled semantics for the current application session. |
+| Initial admission precedence | Automated results must exercise all 11 ordered identifiers and must show that the first applicable complete host result wins. |
+| Initial outcome copy | Automated results must assert every exact rejection string, including release, invalid manifest, content mismatch, match started, session full, and host policy outcomes. |
+| Transport precedence | Automated results must distinguish name-resolution failure, unreachable or refusal, close before complete admission, and no complete result at the 10-second deadline. |
+| Cancellation and destinations | Automated or integration results must show that Cancel and local validation win, retained setup is preserved, and no pre-admission identity or slot remains. |
+| Reconnect compatibility handoff | Automated results must assert the exact release and content restoration copy and disabled reconnect Retry semantics. |
+| Non-disclosure | Automated results must inject untrusted names, release IDs, capabilities, paths, hashes, counts, credentials, addresses, thresholds, and payloads and must show that user-visible output contains none of them. |
+| Local Play preservation | A regression result must show that `Play (F1)` starts and completes without a listener, server, transport worker, client connection, or network availability. No fresh screenshot is required because Local Play visuals must not change. |
+
+Issue #38 must provide exactly one representative graphical screenshot for each implemented affected wireframe when it implements the planned UI.

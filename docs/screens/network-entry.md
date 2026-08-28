@@ -3,6 +3,7 @@
 ## Status, purpose, and requirements
 
 This is a target screen for downstream issue #38; it is not implemented. It separates player-hosted network play from local-only Play and implements `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-015`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+Issue #30 must not add this graphical entry or change the current Local Play menu.
 
 Entry is `MENU-01` → `Network (F2)`. Host continues to `NET-02`, Join continues to `NET-03`, and Back returns to `MENU-01` without starting a network service.
 
