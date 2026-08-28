@@ -71,11 +71,9 @@
 - The release keeps the title `nightly` and does not create a nightly release history.
 - A failed build does not change the prior successful nightly release.
 - A package failure does not change the prior successful nightly release.
-- Nightly runs use the `develop-nightly-publication` concurrency group.
-- A newer dispatch does not cancel an active nightly run.
-- GitHub keeps one pending run while a nightly run is active.
-- A newer dispatch can replace the pending run.
-- The pending run starts after the active run finishes.
+- Nightly runs use `${{ github.workflow }}` as the concurrency group.
+- A newer dispatch cancels an active nightly run.
+- Cancellation after release deletion can leave the `nightly` tag without a release.
 - The release job uses `GITHUB_TOKEN` with `contents: write` to replace the release.
 - `GITHUB_TOKEN` limits release access to the current repository.
 - The release job uses `PAT_ACTIONS` only to move the `nightly` tag.

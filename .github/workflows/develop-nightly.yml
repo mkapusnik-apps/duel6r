@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: develop-nightly-publication
-  cancel-in-progress: false
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
 
 jobs:
   build:
