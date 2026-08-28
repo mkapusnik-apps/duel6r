@@ -16,11 +16,16 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <sdkddkver.h>
+#ifndef NTDDI_VERSION
+#define NTDDI_VERSION NTDDI_WIN10_RS2
+#endif
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0600
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <mstcpip.h>
 #include <windows.h>
 #ifndef PROC_THREAD_ATTRIBUTE_JOB_LIST
 #define PROC_THREAD_ATTRIBUTE_JOB_LIST ProcThreadAttributeValue(13, FALSE, TRUE, FALSE)
@@ -196,6 +201,37 @@ namespace Duel6::Network {
             if (error == WSAEHOSTUNREACH || error == WSAENETUNREACH) return TransportFailure::Unreachable;
             return TransportFailure::SystemError;
         }
+
+        class NativeOutboundProgress {
+        public:
+            bool sampleAcknowledgements(SocketHandle socket) {
+#ifdef SIO_TCP_INFO
+                if (unavailable) return false;
+                DWORD version = 0;
+                TCP_INFO_v0 info{};
+                DWORD returned = 0;
+                if (WSAIoctl(socket, SIO_TCP_INFO, &version, sizeof(version), &info, sizeof(info),
+                             &returned, nullptr, nullptr) != 0
+                    || returned < sizeof(info) || info.BytesOut < info.BytesInFlight) {
+                    unavailable = true;
+                    return false;
+                }
+                const std::uint64_t acknowledged = info.BytesOut - info.BytesInFlight;
+                const bool advanced = initialized && acknowledged > previousAcknowledged;
+                previousAcknowledged = acknowledged;
+                initialized = true;
+                return advanced;
+#else
+                (void) socket;
+                return false;
+#endif
+            }
+
+        private:
+            bool initialized = false;
+            bool unavailable = false;
+            std::uint64_t previousAcknowledged = 0;
+        };
 #else
         class ResolverProcessSupervisor {
         public:
@@ -1010,6 +1046,9 @@ namespace Duel6::Network {
             std::size_t total = header.size() + frame.payload.size();
             std::size_t offset = 0;
             Clock::time_point progress = Clock::now();
+#ifdef D6R_TRANSPORT_WINDOWS
+            NativeOutboundProgress nativeProgress;
+#endif
             while (offset < total && !stop.load()) {
                 if (closeRequested.load() && Clock::now() >= closeDeadline) return false;
 #ifndef D6R_TRANSPORT_WINDOWS
@@ -1043,7 +1082,13 @@ namespace Duel6::Network {
                 }
 #ifdef D6R_TRANSPORT_WINDOWS
                 if (count <= 0) {
-                    const auto current = Clock::now();
+                    auto current = Clock::now();
+                    if (frame.kind == ApplicationFrame && offset > 0
+                        && nativeProgress.sampleAcknowledgements(socket)) {
+                        current = Clock::now();
+                        progress = current;
+                        lastOutboundProgress.store(current);
+                    }
                     if (current - progress >= ProgressDeadline) {
                         fail(TransportFailure::OutboundStalled, true);
                         return false;
