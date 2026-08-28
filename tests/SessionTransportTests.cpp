@@ -2,12 +2,14 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstdint>
 #include <functional>
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -26,6 +28,7 @@ static constexpr RawSocket InvalidRawSocket = INVALID_SOCKET;
 #include <cerrno>
 #include <csignal>
 #include <netinet/in.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 using RawSocket = int;
@@ -107,9 +110,15 @@ std::uint16_t unusedPort() {
     return ntohs(address.sin_port);
 }
 
-RawSocket connectRaw(std::uint16_t port) {
+RawSocket connectRaw(std::uint16_t port, int receiveBuffer = 0) {
     RawSocket socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     CHECK(socket != InvalidRawSocket);
+    if (receiveBuffer > 0
+        && setsockopt(socket, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char *>(&receiveBuffer),
+                      sizeof(receiveBuffer)) != 0) {
+        closeRaw(socket);
+        throw Failure("raw loopback receive-buffer configuration failed");
+    }
     sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_port = htons(port);
@@ -119,6 +128,17 @@ RawSocket connectRaw(std::uint16_t port) {
         throw Failure("raw loopback connect failed");
     }
     return socket;
+}
+
+std::size_t pendingRawReceiveBytes(RawSocket socket) {
+#ifdef D6R_TRANSPORT_WINDOWS
+    u_long pending = 0;
+    CHECK(ioctlsocket(socket, FIONREAD, &pending) == 0);
+#else
+    int pending = 0;
+    CHECK(ioctl(socket, FIONREAD, &pending) == 0);
+#endif
+    return static_cast<std::size_t>(pending);
 }
 
 void sendAll(RawSocket socket, const std::uint8_t *data, std::size_t size) {
@@ -158,6 +178,8 @@ std::shared_ptr<TcpConnection> awaitAccept(TcpListener &listener) {
     CHECK(waitUntil([&] { result = listener.acceptConnection(); return bool(result); }, NativeObserverWait));
     return result;
 }
+
+void startListener(TcpListener &listener, std::uint16_t port, const std::string &host = "127.0.0.1");
 
 ResolvedIpv4Endpoint fakeLoopback(std::uint16_t port) {
     return {{127, 0, 0, 1}, port};
@@ -334,6 +356,180 @@ void sharedDeadlineAndClassifications() {
     }
 }
 
+struct ObservedWireFrame {
+    std::uint16_t kind;
+    std::vector<std::uint8_t> payload;
+};
+
+std::vector<ObservedWireFrame> parseObservedWire(const std::vector<std::uint8_t> &wire) {
+    std::vector<ObservedWireFrame> frames;
+    std::size_t offset = 0;
+    while (offset < wire.size()) {
+        CHECK(wire.size() - offset >= TransportEnvelopeBytes);
+        const auto *header = wire.data() + offset;
+        const std::uint32_t magic = (std::uint32_t(header[0]) << 24u) | (std::uint32_t(header[1]) << 16u)
+                                    | (std::uint32_t(header[2]) << 8u) | header[3];
+        const std::uint16_t version = std::uint16_t((header[4] << 8u) | header[5]);
+        const std::uint16_t kind = std::uint16_t((header[6] << 8u) | header[7]);
+        const std::uint32_t size = (std::uint32_t(header[8]) << 24u) | (std::uint32_t(header[9]) << 16u)
+                                   | (std::uint32_t(header[10]) << 8u) | header[11];
+        CHECK(magic == TransportFramingIdentifier);
+        CHECK(version == TransportFramingVersion);
+        CHECK(size <= MaxPayloadBytes);
+        offset += TransportEnvelopeBytes;
+        CHECK(wire.size() - offset >= size);
+        frames.push_back({kind, {wire.begin() + static_cast<std::ptrdiff_t>(offset),
+                                  wire.begin() + static_cast<std::ptrdiff_t>(offset + size)}});
+        offset += size;
+    }
+    return frames;
+}
+
+void deterministicOutboundFrameBoundaryPriority() {
+    std::mutex mutex;
+    std::condition_variable changed;
+    std::vector<std::uint8_t> wire;
+    bool firstPartialSent = false;
+    bool releaseActiveApplication = false;
+    bool pingPartialSent = false;
+    bool releaseActivePing = false;
+    FakeClock outboundClock;
+
+    SessionTransportDependencies dependencies;
+    dependencies.outbound.now = [&] { return outboundClock.now(); };
+    dependencies.outbound.send = [&](std::intptr_t, std::uint16_t kind, const std::uint8_t *data,
+                                     std::size_t size) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (kind == 0 && !releaseActiveApplication) {
+            if (!firstPartialSent) {
+                const std::size_t partial = std::min<std::size_t>(5, size);
+                wire.insert(wire.end(), data, data + partial);
+                firstPartialSent = true;
+                changed.notify_all();
+                return OutboundSendOutcome{OutboundSendStatus::Sent, partial};
+            }
+            return OutboundSendOutcome{OutboundSendStatus::WouldBlock, 0};
+        }
+        if (kind == 1 && !releaseActivePing) {
+            if (!pingPartialSent) {
+                const std::size_t partial = std::min<std::size_t>(5, size);
+                wire.insert(wire.end(), data, data + partial);
+                pingPartialSent = true;
+                changed.notify_all();
+                return OutboundSendOutcome{OutboundSendStatus::Sent, partial};
+            }
+            return OutboundSendOutcome{OutboundSendStatus::WouldBlock, 0};
+        }
+        wire.insert(wire.end(), data, data + size);
+        changed.notify_all();
+        return OutboundSendOutcome{OutboundSendStatus::Sent, size};
+    };
+    dependencies.outbound.wait = [](std::chrono::milliseconds) { std::this_thread::sleep_for(1ms); };
+
+    const auto port = unusedPort();
+    TcpListener listener(1, dependencies);
+    startListener(listener, port);
+    RawSocketOwner peer(connectRaw(port));
+    auto connection = awaitAccept(listener);
+    const std::vector<std::uint8_t> first{0x10, 0x00, 0xFF, 0x11};
+    const std::vector<std::uint8_t> second{0x20, 0x00, 0xFE, 0x21};
+    CHECK(connection->send(first) == SendResult::Accepted);
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        CHECK(changed.wait_for(lock, 1s, [&] { return firstPartialSent; }));
+    }
+    CHECK(connection->send(second) == SendResult::Accepted);
+
+    // Keep the first application frame active until the quiet connection has queued its ping.
+    // Complete the application frame and hold that ping partially written, proving the control
+    // was selected at the frame boundary before the next application frame.
+    std::this_thread::sleep_for(10200ms);
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        releaseActiveApplication = true;
+        changed.notify_all();
+    }
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        CHECK(changed.wait_for(lock, 1s, [&] { return pingPartialSent; }));
+    }
+    // Queue pong while ping is active. Completing ping must select pong next, but the bounded
+    // two-control burst must then yield to the already queued application frame.
+    sendFrame(peer.get(), {}, 1);
+    std::this_thread::sleep_for(100ms);
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        releaseActivePing = true;
+        changed.notify_all();
+    }
+
+    const std::size_t expectedWireBytes = 4 * TransportEnvelopeBytes + first.size() + second.size();
+    CHECK(waitUntil([&] {
+        std::lock_guard<std::mutex> lock(mutex);
+        return wire.size() == expectedWireBytes;
+    }, 2s));
+    std::vector<std::uint8_t> observedWire;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        observedWire = wire;
+    }
+    const auto frames = parseObservedWire(observedWire);
+    CHECK(frames.size() == 4);
+    CHECK(frames[0].kind == 0 && frames[0].payload == first);
+    CHECK(frames[1].kind == 1 && frames[1].payload.empty());
+    CHECK(frames[2].kind == 2 && frames[2].payload.empty());
+    CHECK(frames[3].kind == 0 && frames[3].payload == second);
+    TransportFrame hidden;
+    CHECK(!connection->receive(hidden));
+    connection->close();
+    listener.shutdown();
+}
+
+void deterministicOutboundProgressDeadline() {
+    auto verify = [](bool resetWithPartialSend) {
+        FakeClock clock;
+        std::atomic<bool> initialProgress{false};
+        std::atomic<bool> resetProgress{false};
+        std::atomic<std::int64_t> resetAt{-1};
+        SessionTransportDependencies dependencies;
+        dependencies.outbound.now = [&] { return clock.now(); };
+        dependencies.outbound.wait = [&](std::chrono::milliseconds duration) { clock.advance(duration); };
+        dependencies.outbound.send = [&](std::intptr_t, std::uint16_t, const std::uint8_t *, std::size_t) {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    clock.now().time_since_epoch()).count();
+            if (!initialProgress.exchange(true)) return OutboundSendOutcome{OutboundSendStatus::Sent, 1};
+            if (resetWithPartialSend && !resetProgress.load() && elapsed >= 4000) {
+                resetProgress.store(true);
+                resetAt.store(elapsed);
+                return OutboundSendOutcome{OutboundSendStatus::Sent, 1};
+            }
+            return OutboundSendOutcome{OutboundSendStatus::WouldBlock, 0};
+        };
+
+        const auto port = unusedPort();
+        TcpListener listener(1, dependencies);
+        startListener(listener, port);
+        RawSocketOwner peer(connectRaw(port));
+        auto connection = awaitAccept(listener);
+        CHECK(connection->send({0xA5, 0x00, 0x5A}) == SendResult::Accepted);
+        CHECK(waitUntil([&] { return connection->state() == ClientState::TimedOut; }, 2s));
+        const auto timedOutAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+                clock.now().time_since_epoch()).count();
+        CHECK(connection->failure() == TransportFailure::OutboundStalled);
+        if (resetWithPartialSend) {
+            CHECK(resetProgress.load());
+            CHECK(resetAt.load() == 4000);
+            CHECK(timedOutAt == resetAt.load() + 5000);
+        } else {
+            CHECK(!resetProgress.load());
+            CHECK(timedOutAt == 5000);
+        }
+        listener.shutdown();
+    };
+    verify(false);
+    verify(true);
+}
+
 void cancellationDeadlineRacesAreTerminalAndJoined() {
     {
         FakeClock clock;
@@ -403,10 +599,18 @@ void cancellationDeadlineRacesAreTerminalAndJoined() {
     }
 }
 
-void startListener(TcpListener &listener, std::uint16_t port, const std::string &host = "127.0.0.1") {
-    CHECK(listener.start({host, port}));
-    CHECK(listener.waitForReady(NativeObserverWait));
-    CHECK(listener.state() == ListenerState::Ready);
+void startListener(TcpListener &listener, std::uint16_t port, const std::string &host) {
+    if (!listener.start({host, port}))
+        throw Failure("listener rejected start for " + host + ':' + std::to_string(port));
+    const auto started = std::chrono::steady_clock::now();
+    if (!listener.waitForReady(NativeObserverWait) || listener.state() != ListenerState::Ready) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - started).count();
+        throw Failure("listener did not become ready for " + host + ':' + std::to_string(port)
+                      + ": state=" + std::to_string(static_cast<int>(listener.state()))
+                      + ", failure=" + std::to_string(static_cast<int>(listener.failure()))
+                      + ", observerElapsedMs=" + std::to_string(elapsed));
+    }
 }
 
 void mandatorySocketConfigurationFailure() {
@@ -536,11 +740,9 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
     const auto port = unusedPort();
     TcpListener listener(1);
     startListener(listener, port);
-    RawSocketOwner peer(connectRaw(port));
+    const int receiveBuffer = 32 * 1024;
+    RawSocketOwner peer(connectRaw(port, receiveBuffer));
     auto server = awaitAccept(listener);
-    int receiveBuffer = 32 * 1024;
-    CHECK(setsockopt(peer.get(), SOL_SOCKET, SO_RCVBUF,
-                     reinterpret_cast<const char *>(&receiveBuffer), sizeof(receiveBuffer)) == 0);
     auto applicationPayload = [](std::uint64_t sequence) {
         std::vector<std::uint8_t> payload(sequence == 0 ? MaxPayloadBytes : 1024, 0xA6);
         for (std::size_t index = 0; index < 8; ++index)
@@ -569,7 +771,6 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
     std::atomic<std::chrono::steady_clock::time_point> lastMaximumReadAt{std::chrono::steady_clock::now()};
     std::atomic<bool> awaitingFrameAfterMaximum{false};
     std::atomic<std::size_t> headersAfterMaximum{0};
-    std::atomic<bool> controlPrecededQueuedApplication{false};
     std::atomic<bool> slowReader{true};
     std::thread reader([&] {
         try {
@@ -639,7 +840,6 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
                 sendFrame(peer.get(), {}, 2);
             } else if (kind == 2) {
                 pongFrames.fetch_add(1);
-                if (applicationFrames.load() == 1) controlPrecededQueuedApplication.store(true);
             } else {
                 readerFailed.store(true);
                 break;
@@ -723,7 +923,6 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
     CHECK(drainBufferExpanded);
     CHECK(peerPingSent);
     CHECK(pongFrames.load() >= 1);
-    CHECK(controlPrecededQueuedApplication.load());
     CHECK(progressAtTenSeconds > 0);
     CHECK(progressAtTwentySeconds > progressAtTenSeconds);
     CHECK(progressAtThirtySeconds > progressAtTwentySeconds);
@@ -800,8 +999,16 @@ void lifecycleAndFailures() {
     startListener(first, occupiedPort);
     TcpListener collision;
     CHECK(collision.start({"127.0.0.1", occupiedPort}));
-    CHECK(!collision.waitForReady(NativeObserverWait));
-    CHECK(collision.failure() == TransportFailure::BindFailed);
+    const auto collisionStarted = std::chrono::steady_clock::now();
+    const bool collisionReady = collision.waitForReady(NativeObserverWait);
+    if (collisionReady || collision.failure() != TransportFailure::BindFailed) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - collisionStarted).count();
+        throw Failure("occupied listener classification: ready=" + std::to_string(collisionReady)
+                      + ", state=" + std::to_string(static_cast<int>(collision.state()))
+                      + ", failure=" + std::to_string(static_cast<int>(collision.failure()))
+                      + ", observerElapsedMs=" + std::to_string(elapsed));
+    }
 
     TcpClient invalidClient;
     CHECK(invalidClient.start({"", occupiedPort}));
@@ -857,8 +1064,9 @@ void fifteenIsolatedConnections() {
     std::vector<std::shared_ptr<TcpConnection>> servers;
     for (std::uint8_t index = 0; index < 15; ++index) {
         auto client = std::make_unique<TcpClient>();
-        CHECK(client->start({index % 2 == 0 ? "localhost" : "127.0.0.1", port}));
-        CHECK(client->waitForConnected(NativeObserverWait));
+        const std::string host = index % 2 == 0 ? "localhost" : "127.0.0.1";
+        CHECK(client->start({host, port}));
+        requireConnected(*client, "isolated client index=" + std::to_string(index) + ", host=" + host);
         servers.push_back(awaitAccept(listener));
         clients.push_back(std::move(client));
     }
@@ -904,7 +1112,8 @@ void queueBoundaries() {
     CHECK(finalFrame.payload == std::vector<std::uint8_t>{0x5A});
     CHECK(byteConnection->send(std::vector<std::uint8_t>(MaxPayloadBytes + 1)) == SendResult::PayloadTooLarge);
 
-    RawSocketOwner stalledReader(connectRaw(port));
+    const int stalledReceiveBuffer = 4 * 1024;
+    RawSocketOwner stalledReader(connectRaw(port, stalledReceiveBuffer));
     auto stalledWriter = awaitAccept(listener);
     bool backpressured = false;
     std::size_t accepted = 0;
@@ -916,7 +1125,20 @@ void queueBoundaries() {
     }
     CHECK(backpressured);
     CHECK(accepted > 0);
+    std::size_t pendingBytes = 0;
+    auto pendingStableSince = std::chrono::steady_clock::now();
+    CHECK(waitUntil([&] {
+        const auto observed = pendingRawReceiveBytes(stalledReader.get());
+        if (observed != pendingBytes) {
+            pendingBytes = observed;
+            pendingStableSince = std::chrono::steady_clock::now();
+        }
+        return pendingBytes >= static_cast<std::size_t>(stalledReceiveBuffer)
+               && std::chrono::steady_clock::now() - pendingStableSince >= 250ms;
+    }, NativeObserverWait));
+    const auto noProgressObservedAt = std::chrono::steady_clock::now();
     CHECK(waitUntil([&] { return stalledWriter->state() == ClientState::TimedOut; }, 7s));
+    CHECK(std::chrono::steady_clock::now() - noProgressObservedAt >= 4500ms);
     CHECK(stalledWriter->failure() == TransportFailure::OutboundStalled);
     listener.shutdown();
 }
@@ -1043,6 +1265,8 @@ int main() {
         {"concurrent terminal publication", concurrentTerminalPublicationIsCoherent},
         {"deterministic resolver cancellation", deterministicResolverCancellation},
         {"shared deadline and classifications", sharedDeadlineAndClassifications},
+        {"deterministic outbound frame boundary priority", deterministicOutboundFrameBoundaryPriority},
+        {"deterministic outbound progress deadline", deterministicOutboundProgressDeadline},
         {"cancellation deadline races", cancellationDeadlineRacesAreTerminalAndJoined},
         {"lifecycle and failures", lifecycleAndFailures}, {"15 isolated connections", fifteenIsolatedConnections},
         {"queue boundaries", queueBoundaries}, {"malformed isolation", malformedPeersAreIsolated},

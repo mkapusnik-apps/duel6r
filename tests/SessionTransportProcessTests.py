@@ -76,14 +76,18 @@ def receive_application_frame(connection):
         if kind == 1: connection.sendall(struct.pack("!IHHI", MAGIC, VERSION, 2, 0))
 
 def wait_ready(process, expected):
-    lines, deadline = [], time.monotonic() + 10
+    lines, started = [], time.monotonic()
+    deadline = started + 10
     while time.monotonic() < deadline:
         line = process.stdout.readline()
         if line:
             lines.append(line)
             if expected in line: return lines
         elif process.poll() is not None: break
-    raise AssertionError(f"server did not honestly report readiness: {''.join(lines)!r}")
+    raise AssertionError(
+        "server did not honestly report readiness: "
+        f"pid={process.pid}, returncode={process.poll()}, elapsed={time.monotonic() - started:.3f}s, "
+        f"expected={expected!r}, output={''.join(lines)!r}")
 
 def exercise(executable, host):
     port = unused_port()
@@ -133,7 +137,23 @@ def ordinary_startup_has_no_listener(executable):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.settimeout(1); assert probe.connect_ex(("127.0.0.1", port)) != 0
 
+def hostname_startup_stress(executable, attempts=16):
+    """Exercise the short-lived resolver pipe-close/process-exit ordering repeatedly."""
+    for iteration in range(attempts):
+        port = unused_port()
+        process = start_server(executable, "localhost", port)
+        try:
+            wait_ready(process, f"transport ready on localhost:{port}")
+        except Exception as error:
+            raise AssertionError(
+                f"hostname startup stress iteration={iteration}/{attempts}, port={port}: {error}") from error
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=3)
+
 if __name__ == "__main__":
     if len(sys.argv) != 2: raise SystemExit("usage: SessionTransportProcessTests.py /path/to/duel6r-server")
-    ordinary_startup_has_no_listener(sys.argv[1]); exercise(sys.argv[1], "127.0.0.1"); exercise(sys.argv[1], "localhost")
+    ordinary_startup_has_no_listener(sys.argv[1]); hostname_startup_stress(sys.argv[1])
+    exercise(sys.argv[1], "127.0.0.1"); exercise(sys.argv[1], "localhost")
     print("separate-process transport behavior passed for IPv4 literal and hostname")
