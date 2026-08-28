@@ -1012,6 +1012,7 @@ namespace Duel6::Network {
             Clock::time_point progress = Clock::now();
             while (offset < total && !stop.load()) {
                 if (closeRequested.load() && Clock::now() >= closeDeadline) return false;
+#ifndef D6R_TRANSPORT_WINDOWS
                 if (!waitSocket(socket, true, std::chrono::milliseconds(100))) {
                     if (Clock::now() - progress >= ProgressDeadline) {
                         fail(TransportFailure::OutboundStalled, true);
@@ -1019,6 +1020,7 @@ namespace Duel6::Network {
                     }
                     continue;
                 }
+#endif
                 const std::uint8_t *data = offset < header.size()
                                            ? header.data() + offset
                                            : frame.payload.data() + (offset - header.size());
@@ -1039,6 +1041,17 @@ namespace Duel6::Network {
                         return false;
                     }
                 }
+#ifdef D6R_TRANSPORT_WINDOWS
+                if (count <= 0) {
+                    const auto current = Clock::now();
+                    if (current - progress >= ProgressDeadline) {
+                        fail(TransportFailure::OutboundStalled, true);
+                        return false;
+                    }
+                    if (stop.load() || (closeRequested.load() && current >= closeDeadline)) return false;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                }
+#endif
             }
             return offset == total;
         }
