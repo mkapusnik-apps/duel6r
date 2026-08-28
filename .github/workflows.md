@@ -24,7 +24,11 @@
 
 - `Evidence - Native Windows Transport` starts manually or for relevant pull request changes that target `develop`.
 - GitHub runs the job on `windows-2025` with native `ltsc2025` Windows containers.
+- The host finds its Visual Studio 2022 x64 C++ toolchain and Windows SDK.
+- The host mounts the toolchain and SDK read-only in the container.
+- The host does not compile, test, or run a project binary.
 - The container uses MSVC x64 to build the production transport, server, resolver, and registered transport tests.
+- The container verifies `cl.exe`, `link.exe`, `rc.exe`, and `mt.exe` before CMake starts.
 - The container runs both registered transport CTests with native Windows processes.
 - The job needs `contents: read` permission.
 - The job does not use repository secrets and does not create an artifact.
@@ -70,6 +74,9 @@
 
 ## Failure handling
 
+- Check the native Windows job output for the discovered Visual Studio and Windows SDK versions.
+- A missing tool path indicates that the `windows-2025` image does not contain a required host tool.
+- A mount error indicates a Windows Docker bind-mount or path-access failure.
 - Re-run a failed self-hosted job after Docker daemon access or storage is restored.
 - Check for the daemon workspace confirmation before you investigate CMake failures.
 - A missing confirmation indicates a checkout transfer or Docker API failure.

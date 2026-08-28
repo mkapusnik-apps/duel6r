@@ -10,6 +10,7 @@ name: Evidence - Native Windows Transport
       - 'CMakeLists.txt'
       - 'Dockerfile.windows-native-transport'
       - 'docker/build-windows-native-transport.cmd'
+      - 'docker/run-windows-native-transport.ps1'
       - 'source/client/**'
       - 'source/network/**'
       - 'source/server/**'
@@ -31,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build native Windows transport image
+      - name: Build native Windows tool image
         shell: powershell
         run: |
           docker build `
@@ -41,9 +42,4 @@ jobs:
 
       - name: Build and test inside native Windows container
         shell: powershell
-        run: |
-          $source = '${{ github.workspace }}'
-          $mount = "type=bind,source=$source,target=C:\workspace"
-          docker run --rm `
-            --mount $mount `
-            duel6r-windows-transport:ci
+        run: .\docker\run-windows-native-transport.ps1
