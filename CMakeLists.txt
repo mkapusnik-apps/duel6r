@@ -499,12 +499,18 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/network/Protocol.h
         source/network/ProtocolSerialization.cpp
         source/network/ProtocolSerialization.h
+        source/network/AdmissionProtocol.cpp
+        source/network/AdmissionProtocol.h
+        source/network/CompatibilityManifest.cpp
+        source/network/CompatibilityManifest.h
         source/network/NetworkTrustPolicy.cpp
         source/network/NetworkTrustPolicy.h
         source/network/SessionTransport.cpp
         source/network/SessionTransport.h
         source/server/HeadlessServer.cpp
         source/server/HeadlessServer.h
+        source/server/AdmissionSession.cpp
+        source/server/AdmissionSession.h
         source/server/ServerConfig.cpp
         source/server/ServerConfig.h
         )

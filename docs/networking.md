@@ -2,7 +2,7 @@
 
 ## Status
 
-The networking code now includes a production TCP session-transport layer under an experimental, incomplete developer scaffold. It does not add network play to Duel 6 Reloaded. Normal `duel6r` startup, Play, and every existing local game journey remain independent of this code: the game does not bind or connect a socket, start a transport worker or server, or expose network controls.
+The networking code now includes a production TCP session-transport layer and command-line compatibility admission under an experimental, incomplete developer scaffold. It does not add playable network support to Duel 6 Reloaded. Normal `duel6r` startup, Play, and every existing local game journey remain independent of this code: the game does not bind or connect a socket, start a transport worker or server, or expose network controls.
 
 The approved future first-release scope and journeys are defined in [`docs/network-play-first-release.md`](network-play-first-release.md). The authoritative compatibility and admission target is in [`docs/network-compatibility-and-admission.md`](network-compatibility-and-admission.md). Enforced exposure boundaries and reusable abuse controls are documented in [`docs/network-trust-and-abuse-limits.md`](network-trust-and-abuse-limits.md). Those policies do not change the scaffold's current status and must not be read as implemented or playable network behavior.
 
@@ -20,7 +20,7 @@ It also provides connection-plan and command-construction helpers, an in-process
 
 ## Explicit runtime exposure
 
-Only explicitly launching `duel6r-server` with `--transport` (or the diagnostic `--transport-echo`) can start a listener. Bind defaults to loopback; exact `localhost` is accepted only through an assigned loopback result that passes local prefix policy. A LAN listener requires an explicit private RFC1918 IPv4 address confirmed by operating-system enumeration to be assigned unicast for a local interface prefix; wildcard, unspecified, unassigned private, network, directed/limited-broadcast, public, multicast, link-local, and other listener-hostname values are rejected before a listener exists. Linux validation consumes `ifa_netmask` and `ifa_broadaddr`; Windows consumes `OnLinkPrefixLength`. Prefixes through `/30` reject their network and broadcast endpoints, while RFC 3021 `/31` and host-route `/32` addresses have no such pair. The final octet alone does not determine directed-broadcast status: assigned `10.0.0.255/16` is valid and assigned `192.168.1.255/24` is rejected. Launching the executable without either flag preserves the no-transport scaffold result. Readiness is printed only after IPv4 bind/listen succeeds and the accept worker is active. `SIGINT` or `SIGTERM` requests bounded shutdown. The server still has no lobby, full #30 admission, compatibility, participant identity, gameplay simulation, reconnect exchange, or playable session behavior, and says so at startup.
+Only explicitly launching `duel6r-server` with `--transport` (or the diagnostic `--transport-echo`) can start a listener. Bind defaults to loopback; exact `localhost` is accepted only through an assigned loopback result that passes local prefix policy. A LAN listener requires an explicit private RFC1918 IPv4 address confirmed by operating-system enumeration to be assigned unicast for a local interface prefix; wildcard, unspecified, unassigned private, network, directed/limited-broadcast, public, multicast, link-local, and other listener-hostname values are rejected before a listener exists. Linux validation consumes `ifa_netmask` and `ifa_broadaddr`; Windows consumes `OnLinkPrefixLength`. Prefixes through `/30` reject their network and broadcast endpoints, while RFC 3021 `/31` and host-route `/32` addresses have no such pair. The final octet alone does not determine directed-broadcast status: assigned `10.0.0.255/16` is valid and assigned `192.168.1.255/24` is rejected. Launching the executable without either flag preserves the no-transport scaffold result. A non-echo host validates and freezes gameplay compatibility before listener readiness. Readiness is printed only after IPv4 bind/listen succeeds and the accept worker is active. `SIGINT` or `SIGTERM` requests bounded shutdown. The server still has no lobby, gameplay simulation, reconnect exchange, or playable session behavior, and says so at startup.
 
 For example:
 
@@ -46,6 +46,8 @@ Every frame has this fixed 12-byte envelope followed by exactly `payload length`
 
 The binary envelope intentionally replaces no part of the prototype text serializer: serialized handshake request and response bytes can be carried opaquely as application frames, but transport `Connected` never means the handshake was valid or the participant was admitted. The envelope has no compatibility promise with the earlier in-process prototype and may break prototype integrations without migration.
 
+The implemented admission application payload is a bounded binary contract separate from framing version `1` and the prototype serializer. It carries admission protocol version `1`, network release ID `duel6r-network-r1`, capabilities, local-player count, sorted canonical paths, and raw 32-byte SHA-256 content identities. It contains no build-version field, client name, profile, token, or peer-provided rejection detail. The result carries only an enumerated outcome and, for `admitted`, nonzero session-local participant and player identities. Guests derive visible copy locally from the enumerated outcome.
+
 An unsupported identifier/version/kind, a nonzero liveness length, or a payload length above 1,048,576 closes only the offending connection before payload allocation. An incomplete header or body is never delivered. Each accepted complete application frame is delivered once, in TCP order, to only its connection. TCP provides reliable ordered bytes while connected; this layer does not claim delivery after a close, retry application frames, deduplicate application retries, or provide state semantics.
 
 ## Lifecycle, bounds, and deadlines
@@ -63,7 +65,7 @@ An unsupported identifier/version/kind, a nonzero liveness length, or a payload 
 
 The transport API is `source/network/SessionTransport.h`. `SessionTransportDependencies` provides optional resolver, monotonic-clock, and connector operations so application tests can deterministically hold resolution, advance the shared resolution/connect deadline, return exact refusal/unreachable/timeout outcomes, and release on cancellation. Empty operations always select the real production implementations; injected operations receive the same absolute deadline and cancellation probe and must not retain workers after returning. Generic bounded validators and the clarified fail-without-mutation reconnect credential primitive are documented in [`docs/network-trust-and-abuse-limits.md`](network-trust-and-abuse-limits.md). The transport deliberately exposes opaque frames rather than release/content compatibility, admission, client IDs, reconnect exchange, or simulation messages; those remain downstream policy.
 
-Current scaffold handshake requests contain the current prototype protocol version, scaffold build version, and a non-empty client name. Missing or incompatible values are rejected. Resource entries, when supplied, contain a path and hash. The scaffold does not compare them with an authoritative server manifest. The approved replacement target is defined in [`docs/network-compatibility-and-admission.md`](network-compatibility-and-admission.md).
+The legacy in-process prototype handshake requests still contain their prototype protocol version, scaffold build version, and a non-empty client name so existing prototype helpers remain source compatible. They are not used by command-line compatibility admission and have no release-compatibility authority. The implemented replacement contract is defined in [`docs/network-compatibility-and-admission.md`](network-compatibility-and-admission.md).
 
 Authentication and encryption are intentionally excluded from first release. Non-empty authentication tokens are rejected by serializers, connection planning, handshake validation, and server construction. `duel6r-server` rejects token command-line options so secrets cannot be exposed through generated process command lines or process listings. This is safe only within the supported trusted loopback/private-LAN boundary.
 
@@ -89,10 +91,10 @@ The following essential pieces are absent:
 - an authoritative simulation runtime;
 - lobby and session lifecycle handling;
 - complete world, score, round, and entity replication;
-- server-side resource-manifest comparison;
+- lobby integration for admitted participants;
 - latency handling, interpolation, prediction, reconciliation, or lag compensation;
 - local server process supervision and reconnect policy;
-- full compatibility admission and reconnect credential exchange;
+- reconnect compatibility exchange and reconnect credential exchange;
 - network-facing UI.
 
 These items are tracked in [Complete end-to-end network-play support](https://github.com/mkapusnik-apps/duel6r/issues/27). Until they are implemented and independently validated, the scaffold must not be described as network support.

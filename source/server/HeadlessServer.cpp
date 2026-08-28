@@ -4,6 +4,7 @@
 #include <chrono>
 #include <csignal>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -11,12 +12,106 @@
 
 #include "../network/SessionTransport.h"
 #include "../network/NetworkTrustPolicy.h"
+#include "../network/AdmissionProtocol.h"
+#include "../network/CompatibilityManifest.h"
+#include "AdmissionSession.h"
 
 namespace {
     volatile std::sig_atomic_t stopRequested = 0;
 
     void requestStop(int) {
         stopRequested = 1;
+    }
+
+    constexpr auto AdmissionAttemptDeadline = std::chrono::seconds(10);
+
+    void printAdmissionResult(std::ostream &output, const Duel6::Network::AdmissionResult &result) {
+        output << Duel6::Network::admissionResultIdentifier(result.code) << '\n';
+        const std::string_view copy = Duel6::Network::admissionResultUserCopy(result.code);
+        if (!copy.empty()) output << copy << '\n';
+        if (result.admitted()) {
+            output << "participant-id=" << result.participantId << " player-ids=";
+            for (std::size_t index = 0; index < result.playerIds.size(); ++index) {
+                if (index) output << ',';
+                output << result.playerIds[index];
+            }
+            output << '\n';
+        }
+        output.flush();
+    }
+
+    int runAdmissionClient(const Duel6::Server::ServerConfig &config, std::ostream &output,
+                           Duel6::Network::GameplayManifest manifest) {
+        const auto started = std::chrono::steady_clock::now();
+        const auto deadline = started + AdmissionAttemptDeadline;
+        Duel6::Network::SessionTransportDependencies dependencies;
+        dependencies.enforceNetworkSessionPolicy = true;
+        Duel6::Network::TcpClient client(std::move(dependencies));
+        if (!client.start(config.listenEndpoint)) {
+            output << "Host unreachable.\n";
+            return 2;
+        }
+        const auto connectRemaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now());
+        if (connectRemaining <= std::chrono::milliseconds::zero()
+            || !client.waitForConnected(connectRemaining)) {
+            const auto failure = client.failure();
+            if (failure == Duel6::Network::TransportFailure::ResolveFailed)
+                output << "Host name could not be resolved.\n";
+            else if (failure == Duel6::Network::TransportFailure::ConnectionRefused
+                     || failure == Duel6::Network::TransportFailure::Unreachable)
+                output << "Host unreachable.\n";
+            else
+                output << "Connection timed out.\n";
+            client.close();
+            return 2;
+        }
+
+        auto connection = client.connection();
+        if (!connection) {
+            output << "Connection ended before admission completed.\n";
+            client.close();
+            return 2;
+        }
+        const auto request = Duel6::Network::makeLocalAdmissionRequest(config.localPlayers, std::move(manifest));
+        if (connection->send(Duel6::Network::serializeAdmissionRequest(request))
+            != Duel6::Network::SendResult::Accepted) {
+            output << "Connection ended before admission completed.\n";
+            client.close();
+            return 2;
+        }
+
+        while (std::chrono::steady_clock::now() < deadline) {
+            Duel6::Network::TransportFrame frame;
+            if (connection->receive(frame)) {
+                if (std::chrono::steady_clock::now() >= deadline) {
+                    output << "Connection timed out.\n";
+                    client.close();
+                    return 2;
+                }
+                try {
+                    const auto result = Duel6::Network::deserializeAdmissionResult(frame.payload);
+                    printAdmissionResult(output, result);
+                    client.close();
+                    return result.admitted() ? 0 : 2;
+                } catch (...) {
+                    output << "Connection request rejected.\n";
+                    client.close();
+                    return 2;
+                }
+            }
+            const auto state = connection->state();
+            if (state == Duel6::Network::ClientState::Closed || state == Duel6::Network::ClientState::Failed
+                || state == Duel6::Network::ClientState::Cancelled || state == Duel6::Network::ClientState::TimedOut) {
+                output << "Connection ended before admission completed.\n";
+                client.close();
+                return 2;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        output << "Connection timed out.\n";
+        client.close();
+        return 2;
     }
 }
 
@@ -113,6 +208,24 @@ namespace Duel6::Server {
     }
 
     int HeadlessServer::run(std::ostream &output) {
+        const auto startupBegan = std::chrono::steady_clock::now();
+        const auto startupDeadline = startupBegan + AdmissionAttemptDeadline;
+        Network::ManifestBuildResult manifest;
+        if (!config.transportEcho && (config.transportEnabled || config.admissionClient)) {
+            manifest = Network::CompatibilityManifestBuilder(
+                    config.resourcePath, config.enabledGameplayScripts).build();
+            if (!manifest.valid()) {
+                if (std::chrono::steady_clock::now() < startupDeadline)
+                    output << "host-gameplay-content-manifest-invalid\n"
+                           << "Hosted gameplay content is invalid. Restore the supported gameplay content and restart the application.\n";
+                else
+                    output << "duel6r-server transport startup failed (deadline expired).\n";
+                return 2;
+            }
+        }
+
+        if (config.admissionClient) return runAdmissionClient(config, output, std::move(manifest.manifest));
+
         if (!config.transportEnabled) {
             output << "duel6r-server configuration valid for " << config.listenEndpoint.host << ':'
                    << config.listenEndpoint.port << ".\n"
@@ -146,8 +259,14 @@ namespace Duel6::Server {
         transportDependencies.enforceNetworkSessionPolicy = true;
         transportDependencies.enforcePreAdmissionPolicy = !config.transportEcho;
         Network::TcpListener listener(config.maxClients, std::move(transportDependencies));
+        const auto startupRemaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                startupDeadline - std::chrono::steady_clock::now());
+        if (startupRemaining <= std::chrono::milliseconds::zero()) {
+            output << "duel6r-server transport startup failed (deadline expired).\n";
+            return 2;
+        }
         if (!listener.start(config.listenEndpoint)
-            || !listener.waitForReady(std::chrono::seconds(10))) {
+            || !listener.waitForReady(startupRemaining)) {
             output << "duel6r-server transport startup failed (state="
                    << static_cast<int>(listener.state()) << ", reason="
                    << static_cast<int>(listener.failure()) << ").\n";
@@ -156,57 +275,64 @@ namespace Duel6::Server {
         }
 
         output << "duel6r-server transport ready on " << config.listenEndpoint.host << ':'
-               << config.listenEndpoint.port << ".\n"
-               << "scaffold warning: transport is active, but no lobby, admission, simulation, or playable "
-               << "network session is implemented.\n";
+               << config.listenEndpoint.port << ".\n";
         if (config.transportEcho) {
-            output << "diagnostic echo is active; received opaque application frames are returned only "
+            output << "scaffold warning: transport is active, but no lobby, admission, simulation, or playable "
+                   << "network session is implemented.\n"
+                   << "diagnostic echo is active; received opaque application frames are returned only "
                    << "to their originating connection.\n";
+        } else {
+            output << "scaffold warning: transport and compatibility admission are active, but no lobby, "
+                   << "simulation, or playable network session is implemented.\n";
         }
         output.flush();
 
+        std::unique_ptr<AdmissionPolicy> admissionPolicy;
+        if (!config.transportEcho)
+            admissionPolicy = std::make_unique<AdmissionPolicy>(std::move(manifest.manifest), config.localPlayers);
+
         struct RuntimeConnection {
             std::shared_ptr<Network::TcpConnection> transport;
-            Network::Trust::AdmissionGate admission;
-            RuntimeConnection(std::shared_ptr<Network::TcpConnection> transport,
-                              Network::Trust::AdmissionHook hook)
-                    : transport(std::move(transport)), admission(std::move(hook)) {}
+            std::chrono::steady_clock::time_point requestDeadline;
+            bool requestReceived = false;
+            bool admitted = false;
+            explicit RuntimeConnection(std::shared_ptr<Network::TcpConnection> transport)
+                    : transport(std::move(transport)),
+                      requestDeadline(std::chrono::steady_clock::now() + Network::Trust::FirstAdmissionRequestDeadline) {}
         };
         std::vector<RuntimeConnection> connections;
         while (!stopRequested) {
             while (auto connection = listener.acceptConnection()) {
-                const bool echo = config.transportEcho;
-                connections.emplace_back(std::move(connection), [echo](const std::vector<std::uint8_t> &) {
-                    return echo ? Network::Trust::AdmissionOutcome::Accepted
-                                : Network::Trust::AdmissionOutcome::HostPolicyRejected;
-                });
+                connections.emplace_back(std::move(connection));
             }
             for (auto iterator = connections.begin(); iterator != connections.end();) {
                 auto &runtime = *iterator;
                 auto &connection = runtime.transport;
-                if (runtime.admission.state() == Network::Trust::AdmissionGate::State::AwaitingRequest
-                    && runtime.admission.expireIfDue()) {
-                    const auto copy = Network::Trust::outcomeUserCopy(runtime.admission.outcome());
-                    connection->send(std::vector<std::uint8_t>(copy.begin(), copy.end()));
+                if (!runtime.requestReceived && std::chrono::steady_clock::now() >= runtime.requestDeadline) {
                     connection->requestClose();
                 }
-                if (runtime.admission.state() == Network::Trust::AdmissionGate::State::AwaitingRequest) {
+                if (!runtime.requestReceived) {
                     Network::TransportFrame frame;
                     if (connection->receive(frame)) {
-                        const auto outcome = runtime.admission.submit(frame.payload);
-                        if (outcome == Network::Trust::AdmissionOutcome::Accepted) {
+                        runtime.requestReceived = true;
+                        if (config.transportEcho) {
+                            runtime.admitted = true;
                             connection->markAdmissionSucceeded();
-                            if (config.transportEcho
-                                && connection->send(std::move(frame.payload)) != Network::SendResult::Accepted)
+                            if (connection->send(std::move(frame.payload)) != Network::SendResult::Accepted)
                                 connection->requestClose();
                         } else {
-                            const auto copy = Network::Trust::outcomeUserCopy(outcome);
-                            connection->send(std::vector<std::uint8_t>(copy.begin(), copy.end()));
-                            connection->requestClose();
+                            const Network::AdmissionResult result = admissionPolicy->evaluatePayload(frame.payload);
+                            const Network::SendResult sent = connection->send(Network::serializeAdmissionResult(result));
+                            if (result.admitted() && sent == Network::SendResult::Accepted) {
+                                runtime.admitted = true;
+                                connection->markAdmissionSucceeded();
+                                printAdmissionResult(output, result);
+                            } else {
+                                connection->requestClose();
+                            }
                         }
                     }
-                } else if (config.transportEcho
-                           && runtime.admission.state() == Network::Trust::AdmissionGate::State::Accepted) {
+                } else if (config.transportEcho && runtime.admitted) {
                     Network::TransportFrame frame;
                     while (connection->receive(frame)) {
                         if (connection->send(std::move(frame.payload)) != Network::SendResult::Accepted) {
@@ -214,6 +340,9 @@ namespace Duel6::Server {
                             break;
                         }
                     }
+                } else if (runtime.admitted) {
+                    Network::TransportFrame unexpected;
+                    if (connection->receive(unexpected)) connection->requestClose();
                 }
                 Network::ClientState state = connection->state();
                 if (state == Network::ClientState::Closed || state == Network::ClientState::Failed

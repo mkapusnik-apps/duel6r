@@ -126,7 +126,7 @@ This issue does not implement credential exchange, persistence, command-line tra
 
 ## Downstream handoff and non-goals
 
-- #30 owns release ID, capabilities, canonical manifest serialization/digest/exchange/comparison, and full admission success. Its authoritative target is in [`network-compatibility-and-admission.md`](network-compatibility-and-admission.md). It must use the admission hook, two-validation work limit, bounded manifest/path policy, host-installed script rule, and fixed outcome precedence without weakening them.
+- #30 delivers release ID, capabilities, canonical manifest serialization/digest/exchange/comparison, bounded compatibility admission, stable session identities, and reusable reconnect compatibility mappings in the explicit scaffold. Its authoritative contract is in [`network-compatibility-and-admission.md`](network-compatibility-and-admission.md). The implementation uses the pending-admission controls, two-validation work limit, bounded manifest/path policy, host-installed script rule, and fixed outcome precedence without weakening them.
 - #36 owns disconnect reservation lifecycle, secure credential exchange over the approved future session channel, reconnect attempt state, closing only the offending failed-attempt connection under rate policy, restoration after successful invalidate-before-return, and replacement after later disconnect.
 - #38 owns graphical network UI and must reuse the fixed copy. No graphical screens, wireframes, or screenshots are changed by #39.
 - #33 and #32 own applying action/input/authority/rate decisions to authoritative gameplay.

@@ -4,7 +4,7 @@
 
 This document is the authoritative product target for GitHub issue #30. It defines first-release network compatibility and admission behavior.
 
-This target does not describe implemented or playable networking. The current networking code remains an experimental scaffold, as documented in [`networking.md`](networking.md).
+The compatibility and admission contract is implemented in the explicit command-line networking scaffold. It does not provide a lobby, gameplay, graphical network UI, or playable networking. The current networking status remains documented in [`networking.md`](networking.md).
 
 The approved network-play scope is in [`network-play-first-release.md`](network-play-first-release.md). The transport contract is in [`networking.md`](networking.md).
 
@@ -124,6 +124,14 @@ Filesystem metadata includes timestamps, permissions, owners, and archive order.
 An invalid, duplicate, unsorted, or incomplete entry makes the manifest invalid. An excessive entry count also makes the manifest invalid.
 
 A missing, additional, changed, or case-different valid entry causes a gameplay-content mismatch. The same rule applies to levels and level metadata.
+
+### Implemented content identity and filesystem boundary
+
+The scaffold uses SHA-256 over each file's exact bytes as the 32-byte cross-platform content identity. The wire representation carries those 32 bytes directly and does not compare textual hash encodings.
+
+The host and guest manifest builder includes every regular file under `levels/`, `data/blocks.json`, `data/config.script`, and each explicitly enabled `scripts/` path supplied through `--gameplay-script=`. It does not enumerate `profiles/`, people, controls, saves, statistics, documentation, or presentation directories. A profile script therefore cannot enter or execute through admission.
+
+The builder sorts logical paths before hashing and rejects symlinks, non-regular entries, root escape, duplicate or invalid paths, missing required content, more than 256 entries, an individual file above 64 MiB, or more than 256 MiB of included content. These file-size bounds limit pre-listener hashing work; they do not change the 262,144-byte admission-payload bound.
 
 ## Host admission flow
 
@@ -307,6 +315,22 @@ Local Play must keep the local profile and scripting behavior in [`features.md`]
 This issue does not implement lobby UX, simulation, replication, readiness, scoring, or persistence. It does not add join-in-progress, spectators, or host migration.
 
 Completion of issue #30 alone must not justify a claim that network play is available. It must not remove the experimental scaffold warning.
+
+## Operational scaffold entry points
+
+The explicit host validates and freezes its manifest, allocates its local host participant, and only then starts the listener:
+
+```sh
+./build/duel6r-server --transport --local-only --resources=resources --local-players=2
+```
+
+The explicit guest builds its local claim before starting one 10-second connection and admission attempt:
+
+```sh
+./build/duel6r-server --admission-client --host=127.0.0.1 --port=26660 --resources=resources --local-players=2
+```
+
+These commands provide process-level protocol evidence only. Successful output reports `admitted` and trusted session-local identities; rejected output reports only the fixed identifier and fixed copy. Neither command starts a lobby or gameplay session.
 
 ## Acceptance criteria
 
