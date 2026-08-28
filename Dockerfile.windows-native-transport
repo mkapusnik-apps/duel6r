@@ -9,12 +9,6 @@ ARG PYTHON_VERSION=3.13.5
 SHELL ["powershell", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
 
 RUN $ErrorActionPreference = 'Stop'; `
-    Invoke-WebRequest -UseBasicParsing https://aka.ms/vs/17/release/vs_buildtools.exe -OutFile C:\vs_buildtools.exe; `
-    $process = Start-Process C:\vs_buildtools.exe -ArgumentList '--quiet --wait --norestart --nocache --installPath C:\BuildTools --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.Windows11SDK.26100 --includeRecommended' -Wait -PassThru; `
-    if ($process.ExitCode -notin 0, 3010) { throw "Visual Studio Build Tools installation failed with exit code $($process.ExitCode)" }; `
-    Remove-Item C:\vs_buildtools.exe
-
-RUN $ErrorActionPreference = 'Stop'; `
     Invoke-WebRequest -UseBasicParsing "https://github.com/Kitware/CMake/releases/download/v${env:CMAKE_VERSION}/cmake-${env:CMAKE_VERSION}-windows-x86_64.zip" -OutFile C:\cmake.zip; `
     Expand-Archive C:\cmake.zip C:\Tools; `
     Move-Item "C:\Tools\cmake-${env:CMAKE_VERSION}-windows-x86_64" C:\Tools\cmake; `
@@ -33,5 +27,11 @@ ENV PATH="C:\Tools\cmake\bin;C:\Tools\ninja;C:\Python313;${PATH}"
 WORKDIR C:\workspace
 
 COPY docker/build-windows-native-transport.cmd C:\Tools\build-windows-native-transport.cmd
+
+RUN $ErrorActionPreference = 'Stop'; `
+    Invoke-WebRequest -UseBasicParsing https://aka.ms/vs/17/release/vs_buildtools.exe -OutFile C:\vs_buildtools.exe; `
+    $process = Start-Process C:\vs_buildtools.exe -ArgumentList '--quiet --wait --norestart --nocache --installPath C:\BuildTools --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.Windows11SDK.26100 --includeRecommended' -Wait -PassThru; `
+    if ($process.ExitCode -notin 0, 3010) { throw "Visual Studio Build Tools installation failed with exit code $($process.ExitCode)" }; `
+    Remove-Item C:\vs_buildtools.exe
 
 ENTRYPOINT ["cmd", "/S", "/C", "C:\\Tools\\build-windows-native-transport.cmd"]
