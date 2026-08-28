@@ -1,0 +1,45 @@
+---
+name: Evidence - Native Windows Transport
+
+"on":
+  workflow_dispatch:
+  pull_request:
+    branches: [develop]
+    paths:
+      - '.github/workflows/native-windows-transport.yml'
+      - 'CMakeLists.txt'
+      - 'Dockerfile.windows-native-transport'
+      - 'docker/build-windows-native-transport.cmd'
+      - 'docker/run-windows-native-transport.ps1'
+      - 'source/client/**'
+      - 'source/network/**'
+      - 'source/server/**'
+      - 'tests/SessionTransportCTestRegistration.cmake'
+      - 'tests/SessionTransportProcessTests.py'
+      - 'tests/SessionTransportTests.cpp'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-windows-transport:
+    name: MSVC x64 transport CTests
+    runs-on: windows-2025
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build native Windows tool image
+        shell: powershell
+        run: |
+          docker build `
+            --file Dockerfile.windows-native-transport `
+            --tag duel6r-windows-transport:ci `
+            .
+
+      - name: Build and test inside native Windows container
+        shell: powershell
+        run: .\docker\run-windows-native-transport.ps1

@@ -95,3 +95,4 @@ set_tests_properties(
     RUN_SERIAL TRUE
     TIMEOUT 300
 )
+include(${CMAKE_SOURCE_DIR}/tests/SessionTransportCTestRegistration.cmake)

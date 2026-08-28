@@ -11,6 +11,10 @@ cmake_minimum_required(VERSION 3.5)
 # project name
 project(Duel6r)
 
+if (WIN32)
+    add_compile_definitions(D6R_TRANSPORT_WINDOWS)
+endif ()
+
 include(CTest)
 
 #########################################################################
@@ -62,6 +66,13 @@ set(D6R_RENDERERS gl1 gl4 es2 es3)
 set(D6R_RENDERER "gl4" CACHE STRING "Renderer")  # Renderer: gl1/gl4/es2
 set_property (CACHE D6R_RENDERER PROPERTY STRINGS ${D6R_RENDERERS})
 set(D6R_WITH_LUA ON)     # Enable/disable lua scripting
+option(D6R_TRANSPORT_ONLY "Build only the native session transport and its tests" OFF)
+
+if (D6R_TRANSPORT_ONLY)
+    set(CMAKE_CXX_STANDARD 17)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_EXTENSIONS OFF)
+endif ()
 
 #########################################################################
 #
@@ -74,6 +85,7 @@ set(D6R_WITH_LUA ON)     # Enable/disable lua scripting
 ########################
 
 # set the list of source files
+if (NOT D6R_TRANSPORT_ONLY)
 set(D6R_SOURCES
         source/AnimationLooping.h
         source/Application.cpp
@@ -474,6 +486,7 @@ if (D6R_WITH_LUA)
             source/script/lua/LuaScriptLoader.cpp
             )
 endif (D6R_WITH_LUA)
+endif ()
 
 set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/client/ConnectionPlan.cpp
@@ -486,14 +499,35 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/network/Protocol.h
         source/network/ProtocolSerialization.cpp
         source/network/ProtocolSerialization.h
+        source/network/SessionTransport.cpp
+        source/network/SessionTransport.h
         source/server/HeadlessServer.cpp
         source/server/HeadlessServer.h
         source/server/ServerConfig.cpp
         source/server/ServerConfig.h
         )
 
+set(D6R_RESOLVER_APP_NAME "duel6r-resolver")
+add_executable(${D6R_RESOLVER_APP_NAME}
+        source/network/ResolverMain.cpp
+        source/network/ResolverProtocol.h
+        )
+if (WIN32)
+    target_link_libraries(${D6R_RESOLVER_APP_NAME} ws2_32)
+endif ()
+if (MINGW)
+    set_property(TARGET ${D6R_RESOLVER_APP_NAME} APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
+
 add_library(duel6r-network-scaffold STATIC ${D6R_NETWORK_SCAFFOLD_SOURCES})
+add_dependencies(duel6r-network-scaffold ${D6R_RESOLVER_APP_NAME})
 target_include_directories(duel6r-network-scaffold PUBLIC ${CMAKE_SOURCE_DIR}/source)
+if (WIN32)
+    target_link_libraries(duel6r-network-scaffold PUBLIC ws2_32)
+else ()
+    find_package(Threads REQUIRED)
+    target_link_libraries(duel6r-network-scaffold PUBLIC Threads::Threads)
+endif ()
 
 set(D6R_SERVER_APP_NAME "duel6r-server" CACHE STRING "Filename of the experimental server scaffold.")
 add_executable(${D6R_SERVER_APP_NAME} source/server/ServerMain.cpp)
@@ -504,6 +538,7 @@ if (MINGW)
 endif (MINGW)
 
 if (BUILD_TESTING)
+    if (NOT D6R_TRANSPORT_ONLY)
     set(D6R_TEST_APP_NAME "duel6r-tests")
     file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}" D6R_TEST_SOURCE_DIR)
     set(D6R_TEST_SOURCES
@@ -532,8 +567,11 @@ if (BUILD_TESTING)
     endif (MINGW)
 
     add_test(NAME ${D6R_TEST_APP_NAME} COMMAND ${D6R_TEST_APP_NAME})
+    endif ()
 
-    if (UNIX)
+    include(${CMAKE_SOURCE_DIR}/tests/SessionTransportCTestRegistration.cmake)
+
+    if (UNIX AND NOT D6R_TRANSPORT_ONLY)
         find_program(D6R_BASH_EXECUTABLE bash)
         if (NOT D6R_BASH_EXECUTABLE)
             message(FATAL_ERROR "bash is required for the safe-empty-match-start behavior test")
@@ -558,6 +596,7 @@ if (BUILD_TESTING)
     endif ()
 endif (BUILD_TESTING)
 
+if (NOT D6R_TRANSPORT_ONLY)
 if (WIN32)
     set(D6R_SOURCES ${D6R_SOURCES} source/duel6r.rc)
 endif (WIN32)
@@ -639,3 +678,4 @@ if (D6R_WITH_LUA)
         include_directories(${HEADERS_LUA}/lua5.3)
     endif (WIN32 AND NOT MINGW)
 endif (D6R_WITH_LUA)
+endif ()

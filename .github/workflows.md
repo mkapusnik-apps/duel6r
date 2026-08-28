@@ -20,6 +20,22 @@
 - The tag job needs the `PAT_ACTIONS` secret and `contents: write` permission.
 - The tag job enables `develop-nightly-scheduler.yml` with the `PAT_ACTIONS` secret.
 
+## Native Windows transport evidence
+
+- `Evidence - Native Windows Transport` starts manually or for relevant pull request changes that target `develop`.
+- GitHub runs the job on `windows-2025` with native `ltsc2025` Windows containers.
+- The host selects the newest available Visual Studio instance with an MSVC x64 toolchain and compatible Windows SDK.
+- The host mounts the toolchain and SDK read-only in the container.
+- The host does not compile, test, or run a project binary.
+- The container uses MSVC x64 to build the production transport, server, resolver, and registered transport tests.
+- The container verifies `cl.exe`, `link.exe`, `rc.exe`, and `mt.exe` before CMake starts.
+- The container runs both registered transport CTests with native Windows processes.
+- The job needs `contents: read` permission.
+- The job does not use repository secrets and does not create an artifact.
+- This workflow provides issue acceptance evidence.
+- Repository rules do not require this workflow unless an administrator changes those rules.
+- GitHub cancels an older run for the same pull request when a new run starts.
+
 ## Self-hosted Docker workspace contract
 
 - The self-hosted runner may run in a container that uses a Docker daemon on another filesystem namespace.
@@ -58,6 +74,9 @@
 
 ## Failure handling
 
+- Check the native Windows job output for the discovered Visual Studio and Windows SDK versions.
+- A missing tool path indicates that the `windows-2025` image does not contain a required host tool.
+- A mount error indicates a Windows Docker bind-mount or path-access failure.
 - Re-run a failed self-hosted job after Docker daemon access or storage is restored.
 - Check for the daemon workspace confirmation before you investigate CMake failures.
 - A missing confirmation indicates a checkout transfer or Docker API failure.
