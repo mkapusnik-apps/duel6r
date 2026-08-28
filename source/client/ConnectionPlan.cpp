@@ -1,4 +1,5 @@
 #include "ConnectionPlan.h"
+#include "../network/NetworkTrustPolicy.h"
 
 #include <stdexcept>
 
@@ -25,7 +26,9 @@ namespace Duel6::Client {
             plan.localServerArguments.push_back("--host=" + localEndpoint.host);
             plan.localServerArguments.push_back("--port=" + std::to_string(localEndpoint.port));
         } else {
-            if (config.remoteEndpoint.host.empty() || config.remoteEndpoint.port == 0) {
+            const auto scope = Network::Trust::classifyIpv4Literal(config.remoteEndpoint.host);
+            if (!Network::Trust::validGuestEndpointName(config.remoteEndpoint.host)
+                || scope == Network::Trust::EndpointScope::Unsupported || config.remoteEndpoint.port == 0) {
                 throw std::invalid_argument("Remote server endpoint is incomplete");
             }
             plan.launchesLocalServer = false;

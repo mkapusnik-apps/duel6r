@@ -499,6 +499,8 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/network/Protocol.h
         source/network/ProtocolSerialization.cpp
         source/network/ProtocolSerialization.h
+        source/network/NetworkTrustPolicy.cpp
+        source/network/NetworkTrustPolicy.h
         source/network/SessionTransport.cpp
         source/network/SessionTransport.h
         source/server/HeadlessServer.cpp
@@ -523,7 +525,7 @@ add_library(duel6r-network-scaffold STATIC ${D6R_NETWORK_SCAFFOLD_SOURCES})
 add_dependencies(duel6r-network-scaffold ${D6R_RESOLVER_APP_NAME})
 target_include_directories(duel6r-network-scaffold PUBLIC ${CMAKE_SOURCE_DIR}/source)
 if (WIN32)
-    target_link_libraries(duel6r-network-scaffold PUBLIC ws2_32)
+    target_link_libraries(duel6r-network-scaffold PUBLIC ws2_32 bcrypt)
 else ()
     find_package(Threads REQUIRED)
     target_link_libraries(duel6r-network-scaffold PUBLIC Threads::Threads)

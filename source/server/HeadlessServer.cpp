@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../network/SessionTransport.h"
+#include "../network/NetworkTrustPolicy.h"
 
 namespace {
     volatile std::sig_atomic_t stopRequested = 0;
@@ -119,11 +120,26 @@ namespace Duel6::Server {
             return 2;
         }
 
+        auto endpointScope = Network::Trust::classifyIpv4Literal(config.listenEndpoint.host);
+        if (config.listenEndpoint.host == "localhost") endpointScope = Network::Trust::EndpointScope::Loopback;
+        if (endpointScope != Network::Trust::EndpointScope::Loopback
+            && endpointScope != Network::Trust::EndpointScope::PrivateLan) {
+            output << Network::Trust::UnsupportedAddressCopy << '\n';
+            return 2;
+        }
+
+        output << (endpointScope == Network::Trust::EndpointScope::Loopback
+                   ? Network::Trust::LoopbackExposureCopy : Network::Trust::PrivateLanExposureCopy) << '\n';
+        output.flush();
+
         stopRequested = 0;
         std::signal(SIGINT, requestStop);
         std::signal(SIGTERM, requestStop);
 
-        Network::TcpListener listener(config.maxClients);
+        Network::SessionTransportDependencies transportDependencies;
+        transportDependencies.enforceNetworkSessionPolicy = true;
+        transportDependencies.enforcePreAdmissionPolicy = !config.transportEcho;
+        Network::TcpListener listener(config.maxClients, std::move(transportDependencies));
         if (!listener.start(config.listenEndpoint)
             || !listener.waitForReady(std::chrono::seconds(10))) {
             output << "duel6r-server transport startup failed (state="
@@ -143,15 +159,54 @@ namespace Duel6::Server {
         }
         output.flush();
 
-        std::vector<std::shared_ptr<Network::TcpConnection>> connections;
+        struct RuntimeConnection {
+            std::shared_ptr<Network::TcpConnection> transport;
+            Network::Trust::AdmissionGate admission;
+            RuntimeConnection(std::shared_ptr<Network::TcpConnection> transport,
+                              Network::Trust::AdmissionHook hook)
+                    : transport(std::move(transport)), admission(std::move(hook)) {}
+        };
+        std::vector<RuntimeConnection> connections;
         while (!stopRequested) {
-            while (auto connection = listener.acceptConnection()) connections.push_back(std::move(connection));
+            while (auto connection = listener.acceptConnection()) {
+                const bool echo = config.transportEcho;
+                connections.emplace_back(std::move(connection), [echo](const std::vector<std::uint8_t> &) {
+                    return echo ? Network::Trust::AdmissionOutcome::Accepted
+                                : Network::Trust::AdmissionOutcome::HostPolicyRejected;
+                });
+            }
             for (auto iterator = connections.begin(); iterator != connections.end();) {
-                auto &connection = *iterator;
-                if (config.transportEcho) {
+                auto &runtime = *iterator;
+                auto &connection = runtime.transport;
+                if (runtime.admission.state() == Network::Trust::AdmissionGate::State::AwaitingRequest
+                    && runtime.admission.expireIfDue()) {
+                    const auto copy = Network::Trust::outcomeUserCopy(runtime.admission.outcome());
+                    connection->send(std::vector<std::uint8_t>(copy.begin(), copy.end()));
+                    connection->requestClose();
+                }
+                if (runtime.admission.state() == Network::Trust::AdmissionGate::State::AwaitingRequest) {
+                    Network::TransportFrame frame;
+                    if (connection->receive(frame)) {
+                        const auto outcome = runtime.admission.submit(frame.payload);
+                        if (outcome == Network::Trust::AdmissionOutcome::Accepted) {
+                            connection->markAdmissionSucceeded();
+                            if (config.transportEcho
+                                && connection->send(std::move(frame.payload)) != Network::SendResult::Accepted)
+                                connection->requestClose();
+                        } else {
+                            const auto copy = Network::Trust::outcomeUserCopy(outcome);
+                            connection->send(std::vector<std::uint8_t>(copy.begin(), copy.end()));
+                            connection->requestClose();
+                        }
+                    }
+                } else if (config.transportEcho
+                           && runtime.admission.state() == Network::Trust::AdmissionGate::State::Accepted) {
                     Network::TransportFrame frame;
                     while (connection->receive(frame)) {
-                        if (connection->send(std::move(frame.payload)) != Network::SendResult::Accepted) break;
+                        if (connection->send(std::move(frame.payload)) != Network::SendResult::Accepted) {
+                            connection->requestClose();
+                            break;
+                        }
                     }
                 }
                 Network::ClientState state = connection->state();

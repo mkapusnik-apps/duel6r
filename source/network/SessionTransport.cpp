@@ -798,13 +798,23 @@ namespace Duel6::Network {
             return state == ClientState::Closed || state == ClientState::Failed
                    || state == ClientState::Cancelled || state == ClientState::TimedOut;
         }
+
+        std::uint32_t sourceKey(const std::array<std::uint8_t, 4> &address) {
+            return (static_cast<std::uint32_t>(address[0]) << 24u)
+                   | (static_cast<std::uint32_t>(address[1]) << 16u)
+                   | (static_cast<std::uint32_t>(address[2]) << 8u) | address[3];
+        }
     }
 
     class TcpConnection::Impl {
     public:
-        Impl(SocketHandle socket, OutboundTransportDependencies outbound)
-                : socket(socket), outbound(std::move(outbound)), lastInboundActivity(Clock::now()),
+        Impl(SocketHandle socket, OutboundTransportDependencies outbound,
+             std::array<std::uint8_t, 4> source = {},
+             std::shared_ptr<Trust::PendingAdmissionLimiter::Reservation> admissionReservation = {})
+                : socket(socket), outbound(std::move(outbound)), source(source),
+                  admissionReservation(std::move(admissionReservation)), lastInboundActivity(Clock::now()),
                   lastOutboundProgress(Clock::now()), lastLivenessPing(Clock::now()) {
+            admissionComplete.store(!this->admissionReservation);
             if (!configureConnectedSocket(socket)) {
                 failure.store(TransportFailure::SystemError);
                 state.store(ClientState::Failed);
@@ -827,6 +837,7 @@ namespace Duel6::Network {
                 || outputBytes + activeApplicationBytes + payload.size() > MaxQueuedTransportPayloadBytes) {
                 return SendResult::Backpressure;
             }
+            if (!Trust::processQueueBudget().reserve(payload.size())) return SendResult::Backpressure;
             outputBytes += payload.size();
             applicationOutput.push_back({ApplicationFrame, std::move(payload)});
             outputChanged.notify_one();
@@ -839,6 +850,7 @@ namespace Duel6::Network {
             frame = std::move(input.front());
             inputBytes -= frame.payload.size();
             input.pop_front();
+            Trust::processQueueBudget().release(frame.payload.size());
             return true;
         }
 
@@ -850,6 +862,7 @@ namespace Duel6::Network {
             shutdownSocket(socket);
             if (reader.joinable() && reader.get_id() != std::this_thread::get_id()) reader.join();
             closeSocketOnce();
+            releaseQueuedBytes();
             ClientState current = state.load();
             if (current == ClientState::Closing || current == ClientState::Connected) state.store(ClientState::Closed);
         }
@@ -867,6 +880,14 @@ namespace Duel6::Network {
             }
         }
 
+        std::array<std::uint8_t, 4> sourceIpv4() const { return source; }
+
+        void markAdmissionSucceeded() {
+            admissionComplete.store(true);
+            if (admissionReservation) admissionReservation->release();
+            admissionReservation.reset();
+        }
+
         std::atomic<ClientState> state{ClientState::Connected};
         std::atomic<TransportFailure> failure{TransportFailure::None};
 
@@ -882,6 +903,8 @@ namespace Duel6::Network {
         std::atomic<bool> stop{false};
         std::atomic<bool> closeRequested{false};
         std::mutex terminalMutex;
+        const std::array<std::uint8_t, 4> source;
+        std::shared_ptr<Trust::PendingAdmissionLimiter::Reservation> admissionReservation;
         std::thread reader;
         std::thread writer;
         std::mutex inputMutex;
@@ -901,6 +924,28 @@ namespace Duel6::Network {
         std::atomic<Clock::time_point> lastInboundActivity;
         std::atomic<Clock::time_point> lastOutboundProgress;
         std::atomic<Clock::time_point> lastLivenessPing;
+        std::atomic<bool> queuedBytesReleased{false};
+        std::atomic<bool> admissionComplete{false};
+        std::atomic<bool> admissionFrameReceived{false};
+
+        void releaseQueuedBytes() {
+            if (queuedBytesReleased.exchange(true)) return;
+            std::size_t release = 0;
+            {
+                std::lock_guard<std::mutex> lock(inputMutex);
+                release += inputBytes;
+                inputBytes = 0;
+                input.clear();
+            }
+            {
+                std::lock_guard<std::mutex> lock(outputMutex);
+                release += outputBytes + activeApplicationBytes;
+                outputBytes = 0;
+                activeApplicationBytes = 0;
+                applicationOutput.clear();
+            }
+            Trust::processQueueBudget().release(release);
+        }
 
         Clock::time_point lastTransportActivity() const {
             return std::max(lastInboundActivity.load(), lastOutboundProgress.load());
@@ -994,13 +1039,35 @@ namespace Duel6::Network {
                     fail(TransportFailure::ProtocolViolation);
                     break;
                 }
+                if (kind == ApplicationFrame && !admissionComplete.load()
+                    && (payloadSize > Trust::MaxAdmissionPayloadBytes || admissionFrameReceived.exchange(true))) {
+                    fail(TransportFailure::ProtocolViolation);
+                    break;
+                }
+                bool aggregateReserved = false;
+                const auto aggregateBlockedSince = Clock::now();
+                while (!(aggregateReserved = Trust::processQueueBudget().reserve(payloadSize)) && !stop.load()) {
+                    if (Clock::now() - aggregateBlockedSince >= ProgressDeadline) {
+                        fail(TransportFailure::InboundStalled, true);
+                        return;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
+                if (!aggregateReserved) break;
                 std::vector<std::uint8_t> payload(payloadSize);
-                if (payloadSize > 0 && !readExact(payload.data(), payload.size())) break;
+                if (payloadSize > 0 && !readExact(payload.data(), payload.size())) {
+                    Trust::processQueueBudget().release(payloadSize);
+                    break;
+                }
                 if (kind == LivenessPing) {
+                    Trust::processQueueBudget().release(payloadSize);
                     queueControl(LivenessPong);
                     continue;
                 }
-                if (kind == LivenessPong) continue;
+                if (kind == LivenessPong) {
+                    Trust::processQueueBudget().release(payloadSize);
+                    continue;
+                }
 
                 std::unique_lock<std::mutex> lock(inputMutex);
                 const auto blockedSince = Clock::now();
@@ -1008,6 +1075,7 @@ namespace Duel6::Network {
                         || inputBytes + payload.size() > MaxQueuedTransportPayloadBytes) && !stop.load()) {
                     if (Clock::now() - blockedSince >= ProgressDeadline) {
                         lock.unlock();
+                        Trust::processQueueBudget().release(payload.size());
                         fail(TransportFailure::InboundStalled, true);
                         return;
                     }
@@ -1015,7 +1083,10 @@ namespace Duel6::Network {
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                     lock.lock();
                 }
-                if (stop.load()) break;
+                if (stop.load()) {
+                    Trust::processQueueBudget().release(payload.size());
+                    break;
+                }
                 inputBytes += payload.size();
                 input.push_back({std::move(payload)});
             }
@@ -1140,6 +1211,7 @@ namespace Duel6::Network {
                         activeControlFrames = 0;
                         activeControlKind = ApplicationFrame;
                     } else {
+                        Trust::processQueueBudget().release(activeApplicationBytes);
                         activeApplicationFrames = 0;
                         activeApplicationBytes = 0;
                     }
@@ -1160,6 +1232,8 @@ namespace Duel6::Network {
     bool TcpConnection::receive(TransportFrame &frame) { return impl->receive(frame); }
     ClientState TcpConnection::state() const { return impl->state.load(); }
     TransportFailure TcpConnection::failure() const { return impl->failure.load(); }
+    std::array<std::uint8_t, 4> TcpConnection::sourceIpv4() const { return impl->sourceIpv4(); }
+    void TcpConnection::markAdmissionSucceeded() { impl->markAdmissionSucceeded(); }
     void TcpConnection::requestClose() { impl->requestClose(); }
     void TcpConnection::close() { impl->close(); }
 
@@ -1222,8 +1296,12 @@ namespace Duel6::Network {
 
         void connectLoop() {
             const auto deadline = dependencyNow(dependencies) + StartupDeadline;
+            const Trust::EndpointScope literalScope = Trust::classifyIpv4Literal(endpoint.host);
+            const bool policyEndpointInvalid = dependencies.enforceNetworkSessionPolicy
+                                               && (!Trust::validGuestEndpointName(endpoint.host)
+                                                   || literalScope == Trust::EndpointScope::Unsupported);
             if (!socketRuntime().ready() || endpoint.host.empty() || endpoint.host.find('\0') != std::string::npos
-                || endpoint.host.size() > MaxProtocolStringBytes || endpoint.port == 0) {
+                || endpoint.host.size() > MaxProtocolStringBytes || policyEndpointInvalid || endpoint.port == 0) {
                 finishFailure(TransportFailure::InvalidEndpoint);
                 return;
             }
@@ -1234,9 +1312,21 @@ namespace Duel6::Network {
                 finishTimeout();
                 return;
             }
-            if (resolution.status != ResolveStatus::Resolved || resolution.endpoints.empty()) {
+            if (resolution.status != ResolveStatus::Resolved || resolution.endpoints.empty()
+                || resolution.endpoints.size() > Trust::MaxResolverIpv4Addresses) {
                 finishFailure(TransportFailure::ResolveFailed);
                 return;
+            }
+            if (dependencies.enforceNetworkSessionPolicy) {
+                resolution.endpoints.erase(std::remove_if(resolution.endpoints.begin(), resolution.endpoints.end(),
+                        [](const ResolvedIpv4Endpoint &resolved) {
+                            const auto scope = Trust::classifyIpv4(resolved.address);
+                            return scope != Trust::EndpointScope::Loopback && scope != Trust::EndpointScope::PrivateLan;
+                        }), resolution.endpoints.end());
+                if (resolution.endpoints.empty()) {
+                    finishFailure(TransportFailure::InvalidEndpoint);
+                    return;
+                }
             }
             ClientState expectedResolving = ClientState::Resolving;
             if (!state.compare_exchange_strong(expectedResolving, ClientState::Connecting)) return;
@@ -1357,7 +1447,7 @@ namespace Duel6::Network {
     public:
         Impl(std::size_t maxConnections, SessionTransportDependencies dependencies)
                 : maxConnections(std::min(maxConnections, MaxTransportConnections)),
-                  dependencies(std::move(dependencies)) {}
+                  dependencies(std::move(dependencies)), admissionLimiter(this->dependencies.now) {}
         ~Impl() { shutdown(); }
 
         bool start(const Endpoint &value) {
@@ -1409,8 +1499,16 @@ namespace Duel6::Network {
 
         void listenLoop() {
             const auto deadline = dependencyNow(dependencies) + StartupDeadline;
+            std::array<std::uint8_t, 4> requestedAddress{};
+            const auto requestedScope = Trust::classifyIpv4Literal(endpoint.host, &requestedAddress);
+            const bool loopbackHostname = endpoint.host == "localhost";
+            const bool policyEndpointInvalid = dependencies.enforceNetworkSessionPolicy
+                                               && requestedScope != Trust::EndpointScope::Loopback
+                                               && requestedScope != Trust::EndpointScope::PrivateLan
+                                               && !loopbackHostname;
             if (!socketRuntime().ready() || endpoint.host.empty() || endpoint.host.find('\0') != std::string::npos
-                || endpoint.host.size() > MaxProtocolStringBytes || endpoint.port == 0 || maxConnections == 0) {
+                || endpoint.host.size() > MaxProtocolStringBytes || policyEndpointInvalid
+                || endpoint.port == 0 || maxConnections == 0) {
                 fail(TransportFailure::InvalidEndpoint);
                 return;
             }
@@ -1421,12 +1519,18 @@ namespace Duel6::Network {
                 timeout();
                 return;
             }
-            if (resolution.status != ResolveStatus::Resolved || resolution.endpoints.empty()) {
+            if (resolution.status != ResolveStatus::Resolved || resolution.endpoints.empty()
+                || resolution.endpoints.size() > Trust::MaxResolverIpv4Addresses) {
                 fail(TransportFailure::ResolveFailed);
                 return;
             }
             SocketHandle bound = InvalidSocket;
             for (const auto &resolved: resolution.endpoints) {
+                if (dependencies.enforceNetworkSessionPolicy) {
+                    const auto resolvedScope = Trust::classifyIpv4(resolved.address);
+                    if ((loopbackHostname && resolvedScope != Trust::EndpointScope::Loopback)
+                        || (!loopbackHostname && resolved.address != requestedAddress)) continue;
+                }
                 sockaddr_in address = socketAddress(resolved);
                 bound = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
                 if (bound == InvalidSocket) continue;
@@ -1464,6 +1568,23 @@ namespace Duel6::Network {
 #endif
                 SocketHandle accepted = ::accept(bound, reinterpret_cast<sockaddr *>(&peer), &length);
                 if (accepted == InvalidSocket) continue;
+                std::array<std::uint8_t, 4> peerAddress{};
+                std::memcpy(peerAddress.data(), &peer.sin_addr.s_addr, peerAddress.size());
+                std::shared_ptr<Trust::PendingAdmissionLimiter::Reservation> admissionReservation;
+                if (dependencies.enforceNetworkSessionPolicy) {
+                    const auto peerScope = Trust::classifyIpv4(peerAddress);
+                    if (peerScope != Trust::EndpointScope::Loopback && peerScope != Trust::EndpointScope::PrivateLan) {
+                        closeSocket(accepted);
+                        continue;
+                    }
+                    if (dependencies.enforcePreAdmissionPolicy) {
+                        admissionReservation = admissionLimiter.reserve(sourceKey(peerAddress));
+                        if (!admissionReservation) {
+                            closeSocket(accepted);
+                            continue;
+                        }
+                    }
+                }
                 if (!configureTransportSocket(accepted)) {
                     closeSocket(accepted);
                     continue;
@@ -1475,7 +1596,8 @@ namespace Duel6::Network {
                     continue;
                 }
                 auto connection = std::shared_ptr<TcpConnection>(new TcpConnection(
-                        std::make_unique<TcpConnection::Impl>(accepted, dependencies.outbound)));
+                        std::make_unique<TcpConnection::Impl>(accepted, dependencies.outbound, peerAddress,
+                                                              std::move(admissionReservation))));
                 connections.push_back(connection);
                 pending.push_back(connection);
             }
@@ -1514,6 +1636,7 @@ namespace Duel6::Network {
         Endpoint endpoint;
         const std::size_t maxConnections;
         SessionTransportDependencies dependencies;
+        Trust::PendingAdmissionLimiter admissionLimiter;
         std::atomic<ListenerState> state{ListenerState::NotStarted};
         std::atomic<TransportFailure> failure{TransportFailure::None};
         std::atomic<bool> stop{false};

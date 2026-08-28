@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-This document is the authoritative product target for issue [#28](https://github.com/mkapusnik-apps/duel6r/issues/28), a subtask of [#27](https://github.com/mkapusnik-apps/duel6r/issues/27). It defines approved first-release network-play scope and journeys, not implemented behavior. The current code remains an experimental scaffold with no playable network support, as documented in [`docs/networking.md`](networking.md).
+This document is the authoritative product target for issue [#28](https://github.com/mkapusnik-apps/duel6r/issues/28), a subtask of [#27](https://github.com/mkapusnik-apps/duel6r/issues/27). It defines approved first-release network-play scope and journeys, not implemented behavior. The current code remains an experimental scaffold with no playable network support, as documented in [`docs/networking.md`](networking.md). The enforced trusted-loopback/private-LAN deployment boundary and abuse limits are defined in [`docs/network-trust-and-abuse-limits.md`](network-trust-and-abuse-limits.md).
 
 The target network screens in [`docs/screens`](screens/README.md) implement this product specification. Existing local behavior remains governed by [`docs/features.md`](features.md), which intentionally makes no network-support claim.
 

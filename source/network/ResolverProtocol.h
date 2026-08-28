@@ -10,18 +10,30 @@ namespace Duel6::Network::ResolverProtocol {
     constexpr std::uint32_t ResponseMagic = 0x44365253; // D6RS
     constexpr std::size_t HeaderBytes = 12;
     constexpr std::size_t MaxAddresses = 64;
-    constexpr std::size_t MaxHostBytes = 4096;
+    constexpr std::size_t MaxHostBytes = 253;
 
     inline bool validHost(std::string_view host) {
-        if (host.empty() || host.size() > MaxHostBytes) return false;
+        if (host.empty() || host.size() > MaxHostBytes || host.front() == '.' || host.back() == '.') return false;
+        std::size_t labelLength = 0;
+        bool labelStartsWithHyphen = false;
+        unsigned char previous = 0;
         for (unsigned char character: host) {
             bool valid = (character >= 'a' && character <= 'z')
                          || (character >= 'A' && character <= 'Z')
                          || (character >= '0' && character <= '9')
                          || character == '.' || character == '-';
             if (!valid) return false;
+            if (character == '.') {
+                if (labelLength == 0 || labelLength > 63 || labelStartsWithHyphen || previous == '-') return false;
+                labelLength = 0;
+                labelStartsWithHyphen = false;
+            } else {
+                if (labelLength == 0) labelStartsWithHyphen = character == '-';
+                ++labelLength;
+            }
+            previous = character;
         }
-        return true;
+        return labelLength > 0 && labelLength <= 63 && !labelStartsWithHyphen && previous != '-';
     }
 
     inline bool validService(std::string_view service) {
