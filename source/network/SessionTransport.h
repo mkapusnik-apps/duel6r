@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "Protocol.h"
+#include "NetworkTrustPolicy.h"
 
 namespace Duel6::Network {
     constexpr std::uint32_t TransportFramingIdentifier = 0x44365254; // D6RT
@@ -134,6 +135,10 @@ namespace Duel6::Network {
         std::function<ConnectOutcome(const std::vector<ResolvedIpv4Endpoint> &, TransportTimePoint,
                                      const std::function<bool()> &)> connect;
         OutboundTransportDependencies outbound;
+        // Opts an explicit session endpoint into trust-boundary and pre-admission transport enforcement.
+        bool enforceNetworkSessionPolicy = false;
+        // Applies pending/source admission accounting. Transport-only diagnostics leave this disabled.
+        bool enforcePreAdmissionPolicy = false;
     };
 
     class TcpConnection {
@@ -147,6 +152,9 @@ namespace Duel6::Network {
         bool receive(TransportFrame &frame);
         ClientState state() const;
         TransportFailure failure() const;
+        std::array<std::uint8_t, 4> sourceIpv4() const;
+        // Releases only the pre-admission accounting reservation. Session policy owns identity/authority.
+        void markAdmissionSucceeded();
 
         // Idempotent. Accepted output is flushed in order for at most two seconds.
         void requestClose();

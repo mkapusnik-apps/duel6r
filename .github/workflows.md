@@ -27,9 +27,9 @@
 - The host selects the newest available Visual Studio instance with an MSVC x64 toolchain and compatible Windows SDK.
 - The host mounts the toolchain and SDK read-only in the container.
 - The host does not compile, test, or run a project binary.
-- The container uses MSVC x64 to build the production transport, server, resolver, and registered transport tests.
+- The container uses MSVC x64 to build the production transport, server, resolver, and selected network tests.
 - The container verifies `cl.exe`, `link.exe`, `rc.exe`, and `mt.exe` before CMake starts.
-- The container runs both registered transport CTests with native Windows processes.
+- The container runs the trust-policy test and both transport CTests with native Windows processes.
 - The job needs `contents: read` permission.
 - The job does not use repository secrets and does not create an artifact.
 - This workflow provides issue acceptance evidence.

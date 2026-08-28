@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-This document is the authoritative product target for issue [#28](https://github.com/mkapusnik-apps/duel6r/issues/28), a subtask of [#27](https://github.com/mkapusnik-apps/duel6r/issues/27). It defines approved first-release network-play scope and journeys, not implemented behavior. The current code remains an experimental scaffold with no playable network support, as documented in [`docs/networking.md`](networking.md).
+This document is the authoritative product target for issue [#28](https://github.com/mkapusnik-apps/duel6r/issues/28), a subtask of [#27](https://github.com/mkapusnik-apps/duel6r/issues/27). It defines approved first-release network-play scope and journeys, not implemented behavior. The current code remains an experimental scaffold with no playable network support, as documented in [`docs/networking.md`](networking.md). The enforced trusted-loopback/private-LAN deployment boundary and abuse limits are defined in [`docs/network-trust-and-abuse-limits.md`](network-trust-and-abuse-limits.md).
 
 The target network screens in [`docs/screens`](screens/README.md) implement this product specification. Existing local behavior remains governed by [`docs/features.md`](features.md), which intentionally makes no network-support claim.
 
@@ -175,6 +175,8 @@ Terminal reconnect rejection means an authoritative response establishes an inva
 - `Reconnect reservation is no longer available. This session cannot be restored.`;
 - `Network release mismatch. This session cannot be restored.`;
 - `Gameplay content mismatch. This session cannot be restored.`
+
+Reconnect authorization checks do not disclose whether a reservation, participant, or credential exists. A failed/wrong/all-zero credential or wrong session, participant, or reservation scope leaves the valid reservation and its original deadline unchanged; only the offending connection closes under rate policy. Successful consume invalidates before restoration and replay fails. Expiry, participant removal, session end, explicit cancellation, and correctly scoped replacement invalidate the credential; replacement invalidates the old credential before a replacement can become usable. Every credential/scope failure uses exactly `Reconnect authorization failed. This session cannot be restored.`
 
 No isolated guest state may claim that the host ended the session or that players were removed without a valid host-end notice accepted through the current established session or an authoritative terminal rejection.
 

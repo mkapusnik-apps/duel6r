@@ -1,4 +1,5 @@
 #include "ProtocolSerialization.h"
+#include "NetworkTrustPolicy.h"
 
 #include <algorithm>
 #include <cmath>
@@ -83,10 +84,12 @@ namespace Duel6::Network {
             std::ostringstream stream;
             stream.imbue(std::locale::classic());
             for (const auto &property: properties) {
-                requireBoundedSize("Protocol property key", property.first.size(), MaxProtocolKeyBytes);
+                if (!Trust::validPropertyKey(property.first))
+                    throw std::invalid_argument("Protocol property key is invalid");
                 for (const auto &value: property.second) {
-                    requireBoundedSize("Protocol property value", value.size(), MaxProtocolStringBytes);
-                    if (++propertyCount > MaxProtocolProperties) {
+                    if (!Trust::validGeneralString(value))
+                        throw std::length_error("Protocol property value exceeds the networking scaffold limit");
+                    if (!Trust::validPropertyCount(++propertyCount)) {
                         throw std::length_error("Too many protocol properties");
                     }
                     stream << escape(property.first) << '=' << escape(value) << '\n';
@@ -113,27 +116,26 @@ namespace Duel6::Network {
                 if (separator == std::string::npos) {
                     throw std::invalid_argument("Protocol property is missing '=' separator");
                 }
-                if (++propertyCount > MaxProtocolProperties) {
+                if (!Trust::validPropertyCount(++propertyCount)) {
                     throw std::length_error("Too many protocol properties");
                 }
+                if (separator > Trust::MaxKeyBytes * 3
+                    || line.size() - separator - 1 > Trust::MaxStringBytes * 3)
+                    throw std::length_error("Encoded protocol property exceeds the networking scaffold limit");
                 std::string key = unescape(line.substr(0, separator));
                 std::string value = unescape(line.substr(separator + 1));
-                if (key.empty()) {
-                    throw std::invalid_argument("Protocol property key must not be empty");
-                }
-                requireBoundedSize("Protocol property key", key.size(), MaxProtocolKeyBytes);
-                requireBoundedSize("Protocol property value", value.size(), MaxProtocolStringBytes);
+                if (!Trust::validPropertyKey(key)) throw std::invalid_argument("Protocol property key is invalid");
+                if (!Trust::validGeneralString(value))
+                    throw std::length_error("Protocol property value exceeds the networking scaffold limit");
                 properties[std::move(key)].push_back(std::move(value));
             }
             return properties;
         }
 
         void set(Properties &properties, const std::string &key, const std::string &value) {
-            if (key.empty()) {
-                throw std::invalid_argument("Protocol property key must not be empty");
-            }
-            requireBoundedSize("Protocol property key", key.size(), MaxProtocolKeyBytes);
-            requireBoundedSize("Protocol property value", value.size(), MaxProtocolStringBytes);
+            if (!Trust::validPropertyKey(key)) throw std::invalid_argument("Protocol property key is invalid");
+            if (!Trust::validGeneralString(value))
+                throw std::length_error("Protocol property value exceeds the networking scaffold limit");
             properties[key].push_back(value);
         }
 

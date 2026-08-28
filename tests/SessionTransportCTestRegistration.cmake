@@ -12,6 +12,19 @@ set_tests_properties(duel6r-session-transport-tests PROPERTIES
         LABELS "application;network;transport"
         TIMEOUT 180)
 
+add_executable(duel6r-network-trust-policy-tests
+        ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+        ${CMAKE_SOURCE_DIR}/tests/NetworkTrustPolicyTests.cpp)
+target_include_directories(duel6r-network-trust-policy-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(duel6r-network-trust-policy-tests duel6r-network-scaffold)
+if (MINGW)
+    set_property(TARGET duel6r-network-trust-policy-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
+add_test(NAME duel6r-network-trust-policy-tests COMMAND duel6r-network-trust-policy-tests)
+set_tests_properties(duel6r-network-trust-policy-tests PROPERTIES
+        LABELS "application;network;security"
+        TIMEOUT 30)
+
 if (UNIX OR WIN32)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(

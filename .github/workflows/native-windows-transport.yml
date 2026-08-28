@@ -15,6 +15,7 @@ name: Evidence - Native Windows Transport
       - 'source/network/**'
       - 'source/server/**'
       - 'tests/SessionTransportCTestRegistration.cmake'
+      - 'tests/NetworkTrustPolicyTests.cpp'
       - 'tests/SessionTransportProcessTests.py'
       - 'tests/SessionTransportTests.cpp'
 
@@ -31,6 +32,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+
+      - name: Start Docker service
+        shell: powershell
+        run: Start-Service docker
 
       - name: Build native Windows tool image
         shell: powershell
