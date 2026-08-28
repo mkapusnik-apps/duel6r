@@ -33,6 +33,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Start Docker service
+        shell: powershell
+        run: Start-Service docker
+
       - name: Build native Windows tool image
         shell: powershell
         run: |
