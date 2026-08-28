@@ -8,54 +8,62 @@ if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
     throw "vswhere.exe is not available at $vswhere"
 }
 
-$installations = @(& $vswhere -all -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json | ConvertFrom-Json)
-$visualStudio2022 = $installations | Where-Object { ([version]$_.installationVersion).Major -eq 17 } | Select-Object -First 1
-if (-not $visualStudio2022) {
-    throw 'Visual Studio 2022 with the x64 C++ toolchain is not available.'
-}
-$vsRoot = ([string]$visualStudio2022.installationPath).Trim()
+$installations = @(& $vswhere -all -products * -format json | ConvertFrom-Json)
+$vsRoot = $null
+$vcToolsVersion = $null
+$sdkRoot = $null
+$sdkVersion = $null
 
-$vsDevCmd = Join-Path $vsRoot 'Common7\Tools\VsDevCmd.bat'
-if (-not (Test-Path -LiteralPath $vsDevCmd -PathType Leaf)) {
-    throw "VsDevCmd.bat is not available at $vsDevCmd"
-}
-
-$environmentCommand = "`"$vsDevCmd`" -no_logo -arch=amd64 -host_arch=amd64 >nul && set"
-$environmentOutput = & $env:ComSpec /d /s /c $environmentCommand
-if ($LASTEXITCODE -ne 0) {
-    throw "VsDevCmd.bat failed with exit code $LASTEXITCODE"
-}
-
-$developerEnvironment = @{}
-foreach ($line in $environmentOutput) {
-    $separator = $line.IndexOf('=')
-    if ($separator -gt 0) {
-        $developerEnvironment[$line.Substring(0, $separator)] = $line.Substring($separator + 1)
+foreach ($installation in ($installations | Sort-Object { [version]$_.installationVersion } -Descending)) {
+    $candidateVsRoot = ([string]$installation.installationPath).Trim()
+    $candidateVsDevCmd = Join-Path $candidateVsRoot 'Common7\Tools\VsDevCmd.bat'
+    if (-not (Test-Path -LiteralPath $candidateVsDevCmd -PathType Leaf)) {
+        continue
     }
-}
 
-$vcToolsVersion = [string]$developerEnvironment['VCToolsVersion']
-$sdkRoot = [string]$developerEnvironment['WindowsSdkDir']
-$sdkVersion = [string]$developerEnvironment['WindowsSDKVersion']
-$vcToolsVersion = $vcToolsVersion.TrimEnd('\')
-$sdkRoot = $sdkRoot.TrimEnd('\')
-$sdkVersion = $sdkVersion.TrimEnd('\')
-
-if (-not $vcToolsVersion -or -not $sdkRoot -or -not $sdkVersion) {
-    throw 'VsDevCmd.bat did not report the Visual C++ tools and Windows SDK paths.'
-}
-
-$requiredHostTools = @(
-    (Join-Path $vsRoot "VC\Tools\MSVC\$vcToolsVersion\bin\Hostx64\x64\cl.exe")
-    (Join-Path $vsRoot "VC\Tools\MSVC\$vcToolsVersion\bin\Hostx64\x64\link.exe")
-    (Join-Path $sdkRoot "bin\$sdkVersion\x64\rc.exe")
-    (Join-Path $sdkRoot "bin\$sdkVersion\x64\mt.exe")
-)
-
-foreach ($tool in $requiredHostTools) {
-    if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) {
-        throw "Required native Windows tool is not available at $tool"
+    $environmentCommand = "`"$candidateVsDevCmd`" -no_logo -arch=amd64 -host_arch=amd64 >nul && set"
+    $environmentOutput = & $env:ComSpec /d /s /c $environmentCommand
+    if ($LASTEXITCODE -ne 0) {
+        continue
     }
+
+    $developerEnvironment = @{}
+    foreach ($line in $environmentOutput) {
+        $separator = $line.IndexOf('=')
+        if ($separator -gt 0) {
+            $developerEnvironment[$line.Substring(0, $separator)] = $line.Substring($separator + 1)
+        }
+    }
+
+    $candidateVcToolsVersion = ([string]$developerEnvironment['VCToolsVersion']).TrimEnd('\')
+    $candidateSdkRoot = ([string]$developerEnvironment['WindowsSdkDir']).TrimEnd('\')
+    $candidateSdkVersion = ([string]$developerEnvironment['WindowsSDKVersion']).TrimEnd('\')
+    if (-not $candidateVcToolsVersion -or -not $candidateSdkRoot -or -not $candidateSdkVersion) {
+        continue
+    }
+
+    $requiredCandidateTools = @(
+        (Join-Path $candidateVsRoot "VC\Tools\MSVC\$candidateVcToolsVersion\bin\Hostx64\x64\cl.exe")
+        (Join-Path $candidateVsRoot "VC\Tools\MSVC\$candidateVcToolsVersion\bin\Hostx64\x64\link.exe")
+        (Join-Path $candidateSdkRoot "bin\$candidateSdkVersion\x64\rc.exe")
+        (Join-Path $candidateSdkRoot "bin\$candidateSdkVersion\x64\mt.exe")
+    )
+    $missingTool = $requiredCandidateTools | Where-Object {
+        -not (Test-Path -LiteralPath $_ -PathType Leaf)
+    } | Select-Object -First 1
+    if ($missingTool) {
+        continue
+    }
+
+    $vsRoot = $candidateVsRoot
+    $vcToolsVersion = $candidateVcToolsVersion
+    $sdkRoot = $candidateSdkRoot
+    $sdkVersion = $candidateSdkVersion
+    break
+}
+
+if (-not $vsRoot) {
+    throw 'No installed Visual Studio instance provides MSVC x64 and compatible Windows SDK tools.'
 }
 
 Write-Host "Visual Studio installation: $vsRoot"
