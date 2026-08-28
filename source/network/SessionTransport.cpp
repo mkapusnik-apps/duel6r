@@ -354,6 +354,18 @@ namespace Duel6::Network {
             return preventInheritance(socket) && setNonBlocking(socket);
         }
 
+        bool configureListenerSocket(SocketHandle socket) {
+            int enabled = 1;
+#ifdef D6R_TRANSPORT_WINDOWS
+            if (setsockopt(socket, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+                           reinterpret_cast<const char *>(&enabled), sizeof(enabled)) != 0) return false;
+#else
+            setsockopt(socket, SOL_SOCKET, SO_REUSEADDR,
+                       reinterpret_cast<const char *>(&enabled), sizeof(enabled));
+#endif
+            return configureTransportSocket(socket);
+        }
+
         bool configureConnectedSocket(SocketHandle socket) {
             if (!configureTransportSocket(socket)) return false;
             int enabled = 1;
@@ -1328,9 +1340,7 @@ namespace Duel6::Network {
                 sockaddr_in address = socketAddress(resolved);
                 bound = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
                 if (bound == InvalidSocket) continue;
-                int enabled = 1;
-                setsockopt(bound, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&enabled), sizeof(enabled));
-                if (!configureTransportSocket(bound)) {
+                if (!configureListenerSocket(bound)) {
                     closeSocket(bound);
                     fail(TransportFailure::SystemError);
                     return;

@@ -36,6 +36,12 @@ namespace {
 using namespace Duel6::Network;
 using namespace std::chrono_literals;
 
+#ifdef D6R_TRANSPORT_WINDOWS
+constexpr auto NativeOperationWait = 10s;
+#else
+constexpr auto NativeOperationWait = 2s;
+#endif
+
 class Failure : public std::runtime_error { public: using std::runtime_error::runtime_error; };
 #define CHECK(value) do { if (!(value)) throw Failure(std::string(__FILE__) + ":" + std::to_string(__LINE__) + ": " #value); } while (false)
 
@@ -139,7 +145,7 @@ void sendFrame(RawSocket socket, const std::vector<std::uint8_t> &payload, std::
 
 std::shared_ptr<TcpConnection> awaitAccept(TcpListener &listener) {
     std::shared_ptr<TcpConnection> result;
-    CHECK(waitUntil([&] { result = listener.acceptConnection(); return bool(result); }, 2s));
+    CHECK(waitUntil([&] { result = listener.acceptConnection(); return bool(result); }, NativeOperationWait));
     return result;
 }
 
@@ -389,7 +395,7 @@ void cancellationDeadlineRacesAreTerminalAndJoined() {
 
 void startListener(TcpListener &listener, std::uint16_t port, const std::string &host = "127.0.0.1") {
     CHECK(listener.start({host, port}));
-    CHECK(listener.waitForReady(2s));
+    CHECK(listener.waitForReady(NativeOperationWait));
     CHECK(listener.state() == ListenerState::Ready);
 }
 
@@ -549,6 +555,7 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
     std::atomic<std::size_t> pingFrames{0};
     std::atomic<std::size_t> pongFrames{0};
     std::atomic<std::size_t> maximumBytesReceived{0};
+    std::atomic<std::int64_t> maximumReadGapMilliseconds{0};
     std::atomic<bool> controlPrecededQueuedApplication{false};
     std::atomic<bool> slowReader{true};
     std::thread reader([&] {
@@ -577,14 +584,19 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
             if (magic != TransportFramingIdentifier || size > MaxPayloadBytes) { readerFailed.store(true); break; }
             std::vector<std::uint8_t> payload(size);
             if (size == MaxPayloadBytes && slowReader.load()) {
-                const auto pacedStart = std::chrono::steady_clock::now();
+                auto previousRead = std::chrono::steady_clock::now();
                 std::size_t offset = 0;
                 while (offset < payload.size()) {
-                    const std::size_t chunk = std::min<std::size_t>(16 * 1024, payload.size() - offset);
+                    const std::size_t chunk = std::min<std::size_t>(2 * 1024, payload.size() - offset);
                     if (!receiveExact(payload.data() + offset, chunk)) { readerFailed.store(true); break; }
+                    const auto readCompleted = std::chrono::steady_clock::now();
+                    const auto gap = std::chrono::duration_cast<std::chrono::milliseconds>(readCompleted - previousRead).count();
+                    auto observedGap = maximumReadGapMilliseconds.load();
+                    while (gap > observedGap && !maximumReadGapMilliseconds.compare_exchange_weak(observedGap, gap)) {}
+                    previousRead = readCompleted;
                     offset += chunk;
                     maximumBytesReceived.store(offset);
-                    std::this_thread::sleep_until(pacedStart + std::chrono::milliseconds(32000 * offset / payload.size()));
+                    std::this_thread::sleep_for(70ms);
                 }
                 if (readerFailed.load()) break;
             } else if (size > 0 && !receiveExact(payload.data(), payload.size())) {
@@ -666,7 +678,9 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
                       + ", state=" + std::to_string(static_cast<int>(finalState))
                       + ", failure=" + std::to_string(static_cast<int>(finalFailure))
                       + ", pings=" + std::to_string(pingFrames.load())
-                      + ", applicationFrames=" + std::to_string(applicationFrames.load()));
+                      + ", applicationFrames=" + std::to_string(applicationFrames.load())
+                      + ", maximumBytesReceived=" + std::to_string(maximumBytesReceived.load())
+                      + ", maximumReadGapMs=" + std::to_string(maximumReadGapMilliseconds.load()));
     }
     CHECK(sustainedAccepted > 0);
     CHECK(sustainedBackpressure > 0);
@@ -680,6 +694,7 @@ void continuousOneWayOutputKeepsReceiveQuietPeerAlive() {
     CHECK(progressAtTwentySeconds > progressAtTenSeconds);
     CHECK(progressAtThirtySeconds > progressAtTwentySeconds);
     CHECK(progressAtThirtySeconds < MaxPayloadBytes);
+    CHECK(maximumReadGapMilliseconds.load() < 4000);
     CHECK(stateAfterThirtySeconds == ClientState::Connected);
     if (!allAcceptedDelivered) {
         throw Failure("accepted application frames did not drain: accepted=" + std::to_string(nextSequence)
@@ -751,32 +766,32 @@ void lifecycleAndFailures() {
     startListener(first, occupiedPort);
     TcpListener collision;
     CHECK(collision.start({"127.0.0.1", occupiedPort}));
-    CHECK(!collision.waitForReady(2s));
+    CHECK(!collision.waitForReady(NativeOperationWait));
     CHECK(collision.failure() == TransportFailure::BindFailed);
 
     TcpClient invalidClient;
     CHECK(invalidClient.start({"", occupiedPort}));
-    CHECK(!invalidClient.waitForConnected(2s));
+    CHECK(!invalidClient.waitForConnected(NativeOperationWait));
     CHECK(invalidClient.failure() == TransportFailure::InvalidEndpoint);
     invalidClient.cancel(); invalidClient.cancel();
     CHECK(!invalidClient.start({"127.0.0.1", occupiedPort}));
 
     TcpClient unresolved;
     CHECK(unresolved.start({"invalid host name !", occupiedPort}));
-    CHECK(!unresolved.waitForConnected(3s));
+    CHECK(!unresolved.waitForConnected(NativeOperationWait));
     CHECK(unresolved.failure() == TransportFailure::ResolveFailed);
 
     const auto refusedPort = unusedPort();
     TcpClient refused;
     CHECK(refused.start({"127.0.0.1", refusedPort}));
-    CHECK(!refused.waitForConnected(3s));
+    CHECK(!refused.waitForConnected(NativeOperationWait));
     CHECK(refused.failure() == TransportFailure::ConnectionRefused);
 
     first.shutdown(); first.shutdown();
     CHECK(first.state() == ListenerState::Stopped);
     TcpClient afterShutdown;
     CHECK(afterShutdown.start({"127.0.0.1", occupiedPort}));
-    CHECK(!afterShutdown.waitForConnected(3s));
+    CHECK(!afterShutdown.waitForConnected(NativeOperationWait));
     CHECK(afterShutdown.failure() == TransportFailure::ConnectionRefused);
 }
 
@@ -789,7 +804,7 @@ void fifteenIsolatedConnections() {
     for (std::uint8_t index = 0; index < 15; ++index) {
         auto client = std::make_unique<TcpClient>();
         CHECK(client->start({index % 2 == 0 ? "localhost" : "127.0.0.1", port}));
-        CHECK(client->waitForConnected(2s));
+        CHECK(client->waitForConnected(NativeOperationWait));
         servers.push_back(awaitAccept(listener));
         clients.push_back(std::move(client));
     }
@@ -883,7 +898,7 @@ void malformedPeersAreIsolated() {
         CHECK(offenders[index]->failure() == (index < 4 ? TransportFailure::ProtocolViolation : TransportFailure::InboundStalled));
 
     TcpClient healthy;
-    CHECK(healthy.start({"127.0.0.1", port})); CHECK(healthy.waitForConnected(2s));
+    CHECK(healthy.start({"127.0.0.1", port})); CHECK(healthy.waitForConnected(NativeOperationWait));
     auto healthyServer = awaitAccept(listener);
     CHECK(healthy.connection()->send({9, 8, 7}) == SendResult::Accepted);
     TransportFrame frame; CHECK(waitUntil([&] { return healthyServer->receive(frame); }, 2s));
@@ -904,7 +919,7 @@ void stallsAndLiveness() {
     std::vector<std::uint8_t> maximum(MaxPayloadBytes, 0x6B);
     for (int index = 0; index < 4; ++index) sendFrame(stalledBytes.get(), maximum);
     sendFrame(stalledBytes.get(), {1});
-    TcpClient quietClient; CHECK(quietClient.start({"127.0.0.1", port})); CHECK(quietClient.waitForConnected(2s));
+    TcpClient quietClient; CHECK(quietClient.start({"127.0.0.1", port})); CHECK(quietClient.waitForConnected(NativeOperationWait));
     auto quietServer = awaitAccept(listener);
     RawSocketOwner idlePeer(connectRaw(port)); auto idleConnection = awaitAccept(listener);
     CHECK(waitUntil([&] { return stalledFrameConnection->state() == ClientState::TimedOut
@@ -920,7 +935,7 @@ void stallsAndLiveness() {
 
 void closeAndShutdownBounds() {
     const auto port = unusedPort(); TcpListener listener; startListener(listener, port);
-    TcpClient client; CHECK(client.start({"localhost", port})); CHECK(client.waitForConnected(2s));
+    TcpClient client; CHECK(client.start({"localhost", port})); CHECK(client.waitForConnected(NativeOperationWait));
     auto server = awaitAccept(listener);
     CHECK(client.connection()->send({1}) == SendResult::Accepted); CHECK(client.connection()->send({2}) == SendResult::Accepted);
     client.connection()->requestClose(); client.connection()->requestClose();

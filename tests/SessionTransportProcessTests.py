@@ -25,20 +25,29 @@ def start_server(executable, host, port):
 def request_graceful_shutdown(process):
     if IS_WINDOWS:
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        def api_error(name):
+            error = ctypes.get_last_error()
+            return OSError(error, f"{name} failed: {ctypes.FormatError(error).strip()}")
         kernel32.FreeConsole()
         try:
             if not kernel32.AttachConsole(process.pid):
-                raise OSError(ctypes.get_last_error(), "AttachConsole failed")
+                raise api_error("AttachConsole")
             if not kernel32.SetConsoleCtrlHandler(None, True):
-                raise OSError(ctypes.get_last_error(), "SetConsoleCtrlHandler failed")
+                raise api_error("SetConsoleCtrlHandler(ignore=True)")
             if not kernel32.GenerateConsoleCtrlEvent(0, 0):
-                raise OSError(ctypes.get_last_error(), "GenerateConsoleCtrlEvent failed")
+                raise api_error("GenerateConsoleCtrlEvent(CTRL_C_EVENT, group=0)")
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired as error:
+                process.kill()
+                process.wait(timeout=3)
+                output = process.stdout.read()
+                raise AssertionError(f"Windows server ignored CTRL_C_EVENT; output={output!r}") from error
         finally:
             kernel32.FreeConsole()
             restore_failed = not kernel32.SetConsoleCtrlHandler(None, False)
-            restore_error = ctypes.get_last_error()
             if restore_failed and sys.exc_info()[0] is None:
-                raise OSError(restore_error, "restoring CTRL+C handling failed")
+                raise api_error("SetConsoleCtrlHandler(ignore=False)")
     else:
         process.send_signal(signal.SIGTERM)
 
@@ -105,8 +114,10 @@ def exercise(executable, host):
             client.close()
         clients.clear()
         started = time.monotonic(); request_graceful_shutdown(process); process.wait(timeout=3)
-        assert process.returncode == 0 and time.monotonic() - started < 3
-        assert "transport stopped" in process.stdout.read()
+        shutdown_output = process.stdout.read()
+        assert process.returncode == 0, f"server exit code {process.returncode}; output={shutdown_output!r}"
+        assert time.monotonic() - started < 3
+        assert "transport stopped" in shutdown_output, f"missing graceful-stop output: {shutdown_output!r}"
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.settimeout(1); assert probe.connect_ex(("127.0.0.1", port)) != 0
     finally:
