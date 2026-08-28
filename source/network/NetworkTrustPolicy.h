@@ -51,6 +51,7 @@ namespace Duel6::Network::Trust {
     constexpr auto FirstAdmissionRequestDeadline = std::chrono::seconds(3);
     constexpr auto ReconnectCredentialLifetime = std::chrono::seconds(30);
     constexpr std::size_t ReconnectCredentialBytes = 16;
+    constexpr std::size_t MaxReconnectCredentialGenerationAttempts = 4;
 
     inline constexpr std::string_view LoopbackExposureCopy =
             "Network session is limited to this machine. No authentication or encryption is used.";
@@ -58,6 +59,8 @@ namespace Duel6::Network::Trust {
             "Network session is limited to a private LAN. No authentication or encryption is used. Do not expose this port to the Internet.";
     inline constexpr std::string_view UnsupportedAddressCopy =
             "Network session cannot use a public or wildcard address. Use loopback or a private LAN address.";
+    inline constexpr std::string_view ReconnectAuthorizationFailureCopy =
+            "Reconnect authorization failed. This session cannot be restored.";
 
     enum class EndpointScope { Invalid, Loopback, PrivateLan, Unsupported };
     EndpointScope classifyIpv4(const std::array<std::uint8_t, 4> &address);
@@ -65,7 +68,12 @@ namespace Duel6::Network::Trust {
     bool validHostname(std::string_view value);
     bool validGuestEndpointName(std::string_view value);
 
+    bool validPropertyCount(std::size_t count);
+    bool validPropertyKey(std::string_view value);
+    bool validGeneralString(std::string_view value);
     bool validAsciiReason(std::string_view value);
+    bool validCollectionSize(std::size_t count);
+    bool validManifestEntryCount(std::size_t count);
     bool validParticipantName(std::string_view value);
     bool validLogicalPath(std::string_view value);
 
@@ -245,6 +253,11 @@ namespace Duel6::Network::Trust {
     struct ReconnectCredential {
         std::array<std::uint8_t, ReconnectCredentialBytes> bytes{};
     };
+    struct ReconnectAuthorizationResult {
+        bool accepted = false;
+        bool ratePolicyFailure = true;
+        std::string_view userCopy = ReconnectAuthorizationFailureCopy;
+    };
     class ReconnectReservation {
     public:
         ReconnectReservation(std::uint64_t session, ParticipantId participant, std::uint64_t reservation,
@@ -252,19 +265,32 @@ namespace Duel6::Network::Trust {
         ~ReconnectReservation();
         ReconnectReservation(const ReconnectReservation &) = delete;
         ReconnectReservation &operator=(const ReconnectReservation &) = delete;
-        bool valid() const;
-        const ReconnectCredential &credential() const;
+        bool valid();
+        ReconnectCredential credential();
+        ReconnectAuthorizationResult authorizeAndConsume(const ReconnectCredential &candidate,
+                                                          std::uint64_t session, ParticipantId participant,
+                                                          std::uint64_t reservation);
         bool consume(const ReconnectCredential &candidate, std::uint64_t session, ParticipantId participant,
                      std::uint64_t reservation);
+        bool expireIfDue();
+        bool cancel(std::uint64_t session, ParticipantId participant, std::uint64_t reservation);
+        bool participantRemoved(std::uint64_t session, ParticipantId participant);
+        bool sessionEnded(std::uint64_t session);
+        bool replace(std::uint64_t session, ParticipantId participant, std::uint64_t reservation,
+                     std::uint64_t replacementReservation);
         void invalidate();
     private:
         Clock clock;
-        ReconnectCredential value;
+        RandomFill random;
+        std::optional<ReconnectCredential> value;
         TimePoint expiry;
         std::uint64_t session;
         ParticipantId participant;
         std::uint64_t reservation;
-        bool active;
+        std::mutex mutex;
+        bool generateLocked(const ReconnectCredential *disallowed = nullptr);
+        bool expireIfDueLocked();
+        void invalidateLocked();
     };
 
     bool guestContentMayLoadOrExecute();

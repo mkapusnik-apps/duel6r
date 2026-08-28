@@ -176,6 +176,8 @@ Terminal reconnect rejection means an authoritative response establishes an inva
 - `Network release mismatch. This session cannot be restored.`;
 - `Gameplay content mismatch. This session cannot be restored.`
 
+Reconnect authorization checks do not disclose whether a reservation, participant, or credential exists. A failed/wrong/all-zero credential or wrong session, participant, or reservation scope leaves the valid reservation and its original deadline unchanged; only the offending connection closes under rate policy. Successful consume invalidates before restoration and replay fails. Expiry, participant removal, session end, explicit cancellation, and correctly scoped replacement invalidate the credential; replacement invalidates the old credential before a replacement can become usable. Every credential/scope failure uses exactly `Reconnect authorization failed. This session cannot be restored.`
+
 No isolated guest state may claim that the host ended the session or that players were removed without a valid host-end notice accepted through the current established session or an authoritative terminal rejection.
 
 The host application's local supervisor may detect that its own hosted service stopped unexpectedly. That host-only observation routes the host application to `NET-08` with exactly `Hosted session stopped unexpectedly.` It is never transmitted, inferred, or reused as evidence of host end for guests; isolated guests remain in `NET-07` until terminal rejection or deadline expiry.

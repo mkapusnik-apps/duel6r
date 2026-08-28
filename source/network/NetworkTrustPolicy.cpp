@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iterator>
 #include <sstream>
+#include <stdexcept>
 
 #ifdef D6R_TRANSPORT_WINDOWS
 #define WIN32_LEAN_AND_MEAN
@@ -79,6 +80,12 @@ namespace Duel6::Network::Trust {
                 difference |= left.bytes[index] ^ right.bytes[index];
             return difference == 0;
         }
+
+        bool allZero(const ReconnectCredential &credential) {
+            std::uint8_t combined = 0;
+            for (std::uint8_t byte: credential.bytes) combined |= byte;
+            return combined == 0;
+        }
     }
 
     EndpointScope classifyIpv4(const std::array<std::uint8_t, 4> &address) {
@@ -132,12 +139,32 @@ namespace Duel6::Network::Trust {
         return classifyIpv4Literal(value) != EndpointScope::Invalid || validHostname(value);
     }
 
+    bool validPropertyCount(std::size_t count) { return count <= MaxProperties; }
+
+    bool validPropertyKey(std::string_view value) {
+        if (value.empty() || value.size() > MaxKeyBytes) return false;
+        for (std::size_t index = 0; index < value.size(); ++index) {
+            const unsigned char character = value[index];
+            const bool alphaNumeric = (character >= 'a' && character <= 'z')
+                                      || (character >= 'A' && character <= 'Z')
+                                      || (character >= '0' && character <= '9');
+            if (!alphaNumeric && (index == 0 || (character != '.' && character != '_' && character != '-')))
+                return false;
+        }
+        return true;
+    }
+
+    bool validGeneralString(std::string_view value) { return value.size() <= MaxStringBytes; }
+
     bool validAsciiReason(std::string_view value) {
         if (value.size() > MaxReasonBytes) return false;
         return std::all_of(value.begin(), value.end(), [](unsigned char character) {
             return character >= 0x20 && character <= 0x7e;
         });
     }
+
+    bool validCollectionSize(std::size_t count) { return count <= MaxCollectionEntries; }
+    bool validManifestEntryCount(std::size_t count) { return count <= MaxManifestEntries; }
 
     bool validParticipantName(std::string_view value) {
         return !value.empty() && value.size() <= MaxParticipantNameBytes && validUtf8(value);
@@ -449,23 +476,113 @@ namespace Duel6::Network::Trust {
 
     ReconnectReservation::ReconnectReservation(std::uint64_t session, ParticipantId participant,
                                                std::uint64_t reservation, Clock clock, RandomFill random)
-            : clock(selectedClock(std::move(clock))), expiry(this->clock() + ReconnectCredentialLifetime),
-              session(session), participant(participant), reservation(reservation), active(false) {
-        RandomFill fill = random ? std::move(random) : RandomFill(secureRandom);
-        active = session != 0 && participant != 0 && reservation != 0 && fill(value.bytes.data(), value.bytes.size());
+            : clock(selectedClock(std::move(clock))), random(random ? std::move(random) : RandomFill(secureRandom)),
+              expiry(this->clock() + ReconnectCredentialLifetime), session(session), participant(participant),
+              reservation(reservation) {
+        if (session != 0 && participant != 0 && reservation != 0) generateLocked();
     }
     ReconnectReservation::~ReconnectReservation() { invalidate(); }
-    bool ReconnectReservation::valid() const { return active && clock() < expiry; }
-    const ReconnectCredential &ReconnectReservation::credential() const { return value; }
+    bool ReconnectReservation::valid() {
+        std::lock_guard<std::mutex> lock(mutex);
+        expireIfDueLocked();
+        return value.has_value();
+    }
+    ReconnectCredential ReconnectReservation::credential() {
+        std::lock_guard<std::mutex> lock(mutex);
+        expireIfDueLocked();
+        if (!value) throw std::logic_error("Reconnect credential is unavailable");
+        return *value;
+    }
+    ReconnectAuthorizationResult ReconnectReservation::authorizeAndConsume(
+            const ReconnectCredential &candidate, std::uint64_t expectedSession,
+            ParticipantId expectedParticipant, std::uint64_t expectedReservation) {
+        std::lock_guard<std::mutex> lock(mutex);
+        expireIfDueLocked();
+        const ReconnectCredential unavailable{};
+        const ReconnectCredential &stored = value ? *value : unavailable;
+        const bool credentialMatches = constantTimeEqual(stored, candidate);
+        const bool accepted = value.has_value() && !allZero(candidate)
+                              && session == expectedSession && participant == expectedParticipant
+                              && reservation == expectedReservation && credentialMatches;
+        if (accepted) invalidateLocked();
+        return {accepted, !accepted, accepted ? std::string_view{} : ReconnectAuthorizationFailureCopy};
+    }
     bool ReconnectReservation::consume(const ReconnectCredential &candidate, std::uint64_t expectedSession,
                                        ParticipantId expectedParticipant, std::uint64_t expectedReservation) {
-        const bool credentialMatches = constantTimeEqual(value, candidate);
-        const bool accepted = valid() && session == expectedSession && participant == expectedParticipant
-                              && reservation == expectedReservation && credentialMatches;
-        if (accepted) invalidate();
-        return accepted;
+        return authorizeAndConsume(candidate, expectedSession, expectedParticipant, expectedReservation).accepted;
     }
-    void ReconnectReservation::invalidate() { active = false; std::fill(value.bytes.begin(), value.bytes.end(), 0); }
+    bool ReconnectReservation::expireIfDue() {
+        std::lock_guard<std::mutex> lock(mutex);
+        return expireIfDueLocked();
+    }
+    bool ReconnectReservation::cancel(std::uint64_t expectedSession, ParticipantId expectedParticipant,
+                                      std::uint64_t expectedReservation) {
+        std::lock_guard<std::mutex> lock(mutex);
+        expireIfDueLocked();
+        if (!value || session != expectedSession || participant != expectedParticipant
+            || reservation != expectedReservation) return false;
+        invalidateLocked();
+        return true;
+    }
+    bool ReconnectReservation::participantRemoved(std::uint64_t expectedSession,
+                                                  ParticipantId expectedParticipant) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (session != expectedSession || participant != expectedParticipant) return false;
+        const bool changed = value.has_value();
+        invalidateLocked();
+        return changed;
+    }
+    bool ReconnectReservation::sessionEnded(std::uint64_t expectedSession) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (session != expectedSession) return false;
+        const bool changed = value.has_value();
+        invalidateLocked();
+        return changed;
+    }
+    bool ReconnectReservation::replace(std::uint64_t expectedSession, ParticipantId expectedParticipant,
+                                       std::uint64_t expectedReservation, std::uint64_t replacementReservation) {
+        std::lock_guard<std::mutex> lock(mutex);
+        expireIfDueLocked();
+        if (!value || replacementReservation == 0 || session != expectedSession
+            || participant != expectedParticipant || reservation != expectedReservation) return false;
+        ReconnectCredential replaced = *value;
+        invalidateLocked();
+        reservation = replacementReservation;
+        expiry = clock() + ReconnectCredentialLifetime;
+        const bool generated = generateLocked(&replaced);
+        std::fill(replaced.bytes.begin(), replaced.bytes.end(), 0);
+        return generated;
+    }
+    void ReconnectReservation::invalidate() {
+        std::lock_guard<std::mutex> lock(mutex);
+        invalidateLocked();
+    }
+    bool ReconnectReservation::generateLocked(const ReconnectCredential *disallowed) {
+        for (std::size_t attempt = 0; attempt < MaxReconnectCredentialGenerationAttempts; ++attempt) {
+            ReconnectCredential candidate;
+            const bool generated = random(candidate.bytes.data(), candidate.bytes.size());
+            const bool repeated = disallowed && constantTimeEqual(candidate, *disallowed);
+            if (generated && !allZero(candidate) && !repeated) {
+                value = candidate;
+                std::fill(candidate.bytes.begin(), candidate.bytes.end(), 0);
+                return true;
+            }
+            std::fill(candidate.bytes.begin(), candidate.bytes.end(), 0);
+        }
+        value.reset();
+        return false;
+    }
+    bool ReconnectReservation::expireIfDueLocked() {
+        if (!value || clock() < expiry) return false;
+        invalidateLocked();
+        return true;
+    }
+    void ReconnectReservation::invalidateLocked() {
+        if (value) {
+            std::fill(value->bytes.begin(), value->bytes.end(), 0);
+            value.reset();
+        }
+    }
 
     bool guestContentMayLoadOrExecute() { return false; }
 }
