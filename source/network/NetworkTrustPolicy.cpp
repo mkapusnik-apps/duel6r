@@ -185,6 +185,7 @@ namespace Duel6::Network::Trust {
         bool invalidPrefix = false;
         bool networkAddress = false;
         bool broadcastAddress = false;
+        bool safeRecord = false;
         const std::uint32_t requested = ipv4Value(address);
         for (const auto &record: interfaces) {
             if (record.address != address) continue;
@@ -193,7 +194,14 @@ namespace Duel6::Network::Trust {
                 invalidPrefix = true;
                 continue;
             }
-            if (record.prefixLength >= 31) return LocalListenerBindDecision::Allowed;
+            if (record.broadcastAddress && *record.broadcastAddress == address) {
+                broadcastAddress = true;
+                continue;
+            }
+            if (record.prefixLength >= 31) {
+                safeRecord = true;
+                continue;
+            }
             const std::uint32_t mask = record.prefixLength == 0
                                        ? 0 : ~std::uint32_t{0} << (32u - record.prefixLength);
             const std::uint32_t network = requested & mask;
@@ -202,17 +210,17 @@ namespace Duel6::Network::Trust {
                 networkAddress = true;
                 continue;
             }
-            if (requested == broadcast
-                || (record.broadcastAddress && *record.broadcastAddress == address)) {
+            if (requested == broadcast) {
                 broadcastAddress = true;
                 continue;
             }
-            return LocalListenerBindDecision::Allowed;
+            safeRecord = true;
         }
         if (!assigned) return LocalListenerBindDecision::NotAssigned;
         if (broadcastAddress) return LocalListenerBindDecision::BroadcastAddress;
         if (networkAddress) return LocalListenerBindDecision::NetworkAddress;
         if (invalidPrefix) return LocalListenerBindDecision::InvalidPrefix;
+        if (safeRecord) return LocalListenerBindDecision::Allowed;
         return LocalListenerBindDecision::NotAssigned;
     }
 
