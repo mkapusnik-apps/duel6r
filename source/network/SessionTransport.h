@@ -67,11 +67,12 @@ namespace Duel6::Network {
         Closing
     };
 
+    using TransportTimePoint = std::chrono::steady_clock::time_point;
+
     struct TransportFrame {
         std::vector<std::uint8_t> payload;
+        TransportTimePoint receivedAt{};
     };
-
-    using TransportTimePoint = std::chrono::steady_clock::time_point;
 
     struct ResolvedIpv4Endpoint {
         std::array<std::uint8_t, 4> address{};
@@ -153,8 +154,12 @@ namespace Duel6::Network {
         ClientState state() const;
         TransportFailure failure() const;
         std::array<std::uint8_t, 4> sourceIpv4() const;
+        TransportTimePoint acceptedAt() const;
+        TransportTimePoint terminalAt() const;
         // Releases only the pre-admission accounting reservation. Session policy owns identity/authority.
         void markAdmissionSucceeded();
+        // Allows exactly one bounded admission-acceptance frame after the initial request.
+        void permitAdmissionAcceptance();
 
         // Idempotent. Accepted output is flushed in order for at most two seconds.
         void requestClose();

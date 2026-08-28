@@ -12,6 +12,7 @@ namespace Duel6::Network {
     namespace {
         constexpr std::array<std::uint8_t, 4> RequestMagic{{'D', '6', 'R', 'A'}};
         constexpr std::array<std::uint8_t, 4> ResultMagic{{'D', '6', 'R', 'S'}};
+        constexpr std::array<std::uint8_t, 4> AcceptanceMagic{{'D', '6', 'R', 'K'}};
 
         class Writer {
         public:
@@ -217,6 +218,25 @@ namespace Duel6::Network {
             || std::set<std::uint64_t>(result.playerIds.begin(), result.playerIds.end()).size() != result.playerIds.size())
             throw std::invalid_argument("Admission result identities are invalid");
         return result;
+    }
+
+    std::vector<std::uint8_t> serializeAdmissionAcceptance(const AdmissionAcceptance &acceptance) {
+        if (acceptance.participantId == 0)
+            throw std::invalid_argument("Admission acceptance participant identity is invalid");
+        Writer writer;
+        writer.raw(AcceptanceMagic);
+        writer.uint64(acceptance.participantId);
+        return writer.finish();
+    }
+
+    AdmissionAcceptance deserializeAdmissionAcceptance(const std::vector<std::uint8_t> &payload) {
+        Reader reader(payload);
+        expectMagic(reader, AcceptanceMagic);
+        AdmissionAcceptance acceptance{reader.uint64()};
+        reader.expectFinished();
+        if (acceptance.participantId == 0)
+            throw std::invalid_argument("Admission acceptance participant identity is invalid");
+        return acceptance;
     }
 
     std::string_view admissionResultIdentifier(AdmissionResultCode code) {

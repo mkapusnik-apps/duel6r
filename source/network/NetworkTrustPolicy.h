@@ -49,6 +49,7 @@ namespace Duel6::Network::Trust {
     constexpr std::size_t GlobalAcceptedInputsPerSecond = 1800;
 
     constexpr auto FirstAdmissionRequestDeadline = std::chrono::seconds(3);
+    constexpr auto AdmissionAcceptanceDeadline = std::chrono::seconds(3);
     constexpr auto ReconnectCredentialLifetime = std::chrono::seconds(30);
     constexpr std::size_t ReconnectCredentialBytes = 16;
     constexpr std::size_t MaxReconnectCredentialGenerationAttempts = 4;
@@ -226,7 +227,7 @@ namespace Duel6::Network::Trust {
 
     using ConnectionId = std::uint64_t;
     using ParticipantId = std::uint64_t;
-    using PlayerSlotId = std::uint32_t;
+    using PlayerSlotId = std::uint64_t;
     enum class AuthorityAction { HostOnly, OwnReadiness, OwnProposal, Leave, PlayerInput };
     struct AuthorizationDecision {
         bool allowed = false;

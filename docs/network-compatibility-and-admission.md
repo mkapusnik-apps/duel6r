@@ -131,7 +131,7 @@ The scaffold uses SHA-256 over each file's exact bytes as the 32-byte cross-plat
 
 The host and guest manifest builder includes every regular file under `levels/`, `data/blocks.json`, `data/config.script`, and each explicitly enabled `scripts/` path supplied through `--gameplay-script=`. It does not enumerate `profiles/`, people, controls, saves, statistics, documentation, or presentation directories. A profile script therefore cannot enter or execute through admission.
 
-The builder sorts logical paths before hashing and rejects symlinks, non-regular entries, root escape, duplicate or invalid paths, missing required content, more than 256 entries, an individual file above 64 MiB, or more than 256 MiB of included content. These file-size bounds limit pre-listener hashing work; they do not change the 262,144-byte admission-payload bound.
+The builder sorts logical paths before hashing and rejects symlinks or reparse points, hard-linked files, non-regular entries, root escape, cross-device traversal, duplicate or invalid paths, missing required content, more than 256 manifest entries, more than 256 traversed directories, more than 512 examined filesystem entries, an individual file above 64 MiB, or more than 256 MiB of included content. Native descriptor- or handle-based reads revalidate file identity, size, and modification metadata after hashing. These bounds limit pre-listener and pre-connection hashing work; they do not change the 262,144-byte admission-payload bound.
 
 ## Host admission flow
 
@@ -161,17 +161,26 @@ Return to Network must enter `NET-01`. A confirmed invalid-manifest result befor
 ## Guest admission flow
 
 1. Local endpoint and setup validation must occur before the connection attempt.
-2. A valid attempt must use one total 10-second deadline.
+2. Connect activation must start one total 10-second deadline. Building and validating the guest's local gameplay manifest shares that deadline with resolution, transport connection, compatibility, capacity, host admission, and lobby confirmation.
 3. A pending connection may send exactly one admission request.
 4. The host must receive that request within three seconds of transport connection.
 5. The host must validate bounds before allocation, comparison, logging, or authority changes.
 6. The host must apply the trust and authorization decision from the trust policy.
 7. The host must check protocol, release, required capabilities, manifest validity, and manifest equality.
 8. The host must then check admission state and capacity.
-9. On success, the host must atomically assign participant identity, player identities, ownership, and slots.
-10. Lobby entry may occur only after the guest accepts the complete success response before the deadline.
+9. On success, the host must atomically reserve provisional participant and player identities and return one complete admission offer.
+10. The guest must validate and accept that complete offer before its total deadline.
+11. The host must commit the participant identity, player identities, immutable connection binding, ownership, and slots only after receiving the matching bounded acceptance. Lobby entry may occur only after that commit.
 
-A guest admission request must contain at least one local player. A rejected or incomplete request must allocate no playable slot or session identity.
+A guest admission request must contain at least one local player. A rejection, send failure, invalid or missing acceptance, cancellation, timeout, or pre-admission disconnect must roll back the reservation and allocate no participant, playable slot, ownership, or committed session identity. Provisional identities may remain burned for the session so that a later entity never reuses them.
+
+### Invalid guest-local manifest
+
+An invalid guest manifest established strictly before the total attempt deadline must produce machine identifier `guest-gameplay-content-manifest-invalid` with exactly:
+
+`Local gameplay content is invalid. Restore the supported gameplay content and restart the application.`
+
+No resolution or transport connection may start. The guest must enter `NET-08`; Retry is disabled until application restart. Edit setup returns to `NET-03` with the endpoint and local players retained, and Return to Network enters `NET-01`. If local manifest work does not establish the specific result before the deadline, the attempt uses `Connection timed out.` instead.
 
 ## Identity and capacity invariants
 
@@ -187,7 +196,7 @@ Each admitted participant identity and player identity must be nonzero. Each ide
 
 An identity must remain stable for its assigned entity. The host must not reuse an assigned identity during the same session.
 
-A transport connection has no participant identity, player identity, ownership, readiness, or host authority before successful admission.
+A transport connection has no committed participant identity, player identity, ownership, readiness, or host authority before successful admission. A provisional reservation is private host state and is not a playable entity or an authority binding.
 
 ## Initial outcome identifiers and copy
 
@@ -240,6 +249,7 @@ Issue #30 must keep all applicable limits from the trust and transport contracts
 - an immediate burst of 4 attempts;
 - one admission request for each connection;
 - a three-second first-request deadline;
+- a three-second admission-offer acceptance deadline;
 - 2 concurrent manifest validations;
 - a 262,144-byte initial admission payload;
 - 4,096 properties;
@@ -274,7 +284,7 @@ Without a complete host response, initial transport outcomes must use this order
 
 User Cancel and local inline validation must take precedence before host or transport outcomes. Cancel must preserve endpoint and local-player setup.
 
-Cancel, timeout, and pre-admission disconnect must allocate no participant, player slot, ownership, or identity.
+Cancel, timeout, and pre-admission disconnect must allocate no participant, player slot, ownership, or committed identity. Every provisional reservation is rolled back; its burned identity values are never reused.
 
 A disconnect after complete admission is subject to issue #36. It is not an initial-admission failure.
 
@@ -324,7 +334,7 @@ The explicit host validates and freezes its manifest, allocates its local host p
 ./build/duel6r-server --transport --local-only --resources=resources --local-players=2
 ```
 
-The explicit guest builds its local claim before starting one 10-second connection and admission attempt:
+The explicit guest starts its 10-second attempt when invoked, builds its local claim within that deadline, and starts resolution only after the local claim is valid:
 
 ```sh
 ./build/duel6r-server --admission-client --host=127.0.0.1 --port=26660 --resources=resources --local-players=2

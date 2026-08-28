@@ -4,14 +4,30 @@
 
 #include <algorithm>
 #include <array>
+#include <cwctype>
 #include <filesystem>
-#include <fstream>
 #include <iomanip>
 #include <limits>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <system_error>
 #include <utility>
+
+#ifdef D6R_TRANSPORT_WINDOWS
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <cerrno>
+#include <climits>
+#include <cstring>
+#include <dirent.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace Duel6::Network {
     namespace {
@@ -96,14 +112,8 @@ namespace Duel6::Network {
                     words[index] = words[index - 16] + s0 + words[index - 7] + s1;
                 }
 
-                std::uint32_t a = state[0];
-                std::uint32_t b = state[1];
-                std::uint32_t c = state[2];
-                std::uint32_t d = state[3];
-                std::uint32_t e = state[4];
-                std::uint32_t f = state[5];
-                std::uint32_t g = state[6];
-                std::uint32_t h = state[7];
+                std::uint32_t a = state[0], b = state[1], c = state[2], d = state[3];
+                std::uint32_t e = state[4], f = state[5], g = state[6], h = state[7];
                 for (std::size_t index = 0; index < words.size(); ++index) {
                     const std::uint32_t sum1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
                     const std::uint32_t choose = (e & f) ^ (~e & g);
@@ -111,23 +121,11 @@ namespace Duel6::Network {
                     const std::uint32_t sum0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
                     const std::uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
                     const std::uint32_t temporary2 = sum0 + majority;
-                    h = g;
-                    g = f;
-                    f = e;
-                    e = d + temporary1;
-                    d = c;
-                    c = b;
-                    b = a;
-                    a = temporary1 + temporary2;
+                    h = g; g = f; f = e; e = d + temporary1;
+                    d = c; c = b; b = a; a = temporary1 + temporary2;
                 }
-                state[0] += a;
-                state[1] += b;
-                state[2] += c;
-                state[3] += d;
-                state[4] += e;
-                state[5] += f;
-                state[6] += g;
-                state[7] += h;
+                state[0] += a; state[1] += b; state[2] += c; state[3] += d;
+                state[4] += e; state[5] += f; state[6] += g; state[7] += h;
             }
 
             std::array<std::uint32_t, 8> state{{0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u,
@@ -138,145 +136,434 @@ namespace Duel6::Network {
             std::uint64_t byteCount = 0;
         };
 
-        bool pathInside(const fs::path &root, const fs::path &candidate) {
-            auto rootIterator = root.begin();
-            auto candidateIterator = candidate.begin();
-            while (rootIterator != root.end() && candidateIterator != candidate.end()) {
-                if (*rootIterator != *candidateIterator) return false;
-                ++rootIterator;
-                ++candidateIterator;
-            }
-            return rootIterator == root.end();
+        bool approvedLogicalPath(const std::string &logical) {
+            return Trust::validLogicalPath(logical)
+                   && (logical.compare(0, 7, "levels/") == 0
+                       || logical == "data/blocks.json"
+                       || logical == "data/config.script"
+                       || logical.compare(0, 8, "scripts/") == 0);
         }
 
-        ManifestStatus hashFile(const fs::path &root, const fs::path &path, ContentIdentity &identity,
-                                std::uintmax_t &totalBytes) {
-            std::error_code error;
-            if (fs::symlink_status(path, error).type() != fs::file_type::regular || error)
-                return ManifestStatus::UnsafeFilesystemEntry;
-            const fs::path canonical = fs::canonical(path, error);
-            if (error || !pathInside(root, canonical)) return ManifestStatus::UnsafeFilesystemEntry;
-            const std::uintmax_t size = fs::file_size(canonical, error);
-            if (error) return ManifestStatus::ReadFailed;
-            if (size > MaxGameplayContentFileBytes || totalBytes > MaxGameplayContentTotalBytes - size)
-                return ManifestStatus::ContentTooLarge;
+#ifdef D6R_TRANSPORT_WINDOWS
+        class Handle {
+        public:
+            explicit Handle(HANDLE value = INVALID_HANDLE_VALUE) : value(value) {}
+            ~Handle() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); }
+            Handle(const Handle &) = delete;
+            Handle &operator=(const Handle &) = delete;
+            Handle(Handle &&other) noexcept : value(other.value) { other.value = INVALID_HANDLE_VALUE; }
+            Handle &operator=(Handle &&other) noexcept {
+                if (this != &other) {
+                    if (value != INVALID_HANDLE_VALUE) CloseHandle(value);
+                    value = other.value;
+                    other.value = INVALID_HANDLE_VALUE;
+                }
+                return *this;
+            }
+            HANDLE get() const { return value; }
+            explicit operator bool() const { return value != INVALID_HANDLE_VALUE; }
+        private:
+            HANDLE value;
+        };
 
-#if defined(_WIN32) && !defined(_MSC_VER) && !defined(__MINGW32__)
-            // A non-Windows compiler may emulate _WIN32 while retaining native narrow streams.
-            // Real Windows toolchains accept fs::path and preserve native Unicode paths.
-            std::ifstream stream(canonical.string(), std::ios::binary);
+        std::wstring finalPath(HANDLE handle) {
+            const DWORD required = GetFinalPathNameByHandleW(handle, nullptr, 0, FILE_NAME_NORMALIZED);
+            if (required == 0 || required > 32768) return {};
+            std::wstring result(required, L'\0');
+            const DWORD written = GetFinalPathNameByHandleW(handle, result.data(), required, FILE_NAME_NORMALIZED);
+            if (written == 0 || written >= required) return {};
+            result.resize(written);
+            std::transform(result.begin(), result.end(), result.begin(), ::towlower);
+            return result;
+        }
+
+        bool insideFinalRoot(const std::wstring &root, const std::wstring &candidate) {
+            return candidate.size() > root.size() && candidate.compare(0, root.size(), root) == 0
+                   && (candidate[root.size()] == L'\\' || candidate[root.size()] == L'/');
+        }
+
+        bool utf8Name(const wchar_t *value, std::string &result) {
+            const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, -1, nullptr, 0, nullptr, nullptr);
+            if (size <= 1 || size > 256) return false;
+            std::string converted(static_cast<std::size_t>(size), '\0');
+            if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, -1, converted.data(), size,
+                                    nullptr, nullptr) == 0) return false;
+            converted.pop_back();
+            result = std::move(converted);
+            return std::all_of(result.begin(), result.end(), [](unsigned char byte) { return byte < 0x80; });
+        }
+
+        class SecureFilesystem {
+        public:
+            explicit SecureFilesystem(const std::string &rootText) {
+                try { rootPath = fs::absolute(fs::u8path(rootText)).lexically_normal(); } catch (...) { return; }
+                root = Handle(CreateFileW(rootPath.c_str(), FILE_READ_ATTRIBUTES,
+                                         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                         OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+                if (!root) return;
+                BY_HANDLE_FILE_INFORMATION information{};
+                if (!GetFileInformationByHandle(root.get(), &information)
+                    || !(information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                    || (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) return;
+                rootFinal = finalPath(root.get());
+                validRoot = !rootFinal.empty();
+            }
+
+            bool valid() const { return validRoot; }
+
+            ManifestStatus enumerate(std::vector<std::string> &paths) const {
+                std::size_t directories = 0, examined = 0;
+                return enumerateDirectory(rootPath / L"levels", "levels", 1, directories, examined, paths);
+            }
+
+            ManifestStatus size(const std::string &logical, std::uintmax_t &value) const {
+                Handle file;
+                BY_HANDLE_FILE_INFORMATION information{};
+                const ManifestStatus status = openFile(logical, file, information);
+                if (status != ManifestStatus::Valid) return status;
+                value = (static_cast<std::uintmax_t>(information.nFileSizeHigh) << 32u) | information.nFileSizeLow;
+                return value > MaxGameplayContentFileBytes ? ManifestStatus::ContentTooLarge : ManifestStatus::Valid;
+            }
+
+            ManifestStatus hash(const std::string &logical, std::uintmax_t expected, ContentIdentity &identity) const {
+                Handle file;
+                BY_HANDLE_FILE_INFORMATION before{};
+                ManifestStatus status = openFile(logical, file, before);
+                if (status != ManifestStatus::Valid) return status;
+                const std::uintmax_t sizeValue = (static_cast<std::uintmax_t>(before.nFileSizeHigh) << 32u)
+                                                 | before.nFileSizeLow;
+                if (sizeValue != expected) return ManifestStatus::ReadFailed;
+                Sha256 sha;
+                std::array<std::uint8_t, 64 * 1024> buffer{};
+                std::uintmax_t readBytes = 0;
+                for (;;) {
+                    DWORD read = 0;
+                    if (!ReadFile(file.get(), buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr))
+                        return ManifestStatus::ReadFailed;
+                    if (read == 0) break;
+                    readBytes += read;
+                    if (readBytes > expected) return ManifestStatus::ReadFailed;
+                    sha.update(buffer.data(), read);
+                }
+                BY_HANDLE_FILE_INFORMATION after{};
+                if (readBytes != expected || !GetFileInformationByHandle(file.get(), &after)
+                    || before.dwVolumeSerialNumber != after.dwVolumeSerialNumber
+                    || before.nFileIndexHigh != after.nFileIndexHigh || before.nFileIndexLow != after.nFileIndexLow
+                    || before.nFileSizeHigh != after.nFileSizeHigh || before.nFileSizeLow != after.nFileSizeLow
+                    || CompareFileTime(&before.ftLastWriteTime, &after.ftLastWriteTime) != 0)
+                    return ManifestStatus::ReadFailed;
+                identity = sha.finish();
+                return ManifestStatus::Valid;
+            }
+
+        private:
+            ManifestStatus openFile(const std::string &logical, Handle &file,
+                                    BY_HANDLE_FILE_INFORMATION &information) const {
+                if (!approvedLogicalPath(logical)) return ManifestStatus::InvalidLogicalPath;
+                fs::path relative;
+                try { relative = fs::u8path(logical); } catch (...) { return ManifestStatus::InvalidLogicalPath; }
+                file = Handle(CreateFileW((rootPath / relative).c_str(), GENERIC_READ,
+                                          FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                          FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+                if (!file || !GetFileInformationByHandle(file.get(), &information)) return ManifestStatus::ReadFailed;
+                if ((information.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))
+                    || information.nNumberOfLinks != 1) return ManifestStatus::UnsafeFilesystemEntry;
+                const std::wstring resolved = finalPath(file.get());
+                return insideFinalRoot(rootFinal, resolved) ? ManifestStatus::Valid
+                                                            : ManifestStatus::UnsafeFilesystemEntry;
+            }
+
+            ManifestStatus enumerateDirectory(const fs::path &directory, const std::string &logicalPrefix,
+                                               std::size_t depth, std::size_t &directories, std::size_t &examined,
+                                               std::vector<std::string> &paths) const {
+                if (depth > Trust::MaxLogicalPathSegments || ++directories > MaxManifestDirectories)
+                    return ManifestStatus::TooManyEntries;
+                Handle directoryHandle(CreateFileW(directory.c_str(), FILE_READ_ATTRIBUTES,
+                                                   FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                                   OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                                                   nullptr));
+                BY_HANDLE_FILE_INFORMATION directoryInfo{};
+                if (!directoryHandle || !GetFileInformationByHandle(directoryHandle.get(), &directoryInfo))
+                    return ManifestStatus::MissingRequiredContent;
+                if (!(directoryInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                    || (directoryInfo.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                    || !insideFinalRoot(rootFinal, finalPath(directoryHandle.get())))
+                    return ManifestStatus::UnsafeFilesystemEntry;
+
+                WIN32_FIND_DATAW data{};
+                HANDLE raw = FindFirstFileW((directory / L"*").c_str(), &data);
+                if (raw == INVALID_HANDLE_VALUE) return ManifestStatus::ReadFailed;
+                struct FindCloser { HANDLE value; ~FindCloser() { FindClose(value); } } closer{raw};
+                do {
+                    if (wcscmp(data.cFileName, L".") == 0 || wcscmp(data.cFileName, L"..") == 0) continue;
+                    if (++examined > MaxManifestTraversalEntries) return ManifestStatus::TooManyEntries;
+                    std::string name;
+                    if (!utf8Name(data.cFileName, name)) return ManifestStatus::InvalidLogicalPath;
+                    const std::string logical = logicalPrefix + "/" + name;
+                    if (!Trust::validLogicalPath(logical)) return ManifestStatus::InvalidLogicalPath;
+                    if (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                        return ManifestStatus::UnsafeFilesystemEntry;
+                    if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                        const ManifestStatus status = enumerateDirectory(directory / data.cFileName, logical,
+                                                                         depth + 1, directories, examined, paths);
+                        if (status != ManifestStatus::Valid) return status;
+                    } else {
+                        if (paths.size() >= Trust::MaxManifestEntries) return ManifestStatus::TooManyEntries;
+                        paths.push_back(logical);
+                    }
+                } while (FindNextFileW(raw, &data));
+                return GetLastError() == ERROR_NO_MORE_FILES ? ManifestStatus::Valid : ManifestStatus::ReadFailed;
+            }
+
+            fs::path rootPath;
+            Handle root;
+            std::wstring rootFinal;
+            bool validRoot = false;
+        };
 #else
-            std::ifstream stream(canonical, std::ios::binary);
-#endif
-            if (!stream) return ManifestStatus::ReadFailed;
-            Sha256 sha;
-            std::array<std::uint8_t, 64 * 1024> buffer{};
-            std::uintmax_t readBytes = 0;
-            while (stream) {
-                stream.read(reinterpret_cast<char *>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
-                const auto count = stream.gcount();
-                if (count > 0) {
+        class FileDescriptor {
+        public:
+            explicit FileDescriptor(int value = -1) : value(value) {}
+            ~FileDescriptor() { if (value >= 0) ::close(value); }
+            FileDescriptor(const FileDescriptor &) = delete;
+            FileDescriptor &operator=(const FileDescriptor &) = delete;
+            FileDescriptor(FileDescriptor &&other) noexcept : value(other.value) { other.value = -1; }
+            FileDescriptor &operator=(FileDescriptor &&other) noexcept {
+                if (this != &other) { if (value >= 0) ::close(value); value = other.value; other.value = -1; }
+                return *this;
+            }
+            int get() const { return value; }
+            explicit operator bool() const { return value >= 0; }
+        private:
+            int value;
+        };
+
+        bool unchanged(const struct stat &left, const struct stat &right) {
+            return left.st_dev == right.st_dev && left.st_ino == right.st_ino && left.st_mode == right.st_mode
+                   && left.st_nlink == right.st_nlink && left.st_size == right.st_size
+                   && left.st_mtim.tv_sec == right.st_mtim.tv_sec && left.st_mtim.tv_nsec == right.st_mtim.tv_nsec
+                   && left.st_ctim.tv_sec == right.st_ctim.tv_sec && left.st_ctim.tv_nsec == right.st_ctim.tv_nsec;
+        }
+
+        class SecureFilesystem {
+        public:
+            explicit SecureFilesystem(std::string rootText) {
+                while (rootText.size() > 1 && (rootText.back() == '/' || rootText.back() == '\\')) rootText.pop_back();
+                struct stat pathStatus{};
+                if (::lstat(rootText.c_str(), &pathStatus) != 0 || S_ISLNK(pathStatus.st_mode)) return;
+                root = FileDescriptor(::open(rootText.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
+                if (!root || ::fstat(root.get(), &rootStatus) != 0 || !S_ISDIR(rootStatus.st_mode)) return;
+                validRoot = true;
+            }
+
+            bool valid() const { return validRoot; }
+
+            ManifestStatus enumerate(std::vector<std::string> &paths) const {
+                FileDescriptor levels(::openat(root.get(), "levels", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
+                struct stat status{};
+                if (!levels || ::fstat(levels.get(), &status) != 0) return ManifestStatus::MissingRequiredContent;
+                if (!S_ISDIR(status.st_mode) || status.st_dev != rootStatus.st_dev)
+                    return ManifestStatus::UnsafeFilesystemEntry;
+                std::size_t directories = 0, examined = 0;
+                return enumerateDirectory(levels.get(), "levels", 1, directories, examined, paths);
+            }
+
+            ManifestStatus size(const std::string &logical, std::uintmax_t &value) const {
+                FileDescriptor file;
+                struct stat status{};
+                const ManifestStatus opened = openFile(logical, file, status);
+                if (opened != ManifestStatus::Valid) return opened;
+                if (status.st_size < 0) return ManifestStatus::ReadFailed;
+                value = static_cast<std::uintmax_t>(status.st_size);
+                return value > MaxGameplayContentFileBytes ? ManifestStatus::ContentTooLarge : ManifestStatus::Valid;
+            }
+
+            ManifestStatus hash(const std::string &logical, std::uintmax_t expected, ContentIdentity &identity) const {
+                FileDescriptor file;
+                struct stat before{};
+                ManifestStatus opened = openFile(logical, file, before);
+                if (opened != ManifestStatus::Valid || before.st_size < 0
+                    || static_cast<std::uintmax_t>(before.st_size) != expected)
+                    return opened == ManifestStatus::Valid ? ManifestStatus::ReadFailed : opened;
+                Sha256 sha;
+                std::array<std::uint8_t, 64 * 1024> buffer{};
+                std::uintmax_t readBytes = 0;
+                for (;;) {
+                    const ssize_t count = ::read(file.get(), buffer.data(), buffer.size());
+                    if (count < 0) { if (errno == EINTR) continue; return ManifestStatus::ReadFailed; }
+                    if (count == 0) break;
                     readBytes += static_cast<std::uintmax_t>(count);
-                    if (readBytes > size) return ManifestStatus::ReadFailed;
+                    if (readBytes > expected) return ManifestStatus::ReadFailed;
                     sha.update(buffer.data(), static_cast<std::size_t>(count));
                 }
+                struct stat after{};
+                if (readBytes != expected || ::fstat(file.get(), &after) != 0 || !unchanged(before, after))
+                    return ManifestStatus::ReadFailed;
+                identity = sha.finish();
+                return ManifestStatus::Valid;
             }
-            if (!stream.eof() || readBytes != size) return ManifestStatus::ReadFailed;
-            identity = sha.finish();
-            totalBytes += size;
-            return ManifestStatus::Valid;
-        }
 
-        bool isGameplayDataFile(const std::string &logicalPath) {
-            return logicalPath == "data/blocks.json" || logicalPath == "data/config.script";
-        }
+        private:
+            ManifestStatus openFile(const std::string &logical, FileDescriptor &file, struct stat &status) const {
+                if (!approvedLogicalPath(logical)) return ManifestStatus::InvalidLogicalPath;
+                FileDescriptor directory(::dup(root.get()));
+                if (!directory) return ManifestStatus::ReadFailed;
+                std::size_t start = 0;
+                while (true) {
+                    const std::size_t slash = logical.find('/', start);
+                    const std::string segment = logical.substr(start, slash == std::string::npos
+                                                                       ? std::string::npos : slash - start);
+                    if (slash == std::string::npos) {
+                        file = FileDescriptor(::openat(directory.get(), segment.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+                        break;
+                    }
+                    FileDescriptor next(::openat(directory.get(), segment.c_str(),
+                                                 O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
+                    struct stat directoryStatus{};
+                    if (!next || ::fstat(next.get(), &directoryStatus) != 0 || !S_ISDIR(directoryStatus.st_mode)
+                        || directoryStatus.st_dev != rootStatus.st_dev)
+                        return ManifestStatus::UnsafeFilesystemEntry;
+                    directory = std::move(next);
+                    start = slash + 1;
+                }
+                if (!file) {
+                    if (errno == ENOENT) return ManifestStatus::MissingRequiredContent;
+                    if (errno == ELOOP || errno == ENOTDIR) return ManifestStatus::UnsafeFilesystemEntry;
+                    return ManifestStatus::ReadFailed;
+                }
+                if (::fstat(file.get(), &status) != 0) return ManifestStatus::ReadFailed;
+                if (!S_ISREG(status.st_mode) || status.st_nlink != 1 || status.st_dev != rootStatus.st_dev)
+                    return ManifestStatus::UnsafeFilesystemEntry;
+                return ManifestStatus::Valid;
+            }
+
+            ManifestStatus enumerateDirectory(int descriptor, const std::string &prefix, std::size_t depth,
+                                               std::size_t &directories, std::size_t &examined,
+                                               std::vector<std::string> &paths) const {
+                if (depth > Trust::MaxLogicalPathSegments || ++directories > MaxManifestDirectories)
+                    return ManifestStatus::TooManyEntries;
+                const int duplicate = ::dup(descriptor);
+                if (duplicate < 0) return ManifestStatus::ReadFailed;
+                DIR *raw = ::fdopendir(duplicate);
+                if (!raw) { ::close(duplicate); return ManifestStatus::ReadFailed; }
+                struct DirectoryCloser { DIR *value; ~DirectoryCloser() { ::closedir(value); } } closer{raw};
+                errno = 0;
+                while (dirent *entry = ::readdir(raw)) {
+                    if (std::strcmp(entry->d_name, ".") == 0 || std::strcmp(entry->d_name, "..") == 0) continue;
+                    if (++examined > MaxManifestTraversalEntries) return ManifestStatus::TooManyEntries;
+                    const std::string name(entry->d_name);
+                    const std::string logical = prefix + "/" + name;
+                    if (!Trust::validLogicalPath(logical)) return ManifestStatus::InvalidLogicalPath;
+                    struct stat status{};
+                    if (::fstatat(descriptor, entry->d_name, &status, AT_SYMLINK_NOFOLLOW) != 0)
+                        return ManifestStatus::ReadFailed;
+                    if (S_ISLNK(status.st_mode) || status.st_dev != rootStatus.st_dev)
+                        return ManifestStatus::UnsafeFilesystemEntry;
+                    if (S_ISDIR(status.st_mode)) {
+                        FileDescriptor child(::openat(descriptor, entry->d_name,
+                                                      O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
+                        if (!child) return ManifestStatus::UnsafeFilesystemEntry;
+                        const ManifestStatus nested = enumerateDirectory(child.get(), logical, depth + 1,
+                                                                         directories, examined, paths);
+                        if (nested != ManifestStatus::Valid) return nested;
+                    } else if (S_ISREG(status.st_mode)) {
+                        if (status.st_nlink != 1) return ManifestStatus::UnsafeFilesystemEntry;
+                        if (paths.size() >= Trust::MaxManifestEntries) return ManifestStatus::TooManyEntries;
+                        paths.push_back(logical);
+                    } else {
+                        return ManifestStatus::UnsafeFilesystemEntry;
+                    }
+                    errno = 0;
+                }
+                return errno == 0 ? ManifestStatus::Valid : ManifestStatus::ReadFailed;
+            }
+
+            FileDescriptor root;
+            struct stat rootStatus{};
+            bool validRoot = false;
+        };
+#endif
+
+        class NativeManifestSource final : public ManifestSource {
+        public:
+            ManifestBuildResult build(const std::string &resourceRoot,
+                                      const std::vector<std::string> &enabledScripts) const override {
+                ManifestBuildResult result;
+                SecureFilesystem filesystem(resourceRoot);
+                if (!filesystem.valid()) return result;
+
+                std::vector<std::string> paths;
+                result.status = filesystem.enumerate(paths);
+                if (result.status != ManifestStatus::Valid) return result;
+                paths.emplace_back("data/blocks.json");
+                paths.emplace_back("data/config.script");
+                for (const std::string &logical: enabledScripts) {
+                    if (!Trust::validLogicalPath(logical) || logical.compare(0, 8, "scripts/") != 0) {
+                        result.status = ManifestStatus::InvalidLogicalPath;
+                        return result;
+                    }
+                    paths.push_back(logical);
+                }
+                if (paths.empty() || paths.size() > Trust::MaxManifestEntries) {
+                    result.status = paths.empty() ? ManifestStatus::MissingRequiredContent : ManifestStatus::TooManyEntries;
+                    return result;
+                }
+                std::sort(paths.begin(), paths.end());
+                if (std::adjacent_find(paths.begin(), paths.end()) != paths.end()) {
+                    result.status = ManifestStatus::DuplicateLogicalPath;
+                    return result;
+                }
+
+                std::vector<std::uintmax_t> sizes;
+                sizes.reserve(paths.size());
+                std::uintmax_t total = 0;
+                for (const std::string &logical: paths) {
+                    if (!approvedLogicalPath(logical)) {
+                        result.status = ManifestStatus::InvalidLogicalPath;
+                        return result;
+                    }
+                    std::uintmax_t size = 0;
+                    result.status = filesystem.size(logical, size);
+                    if (result.status != ManifestStatus::Valid) return result;
+                    if (total > MaxGameplayContentTotalBytes - size) {
+                        result.status = ManifestStatus::ContentTooLarge;
+                        return result;
+                    }
+                    total += size;
+                    sizes.push_back(size);
+                }
+
+                result.manifest.reserve(paths.size());
+                for (std::size_t index = 0; index < paths.size(); ++index) {
+                    GameplayManifestEntry entry;
+                    entry.logicalPath = paths[index];
+                    result.status = filesystem.hash(entry.logicalPath, sizes[index], entry.contentIdentity);
+                    if (result.status != ManifestStatus::Valid) {
+                        result.manifest.clear();
+                        return result;
+                    }
+                    result.manifest.push_back(std::move(entry));
+                }
+                result.status = validCanonicalManifest(result.manifest) ? ManifestStatus::Valid
+                                                                        : ManifestStatus::InvalidLogicalPath;
+                if (!result.valid()) result.manifest.clear();
+                return result;
+            }
+        };
     }
 
     CompatibilityManifestBuilder::CompatibilityManifestBuilder(std::string resourceRoot,
-                                                                 std::vector<std::string> enabledGameplayScripts)
-            : resourceRoot(std::move(resourceRoot)), enabledGameplayScripts(std::move(enabledGameplayScripts)) {}
+                                                                 std::vector<std::string> enabledGameplayScripts,
+                                                                 std::shared_ptr<const ManifestSource> source)
+            : resourceRoot(std::move(resourceRoot)), enabledGameplayScripts(std::move(enabledGameplayScripts)),
+              source(source ? std::move(source) : std::make_shared<NativeManifestSource>()) {}
 
     ManifestBuildResult CompatibilityManifestBuilder::build() const {
-        ManifestBuildResult result;
-        std::error_code error;
-        const fs::path root = fs::canonical(fs::path(resourceRoot), error);
-        if (error || !fs::is_directory(root, error) || error) return result;
-
-        std::vector<std::pair<std::string, fs::path>> candidates;
-        const auto addTree = [&](const fs::path &relativeRoot) -> ManifestStatus {
-            const fs::path directory = root / relativeRoot;
-            if (!fs::exists(directory, error) || error) return ManifestStatus::MissingRequiredContent;
-            if (fs::symlink_status(directory, error).type() != fs::file_type::directory || error)
-                return ManifestStatus::UnsafeFilesystemEntry;
-            fs::recursive_directory_iterator iterator(directory, fs::directory_options::none, error);
-            const fs::recursive_directory_iterator end;
-            for (; !error && iterator != end; iterator.increment(error)) {
-                const fs::file_status status = iterator->symlink_status(error);
-                if (error) break;
-                if (status.type() == fs::file_type::symlink || status.type() == fs::file_type::unknown)
-                    return ManifestStatus::UnsafeFilesystemEntry;
-                if (status.type() != fs::file_type::regular) continue;
-                const std::string logical = iterator->path().lexically_relative(root).generic_string();
-                candidates.emplace_back(logical, iterator->path());
-            }
-            return error ? ManifestStatus::ReadFailed : ManifestStatus::Valid;
-        };
-
-        result.status = addTree("levels");
-        if (result.status != ManifestStatus::Valid) return result;
-        for (const char *dataPath: {"data/blocks.json", "data/config.script"}) {
-            const fs::path path = root / fs::path(dataPath);
-            if (!fs::exists(path, error) || error) {
-                result.status = ManifestStatus::MissingRequiredContent;
-                return result;
-            }
-            candidates.emplace_back(dataPath, path);
+        try {
+            return source ? source->build(resourceRoot, enabledGameplayScripts) : ManifestBuildResult{};
+        } catch (...) {
+            return {};
         }
-        for (const std::string &logical: enabledGameplayScripts) {
-            if (!Trust::validLogicalPath(logical) || logical.compare(0, 8, "scripts/") != 0) {
-                result.status = ManifestStatus::InvalidLogicalPath;
-                return result;
-            }
-            candidates.emplace_back(logical, root / fs::path(logical));
-        }
-
-        if (candidates.empty() || candidates.size() > Trust::MaxManifestEntries) {
-            result.status = candidates.empty() ? ManifestStatus::MissingRequiredContent : ManifestStatus::TooManyEntries;
-            return result;
-        }
-        std::sort(candidates.begin(), candidates.end(), [](const auto &left, const auto &right) {
-            return left.first < right.first;
-        });
-        std::set<std::string> paths;
-        std::uintmax_t totalBytes = 0;
-        result.manifest.reserve(candidates.size());
-        for (const auto &candidate: candidates) {
-            if (!Trust::validLogicalPath(candidate.first) ||
-                (candidate.first.compare(0, 7, "levels/") != 0
-                 && !isGameplayDataFile(candidate.first)
-                 && candidate.first.compare(0, 8, "scripts/") != 0)) {
-                result.status = ManifestStatus::InvalidLogicalPath;
-                result.manifest.clear();
-                return result;
-            }
-            if (!paths.insert(candidate.first).second) {
-                result.status = ManifestStatus::DuplicateLogicalPath;
-                result.manifest.clear();
-                return result;
-            }
-            GameplayManifestEntry entry;
-            entry.logicalPath = candidate.first;
-            result.status = hashFile(root, candidate.second, entry.contentIdentity, totalBytes);
-            if (result.status != ManifestStatus::Valid) {
-                result.manifest.clear();
-                return result;
-            }
-            result.manifest.push_back(std::move(entry));
-        }
-        result.status = validCanonicalManifest(result.manifest) ? ManifestStatus::Valid
-                                                                : ManifestStatus::InvalidLogicalPath;
-        if (!result.valid()) result.manifest.clear();
-        return result;
     }
 
     bool validCanonicalManifest(const GameplayManifest &manifest) {

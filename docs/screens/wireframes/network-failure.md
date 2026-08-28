@@ -19,7 +19,7 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 - Initial admission and transport failures use the fixed product precedence and non-disclosing copy. Endpoint validation remains inline in `NET-03`.
 - Retry repeats retained data; Edit setup returns to retained `NET-02` or `NET-03`; Return to Network enters `NET-01`.
 - Terminal reconnect rejection and expiry disable Retry when the original reservation cannot restore. Expiry copy never claims host end or player removal.
-- Compatibility, capacity, timeout, terminal reconnect, expiry, and host-local `Hosted session stopped unexpectedly.` variants remain in the specification. Only accepted intentional host End uses guest `NET-09`.
+- Compatibility, capacity, timeout, terminal reconnect, expiry, host-local `Hosted session stopped unexpectedly.`, and guest-local `Local gameplay content is invalid. Restore the supported gameplay content and restart the application.` variants remain in the specification. Guest-local invalid content disables Retry until restart, retains `NET-03` setup for Edit setup, and starts no connection. Only accepted intentional host End uses guest `NET-09`.
 - The specification supplies exact copy and destinations for every issue #30 outcome.
 - Each reason remains persistent text, and each disabled Retry state includes a textual reason.
 

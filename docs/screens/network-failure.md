@@ -19,6 +19,7 @@ Host startup or initial Join failure enters from `NET-02` or `NET-03`; terminal 
 ## Significant variants
 
 - Endpoint validation remains inline in `NET-03` and does not enter this screen.
+- Guest-local manifest validation shares the initial 10-second attempt. A specific invalid result established before the deadline enters this screen without resolution or connection; otherwise the generic attempt timeout applies.
 - Initial admission uses the fixed malformed, trust/authorization, release, invalid-manifest, content, match-started, capacity, policy, and success order. Initial transport failure uses the fixed name-resolution, unreachable/refusal, incomplete-response, and timeout precedence.
 - Reconnect terminal variants use only fixed non-disclosing authorization, missing-reservation, release, content, or expiry copy. `Reconnect time expired. The session could not be restored.` never claims host end or player removal.
 - Host-local supervised failure uses exactly `Hosted session stopped unexpectedly.` It is shown only to the hosting application and is never evidence or copy sent to guests.
@@ -29,6 +30,8 @@ Host startup or initial Join failure enters from `NET-02` or `NET-03`; terminal 
 - Only an accepted intentional host End notice routes guests to `NET-09`; every unexpected host failure remains guest `NET-07` until terminal rejection or deadline expiry.
 
 ## Exact initial outcome mapping
+
+Before any host result, local guest content may produce `guest-gameplay-content-manifest-invalid` with `Local gameplay content is invalid. Restore the supported gameplay content and restart the application.` Retry is disabled until restart; Edit setup returns to retained `NET-03`; Return to Network enters `NET-01`.
 
 The runtime must stop at the first applicable complete host result in the table order.
 
@@ -63,6 +66,7 @@ User Cancel and local inline validation must take precedence over every result i
 | Condition | Exact visible copy | Recovery mapping |
 |---|---|---|
 | Invalid host manifest | `Hosted gameplay content is invalid. Restore the supported gameplay content and restart the application.` | Disable Retry for the current application session; Edit setup → retained `NET-02`; Return to Network → `NET-01`; leave no listener or session. |
+| Invalid guest-local manifest | `Local gameplay content is invalid. Restore the supported gameplay content and restart the application.` | Disable Retry until application restart; Edit setup → retained `NET-03`; Return to Network → `NET-01`; perform no resolution or connection. |
 | Host-local supervised service failure | `Hosted session stopped unexpectedly.` | Disable Retry when no valid retained initial attempt exists; Edit setup → retained `NET-02`; Return to Network → `NET-01`; never use this outcome as guest evidence. |
 | Terminal reconnect authorization failure | `Reconnect authorization failed. This session cannot be restored.` | Disable reconnect Retry; Edit setup may start a new initial `NET-03` journey; Return to Network → `NET-01`. |
 | Terminal reconnect missing reservation or removed participant | `Reconnect reservation is no longer available. This session cannot be restored.` | Disable reconnect Retry; Edit setup may start a new initial `NET-03` journey; Return to Network → `NET-01`. |

@@ -573,9 +573,10 @@ namespace Duel6::Network::Trust {
         return true;
     }
     bool AuthorizationPolicy::setOwnedSlots(ParticipantId participant, const std::vector<PlayerSlotId> &slots) {
-        if (slots.size() > MaxParticipants) return false;
+        if (participant == 0 || slots.empty() || slots.size() > MaxParticipants || ownership.count(participant))
+            return false;
         std::set<PlayerSlotId> unique(slots.begin(), slots.end());
-        if (unique.size() != slots.size()) return false;
+        if (unique.size() != slots.size() || unique.count(0)) return false;
         for (const auto &entry: ownership) {
             if (entry.first == participant) continue;
             for (PlayerSlotId slot: unique) if (entry.second.count(slot)) return false;

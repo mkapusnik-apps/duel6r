@@ -48,6 +48,10 @@ namespace Duel6::Network {
         bool admitted() const { return code == AdmissionResultCode::Admitted; }
     };
 
+    struct AdmissionAcceptance {
+        std::uint64_t participantId = 0;
+    };
+
     enum class ReconnectCompatibilityCode {
         ProtocolIncompatible,
         NetworkReleaseMismatch,
@@ -60,6 +64,8 @@ namespace Duel6::Network {
     AdmissionRequest deserializeAdmissionRequest(const std::vector<std::uint8_t> &payload);
     std::vector<std::uint8_t> serializeAdmissionResult(const AdmissionResult &result);
     AdmissionResult deserializeAdmissionResult(const std::vector<std::uint8_t> &payload);
+    std::vector<std::uint8_t> serializeAdmissionAcceptance(const AdmissionAcceptance &acceptance);
+    AdmissionAcceptance deserializeAdmissionAcceptance(const std::vector<std::uint8_t> &payload);
 
     std::string_view admissionResultIdentifier(AdmissionResultCode code);
     std::string_view admissionResultUserCopy(AdmissionResultCode code);

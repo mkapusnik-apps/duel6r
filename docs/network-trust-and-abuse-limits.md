@@ -33,7 +33,7 @@ Trust boundaries are:
 
 - **Local host authority:** created only by trusted local session setup. It is never granted by a remote message.
 - **Transport peer:** every remote connection, frame, message, count, string, name, profile field, and source address is untrusted until its applicable bounded validation succeeds.
-- **Admission:** a transport connection has no participant identity, player slot, readiness, or host authority. It may submit exactly one bounded initial request within three seconds. A future compatibility policy hook decides admission.
+- **Admission:** a transport connection has no committed participant identity, player slot, readiness, or host authority. It may submit exactly one bounded initial request within three seconds. A successful compatibility decision creates only a private provisional reservation; one matching acceptance is due within three seconds before atomic commit.
 - **Participant authority:** after admission, one immutable connection-to-participant binding controls only that participant's readiness, proposals, leave action, and owned player slots. Host-only actions require the locally created host participant. Disconnect removes the connection's authority while reservation ownership may remain for #36; intentional/expired participant removal clears ownership.
 - **Content and scripting:** guest Lua, content files, profile files, and profile-selected scripts never load or execute. Only host-installed and host-enabled gameplay scripts may later enter the authoritative manifest owned by #30.
 - **Resolver helper:** the packaged helper is started by an explicit executable path with direct arguments and no shell, bounded output, restricted inherited handles, fail-closed supervision, and the existing process-global cap of 32 active or delayed helpers.
@@ -52,13 +52,15 @@ This model limits accidental exposure and straightforward resource abuse by reac
 | Immediate admission-attempt burst | 4 |
 | First admission request | exactly one per connection |
 | First request deadline | 3 seconds |
+| Admission-offer acceptance | exactly one per successful offer |
+| Offer acceptance deadline | 3 seconds |
 | Concurrent manifest validations | 2 |
 
-Pending accounting is keyed by source IPv4 and is released when admission succeeds or the connection closes. It deliberately permits sequential and concurrently admitted participants behind one trusted IPv4 address. Limits are temporary controls only: there is no persistent ban or source denylist.
+Pending accounting is keyed by source IPv4 and is released when admission commits or the connection closes. Rejected offers and offers interrupted by send failure, invalid or missing acceptance, cancellation, timeout, or pre-admission close roll back all provisional participant, player-slot, ownership, and authority state. Provisional identity values remain burned and cannot be reassigned within the session. The policy deliberately permits sequential and concurrently admitted participants behind one trusted IPv4 address. Limits are temporary controls only: there is no persistent ban or source denylist.
 
 Source-rate bookkeeping is itself bounded to 256 active/recent IPv4 records and expires idle records after the rolling window. Exhausting that internal bookkeeping capacity fails closed without exposing source values.
 
-The current explicit server transport gives the diagnostic echo path a bounded transport-only success hook so #29 diagnostics continue to work without participant authority. Because that diagnostic is not a network session or admission path, it retains the transport's 15-connection diagnostic contract instead of consuming session pending-admission reservations. The normal scaffold session path enforces the pending/source quotas but has no #30 compatibility semantics and therefore returns the generic host-policy rejection rather than inventing release or manifest fields.
+The current explicit server transport gives the diagnostic echo path a bounded transport-only success hook so #29 diagnostics continue to work without participant authority. Because that diagnostic is not a network session or admission path, it retains the transport's 15-connection diagnostic contract instead of consuming session pending-admission reservations. The normal scaffold session path enforces the pending/source quotas and the #30 compatibility offer/accept/commit transaction.
 
 ## Bounded validation
 
@@ -101,7 +103,7 @@ Bandwidth and non-input action limits use token buckets. Token-bucket rates, cap
 
 ## Authorization and outcomes
 
-The authorization primitive models a locally created host, immutable connection-to-participant bindings, participant-owned player slots, host-only actions, and guest-own readiness/proposal/leave/input actions. Unauthorized authority action uses `session-policy-violation`, the fixed copy `Connection ended.`, and requires closing only the offender. No lobby or simulation behavior is implemented here.
+The authorization primitive models a locally created host, immutable connection-to-participant bindings, immutable participant-owned player slots, host-only actions, and guest-own readiness/proposal/leave/input actions. Host identity and ownership are initialized before listener readiness. Guest binding and ownership become visible together only when the matching admission acceptance commits. Unauthorized authority action uses `session-policy-violation`, the fixed copy `Connection ended.`, and requires closing only the offender. No lobby or simulation behavior is implemented here.
 
 Initial and session policy outcomes are fixed and non-disclosing:
 

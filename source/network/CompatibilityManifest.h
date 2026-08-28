@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -11,6 +12,8 @@ namespace Duel6::Network {
     constexpr std::size_t ContentIdentityBytes = 32;
     constexpr std::uintmax_t MaxGameplayContentFileBytes = 64u * 1024u * 1024u;
     constexpr std::uintmax_t MaxGameplayContentTotalBytes = 256u * 1024u * 1024u;
+    constexpr std::size_t MaxManifestDirectories = 256;
+    constexpr std::size_t MaxManifestTraversalEntries = 512;
 
     using ContentIdentity = std::array<std::uint8_t, ContentIdentityBytes>;
 
@@ -40,16 +43,25 @@ namespace Duel6::Network {
         bool valid() const { return status == ManifestStatus::Valid; }
     };
 
+    class ManifestSource {
+    public:
+        virtual ~ManifestSource() = default;
+        virtual ManifestBuildResult build(const std::string &resourceRoot,
+                                          const std::vector<std::string> &enabledGameplayScripts) const = 0;
+    };
+
     class CompatibilityManifestBuilder {
     public:
         explicit CompatibilityManifestBuilder(std::string resourceRoot,
-                                              std::vector<std::string> enabledGameplayScripts = {});
+                                              std::vector<std::string> enabledGameplayScripts = {},
+                                              std::shared_ptr<const ManifestSource> source = {});
 
         ManifestBuildResult build() const;
 
     private:
         std::string resourceRoot;
         std::vector<std::string> enabledGameplayScripts;
+        std::shared_ptr<const ManifestSource> source;
     };
 
     bool validCanonicalManifest(const GameplayManifest &manifest);
