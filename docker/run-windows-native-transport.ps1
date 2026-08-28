@@ -8,7 +8,7 @@ if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
     throw "vswhere.exe is not available at $vswhere"
 }
 
-$vsRoot = [string](& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
+$vsRoot = [string](& $vswhere -latest -version '[17.0,18.0)' -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
 $vsRoot = $vsRoot.Trim()
 if (-not $vsRoot) {
     throw 'Visual Studio 2022 with the x64 C++ toolchain is not available.'
