@@ -60,16 +60,24 @@
 - The workflow packages the shared Linux and Windows files as `duel6r-nightly.zip`.
 - The ZIP root contains the files from `build` without a `build` directory.
 - GitHub Actions uses a one-day transport artifact between the build and release jobs.
-- The repository provides the existing stable `nightly` tag and pre-release.
+- The repository provides the stable `nightly` tag.
 - The release job moves the `nightly` tag to the workflow commit.
-- The release job overwrites `duel6r-nightly.zip` on the existing pre-release.
-- Publication is non-transactional; a failure after moving the tag may require rerunning the workflow.
+- The release job deletes the release that uses the `nightly` tag when that release exists.
+- A missing nightly release does not stop publication.
+- The release job creates a new pre-release and uploads `duel6r-nightly.zip`.
+- Publication is non-transactional.
+- A failure after release deletion can leave the `nightly` tag without a release.
+- Operators can rerun the workflow to recover from a partial publication.
 - The release keeps the title `nightly` and does not create a nightly release history.
 - A failed build does not change the prior successful nightly release.
 - A package failure does not change the prior successful nightly release.
-- Nightly runs wait for an active nightly run to finish before release publication starts.
-- The release job uses `contents: write` permission with `GITHUB_TOKEN`.
-- The release job uses `PAT_ACTIONS` to move the `nightly` tag.
+- Nightly runs use `${{ github.workflow }}` as the concurrency group.
+- A newer dispatch cancels an active nightly run.
+- Cancellation after release deletion can leave the `nightly` tag without a release.
+- The release job uses `GITHUB_TOKEN` with `contents: write` to replace the release.
+- `GITHUB_TOKEN` limits release access to the current repository.
+- The release job uses `PAT_ACTIONS` only to move the `nightly` tag.
+- The tag token can start workflows that listen for the tag update.
 - `Release Artifact` builds release files after a push to `master` or a manual dispatch.
 - GitHub-hosted jobs use direct bind mounts because their Docker daemon shares the runner host filesystem.
 - Nightly and release publication need the permissions and secrets declared in their workflow files.

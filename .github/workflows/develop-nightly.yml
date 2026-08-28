@@ -79,7 +79,34 @@ jobs:
           token: ${{ secrets.PAT_ACTIONS }}
           create_if_missing: 'false'
 
-      - name: Update nightly pre-release
+      - name: Delete existing nightly release
+        uses: actions/github-script@v9
+        with:
+          script: |
+            let release;
+
+            try {
+              release = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: 'nightly',
+              });
+            } catch (error) {
+              if (error.status === 404) {
+                core.info('No existing nightly release was found.');
+                return;
+              }
+
+              throw error;
+            }
+
+            await github.rest.repos.deleteRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release.data.id,
+            });
+
+      - name: Create nightly pre-release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: nightly
@@ -87,7 +114,6 @@ jobs:
           prerelease: true
           make_latest: false
           files: release-assets/duel6r-nightly.zip
-          overwrite_files: true
           fail_on_unmatched_files: true
 
   tag:
