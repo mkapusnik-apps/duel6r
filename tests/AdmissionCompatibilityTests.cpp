@@ -103,6 +103,7 @@ namespace {
         bool cancelled = false;
         bool shutdown = false;
         std::vector<Server::AdmissionLifecycleEvent> events;
+        std::vector<Network::HostServiceStatusCode> hostedStatuses;
     };
 
     class FakeAdmissionConnection final : public Server::AdmissionRuntimeConnection {
@@ -253,6 +254,17 @@ namespace {
         };
         dependencies.lifecycleObserver = [fixture](const Server::AdmissionLifecycleEvent &event) {
             fixture->events.push_back(event); return true;
+        };
+        dependencies.hostedServiceStatus = [fixture](Network::HostServiceStatusCode status) {
+            fixture->hostedStatuses.push_back(status);
+            if (status == Network::HostServiceStatusCode::Ready) {
+                return std::any_of(fixture->events.begin(), fixture->events.end(), [](const auto &event) {
+                    return event.stage == Server::AdmissionLifecycleStage::HostInitialized;
+                }) && std::any_of(fixture->events.begin(), fixture->events.end(), [](const auto &event) {
+                    return event.stage == Server::AdmissionLifecycleStage::ListenerReady;
+                });
+            }
+            return true;
         };
         dependencies.manifestSource = std::make_shared<FixedManifestSource>(
                 Network::ManifestBuildResult{Network::ManifestStatus::Valid, host});
@@ -702,6 +714,8 @@ D6R_TEST_CASE("four-message runtime permits immediate acceptance before offer vi
     D6R_REQUIRE(offered.has_value());
     D6R_REQUIRE(fixture->connection->succeeded);
     D6R_REQUIRE(fixture->shutdown);
+    D6R_REQUIRE_EQ(std::size_t(1), fixture->hostedStatuses.size());
+    D6R_REQUIRE_EQ(Network::HostServiceStatusCode::Ready, fixture->hostedStatuses.front());
     D6R_REQUIRE(output.str().find("admitted\nparticipant-id=") != std::string::npos);
     const auto stageIndex = [&](Server::AdmissionLifecycleStage stage) {
         const auto found = std::find_if(fixture->events.begin(), fixture->events.end(),
@@ -830,6 +844,8 @@ D6R_TEST_CASE("host initializes before readiness and listener startup failure pe
     Server::HeadlessServer server(runtimeServerConfig(), std::move(dependencies));
     D6R_REQUIRE_EQ(2, server.run(output));
     D6R_REQUIRE(fixture->shutdown);
+    D6R_REQUIRE(std::find(fixture->hostedStatuses.begin(), fixture->hostedStatuses.end(),
+                          Network::HostServiceStatusCode::Ready) == fixture->hostedStatuses.end());
     const auto position = [&](Server::AdmissionLifecycleStage stage) {
         const auto found = std::find_if(fixture->events.begin(), fixture->events.end(),
                                         [stage](const auto &event) { return event.stage == stage; });
