@@ -166,12 +166,14 @@ namespace Duel6::Network {
         };
 
         std::wstring finalPath(HANDLE handle) {
-            const DWORD required = GetFinalPathNameByHandleW(handle, nullptr, 0, FILE_NAME_NORMALIZED);
+            const DWORD flags = FILE_NAME_NORMALIZED | VOLUME_NAME_DOS;
+            const DWORD required = GetFinalPathNameByHandleW(handle, nullptr, 0, flags);
             if (required == 0 || required > 32768) return {};
             std::wstring result(required, L'\0');
-            const DWORD written = GetFinalPathNameByHandleW(handle, result.data(), required, FILE_NAME_NORMALIZED);
+            const DWORD written = GetFinalPathNameByHandleW(handle, result.data(), required, flags);
             if (written == 0 || written >= required) return {};
             result.resize(written);
+            std::replace(result.begin(), result.end(), L'/', L'\\');
             return result;
         }
 
@@ -189,6 +191,125 @@ namespace Duel6::Network {
                                        nullptr, 0, nullptr, nullptr) > 0;
         }
 
+        bool ordinalPrefix(std::wstring_view value, std::wstring_view prefix, bool ignoreCase = false) {
+            if (value.size() < prefix.size() || prefix.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
+                return false;
+            return CompareStringOrdinal(value.data(), static_cast<int>(prefix.size()),
+                                        prefix.data(), static_cast<int>(prefix.size()), ignoreCase ? TRUE : FALSE)
+                   == CSTR_EQUAL;
+        }
+
+        bool strictWide(const std::string &value, std::wstring &result) {
+            if (value.empty() || value.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
+                return false;
+            const int required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                                     static_cast<int>(value.size()), nullptr, 0);
+            if (required <= 0 || required > 32767) return false;
+            result.resize(static_cast<std::size_t>(required));
+            return MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                       static_cast<int>(value.size()), result.data(), required) == required;
+        }
+
+        bool absoluteWidePath(const std::string &value, std::wstring &result) {
+            std::wstring wide;
+            if (!strictWide(value, wide)) return false;
+            std::replace(wide.begin(), wide.end(), L'/', L'\\');
+            const DWORD required = GetFullPathNameW(wide.c_str(), 0, nullptr, nullptr);
+            if (required == 0 || required > 32768) return false;
+            std::wstring absolute(required, L'\0');
+            const DWORD written = GetFullPathNameW(wide.c_str(), required, absolute.data(), nullptr);
+            if (written == 0 || written >= required) return false;
+            absolute.resize(written);
+            std::replace(absolute.begin(), absolute.end(), L'/', L'\\');
+            if (!validUnicode(absolute)) return false;
+            result = std::move(absolute);
+            return true;
+        }
+
+        bool splitAbsoluteWidePath(const std::wstring &input, std::wstring &pathRoot,
+                                   std::vector<std::wstring> &segments) {
+            if (!validUnicode(input) || input.size() > 32767) return false;
+            std::wstring path = input;
+            std::replace(path.begin(), path.end(), L'/', L'\\');
+            std::size_t position = 0;
+            const auto uncRoot = [&](std::size_t start) -> bool {
+                const std::size_t serverEnd = path.find(L'\\', start);
+                if (serverEnd == std::wstring::npos || serverEnd == start) return false;
+                const std::size_t shareEnd = path.find(L'\\', serverEnd + 1);
+                if (shareEnd == serverEnd + 1) return false;
+                if (shareEnd == std::wstring::npos) {
+                    pathRoot = path + L'\\';
+                    position = path.size();
+                } else {
+                    pathRoot = path.substr(0, shareEnd + 1);
+                    position = shareEnd + 1;
+                }
+                return true;
+            };
+
+            if (ordinalPrefix(path, L"\\\\?\\UNC\\", true)) {
+                if (!uncRoot(8)) return false;
+            } else if (ordinalPrefix(path, L"\\\\?\\", false)) {
+                if (path.size() >= 7 && path[5] == L':' && path[6] == L'\\'
+                    && ((path[4] >= L'A' && path[4] <= L'Z') || (path[4] >= L'a' && path[4] <= L'z'))) {
+                    pathRoot = path.substr(0, 7);
+                    position = 7;
+                } else {
+                    const std::size_t componentEnd = path.find(L'\\', 4);
+                    if (componentEnd == std::wstring::npos) return false;
+                    const std::wstring_view component(path.data() + 4, componentEnd - 4);
+                    if (!ordinalPrefix(component, L"Volume{", true) || component.back() != L'}') return false;
+                    pathRoot = path.substr(0, componentEnd + 1);
+                    position = componentEnd + 1;
+                }
+            } else if (ordinalPrefix(path, L"\\\\", false)) {
+                if (!uncRoot(2)) return false;
+            } else if (path.size() >= 3 && path[1] == L':' && path[2] == L'\\'
+                       && ((path[0] >= L'A' && path[0] <= L'Z') || (path[0] >= L'a' && path[0] <= L'z'))) {
+                pathRoot = path.substr(0, 3);
+                position = 3;
+            } else {
+                return false;
+            }
+
+            while (position < path.size()) {
+                const std::size_t end = path.find(L'\\', position);
+                const std::size_t length = (end == std::wstring::npos ? path.size() : end) - position;
+                if (length == 0) return false;
+                std::wstring segment = path.substr(position, length);
+                if (segment == L"." || segment == L".." || segment.find(L':') != std::wstring::npos)
+                    return false;
+                segments.push_back(std::move(segment));
+                if (segments.size() > Trust::MaxLogicalPathSegments + 256) return false;
+                if (end == std::wstring::npos) break;
+                position = end + 1;
+                if (position == path.size()) break;
+            }
+            return !pathRoot.empty();
+        }
+
+        bool appendWideComponent(std::wstring &path, std::wstring_view component) {
+            if (component.empty() || component == L"." || component == L".."
+                || component.find(L'\\') != std::wstring_view::npos
+                || component.find(L'/') != std::wstring_view::npos
+                || component.find(L':') != std::wstring_view::npos) return false;
+            if (path.empty() || path.size() + component.size() + 1 > 32767) return false;
+            if (path.back() != L'\\') path.push_back(L'\\');
+            path.append(component);
+            return true;
+        }
+
+        bool logicalWidePath(const std::string &logical, std::wstring &result) {
+            if (!Trust::validLogicalPath(logical)) return false;
+            result.clear();
+            result.reserve(logical.size());
+            for (const unsigned char byte: logical) {
+                if (byte >= 0x80) return false;
+                result.push_back(byte == '/' ? L'\\' : static_cast<wchar_t>(byte));
+            }
+            return !result.empty();
+        }
+
         bool sameFileIdentity(const BY_HANDLE_FILE_INFORMATION &left,
                               const BY_HANDLE_FILE_INFORMATION &right) {
             return left.dwVolumeSerialNumber == right.dwVolumeSerialNumber
@@ -197,9 +318,9 @@ namespace Duel6::Network {
         }
 
         bool insideFinalRoot(const std::wstring &root, const std::wstring &candidate) {
-            return candidate.size() > root.size()
-                   && ordinalEqual(root, std::wstring_view(candidate.data(), root.size()))
-                   && (candidate[root.size()] == L'\\' || candidate[root.size()] == L'/');
+            if (candidate.size() <= root.size()
+                || !ordinalEqual(root, std::wstring_view(candidate.data(), root.size()))) return false;
+            return root.back() == L'\\' || candidate[root.size()] == L'\\';
         }
 
         bool utf8Name(const wchar_t *value, std::string &result) {
@@ -217,21 +338,20 @@ namespace Duel6::Network {
         public:
             SecureFilesystem(const std::string &rootText, ManifestFilesystemObserver observer)
                     : observer(std::move(observer)) {
-                fs::path requestedRoot;
-                try { requestedRoot = fs::absolute(fs::u8path(rootText)).lexically_normal(); } catch (...) { return; }
-                if (!validUnicode(requestedRoot.native())) return;
+                std::wstring requestedRoot;
+                if (!absoluteWidePath(rootText, requestedRoot)) return;
                 root = Handle(CreateFileW(requestedRoot.c_str(), FILE_READ_ATTRIBUTES,
                                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                                           OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
                 if (!root) return;
                 if (!GetFileInformationByHandle(root.get(), &rootInformation)
                     || !(rootInformation.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-                    || (rootInformation.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) return;
+                    || (rootInformation.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DEVICE)))
+                    return;
                 rootVolume = rootInformation.dwVolumeSerialNumber;
                 rootFinal = finalPath(root.get());
                 if (rootFinal.empty() || !validUnicode(rootFinal)) return;
-                try { rootPath = fs::path(rootFinal).lexically_normal(); } catch (...) { return; }
-                if (!pinAncestorChain(requestedRoot) || !pinAncestorChain(rootPath)
+                if (!pinAncestorChain(requestedRoot) || !pinAncestorChain(rootFinal)
                     || !validatePinnedRoot()) return;
                 validRoot = notify(ManifestFilesystemStage::RootPinned, {});
             }
@@ -241,7 +361,9 @@ namespace Duel6::Network {
             ManifestStatus enumerate(std::vector<std::string> &paths) const {
                 if (!validatePinnedRoot()) return ManifestStatus::UnsafeFilesystemEntry;
                 std::size_t directories = 0, examined = 0;
-                return enumerateDirectory(rootPath / L"levels", "levels", 1, directories, examined, paths);
+                std::wstring levels = rootFinal;
+                if (!appendWideComponent(levels, L"levels")) return ManifestStatus::InvalidLogicalPath;
+                return enumerateDirectory(levels, "levels", 1, directories, examined, paths);
             }
 
             ManifestStatus size(const std::string &logical, std::uintmax_t &value) const {
@@ -303,28 +425,26 @@ namespace Duel6::Network {
                 PinnedDirectory &operator=(PinnedDirectory &&) noexcept = default;
             };
 
-            bool pinAncestorChain(const fs::path &path) {
-                fs::path current = path.root_path();
-                if (current.empty() || !pinAncestor(current)) return false;
-                for (const fs::path &segment: path.relative_path()) {
-                    if (segment.empty() || segment == L".") continue;
-                    if (segment == L"..") return false;
-                    current /= segment;
-                    if (!pinAncestor(current)) return false;
+            bool pinAncestorChain(const std::wstring &path) {
+                std::wstring current;
+                std::vector<std::wstring> segments;
+                if (!splitAbsoluteWidePath(path, current, segments) || !pinAncestor(current)) return false;
+                for (const std::wstring &segment: segments) {
+                    if (!appendWideComponent(current, segment) || !pinAncestor(current)) return false;
                 }
                 return !pinnedAncestors.empty()
                        && sameFileIdentity(pinnedAncestors.back().information, rootInformation);
             }
 
-            bool pinAncestor(const fs::path &path) {
-                if (pinnedAncestors.size() >= 512 || !validUnicode(path.native())) return false;
+            bool pinAncestor(const std::wstring &path) {
+                if (pinnedAncestors.size() >= 512 || !validUnicode(path)) return false;
                 Handle handle(CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
                                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
                                           FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
                 BY_HANDLE_FILE_INFORMATION information{};
                 if (!handle || !GetFileInformationByHandle(handle.get(), &information)
                     || !(information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-                    || (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                    || (information.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DEVICE))
                     || information.dwVolumeSerialNumber != rootVolume) return false;
                 std::wstring resolved = finalPath(handle.get());
                 if (resolved.empty() || !validUnicode(resolved)) return false;
@@ -337,7 +457,7 @@ namespace Duel6::Network {
                 if (!GetFileInformationByHandle(root.get(), &currentRoot)
                     || !sameFileIdentity(rootInformation, currentRoot)
                     || !(currentRoot.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-                    || (currentRoot.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                    || (currentRoot.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DEVICE))
                     || currentRoot.dwVolumeSerialNumber != rootVolume
                     || !ordinalEqual(rootFinal, finalPath(root.get()))) return false;
                 for (const PinnedDirectory &ancestor: pinnedAncestors) {
@@ -345,7 +465,7 @@ namespace Duel6::Network {
                     if (!GetFileInformationByHandle(ancestor.handle.get(), &current)
                         || !sameFileIdentity(ancestor.information, current)
                         || !(current.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-                        || (current.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                        || (current.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DEVICE))
                         || current.dwVolumeSerialNumber != rootVolume
                         || !ordinalEqual(ancestor.resolved, finalPath(ancestor.handle.get()))) return false;
                 }
@@ -356,13 +476,19 @@ namespace Duel6::Network {
                                      BY_HANDLE_FILE_INFORMATION &information) const {
                 if (!approvedLogicalPath(logical)) return ManifestStatus::InvalidLogicalPath;
                 if (!validatePinnedRoot()) return ManifestStatus::UnsafeFilesystemEntry;
-                fs::path relative;
-                try { relative = fs::u8path(logical); } catch (...) { return ManifestStatus::InvalidLogicalPath; }
+                std::wstring relative;
+                if (!logicalWidePath(logical, relative)) return ManifestStatus::InvalidLogicalPath;
                 std::vector<Handle> pinnedParents;
-                const ManifestStatus pinned = pinParents(relative.parent_path(), pinnedParents);
+                const std::size_t separator = logical.find_last_of('/');
+                const std::string parent = separator == std::string::npos ? std::string{} : logical.substr(0, separator);
+                const ManifestStatus pinned = pinParents(parent, pinnedParents);
                 if (pinned != ManifestStatus::Valid) return pinned;
                 if (!validatePinnedRoot()) return ManifestStatus::UnsafeFilesystemEntry;
-                file = Handle(CreateFileW((rootPath / relative).c_str(), GENERIC_READ,
+                std::wstring filePath = rootFinal;
+                if (filePath.back() != L'\\') filePath.push_back(L'\\');
+                if (filePath.size() + relative.size() > 32767) return ManifestStatus::InvalidLogicalPath;
+                filePath += relative;
+                file = Handle(CreateFileW(filePath.c_str(), GENERIC_READ,
                                           FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                           FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
                 if (!file || !GetFileInformationByHandle(file.get(), &information)) return ManifestStatus::ReadFailed;
@@ -372,23 +498,27 @@ namespace Duel6::Network {
                     return ManifestStatus::UnsafeFilesystemEntry;
                 const std::wstring resolved = finalPath(file.get());
                 std::wstring expected = rootFinal;
-                expected.push_back(L'\\');
-                std::wstring relativeText = relative.native();
-                std::replace(relativeText.begin(), relativeText.end(), L'/', L'\\');
-                expected += relativeText;
+                if (expected.back() != L'\\') expected.push_back(L'\\');
+                expected += relative;
                 if (!insideFinalRoot(rootFinal, resolved) || !ordinalEqual(expected, resolved))
                     return ManifestStatus::UnsafeFilesystemEntry;
                 return notify(ManifestFilesystemStage::FileOpened, logical) ? ManifestStatus::Valid
                                                                             : ManifestStatus::ReadFailed;
             }
 
-            ManifestStatus pinParents(const fs::path &relativeParent, std::vector<Handle> &pinned) const {
-                fs::path current = rootPath;
+            ManifestStatus pinParents(const std::string &relativeParent, std::vector<Handle> &pinned) const {
+                std::wstring current = rootFinal;
                 std::string logical;
-                for (const fs::path &segment: relativeParent) {
-                    if (segment.empty()) continue;
+                std::size_t begin = 0;
+                while (begin < relativeParent.size()) {
+                    const std::size_t end = relativeParent.find('/', begin);
+                    const std::string segment = relativeParent.substr(
+                            begin, (end == std::string::npos ? relativeParent.size() : end) - begin);
+                    if (segment.empty() || !Trust::validLogicalPath(segment))
+                        return ManifestStatus::InvalidLogicalPath;
                     if (!validatePinnedRoot()) return ManifestStatus::UnsafeFilesystemEntry;
-                    current /= segment;
+                    const std::wstring wideSegment(segment.begin(), segment.end());
+                    if (!appendWideComponent(current, wideSegment)) return ManifestStatus::InvalidLogicalPath;
                     Handle directory(CreateFileW(current.c_str(), FILE_READ_ATTRIBUTES,
                                                  FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
                                                  FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
@@ -396,14 +526,13 @@ namespace Duel6::Network {
                     if (!directory || !GetFileInformationByHandle(directory.get(), &information))
                         return ManifestStatus::MissingRequiredContent;
                     if (!(information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-                        || (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                        || (information.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DEVICE))
                         || information.dwVolumeSerialNumber != rootVolume)
                         return ManifestStatus::UnsafeFilesystemEntry;
-                    std::string name;
-                    if (!utf8Name(segment.c_str(), name)) return ManifestStatus::InvalidLogicalPath;
                     if (!logical.empty()) logical += '/';
-                    logical += name;
-                    std::wstring expected = rootFinal + L"\\";
+                    logical += segment;
+                    std::wstring expected = rootFinal;
+                    if (expected.back() != L'\\') expected.push_back(L'\\');
                     std::wstring logicalWide(logical.begin(), logical.end());
                     std::replace(logicalWide.begin(), logicalWide.end(), L'/', L'\\');
                     expected += logicalWide;
@@ -413,11 +542,13 @@ namespace Duel6::Network {
                     if (!notify(ManifestFilesystemStage::DirectoryPinned, logical))
                         return ManifestStatus::ReadFailed;
                     pinned.push_back(std::move(directory));
+                    if (end == std::string::npos) break;
+                    begin = end + 1;
                 }
                 return ManifestStatus::Valid;
             }
 
-            ManifestStatus enumerateDirectory(const fs::path &directory, const std::string &logicalPrefix,
+            ManifestStatus enumerateDirectory(const std::wstring &directory, const std::string &logicalPrefix,
                                                std::size_t depth, std::size_t &directories, std::size_t &examined,
                                                std::vector<std::string> &paths) const {
                 if (depth > Trust::MaxLogicalPathSegments || ++directories > MaxManifestDirectories)
@@ -431,10 +562,11 @@ namespace Duel6::Network {
                 if (!directoryHandle || !GetFileInformationByHandle(directoryHandle.get(), &directoryInfo))
                     return ManifestStatus::MissingRequiredContent;
                 if (!(directoryInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-                    || (directoryInfo.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                    || (directoryInfo.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DEVICE))
                     || directoryInfo.dwVolumeSerialNumber != rootVolume)
                     return ManifestStatus::UnsafeFilesystemEntry;
-                std::wstring expected = rootFinal + L"\\";
+                std::wstring expected = rootFinal;
+                if (expected.back() != L'\\') expected.push_back(L'\\');
                 std::wstring logicalWide(logicalPrefix.begin(), logicalPrefix.end());
                 std::replace(logicalWide.begin(), logicalWide.end(), L'/', L'\\');
                 expected += logicalWide;
@@ -446,7 +578,9 @@ namespace Duel6::Network {
 
                 if (!validatePinnedRoot()) return ManifestStatus::UnsafeFilesystemEntry;
                 WIN32_FIND_DATAW data{};
-                HANDLE raw = FindFirstFileW((directory / L"*").c_str(), &data);
+                std::wstring pattern = directory;
+                if (!appendWideComponent(pattern, L"*")) return ManifestStatus::InvalidLogicalPath;
+                HANDLE raw = FindFirstFileW(pattern.c_str(), &data);
                 if (raw == INVALID_HANDLE_VALUE) return ManifestStatus::ReadFailed;
                 struct FindCloser { HANDLE value; ~FindCloser() { FindClose(value); } } closer{raw};
                 do {
@@ -461,7 +595,9 @@ namespace Duel6::Network {
                     if (data.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DEVICE))
                         return ManifestStatus::UnsafeFilesystemEntry;
                     if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-                        const ManifestStatus status = enumerateDirectory(directory / data.cFileName, logical,
+                        std::wstring child = directory;
+                        if (!appendWideComponent(child, data.cFileName)) return ManifestStatus::InvalidLogicalPath;
+                        const ManifestStatus status = enumerateDirectory(child, logical,
                                                                          depth + 1, directories, examined, paths);
                         if (status != ManifestStatus::Valid) return status;
                     } else {
@@ -472,7 +608,6 @@ namespace Duel6::Network {
                 return GetLastError() == ERROR_NO_MORE_FILES ? ManifestStatus::Valid : ManifestStatus::ReadFailed;
             }
 
-            fs::path rootPath;
             Handle root;
             std::wstring rootFinal;
             BY_HANDLE_FILE_INFORMATION rootInformation{};

@@ -148,12 +148,14 @@ The screen specifications and wireframes document other player counts, modes, in
 ## Issue #30 operational evidence matrix
 
 This matrix was prepared for issue #30 and draft PR #50 at reviewed head `4eb4291d3090e2a3b9de8fc83f130671d8b3eb5e`.
-The final UX review assessed the implemented scope at exact head `1a3a52c66ab36944ce5fb25e235ceace7d99ceb9`.
+The final UX reassessment covers the implemented scope at exact head `79bd7b0dfacee97a8b940f04dea70900fa4773ad`.
 The issue #30 graphical screenshot matrix contains exactly zero entries.
 No affected wireframe has an implemented graphical state in issue #30.
 Terminal or command-line output is operational evidence and is not an implementation screenshot.
 Operational evidence must record the implementation branch, source SHA, environment, command or test scenario, exact machine outcome, exact visible output when applicable, and artifact path.
-The registered operational evidence sources are `tests/AdmissionCompatibilityTests.cpp`, `tests/AdmissionProcessTests.py`, and `tests/SessionTransportCTestRegistration.cmake`.
+The implementation evidence sources are `source/network/SessionTransport.h`, `source/network/SessionTransport.cpp`, and `source/server/HeadlessServer.cpp`.
+The registered operational evidence sources are `tests/AdmissionCompatibilityTests.cpp`, `tests/AdmissionProcessTests.py`, `tests/SessionTransportTests.cpp`, and `tests/SessionTransportCTestRegistration.cmake`.
+The applicable workflow evidence sources are `.github/workflows/branch.yml` and `.github/workflows/native-windows-transport.yml`.
 
 | Operational scenario | Required substitute evidence |
 |---|---|
@@ -162,6 +164,7 @@ The registered operational evidence sources are `tests/AdmissionCompatibilityTes
 | Initial admission precedence | Automated results must exercise all 11 ordered identifiers and must show that the first applicable complete host result wins. |
 | Initial outcome copy | Automated results must assert every exact rejection string, including release, invalid manifest, content mismatch, match started, session full, and host policy outcomes. |
 | Malformed host messages | Actual-process results must show that malformed, trailing, unexpected, or inconsistent complete host messages use `invalid-host-admission-message` and `Connection ended before admission completed.` without dynamic peer detail. |
+| Atomic cancellation and acceptance gate | Automated results must show one total order for Cancel, acceptance enqueue, and outcome publication; Cancel before enqueue or publication must produce no visible host result or success. |
 | Transport precedence | Automated results must distinguish name-resolution failure, unreachable or refusal, close before complete admission, and no complete result at the 10-second deadline. |
 | Cancellation and destinations | Automated or integration results must show that Cancel and local validation win, retained setup is preserved, and no pre-admission identity or slot remains. |
 | Reconnect compatibility handoff | Automated results must assert the exact release and content restoration copy and disabled reconnect Retry semantics. |
