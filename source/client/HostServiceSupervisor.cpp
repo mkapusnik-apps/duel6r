@@ -247,14 +247,21 @@ namespace Duel6::Client {
     }
 
     void HostServiceSupervisor::monitorOwnedChild() {
+        HostServiceExitEvent exitEvent;
+        bool exitObserved = false;
         for (;;) {
             SelectedStop stop = SelectedStop::None;
             HostServiceOutcome stopOutcome = HostServiceOutcome::None;
             HostServiceStatusEvent event;
             bool received = false;
-            bool exited = false;
             try { received = child->readStatus(event, std::chrono::milliseconds(5)); } catch (...) {}
-            try { exited = child->hasExited(); } catch (...) { exited = true; }
+            if (!exitObserved) {
+                try { exitObserved = child->observeExit(exitEvent, [this] { return now(); }); }
+                catch (...) {
+                    exitObserved = true;
+                    exitEvent.observedAt = now();
+                }
+            }
 
             HostServiceSnapshot transition;
             bool didTransition = false;
@@ -270,9 +277,12 @@ namespace Duel6::Client {
                                                  && event.code != Network::HostServiceStatusCode::Ready;
                     if (specificFailure) {
                         selectStopLocked(SelectedStop::StartupFailure, outcomeForStatus(event.code));
-                    } else if (exited) {
+                    } else if (exitObserved) {
                         // A Ready message and direct-child exit observed in one cycle never expose Active.
-                        selectStopLocked(SelectedStop::StartupFailure, HostServiceOutcome::ExitedBeforeReady);
+                        const auto exitOutcome = exitEvent.observedAt < startupDeadline
+                                                 ? HostServiceOutcome::ExitedBeforeReady
+                                                 : HostServiceOutcome::StartupTimedOut;
+                        selectStopLocked(SelectedStop::StartupFailure, exitOutcome);
                     } else if (beforeDeadline && event.code == Network::HostServiceStatusCode::Ready) {
                         state = HostServiceState::Active;
                         outcome = HostServiceOutcome::None;
@@ -282,7 +292,7 @@ namespace Duel6::Client {
                     }
                     stop = selectedStop;
                     stopOutcome = selectedOutcome;
-                } else if (exited && state == HostServiceState::Active) {
+                } else if (exitObserved && state == HostServiceState::Active) {
                     selectStopLocked(SelectedStop::SessionFailure, HostServiceOutcome::StoppedUnexpectedly);
                     stop = selectedStop;
                     stopOutcome = selectedOutcome;

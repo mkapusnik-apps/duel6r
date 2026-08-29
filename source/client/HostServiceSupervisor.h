@@ -51,6 +51,10 @@ namespace Duel6::Client {
         HostServiceTimePoint receivedAt{};
     };
 
+    struct HostServiceExitEvent {
+        HostServiceTimePoint observedAt{};
+    };
+
     struct HostServiceStartConfig {
         std::string serverExecutable;
         Network::Endpoint endpoint;
@@ -75,6 +79,17 @@ namespace Duel6::Client {
         virtual ~HostServiceChild() = default;
         virtual bool readStatus(HostServiceStatusEvent &event, std::chrono::milliseconds timeout) = 0;
         virtual bool hasExited() = 0;
+        virtual bool observeExit(HostServiceExitEvent &event,
+                                 const std::function<HostServiceTimePoint()> &observationClock) {
+            std::lock_guard<std::mutex> lock(exitObservationMutex);
+            if (!exitObservationRecorded) {
+                if (!hasExited()) return false;
+                firstExitObservation = observationClock();
+                exitObservationRecorded = true;
+            }
+            event.observedAt = firstExitObservation;
+            return true;
+        }
         virtual void requestStop() = 0;
         virtual bool waitForExit(std::chrono::milliseconds timeout) = 0;
         virtual void forceTerminate() = 0;
@@ -83,6 +98,11 @@ namespace Duel6::Client {
             waitForExit(timeout);
             return cleanupConfirmed();
         }
+
+    private:
+        std::mutex exitObservationMutex;
+        HostServiceTimePoint firstExitObservation{};
+        bool exitObservationRecorded = false;
     };
 
     using HostServiceLauncher = std::function<std::unique_ptr<HostServiceChild>(const HostServiceStartConfig &)>;

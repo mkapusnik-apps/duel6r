@@ -116,7 +116,7 @@ Before readiness, the host application must select the first applicable outcome 
 2. Application shutdown accepted before another terminal result.
 3. A specific issue #30 host compatibility failure confirmed before the deadline.
 4. A port conflict confirmed before the deadline.
-5. A hosted-service early exit confirmed before the deadline.
+5. A hosted-service exit first confirmed with an authoritative observation timestamp strictly before the deadline.
 6. Another specific startup failure confirmed before the deadline.
 7. Readiness confirmed strictly before the deadline.
 8. No complete result at the deadline.
@@ -124,6 +124,8 @@ Before readiness, the host application must select the first applicable outcome 
 Cancel is not a failure. It must return to editable `NET-02` after cleanup.
 
 A complete specific result confirmed before the deadline must not change to timeout because cleanup completes later.
+
+The child-process boundary must record its first confirmed exit observation exactly once. Delayed monitor processing must retain that recorded timestamp rather than resampling the clock. An exit first confirmed strictly before the startup deadline uses `host-service-exited-before-ready`; an exit first confirmed at or after the deadline uses `host-service-startup-timed-out`. A specific fixed failure status observed strictly before the deadline keeps its higher precedence over an exit observed in the same monitor cycle. Ready at or after the deadline cannot activate, and Ready observed in the same cycle as exit follows the exit precedence. Cancel or application shutdown already accepted under the lifecycle lock remains authoritative.
 
 An invalid host manifest must keep `host-gameplay-content-manifest-invalid` and its issue #30 behavior. This document does not replace that identifier.
 
