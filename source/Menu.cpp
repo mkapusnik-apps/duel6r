@@ -1037,7 +1037,15 @@ namespace Duel6 {
     }
 
     void Menu::mouseButtonEvent(const MouseButtonEvent &event) {
+        bool roundsWasFocused = roundsTextbox->isFocused();
         gui.mouseButtonEvent(event);
+
+        if (!roundsWasFocused && roundsTextbox->isFocused() && roundsTextbox->getText() == "0") {
+            roundsTextbox->flush();
+        } else if (roundsWasFocused && !roundsTextbox->isFocused() && roundsTextbox->getText().empty()) {
+            game->getSettings().setMaxRounds(0);
+            updateRoundsTextbox();
+        }
     }
 
     void Menu::mouseMotionEvent(const MouseMotionEvent &event) {

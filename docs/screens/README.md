@@ -18,10 +18,13 @@ This update does not add a screen or a wireframe.
 The 2026-08-26 approved menu presentation preserves that 850 by 700 logical layout while uniformly scaling and centering it, replacing the black matte with one session-persistent blurred gameplay still under a 55% black scrim, and adding a black canvas keyline.
 The same presentation appears in `MENU-01`, behind messages in `MENU-02`, and below the unscaled full-width console in `CONS-01`.
 This presentation change invalidates the prior representative screenshots for those three existing wireframes but does not add a screen or wireframe.
+The 2026-08-29 Rounds update changes the visible focus, empty, restored-zero, and session-retained-value states in `MENU-01`.
+This update does not add a screen or wireframe.
+The `MENU-01` representative screenshot must show the applied positive value after gameplay returns during the same application session.
 
 | Screen ID | Screen or state | Specification | Wireframe | Functional requirements | Primary source |
 |---|---|---|---|---|---|
-| `MENU-01` | Main menu and session setup; planned Network entry | [Specification](menu-main.md) | [Wireframe](wireframes/menu-main.md) | Existing local requirements plus target `NET-AC-002`, `NET-AC-009`, `NET-AC-015` | Current: `source/Menu.cpp`; target: `docs/network-play-first-release.md` |
+| `MENU-01` | Main menu and session setup; planned Network entry | [Specification](menu-main.md) | [Wireframe](wireframes/menu-main.md) | `SET-001`–`SET-035`, `AC-040`–`AC-043`, plus target `NET-AC-002`, `NET-AC-009`, `NET-AC-015` | Current: `source/Menu.cpp`; target: `docs/features.md` and `docs/network-play-first-release.md` |
 | `MENU-02` | Menu blocking message over planned Network footer | [Specification](menu-message.md) | [Wireframe](wireframes/menu-message.md) | Existing local requirements plus target `NET-AC-015`, `NET-AC-017` | Current: `source/Menu.cpp`; target footer: `docs/network-play-first-release.md` |
 | `PLAY-01` | Live shared arena gameplay for 2–15 players | [Specification](play-fullscreen.md) | [Wireframe](wireframes/play-fullscreen.md) | `LIF-001`–`LIF-022`, `INP-012`–`INP-017`, `PLY-001`–`PLY-010`, `ENV-001`–`ENV-013`, `CMB-001`–`CMB-020`, `BON-001`–`BON-020`, `SCO-001`–`SCO-018`, `UI-001`–`UI-020` | Target: `docs/features.md`; context: `source/WorldRenderer.cpp` |
 | `MODE-01` | Predator live gameplay | [Specification](mode-predator.md) | [Wireframe](wireframes/mode-predator.md) | `MOD-PR-001`–`MOD-PR-008`, `UI-001`–`UI-020` | `source/gamemodes/Predator.cpp` |

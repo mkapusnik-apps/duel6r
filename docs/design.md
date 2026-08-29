@@ -163,7 +163,17 @@ The following values come from renderer and GUI source.
 - A focused text field must append an underscore to its text.
 - Only one text field must have focus at a time.
 - The person-name field must accept only its implemented character set.
-- The rounds field must accept digits only.
+- The Rounds field must accept digits only.
+- The Rounds field must show `0` at application startup unless a startup setting overrides it.
+- The application must keep the applied Rounds value during the current application session.
+- The Rounds field must show the applied value when gameplay returns to the menu.
+- The application must not restore a Rounds value from an earlier application session.
+- Focus must clear the Rounds field immediately when the field shows exactly `0`.
+- Focus must keep the Rounds field value unchanged when the field shows a positive value.
+- The focused empty Rounds field must show only the standard focus underscore.
+- Focus loss from an empty Rounds field must show `0` and set unlimited-round semantics.
+- Focus loss from a non-empty Rounds field must not apply the edit.
+- Enter and Play must retain their existing Rounds application behavior.
 - The menu has no implemented disabled style.
 - Invalid actions may produce no visible change unless a blocking message is documented for that action.
 
