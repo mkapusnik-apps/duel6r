@@ -148,14 +148,14 @@ The screen specifications and wireframes document other player counts, modes, in
 ## Issue #30 operational evidence matrix
 
 This matrix was prepared for issue #30 and draft PR #50 at reviewed head `4eb4291d3090e2a3b9de8fc83f130671d8b3eb5e`.
-The final UX reassessment covers the implemented scope at exact head `79bd7b0dfacee97a8b940f04dea70900fa4773ad`.
+The final UX reassessment covers the implemented scope at exact head `21eed266bf371511130281df9e5252c7219aa006`.
 The issue #30 graphical screenshot matrix contains exactly zero entries.
 No affected wireframe has an implemented graphical state in issue #30.
 Terminal or command-line output is operational evidence and is not an implementation screenshot.
 Operational evidence must record the implementation branch, source SHA, environment, command or test scenario, exact machine outcome, exact visible output when applicable, and artifact path.
 The implementation evidence sources are `source/network/SessionTransport.h`, `source/network/SessionTransport.cpp`, and `source/server/HeadlessServer.cpp`.
 The registered operational evidence sources are `tests/AdmissionCompatibilityTests.cpp`, `tests/AdmissionProcessTests.py`, `tests/SessionTransportTests.cpp`, and `tests/SessionTransportCTestRegistration.cmake`.
-The applicable workflow evidence sources are `.github/workflows/branch.yml` and `.github/workflows/native-windows-transport.yml`.
+The applicable workflow evidence sources are `.github/workflows/branch.yml`, `.github/workflows/native-windows-transport.yml`, and `docker/build-windows-native-transport.cmd`.
 
 | Operational scenario | Required substitute evidence |
 |---|---|

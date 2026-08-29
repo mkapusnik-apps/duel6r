@@ -39,11 +39,22 @@ namespace {
             fs::create_directories(root);
         }
         ~TemporaryResources() { std::error_code ignored; fs::remove_all(root, ignored); }
-        void write(const std::string &logical, const std::string &bytes = "content") const {
+        bool write(const std::string &logical, const std::string &bytes = "content") const {
             const fs::path path = root / fs::path(logical);
-            fs::create_directories(path.parent_path());
+            std::error_code error;
+            fs::create_directories(path.parent_path(), error);
+            if (error) return false;
             std::ofstream stream(path, std::ios::binary);
             stream.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            stream.close();
+            return !stream.fail();
+        }
+        std::optional<std::string> read(const std::string &logical) const {
+            std::ifstream stream(root / fs::path(logical), std::ios::binary);
+            if (!stream) return std::nullopt;
+            std::string result((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+            if (stream.bad()) return std::nullopt;
+            return result;
         }
         void required() const {
             write("levels/arena.json", "arena");
@@ -1384,20 +1395,39 @@ D6R_TEST_CASE("manifest source seam propagates deterministic mutation read and u
 
 D6R_TEST_CASE("secure filesystem observer deterministically detects pinned-file mutation and read failure") {
     TemporaryResources mutated; mutated.required();
-    bool changed = false;
+    const auto original = Network::CompatibilityManifestBuilder(mutated.root.string()).build();
+    D6R_REQUIRE(original.valid());
+    bool mutationAttempted = false;
+    bool mutationSucceeded = false;
     std::vector<std::pair<Network::ManifestFilesystemStage, std::string>> stages;
     auto mutate = [&](Network::ManifestFilesystemStage stage, const std::string &logical) {
         stages.emplace_back(stage, logical);
-        if (!changed && stage == Network::ManifestFilesystemStage::BeforeRead && logical == "levels/arena.json") {
-            mutated.write(logical, "mutated-after-open");
-            changed = true;
+        if (!mutationAttempted && stage == Network::ManifestFilesystemStage::BeforeRead
+            && logical == "levels/arena.json") {
+            mutationAttempted = true;
+            mutationSucceeded = mutated.write(logical, "mutated-after-open");
         }
         return true;
     };
     const auto mutationResult = Network::CompatibilityManifestBuilder(
             mutated.root.string(), {}, {}, mutate).build();
-    D6R_REQUIRE(changed);
-    D6R_REQUIRE(mutationResult.status == Network::ManifestStatus::ReadFailed);
+    const auto mutationFailure = [&] {
+        throw Test::Failure("filesystem mutation outcome mismatch: attempted="
+                            + std::string(mutationAttempted ? "true" : "false")
+                            + " succeeded=" + std::string(mutationSucceeded ? "true" : "false")
+                            + " manifest-status=" + std::to_string(static_cast<int>(mutationResult.status)));
+    };
+    if (!mutationAttempted) mutationFailure();
+    const auto stored = mutated.read("levels/arena.json");
+    if (mutationSucceeded) {
+        if (mutationResult.valid()
+            || (mutationResult.status != Network::ManifestStatus::ReadFailed
+                && mutationResult.status != Network::ManifestStatus::UnsafeFilesystemEntry)
+            || !stored || *stored != "mutated-after-open") mutationFailure();
+    } else {
+        if (!mutationResult.valid() || !sameManifest(original.manifest, mutationResult.manifest)
+            || !stored || *stored != "arena") mutationFailure();
+    }
     D6R_REQUIRE(std::any_of(stages.begin(), stages.end(), [](const auto &event) {
         return event.first == Network::ManifestFilesystemStage::RootPinned;
     }));
@@ -1410,8 +1440,55 @@ D6R_TEST_CASE("secure filesystem observer deterministically detects pinned-file 
         return !(stage == Network::ManifestFilesystemStage::BeforeRead && logical == "levels/arena.json");
     };
     D6R_REQUIRE(Network::CompatibilityManifestBuilder(failedRead.root.string(), {}, {}, failBeforeRead).build().status ==
-                Network::ManifestStatus::ReadFailed);
+                 Network::ManifestStatus::ReadFailed);
 }
+
+#ifdef _WIN32
+D6R_TEST_CASE("Windows manifest rejects hardlinks and ordinal case replacement when the filesystem permits them") {
+    TemporaryResources hardlinked; hardlinked.required();
+    std::error_code hardlinkError;
+    fs::create_hard_link(hardlinked.root / "levels" / "arena.json",
+                         hardlinked.root / "levels" / "alias.json", hardlinkError);
+    if (!hardlinkError) {
+        const auto result = Network::CompatibilityManifestBuilder(hardlinked.root.string()).build();
+        D6R_REQUIRE(!result.valid());
+        D6R_REQUIRE(result.status == Network::ManifestStatus::UnsafeFilesystemEntry);
+    }
+
+    TemporaryResources renamed; renamed.required();
+    const auto baseline = Network::CompatibilityManifestBuilder(renamed.root.string()).build();
+    D6R_REQUIRE(baseline.valid());
+    bool renameAttempted = false;
+    bool renameSucceeded = false;
+    auto renameCase = [&](Network::ManifestFilesystemStage stage, const std::string &) {
+        if (!renameAttempted && stage == Network::ManifestFilesystemStage::RootPinned) {
+            renameAttempted = true;
+            std::error_code renameError;
+            fs::rename(renamed.root / "levels", renamed.root / "LEVELS", renameError);
+            renameSucceeded = !renameError;
+        }
+        return true;
+    };
+    const auto result = Network::CompatibilityManifestBuilder(
+            renamed.root.string(), {}, {}, renameCase).build();
+    bool physicalCaseChanged = false;
+    std::error_code iterationError;
+    for (fs::directory_iterator entry(renamed.root, iterationError), end;
+         !iterationError && entry != end; entry.increment(iterationError)) {
+        if (entry->path().filename().wstring() == L"LEVELS") physicalCaseChanged = true;
+    }
+    if (!renameAttempted)
+        throw Test::Failure("Windows ordinal rename case was not attempted");
+    if (renameSucceeded && physicalCaseChanged) {
+        if (result.valid() || result.status != Network::ManifestStatus::UnsafeFilesystemEntry)
+            throw Test::Failure("Windows ordinal rename succeeded without fail-closed manifest status="
+                                + std::to_string(static_cast<int>(result.status)));
+    } else if (!result.valid() || !sameManifest(baseline.manifest, result.manifest)) {
+        throw Test::Failure("Windows ordinal rename was denied or unchanged but original manifest was not stable; status="
+                            + std::to_string(static_cast<int>(result.status)));
+    }
+}
+#endif
 
 #ifndef _WIN32
 D6R_TEST_CASE("pinned Linux root survives ancestor rename and ignores replacement path content") {
