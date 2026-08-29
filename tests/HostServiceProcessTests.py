@@ -14,11 +14,49 @@ import unittest
 SUPERVISOR = pathlib.Path(sys.argv[1]).resolve()
 CHILD = pathlib.Path(sys.argv[2]).resolve()
 EXTRA_ARGUMENTS = sys.argv[3:]
+ORPHAN_STRESS = "--orphan-stress" in EXTRA_ARGUMENTS
+EXTRA_ARGUMENTS = [argument for argument in EXTRA_ARGUMENTS if argument != "--orphan-stress"]
 sys.argv = [sys.argv[0]]
 
 
 class HostServiceProcesses(unittest.TestCase):
     maxDiff = None
+
+    @staticmethod
+    def linux_process_metadata(pid):
+        stat = pathlib.Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+        fields = stat[stat.rfind(")") + 2:].split()
+        return fields[0], fields[19]  # state and kernel start-time identity
+
+    def assert_linux_process_terminated(self, pid, expected_start_time, deadline, message):
+        while True:
+            try:
+                state, start_time = self.linux_process_metadata(pid)
+            except (FileNotFoundError, ProcessLookupError):
+                return
+            self.assertEqual(expected_start_time, start_time,
+                             f"process identity changed while checking {pid}")
+            if state == "Z":
+                return
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return
+            if time.monotonic() >= deadline:
+                self.fail(message)
+            time.sleep(0.01)
+
+    def kill_linux_process_if_matching(self, pid, expected_start_time):
+        try:
+            _, start_time = self.linux_process_metadata(pid)
+        except (FileNotFoundError, ProcessLookupError):
+            return
+        self.assertEqual(expected_start_time, start_time,
+                         f"process identity changed before cleanup of {pid}")
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
 
     def run_case(self, mode, *extra, timeout=5):
         command = [str(SUPERVISOR), f"--server={CHILD}", f"--resources={mode}", *extra]
@@ -42,8 +80,11 @@ class HostServiceProcesses(unittest.TestCase):
         result = self.run_case("ready", "--end-after-ready")
         self.assertEqual(0, result.returncode, result)
         self.assertEqual("host-service-active\n"
-                         "scaffold only: no graphical network UI or playable network session is implemented.\n",
+                         "scaffold only: no graphical network UI or playable network session is implemented.\n"
+                         "intentional-host-end\n",
                          result.stdout)
+        self.assertNotIn("NET-09", result.stdout + result.stderr)
+        self.assertNotIn("guest", result.stdout + result.stderr)
         self.assertEqual("", result.stderr)
 
     def test_cancel_before_readiness_is_not_reported_as_failure(self):
@@ -134,7 +175,7 @@ class HostServiceProcesses(unittest.TestCase):
             finally:
                 if process.poll() is None:
                     process.send_signal(signal.SIGTERM)
-                process.wait(timeout=5)
+                process.communicate(timeout=5)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux PDEATHSIG process observation")
     def test_parent_sigkill_does_not_orphan_owned_child(self):
@@ -154,22 +195,12 @@ class HostServiceProcesses(unittest.TestCase):
                 pass
             time.sleep(0.01)
         self.assertIsNotNone(child_pid, "supervisor did not create the owned child")
+        _, child_start_time = self.linux_process_metadata(child_pid)
         os.kill(process.pid, signal.SIGKILL)
-        process.wait(timeout=3)
-        child_path = pathlib.Path(f"/proc/{child_pid}")
-        deadline = time.monotonic() + 3
-        while child_path.exists() and time.monotonic() < deadline:
-            # A PDEATHSIG-killed child can briefly remain as an init-owned zombie.
-            try:
-                state = (child_path / "stat").read_text(encoding="ascii").split()[2]
-                if state == "Z":
-                    break
-            except (FileNotFoundError, ProcessLookupError):
-                break
-            time.sleep(0.01)
-        if child_path.exists():
-            state = (child_path / "stat").read_text(encoding="ascii").split()[2]
-            self.assertEqual("Z", state, f"owned child {child_pid} remained active after parent SIGKILL")
+        process.communicate(timeout=3)
+        self.assert_linux_process_terminated(
+            child_pid, child_start_time, time.monotonic() + 3,
+            f"owned child {child_pid} remained active after parent SIGKILL")
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux process-group descendant observation")
     def test_parent_sigkill_does_not_orphan_owned_descendant(self):
@@ -183,28 +214,18 @@ class HostServiceProcesses(unittest.TestCase):
                 time.sleep(0.01)
             self.assertTrue(marker.exists(), "owned child did not create its descendant")
             descendant = int(marker.read_text(encoding="ascii").strip())
+            _, descendant_start_time = self.linux_process_metadata(descendant)
             try:
                 os.kill(process.pid, signal.SIGKILL)
-                process.wait(timeout=3)
-                deadline = time.monotonic() + 3
-                descendant_path = pathlib.Path(f"/proc/{descendant}")
-                while descendant_path.exists() and time.monotonic() < deadline:
-                    state = (descendant_path / "stat").read_text(encoding="ascii").split()[2]
-                    if state == "Z":
-                        break
-                    time.sleep(0.01)
-                if descendant_path.exists():
-                    state = (descendant_path / "stat").read_text(encoding="ascii").split()[2]
-                    self.assertEqual("Z", state,
-                                     f"owned descendant {descendant} remained active after parent SIGKILL")
+                process.communicate(timeout=3)
+                self.assert_linux_process_terminated(
+                    descendant, descendant_start_time, time.monotonic() + 3,
+                    f"owned descendant {descendant} remained active after parent SIGKILL")
             finally:
-                try:
-                    os.kill(descendant, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                self.kill_linux_process_if_matching(descendant, descendant_start_time)
                 if process.poll() is None:
                     process.kill()
-                    process.wait(timeout=3)
+                    process.communicate(timeout=3)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux process-group descendant observation")
     def test_normal_shutdown_cleans_owned_descendant_process_tree(self):
@@ -218,28 +239,18 @@ class HostServiceProcesses(unittest.TestCase):
                 time.sleep(0.01)
             self.assertTrue(marker.exists(), "owned child did not create its descendant")
             descendant = int(marker.read_text(encoding="ascii").strip())
+            _, descendant_start_time = self.linux_process_metadata(descendant)
             try:
                 process.send_signal(signal.SIGTERM)
-                process.wait(timeout=5)
-                descendant_path = pathlib.Path(f"/proc/{descendant}")
-                deadline = time.monotonic() + 3
-                while descendant_path.exists() and time.monotonic() < deadline:
-                    state = (descendant_path / "stat").read_text(encoding="ascii").split()[2]
-                    if state == "Z":
-                        break
-                    time.sleep(0.01)
-                if descendant_path.exists():
-                    state = (descendant_path / "stat").read_text(encoding="ascii").split()[2]
-                    self.assertEqual("Z", state,
-                                     f"owned descendant {descendant} remained active after normal shutdown")
+                process.communicate(timeout=5)
+                self.assert_linux_process_terminated(
+                    descendant, descendant_start_time, time.monotonic() + 3,
+                    f"owned descendant {descendant} remained active after normal shutdown")
             finally:
-                try:
-                    os.kill(descendant, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                self.kill_linux_process_if_matching(descendant, descendant_start_time)
                 if process.poll() is None:
                     process.kill()
-                    process.wait(timeout=3)
+                    process.communicate(timeout=3)
 
     @unittest.skipUnless(sys.platform == "win32", "native Windows Job Object observation")
     def test_windows_normal_shutdown_waits_for_job_zero_active_processes(self):
@@ -283,4 +294,13 @@ class HostServiceProcesses(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    if ORPHAN_STRESS:
+        names = [
+            "test_parent_sigkill_does_not_orphan_owned_child",
+            "test_parent_sigkill_does_not_orphan_owned_descendant",
+            "test_normal_shutdown_cleans_owned_descendant_process_tree",
+        ]
+        suite = unittest.TestSuite(HostServiceProcesses(name) for name in names)
+        result = unittest.TextTestRunner(verbosity=2).run(suite)
+        raise SystemExit(0 if result.wasSuccessful() else 1)
     unittest.main(verbosity=2)

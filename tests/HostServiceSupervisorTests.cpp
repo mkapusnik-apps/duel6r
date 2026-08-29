@@ -446,6 +446,79 @@ D6R_TEST_CASE("HSL-AC-012 intentional end handoff occurs exactly once and cannot
     }
 }
 
+D6R_TEST_CASE("HSL-AC-012 missing downstream sink still records exactly one observable intentional end handoff") {
+    Fixture fixture;
+    auto dependencies = fixture.dependencies();
+    dependencies.intentionalEndHandoff = {};
+    Client::HostServiceSupervisor supervisor(std::move(dependencies));
+    D6R_REQUIRE(supervisor.start(fixture.config()));
+    makeReady(fixture, supervisor);
+    D6R_REQUIRE(supervisor.endSession());
+    D6R_REQUIRE(!supervisor.endSession());
+    requireState(supervisor, Client::HostServiceState::NoService);
+    const auto result = supervisor.snapshot();
+    D6R_REQUIRE(result.intentionalEndHandoffEmitted);
+    D6R_REQUIRE_EQ(Client::HostServiceStopReason::IntentionalHostEnd, result.stopReason);
+    D6R_REQUIRE(fixture.handoffs.empty());
+}
+
+D6R_TEST_CASE("HSL-AC-012 blocking reentrant handoff cannot block cleanup duplicate or extend its deadline") {
+    Fixture fixture;
+    fixture.clock.set(40s);
+    auto dependencies = fixture.dependencies();
+    std::mutex handoffMutex;
+    std::condition_variable handoffChanged;
+    bool entered = false;
+    bool release = false;
+    bool reentrantEndAccepted = true;
+    Client::HostServiceState reentrantState = Client::HostServiceState::NoService;
+    Client::HostServiceSupervisor *supervisorAddress = nullptr;
+    dependencies.intentionalEndHandoff = [&](const char *reason) {
+        fixture.handoffs.emplace_back(reason ? reason : "");
+        reentrantEndAccepted = supervisorAddress->endSession();
+        reentrantState = supervisorAddress->snapshot().state;
+        std::unique_lock<std::mutex> lock(handoffMutex);
+        entered = true;
+        handoffChanged.notify_all();
+        handoffChanged.wait(lock, [&] { return release; });
+    };
+    Client::HostServiceSupervisor supervisor(std::move(dependencies));
+    supervisorAddress = &supervisor;
+    D6R_REQUIRE(supervisor.start(fixture.config()));
+    makeReady(fixture, supervisor, 40s + 1ns);
+    auto child = fixture.child();
+    child->cooperative = false;
+    child->onWait = [&] { fixture.clock.advance(10ms); };
+    Client::HostServiceTimePoint firstForce{};
+    child->onForce = [&] { if (firstForce == Client::HostServiceTimePoint{}) firstForce = fixture.clock.now(); };
+    bool accepted = false;
+    std::thread caller([&] { accepted = supervisor.endSession(); });
+    {
+        std::unique_lock<std::mutex> lock(handoffMutex);
+        const bool callbackEntered = handoffChanged.wait_for(lock, 2s, [&] { return entered; });
+        if (!callbackEntered) {
+            release = true;
+            handoffChanged.notify_all();
+            caller.join();
+            D6R_REQUIRE(callbackEntered);
+        }
+    }
+    requireState(supervisor, Client::HostServiceState::NoService);
+    D6R_REQUIRE(supervisor.snapshot().cleanupComplete);
+    D6R_REQUIRE_EQ(Client::HostServiceTimePoint{} + 42900ms, firstForce);
+    D6R_REQUIRE_EQ(std::size_t(1), fixture.handoffs.size());
+    D6R_REQUIRE(!reentrantEndAccepted);
+    D6R_REQUIRE(reentrantState == Client::HostServiceState::Stopping
+                || reentrantState == Client::HostServiceState::NoService);
+    {
+        std::lock_guard<std::mutex> lock(handoffMutex);
+        release = true;
+    }
+    handoffChanged.notify_all();
+    caller.join();
+    D6R_REQUIRE(accepted);
+}
+
 D6R_TEST_CASE("HSL-AC-012 delayed failing handoff retains the already accepted cleanup deadline") {
     Fixture fixture;
     fixture.clock.set(20s);
@@ -481,6 +554,29 @@ D6R_TEST_CASE("HSL-AC-012 handoff is never emitted for cancel dismissal failure 
     supervisor.applicationExit();
     requireCleanup(supervisor);
     D6R_REQUIRE(fixture.handoffs.empty());
+}
+
+D6R_TEST_CASE("HSL-AC-012 timeout and unexpected service failure never emit intentional handoff") {
+    {
+        Fixture fixture;
+        Client::HostServiceSupervisor supervisor(fixture.dependencies());
+        D6R_REQUIRE(supervisor.start(fixture.config()));
+        fixture.clock.set(10s);
+        fixture.child()->changed.notify_all();
+        requireState(supervisor, Client::HostServiceState::StartupFailed);
+        D6R_REQUIRE_EQ(Client::HostServiceOutcome::StartupTimedOut, supervisor.snapshot().outcome);
+        D6R_REQUIRE(!supervisor.snapshot().intentionalEndHandoffEmitted);
+        D6R_REQUIRE(fixture.handoffs.empty());
+    }
+    {
+        Fixture fixture;
+        Client::HostServiceSupervisor supervisor(fixture.dependencies());
+        D6R_REQUIRE(supervisor.start(fixture.config()));
+        makeReady(fixture, supervisor);
+        finishByExit(fixture, supervisor, Client::HostServiceState::SessionFailed);
+        D6R_REQUIRE(!supervisor.snapshot().intentionalEndHandoffEmitted);
+        D6R_REQUIRE(fixture.handoffs.empty());
+    }
 }
 
 D6R_TEST_CASE("HSL-AC-014 cooperative cleanup is idempotent and keeps first stop selection") {
