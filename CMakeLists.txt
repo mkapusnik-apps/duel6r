@@ -493,6 +493,9 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/client/ConnectionPlan.h
         source/client/LocalServerLauncher.cpp
         source/client/LocalServerLauncher.h
+        source/client/HostServiceProcess.cpp
+        source/client/HostServiceSupervisor.cpp
+        source/client/HostServiceSupervisor.h
         source/client/LoopbackSession.cpp
         source/client/LoopbackSession.h
         source/network/Protocol.cpp
@@ -503,12 +506,16 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/network/AdmissionProtocol.h
         source/network/CompatibilityManifest.cpp
         source/network/CompatibilityManifest.h
+        source/network/HostServiceControlProtocol.cpp
+        source/network/HostServiceControlProtocol.h
         source/network/NetworkTrustPolicy.cpp
         source/network/NetworkTrustPolicy.h
         source/network/SessionTransport.cpp
         source/network/SessionTransport.h
         source/server/HeadlessServer.cpp
         source/server/HeadlessServer.h
+        source/server/HostedServiceChannel.cpp
+        source/server/HostedServiceChannel.h
         source/server/AdmissionSession.cpp
         source/server/AdmissionSession.h
         source/server/ServerConfig.cpp
@@ -544,6 +551,14 @@ set_target_properties(${D6R_SERVER_APP_NAME} PROPERTIES VERSION 6.0.0)
 if (MINGW)
     set_property(TARGET ${D6R_SERVER_APP_NAME} APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
 endif (MINGW)
+
+set(D6R_HOST_SUPERVISOR_APP_NAME "duel6r-host-supervisor" CACHE STRING
+        "Filename of the player-hosted service supervisor scaffold.")
+add_executable(${D6R_HOST_SUPERVISOR_APP_NAME} source/client/HostSupervisorMain.cpp)
+target_link_libraries(${D6R_HOST_SUPERVISOR_APP_NAME} duel6r-network-scaffold)
+if (MINGW)
+    set_property(TARGET ${D6R_HOST_SUPERVISOR_APP_NAME} APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
 
 if (BUILD_TESTING)
     if (NOT D6R_TRANSPORT_ONLY)

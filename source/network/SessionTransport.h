@@ -258,6 +258,7 @@ namespace Duel6::Network {
         void shutdown();
         ListenerState state() const;
         TransportFailure failure() const;
+        bool addressInUse() const;
         std::shared_ptr<TcpConnection> acceptConnection();
         bool waitForReady(std::chrono::milliseconds timeout);
 

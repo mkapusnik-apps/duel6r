@@ -107,6 +107,7 @@ namespace {
         bool waitForReady(std::chrono::milliseconds timeout) override { return listener->waitForReady(timeout); }
         Duel6::Network::ListenerState state() const override { return listener->state(); }
         Duel6::Network::TransportFailure failure() const override { return listener->failure(); }
+        bool portUnavailable() const override { return listener->addressInUse(); }
         std::shared_ptr<Duel6::Server::AdmissionRuntimeConnection> acceptConnection() override {
             auto accepted = listener->acceptConnection();
             return accepted ? std::make_shared<ProductionAdmissionConnection>(std::move(accepted)) : nullptr;
@@ -530,6 +531,11 @@ namespace Duel6::Server {
             try { return runtimeDependencies.outboundWriter(connection, std::move(payload)); }
             catch (...) { return Network::SendResult::NotConnected; }
         };
+        const auto reportHostedStatus = [this](Network::HostServiceStatusCode status) {
+            if (!runtimeDependencies.hostedServiceStatus) return true;
+            try { return runtimeDependencies.hostedServiceStatus(status); }
+            catch (...) { return false; }
+        };
         const auto startupBegan = runtimeNow(runtimeDependencies);
         const auto startupDeadline = deadlineAfter(startupBegan, AdmissionAttemptDeadline);
         Network::ManifestBuildResult manifest;
@@ -540,6 +546,7 @@ namespace Duel6::Server {
                     runtimeDependencies.filesystemObserver).build();
             if (!manifest.valid()) {
                 observe(AdmissionLifecycleStage::ManifestBuildFailed);
+                reportHostedStatus(Network::HostServiceStatusCode::HostManifestInvalid);
                 if (config.admissionClient) {
                     try { if (runtimeDependencies.cancelled()) return 2; }
                     catch (...) { return 2; }
@@ -580,6 +587,7 @@ namespace Duel6::Server {
                 && Network::Trust::localListenerBindDecision(listenAddress)
                    != Network::Trust::LocalListenerBindDecision::Allowed)) {
             output << Network::Trust::UnsupportedAddressCopy << '\n';
+            reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
             return 2;
         }
 
@@ -597,20 +605,30 @@ namespace Duel6::Server {
                 admissionPolicy = std::make_unique<AdmissionPolicy>(
                         std::move(manifest.manifest), config.localPlayers, runtimeDependencies.identitySource,
                         runtimeDependencies.validationWorkLimiter, runtimeDependencies.validationWorkGate);
-            } catch (...) { return 2; }
-            if (!observe(AdmissionLifecycleStage::HostInitialized)) return 2;
+            } catch (...) {
+                reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
+                return 2;
+            }
+            if (!observe(AdmissionLifecycleStage::HostInitialized)) {
+                reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
+                return 2;
+            }
         }
 
         std::unique_ptr<AdmissionRuntimeListener> listener;
         try { listener = runtimeDependencies.listenerFactory(config.maxClients, !config.transportEcho); }
         catch (...) {}
-        if (!listener) return 2;
+        if (!listener) {
+            reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
+            return 2;
+        }
         const auto cleanupListener = [&] {
             observe(AdmissionLifecycleStage::ListenerCleanupStarted);
             try { listener->shutdown(); } catch (...) {}
             observe(AdmissionLifecycleStage::ListenerCleanupCompleted);
         };
         if (!observe(AdmissionLifecycleStage::ListenerStarting)) {
+            reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
             cleanupListener();
             return 2;
         }
@@ -622,13 +640,40 @@ namespace Duel6::Server {
             return 2;
         }
         bool listenerReady = false;
-        try { listenerReady = listener->start(config.listenEndpoint)
-                              && listener->waitForReady(startupRemaining); }
-        catch (...) {}
+        bool listenerStarted = false;
+        try { listenerStarted = listener->start(config.listenEndpoint); } catch (...) {}
+        while (listenerStarted && runtimeNow(runtimeDependencies) < startupDeadline) {
+            bool cancelled = true;
+            try { cancelled = runtimeDependencies.cancelled(); } catch (...) {}
+            if (cancelled || stopRequested) break;
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    startupDeadline - runtimeNow(runtimeDependencies));
+            const auto slice = std::min(remaining, std::chrono::milliseconds(5));
+            if (slice <= std::chrono::milliseconds::zero()) break;
+            try { listenerReady = listener->waitForReady(slice); } catch (...) { break; }
+            if (listenerReady) break;
+            try {
+                const auto current = listener->state();
+                if (current == Network::ListenerState::Failed || current == Network::ListenerState::Cancelled
+                    || current == Network::ListenerState::TimedOut) break;
+            } catch (...) { break; }
+        }
         if (!listenerReady) {
             Network::ListenerState listenerState = Network::ListenerState::Failed;
             Network::TransportFailure listenerFailure = Network::TransportFailure::SystemError;
-            try { listenerState = listener->state(); listenerFailure = listener->failure(); } catch (...) {}
+            bool portUnavailable = false;
+            try {
+                listenerState = listener->state();
+                listenerFailure = listener->failure();
+                portUnavailable = listener->portUnavailable();
+            } catch (...) {}
+            bool cancelled = false;
+            try { cancelled = runtimeDependencies.cancelled(); } catch (...) { cancelled = true; }
+            if (!cancelled && !stopRequested && runtimeNow(runtimeDependencies) < startupDeadline) {
+                reportHostedStatus(portUnavailable
+                                   ? Network::HostServiceStatusCode::PortUnavailable
+                                   : Network::HostServiceStatusCode::StartFailed);
+            }
             output << "duel6r-server transport startup failed (state="
                    << static_cast<int>(listenerState) << ", reason="
                    << static_cast<int>(listenerFailure) << ").\n";
@@ -636,6 +681,11 @@ namespace Duel6::Server {
             return 2;
         }
         if (!observe(AdmissionLifecycleStage::ListenerReady)) {
+            reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
+            cleanupListener();
+            return 2;
+        }
+        if (!reportHostedStatus(Network::HostServiceStatusCode::Ready)) {
             cleanupListener();
             return 2;
         }

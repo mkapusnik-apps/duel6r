@@ -58,6 +58,11 @@ if [[ ! -f "${tmp_build_dir}/duel6r-server.exe" ]]; then
   exit 1
 fi
 cp "${tmp_build_dir}/duel6r-server.exe" "${workspace_dir}/${output_dir}/duel6r-server.exe"
+if [[ ! -f "${tmp_build_dir}/duel6r-host-supervisor.exe" ]]; then
+  echo "Unable to find built Windows host supervisor scaffold in ${tmp_build_dir}" >&2
+  exit 1
+fi
+cp "${tmp_build_dir}/duel6r-host-supervisor.exe" "${workspace_dir}/${output_dir}/duel6r-host-supervisor.exe"
 if [[ ! -f "${tmp_build_dir}/duel6r-resolver.exe" ]]; then
   echo "Unable to find built Windows resolver helper in ${tmp_build_dir}" >&2
   exit 1

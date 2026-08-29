@@ -49,6 +49,11 @@ if [[ ! -f "${tmp_build_dir}/duel6r-server" ]]; then
   exit 1
 fi
 cp "${tmp_build_dir}/duel6r-server" "${workspace_dir}/${output_dir}/duel6r-server"
+if [[ ! -f "${tmp_build_dir}/duel6r-host-supervisor" ]]; then
+  echo "Unable to find built host supervisor scaffold in ${tmp_build_dir}" >&2
+  exit 1
+fi
+cp "${tmp_build_dir}/duel6r-host-supervisor" "${workspace_dir}/${output_dir}/duel6r-host-supervisor"
 if [[ ! -f "${tmp_build_dir}/duel6r-resolver" ]]; then
   echo "Unable to find built resolver helper in ${tmp_build_dir}" >&2
   exit 1

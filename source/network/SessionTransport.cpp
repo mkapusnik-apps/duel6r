@@ -213,6 +213,8 @@ namespace Duel6::Network {
         };
 
         int socketError() { return WSAGetLastError(); }
+
+        bool addressInUseError(int error) { return error == WSAEADDRINUSE; }
         bool wouldBlock(int error) { return error == WSAEWOULDBLOCK; }
         bool interrupted(int error) { return error == WSAEINTR; }
         void closeSocket(SocketHandle socket) { if (socket != InvalidSocket) closesocket(socket); }
@@ -326,6 +328,8 @@ namespace Duel6::Network {
         };
 
         int socketError() { return errno; }
+
+        bool addressInUseError(int error) { return error == EADDRINUSE; }
         bool wouldBlock(int error) { return error == EAGAIN || error == EWOULDBLOCK; }
         bool interrupted(int error) { return error == EINTR; }
         void closeSocket(SocketHandle socket) { if (socket != InvalidSocket) ::close(socket); }
@@ -1669,6 +1673,7 @@ namespace Duel6::Network {
                 return;
             }
             SocketHandle bound = InvalidSocket;
+            bool addressInUse = false;
             for (const auto &resolved: resolution.endpoints) {
                 if (dependencies.enforceNetworkSessionPolicy) {
                     const auto resolvedScope = Trust::classifyIpv4(resolved.address);
@@ -1685,14 +1690,21 @@ namespace Duel6::Network {
                     fail(TransportFailure::SystemError);
                     return;
                 }
-                if (::bind(bound, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) == 0
-                    && ::listen(bound, static_cast<int>(maxConnections)) == 0) break;
+                if (::bind(bound, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) == 0) {
+                    if (::listen(bound, static_cast<int>(maxConnections)) == 0) break;
+                } else if (addressInUseError(socketError())) {
+                    addressInUse = true;
+                }
                 closeSocket(bound);
                 bound = InvalidSocket;
             }
             if (cancelled.load()) { closeSocket(bound); return; }
             if (dependencyNow(dependencies) >= deadline) { closeSocket(bound); timeout(); return; }
-            if (bound == InvalidSocket) { fail(TransportFailure::BindFailed); return; }
+            if (bound == InvalidSocket) {
+                addressInUseFailure.store(addressInUse);
+                fail(TransportFailure::BindFailed);
+                return;
+            }
             listener.publish(bound);
             ListenerState expected = ListenerState::Starting;
             if (!state.compare_exchange_strong(expected, ListenerState::Ready)) {
@@ -1787,6 +1799,7 @@ namespace Duel6::Network {
         Trust::PendingAdmissionLimiter admissionLimiter;
         std::atomic<ListenerState> state{ListenerState::NotStarted};
         std::atomic<TransportFailure> failure{TransportFailure::None};
+        std::atomic<bool> addressInUseFailure{false};
         std::atomic<bool> stop{false};
         std::atomic<bool> cancelled{false};
         PendingSocket listener;
@@ -1809,6 +1822,9 @@ namespace Duel6::Network {
     TransportFailure TcpListener::failure() const {
         return impl->state.load() == ListenerState::Failed
                ? impl->failure.load() : TransportFailure::None;
+    }
+    bool TcpListener::addressInUse() const {
+        return impl->state.load() == ListenerState::Failed && impl->addressInUseFailure.load();
     }
     std::shared_ptr<TcpConnection> TcpListener::acceptConnection() {
         std::lock_guard<std::mutex> lock(impl->mutex);

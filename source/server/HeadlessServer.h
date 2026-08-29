@@ -13,6 +13,7 @@
 #include "ServerConfig.h"
 #include "AdmissionSession.h"
 #include "../network/CompatibilityManifest.h"
+#include "../network/HostServiceControlProtocol.h"
 #include "../network/Protocol.h"
 #include "../network/SessionTransport.h"
 
@@ -117,6 +118,7 @@ namespace Duel6::Server {
         virtual bool waitForReady(std::chrono::milliseconds timeout) = 0;
         virtual Network::ListenerState state() const = 0;
         virtual Network::TransportFailure failure() const = 0;
+        virtual bool portUnavailable() const { return false; }
         virtual std::shared_ptr<AdmissionRuntimeConnection> acceptConnection() = 0;
         virtual void shutdown() = 0;
     };
@@ -129,6 +131,7 @@ namespace Duel6::Server {
         std::function<std::unique_ptr<AdmissionRuntimeListener>(std::size_t, bool)> listenerFactory;
         std::function<Network::SendResult(AdmissionRuntimeConnection &, std::vector<std::uint8_t>)> outboundWriter;
         std::function<bool(const AdmissionLifecycleEvent &)> lifecycleObserver;
+        std::function<bool(Network::HostServiceStatusCode)> hostedServiceStatus;
         std::shared_ptr<const Network::ManifestSource> manifestSource;
         Network::ManifestFilesystemObserver filesystemObserver;
         IdentitySource identitySource;

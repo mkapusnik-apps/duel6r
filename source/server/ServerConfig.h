@@ -22,6 +22,12 @@ namespace Duel6::Server {
         bool transportEnabled = false;
         bool transportEcho = false;
         bool admissionClient = false;
+        bool hostedServiceIpc = false;
+        std::uint64_t hostedServiceParent = 0;
+#ifdef D6R_TRANSPORT_WINDOWS
+        std::uint64_t hostedServiceStatusHandle = 0;
+        std::uint64_t hostedServiceControlHandle = 0;
+#endif
     };
 
     ServerConfig parseServerConfig(int argc, char **argv);
