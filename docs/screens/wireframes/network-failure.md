@@ -14,10 +14,15 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-- The screen names the confirmed reason and preserves endpoint context.
+- The screen names the confirmed reason.
+- A guest initial-connection failure preserves the locally entered endpoint context.
+- A host-service lifecycle failure omits endpoint and process context.
 - Retry remains visible but shows a reason when disabled.
 - Initial admission and transport failures use the fixed product precedence and non-disclosing copy. Invalid complete host admission messages use `Connection ended before admission completed.`; an offer alone is not success. Endpoint validation remains inline in `NET-03`.
-- Retry repeats retained data; Edit setup returns to retained `NET-02` or `NET-03`; Return to Network enters `NET-01`.
+- Eligible Retry repeats retained data after cleanup; Edit setup returns to retained `NET-02` or `NET-03`; Return to Network enters `NET-01`.
+- Host port unavailable, generic start failure, exit before readiness, and startup timeout use the exact copy in the specification.
+- Retry stays disabled with `Cleanup in progress.` until final cleanup completes.
+- Post-readiness `Hosted session stopped unexpectedly.` always disables Retry and directs the host to Edit setup for a new session.
 - Terminal reconnect rejection and expiry disable Retry when the original reservation cannot restore. Expiry copy never claims host end or player removal.
 - Compatibility, capacity, timeout, terminal reconnect, expiry, host-local `Hosted session stopped unexpectedly.`, and guest-local `Local gameplay content is invalid. Restore the supported gameplay content and restart the application.` variants remain in the specification. Guest-local invalid content disables Retry until restart, retains `NET-03` setup for Edit setup, and starts no connection. Only accepted intentional host End uses guest `NET-09`.
 - The specification supplies exact copy and destinations for every issue #30 outcome.

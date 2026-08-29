@@ -18,6 +18,10 @@ A valid intentional host End session notice accepted through the current establi
 - Lobby context omits match-result copy. Match, summary, and reconnect contexts include the session-only persistence statement.
 - The screen has no countdown, election, reconnect-to-new-host, Save result, or Continue match action.
 - Silence, refusal, unreachable, reset, timeout, host crash, host-machine/listener loss, temporary failure, no response, terminal rejection, and deadline expiry never use this screen.
+- Normal application shutdown, forced termination, and hosted-service failure never use this screen.
+- Normal application shutdown must not send or imply an intentional host-end notice.
+- A crash or forced termination must not send or imply an intentional host-end notice.
+- A host-local post-readiness service failure must show host `NET-08` and must leave affected guests in the ambiguous `NET-07` journey.
 
 ## Truthful copy, focus, and input
 
