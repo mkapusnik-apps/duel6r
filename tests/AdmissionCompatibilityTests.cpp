@@ -101,6 +101,33 @@ namespace {
             if (onSend) onSend(payload);
             sent.push_back(std::move(payload)); return sendResult;
         }
+        Network::AdmissionAcceptanceEnqueueResult enqueueAdmissionAcceptance(
+                std::vector<std::uint8_t> payload,
+                Network::AdmissionAttemptGate &attempt,
+                const std::function<bool()> &cancelled,
+                const Network::Trust::Clock &now,
+                Network::TransportTimePoint deadline) override {
+            return attempt.enqueueAcceptance(
+                    [this, &cancelled, &now, deadline, payload = std::move(payload)]() mutable {
+                        const auto isCancelled = [&] {
+                            try { return !cancelled || cancelled(); } catch (...) { return true; }
+                        };
+                        const auto deadlineReached = [&] {
+                            try { return !now || now() >= deadline; } catch (...) { return true; }
+                        };
+                        if (isCancelled()) return Network::AdmissionAcceptanceEnqueueResult::Cancelled;
+                        if (deadlineReached()) return Network::AdmissionAcceptanceEnqueueResult::DeadlineExceeded;
+                        if (onAcceptanceBeforeInsert) onAcceptanceBeforeInsert();
+                        if (isCancelled()) return Network::AdmissionAcceptanceEnqueueResult::Cancelled;
+                        if (deadlineReached()) return Network::AdmissionAcceptanceEnqueueResult::DeadlineExceeded;
+                        if (sendResult != Network::SendResult::Accepted)
+                            return Network::AdmissionAcceptanceEnqueueResult::NotQueued;
+                        sent.push_back(std::move(payload));
+                        if (onSend) onSend(sent.back());
+                        if (onAcceptanceInserted) onAcceptanceInserted();
+                        return Network::AdmissionAcceptanceEnqueueResult::Accepted;
+                    });
+        }
         bool receive(Network::TransportFrame &frame) override {
             if (incoming.empty()) return false;
             frame = std::move(incoming.front()); incoming.pop_front();
@@ -130,6 +157,8 @@ namespace {
         bool closeRequested = false;
         std::function<void(const Network::TransportFrame &)> onReceive;
         std::function<void(const std::vector<std::uint8_t> &)> onSend;
+        std::function<void()> onAcceptanceBeforeInsert;
+        std::function<void()> onAcceptanceInserted;
         Network::SendResult sendResult = Network::SendResult::Accepted;
     };
 
@@ -162,6 +191,7 @@ namespace {
         Network::ClientState state = Network::ClientState::Connected;
         Network::TransportFailure failure = Network::TransportFailure::None;
         std::function<void()> onWait;
+        std::function<void()> onCancel;
     };
 
     class FakeAdmissionClient final : public Server::AdmissionRuntimeClient {
@@ -175,7 +205,10 @@ namespace {
         Network::ClientState state() const override { return shared->state; }
         Network::TransportFailure failure() const override { return shared->failure; }
         std::shared_ptr<Server::AdmissionRuntimeConnection> connection() const override { return shared->connection; }
-        void cancel() override { shared->cancelled = true; }
+        void cancel() override {
+            shared->cancelled = true;
+            if (shared->onCancel) shared->onCancel();
+        }
         void close() override { shared->closed = true; }
     private:
         std::shared_ptr<FakeClientState> shared;
@@ -870,6 +903,142 @@ D6R_TEST_CASE("original ten-second deadline rejects acceptance at or after bound
                                              : Server::AdmissionLifecycleStage::TransactionRolledBack);
         }));
     }
+}
+
+D6R_TEST_CASE("guest conditional acceptance cancellation immediately before insertion queues nothing") {
+    const auto host = manifest({{"levels/a", 1}});
+    const Network::AdmissionIdentitySet identities{10, {11, 12}};
+    auto fixture = std::make_shared<RuntimeFixture>();
+    auto client = std::make_shared<FakeClientState>();
+    client->connection = std::make_shared<FakeAdmissionConnection>(fixture->now);
+    client->connection->queue(Network::serializeAdmissionOffer(identities), fixture->now + 1ms);
+    client->connection->onAcceptanceBeforeInsert = [fixture] { fixture->cancelled = true; };
+    auto dependencies = guestRuntimeDependencies(fixture, client, host);
+    std::ostringstream output;
+    Server::HeadlessServer guest(runtimeGuestConfig(), std::move(dependencies));
+    D6R_REQUIRE_EQ(2, guest.run(output));
+    D6R_REQUIRE(output.str().empty());
+    D6R_REQUIRE(client->cancelled && client->closed);
+    D6R_REQUIRE(std::none_of(client->connection->sent.begin(), client->connection->sent.end(), [](const auto &payload) {
+        return payload.size() >= 4 && payload[3] == 'K';
+    }));
+    D6R_REQUIRE(std::none_of(fixture->events.begin(), fixture->events.end(), [](const auto &event) {
+        return event.stage == Server::AdmissionLifecycleStage::TransactionCommitted;
+    }));
+}
+
+D6R_TEST_CASE("guest conditional acceptance deadline at insertion boundary queues nothing") {
+    const auto host = manifest({{"levels/a", 1}});
+    const Network::AdmissionIdentitySet identities{10, {11, 12}};
+    for (const auto offset: {10000ms, 10001ms}) {
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto client = std::make_shared<FakeClientState>();
+        client->connection = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        client->connection->queue(Network::serializeAdmissionOffer(identities), fixture->now + 1ms);
+        client->connection->onAcceptanceBeforeInsert = [fixture, offset] {
+            fixture->now = Network::Trust::TimePoint{} + offset;
+        };
+        auto dependencies = guestRuntimeDependencies(fixture, client, host);
+        std::ostringstream output;
+        Server::HeadlessServer guest(runtimeGuestConfig(), std::move(dependencies));
+        D6R_REQUIRE_EQ(2, guest.run(output));
+        D6R_REQUIRE_EQ("Connection timed out.\n", output.str());
+        D6R_REQUIRE(std::none_of(client->connection->sent.begin(), client->connection->sent.end(), [](const auto &payload) {
+            return payload.size() >= 4 && payload[3] == 'K';
+        }));
+    }
+}
+
+D6R_TEST_CASE("acceptance enqueue linearizes before later Cancel and unpublished confirmation") {
+    const auto host = manifest({{"levels/a", 1}});
+    const Network::AdmissionIdentitySet identities{10, {11, 12}};
+    auto fixture = std::make_shared<RuntimeFixture>();
+    auto client = std::make_shared<FakeClientState>();
+    client->connection = std::make_shared<FakeAdmissionConnection>(fixture->now);
+    client->connection->queue(Network::serializeAdmissionOffer(identities), fixture->now + 1ms);
+    client->connection->queue(Network::serializeAdmissionConfirmation(identities), fixture->now + 2ms);
+    std::vector<std::string> order;
+    client->connection->onAcceptanceInserted = [fixture, &order] {
+        order.emplace_back("acceptance-enqueued");
+        fixture->cancelled = true;
+    };
+    client->onCancel = [&order] { order.emplace_back("cancelled"); };
+    auto dependencies = guestRuntimeDependencies(fixture, client, host);
+    std::ostringstream output;
+    Server::HeadlessServer guest(runtimeGuestConfig(), std::move(dependencies));
+    D6R_REQUIRE_EQ(2, guest.run(output));
+    D6R_REQUIRE(output.str().empty());
+    D6R_REQUIRE(client->cancelled && client->closed);
+    D6R_REQUIRE(order == std::vector<std::string>({"acceptance-enqueued", "cancelled"}));
+    D6R_REQUIRE_EQ(1, std::count_if(client->connection->sent.begin(), client->connection->sent.end(), [](const auto &payload) {
+        return payload.size() >= 4 && payload[3] == 'K';
+    }));
+    D6R_REQUIRE_EQ(1u, client->connection->incoming.size());
+}
+
+D6R_TEST_CASE("AdmissionAttemptGate total orders cancellation enqueue and finish") {
+    Network::AdmissionAttemptGate cancelledFirst;
+    D6R_REQUIRE(cancelledFirst.cancel());
+    bool invoked = false;
+    D6R_REQUIRE(cancelledFirst.enqueueAcceptance([&] {
+        invoked = true;
+        return Network::AdmissionAcceptanceEnqueueResult::Accepted;
+    }) == Network::AdmissionAcceptanceEnqueueResult::Cancelled);
+    D6R_REQUIRE(!invoked && !cancelledFirst.finish());
+
+    Network::AdmissionAttemptGate enqueuedFirst;
+    D6R_REQUIRE(enqueuedFirst.enqueueAcceptance([] {
+        return Network::AdmissionAcceptanceEnqueueResult::Accepted;
+    }) == Network::AdmissionAcceptanceEnqueueResult::Accepted);
+    D6R_REQUIRE(enqueuedFirst.cancel());
+    D6R_REQUIRE(!enqueuedFirst.finish());
+    invoked = false;
+    D6R_REQUIRE(enqueuedFirst.enqueueAcceptance([&] {
+        invoked = true;
+        return Network::AdmissionAcceptanceEnqueueResult::Accepted;
+    }) == Network::AdmissionAcceptanceEnqueueResult::Cancelled);
+    D6R_REQUIRE(!invoked);
+
+    Network::AdmissionAttemptGate finishedFirst;
+    D6R_REQUIRE(finishedFirst.finish());
+    D6R_REQUIRE(!finishedFirst.cancel());
+    D6R_REQUIRE(finishedFirst.enqueueAcceptance([] {
+        return Network::AdmissionAcceptanceEnqueueResult::Accepted;
+    }) == Network::AdmissionAcceptanceEnqueueResult::NotQueued);
+}
+
+D6R_TEST_CASE("GuestFrameDecision behavioral paths retain exact portable outcomes") {
+    const auto host = manifest({{"levels/a", 1}});
+    const Network::AdmissionIdentitySet identities{10, {11, 12}};
+    const auto run = [&](std::vector<std::vector<std::uint8_t>> frames,
+                         Network::SendResult acceptanceSend,
+                         int expectedCode,
+                         const std::string &expectedOutput) {
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto client = std::make_shared<FakeClientState>();
+        client->connection = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        auto received = fixture->now + 1ms;
+        for (auto &frame: frames) {
+            client->connection->queue(std::move(frame), received);
+            received += 1ms;
+        }
+        client->connection->sendResult = acceptanceSend;
+        auto dependencies = guestRuntimeDependencies(fixture, client, host);
+        std::ostringstream output;
+        Server::HeadlessServer guest(runtimeGuestConfig(), std::move(dependencies));
+        D6R_REQUIRE_EQ(expectedCode, guest.run(output));
+        D6R_REQUIRE_EQ(expectedOutput, output.str());
+    };
+
+    run({Network::serializeAdmissionOffer(identities), Network::serializeAdmissionConfirmation(identities)},
+        Network::SendResult::Accepted, 0, "admitted\nparticipant-id=10 player-ids=11,12\n");
+    run({Network::serializeAdmissionResult({Network::AdmissionResultCode::SessionFull, 0, {}})},
+        Network::SendResult::Accepted, 2, "session-full\nSession is full.\n");
+    run({std::vector<std::uint8_t>{0xFF}}, Network::SendResult::Accepted, 2,
+        std::string(Network::InvalidHostAdmissionMessageIdentifier) + "\n"
+        + std::string(Network::InvalidHostAdmissionMessageCopy) + "\n");
+    run({Network::serializeAdmissionOffer(identities)}, Network::SendResult::NotConnected, 2,
+        "Connection ended before admission completed.\n");
 }
 
 D6R_TEST_CASE("guest accepts queued pre-deadline confirmation despite delayed polling and earlier close") {

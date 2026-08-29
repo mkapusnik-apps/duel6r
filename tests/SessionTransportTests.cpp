@@ -1224,6 +1224,178 @@ void closeAndShutdownBounds() {
     started = std::chrono::steady_clock::now(); listener.shutdown(); listener.shutdown();
     CHECK(std::chrono::steady_clock::now() - started < 3s); CHECK(listener.state() == ListenerState::Stopped);
 }
+
+void conditionalAdmissionAcceptanceAccounting() {
+    auto &budget = Trust::processQueueBudget();
+    const std::size_t baseline = budget.used();
+    const auto deadline = TransportTimePoint{} + 10s;
+
+    {
+        const auto port = unusedPort();
+        TcpListener listener(1); startListener(listener, port);
+        RawSocketOwner peer(connectRaw(port));
+        auto connection = awaitAccept(listener);
+        connection->markAdmissionSucceeded();
+
+        AdmissionAttemptGate cancelled;
+        CHECK(connection->enqueueAdmissionAcceptance({1, 2, 3}, cancelled, [] { return true; },
+                                                     [] { return TransportTimePoint{}; }, deadline)
+              == AdmissionAcceptanceEnqueueResult::Cancelled);
+        CHECK(budget.used() == baseline);
+
+        for (const auto current: {deadline, deadline + 1ms}) {
+            AdmissionAttemptGate expired;
+            CHECK(connection->enqueueAdmissionAcceptance({1, 2, 3}, expired, [] { return false; },
+                                                         [current] { return current; }, deadline)
+                  == AdmissionAcceptanceEnqueueResult::DeadlineExceeded);
+            CHECK(budget.used() == baseline);
+        }
+
+        AdmissionAttemptGate cancellationException;
+        CHECK(connection->enqueueAdmissionAcceptance({1, 2, 3}, cancellationException,
+                                                     []() -> bool { throw Failure("cancel callback"); },
+                                                     [] { return TransportTimePoint{}; }, deadline)
+              == AdmissionAcceptanceEnqueueResult::Cancelled);
+        CHECK(budget.used() == baseline);
+
+        AdmissionAttemptGate clockException;
+        CHECK(connection->enqueueAdmissionAcceptance({1, 2, 3}, clockException, [] { return false; },
+                                                     []() -> TransportTimePoint { throw Failure("clock callback"); },
+                                                     deadline)
+              == AdmissionAcceptanceEnqueueResult::DeadlineExceeded);
+        CHECK(budget.used() == baseline);
+
+        AdmissionAttemptGate oversized;
+        CHECK(connection->enqueueAdmissionAcceptance(std::vector<std::uint8_t>(MaxPayloadBytes + 1), oversized,
+                                                     [] { return false; }, [] { return TransportTimePoint{}; },
+                                                     deadline)
+              == AdmissionAcceptanceEnqueueResult::NotQueued);
+        CHECK(budget.used() == baseline);
+        connection->close(); listener.shutdown();
+    }
+
+    {
+        SessionTransportDependencies dependencies;
+        dependencies.outbound.send = [](std::intptr_t, std::uint16_t kind, const std::uint8_t *, std::size_t size) {
+            return kind == 0 ? OutboundSendOutcome{OutboundSendStatus::WouldBlock, 0}
+                             : OutboundSendOutcome{OutboundSendStatus::Sent, size};
+        };
+        dependencies.outbound.wait = [](std::chrono::milliseconds) { std::this_thread::sleep_for(1ms); };
+        const auto port = unusedPort();
+        TcpListener listener(1, dependencies); startListener(listener, port);
+        RawSocketOwner peer(connectRaw(port));
+        auto connection = awaitAccept(listener);
+        connection->markAdmissionSucceeded();
+        std::size_t accepted = 0;
+        while (accepted <= MaxQueuedTransportFrames + 1) {
+            const auto result = connection->send({0xA5});
+            if (result == SendResult::Backpressure) break;
+            CHECK(result == SendResult::Accepted);
+            ++accepted;
+        }
+        CHECK(accepted > 0 && accepted <= MaxQueuedTransportFrames);
+        const std::size_t filled = budget.used();
+        CHECK(filled == baseline + accepted);
+        AdmissionAttemptGate capacity;
+        CHECK(connection->enqueueAdmissionAcceptance({1, 2, 3}, capacity, [] { return false; },
+                                                     [] { return TransportTimePoint{}; }, deadline)
+              == AdmissionAcceptanceEnqueueResult::NotQueued);
+        CHECK(budget.used() == filled);
+        connection->close(); listener.shutdown();
+        CHECK(waitUntil([&] { return budget.used() == baseline; }, 1s));
+    }
+
+    {
+        SessionTransportDependencies dependencies;
+        dependencies.outbound.send = [](std::intptr_t, std::uint16_t kind, const std::uint8_t *, std::size_t size) {
+            return kind == 0 ? OutboundSendOutcome{OutboundSendStatus::Failed, 0}
+                             : OutboundSendOutcome{OutboundSendStatus::Sent, size};
+        };
+        const auto port = unusedPort();
+        TcpListener listener(1, dependencies); startListener(listener, port);
+        RawSocketOwner peer(connectRaw(port));
+        auto connection = awaitAccept(listener);
+        connection->markAdmissionSucceeded();
+        AdmissionAttemptGate sendFailure;
+        CHECK(connection->enqueueAdmissionAcceptance({1, 2, 3}, sendFailure, [] { return false; },
+                                                     [] { return TransportTimePoint{}; }, deadline)
+              == AdmissionAcceptanceEnqueueResult::Accepted);
+        CHECK(waitUntil([&] { return connection->state() == ClientState::Failed; }, 1s));
+        CHECK(waitUntil([&] { return budget.used() == baseline; }, 1s));
+        connection->close(); listener.shutdown();
+    }
+    CHECK(budget.used() == baseline);
+}
+
+void concreteSealAndDrainRacesReceiveWithoutLossOrDuplication() {
+    auto &budget = Trust::processQueueBudget();
+    const std::size_t baseline = budget.used();
+    const auto port = unusedPort();
+    TcpListener listener(1); startListener(listener, port);
+    RawSocketOwner peer(connectRaw(port));
+    auto connection = awaitAccept(listener);
+    connection->markAdmissionSucceeded();
+
+    constexpr std::uint32_t FrameCount = 128;
+    for (std::uint32_t sequence = 0; sequence < FrameCount; ++sequence) {
+        std::vector<std::uint8_t> payload{
+            static_cast<std::uint8_t>(sequence >> 24), static_cast<std::uint8_t>(sequence >> 16),
+            static_cast<std::uint8_t>(sequence >> 8), static_cast<std::uint8_t>(sequence)};
+        sendFrame(peer.get(), payload);
+    }
+    CHECK(waitUntil([&] { return budget.used() == baseline + FrameCount * 4u; }, 2s));
+
+    std::atomic<bool> start{false};
+    std::atomic<std::uint32_t> raceFramesSent{0};
+    std::vector<TransportFrame> received;
+    std::thread consumer([&] {
+        while (!start.load()) std::this_thread::yield();
+        TransportFrame frame;
+        while (connection->receive(frame)) received.push_back(std::move(frame));
+    });
+    std::thread sender([&] {
+        while (!start.load()) std::this_thread::yield();
+        for (std::uint32_t sequence = FrameCount; sequence < FrameCount + 64; ++sequence) {
+            std::vector<std::uint8_t> payload{
+                static_cast<std::uint8_t>(sequence >> 24), static_cast<std::uint8_t>(sequence >> 16),
+                static_cast<std::uint8_t>(sequence >> 8), static_cast<std::uint8_t>(sequence)};
+            sendFrame(peer.get(), payload);
+            raceFramesSent.fetch_add(1);
+        }
+    });
+    start.store(true);
+    CHECK(waitUntil([&] { return raceFramesSent.load() > 0; }, 1s));
+    TransportInputSnapshot snapshot = connection->sealAndDrainInput();
+    consumer.join();
+    sender.join();
+
+    std::vector<std::uint32_t> sequences;
+    const auto collect = [&](const TransportFrame &frame) {
+        CHECK(frame.payload.size() == 4);
+        sequences.push_back((std::uint32_t(frame.payload[0]) << 24)
+                            | (std::uint32_t(frame.payload[1]) << 16)
+                            | (std::uint32_t(frame.payload[2]) << 8)
+                            | std::uint32_t(frame.payload[3]));
+    };
+    for (const auto &frame: received) collect(frame);
+    for (const auto &frame: snapshot.frames) collect(frame);
+    std::sort(sequences.begin(), sequences.end());
+    CHECK(sequences.size() >= FrameCount);
+    CHECK(std::adjacent_find(sequences.begin(), sequences.end()) == sequences.end());
+    for (std::uint32_t sequence = 0; sequence < FrameCount; ++sequence)
+        CHECK(std::binary_search(sequences.begin(), sequences.end(), sequence));
+    CHECK(sequences.back() < FrameCount + 64);
+    CHECK(waitUntil([&] { return budget.used() == baseline; }, 1s));
+
+    for (std::uint32_t sequence = FrameCount; sequence < FrameCount + 8; ++sequence)
+        sendFrame(peer.get(), {static_cast<std::uint8_t>(sequence)});
+    std::this_thread::sleep_for(100ms);
+    TransportFrame hidden;
+    CHECK(!connection->receive(hidden));
+    CHECK(connection->sealAndDrainInput().frames.empty());
+    CHECK(waitUntil([&] { return budget.used() == baseline; }, 1s));
+    connection->close(); listener.shutdown();
+}
 }
 
 int main() {
@@ -1267,7 +1439,10 @@ int main() {
         {"deterministic outbound progress deadline", deterministicOutboundProgressDeadline},
         {"cancellation deadline races", cancellationDeadlineRacesAreTerminalAndJoined},
         {"lifecycle and failures", lifecycleAndFailures}, {"15 isolated connections", fifteenIsolatedConnections},
-        {"queue boundaries", queueBoundaries}, {"malformed isolation", malformedPeersAreIsolated},
+        {"queue boundaries", queueBoundaries},
+        {"conditional admission acceptance accounting", conditionalAdmissionAcceptanceAccounting},
+        {"concrete seal and drain race", concreteSealAndDrainRacesReceiveWithoutLossOrDuplication},
+        {"malformed isolation", malformedPeersAreIsolated},
         {"stalls and liveness", stallsAndLiveness}, {"close and shutdown bounds", closeAndShutdownBounds}};
     int failures = 0;
     for (const auto &test: tests) try { test.second(); std::cout << "[PASS] " << test.first << '\n'; }
