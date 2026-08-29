@@ -148,7 +148,7 @@ The screen specifications and wireframes document other player counts, modes, in
 ## Issue #30 operational evidence matrix
 
 This matrix was prepared for issue #30 and draft PR #50 at reviewed head `4eb4291d3090e2a3b9de8fc83f130671d8b3eb5e`.
-The final UX reassessment covers the implemented scope at exact head `21eed266bf371511130281df9e5252c7219aa006`.
+The final UX reassessment covers the implemented scope at exact head `74ceb769a711325949853a016350319d2393ddf7`.
 The issue #30 graphical screenshot matrix contains exactly zero entries.
 No affected wireframe has an implemented graphical state in issue #30.
 Terminal or command-line output is operational evidence and is not an implementation screenshot.
