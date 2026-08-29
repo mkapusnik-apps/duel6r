@@ -56,12 +56,17 @@ new_scenario() {
 }
 
 start_app() {
+  local startup_command="${1:-}"
   mkdir -p "${scenario_dir}/home"
   (
     export HOME="${scenario_dir}/home"
     export XDG_CACHE_HOME="$HOME/.cache" XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share"
     cd "$scenario_dir"
-    timeout --kill-after=3s 35s ./duel6r >app.stdout 2>app.stderr
+    if [[ -n "$startup_command" ]]; then
+      timeout --kill-after=3s 35s ./duel6r "$startup_command" >app.stdout 2>app.stderr
+    else
+      timeout --kill-after=3s 35s ./duel6r >app.stdout 2>app.stderr
+    fi
   ) &
   app_pid="$!"
   window_id=""
@@ -127,6 +132,33 @@ assert_same() {
   pixels="${output%%.*}"
   [[ "$pixels" =~ ^[0-9]+$ ]] || fail "$label returned invalid difference: $output"
   (( pixels == 0 )) || fail "$label changed $pixels pixels"
+}
+
+dump_rounds_setting() {
+  local destination="$1"
+  xdotool key --window "$window_id" grave
+  sleep 0.15
+  xdotool type --window "$window_id" --delay 5 rounds
+  xdotool key --window "$window_id" Return
+  xdotool type --window "$window_id" --delay 5 "dump $destination"
+  xdotool key --window "$window_id" Return
+  sleep 0.15
+  xdotool key --window "$window_id" grave
+}
+
+assert_dumped_rounds() {
+  local dump_file="$1" expected="$2" label="$3"
+  python3 - "$dump_file" "$expected" "$label" <<'PY'
+import sys
+
+path, expected, label = sys.argv[1:]
+with open(path, encoding="utf-8") as source:
+    lines = [line.strip() for line in source if line.startswith("Max rounds:")]
+actual = lines[-1] if lines else "<missing>"
+wanted = f"Max rounds: {expected}"
+if actual != wanted:
+    raise SystemExit(f"{label}: expected {wanted!r}, got {actual!r}")
+PY
 }
 
 write_overflow_fixture() {
@@ -526,6 +558,102 @@ capture "${scenario_dir}/burnable-restarted.png"
 crop_burnable_trees_control "${scenario_dir}/burnable-restarted.png" "${scenario_dir}/burnable-restarted-crop.png"
 assert_same "${scenario_dir}/burnable-default-crop.png" "${scenario_dir}/burnable-restarted-crop.png" \
   "Burnable Trees fresh-start enabled state"
+close_app
+
+echo "[RUN] Rounds focus, apply, session retention, restart, and startup override"
+new_scenario rounds-session
+python3 - "${scenario_dir}/data/persons.json" <<'PY'
+import json, sys
+
+def person(name):
+    return {"name": name, "shots": 0, "hits": 0, "kills": 0, "deaths": 0,
+            "assistances": 0, "wins": 0, "penalties": 0, "games": 0,
+            "timeAlive": 0, "totalGameTime": 0, "totalDamage": 0,
+            "assistedDamage": 0, "elo": 1000, "eloTrend": 0, "eloGames": 0}
+
+with open(sys.argv[1], "w", encoding="utf-8") as output:
+    json.dump({"persons": [person("Alpha"), person("Beta")],
+               "playing": ["Alpha", "Beta"], "rounds": 0}, output)
+PY
+
+crop_rounds_control() {
+  local normalized="${2%.png}-normalized.png"
+  normalize_menu "$1" "$normalized"
+  convert "$normalized" -crop 96x24+740+268 +repage "$2"
+}
+
+# A startup console setting is reflected in the menu. Editing that positive
+# value and leaving the field does not apply it until Enter is pressed.
+start_app "rounds 7"
+capture "${scenario_dir}/startup-override-7.png"
+crop_rounds_control "${scenario_dir}/startup-override-7.png" "${scenario_dir}/startup-override-7-crop.png"
+dump_rounds_setting rounds-startup.txt
+assert_dumped_rounds "${scenario_dir}/rounds-startup.txt" 7 "startup override"
+
+xdotool mousemove "$(menu_x 1025)" "$(menu_y 376)" click 1
+xdotool key --window "$window_id" BackSpace
+xdotool type --window "$window_id" --delay 5 "x3y"
+xdotool mousemove "$(menu_x 900)" "$(menu_y 450)" click 1
+sleep 0.2
+capture "${scenario_dir}/edited-3-blurred.png"
+crop_rounds_control "${scenario_dir}/edited-3-blurred.png" "${scenario_dir}/edited-3-blurred-crop.png"
+assert_changed "${scenario_dir}/startup-override-7-crop.png" "${scenario_dir}/edited-3-blurred-crop.png" \
+  "Rounds digit-only edit"
+dump_rounds_setting rounds-before-enter.txt
+assert_dumped_rounds "${scenario_dir}/rounds-before-enter.txt" 7 "non-empty blur"
+
+# Focusing the positive edit keeps it. Enter applies it and removes focus.
+xdotool mousemove "$(menu_x 1025)" "$(menu_y 376)" click 1
+sleep 0.15
+capture "${scenario_dir}/focused-positive-3.png"
+crop_rounds_control "${scenario_dir}/focused-positive-3.png" "${scenario_dir}/focused-positive-3-crop.png"
+assert_changed "${scenario_dir}/edited-3-blurred-crop.png" "${scenario_dir}/focused-positive-3-crop.png" \
+  "Rounds positive focus indicator"
+xdotool key --window "$window_id" Return
+sleep 0.15
+capture "${scenario_dir}/applied-3.png"
+crop_rounds_control "${scenario_dir}/applied-3.png" "${scenario_dir}/applied-3-crop.png"
+assert_same "${scenario_dir}/edited-3-blurred-crop.png" "${scenario_dir}/applied-3-crop.png" \
+  "Rounds positive value after Enter"
+dump_rounds_setting rounds-after-enter.txt
+assert_dumped_rounds "${scenario_dir}/rounds-after-enter.txt" 3 "Enter apply"
+
+# Enter gameplay and return in the same process. The applied value remains.
+xdotool key --window "$window_id" F1
+sleep 3
+xdotool key --window "$window_id" Shift+Escape
+sleep 2
+capture "${scenario_dir}/after-gameplay-3.png"
+crop_rounds_control "${scenario_dir}/after-gameplay-3.png" "${scenario_dir}/after-gameplay-3-crop.png"
+assert_same "${scenario_dir}/applied-3-crop.png" "${scenario_dir}/after-gameplay-3-crop.png" \
+  "Rounds applied value after gameplay return"
+close_app
+
+# A fresh process does not restore the prior session's max-round setting.
+start_app
+capture "${scenario_dir}/restart-0.png"
+crop_rounds_control "${scenario_dir}/restart-0.png" "${scenario_dir}/restart-0-crop.png"
+assert_changed "${scenario_dir}/after-gameplay-3-crop.png" "${scenario_dir}/restart-0-crop.png" \
+  "Rounds restart reset"
+dump_rounds_setting rounds-after-restart.txt
+assert_dumped_rounds "${scenario_dir}/rounds-after-restart.txt" 0 "restart reset"
+
+# Focusing exactly zero clears it. Empty focus loss restores zero and applies
+# unlimited-round semantics immediately.
+xdotool mousemove "$(menu_x 1025)" "$(menu_y 376)" click 1
+sleep 0.15
+capture "${scenario_dir}/focused-empty.png"
+crop_rounds_control "${scenario_dir}/focused-empty.png" "${scenario_dir}/focused-empty-crop.png"
+assert_changed "${scenario_dir}/restart-0-crop.png" "${scenario_dir}/focused-empty-crop.png" \
+  "Rounds exact-zero focus clear"
+xdotool mousemove "$(menu_x 900)" "$(menu_y 450)" click 1
+sleep 0.15
+capture "${scenario_dir}/empty-blur-0.png"
+crop_rounds_control "${scenario_dir}/empty-blur-0.png" "${scenario_dir}/empty-blur-0-crop.png"
+assert_same "${scenario_dir}/restart-0-crop.png" "${scenario_dir}/empty-blur-0-crop.png" \
+  "Rounds empty blur zero restore"
+dump_rounds_setting rounds-after-empty-blur.txt
+assert_dumped_rounds "${scenario_dir}/rounds-after-empty-blur.txt" 0 "empty blur unlimited"
 close_app
 
 echo "[RUN] invalid background load retry and solid-black fallback"
