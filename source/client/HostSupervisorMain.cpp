@@ -1,7 +1,6 @@
 #include "HostServiceSupervisor.h"
 
 #include <array>
-#include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
@@ -104,10 +103,10 @@ int main(int argumentCount, char **arguments) {
 
         std::signal(SIGINT, requestExit);
         std::signal(SIGTERM, requestExit);
-        std::atomic<bool> intentionalEndHandoffObserved{false};
         Duel6::Client::HostServiceDependencies dependencies;
-        dependencies.intentionalEndHandoff = [&](const char *) {
-            intentionalEndHandoffObserved.store(true);
+        dependencies.intentionalEndHandoff = [](const char *) {
+            std::cout << "intentional-host-end\n";
+            std::cout.flush();
         };
         Duel6::Client::HostServiceSupervisor supervisor(std::move(dependencies));
         if (!supervisor.start(config)) {
@@ -133,9 +132,6 @@ int main(int argumentCount, char **arguments) {
                           << Duel6::Client::hostServiceOutcomeCopy(current.outcome) << '\n';
                 return 2;
             }
-            if (current.state == Duel6::Client::HostServiceState::NoService && endAfterReady
-                && !intentionalEndHandoffObserved.load())
-                return 2;
             if (current.state == Duel6::Client::HostServiceState::NoService && (cancelImmediately || endAfterReady))
                 return 0;
             if (current.state == Duel6::Client::HostServiceState::ApplicationExit && current.cleanupComplete)
