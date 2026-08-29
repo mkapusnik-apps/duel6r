@@ -46,6 +46,42 @@ static constexpr SocketHandle InvalidSocket = -1;
 #endif
 
 namespace Duel6::Network {
+    AdmissionAcceptanceEnqueueResult AdmissionAttemptGate::enqueueAcceptance(
+            const std::function<AdmissionAcceptanceEnqueueResult()> &enqueue) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (state == State::CancelledBeforeAcceptance || state == State::AcceptanceEnqueuedThenCancelled)
+            return AdmissionAcceptanceEnqueueResult::Cancelled;
+        if (state != State::Active) return AdmissionAcceptanceEnqueueResult::NotQueued;
+
+        AdmissionAcceptanceEnqueueResult result = AdmissionAcceptanceEnqueueResult::NotQueued;
+        try { if (enqueue) result = enqueue(); } catch (...) {}
+        if (result == AdmissionAcceptanceEnqueueResult::Cancelled) {
+            state = State::CancelledBeforeAcceptance;
+        } else if (result == AdmissionAcceptanceEnqueueResult::Accepted) {
+            state = State::AcceptanceEnqueued;
+        }
+        return result;
+    }
+
+    bool AdmissionAttemptGate::cancel() {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (state == State::CancelledBeforeAcceptance || state == State::AcceptanceEnqueuedThenCancelled)
+            return true;
+        if (state == State::Finished) return false;
+        state = state == State::AcceptanceEnqueued
+                ? State::AcceptanceEnqueuedThenCancelled
+                : State::CancelledBeforeAcceptance;
+        return true;
+    }
+
+    bool AdmissionAttemptGate::finish() {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (state == State::CancelledBeforeAcceptance || state == State::AcceptanceEnqueuedThenCancelled
+            || state == State::Finished) return false;
+        state = State::Finished;
+        return true;
+    }
+
     namespace {
         using Clock = std::chrono::steady_clock;
         constexpr auto StartupDeadline = std::chrono::seconds(10);
@@ -831,6 +867,10 @@ namespace Duel6::Network {
         SendResult send(std::vector<std::uint8_t> payload) {
             if (payload.size() > MaxPayloadBytes) return SendResult::PayloadTooLarge;
             std::lock_guard<std::mutex> lock(outputMutex);
+            return enqueueApplicationLocked(std::move(payload));
+        }
+
+        SendResult enqueueApplicationLocked(std::vector<std::uint8_t> payload) {
             ClientState current = state.load();
             if (current == ClientState::Closing) return SendResult::Closing;
             if (current != ClientState::Connected) return SendResult::NotConnected;
@@ -843,6 +883,46 @@ namespace Duel6::Network {
             applicationOutput.push_back({ApplicationFrame, std::move(payload)});
             outputChanged.notify_one();
             return SendResult::Accepted;
+        }
+
+        AdmissionAcceptanceEnqueueResult enqueueAdmissionAcceptance(
+                std::vector<std::uint8_t> payload,
+                AdmissionAttemptGate &attempt,
+                const std::function<bool()> &cancelled,
+                const std::function<TransportTimePoint()> &clock,
+                TransportTimePoint deadline) {
+            return attempt.enqueueAcceptance(
+                    [this, &cancelled, &clock, deadline, payload = std::move(payload)]() mutable {
+                        if (payload.size() > MaxPayloadBytes)
+                            return AdmissionAcceptanceEnqueueResult::NotQueued;
+                        std::lock_guard<std::mutex> outputLock(outputMutex);
+                        ClientState currentState = state.load();
+                        if (currentState != ClientState::Connected
+                            || applicationOutput.size() + activeApplicationFrames >= MaxQueuedTransportFrames
+                            || outputBytes + activeApplicationBytes + payload.size()
+                               > MaxQueuedTransportPayloadBytes)
+                            return AdmissionAcceptanceEnqueueResult::NotQueued;
+                        if (!Trust::processQueueBudget().reserve(payload.size()))
+                            return AdmissionAcceptanceEnqueueResult::NotQueued;
+
+                        bool cancellationRequested = true;
+                        try { cancellationRequested = !cancelled || cancelled(); } catch (...) {}
+                        if (cancellationRequested) {
+                            Trust::processQueueBudget().release(payload.size());
+                            return AdmissionAcceptanceEnqueueResult::Cancelled;
+                        }
+                        TransportTimePoint current = TransportTimePoint::max();
+                        try { if (clock) current = clock(); } catch (...) {}
+                        if (current >= deadline) {
+                            Trust::processQueueBudget().release(payload.size());
+                            return AdmissionAcceptanceEnqueueResult::DeadlineExceeded;
+                        }
+
+                        outputBytes += payload.size();
+                        applicationOutput.push_back({ApplicationFrame, std::move(payload)});
+                        outputChanged.notify_one();
+                        return AdmissionAcceptanceEnqueueResult::Accepted;
+                    });
         }
 
         bool receive(TransportFrame &frame) {
@@ -1276,6 +1356,15 @@ namespace Duel6::Network {
     SendResult TcpConnection::send(std::vector<std::uint8_t> payload) { return impl->send(std::move(payload)); }
     bool TcpConnection::receive(TransportFrame &frame) { return impl->receive(frame); }
     TransportInputSnapshot TcpConnection::sealAndDrainInput() { return impl->sealAndDrainInput(); }
+
+    AdmissionAcceptanceEnqueueResult TcpConnection::enqueueAdmissionAcceptance(
+            std::vector<std::uint8_t> payload,
+            AdmissionAttemptGate &attempt,
+            const std::function<bool()> &cancelled,
+            const std::function<TransportTimePoint()> &now,
+            TransportTimePoint deadline) {
+        return impl->enqueueAdmissionAcceptance(std::move(payload), attempt, cancelled, now, deadline);
+    }
     ClientState TcpConnection::state() const { return impl->state.load(); }
     TransportFailure TcpConnection::failure() const { return impl->failure.load(); }
     std::array<std::uint8_t, 4> TcpConnection::sourceIpv4() const { return impl->sourceIpv4(); }

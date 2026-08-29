@@ -3,7 +3,7 @@
 ## Feature sanity check
 
 - `Feature - Sanity check` starts for a pull request that targets `develop`.
-- The workflow checks out the pull request merge commit on a self-hosted runner.
+- The workflow checks out the pull request head commit on a self-hosted runner, with the event commit as a safe fallback outside pull request events.
 - The workflow pulls the `develop` Linux build image from GHCR.
 - The build compiles the game, runs configured `ctest` tests, and verifies `build/duel6r`.
 - The job needs `contents: read` and `packages: read` permissions.
@@ -23,13 +23,15 @@
 ## Native Windows transport evidence
 
 - `Evidence - Native Windows Transport` starts manually or for relevant pull request changes that target `develop`.
+- A pull request run checks out the pull request head commit.
+- A manual run checks out the selected workflow commit.
 - GitHub runs the job on `windows-2025` with native `ltsc2025` Windows containers.
 - The host selects the newest available Visual Studio instance with an MSVC x64 toolchain and compatible Windows SDK.
 - The host mounts the toolchain and SDK read-only in the container.
 - The host does not compile, test, or run a project binary.
-- The container uses MSVC x64 to build the production transport, server, resolver, and selected network tests.
+- The container uses MSVC x64 to build the production transport, server, resolver, admission compatibility test, and selected network tests.
 - The container verifies `cl.exe`, `link.exe`, `rc.exe`, and `mt.exe` before CMake starts.
-- The container runs the trust-policy test and both transport CTests with native Windows processes.
+- The container runs the trust-policy test, both transport CTests, and both admission CTests with native Windows processes.
 - The job needs `contents: read` permission.
 - The job does not use repository secrets and does not create an artifact.
 - This workflow provides issue acceptance evidence.

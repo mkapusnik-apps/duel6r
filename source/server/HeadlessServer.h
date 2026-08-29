@@ -52,6 +52,34 @@ namespace Duel6::Server {
     public:
         virtual ~AdmissionRuntimeConnection() = default;
         virtual Network::SendResult send(std::vector<std::uint8_t> payload) = 0;
+        virtual Network::AdmissionAcceptanceEnqueueResult enqueueAdmissionAcceptance(
+                std::vector<std::uint8_t> payload,
+                Network::AdmissionAttemptGate &attempt,
+                const std::function<bool()> &cancelled,
+                const Network::Trust::Clock &now,
+                Network::TransportTimePoint deadline) {
+            return attempt.enqueueAcceptance(
+                    [this, &cancelled, &now, deadline, payload = std::move(payload)]() mutable {
+                        bool cancellationRequested = true;
+                        try { cancellationRequested = !cancelled || cancelled(); } catch (...) {}
+                        if (cancellationRequested)
+                            return Network::AdmissionAcceptanceEnqueueResult::Cancelled;
+                        Network::TransportTimePoint current = Network::TransportTimePoint::max();
+                        try { if (now) current = now(); } catch (...) {}
+                        if (current >= deadline)
+                            return Network::AdmissionAcceptanceEnqueueResult::DeadlineExceeded;
+                        const auto sent = send(std::move(payload));
+                        // Deterministic fake seams commonly invoke their pre-insertion hook from send().
+                        // Production overrides this method and checks at the real queue insertion point.
+                        try {
+                            if (sent == Network::SendResult::Accepted && cancelled && cancelled())
+                                return Network::AdmissionAcceptanceEnqueueResult::Cancelled;
+                        } catch (...) { return Network::AdmissionAcceptanceEnqueueResult::Cancelled; }
+                        return sent == Network::SendResult::Accepted
+                               ? Network::AdmissionAcceptanceEnqueueResult::Accepted
+                               : Network::AdmissionAcceptanceEnqueueResult::NotQueued;
+                    });
+        }
         virtual bool receive(Network::TransportFrame &frame) = 0;
         virtual Network::TransportInputSnapshot sealAndDrainInput() {
             Network::TransportInputSnapshot snapshot;

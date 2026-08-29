@@ -145,19 +145,23 @@ The replacement shared-arena artifacts have this provenance:
 The matrix uses one representative state for each wireframe.
 The screen specifications and wireframes document other player counts, modes, interaction states, and accessibility limits without multiplying screenshot entries.
 
-## Issue #30 pre-implementation evidence matrix
+## Issue #30 operational evidence matrix
 
 This matrix was prepared for issue #30 and draft PR #50 at reviewed head `4eb4291d3090e2a3b9de8fc83f130671d8b3eb5e`.
+The final UX review assessed the implemented scope at exact head `1a3a52c66ab36944ce5fb25e235ceace7d99ceb9`.
 The issue #30 graphical screenshot matrix contains exactly zero entries.
 No affected wireframe has an implemented graphical state in issue #30.
 Terminal or command-line output is operational evidence and is not an implementation screenshot.
 Operational evidence must record the implementation branch, source SHA, environment, command or test scenario, exact machine outcome, exact visible output when applicable, and artifact path.
+The registered operational evidence sources are `tests/AdmissionCompatibilityTests.cpp`, `tests/AdmissionProcessTests.py`, and `tests/SessionTransportCTestRegistration.cmake`.
 
 | Operational scenario | Required substitute evidence |
 |---|---|
 | Host-local invalid manifest | A test or recorded protocol/CLI artifact must show `host-gameplay-content-manifest-invalid`, the exact host-visible copy, no listener or session, and Retry-disabled semantics for the current application session. |
+| Guest-local invalid manifest | A test or recorded protocol/CLI artifact must show `guest-gameplay-content-manifest-invalid`, the exact guest-visible copy, no resolution or connection, retained setup destinations, and Retry-disabled semantics until restart. |
 | Initial admission precedence | Automated results must exercise all 11 ordered identifiers and must show that the first applicable complete host result wins. |
 | Initial outcome copy | Automated results must assert every exact rejection string, including release, invalid manifest, content mismatch, match started, session full, and host policy outcomes. |
+| Malformed host messages | Actual-process results must show that malformed, trailing, unexpected, or inconsistent complete host messages use `invalid-host-admission-message` and `Connection ended before admission completed.` without dynamic peer detail. |
 | Transport precedence | Automated results must distinguish name-resolution failure, unreachable or refusal, close before complete admission, and no complete result at the 10-second deadline. |
 | Cancellation and destinations | Automated or integration results must show that Cancel and local validation win, retained setup is preserved, and no pre-admission identity or slot remains. |
 | Reconnect compatibility handoff | Automated results must assert the exact release and content restoration copy and disabled reconnect Retry semantics. |

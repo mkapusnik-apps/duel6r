@@ -49,6 +49,15 @@ namespace {
         Duel6::Network::SendResult send(std::vector<std::uint8_t> payload) override {
             return connection->send(std::move(payload));
         }
+        Duel6::Network::AdmissionAcceptanceEnqueueResult enqueueAdmissionAcceptance(
+                std::vector<std::uint8_t> payload,
+                Duel6::Network::AdmissionAttemptGate &attempt,
+                const std::function<bool()> &cancelled,
+                const Duel6::Network::Trust::Clock &now,
+                Duel6::Network::TransportTimePoint deadline) override {
+            return connection->enqueueAdmissionAcceptance(
+                    std::move(payload), attempt, cancelled, now, deadline);
+        }
         bool receive(Duel6::Network::TransportFrame &frame) override { return connection->receive(frame); }
         Duel6::Network::TransportInputSnapshot sealAndDrainInput() override {
             return connection->sealAndDrainInput();
@@ -145,18 +154,24 @@ namespace {
             try { client->cancel(); } catch (...) {}
             closeClient();
         };
-        if (cancelled()) { cancelClient(); return 2; }
+        Duel6::Network::AdmissionAttemptGate attempt;
+        const auto cancelAttempt = [&] {
+            if (!cancelled() || !attempt.cancel()) return false;
+            cancelClient();
+            return true;
+        };
+        if (cancelAttempt()) return 2;
         bool started = false;
         try { started = client->start(config.listenEndpoint); } catch (...) {}
         if (!started) {
-            if (cancelled()) { cancelClient(); return 2; }
+            if (cancelAttempt()) return 2;
             output << "Host unreachable.\n";
             closeClient();
             return 2;
         }
         bool connected = false;
         for (;;) {
-            if (cancelled()) { cancelClient(); return 2; }
+            if (cancelAttempt()) return 2;
             const auto now = runtimeNow(runtimeDependencies);
             if (now >= deadline) break;
             const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
@@ -171,7 +186,7 @@ namespace {
                 || clientState == Duel6::Network::ClientState::TimedOut
                 || clientState == Duel6::Network::ClientState::Closed) break;
         }
-        if (cancelled()) { cancelClient(); return 2; }
+        if (cancelAttempt()) return 2;
         if (!connected) {
             std::shared_ptr<Duel6::Server::AdmissionRuntimeConnection> interrupted;
             try { interrupted = client->connection(); } catch (...) {}
@@ -197,7 +212,7 @@ namespace {
 
         std::shared_ptr<Duel6::Server::AdmissionRuntimeConnection> connection;
         try { connection = client->connection(); } catch (...) {}
-        if (cancelled()) { cancelClient(); return 2; }
+        if (cancelAttempt()) return 2;
         if (!connection) {
             output << "Connection ended before admission completed.\n";
             closeClient();
@@ -205,17 +220,17 @@ namespace {
         }
         const auto request = Duel6::Network::makeLocalAdmissionRequest(config.localPlayers, std::move(manifest));
         if (runtimeNow(runtimeDependencies) >= deadline) {
-            if (cancelled()) { cancelClient(); return 2; }
+            if (cancelAttempt()) return 2;
             output << "Connection timed out.\n";
             closeClient();
             return 2;
         }
-        if (cancelled()) { cancelClient(); return 2; }
+        if (cancelAttempt()) return 2;
         Duel6::Network::SendResult requestSent = Duel6::Network::SendResult::NotConnected;
         try { requestSent = connection->send(Duel6::Network::serializeAdmissionRequest(request)); }
         catch (...) {}
         if (requestSent != Duel6::Network::SendResult::Accepted) {
-            if (cancelled()) { cancelClient(); return 2; }
+            if (cancelAttempt()) return 2;
             output << "Connection ended before admission completed.\n";
             closeClient();
             return 2;
@@ -223,12 +238,17 @@ namespace {
 
         enum class GuestDecision { None, Cancelled, Rejected, Admitted, InvalidHost, Ended };
         struct GuestFrameDecision {
-            GuestDecision decision = GuestDecision::None;
+            GuestFrameDecision() : decision(GuestDecision::None), result() {}
+            explicit GuestFrameDecision(GuestDecision decision) : decision(decision), result() {}
+            GuestFrameDecision(GuestDecision decision, Duel6::Network::AdmissionResult result)
+                    : decision(decision), result(std::move(result)) {}
+
+            GuestDecision decision;
             Duel6::Network::AdmissionResult result;
         };
         std::optional<Duel6::Network::AdmissionOfferPayload> acceptedOffer;
         const auto processFrame = [&](const Duel6::Network::TransportFrame &frame) -> GuestFrameDecision {
-            if (cancelled()) return {GuestDecision::Cancelled, {}};
+            if (cancelled()) return GuestFrameDecision(GuestDecision::Cancelled);
             const bool beforeDeadline = frame.receivedAt < deadline;
             try {
                 if (!acceptedOffer) {
@@ -237,23 +257,27 @@ namespace {
                                 Duel6::Network::deserializeAdmissionOffer(frame.payload);
                         if (!Duel6::Network::validAdmissionIdentitySet(offer, request.localPlayerCount))
                             throw std::invalid_argument("Admission offer does not match the request");
-                        if (!beforeDeadline) return {};
-                        if (cancelled()) return {GuestDecision::Cancelled, {}};
-                        if (runtimeNow(runtimeDependencies) >= deadline) return {};
-                        if (cancelled()) return {GuestDecision::Cancelled, {}};
-                        if (runtimeNow(runtimeDependencies) >= deadline) return {};
-                        Duel6::Network::SendResult sent = Duel6::Network::SendResult::NotConnected;
-                        try { sent = connection->send(Duel6::Network::serializeAdmissionAcceptance(offer)); }
-                        catch (...) {}
-                        if (sent != Duel6::Network::SendResult::Accepted)
-                            return {GuestDecision::Ended, {}};
+                        if (!beforeDeadline) return GuestFrameDecision();
+                        Duel6::Network::AdmissionAcceptanceEnqueueResult queued =
+                                Duel6::Network::AdmissionAcceptanceEnqueueResult::NotQueued;
+                        try {
+                            queued = connection->enqueueAdmissionAcceptance(
+                                    Duel6::Network::serializeAdmissionAcceptance(offer), attempt,
+                                    cancelled, runtimeDependencies.now, deadline);
+                        } catch (...) {}
+                        if (queued == Duel6::Network::AdmissionAcceptanceEnqueueResult::Cancelled)
+                            return GuestFrameDecision(GuestDecision::Cancelled);
+                        if (queued == Duel6::Network::AdmissionAcceptanceEnqueueResult::DeadlineExceeded)
+                            return GuestFrameDecision();
+                        if (queued != Duel6::Network::AdmissionAcceptanceEnqueueResult::Accepted)
+                            return GuestFrameDecision(GuestDecision::Ended);
                         acceptedOffer = std::move(offer);
-                        return {};
+                        return GuestFrameDecision();
                     } catch (...) {
                         const Duel6::Network::AdmissionResult rejection =
                                 Duel6::Network::deserializeAdmissionResult(frame.payload);
                         if (!beforeDeadline) return {};
-                        return {GuestDecision::Rejected, rejection};
+                        return GuestFrameDecision(GuestDecision::Rejected, rejection);
                     }
                 }
 
@@ -261,22 +285,32 @@ namespace {
                         Duel6::Network::deserializeAdmissionConfirmation(frame.payload);
                 if (!Duel6::Network::sameAdmissionIdentitySet(*acceptedOffer, confirmation))
                     throw std::invalid_argument("Admission confirmation does not match the offer");
-                if (!beforeDeadline) return {};
+                if (!beforeDeadline) return GuestFrameDecision();
                 Duel6::Network::AdmissionResult result;
                 result.code = Duel6::Network::AdmissionResultCode::Admitted;
                 result.participantId = confirmation.participantId;
                 result.playerIds = confirmation.playerIds;
-                return {GuestDecision::Admitted, std::move(result)};
+                return GuestFrameDecision(GuestDecision::Admitted, std::move(result));
             } catch (...) {
-                return {GuestDecision::InvalidHost, {}};
+                return GuestFrameDecision(GuestDecision::InvalidHost);
             }
         };
         const auto publish = [&](GuestFrameDecision decision) -> std::optional<int> {
             if (decision.decision == GuestDecision::None) return std::nullopt;
-            if (decision.decision == GuestDecision::Cancelled || cancelled()) {
-                cancelClient();
-                return 2;
+            if (decision.decision == GuestDecision::Cancelled) {
+                if (attempt.cancel()) {
+                    cancelClient();
+                    return 2;
+                }
+                return std::nullopt;
             }
+            if (cancelled()) {
+                if (attempt.cancel()) {
+                    cancelClient();
+                    return 2;
+                }
+            }
+            if (!attempt.finish()) return std::nullopt;
             switch (decision.decision) {
                 case GuestDecision::Rejected:
                 case GuestDecision::Admitted:
@@ -307,16 +341,17 @@ namespace {
             Duel6::Network::TransportInputSnapshot snapshot;
             try { snapshot = connection->sealAndDrainInput(); }
             catch (...) {
-                if (cancelled()) { cancelClient(); return 2; }
+                if (cancelAttempt()) return 2;
                 output << "Connection ended before admission completed.\n";
                 closeClient();
                 return 2;
             }
-            if (cancelled()) { cancelClient(); return 2; }
+            if (cancelAttempt()) return 2;
             for (const auto &queued: snapshot.frames) {
                 if (const auto finished = publish(processFrame(queued))) return *finished;
             }
-            if (cancelled()) { cancelClient(); return 2; }
+            if (cancelAttempt()) return 2;
+            attempt.finish();
             if (snapshot.terminalAt != Duel6::Network::TransportTimePoint{}
                 && snapshot.terminalAt < deadline) {
                 output << "Connection ended before admission completed.\n";
@@ -328,7 +363,7 @@ namespace {
         };
 
         for (;;) {
-            if (cancelled()) { cancelClient(); return 2; }
+            if (cancelAttempt()) return 2;
             Duel6::Network::ClientState state = Duel6::Network::ClientState::Failed;
             try { state = connection->state(); } catch (...) {}
             if (runtimeNow(runtimeDependencies) >= deadline || isTerminal(state)) return sealAndFinish();
@@ -337,7 +372,7 @@ namespace {
             bool received = false;
             try { received = connection->receive(frame); }
             catch (...) {
-                if (cancelled()) { cancelClient(); return 2; }
+                if (cancelAttempt()) return 2;
                 output << "Connection ended before admission completed.\n";
                 closeClient();
                 return 2;
