@@ -130,4 +130,7 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 
 ## Screenshot link
 
-Planned representative evidence: [`SS-001`](../screenshots/README.md#ss-001). The capture must show a positive applied Rounds value after gameplay returns during the same application session. No current application screenshot represents the changed Rounds behavior together with the target Network action.
+Current representative evidence: [`SS-001`](../screenshots/README.md#ss-001).
+The capture must show a positive applied Rounds value after gameplay returns during the same application session.
+The current capture must show the implemented three-action footer.
+Issue #38 must replace this evidence when it implements the target Network action.

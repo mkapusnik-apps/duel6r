@@ -279,9 +279,12 @@ The following values come from renderer and GUI source.
 - A visual-impact change must update each affected screen specification and wireframe.
 - A visual-impact change must invalidate each affected screenshot entry.
 - A shared token or component change must trigger an assessment of all screens.
-- Screenshot provenance must record branch, source SHA, environment, workflow, state, viewport, artifact path, selected menu background filename, runtime asset manifest revision, and session identifier where the menu background is visible.
+- Screenshot provenance must record branch, source SHA, environment, workflow, state, viewport, and artifact path.
+- Evidence for menu background selection or persistence must also record the selected filename, runtime asset manifest revision, and session identifier.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
-- The 12 affected screenshot entries remain `Planned` until issue #38 implements and captures the target `MENU-01`, `MENU-02`, `CONS-01`, and `NET-01`–`NET-09` states; existing local screenshots cannot be reused as target evidence.
+- Eleven screenshot entries remain `Planned` until issue #38 implements and captures `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
+- `SS-001` must represent the current implemented `MENU-01` state.
+- Issue #38 must invalidate and recapture `SS-001` when it implements the target Network footer.
 
 ## Reviewed implementation sources
 

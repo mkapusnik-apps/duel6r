@@ -1,4 +1,4 @@
-# MENU-01 wireframe — Main menu with planned network entry
+# MENU-01 wireframe — Main menu with current Rounds state and planned network entry
 
 Representative viewport: 1920 by 1080 px desktop client.
 Wireframe coordinates use a top-left origin.
@@ -7,6 +7,8 @@ The screen has no mobile layout and does not reflow.
 The complete client is filled by a centered-cover gameplay still with Gaussian-equivalent blur and a 55% black scrim.
 The scaled grey canvas is unblurred and undimmed and has a 2-logical-pixel black perimeter keyline.
 The representative state shows applied Rounds `3` after gameplay returns during the same application session.
+The current representative state uses the implemented three-action footer.
+The four-action footer remains a target variant for issue #38.
 
 ## Canvas zones
 
@@ -87,6 +89,7 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 - Footer button widths, three internal gaps, and two outer margins must remain equal as specified above at every uniformly scaled viewport.
 - `Play (F1)` remains the independent local-only action; `Network (F2)` is a distinct target action leading to `NET-01`.
 - Issue #28 specifies this footer layout but does not implement it. The current application still has the three-action footer.
+- The current representative screenshot must use the three-action footer and must not wait for issue #38.
 - The banner must use `resources/textures/menu/` and may animate.
 - The version must use the current runtime value and must not use the Stitch sample value.
 - Sample names and statistics must not become hard-coded UI content.
@@ -101,4 +104,5 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 - Pressed controls must reverse their bevel and move their caption by 1 px.
 - Selection occurs once per application session; the still does not animate or change during menu navigation or a return from gameplay.
 
-Planned representative screenshot: [`SS-001`](../../screenshots/README.md#ss-001).
+Current representative screenshot: [`SS-001`](../../screenshots/README.md#ss-001).
+Issue #38 must replace this screenshot when it implements the target footer variant.
