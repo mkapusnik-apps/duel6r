@@ -72,6 +72,8 @@ namespace Duel6::Server {
                 config.buildVersion = valueAfter(argument, "--build-version=");
             } else if (startsWith(argument, "--resources=")) {
                 config.resourcePath = valueAfter(argument, "--resources=");
+            } else if (startsWith(argument, "--gameplay-script=")) {
+                config.enabledGameplayScripts.push_back(valueAfter(argument, "--gameplay-script="));
             } else if (startsWith(argument, "--token=")) {
                 throw std::invalid_argument(
                         "Authentication tokens are unsupported; refusing to accept a token in process arguments");
@@ -79,6 +81,11 @@ namespace Duel6::Server {
                 config.tickRate = parsePositiveUint32("tick rate", valueAfter(argument, "--tick-rate="));
             } else if (startsWith(argument, "--max-clients=")) {
                 config.maxClients = parsePositiveUint32("max clients", valueAfter(argument, "--max-clients="));
+            } else if (startsWith(argument, "--local-players=")) {
+                const std::uint32_t count = parsePositiveUint32("local players", valueAfter(argument, "--local-players="));
+                if (count > Network::MaxNetworkPlayers)
+                    throw std::invalid_argument("local players must not exceed 15");
+                config.localPlayers = static_cast<std::uint8_t>(count);
             } else if (argument == "--local-only") {
                 config.localOnly = true;
                 config.listenEndpoint.host = "127.0.0.1";
@@ -87,11 +94,14 @@ namespace Duel6::Server {
                 config.transportEcho = true;
             } else if (argument == "--transport") {
                 config.transportEnabled = true;
+            } else if (argument == "--admission-client") {
+                config.admissionClient = true;
             } else if (argument == "--help") {
                 throw std::invalid_argument(
                         "Usage: duel6r-server [--host=ADDR] [--port=PORT] [--name=NAME] "
-                        "[--build-version=VERSION] [--resources=PATH] [--tick-rate=N] "
-                        "[--max-clients=N] [--local-only] [--transport] [--transport-echo]");
+                        "[--resources=PATH] [--gameplay-script=PATH] [--local-players=N] "
+                        "[--tick-rate=N] [--max-clients=N] [--local-only] [--transport] "
+                        "[--transport-echo] [--admission-client]");
             } else {
                 throw std::invalid_argument("Unknown server argument: " + argument);
             }
@@ -109,6 +119,9 @@ namespace Duel6::Server {
         }
         if (config.maxClients > Network::MaxNetworkPlayers) {
             throw std::invalid_argument("max clients must not exceed 15 in this scaffold");
+        }
+        if (config.admissionClient && (config.transportEnabled || config.transportEcho)) {
+            throw std::invalid_argument("admission client mode cannot start a listener");
         }
 
         return config;

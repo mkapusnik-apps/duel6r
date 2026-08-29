@@ -15,9 +15,13 @@ name: Evidence - Native Windows Transport
       - 'source/network/**'
       - 'source/server/**'
       - 'tests/SessionTransportCTestRegistration.cmake'
+      - 'tests/AdmissionCompatibilityTests.cpp'
+      - 'tests/AdmissionProcessTests.py'
       - 'tests/NetworkTrustPolicyTests.cpp'
       - 'tests/SessionTransportProcessTests.py'
       - 'tests/SessionTransportTests.cpp'
+      - 'tests/TestHarness.h'
+      - 'tests/TestMain.cpp'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -32,6 +36,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Start Docker service
         shell: powershell

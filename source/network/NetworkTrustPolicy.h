@@ -226,7 +226,7 @@ namespace Duel6::Network::Trust {
 
     using ConnectionId = std::uint64_t;
     using ParticipantId = std::uint64_t;
-    using PlayerSlotId = std::uint32_t;
+    using PlayerSlotId = std::uint64_t;
     enum class AuthorityAction { HostOnly, OwnReadiness, OwnProposal, Leave, PlayerInput };
     struct AuthorizationDecision {
         bool allowed = false;

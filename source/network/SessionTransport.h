@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -67,11 +68,46 @@ namespace Duel6::Network {
         Closing
     };
 
+    using TransportTimePoint = std::chrono::steady_clock::time_point;
+
     struct TransportFrame {
         std::vector<std::uint8_t> payload;
+        TransportTimePoint receivedAt{};
     };
 
-    using TransportTimePoint = std::chrono::steady_clock::time_point;
+    struct TransportInputSnapshot {
+        std::vector<TransportFrame> frames;
+        ClientState state = ClientState::NotStarted;
+        TransportTimePoint terminalAt{};
+    };
+
+    enum class AdmissionAcceptanceEnqueueResult {
+        Accepted,
+        Cancelled,
+        DeadlineExceeded,
+        NotQueued
+    };
+
+    // Serializes an admission attempt's cancellation, acceptance enqueue, and terminal outcome.
+    // Once acceptance is enqueued, a later cancellation cannot replace that earlier decision.
+    class AdmissionAttemptGate {
+    public:
+        AdmissionAcceptanceEnqueueResult enqueueAcceptance(
+                const std::function<AdmissionAcceptanceEnqueueResult()> &enqueue);
+        bool cancel();
+        bool finish();
+
+    private:
+        enum class State {
+            Active,
+            AcceptanceEnqueued,
+            CancelledBeforeAcceptance,
+            AcceptanceEnqueuedThenCancelled,
+            Finished
+        };
+        std::mutex mutex;
+        State state = State::Active;
+    };
 
     struct ResolvedIpv4Endpoint {
         std::array<std::uint8_t, 4> address{};
@@ -149,12 +185,26 @@ namespace Duel6::Network {
         TcpConnection &operator=(const TcpConnection &) = delete;
 
         SendResult send(std::vector<std::uint8_t> payload);
+        AdmissionAcceptanceEnqueueResult enqueueAdmissionAcceptance(
+                std::vector<std::uint8_t> payload,
+                AdmissionAttemptGate &attempt,
+                const std::function<bool()> &cancelled,
+                const std::function<TransportTimePoint()> &now,
+                TransportTimePoint deadline);
         bool receive(TransportFrame &frame);
+        // Atomically prevents later inbound application delivery and drains every frame
+        // queued before the seal together with terminal state at that linearization point.
+        TransportInputSnapshot sealAndDrainInput();
         ClientState state() const;
         TransportFailure failure() const;
         std::array<std::uint8_t, 4> sourceIpv4() const;
+        TransportTimePoint acceptedAt() const;
+        TransportTimePoint terminalAt() const;
         // Releases only the pre-admission accounting reservation. Session policy owns identity/authority.
         void markAdmissionSucceeded();
+        // Allows exactly one bounded admission-acceptance frame after the initial request.
+        bool permitAdmissionAcceptance();
+        void revokeAdmissionAcceptance();
 
         // Idempotent. Accepted output is flushed in order for at most two seconds.
         void requestClose();

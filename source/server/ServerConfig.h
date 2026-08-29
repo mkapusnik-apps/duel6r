@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "../network/Protocol.h"
 
@@ -15,9 +16,12 @@ namespace Duel6::Server {
         std::string authToken;
         std::uint32_t tickRate = 60;
         std::uint32_t maxClients = 15;
+        std::uint8_t localPlayers = 1;
+        std::vector<std::string> enabledGameplayScripts;
         bool localOnly = false;
         bool transportEnabled = false;
         bool transportEcho = false;
+        bool admissionClient = false;
     };
 
     ServerConfig parseServerConfig(int argc, char **argv);

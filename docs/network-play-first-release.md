@@ -115,7 +115,7 @@ The following synthetic fixtures are normative compatibility examples, not shipp
 | Path mismatch | `levels/arena.json` | `Levels/arena.json` | `Gameplay content mismatch. Use the host's exact supported gameplay content.`; diagnostics may use canonical path `Levels/arena.json` |
 | Invalid path | Not applicable | a peer value containing a disallowed segment | `Gameplay content manifest is invalid. Use the host's exact supported gameplay content.`; user copy and diagnostics omit the raw value |
 
-Issue #30 owns canonical serialization, content digest choice, exchange, comparison mechanics, and protocol enforcement. Those mechanics must produce the exact policy, fixture outcomes, and user-visible copy above.
+Issue #30 owns canonical serialization, content digest choice, exchange, comparison mechanics, and protocol enforcement. The authoritative issue #30 target is in [`network-compatibility-and-admission.md`](network-compatibility-and-admission.md). Those mechanics must produce the exact policy, fixture outcomes, and user-visible copy above.
 
 ## Timing, failures, and precedence
 
@@ -130,7 +130,7 @@ Issue #30 owns canonical serialization, content digest choice, exchange, compari
 
 - Hostname/address and port validation remains inline in editable `NET-03`; invalid input does not begin the connection clock.
 - A connection attempt has one 10-second total deadline covering name resolution, transport connection, compatibility, capacity, host admission, and lobby confirmation.
-- Success must be confirmed strictly before the deadline. At or after 10 seconds, the generic result is `Connection timed out` unless a higher-precedence result below was established first.
+- Success must be confirmed strictly before the deadline. At or after 10 seconds, the generic result is `Connection timed out.` unless a higher-precedence result below was established first.
 - Cancel returns to editable `NET-03` and retains endpoint and local-player setup.
 - `NET-08` Retry repeats the same retained attempt when still valid; Edit setup returns to editable `NET-02` or `NET-03` with all setup retained; Return to Network goes to `NET-01`.
 

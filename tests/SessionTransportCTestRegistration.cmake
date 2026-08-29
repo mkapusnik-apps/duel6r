@@ -25,6 +25,19 @@ set_tests_properties(duel6r-network-trust-policy-tests PROPERTIES
         LABELS "application;network;security"
         TIMEOUT 30)
 
+add_executable(duel6r-admission-compatibility-tests
+        ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+        ${CMAKE_SOURCE_DIR}/tests/AdmissionCompatibilityTests.cpp)
+target_include_directories(duel6r-admission-compatibility-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(duel6r-admission-compatibility-tests duel6r-network-scaffold)
+if (MINGW)
+    set_property(TARGET duel6r-admission-compatibility-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
+add_test(NAME duel6r-admission-compatibility-tests COMMAND duel6r-admission-compatibility-tests)
+set_tests_properties(duel6r-admission-compatibility-tests PROPERTIES
+        LABELS "application;integration;network;admission;compatibility"
+        TIMEOUT 120)
+
 if (UNIX OR WIN32)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(
@@ -36,6 +49,16 @@ if (UNIX OR WIN32)
     set_tests_properties(duel6r-session-transport-process-tests PROPERTIES
             LABELS "application;integration;network;transport"
             TIMEOUT 90)
+
+    add_test(
+            NAME duel6r-admission-process-tests
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/AdmissionProcessTests.py
+                    $<TARGET_FILE:${D6R_SERVER_APP_NAME}>
+    )
+    set_tests_properties(duel6r-admission-process-tests PROPERTIES
+            LABELS "application;integration;network;admission;process"
+            TIMEOUT 45)
 endif ()
 
 if (UNIX)
