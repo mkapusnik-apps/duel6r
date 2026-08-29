@@ -4,7 +4,7 @@
 
 The networking code now includes a production TCP session-transport layer and command-line compatibility admission under an experimental, incomplete developer scaffold. It does not add playable network support to Duel 6 Reloaded. Normal `duel6r` startup, Play, and every existing local game journey remain independent of this code: the game does not bind or connect a socket, start a transport worker or server, or expose network controls.
 
-The approved future first-release scope and journeys are defined in [`docs/network-play-first-release.md`](network-play-first-release.md). The authoritative compatibility and admission target is in [`docs/network-compatibility-and-admission.md`](network-compatibility-and-admission.md). Enforced exposure boundaries and reusable abuse controls are documented in [`docs/network-trust-and-abuse-limits.md`](network-trust-and-abuse-limits.md). Those policies do not change the scaffold's current status and must not be read as implemented or playable network behavior.
+The approved future first-release scope and journeys are defined in [`docs/network-play-first-release.md`](network-play-first-release.md). The authoritative compatibility and admission target is in [`docs/network-compatibility-and-admission.md`](network-compatibility-and-admission.md). The player-hosted service lifecycle target is in [`docs/network-host-service-lifecycle.md`](network-host-service-lifecycle.md). Enforced exposure boundaries and reusable abuse controls are documented in [`docs/network-trust-and-abuse-limits.md`](network-trust-and-abuse-limits.md). Those policies do not change the scaffold's current status and must not be read as implemented or playable network behavior.
 
 The scaffold provides transport-neutral data transfer objects and a prototype text serializer for these message families:
 
@@ -94,7 +94,7 @@ The following essential pieces are absent:
 - complete world, score, round, and entity replication;
 - lobby integration for admitted participants;
 - latency handling, interpolation, prediction, reconciliation, or lag compensation;
-- local server process supervision and reconnect policy;
+- player-hosted service supervision and reconnect policy;
 - reconnect compatibility exchange and reconnect credential exchange;
 - network-facing UI.
 
