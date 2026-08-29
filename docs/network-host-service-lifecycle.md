@@ -77,7 +77,9 @@ Cancel during `Starting` must move the attempt to `Stopping`. Confirmed End sess
 
 Normal application shutdown from `Starting` or `Active` must move directly toward `Application exit` through bounded service cleanup.
 
-The host application must complete cleanup within three seconds after a stop request. At the deadline, it must stop any remaining owned service work.
+The cleanup deadline begins when Cancel, confirmed End session, application shutdown, or a failure stop is accepted, not when a monitor later observes that selection. The host application must complete cleanup within three seconds when the operating system honors termination. At the deadline, it must force-stop any remaining owned service process tree.
+
+The host application may report final cleanup only after it has reaped the direct child and confirmed that the complete owned process tree and listener are gone. If the operating system has not confirmed termination by the deadline, the application must retain ownership in `Stopping` or incomplete `Application exit`, continue fail-closed force and reap supervision, and keep Retry and completed destinations unavailable. It must not claim `No service` or `cleanup complete` merely because the deadline elapsed.
 
 The host application must release the owned endpoint, service work, and queued service data before it reaches `No service` or completes exit.
 
@@ -170,13 +172,13 @@ The product must not label a new startup attempt as restoration of an ended sess
 
 Only the confirmed host action End session is an intentional host end. It must use the confirmation and destinations in the first-release specification.
 
-After confirmation, the hosted service must attempt to send the valid intentional host-end notice through each current established guest session.
+After confirmation, the supervisor must record the exact reason `intentional-host-end` and invoke exactly one observable downstream intentional-end handoff before it requests service cleanup. The handoff is the boundary through which the hosted service will attempt to send the valid intentional host-end notice through each current established guest session. This lifecycle implementation does not claim that a guest notice was delivered.
 
 The host must then stop the hosted service and return to `NET-01`. The host must discard session-only results.
 
 A guest may enter `NET-09` only after it accepts the valid notice through its current established session.
 
-Failure to deliver the notice must not delay host cleanup beyond three seconds. An affected guest must use the issue #36 ambiguous reconnect journey.
+Handoff failure or an exception must not extend or restart the cleanup deadline. Failure to deliver the notice must not delay host cleanup beyond three seconds. An affected guest must use the issue #36 ambiguous reconnect journey. Cancel, application shutdown, startup failure, and session failure must never invoke this handoff.
 
 ### Normal application shutdown
 

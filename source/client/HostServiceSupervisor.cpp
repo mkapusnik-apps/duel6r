@@ -28,6 +28,11 @@ namespace Duel6::Client {
             : dependencies(std::move(dependencies)) {
         if (!this->dependencies.now) this->dependencies.now = realNow;
         if (!this->dependencies.launcher) this->dependencies.launcher = launchHostServiceProcess;
+        if (!this->dependencies.monitorLauncher) {
+            this->dependencies.monitorLauncher = [](std::function<void()> function) {
+                return std::thread(std::move(function));
+            };
+        }
     }
 
     HostServiceSupervisor::~HostServiceSupervisor() {
@@ -56,7 +61,11 @@ namespace Duel6::Client {
     }
 
     HostServiceSnapshot HostServiceSupervisor::snapshotLocked() const {
-        return {state, outcome, cleanupComplete, retryEligible && cleanupComplete};
+        const bool failure = state == HostServiceState::StartupFailed || state == HostServiceState::SessionFailed;
+        const bool readOnly = state == HostServiceState::Starting || state == HostServiceState::Active
+                              || state == HostServiceState::Stopping || state == HostServiceState::ApplicationExit;
+        return {state, outcome, cleanupComplete, retryEligible && cleanupComplete, stopReason, readOnly,
+                hasRetainedConfig, failure && cleanupComplete};
     }
 
     void HostServiceSupervisor::observe(const HostServiceSnapshot &value) const noexcept {
@@ -74,10 +83,28 @@ namespace Duel6::Client {
         if (completed) monitor.join();
     }
 
+    void HostServiceSupervisor::selectStopLocked(SelectedStop stop, HostServiceOutcome failure) {
+        if (selectedStop != SelectedStop::None) return;
+        selectedStop = stop;
+        selectedOutcome = failure;
+        switch (stop) {
+            case SelectedStop::Cancel: stopReason = HostServiceStopReason::Cancel; break;
+            case SelectedStop::EndSession: stopReason = HostServiceStopReason::IntentionalHostEnd; break;
+            case SelectedStop::ApplicationExit: stopReason = HostServiceStopReason::ApplicationExit; break;
+            case SelectedStop::StartupFailure: stopReason = HostServiceStopReason::StartupFailure; break;
+            case SelectedStop::SessionFailure: stopReason = HostServiceStopReason::SessionFailure; break;
+            case SelectedStop::None: stopReason = HostServiceStopReason::None; break;
+        }
+        const auto accepted = now();
+        const auto latest = HostServiceTimePoint::max() - CleanupDeadline;
+        cleanupDeadline = accepted >= latest ? HostServiceTimePoint::max() : accepted + CleanupDeadline;
+    }
+
     bool HostServiceSupervisor::start(const HostServiceStartConfig &config) {
         joinCompletedMonitor();
         if (!validConfig(config)) return false;
         HostServiceSnapshot current;
+        bool monitorFailed = false;
         {
             std::lock_guard<std::mutex> lock(mutex);
             if (state != HostServiceState::NoService
@@ -89,7 +116,9 @@ namespace Duel6::Client {
             applicationExitPending = false;
             selectedStop = SelectedStop::None;
             selectedOutcome = HostServiceOutcome::None;
+            stopReason = HostServiceStopReason::None;
             retainedConfig = config;
+            hasRetainedConfig = true;
             const auto began = now();
             startupBegan = began;
             const auto latest = HostServiceTimePoint::max() - StartupDeadline;
@@ -104,10 +133,19 @@ namespace Duel6::Client {
                 changed.notify_all();
             } else {
                 current = snapshotLocked();
-                monitor = std::thread(&HostServiceSupervisor::monitorOwnedChild, this);
+                try {
+                    monitor = dependencies.monitorLauncher([this] { monitorOwnedChild(); });
+                    if (!monitor.joinable()) throw std::runtime_error("host-service monitor did not start");
+                } catch (...) {
+                    selectStopLocked(SelectedStop::StartupFailure, HostServiceOutcome::StartFailed);
+                    state = HostServiceState::Stopping;
+                    current = snapshotLocked();
+                    monitorFailed = true;
+                }
             }
         }
         observe(current);
+        if (monitorFailed) finishOwnedChild(SelectedStop::StartupFailure, HostServiceOutcome::StartFailed);
         return true;
     }
 
@@ -126,7 +164,7 @@ namespace Duel6::Client {
         {
             std::lock_guard<std::mutex> lock(mutex);
             if (state != HostServiceState::Starting || selectedStop != SelectedStop::None) return false;
-            selectedStop = SelectedStop::Cancel;
+            selectStopLocked(SelectedStop::Cancel, HostServiceOutcome::None);
             state = HostServiceState::Stopping;
             current = snapshotLocked();
             changed.notify_all();
@@ -140,7 +178,13 @@ namespace Duel6::Client {
         {
             std::lock_guard<std::mutex> lock(mutex);
             if (state != HostServiceState::Active || selectedStop != SelectedStop::None) return false;
-            selectedStop = SelectedStop::EndSession;
+            selectStopLocked(SelectedStop::EndSession, HostServiceOutcome::None);
+            if (dependencies.intentionalEndHandoff) {
+                try {
+                    dependencies.intentionalEndHandoff(
+                            hostServiceStopReasonIdentifier(HostServiceStopReason::IntentionalHostEnd));
+                } catch (...) {}
+            }
             state = HostServiceState::Stopping;
             current = snapshotLocked();
             changed.notify_all();
@@ -156,7 +200,8 @@ namespace Duel6::Client {
             std::lock_guard<std::mutex> lock(mutex);
             if (state == HostServiceState::ApplicationExit) return;
             applicationExitPending = true;
-            if (child && selectedStop == SelectedStop::None) selectedStop = SelectedStop::ApplicationExit;
+            if (child && selectedStop == SelectedStop::None)
+                selectStopLocked(SelectedStop::ApplicationExit, HostServiceOutcome::None);
             state = HostServiceState::ApplicationExit;
             retryEligible = false;
             if (!child) cleanupComplete = true;
@@ -165,6 +210,30 @@ namespace Duel6::Client {
             notify = true;
         }
         if (notify) observe(current);
+    }
+
+    bool HostServiceSupervisor::retainedSetup(HostServiceStartConfig &config) const {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (!hasRetainedConfig) return false;
+        config = retainedConfig;
+        return true;
+    }
+
+    bool HostServiceSupervisor::dismissFailure() {
+        HostServiceSnapshot current;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (!cleanupComplete
+                || (state != HostServiceState::StartupFailed && state != HostServiceState::SessionFailed))
+                return false;
+            state = HostServiceState::NoService;
+            outcome = HostServiceOutcome::None;
+            retryEligible = false;
+            current = snapshotLocked();
+            changed.notify_all();
+        }
+        observe(current);
+        return true;
     }
 
     HostServiceSnapshot HostServiceSupervisor::snapshot() const {
@@ -194,40 +263,34 @@ namespace Duel6::Client {
                 if (selectedStop != SelectedStop::None) {
                     stop = selectedStop;
                     stopOutcome = selectedOutcome;
-                } else if (state == HostServiceState::Starting && received) {
-                    const bool currentAttempt = event.receivedAt >= startupBegan;
-                    const bool beforeDeadline = event.receivedAt < startupDeadline;
-                    if (!currentAttempt) {
-                        // The per-child channel should make this impossible; reject it without changing state.
-                    } else if (event.code == Network::HostServiceStatusCode::Ready) {
-                        if (beforeDeadline) {
-                            state = HostServiceState::Active;
-                            outcome = HostServiceOutcome::None;
-                            didTransition = true;
-                        } else {
-                            selectedStop = stop = SelectedStop::StartupFailure;
-                            selectedOutcome = stopOutcome = HostServiceOutcome::StartupTimedOut;
-                        }
-                    } else if (beforeDeadline) {
-                        selectedStop = stop = SelectedStop::StartupFailure;
-                        selectedOutcome = stopOutcome = outcomeForStatus(event.code);
-                    } else {
-                        selectedStop = stop = SelectedStop::StartupFailure;
-                        selectedOutcome = stopOutcome = HostServiceOutcome::StartupTimedOut;
+                } else if (state == HostServiceState::Starting) {
+                    const bool currentAttempt = received && event.receivedAt >= startupBegan;
+                    const bool beforeDeadline = currentAttempt && event.receivedAt < startupDeadline;
+                    const bool specificFailure = beforeDeadline
+                                                 && event.code != Network::HostServiceStatusCode::Ready;
+                    if (specificFailure) {
+                        selectStopLocked(SelectedStop::StartupFailure, outcomeForStatus(event.code));
+                    } else if (exited) {
+                        // A Ready message and direct-child exit observed in one cycle never expose Active.
+                        selectStopLocked(SelectedStop::StartupFailure, HostServiceOutcome::ExitedBeforeReady);
+                    } else if (beforeDeadline && event.code == Network::HostServiceStatusCode::Ready) {
+                        state = HostServiceState::Active;
+                        outcome = HostServiceOutcome::None;
+                        didTransition = true;
+                    } else if ((currentAttempt && !beforeDeadline) || now() >= startupDeadline) {
+                        selectStopLocked(SelectedStop::StartupFailure, HostServiceOutcome::StartupTimedOut);
                     }
+                    stop = selectedStop;
+                    stopOutcome = selectedOutcome;
+                } else if (exited && state == HostServiceState::Active) {
+                    selectStopLocked(SelectedStop::SessionFailure, HostServiceOutcome::StoppedUnexpectedly);
+                    stop = selectedStop;
+                    stopOutcome = selectedOutcome;
                 }
-                if (stop == SelectedStop::None && state == HostServiceState::Starting && now() >= startupDeadline) {
-                    selectedStop = stop = SelectedStop::StartupFailure;
-                    selectedOutcome = stopOutcome = HostServiceOutcome::StartupTimedOut;
-                }
-                if (stop == SelectedStop::None && exited) {
-                    if (state == HostServiceState::Starting) {
-                        selectedStop = stop = SelectedStop::StartupFailure;
-                        selectedOutcome = stopOutcome = HostServiceOutcome::ExitedBeforeReady;
-                    } else if (state == HostServiceState::Active) {
-                        selectedStop = stop = SelectedStop::SessionFailure;
-                        selectedOutcome = stopOutcome = HostServiceOutcome::StoppedUnexpectedly;
-                    }
+                if (stop != SelectedStop::None
+                    && (state == HostServiceState::Starting || state == HostServiceState::Active)) {
+                    state = HostServiceState::Stopping;
+                    didTransition = true;
                 }
                 if (didTransition) {
                     transition = snapshotLocked();
@@ -244,26 +307,35 @@ namespace Duel6::Client {
 
     void HostServiceSupervisor::finishOwnedChild(SelectedStop selected, HostServiceOutcome selectedFailure) {
         try { child->requestStop(); } catch (...) {}
-        const auto began = now();
-        const auto latest = HostServiceTimePoint::max() - CleanupDeadline;
-        const auto hardDeadline = began >= latest ? HostServiceTimePoint::max() : began + CleanupDeadline;
+        HostServiceTimePoint hardDeadline;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            hardDeadline = cleanupDeadline;
+        }
         const auto forceBudget = std::chrono::milliseconds(100);
         const auto gracefulDeadline = hardDeadline == HostServiceTimePoint::max()
-                                      ? hardDeadline : hardDeadline - forceBudget;
-        bool exited = false;
-        while (!exited && now() < gracefulDeadline) {
-            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(gracefulDeadline - now());
-            const auto slice = std::min(remaining, std::chrono::milliseconds(10));
-            if (slice <= std::chrono::milliseconds::zero()) break;
-            try { exited = child->waitForExit(slice); } catch (...) { break; }
-        }
-        if (!exited) {
-            try { child->forceTerminate(); } catch (...) {}
-            while (!exited && now() < hardDeadline) {
-                const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(hardDeadline - now());
-                const auto slice = std::min(remaining, std::chrono::milliseconds(10));
-                if (slice <= std::chrono::milliseconds::zero()) break;
-                try { exited = child->waitForExit(slice); } catch (...) { break; }
+                                       ? hardDeadline : hardDeadline - forceBudget;
+        bool cleaned = false;
+        bool forced = false;
+        for (;;) {
+            try { cleaned = child->cleanupConfirmed(); } catch (...) { cleaned = false; }
+            if (cleaned) break;
+
+            const auto current = now();
+            if (!forced && current >= gracefulDeadline) {
+                try { child->forceTerminate(); } catch (...) {}
+                forced = true;
+            }
+            auto slice = std::chrono::milliseconds(10);
+            if (!forced && gracefulDeadline != HostServiceTimePoint::max()) {
+                const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(gracefulDeadline - current);
+                slice = std::min(slice, std::max(remaining, std::chrono::milliseconds(1)));
+            }
+            try { cleaned = child->waitForCleanup(slice); } catch (...) { cleaned = false; }
+            if (cleaned) break;
+            if (forced) {
+                try { child->forceTerminate(); } catch (...) {}
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         }
 
@@ -335,5 +407,17 @@ namespace Duel6::Client {
             case HostServiceOutcome::None: return "";
         }
         return "Hosted session could not start.";
+    }
+
+    const char *hostServiceStopReasonIdentifier(HostServiceStopReason value) noexcept {
+        switch (value) {
+            case HostServiceStopReason::Cancel: return "startup-cancel";
+            case HostServiceStopReason::IntentionalHostEnd: return "intentional-host-end";
+            case HostServiceStopReason::ApplicationExit: return "application-exit";
+            case HostServiceStopReason::StartupFailure: return "startup-failure";
+            case HostServiceStopReason::SessionFailure: return "session-failure";
+            case HostServiceStopReason::None: return "";
+        }
+        return "";
     }
 }

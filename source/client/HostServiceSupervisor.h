@@ -36,10 +36,12 @@ namespace Duel6::Client {
     };
 
     enum class HostServiceStopReason {
+        None,
         Cancel,
-        EndSession,
+        IntentionalHostEnd,
         ApplicationExit,
-        Failure
+        StartupFailure,
+        SessionFailure
     };
 
     using HostServiceTimePoint = std::chrono::steady_clock::time_point;
@@ -62,6 +64,10 @@ namespace Duel6::Client {
         HostServiceOutcome outcome = HostServiceOutcome::None;
         bool cleanupComplete = true;
         bool retryAllowed = false;
+        HostServiceStopReason stopReason = HostServiceStopReason::None;
+        bool setupReadOnly = false;
+        bool retainedSetupAvailable = false;
+        bool failureDismissalAllowed = false;
     };
 
     class HostServiceChild {
@@ -72,6 +78,11 @@ namespace Duel6::Client {
         virtual void requestStop() = 0;
         virtual bool waitForExit(std::chrono::milliseconds timeout) = 0;
         virtual void forceTerminate() = 0;
+        virtual bool cleanupConfirmed() { return hasExited(); }
+        virtual bool waitForCleanup(std::chrono::milliseconds timeout) {
+            waitForExit(timeout);
+            return cleanupConfirmed();
+        }
     };
 
     using HostServiceLauncher = std::function<std::unique_ptr<HostServiceChild>(const HostServiceStartConfig &)>;
@@ -80,6 +91,8 @@ namespace Duel6::Client {
         std::function<HostServiceTimePoint()> now;
         HostServiceLauncher launcher;
         std::function<void(const HostServiceSnapshot &)> lifecycleObserver;
+        std::function<void(const char *)> intentionalEndHandoff;
+        std::function<std::thread(std::function<void()>)> monitorLauncher;
     };
 
     class HostServiceSupervisor {
@@ -98,6 +111,8 @@ namespace Duel6::Client {
         bool cancelStartup();
         bool endSession();
         void applicationExit();
+        bool retainedSetup(HostServiceStartConfig &config) const;
+        bool dismissFailure();
 
         HostServiceSnapshot snapshot() const;
         bool waitForState(HostServiceState state, std::chrono::milliseconds timeout) const;
@@ -119,6 +134,7 @@ namespace Duel6::Client {
         void monitorOwnedChild();
         void finishOwnedChild(SelectedStop selected, HostServiceOutcome selectedOutcome);
         void joinCompletedMonitor();
+        void selectStopLocked(SelectedStop stop, HostServiceOutcome selectedOutcome);
 
         HostServiceDependencies dependencies;
         mutable std::mutex mutex;
@@ -130,9 +146,12 @@ namespace Duel6::Client {
         bool applicationExitPending = false;
         SelectedStop selectedStop = SelectedStop::None;
         HostServiceOutcome selectedOutcome = HostServiceOutcome::None;
+        HostServiceStopReason stopReason = HostServiceStopReason::None;
         HostServiceTimePoint startupBegan{};
         HostServiceTimePoint startupDeadline{};
+        HostServiceTimePoint cleanupDeadline{};
         HostServiceStartConfig retainedConfig;
+        bool hasRetainedConfig = false;
         std::unique_ptr<HostServiceChild> child;
         std::thread monitor;
     };
@@ -140,6 +159,7 @@ namespace Duel6::Client {
     std::unique_ptr<HostServiceChild> launchHostServiceProcess(const HostServiceStartConfig &config);
     const char *hostServiceOutcomeIdentifier(HostServiceOutcome outcome) noexcept;
     const char *hostServiceOutcomeCopy(HostServiceOutcome outcome) noexcept;
+    const char *hostServiceStopReasonIdentifier(HostServiceStopReason reason) noexcept;
 }
 
 #endif

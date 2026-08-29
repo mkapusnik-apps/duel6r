@@ -13,6 +13,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <tlhelp32.h>
 #else
 #include <fcntl.h>
 #include <signal.h>
@@ -40,6 +41,26 @@ namespace Duel6::Server {
         }
 
 #ifdef D6R_TRANSPORT_WINDOWS
+        bool currentProcessHasParent(std::uint64_t expectedParent) {
+            if (expectedParent > std::numeric_limits<DWORD>::max()) return false;
+            const DWORD current = GetCurrentProcessId();
+            HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if (snapshot == INVALID_HANDLE_VALUE) return false;
+            PROCESSENTRY32W entry{};
+            entry.dwSize = sizeof(entry);
+            bool matches = false;
+            if (Process32FirstW(snapshot, &entry)) {
+                do {
+                    if (entry.th32ProcessID == current) {
+                        matches = entry.th32ParentProcessID == static_cast<DWORD>(expectedParent);
+                        break;
+                    }
+                } while (Process32NextW(snapshot, &entry));
+            }
+            CloseHandle(snapshot);
+            return matches;
+        }
+
         bool writeExact(HANDLE handle, const std::uint8_t *data, std::size_t size) {
             while (size > 0) {
                 DWORD written = 0;
@@ -51,6 +72,11 @@ namespace Duel6::Server {
             return true;
         }
 #else
+        void terminateHostedProcessGroup(int) {
+            kill(0, SIGKILL);
+            _exit(128 + SIGTERM);
+        }
+
         bool writeExact(int descriptor, const std::uint8_t *data, std::size_t size) {
             while (size > 0) {
                 const ssize_t written = write(descriptor, data, size);
@@ -94,17 +120,24 @@ namespace Duel6::Server {
 #ifdef D6R_TRANSPORT_WINDOWS
         channel->statusHandle = reinterpret_cast<void *>(static_cast<std::uintptr_t>(statusValue));
         channel->controlHandle = reinterpret_cast<void *>(static_cast<std::uintptr_t>(controlValue));
+        BOOL inJob = FALSE;
         if (channel->statusHandle == nullptr || channel->controlHandle == nullptr
             || GetFileType(static_cast<HANDLE>(channel->statusHandle)) != FILE_TYPE_PIPE
-            || GetFileType(static_cast<HANDLE>(channel->controlHandle)) != FILE_TYPE_PIPE) return nullptr;
-        if (GetProcessId(GetCurrentProcess()) == 0) return nullptr;
+            || GetFileType(static_cast<HANDLE>(channel->controlHandle)) != FILE_TYPE_PIPE
+            || !IsProcessInJob(GetCurrentProcess(), nullptr, &inJob) || !inJob
+            || !currentProcessHasParent(expectedParent)) return nullptr;
 #else
         constexpr int StatusDescriptor = 3;
         constexpr int ControlDescriptor = 4;
         const pid_t originalParent = getppid();
+        struct sigaction action{};
+        action.sa_handler = terminateHostedProcessGroup;
+        sigemptyset(&action.sa_mask);
+        action.sa_flags = SA_RESTART;
         if (expectedParent > static_cast<std::uint64_t>(std::numeric_limits<pid_t>::max())
             || originalParent != static_cast<pid_t>(expectedParent)
-            || prctl(PR_SET_PDEATHSIG, SIGKILL) != 0
+            || sigaction(SIGTERM, &action, nullptr) != 0
+            || prctl(PR_SET_PDEATHSIG, SIGTERM) != 0
             || getppid() != static_cast<pid_t>(expectedParent)
             || fcntl(StatusDescriptor, F_GETFD) < 0 || fcntl(ControlDescriptor, F_GETFD) < 0) return nullptr;
         const int flags = fcntl(ControlDescriptor, F_GETFL, 0);

@@ -24,6 +24,7 @@
 #include <poll.h>
 #include <signal.h>
 #include <spawn.h>
+#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
@@ -47,6 +48,10 @@ namespace Duel6::Client {
             void requestStop() override { owned->requestStop(); }
             bool waitForExit(std::chrono::milliseconds timeout) override { return owned->waitForExit(timeout); }
             void forceTerminate() override { owned->forceTerminate(); }
+            bool cleanupConfirmed() override { return owned->cleanupConfirmed(); }
+            bool waitForCleanup(std::chrono::milliseconds timeout) override {
+                return owned->waitForCleanup(timeout);
+            }
         private:
             std::unique_ptr<HostServiceChild> owned;
         };
@@ -163,10 +168,32 @@ namespace Duel6::Client {
             }
 
             void forceTerminate() override {
-                if (job && !hasExited()) TerminateJobObject(job, 3);
+                if (job && !jobEmpty()) TerminateJobObject(job, 3);
+            }
+
+            bool cleanupConfirmed() override {
+                return hasExited() && jobEmpty();
+            }
+
+            bool waitForCleanup(std::chrono::milliseconds timeout) override {
+                const auto deadline = std::chrono::steady_clock::now() + timeout;
+                do {
+                    if (cleanupConfirmed()) return true;
+                    if (timeout <= std::chrono::milliseconds::zero()) return false;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                } while (std::chrono::steady_clock::now() < deadline);
+                return cleanupConfirmed();
             }
 
         private:
+            bool jobEmpty() const {
+                if (!job) return false;
+                JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};
+                return QueryInformationJobObject(job, JobObjectBasicAccountingInformation, &accounting,
+                                                 sizeof(accounting), nullptr)
+                       && accounting.ActiveProcesses == 0;
+            }
+
             HANDLE process = nullptr;
             HANDLE job = nullptr;
             HANDLE statusRead = nullptr;
@@ -190,7 +217,7 @@ namespace Duel6::Client {
                     : process(process), statusRead(statusRead), controlWrite(controlWrite) {}
 
             ~PosixHostServiceChild() override {
-                forceTerminate();
+                if (!cleanupWasConfirmed) forceTerminate();
                 waitForExit(std::chrono::milliseconds::zero());
                 if (controlWrite >= 0) close(controlWrite);
                 if (statusRead >= 0) close(statusRead);
@@ -258,16 +285,48 @@ namespace Duel6::Client {
             }
 
             void forceTerminate() override {
-                if (!reaped) kill(-process, SIGKILL);
+                if (process > 0) kill(-process, SIGKILL);
+            }
+
+            bool cleanupConfirmed() override {
+                const bool childReaped = hasExited();
+                reapOwnedGroup();
+                errno = 0;
+                const bool groupGone = kill(-process, 0) < 0 && errno == ESRCH;
+                cleanupWasConfirmed = childReaped && groupGone;
+                return cleanupWasConfirmed;
+            }
+
+            bool waitForCleanup(std::chrono::milliseconds timeout) override {
+                const auto deadline = std::chrono::steady_clock::now() + timeout;
+                do {
+                    if (cleanupConfirmed()) return true;
+                    if (timeout <= std::chrono::milliseconds::zero()) return false;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                } while (std::chrono::steady_clock::now() < deadline);
+                return cleanupConfirmed();
             }
 
         private:
+            void reapOwnedGroup() {
+                for (;;) {
+                    const pid_t result = waitpid(-process, nullptr, WNOHANG);
+                    if (result > 0) {
+                        if (result == process) reaped = true;
+                        continue;
+                    }
+                    if (result < 0 && errno == EINTR) continue;
+                    return;
+                }
+            }
+
             pid_t process = 0;
             int statusRead = -1;
             int controlWrite = -1;
             std::mutex controlMutex;
             bool stopSent = false;
             bool reaped = false;
+            bool cleanupWasConfirmed = false;
         };
 #endif
     }
@@ -369,6 +428,9 @@ namespace Duel6::Client {
                                                           parentControlWrite));
 #else
         if (access(config.serverExecutable.c_str(), X_OK) != 0) return nullptr;
+        int subreaper = 0;
+        if (prctl(PR_GET_CHILD_SUBREAPER, &subreaper) != 0
+            || (!subreaper && prctl(PR_SET_CHILD_SUBREAPER, 1) != 0)) return nullptr;
         int statusPipe[2] = {-1, -1};
         int controlPipe[2] = {-1, -1};
         if (pipe2(statusPipe, O_CLOEXEC) != 0
