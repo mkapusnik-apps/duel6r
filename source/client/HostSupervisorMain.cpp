@@ -104,7 +104,12 @@ int main(int argumentCount, char **arguments) {
 
         std::signal(SIGINT, requestExit);
         std::signal(SIGTERM, requestExit);
-        Duel6::Client::HostServiceSupervisor supervisor;
+        std::atomic<bool> intentionalEndHandoffObserved{false};
+        Duel6::Client::HostServiceDependencies dependencies;
+        dependencies.intentionalEndHandoff = [&](const char *) {
+            intentionalEndHandoffObserved.store(true);
+        };
+        Duel6::Client::HostServiceSupervisor supervisor(std::move(dependencies));
         if (!supervisor.start(config)) {
             std::cout << "host-service-start-failed\nHosted session could not start.\n";
             return 2;
@@ -128,6 +133,9 @@ int main(int argumentCount, char **arguments) {
                           << Duel6::Client::hostServiceOutcomeCopy(current.outcome) << '\n';
                 return 2;
             }
+            if (current.state == Duel6::Client::HostServiceState::NoService && endAfterReady
+                && !intentionalEndHandoffObserved.load())
+                return 2;
             if (current.state == Duel6::Client::HostServiceState::NoService && (cancelImmediately || endAfterReady))
                 return 0;
             if (current.state == Duel6::Client::HostServiceState::ApplicationExit && current.cleanupComplete)

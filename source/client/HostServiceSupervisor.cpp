@@ -28,6 +28,8 @@ namespace Duel6::Client {
             : dependencies(std::move(dependencies)) {
         if (!this->dependencies.now) this->dependencies.now = realNow;
         if (!this->dependencies.launcher) this->dependencies.launcher = launchHostServiceProcess;
+        if (!this->dependencies.intentionalEndHandoff)
+            this->dependencies.intentionalEndHandoff = [](const char *) {};
         if (!this->dependencies.monitorLauncher) {
             this->dependencies.monitorLauncher = [](std::function<void()> function) {
                 return std::thread(std::move(function));
@@ -65,7 +67,7 @@ namespace Duel6::Client {
         const bool readOnly = state == HostServiceState::Starting || state == HostServiceState::Active
                               || state == HostServiceState::Stopping || state == HostServiceState::ApplicationExit;
         return {state, outcome, cleanupComplete, retryEligible && cleanupComplete, stopReason, readOnly,
-                hasRetainedConfig, failure && cleanupComplete};
+                hasRetainedConfig, failure && cleanupComplete, intentionalEndHandoffEmitted};
     }
 
     void HostServiceSupervisor::observe(const HostServiceSnapshot &value) const noexcept {
@@ -117,6 +119,7 @@ namespace Duel6::Client {
             selectedStop = SelectedStop::None;
             selectedOutcome = HostServiceOutcome::None;
             stopReason = HostServiceStopReason::None;
+            intentionalEndHandoffEmitted = false;
             retainedConfig = config;
             hasRetainedConfig = true;
             const auto began = now();
@@ -179,17 +182,16 @@ namespace Duel6::Client {
             std::lock_guard<std::mutex> lock(mutex);
             if (state != HostServiceState::Active || selectedStop != SelectedStop::None) return false;
             selectStopLocked(SelectedStop::EndSession, HostServiceOutcome::None);
-            if (dependencies.intentionalEndHandoff) {
-                try {
-                    dependencies.intentionalEndHandoff(
-                            hostServiceStopReasonIdentifier(HostServiceStopReason::IntentionalHostEnd));
-                } catch (...) {}
-            }
+            intentionalEndHandoffEmitted = true;
             state = HostServiceState::Stopping;
             current = snapshotLocked();
             changed.notify_all();
         }
         observe(current);
+        try {
+            dependencies.intentionalEndHandoff(
+                    hostServiceStopReasonIdentifier(HostServiceStopReason::IntentionalHostEnd));
+        } catch (...) {}
         return true;
     }
 

@@ -7,7 +7,9 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -20,6 +22,7 @@
 #endif
 #include <windows.h>
 #else
+#include <dirent.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
@@ -51,6 +54,9 @@ namespace Duel6::Client {
             bool cleanupConfirmed() override { return owned->cleanupConfirmed(); }
             bool waitForCleanup(std::chrono::milliseconds timeout) override {
                 return owned->waitForCleanup(timeout);
+            }
+            HostServiceProcessSnapshot processSnapshot() const noexcept override {
+                return owned->processSnapshot();
             }
         private:
             std::unique_ptr<HostServiceChild> owned;
@@ -211,6 +217,65 @@ namespace Duel6::Client {
             return true;
         }
 
+        enum class OwnedProcessGroupState { Empty, LiveDescendant, ZombieDescendants, Unknown };
+
+        bool parseProcProcessId(const char *name, pid_t &result) {
+            if (!name || !*name) return false;
+            std::uint64_t value = 0;
+            for (const char *character = name; *character; ++character) {
+                if (*character < '0' || *character > '9') return false;
+                value = value * 10u + static_cast<unsigned>(*character - '0');
+                if (value > static_cast<std::uint64_t>(std::numeric_limits<pid_t>::max())) return false;
+            }
+            if (value == 0) return false;
+            result = static_cast<pid_t>(value);
+            return true;
+        }
+
+        OwnedProcessGroupState scanOwnedProcessGroup(pid_t group, std::vector<pid_t> &zombies) {
+            constexpr std::size_t MaximumProcEntries = 1u << 20u;
+            constexpr std::size_t MaximumOwnedZombies = 4096;
+            DIR *directory = opendir("/proc");
+            if (!directory) return OwnedProcessGroupState::Unknown;
+            struct DirectoryGuard {
+                DIR *directory;
+                ~DirectoryGuard() { closedir(directory); }
+            } guard{directory};
+
+            zombies.clear();
+            std::size_t visited = 0;
+            for (;;) {
+                errno = 0;
+                dirent *entry = readdir(directory);
+                if (!entry) {
+                    if (errno != 0) return OwnedProcessGroupState::Unknown;
+                    return zombies.empty() ? OwnedProcessGroupState::Empty
+                                           : OwnedProcessGroupState::ZombieDescendants;
+                }
+                pid_t candidate = 0;
+                if (!parseProcProcessId(entry->d_name, candidate) || candidate == group) continue;
+                if (++visited > MaximumProcEntries) return OwnedProcessGroupState::Unknown;
+
+                std::ifstream stat("/proc/" + std::to_string(candidate) + "/stat");
+                std::string value;
+                if (!std::getline(stat, value)) continue;
+                const auto commandEnd = value.rfind(')');
+                if (commandEnd == std::string::npos || commandEnd + 2 >= value.size())
+                    return OwnedProcessGroupState::Unknown;
+                std::istringstream fields(value.substr(commandEnd + 2));
+                char processState = 0;
+                long parent = 0;
+                long processGroup = 0;
+                if (!(fields >> processState >> parent >> processGroup))
+                    return OwnedProcessGroupState::Unknown;
+                (void) parent;
+                if (processGroup != static_cast<long>(group)) continue;
+                if (processState != 'Z' && processState != 'X') return OwnedProcessGroupState::LiveDescendant;
+                if (zombies.size() >= MaximumOwnedZombies) return OwnedProcessGroupState::Unknown;
+                zombies.push_back(candidate);
+            }
+        }
+
         class PosixHostServiceChild final : public HostServiceChild {
         public:
             PosixHostServiceChild(pid_t process, int statusRead, int controlWrite)
@@ -253,10 +318,8 @@ namespace Duel6::Client {
             }
 
             bool hasExited() override {
-                if (reaped) return true;
-                const pid_t result = waitpid(process, nullptr, WNOHANG);
-                if (result == process || (result < 0 && errno == ECHILD)) reaped = true;
-                return reaped;
+                std::lock_guard<std::mutex> lock(processMutex);
+                return observeLeaderExitLocked();
             }
 
             void requestStop() override {
@@ -285,16 +348,15 @@ namespace Duel6::Client {
             }
 
             void forceTerminate() override {
-                if (process > 0) kill(-process, SIGKILL);
+                std::lock_guard<std::mutex> lock(processMutex);
+                if (treeComplete || leaderReaped || ownershipAnchorLost || process <= 0) return;
+                ++forceSignalAttempts;
+                kill(-process, SIGKILL);
             }
 
             bool cleanupConfirmed() override {
-                const bool childReaped = hasExited();
-                reapOwnedGroup();
-                errno = 0;
-                const bool groupGone = kill(-process, 0) < 0 && errno == ESRCH;
-                cleanupWasConfirmed = childReaped && groupGone;
-                return cleanupWasConfirmed;
+                std::lock_guard<std::mutex> lock(processMutex);
+                return cleanupConfirmedLocked();
             }
 
             bool waitForCleanup(std::chrono::milliseconds timeout) override {
@@ -307,26 +369,85 @@ namespace Duel6::Client {
                 return cleanupConfirmed();
             }
 
+            HostServiceProcessSnapshot processSnapshot() const noexcept override {
+                std::lock_guard<std::mutex> lock(processMutex);
+                return {leaderExitObserved, !leaderReaped && !ownershipAnchorLost,
+                        treeComplete, forceSignalAttempts};
+            }
+
         private:
-            void reapOwnedGroup() {
-                for (;;) {
-                    const pid_t result = waitpid(-process, nullptr, WNOHANG);
-                    if (result > 0) {
-                        if (result == process) reaped = true;
-                        continue;
-                    }
-                    if (result < 0 && errno == EINTR) continue;
-                    return;
+            bool observeLeaderExitLocked() {
+                if (leaderExitObserved || leaderReaped) return true;
+                siginfo_t information{};
+                int result = 0;
+                do {
+                    result = waitid(P_PID, static_cast<id_t>(process), &information,
+                                    WEXITED | WNOHANG | WNOWAIT);
+                } while (result < 0 && errno == EINTR);
+                if (result == 0 && information.si_pid == process) {
+                    leaderExitObserved = true;
+                    return true;
                 }
+                if (result < 0 && errno == ECHILD) {
+                    // Another reaper violated the ownership contract. Fail closed without signalling a numeric PGID.
+                    leaderExitObserved = true;
+                    ownershipAnchorLost = true;
+                    return true;
+                }
+                return false;
+            }
+
+            bool reapExitedDescendantsLocked() {
+                std::vector<pid_t> zombies;
+                for (;;) {
+                    const auto groupState = scanOwnedProcessGroup(process, zombies);
+                    if (groupState == OwnedProcessGroupState::Empty)
+                        return ++consecutiveTreeZeroObservations >= 2;
+                    consecutiveTreeZeroObservations = 0;
+                    if (groupState != OwnedProcessGroupState::ZombieDescendants) return false;
+                    for (pid_t zombie: zombies) {
+                        pid_t result = 0;
+                        do { result = waitpid(zombie, nullptr, WNOHANG); }
+                        while (result < 0 && errno == EINTR);
+                        if (result != zombie) return false;
+                    }
+                }
+            }
+
+            bool reapLeaderLocked() {
+                pid_t result = 0;
+                do { result = waitpid(process, nullptr, 0); }
+                while (result < 0 && errno == EINTR);
+                if (result != process) {
+                    ownershipAnchorLost = true;
+                    return false;
+                }
+                leaderReaped = true;
+                treeComplete = true;
+                cleanupWasConfirmed = true;
+                return true;
+            }
+
+            bool cleanupConfirmedLocked() {
+                if (treeComplete) return true;
+                if (!observeLeaderExitLocked() || ownershipAnchorLost) return false;
+                if (!reapExitedDescendantsLocked()) return false;
+                return reapLeaderLocked();
             }
 
             pid_t process = 0;
             int statusRead = -1;
             int controlWrite = -1;
             std::mutex controlMutex;
+            mutable std::mutex processMutex;
             bool stopSent = false;
-            bool reaped = false;
+            bool leaderExitObserved = false;
+            bool leaderReaped = false;
+            bool ownershipAnchorLost = false;
+            bool treeComplete = false;
             bool cleanupWasConfirmed = false;
+            unsigned consecutiveTreeZeroObservations = 0;
+            std::uint64_t forceSignalAttempts = 0;
         };
 #endif
     }

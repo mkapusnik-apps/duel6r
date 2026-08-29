@@ -174,17 +174,17 @@ The product must not label a new startup attempt as restoration of an ended sess
 
 Only the confirmed host action End session is an intentional host end. It must use the confirmation and destinations in the first-release specification.
 
-After confirmation, the supervisor must record the exact reason `intentional-host-end` and invoke exactly one observable downstream intentional-end handoff before it requests service cleanup. The handoff is the boundary through which the hosted service will attempt to send the valid intentional host-end notice through each current established guest session. This lifecycle implementation does not claim that a guest notice was delivered.
+After confirmation, the supervisor must record the exact reason `intentional-host-end`, emit exactly one observable internal intentional-end handoff event, capture the cleanup deadline, enter `Stopping`, and wake independent cleanup supervision. Only then may it invoke the downstream handoff sink, outside the lifecycle lock. A missing sink uses the installed production no-op sink, so accepted End still invokes the boundary exactly once.
+
+The downstream sink is a handoff-only boundary. It does not send a guest network frame, wait for delivery, claim delivery, or route a guest to `NET-09`. A blocking, failing, throwing, or reentrant sink must not delay cooperative stop, force termination, tree-zero confirmation, or reap cleanup and must not move the accepted three-second deadline. Issue #36 owns any future mapping from this event to an intentional host-end protocol notice; issue #38 owns any resulting guest presentation and `NET-09` route.
 
 The host must then stop the hosted service and return to `NET-01`. The host must discard session-only results.
 
-A guest may enter `NET-09` only after it accepts the valid notice through its current established session.
-
-Handoff failure or an exception must not extend or restart the cleanup deadline. Failure to deliver the notice must not delay host cleanup beyond three seconds. An affected guest must use the issue #36 ambiguous reconnect journey. Cancel, application shutdown, startup failure, and session failure must never invoke this handoff.
+Cancel, application shutdown, startup failure, and session failure must never emit or invoke this handoff.
 
 ### Normal application shutdown
 
-Normal application shutdown is not the End session action. It must not create or imply a valid intentional host-end notice.
+Normal application shutdown is not the End session action. It must not emit the intentional-end handoff or create or imply a valid intentional host-end notice.
 
 The host application must stop and clean the owned service before application exit completes. It must discard session-only results.
 
@@ -204,7 +204,7 @@ An unrequested stop after readiness must end the authoritative hosted session. T
 
 The host must discard the session-only result set. The host must not restart the service automatically.
 
-The host must not send or synthesize an intentional host-end notice after this failure. Guests must use the issue #36 ambiguous reconnect behavior.
+The host supervisor must not emit the intentional-end handoff after this failure. Issue #36 owns the resulting ambiguous reconnect behavior.
 
 ## Service supervision and orphan prevention
 
@@ -215,6 +215,7 @@ The host must not send or synthesize an intentional host-end notice after this f
 - The hosted service must not continue listening after startup cancellation, startup failure, timeout, intentional End session, or application shutdown.
 - The hosted service must not continue after host application crash or forced termination.
 - The application must not report a completed cancellation, return destination, or completed exit while an owned service remains.
+- On Linux, leader exit observation must not reap the process-group leader while descendants remain. The unreaped leader is the PID/PGID ownership anchor for bounded descendant discovery and group termination. The supervisor may reap the exact leader only after descendant tree-zero and must never signal that numeric process group afterward.
 
 This specification defines required outcomes. It does not prescribe an operating-system supervision mechanism.
 
@@ -247,9 +248,9 @@ If a later approved feature requires a host-service secret, that feature must de
 - Issue #40 owns artifact inclusion and supported deployment instructions.
 - Issue #41 owns complete release-candidate validation.
 
-Issue #36 must not treat normal application shutdown, host crash, forced termination, or service failure as an intentional host end.
+Issue #36 owns intentional host-end notice construction, delivery, acceptance, and reconnect behavior downstream from the handoff. It must not treat normal application shutdown, host crash, forced termination, or service failure as an intentional host end.
 
-Issue #38 must not show `NET-04`, listening, ready, connected, admitted, or playable before the applicable runtime confirmation.
+Issue #38 owns guest `NET-09` presentation after the future issue #36 notice is accepted. It must not show `NET-04`, listening, ready, connected, admitted, or playable before the applicable runtime confirmation.
 
 ## Visual impact
 
@@ -284,7 +285,7 @@ The affected target states are `NET-02` and `NET-08`. This document does not cha
 - **HSL-AC-009 — Outcome precedence:** Cancel, shutdown, specific compatibility failure, specific startup failure, readiness, and timeout must use the defined precedence.
 - **HSL-AC-010 — Retry:** Retry eligibility, retained setup, disabled states, and destinations must follow this document after final cleanup.
 - **HSL-AC-011 — Unexpected stop:** An unrequested post-readiness stop must show the exact host failure and must not restart or restore the session.
-- **HSL-AC-012 — Intentional end:** Only confirmed End session may send the intentional host-end notice and route an accepting guest to `NET-09`.
+- **HSL-AC-012 — Intentional end handoff:** Only confirmed End session may emit exactly one `intentional-host-end` handoff event and invoke the downstream sink. Deadline capture, event recording, the `Stopping` transition, and the independent cleanup wake must occur before sink invocation. Sink invocation must occur outside the lifecycle lock and must not claim notice delivery or guest `NET-09` routing.
 - **HSL-AC-013 — Other termination:** Normal application shutdown, crash, forced termination, and service failure must not imply intentional host end to guests.
 - **HSL-AC-014 — Cleanup:** Cancel, failure, End session, and application shutdown must release all owned service resources within three seconds.
 - **HSL-AC-015 — Orphan prevention:** An owned hosted service must not remain after host application termination.
@@ -302,7 +303,7 @@ For acceptance, the evidence packet must cover:
 - Cancel before readiness, including retained setup and completed cleanup;
 - port conflict, early exit, generic start failure, and startup timeout outcomes;
 - a post-readiness service failure and the host-only `NET-08` result;
-- intentional End session with accepted and undelivered guest notice variants;
+- intentional End session with exactly one observable handoff, including missing, blocking, throwing, and reentrant downstream sink variants without delayed cleanup;
 - normal application shutdown, host application crash, and forced termination without an orphan service;
 - Local Play startup and completion without a hosted service;
 - reviewer assessment of ownership, stale-result rejection, redaction, and cleanup behavior;

@@ -11,6 +11,7 @@ if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
 $installations = @(& $vswhere -all -products * -format json | ConvertFrom-Json)
 $vsRoot = $null
 $vcToolsVersion = $null
+$vcRuntimeRelativePath = $null
 $sdkRoot = $null
 $sdkVersion = $null
 
@@ -36,9 +37,15 @@ foreach ($installation in ($installations | Sort-Object { [version]$_.installati
     }
 
     $candidateVcToolsVersion = ([string]$developerEnvironment['VCToolsVersion']).TrimEnd('\')
+    $candidateVcRedistDir = ([string]$developerEnvironment['VCToolsRedistDir']).TrimEnd('\')
     $candidateSdkRoot = ([string]$developerEnvironment['WindowsSdkDir']).TrimEnd('\')
     $candidateSdkVersion = ([string]$developerEnvironment['WindowsSDKVersion']).TrimEnd('\')
-    if (-not $candidateVcToolsVersion -or -not $candidateSdkRoot -or -not $candidateSdkVersion) {
+    if (-not $candidateVcToolsVersion -or -not $candidateVcRedistDir -or -not $candidateSdkRoot -or -not $candidateSdkVersion) {
+        continue
+    }
+
+    $candidateVcRuntimeDir = Join-Path $candidateVcRedistDir 'x64\Microsoft.VC143.CRT'
+    if (-not $candidateVcRuntimeDir.StartsWith($candidateVsRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
         continue
     }
 
@@ -47,6 +54,8 @@ foreach ($installation in ($installations | Sort-Object { [version]$_.installati
         (Join-Path $candidateVsRoot "VC\Tools\MSVC\$candidateVcToolsVersion\bin\Hostx64\x64\link.exe")
         (Join-Path $candidateSdkRoot "bin\$candidateSdkVersion\x64\rc.exe")
         (Join-Path $candidateSdkRoot "bin\$candidateSdkVersion\x64\mt.exe")
+        (Join-Path $candidateVcRuntimeDir 'msvcp140.dll')
+        (Join-Path $candidateVcRuntimeDir 'vcruntime140.dll')
     )
     $missingTool = $requiredCandidateTools | Where-Object {
         -not (Test-Path -LiteralPath $_ -PathType Leaf)
@@ -57,6 +66,7 @@ foreach ($installation in ($installations | Sort-Object { [version]$_.installati
 
     $vsRoot = $candidateVsRoot
     $vcToolsVersion = $candidateVcToolsVersion
+    $vcRuntimeRelativePath = $candidateVcRuntimeDir.Substring($candidateVsRoot.Length).TrimStart('\')
     $sdkRoot = $candidateSdkRoot
     $sdkVersion = $candidateSdkVersion
     break
@@ -68,6 +78,7 @@ if (-not $vsRoot) {
 
 Write-Host "Visual Studio installation: $vsRoot"
 Write-Host "Visual C++ tools version: $vcToolsVersion"
+Write-Host "Visual C++ runtime: $vcRuntimeRelativePath"
 Write-Host "Windows SDK installation: $sdkRoot"
 Write-Host "Windows SDK version: $sdkVersion"
 
@@ -84,6 +95,8 @@ $dockerArguments = @(
     'D6R_VS_ROOT=C:\HostTools\VS'
     '--env'
     "D6R_VCTOOLS_VERSION=$vcToolsVersion"
+    '--env'
+    "D6R_VC_RUNTIME_DIR=C:\HostTools\VS\$vcRuntimeRelativePath"
     '--env'
     'D6R_WINDOWS_SDK_ROOT=C:\HostTools\WindowsKits10'
     '--env'

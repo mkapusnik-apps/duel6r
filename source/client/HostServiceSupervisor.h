@@ -72,6 +72,14 @@ namespace Duel6::Client {
         bool setupReadOnly = false;
         bool retainedSetupAvailable = false;
         bool failureDismissalAllowed = false;
+        bool intentionalEndHandoffEmitted = false;
+    };
+
+    struct HostServiceProcessSnapshot {
+        bool leaderExitObserved = false;
+        bool ownershipAnchorRetained = false;
+        bool treeComplete = false;
+        std::uint64_t forceSignalAttempts = 0;
     };
 
     class HostServiceChild {
@@ -98,6 +106,7 @@ namespace Duel6::Client {
             waitForExit(timeout);
             return cleanupConfirmed();
         }
+        virtual HostServiceProcessSnapshot processSnapshot() const noexcept { return {}; }
 
     private:
         std::mutex exitObservationMutex;
@@ -164,6 +173,7 @@ namespace Duel6::Client {
         bool cleanupComplete = true;
         bool retryEligible = false;
         bool applicationExitPending = false;
+        bool intentionalEndHandoffEmitted = false;
         SelectedStop selectedStop = SelectedStop::None;
         HostServiceOutcome selectedOutcome = HostServiceOutcome::None;
         HostServiceStopReason stopReason = HostServiceStopReason::None;

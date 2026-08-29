@@ -12,7 +12,7 @@ Issue #28 changes target `MENU-01`, its visible background in `MENU-02` and `CON
 Issue #30 defines protocol, command-line, or scaffold outcomes only.
 Issue #30 has zero capturable graphical entries because it must not implement the planned network screens.
 The existing 12 planned issue #38 entries remain unchanged and must not be used as issue #30 evidence.
-Issue #31 defines future visual states and copy but remains headless or scaffold-only at reviewed head `7e6255ffb2a5c48a65c7666ed3afe1cd3450aebf`.
+Issue #31 defines future visual states and copy but remains headless or scaffold-only at final reviewed implementation head `f3ce216dd8732b16f6c65ccb42146085935925e0`.
 Issue #31 has exactly zero capturable graphical entries because it must not implement `NET-02`, `NET-08`, `NET-09`, or another network screen.
 The issue #31 visual specification changes no representative layout and adds no wireframe.
 The 20-entry wireframe-based screenshot matrix therefore remains unchanged with exactly one representative entry per wireframe.
@@ -181,9 +181,13 @@ Issue #38 must provide exactly one representative graphical screenshot for each 
 ## Issue #31 operational evidence matrix
 
 This matrix was prepared for issue #31 and draft PR #51 at reviewed head `7e6255ffb2a5c48a65c7666ed3afe1cd3450aebf`.
+The final UX reassessment covers the implemented lifecycle scaffold at exact head `f3ce216dd8732b16f6c65ccb42146085935925e0`.
 The issue #31 graphical screenshot matrix contains exactly zero entries.
 Terminal output, automated results, and process-lifecycle records are operational substitutes and are not implementation screenshots.
 Each substitute must record the implementation branch, source SHA, environment, command or test scenario, machine outcome, user-visible output when applicable, and artifact path.
+The reviewed implementation evidence sources are `source/client/HostServiceSupervisor.h`, `source/client/HostServiceSupervisor.cpp`, `source/client/HostServiceProcess.cpp`, and `source/client/HostSupervisorMain.cpp`.
+The reviewed operational test sources are `tests/HostServiceSupervisorTests.cpp`, `tests/HostServiceProcessTests.py`, `tests/HostServiceTestChild.cpp`, and `tests/SessionTransportCTestRegistration.cmake`.
+The registered tests cover byte-exact identifiers and copy, strict startup timing, cancellation precedence, retained setup, cleanup-gated Retry and dismissal, post-readiness failure, intentional-end handoff isolation, process cleanup, non-disclosing output, and scaffold-only scope truth.
 
 | Operational scenario | Required substitute evidence |
 |---|---|
@@ -195,7 +199,7 @@ Each substitute must record the implementation branch, source SHA, environment, 
 | Startup timeout | A result must assert `host-service-startup-timed-out`, exact copy `Hosted session startup timed out.`, no readiness accepted at or after 10 seconds, no remaining listener or service, and eligible Retry when retained setup remains valid. |
 | Post-readiness unexpected stop | A result must assert `host-service-stopped-unexpectedly`, exact host copy `Hosted session stopped unexpectedly.`, discarded session-only results, no automatic restart, disabled Retry, and retained `NET-02` destination through Edit setup. |
 | Retry and destinations | Automated results must exercise every Retry eligibility condition, cleanup gating, the new 10-second deadline on eligible Retry, disabled Retry after an active session ends, Edit setup to retained `NET-02`, and Return to Network to `NET-01`. |
-| End session and other termination | Integration results must distinguish confirmed End session from normal shutdown, crash, forced termination, and service failure. Only confirmed End session may attempt the intentional host-end notice. Other termination must leave guests in the issue #36 ambiguous reconnect journey. |
+| End session and other termination | Integration results must distinguish confirmed End session from normal shutdown, crash, forced termination, and service failure. Only confirmed End session may emit the exactly-once `intentional-host-end` handoff. Issue #31 sends no guest notice and claims no `NET-09` route; issue #36 owns notice delivery and issue #38 owns presentation. |
 | Non-disclosure | Automated results must inject endpoint, process, path, command, credential, payload, and operating-system error details and must show that host lifecycle user copy contains none of them. Trusted diagnostics must satisfy the trust policy. |
 | Local Play preservation | A regression result must show that `Play (F1)` starts and completes without creating, adopting, starting, stopping, or supervising a hosted service and without network availability. No fresh screenshot is required because Local Play visuals must not change. |
 | Scope truth | Build or test output must not claim graphical network UI, a playable network session, or release readiness from issue #31. |
