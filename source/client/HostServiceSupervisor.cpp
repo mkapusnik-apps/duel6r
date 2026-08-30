@@ -22,6 +22,31 @@ namespace Duel6::Client {
             }
             return HostServiceOutcome::StartFailed;
         }
+
+        unsigned startupFailurePrecedence(Network::HostServiceStatusCode status) noexcept {
+            switch (status) {
+                case Network::HostServiceStatusCode::HostManifestInvalid: return 0;
+                case Network::HostServiceStatusCode::PortUnavailable: return 1;
+                case Network::HostServiceStatusCode::StartFailed: return 2;
+                case Network::HostServiceStatusCode::Ready: return 3;
+            }
+            return 3;
+        }
+
+        const HostServiceStatusEvent *preferredStartupFailure(
+                const std::vector<HostServiceStatusEvent> &events,
+                HostServiceTimePoint began, HostServiceTimePoint deadline) noexcept {
+            const HostServiceStatusEvent *selected = nullptr;
+            unsigned selectedPrecedence = startupFailurePrecedence(Network::HostServiceStatusCode::Ready);
+            for (const auto &event: events) {
+                if (event.receivedAt < began || event.receivedAt >= deadline) continue;
+                const unsigned precedence = startupFailurePrecedence(event.code);
+                if (precedence >= selectedPrecedence) continue;
+                selected = &event;
+                selectedPrecedence = precedence;
+            }
+            return selected;
+        }
     }
 
     HostServiceSupervisor::HostServiceSupervisor(HostServiceDependencies dependencies)
@@ -278,10 +303,8 @@ namespace Duel6::Client {
                     stop = selectedStop;
                     stopOutcome = selectedOutcome;
                 } else if (state == HostServiceState::Starting) {
-                    const auto specificFailure = std::find_if(events.begin(), events.end(), [&](const auto &status) {
-                        return status.receivedAt >= startupBegan && status.receivedAt < startupDeadline
-                               && status.code != Network::HostServiceStatusCode::Ready;
-                    });
+                    const auto *specificFailure = preferredStartupFailure(
+                            events, startupBegan, startupDeadline);
                     const auto readiness = std::find_if(events.begin(), events.end(), [&](const auto &status) {
                         return status.receivedAt >= startupBegan && status.receivedAt < startupDeadline
                                && status.code == Network::HostServiceStatusCode::Ready;
@@ -290,7 +313,7 @@ namespace Duel6::Client {
                             events.begin(), events.end(), [&](const auto &status) {
                                 return status.receivedAt >= startupDeadline;
                             });
-                    if (specificFailure != events.end()) {
+                    if (specificFailure) {
                         selectStopLocked(SelectedStop::StartupFailure, outcomeForStatus(specificFailure->code));
                     } else if (exitObserved) {
                         // A Ready message and direct-child exit observed in one cycle never expose Active.
