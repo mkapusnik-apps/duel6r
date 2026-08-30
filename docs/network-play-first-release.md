@@ -6,6 +6,8 @@ This document is the authoritative product target for issue [#28](https://github
 
 The target network screens in [`docs/screens`](screens/README.md) implement this product specification. Existing local behavior remains governed by [`docs/features.md`](features.md), which intentionally makes no network-support claim.
 
+The authoritative player-hosted service lifecycle target is in [`network-host-service-lifecycle.md`](network-host-service-lifecycle.md).
+
 ## Terminology and clock
 
 - **Participant:** One admitted game instance. The host is one participant; every other participant is a guest.
@@ -125,6 +127,7 @@ Issue #30 owns canonical serialization, content digest choice, exchange, compari
 - Success requires confirmed listener/session readiness strictly before the deadline. At or after 10 seconds, startup fails and no listener may remain.
 - Cancel before success returns to editable `NET-02`, retains endpoint and local-player setup, and leaves no listener or session.
 - A specific confirmed startup failure is shown instead of a generic timeout when known before the deadline.
+- Issue #31 defines exact supervision states, startup outcomes, Retry rules, cleanup, and fixed copy without changing these boundaries.
 
 ### Guest connection
 
@@ -296,7 +299,7 @@ Each issue owns the listed criteria without changing their normative boundaries.
 |---|---|---|
 | [#29](https://github.com/mkapusnik-apps/duel6r/issues/29) | Session transport and connection lifecycle | `NET-AC-002`, `NET-AC-004`, `NET-AC-007`, `NET-AC-009`, `NET-AC-011`, `NET-AC-016` |
 | [#30](https://github.com/mkapusnik-apps/duel6r/issues/30) | Protocol, release, capability, and content compatibility | `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-019` |
-| [#31](https://github.com/mkapusnik-apps/duel6r/issues/31) | Player-hosted service supervision and host-local failure | `NET-AC-003`, `NET-AC-009`, `NET-AC-014`, `NET-AC-016` |
+| [#31](https://github.com/mkapusnik-apps/duel6r/issues/31) | [Player-hosted service supervision and host-local failure](network-host-service-lifecycle.md) | `NET-AC-003`, `NET-AC-009`, `NET-AC-014`, `NET-AC-016` |
 | [#32](https://github.com/mkapusnik-apps/duel6r/issues/32) | Authoritative headless match simulation | `NET-AC-004`, `NET-AC-010`, `NET-AC-012`, `NET-AC-013`, `NET-AC-018` |
 | [#33](https://github.com/mkapusnik-apps/duel6r/issues/33) | Local devices and authoritative remote input | `NET-AC-005`, `NET-AC-010`, `NET-AC-012` |
 | [#34](https://github.com/mkapusnik-apps/duel6r/issues/34) | Canonical state replication and identities | `NET-AC-010`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-018` |

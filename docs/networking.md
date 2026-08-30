@@ -2,9 +2,9 @@
 
 ## Status
 
-The networking code now includes a production TCP session-transport layer and command-line compatibility admission under an experimental, incomplete developer scaffold. It does not add playable network support to Duel 6 Reloaded. Normal `duel6r` startup, Play, and every existing local game journey remain independent of this code: the game does not bind or connect a socket, start a transport worker or server, or expose network controls.
+The networking code now includes a production TCP session-transport layer, command-line compatibility admission, and a player-hosted service supervisor under an experimental, incomplete developer scaffold. It does not add playable network support to Duel 6 Reloaded. Normal `duel6r` startup, Play, and every existing local game journey remain independent of this code: the game does not bind or connect a socket, start a transport worker or server, or expose network controls.
 
-The approved future first-release scope and journeys are defined in [`docs/network-play-first-release.md`](network-play-first-release.md). The authoritative compatibility and admission target is in [`docs/network-compatibility-and-admission.md`](network-compatibility-and-admission.md). Enforced exposure boundaries and reusable abuse controls are documented in [`docs/network-trust-and-abuse-limits.md`](network-trust-and-abuse-limits.md). Those policies do not change the scaffold's current status and must not be read as implemented or playable network behavior.
+The approved future first-release scope and journeys are defined in [`docs/network-play-first-release.md`](network-play-first-release.md). The authoritative compatibility and admission target is in [`docs/network-compatibility-and-admission.md`](network-compatibility-and-admission.md). The player-hosted service lifecycle target is in [`docs/network-host-service-lifecycle.md`](network-host-service-lifecycle.md). Enforced exposure boundaries and reusable abuse controls are documented in [`docs/network-trust-and-abuse-limits.md`](network-trust-and-abuse-limits.md). Those policies do not change the scaffold's current status and must not be read as implemented or playable network behavior.
 
 The scaffold provides transport-neutral data transfer objects and a prototype text serializer for these message families:
 
@@ -16,7 +16,27 @@ The scaffold provides transport-neutral data transfer objects and a prototype te
 - disconnect notifications;
 - endpoints and client connection configuration.
 
-It also provides connection-plan and command-construction helpers, an in-process loopback handshake helper, server configuration parsing, and the explicitly invoked `duel6r-server` executable.
+It also provides connection-plan and command-construction helpers, an in-process loopback handshake helper, server configuration parsing, the explicitly invoked `duel6r-server` executable, and the explicitly invoked `duel6r-host-supervisor` operational scaffold.
+
+## Player-hosted supervisor scaffold
+
+`duel6r-host-supervisor` owns at most one trusted sibling or explicitly configured absolute `duel6r-server` executable. It starts the child without a shell, passes bounded non-secret arguments, and accepts fixed binary lifecycle status only through a dedicated inherited channel. Standard output is not a readiness channel. The child reports ready only after the host manifest is valid and frozen, stable nonzero host identities exist, the production listener is bound with active accept processing, and compatibility admission is available.
+
+The supervisor implements `No service`, `Starting`, `Active`, `Stopping`, `Startup failed`, `Session failed`, and `Application exit`. One parent-side state lock orders Cancel, readiness, timeout, child exit, End session, and application exit. Startup has one strict 10-second deadline. The cleanup deadline starts when the stop is accepted; cleanup requests stop and force-terminates the owned process tree before three seconds. It reports completion only after the direct child is reaped and the complete tree is confirmed gone, retaining fail-closed supervision if operating-system confirmation is delayed. Startup Retry is available only after cleanup for retained valid setup, except invalid host content requires restart. An unexpected exit after readiness never restarts and disables Retry.
+
+Linux uses a dedicated process group plus a child-installed parent-death signal that terminates that full group and a race-safe parent check. After leader exit, Linux retains the unreaped zombie leader as the PID/PGID ownership anchor, scans the bounded `/proc` process set for live or adopted zombie descendants, signals only while that anchor remains owned, and reaps the exact leader only after consecutive descendant tree-zero observations. Windows validates the creating parent and creates the child atomically in a kill-on-close Job Object whose active-process count confirms tree cleanup. Both platforms restrict inherited descriptors or handles to standard null streams and the lifecycle channels, and release the listener, admission state, queues, and process resources during cleanup. Normal shutdown, parent crash, forced termination, and unexpected service failure do not emit an intentional-end handoff. The separate `End session` supervisor action records and exposes `intentional-host-end`, starts independent cleanup, and invokes one lock-free downstream handoff sink without sending a guest frame or claiming delivery. The production CLI sink writes and deterministically flushes the one fixed machine line `intentional-host-end`; it includes no dynamic process, endpoint, or secret data and a blocked output stream cannot delay the cleanup monitor.
+
+For operational lifecycle evidence only:
+
+```sh
+./build/duel6r-host-supervisor \
+  --host=127.0.0.1 \
+  --port=26660 \
+  --resources=resources \
+  --local-players=2
+```
+
+`SIGINT` and `SIGTERM` exercise application-exit cleanup. `--cancel-immediately`, `--exit-after-ready`, and `--end-after-ready` are bounded scaffold evidence actions. They do not expose menu or graphical network behavior.
 
 ## Explicit runtime exposure
 
@@ -53,6 +73,7 @@ An unsupported identifier/version/kind, a nonzero liveness length, or a payload 
 ## Lifecycle, bounds, and deadlines
 
 - Listener lifecycle is `NotStarted -> Starting -> Ready -> Stopping -> Stopped`, with mutually exclusive terminal startup outcomes `Failed`, `Cancelled`, or `TimedOut`. `Ready` is published only after bind/listen and active accept processing, strictly before one 10-second startup deadline. Cancellation cannot later become Ready.
+- Hosted-service lifecycle uses separate fixed versioned binary status and control messages. Status includes the child observation time from the platform monotonic clock, so a complete result written strictly before the parent deadline can retain precedence even when parent polling is delayed. The child-process boundary likewise records the first confirmed exit observation exactly once; the supervisor uses that retained timestamp to distinguish an early exit from a startup timeout without resampling during delayed processing. Unknown versions, message kinds, reserved values, extra bytes, stale timestamps or channels, and duplicate readiness cannot advance the supervisor. The per-attempt channel and retained child handle bind every accepted result to the currently owned service.
 - Client lifecycle is `NotStarted -> Resolving -> Connecting -> Connected -> Closing -> Closed`, with mutually exclusive attempt outcomes `Failed`, `Cancelled`, or `TimedOut`. IPv4 DNS resolution and every resolved-address TCP attempt share one total 10-second deadline. Cancellation cannot later become Connected.
 - Bind, resolution, connection-refused, unreachable, protocol, peer-close, queue-stall, idle-timeout, and other system failures remain distinguishable through `TransportFailure`; a known result before the deadline is not rewritten as timeout.
 - A listener accepts at most 15 simultaneous connections. Before admission, process-wide pending capacity is 8, per-source-IPv4 pending capacity is 4, attempts are limited to 20 per rolling 60 seconds with burst 4, and the first admission request is due strictly within three seconds of the transport's recorded acceptance time. Manifest work and every admission stage share the guest's single 10-second Connect deadline; there is no separate offer timer. A successful offer permits exactly one matching full acceptance. Invalid, missing, late, cancelled, closed, or unsent acceptance rolls back the provisional reservation before commit. Successful commit releases source pending accounting so sequential same-IP participants remain possible and is not reversed if the final confirmation is lost. Each connection has independent workers and queues, so malformed input, stalling, timeout, and close affect only that connection.
@@ -80,7 +101,7 @@ These safeguards make the parser suitable for prototype development; the TCP bou
 
 ## Build and packaging
 
-CMake builds `duel6r-network-scaffold`, including the transport API, `duel6r-server`, and the internal `duel6r-resolver` helper independently from the normal game executable. The transport uses standard OS sockets (`ws2_32` on Windows and POSIX sockets/threads/processes on Linux) with no new third-party dependency. Existing Linux and Windows runtime bundle scripts place the explicitly invoked server scaffold and required resolver helper beside `duel6r` because those are the repository's current coherent binary packaging paths. The helper is an internal transport component with no supported command-line interface.
+CMake builds `duel6r-network-scaffold`, including the transport and supervisor APIs, `duel6r-host-supervisor`, `duel6r-server`, and the internal `duel6r-resolver` helper independently from the normal game executable. The transport uses standard OS sockets (`ws2_32` on Windows and POSIX sockets/threads/processes on Linux) with no new third-party dependency. Existing Linux and Windows runtime bundle scripts place the explicitly invoked supervisor and server scaffolds plus the required resolver helper beside `duel6r` because those are the repository's current coherent binary packaging paths. The helper is an internal transport component with no supported command-line interface. Issue #40 still owns supported release packaging and deployment instructions.
 
 There is no dedicated headless-server package. Existing runtime bundles still include all client resources, and no release-facing documentation advertises network support.
 
@@ -94,7 +115,8 @@ The following essential pieces are absent:
 - complete world, score, round, and entity replication;
 - lobby integration for admitted participants;
 - latency handling, interpolation, prediction, reconciliation, or lag compensation;
-- local server process supervision and reconnect policy;
+- menu or graphical integration for player-hosted service supervision;
+- intentional host-end notice delivery and reconnect policy;
 - reconnect compatibility exchange and reconnect credential exchange;
 - network-facing UI.
 

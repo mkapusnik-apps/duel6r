@@ -191,7 +191,20 @@ The following values come from renderer and GUI source.
 - Silence, refusal, unreachable, reset, timeout, host crash, host-machine/listener loss, temporary failure, or no response must remain guest `NET-07` through the fixed deadline; it must not be presented as host end.
 - `NET-09` must use only the fixed intentional host-end copy after a valid End session notice is accepted through the current established session.
 - Host-local supervised hosted-service failure must use host `NET-08` with `Hosted session stopped unexpectedly.` and must never become guest evidence.
+- Host startup must show `Starting session…` while the startup attempt is active.
+- Host startup must show `Startup can take up to 10 seconds.` without claiming readiness.
+- Host startup must lock the retained setup and must replace Start session and Back with Cancel.
+- Accepted startup Cancel must show `Cancelling session…` until cleanup completes.
+- Completed startup Cancel must return to editable `NET-02` with the retained setup.
+- A startup failure must keep Retry disabled until cleanup completes.
+- An eligible startup Retry must start a new attempt with the retained setup.
+- A post-readiness hosted-service failure must keep Retry disabled because Retry cannot restore the ended session.
+- `Edit setup` must return to retained editable `NET-02` for a new host attempt.
+- `Return to Network` must enter `NET-01` after cleanup.
+- Only the confirmed `End session` action may produce the intentional host-end notice.
+- Normal application shutdown, a crash, forced termination, and hosted-service failure must not produce or imply the intentional host-end notice.
 - Release, manifest, content, admission, reconnect, and termination user copy must not include a peer-supplied name, release ID, capability, path, hash, count, credential, source address, threshold, payload, or raw filesystem value.
+- Host-service lifecycle copy must not include an endpoint, process value, command, credential, filesystem path, payload, or operating-system error text.
 - Trusted diagnostics may identify one differing path only after the application validates that path against every canonical-path rule.
 - Trusted diagnostics must not include an invalid path or raw payload.
 - Final network results must show the exact label `Session only` near the summary heading or result table.
@@ -258,6 +271,8 @@ The following values come from renderer and GUI source.
 - Screenshot evidence must not claim support for an accessibility mode that the implementation does not provide.
 - Target network screens must define a deterministic keyboard and controller focus order, preserve a visible focused-control state, and allow primary, Back, Cancel, Retry, Ready, and Return actions without a mouse.
 - Focus must not rely only on color, and status changes must remain as visible text rather than transient color or motion alone.
+- Starting, cancelling, failure, Retry eligibility, and cleanup status must remain available as persistent text.
+- A disabled Retry control must show a persistent textual reason and must not receive focus.
 - Unsupported actions must be absent rather than represented by ambiguous disabled affordances.
 
 ## Responsive behavior

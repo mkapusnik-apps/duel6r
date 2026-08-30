@@ -38,6 +38,42 @@ set_tests_properties(duel6r-admission-compatibility-tests PROPERTIES
         LABELS "application;integration;network;admission;compatibility"
         TIMEOUT 120)
 
+add_executable(duel6r-host-service-supervisor-tests
+        ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+        ${CMAKE_SOURCE_DIR}/tests/HostServiceSupervisorTests.cpp)
+target_include_directories(duel6r-host-service-supervisor-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(duel6r-host-service-supervisor-tests duel6r-network-scaffold)
+if (MINGW)
+    set_property(TARGET duel6r-host-service-supervisor-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
+add_test(NAME duel6r-host-service-supervisor-tests COMMAND duel6r-host-service-supervisor-tests)
+set_tests_properties(duel6r-host-service-supervisor-tests PROPERTIES
+        LABELS "application;integration;network;host-service;lifecycle"
+        TIMEOUT 60)
+
+add_executable(duel6r-host-service-test-child
+        ${CMAKE_SOURCE_DIR}/tests/HostServiceTestChild.cpp)
+target_include_directories(duel6r-host-service-test-child PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(duel6r-host-service-test-child duel6r-network-scaffold)
+if (MINGW)
+    set_property(TARGET duel6r-host-service-test-child APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
+
+if (UNIX)
+    add_executable(duel6r-host-service-linux-process-tests
+            ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+            ${CMAKE_SOURCE_DIR}/tests/HostServiceLinuxProcessTests.cpp)
+    target_include_directories(duel6r-host-service-linux-process-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-host-service-linux-process-tests duel6r-network-scaffold)
+    target_compile_definitions(duel6r-host-service-linux-process-tests PRIVATE
+            D6R_HOST_SERVICE_TEST_CHILD="$<TARGET_FILE:duel6r-host-service-test-child>")
+    add_dependencies(duel6r-host-service-linux-process-tests duel6r-host-service-test-child)
+    add_test(NAME duel6r-host-service-linux-process-tests COMMAND duel6r-host-service-linux-process-tests)
+    set_tests_properties(duel6r-host-service-linux-process-tests PROPERTIES
+            LABELS "application;integration;network;host-service;process;linux"
+            TIMEOUT 30)
+endif ()
+
 if (UNIX OR WIN32)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(
@@ -59,6 +95,31 @@ if (UNIX OR WIN32)
     set_tests_properties(duel6r-admission-process-tests PROPERTIES
             LABELS "application;integration;network;admission;process"
             TIMEOUT 45)
+
+    add_test(
+            NAME duel6r-host-service-process-tests
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/HostServiceProcessTests.py
+                    $<TARGET_FILE:${D6R_HOST_SUPERVISOR_APP_NAME}>
+                    $<TARGET_FILE:duel6r-host-service-test-child>
+    )
+    set_tests_properties(duel6r-host-service-process-tests PROPERTIES
+            LABELS "application;integration;network;host-service;process"
+            TIMEOUT 45)
+
+    if (UNIX)
+        add_test(
+                NAME duel6r-host-service-orphan-process-tests
+                COMMAND ${Python3_EXECUTABLE}
+                        ${CMAKE_SOURCE_DIR}/tests/HostServiceProcessTests.py
+                        $<TARGET_FILE:${D6R_HOST_SUPERVISOR_APP_NAME}>
+                        $<TARGET_FILE:duel6r-host-service-test-child>
+                        --orphan-stress
+        )
+        set_tests_properties(duel6r-host-service-orphan-process-tests PROPERTIES
+                LABELS "application;integration;network;host-service;process;linux;orphan"
+                TIMEOUT 30)
+    endif ()
 endif ()
 
 if (UNIX)

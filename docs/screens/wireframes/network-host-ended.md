@@ -18,6 +18,7 @@ Target representative viewport: 1280 by 900 px with the last authoritative arena
 - The representative state uses only the fixed valid host-end copy shown above.
 - Intentional terminal outcome, no migration/resume, and no persistence are explicit text.
 - Silence, refusal, unreachable, reset, timeout, host crash, host-machine/listener loss, temporary failure, no response, terminal rejection, and deadline expiry cannot produce this overlay.
+- Normal application shutdown, forced termination, and hosted-service failure cannot produce this overlay.
 - Lobby, summary, and reconnect-context variants remain in the specification.
 - Return to Network is the only action and is keyboard/controller focused by default.
 

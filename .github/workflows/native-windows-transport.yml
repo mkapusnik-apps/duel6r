@@ -14,14 +14,7 @@ name: Evidence - Native Windows Transport
       - 'source/client/**'
       - 'source/network/**'
       - 'source/server/**'
-      - 'tests/SessionTransportCTestRegistration.cmake'
-      - 'tests/AdmissionCompatibilityTests.cpp'
-      - 'tests/AdmissionProcessTests.py'
-      - 'tests/NetworkTrustPolicyTests.cpp'
-      - 'tests/SessionTransportProcessTests.py'
-      - 'tests/SessionTransportTests.cpp'
-      - 'tests/TestHarness.h'
-      - 'tests/TestMain.cpp'
+      - 'tests/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

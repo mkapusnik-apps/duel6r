@@ -47,6 +47,16 @@ namespace Duel6::Server {
             return static_cast<std::uint32_t>(parsed);
         }
 
+        std::uint64_t parsePositiveUint64(const std::string &name, const std::string &value) {
+            if (value.empty() || value[0] == '+' || value[0] == '-')
+                throw std::invalid_argument(name + " must be an unsigned integer");
+            std::size_t consumed = 0;
+            const unsigned long long parsed = std::stoull(value, &consumed);
+            if (consumed != value.size() || parsed == 0)
+                throw std::invalid_argument(name + " must be positive");
+            return static_cast<std::uint64_t>(parsed);
+        }
+
         void requireText(const std::string &name, const std::string &value) {
             if (value.empty()) {
                 throw std::invalid_argument(name + " must not be empty");
@@ -96,6 +106,19 @@ namespace Duel6::Server {
                 config.transportEnabled = true;
             } else if (argument == "--admission-client") {
                 config.admissionClient = true;
+            } else if (argument == "--host-service-ipc") {
+                config.hostedServiceIpc = true;
+            } else if (startsWith(argument, "--host-service-parent=")) {
+                config.hostedServiceParent = parsePositiveUint64(
+                        "host service parent", valueAfter(argument, "--host-service-parent="));
+#ifdef D6R_TRANSPORT_WINDOWS
+            } else if (startsWith(argument, "--host-service-status-handle=")) {
+                config.hostedServiceStatusHandle = parsePositiveUint64(
+                        "host service status handle", valueAfter(argument, "--host-service-status-handle="));
+            } else if (startsWith(argument, "--host-service-control-handle=")) {
+                config.hostedServiceControlHandle = parsePositiveUint64(
+                        "host service control handle", valueAfter(argument, "--host-service-control-handle="));
+#endif
             } else if (argument == "--help") {
                 throw std::invalid_argument(
                         "Usage: duel6r-server [--host=ADDR] [--port=PORT] [--name=NAME] "
@@ -123,6 +146,14 @@ namespace Duel6::Server {
         if (config.admissionClient && (config.transportEnabled || config.transportEcho)) {
             throw std::invalid_argument("admission client mode cannot start a listener");
         }
+        if (config.hostedServiceIpc && (!config.transportEnabled || config.transportEcho || config.admissionClient
+                                       || config.hostedServiceParent == 0))
+            throw std::invalid_argument("host service IPC requires a production transport listener and parent");
+#ifdef D6R_TRANSPORT_WINDOWS
+        if (config.hostedServiceIpc
+            && (config.hostedServiceStatusHandle == 0 || config.hostedServiceControlHandle == 0))
+            throw std::invalid_argument("host service IPC handles are required");
+#endif
 
         return config;
     }

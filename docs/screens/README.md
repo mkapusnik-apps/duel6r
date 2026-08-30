@@ -7,6 +7,9 @@ Each route value below therefore names a reproducible local workflow.
 `NET-01`–`NET-09` and the `MENU-01` Network action are approved target specifications for issue #28. They are not implemented screens or evidence of playable network support; downstream issue #38 owns implementation.
 Issue #30 defines protocol, compatibility, admission, and exact outcome copy for planned `NET-02`, `NET-03`, and `NET-08` states.
 Issue #30 does not implement these graphical screens.
+Issue #31 defines hosted-service lifecycle states, exact outcome copy, precedence, Retry eligibility, and destinations for planned `NET-02`, `NET-08`, and the intentional-end boundary of `NET-09`.
+Issue #31 does not implement graphical network UI and does not add a wireframe.
+Issue #38 retains ownership of graphical presentation, focus, controls, disabled reasons, screenshots, and visual conformance for these target states.
 
 The implementation supports desktop display viewports only.
 Each screen uses one desktop wireframe because the implementation does not define a mobile layout.
@@ -36,14 +39,14 @@ The `MENU-01` representative screenshot must show the applied positive value aft
 | `CONS-01` | Console over menu with planned Network footer | [Specification](console-menu.md) | [Wireframe](wireframes/console-menu.md) | Existing console requirements plus target `NET-AC-015`, `NET-AC-017` | Current: `source/console/ConsoleRenderer.cpp`; target footer: `docs/network-play-first-release.md` |
 | `CONS-02` | Console over gameplay | [Specification](console-gameplay.md) | [Wireframe](wireframes/console-gameplay.md) | `CFG-001`–`CFG-002`, `CFG-008`–`CFG-020` | `source/console/ConsoleRenderer.cpp` |
 | `NET-01` | Target network entry | [Specification](network-entry.md) | [Wireframe](wireframes/network-entry.md) | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-015`, `NET-AC-017`, `NET-AC-019` | Target: `docs/network-play-first-release.md` |
-| `NET-02` | Target host setup | [Specification](network-host-setup.md) | [Wireframe](wireframes/network-host-setup.md) | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-009`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-019`; issue #30 `AC-001`, `AC-009`, `AC-017`, `AC-018`, `AC-020`, `AC-024`, `AC-025` | Targets: `docs/network-play-first-release.md`; `docs/network-compatibility-and-admission.md` |
+| `NET-02` | Target host setup | [Specification](network-host-setup.md) | [Wireframe](wireframes/network-host-setup.md) | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-009`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-019`; issue #30 `AC-001`, `AC-009`, `AC-017`, `AC-018`, `AC-020`, `AC-024`, `AC-025`; issue #31 `HSL-AC-003`–`HSL-AC-010`, `HSL-AC-014`, `HSL-AC-016`–`HSL-AC-018` | Targets: `docs/network-play-first-release.md`; `docs/network-compatibility-and-admission.md`; `docs/network-host-service-lifecycle.md` |
 | `NET-03` | Target join setup and connecting | [Specification](network-join.md) | [Wireframe](wireframes/network-join.md) | `NET-AC-001`, `NET-AC-002`, `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-016`, `NET-AC-017`, `NET-AC-019`; issue #30 `AC-002`–`AC-023` | Targets: `docs/network-play-first-release.md`; `docs/network-compatibility-and-admission.md` |
 | `NET-04` | Target lobby and readiness | [Specification](network-lobby.md) | [Wireframe](wireframes/network-lobby.md) | `NET-AC-004`, `NET-AC-005`, `NET-AC-006`, `NET-AC-007`, `NET-AC-008`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018` | Target: `docs/network-play-first-release.md` |
 | `NET-05` | Target network match shared arena | [Specification](network-match.md) | [Wireframe](wireframes/network-match.md) | `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-010`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018` | Target: `docs/network-play-first-release.md` |
 | `NET-06` | Target final session summary | [Specification](network-summary.md) | [Wireframe](wireframes/network-summary.md) | `NET-AC-010`, `NET-AC-011`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018` | Target: `docs/network-play-first-release.md` |
 | `NET-07` | Target guest reconnect | [Specification](network-reconnect.md) | [Wireframe](wireframes/network-reconnect.md) | `NET-AC-006`, `NET-AC-009`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017` | Target: `docs/network-play-first-release.md` |
-| `NET-08` | Target connection or session failure | [Specification](network-failure.md) | [Wireframe](wireframes/network-failure.md) | `NET-AC-002`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-011`, `NET-AC-013`, `NET-AC-016`, `NET-AC-017`, `NET-AC-019`; issue #30 `AC-005`–`AC-010`, `AC-017`–`AC-023`, `AC-025` | Targets: `docs/network-play-first-release.md`; `docs/network-compatibility-and-admission.md` |
-| `NET-09` | Host-ended session outcome | [Specification](network-host-ended.md) | [Wireframe](wireframes/network-host-ended.md) | `NET-AC-003`, `NET-AC-009`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018` | Target: `docs/network-play-first-release.md` |
+| `NET-08` | Target connection or session failure | [Specification](network-failure.md) | [Wireframe](wireframes/network-failure.md) | `NET-AC-002`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-011`, `NET-AC-013`, `NET-AC-016`, `NET-AC-017`, `NET-AC-019`; issue #30 `AC-005`–`AC-010`, `AC-017`–`AC-023`, `AC-025`; issue #31 `HSL-AC-003`, `HSL-AC-006`, `HSL-AC-008`–`HSL-AC-011`, `HSL-AC-013`–`HSL-AC-016`, `HSL-AC-018` | Targets: `docs/network-play-first-release.md`; `docs/network-compatibility-and-admission.md`; `docs/network-host-service-lifecycle.md` |
+| `NET-09` | Host-ended session outcome | [Specification](network-host-ended.md) | [Wireframe](wireframes/network-host-ended.md) | `NET-AC-003`, `NET-AC-009`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018`; issue #31 `HSL-AC-012`–`HSL-AC-013` | Targets: `docs/network-play-first-release.md`; `docs/network-host-service-lifecycle.md` |
 
 ## Target network navigation
 
@@ -51,6 +54,8 @@ The `MENU-01` representative screenshot must show the applied positive value aft
 MENU-01 → NET-01 → Host → NET-02 → NET-04
                    Join → NET-03 → NET-04
 NET-02 startup Cancel → editable NET-02 with setup retained and no listener
+NET-02 Starting → Cancel only; no setup edits, second Start, lobby, listening, or ready claim
+NET-02 startup failure after cleanup → NET-08 → eligible Retry, retained NET-02, or NET-01
 NET-03 connection Cancel → editable NET-03 with setup retained
 NET-04 → NET-05 → NET-06 → NET-04
 NET-04 guest Leave confirm → guest NET-01; Cancel → NET-04
@@ -64,6 +69,7 @@ NET-07 retryable resolution/refusal/unreachable/reset/timeout/host-crash/machine
 NET-07 terminal rejection or deadline expiry → NET-08 with reconnect Retry disabled
 host End session confirm from NET-04/NET-05/NET-06 → host NET-01; guests host-ended NET-09
 host-local supervised hosted-service failure → host NET-08; guests remain NET-07 until terminal rejection/expiry
+normal application shutdown, crash, or forced termination → no guest NET-09 claim
 ```
 
 Back from `NET-01` returns to `MENU-01`. `Play (F1)` remains local-only and does not enter this graph. Match admission closes at `NET-04` → `NET-05`; the target has no join-in-progress or host-migration path.

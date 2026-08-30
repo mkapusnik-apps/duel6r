@@ -26,12 +26,14 @@
 - A pull request run checks out the pull request head commit.
 - A manual run checks out the selected workflow commit.
 - GitHub runs the job on `windows-2025` with native `ltsc2025` Windows containers.
-- The host selects the newest available Visual Studio instance with an MSVC x64 toolchain and compatible Windows SDK.
-- The host mounts the toolchain and SDK read-only in the container.
+- The host selects the newest Visual Studio instance with an MSVC x64 toolchain, redistributable runtime, and compatible Windows SDK.
+- The host mounts the toolchain, redistributable runtime, and SDK read-only in the container.
 - The host does not compile, test, or run a project binary.
-- The container uses MSVC x64 to build the production transport, server, resolver, admission compatibility test, and selected network tests.
-- The container verifies `cl.exe`, `link.exe`, `rc.exe`, and `mt.exe` before CMake starts.
-- The container runs the trust-policy test, both transport CTests, and both admission CTests with native Windows processes.
+- The container uses MSVC x64 to build all targets in the transport-only configuration.
+- These targets include the production transport, server, resolver, host supervisor, and registered test executables.
+- The container verifies the build tools and required Visual C++ runtime libraries before CMake starts.
+- The container puts the Visual C++ runtime libraries beside the native executables before CTest starts.
+- The container runs all CTests that the transport-only configuration registers.
 - The job needs `contents: read` permission.
 - The job does not use repository secrets and does not create an artifact.
 - This workflow provides issue acceptance evidence.
@@ -88,6 +90,7 @@
 
 - Check the native Windows job output for the discovered Visual Studio and Windows SDK versions.
 - A missing tool path indicates that the `windows-2025` image does not contain a required host tool.
+- Exit code `0xC0000135` indicates that Windows cannot load a required runtime library.
 - A mount error indicates a Windows Docker bind-mount or path-access failure.
 - Re-run a failed self-hosted job after Docker daemon access or storage is restored.
 - Check for the daemon workspace confirmation before you investigate CMake failures.
