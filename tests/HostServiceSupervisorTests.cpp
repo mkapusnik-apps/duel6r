@@ -41,8 +41,13 @@ struct ChildState {
     std::atomic<unsigned> stopRequests{0};
     std::atomic<unsigned> waits{0};
     std::atomic<unsigned> forces{0};
+    std::atomic<unsigned> ordinaryStatusPolls{0};
     bool cooperative = true;
     bool forceWorks = true;
+    bool hideStatusUntilExit = false;
+    bool invalidExitBuffer = false;
+    bool statusSealed = false;
+    std::deque<Client::HostServiceStatusEvent> exitBufferedEvents;
     std::function<void()> onWait;
     std::function<void()> onForce;
 
@@ -59,14 +64,32 @@ class FakeChild final : public Client::HostServiceChild {
 public:
     explicit FakeChild(std::shared_ptr<ChildState> state) : state(std::move(state)) {}
     bool readStatus(Client::HostServiceStatusEvent &event, std::chrono::milliseconds timeout) override {
+        state->ordinaryStatusPolls.fetch_add(1);
         std::unique_lock<std::mutex> lock(state->mutex);
-        state->changed.wait_for(lock, timeout, [&] { return !state->events.empty(); });
-        if (state->events.empty()) return false;
+        state->changed.wait_for(lock, timeout, [&] {
+            return state->statusSealed || (!state->hideStatusUntilExit && !state->events.empty());
+        });
+        if (state->statusSealed || state->hideStatusUntilExit || state->events.empty()) return false;
         event = state->events.front();
         state->events.pop_front();
         return true;
     }
     bool hasExited() override { return state->exited.load(); }
+    bool observeExitAndDrainStatus(
+            Client::HostServiceExitEvent &exit, std::vector<Client::HostServiceStatusEvent> &statuses,
+            const std::function<Client::HostServiceTimePoint()> &observationClock) override {
+        if (!HostServiceChild::observeExit(exit, observationClock)) return false;
+        std::lock_guard<std::mutex> lock(state->mutex);
+        if (state->statusSealed) return true;
+        state->statusSealed = true;
+        if (!state->invalidExitBuffer) {
+            statuses.insert(statuses.end(), state->events.begin(), state->events.end());
+            statuses.insert(statuses.end(), state->exitBufferedEvents.begin(), state->exitBufferedEvents.end());
+        }
+        state->events.clear();
+        state->exitBufferedEvents.clear();
+        return true;
+    }
     void requestStop() override {
         state->stopRequests.fetch_add(1);
         if (state->cooperative) state->exited.store(true);
@@ -101,6 +124,9 @@ struct Fixture {
     bool failLaunch = false;
     bool failMonitorLaunch = false;
     bool throwHandoff = false;
+    bool hideStatusUntilExit = false;
+    bool invalidExitBuffer = false;
+    std::deque<Client::HostServiceStatusEvent> exitBufferedEvents;
     std::vector<std::string> handoffs;
     std::function<void()> onHandoff;
 
@@ -112,6 +138,9 @@ struct Fixture {
             launches.push_back(config);
             if (failLaunch) return std::unique_ptr<Client::HostServiceChild>{};
             auto state = std::make_shared<ChildState>();
+            state->hideStatusUntilExit = hideStatusUntilExit;
+            state->invalidExitBuffer = invalidExitBuffer;
+            state->exitBufferedEvents = exitBufferedEvents;
             children.push_back(state);
             return std::unique_ptr<Client::HostServiceChild>(new FakeChild(state));
         };
@@ -322,6 +351,73 @@ D6R_TEST_CASE("HSL-AC-009 status and child-exit observation use one deterministi
         requireState(supervisor, Client::HostServiceState::StartupFailed);
         D6R_REQUIRE_EQ(Client::HostServiceOutcome::ExitedBeforeReady, supervisor.snapshot().outcome);
     }
+}
+
+D6R_TEST_CASE("HSL-AC-008 AC-009 exit seal drains a complete hidden specific status before generic exit") {
+    for (const auto &test: {
+            std::pair{Network::HostServiceStatusCode::PortUnavailable, Client::HostServiceOutcome::PortUnavailable},
+            std::pair{Network::HostServiceStatusCode::StartFailed, Client::HostServiceOutcome::StartFailed}}) {
+        Fixture fixture;
+        fixture.hideStatusUntilExit = true;
+        fixture.exitBufferedEvents.push_back({test.first, Client::HostServiceTimePoint{} + 2s});
+        Client::HostServiceSupervisor supervisor(fixture.dependencies());
+        D6R_REQUIRE(supervisor.start(fixture.config()));
+        const auto pollDeadline = std::chrono::steady_clock::now() + 1s;
+        while (fixture.child()->ordinaryStatusPolls.load() == 0 && std::chrono::steady_clock::now() < pollDeadline)
+            std::this_thread::sleep_for(1ms);
+        D6R_REQUIRE(fixture.child()->ordinaryStatusPolls.load() > 0);
+        fixture.clock.set(12s);
+        fixture.child()->exited.store(true);
+        fixture.child()->changed.notify_all();
+        requireState(supervisor, Client::HostServiceState::StartupFailed);
+        D6R_REQUIRE_EQ(test.second, supervisor.snapshot().outcome);
+        requireCleanup(supervisor);
+    }
+}
+
+D6R_TEST_CASE("HSL-AC-008 AC-009 sealed duplicate late and competing frames select one fixed-precedence outcome") {
+    Fixture fixture;
+    fixture.hideStatusUntilExit = true;
+    fixture.exitBufferedEvents = {
+        {Network::HostServiceStatusCode::Ready, Client::HostServiceTimePoint{} + 1s},
+        {Network::HostServiceStatusCode::StartFailed, Client::HostServiceTimePoint{} + 2s},
+        {Network::HostServiceStatusCode::StartFailed, Client::HostServiceTimePoint{} + 3s},
+        {Network::HostServiceStatusCode::PortUnavailable, Client::HostServiceTimePoint{} + 4s},
+        {Network::HostServiceStatusCode::HostManifestInvalid, Client::HostServiceTimePoint{} + 5s},
+        {Network::HostServiceStatusCode::PortUnavailable, Client::HostServiceTimePoint{} + 11s}};
+    Client::HostServiceSupervisor supervisor(fixture.dependencies());
+    D6R_REQUIRE(supervisor.start(fixture.config()));
+    fixture.clock.set(12s);
+    fixture.child()->exited.store(true);
+    fixture.child()->changed.notify_all();
+    requireState(supervisor, Client::HostServiceState::StartupFailed);
+    D6R_REQUIRE_EQ(Client::HostServiceOutcome::HostManifestInvalid, supervisor.snapshot().outcome);
+    D6R_REQUIRE_EQ(Client::HostServiceStopReason::StartupFailure, supervisor.snapshot().stopReason);
+    fixture.child()->status(Network::HostServiceStatusCode::StartFailed,
+                            Client::HostServiceTimePoint{} + 5s);
+    std::this_thread::sleep_for(10ms);
+    D6R_REQUIRE_EQ(Client::HostServiceOutcome::HostManifestInvalid, supervisor.snapshot().outcome);
+    requireCleanup(supervisor);
+}
+
+D6R_TEST_CASE("HSL-AC-008 AC-009 invalid sealed exit buffers fail closed to generic exit") {
+    Fixture fixture;
+    fixture.hideStatusUntilExit = true;
+    fixture.invalidExitBuffer = true;
+    fixture.exitBufferedEvents.push_back(
+            {Network::HostServiceStatusCode::PortUnavailable, Client::HostServiceTimePoint{} + 1s});
+    Client::HostServiceSupervisor supervisor(fixture.dependencies());
+    D6R_REQUIRE(supervisor.start(fixture.config()));
+    fixture.clock.set(2s);
+    fixture.child()->exited.store(true);
+    fixture.child()->changed.notify_all();
+    requireState(supervisor, Client::HostServiceState::StartupFailed);
+    D6R_REQUIRE_EQ(Client::HostServiceOutcome::ExitedBeforeReady, supervisor.snapshot().outcome);
+    fixture.child()->status(Network::HostServiceStatusCode::PortUnavailable,
+                            Client::HostServiceTimePoint{} + 1s);
+    std::this_thread::sleep_for(10ms);
+    D6R_REQUIRE_EQ(Client::HostServiceOutcome::ExitedBeforeReady, supervisor.snapshot().outcome);
+    requireCleanup(supervisor);
 }
 
 D6R_TEST_CASE("HSL-AC-006 AC-008 child exit is early only strictly before the startup deadline") {

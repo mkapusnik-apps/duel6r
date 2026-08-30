@@ -65,6 +65,16 @@ class HostServiceProcesses(unittest.TestCase):
                               env={"PATH": "/test/path-that-must-not-be-used"})
 
     @staticmethod
+    def close_process_streams(process):
+        if process.poll() is None:
+            process.kill()
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate(timeout=5)
+
+    @staticmethod
     def windows_process_active(pid):
         import ctypes
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -139,6 +149,18 @@ class HostServiceProcesses(unittest.TestCase):
         self.assertEqual("host-service-startup-timed-out\nHosted session startup timed out.\n", result.stdout)
         self.assertEqual("", result.stderr)
 
+    def test_exit_sealed_invalid_status_frames_fail_closed(self):
+        for mode in ("raw-partial", "raw-truncated", "raw-oversized", "raw-malformed"):
+            with self.subTest(mode=mode):
+                result = self.run_case(mode)
+                self.assertEqual(2, result.returncode, result)
+                self.assertEqual(
+                    "host-service-exited-before-ready\nHosted session stopped before it was ready.\n",
+                    result.stdout)
+                self.assertEqual("", result.stderr)
+                self.assertNotIn("port", result.stdout.lower())
+                self.assertNotIn("manifest", result.stdout.lower())
+
     def test_direct_unowned_ipc_attempt_is_rejected(self):
         result = subprocess.run([str(CHILD), "--host-service-ipc",
                                  f"--host-service-parent={os.getpid()}", "--resources=ready"],
@@ -175,32 +197,35 @@ class HostServiceProcesses(unittest.TestCase):
             finally:
                 if process.poll() is None:
                     process.send_signal(signal.SIGTERM)
-                process.communicate(timeout=5)
+                self.close_process_streams(process)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux PDEATHSIG process observation")
     def test_parent_sigkill_does_not_orphan_owned_child(self):
         process = subprocess.Popen([str(SUPERVISOR), f"--server={CHILD}", "--resources=timeout"],
                                    cwd=str(CHILD.parent), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    text=True, env={})
-        child_pid = None
-        deadline = time.monotonic() + 3
-        children_file = pathlib.Path(f"/proc/{process.pid}/task/{process.pid}/children")
-        while time.monotonic() < deadline:
-            try:
-                values = children_file.read_text(encoding="ascii").split()
-                if values:
-                    child_pid = int(values[0])
-                    break
-            except (FileNotFoundError, ProcessLookupError):
-                pass
-            time.sleep(0.01)
-        self.assertIsNotNone(child_pid, "supervisor did not create the owned child")
-        _, child_start_time = self.linux_process_metadata(child_pid)
-        os.kill(process.pid, signal.SIGKILL)
-        process.communicate(timeout=3)
-        self.assert_linux_process_terminated(
-            child_pid, child_start_time, time.monotonic() + 3,
-            f"owned child {child_pid} remained active after parent SIGKILL")
+        try:
+            child_pid = None
+            deadline = time.monotonic() + 3
+            children_file = pathlib.Path(f"/proc/{process.pid}/task/{process.pid}/children")
+            while time.monotonic() < deadline:
+                try:
+                    values = children_file.read_text(encoding="ascii").split()
+                    if values:
+                        child_pid = int(values[0])
+                        break
+                except (FileNotFoundError, ProcessLookupError):
+                    pass
+                time.sleep(0.01)
+            self.assertIsNotNone(child_pid, "supervisor did not create the owned child")
+            _, child_start_time = self.linux_process_metadata(child_pid)
+            os.kill(process.pid, signal.SIGKILL)
+            process.communicate(timeout=3)
+            self.assert_linux_process_terminated(
+                child_pid, child_start_time, time.monotonic() + 3,
+                f"owned child {child_pid} remained active after parent SIGKILL")
+        finally:
+            self.close_process_streams(process)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux process-group descendant observation")
     def test_parent_sigkill_does_not_orphan_owned_descendant(self):
@@ -223,9 +248,7 @@ class HostServiceProcesses(unittest.TestCase):
                     f"owned descendant {descendant} remained active after parent SIGKILL")
             finally:
                 self.kill_linux_process_if_matching(descendant, descendant_start_time)
-                if process.poll() is None:
-                    process.kill()
-                    process.communicate(timeout=3)
+                self.close_process_streams(process)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux process-group descendant observation")
     def test_normal_shutdown_cleans_owned_descendant_process_tree(self):
@@ -248,9 +271,7 @@ class HostServiceProcesses(unittest.TestCase):
                     f"owned descendant {descendant} remained active after normal shutdown")
             finally:
                 self.kill_linux_process_if_matching(descendant, descendant_start_time)
-                if process.poll() is None:
-                    process.kill()
-                    process.communicate(timeout=3)
+                self.close_process_streams(process)
 
     @unittest.skipUnless(sys.platform == "win32", "native Windows Job Object observation")
     def test_windows_normal_shutdown_waits_for_job_zero_active_processes(self):
@@ -259,18 +280,22 @@ class HostServiceProcesses(unittest.TestCase):
             process = subprocess.Popen([str(SUPERVISOR), f"--server={CHILD}", "--resources=tree",
                                         f"--gameplay-script={marker}"], cwd=str(CHILD.parent),
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env={})
-            deadline = time.monotonic() + 5
-            while not marker.exists() and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertTrue(marker.exists(), "Job-owned descendant was not created")
-            descendant = int(marker.read_text(encoding="ascii").strip())
-            process.terminate()
-            process.wait(timeout=6)
-            deadline = time.monotonic() + 3
-            while self.windows_process_active(descendant) and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertFalse(self.windows_process_active(descendant),
-                             "supervisor completed before the Job reached zero active processes")
+            try:
+                deadline = time.monotonic() + 5
+                while not marker.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(marker.exists(), "Job-owned descendant was not created")
+                descendant = int(marker.read_text(encoding="ascii").strip())
+                process.terminate()
+                stdout, stderr = process.communicate(timeout=6)
+                self.assertEqual(("", ""), (stdout, stderr))
+                deadline = time.monotonic() + 3
+                while self.windows_process_active(descendant) and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertFalse(self.windows_process_active(descendant),
+                                 "supervisor completed before the Job reached zero active processes")
+            finally:
+                self.close_process_streams(process)
 
     @unittest.skipUnless(sys.platform == "win32", "native Windows Job Object observation")
     def test_windows_forced_parent_termination_kills_job_descendant_on_handle_close(self):
@@ -279,18 +304,22 @@ class HostServiceProcesses(unittest.TestCase):
             process = subprocess.Popen([str(SUPERVISOR), f"--server={CHILD}", "--resources=tree",
                                         f"--gameplay-script={marker}"], cwd=str(CHILD.parent),
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env={})
-            deadline = time.monotonic() + 5
-            while not marker.exists() and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertTrue(marker.exists(), "Job-owned descendant was not created")
-            descendant = int(marker.read_text(encoding="ascii").strip())
-            process.kill()
-            process.wait(timeout=5)
-            deadline = time.monotonic() + 3
-            while self.windows_process_active(descendant) and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertFalse(self.windows_process_active(descendant),
-                             "kill-on-close left a Job-owned descendant active")
+            try:
+                deadline = time.monotonic() + 5
+                while not marker.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(marker.exists(), "Job-owned descendant was not created")
+                descendant = int(marker.read_text(encoding="ascii").strip())
+                process.kill()
+                stdout, stderr = process.communicate(timeout=5)
+                self.assertEqual(("", ""), (stdout, stderr))
+                deadline = time.monotonic() + 3
+                while self.windows_process_active(descendant) and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertFalse(self.windows_process_active(descendant),
+                                 "kill-on-close left a Job-owned descendant active")
+            finally:
+                self.close_process_streams(process)
 
 
 if __name__ == "__main__":
