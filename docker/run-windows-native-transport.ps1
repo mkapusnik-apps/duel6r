@@ -44,8 +44,22 @@ foreach ($installation in ($installations | Sort-Object { [version]$_.installati
         continue
     }
 
-    $candidateVcRuntimeDir = Join-Path $candidateVcRedistDir 'x64\Microsoft.VC143.CRT'
-    if (-not $candidateVcRuntimeDir.StartsWith($candidateVsRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $candidateVcRuntimeRoot = Join-Path $candidateVcRedistDir 'x64'
+    if (-not (Test-Path -LiteralPath $candidateVcRuntimeRoot -PathType Container)) {
+        continue
+    }
+    $candidateVcRuntimeDir = Get-ChildItem -LiteralPath $candidateVcRuntimeRoot -Directory -Filter 'Microsoft.VC*.CRT' |
+        Where-Object {
+            (Test-Path -LiteralPath (Join-Path $_.FullName 'msvcp140.dll') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName 'vcruntime140.dll') -PathType Leaf)
+        } |
+        Sort-Object Name -Descending |
+        Select-Object -First 1
+    if (-not $candidateVcRuntimeDir) {
+        continue
+    }
+    $candidateVcRuntimePath = $candidateVcRuntimeDir.FullName
+    if (-not $candidateVcRuntimePath.StartsWith($candidateVsRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
         continue
     }
 
@@ -54,8 +68,8 @@ foreach ($installation in ($installations | Sort-Object { [version]$_.installati
         (Join-Path $candidateVsRoot "VC\Tools\MSVC\$candidateVcToolsVersion\bin\Hostx64\x64\link.exe")
         (Join-Path $candidateSdkRoot "bin\$candidateSdkVersion\x64\rc.exe")
         (Join-Path $candidateSdkRoot "bin\$candidateSdkVersion\x64\mt.exe")
-        (Join-Path $candidateVcRuntimeDir 'msvcp140.dll')
-        (Join-Path $candidateVcRuntimeDir 'vcruntime140.dll')
+        (Join-Path $candidateVcRuntimePath 'msvcp140.dll')
+        (Join-Path $candidateVcRuntimePath 'vcruntime140.dll')
     )
     $missingTool = $requiredCandidateTools | Where-Object {
         -not (Test-Path -LiteralPath $_ -PathType Leaf)
@@ -66,14 +80,14 @@ foreach ($installation in ($installations | Sort-Object { [version]$_.installati
 
     $vsRoot = $candidateVsRoot
     $vcToolsVersion = $candidateVcToolsVersion
-    $vcRuntimeRelativePath = $candidateVcRuntimeDir.Substring($candidateVsRoot.Length).TrimStart('\')
+    $vcRuntimeRelativePath = $candidateVcRuntimePath.Substring($candidateVsRoot.Length).TrimStart('\')
     $sdkRoot = $candidateSdkRoot
     $sdkVersion = $candidateSdkVersion
     break
 }
 
 if (-not $vsRoot) {
-    throw 'No installed Visual Studio instance provides MSVC x64 and compatible Windows SDK tools.'
+    throw 'No installed Visual Studio instance provides MSVC x64, its redistributable runtime, and compatible Windows SDK tools.'
 }
 
 Write-Host "Visual Studio installation: $vsRoot"
