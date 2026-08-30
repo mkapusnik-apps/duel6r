@@ -48,6 +48,16 @@ namespace Duel6::Client {
                 return owned->readStatus(event, timeout);
             }
             bool hasExited() override { return owned->hasExited(); }
+            bool observeExit(
+                    HostServiceExitEvent &exit,
+                    const std::function<HostServiceTimePoint()> &observationClock) override {
+                return owned->observeExit(exit, observationClock);
+            }
+            bool observeExitAndDrainStatus(
+                    HostServiceExitEvent &exit, std::vector<HostServiceStatusEvent> &statuses,
+                    const std::function<HostServiceTimePoint()> &observationClock) override {
+                return owned->observeExitAndDrainStatus(exit, statuses, observationClock);
+            }
             void requestStop() override { owned->requestStop(); }
             bool waitForExit(std::chrono::milliseconds timeout) override { return owned->waitForExit(timeout); }
             void forceTerminate() override { owned->forceTerminate(); }
@@ -121,23 +131,31 @@ namespace Duel6::Client {
                 forceTerminate();
                 waitForExit(std::chrono::milliseconds::zero());
                 if (controlWrite) CloseHandle(controlWrite);
-                if (statusRead) CloseHandle(statusRead);
+                {
+                    std::lock_guard<std::mutex> lock(statusMutex);
+                    closeStatusLocked();
+                }
                 if (process) CloseHandle(process);
                 if (job) CloseHandle(job);
             }
 
             bool readStatus(HostServiceStatusEvent &event, std::chrono::milliseconds timeout) override {
+                std::lock_guard<std::mutex> lock(statusMutex);
+                if (!statusRead || statusSealed) return false;
                 const auto deadline = std::chrono::steady_clock::now() + timeout;
                 do {
                     DWORD available = 0;
-                    if (!PeekNamedPipe(statusRead, nullptr, 0, nullptr, &available, nullptr)) return false;
+                    if (!PeekNamedPipe(statusRead, nullptr, 0, nullptr, &available, nullptr)) {
+                        closeStatusLocked();
+                        return false;
+                    }
                     if (available > 0) {
-                        if (available != Network::HostServiceStatusMessageBytes) {
-                            std::array<std::uint8_t, 64> discard{};
-                            DWORD discarded = 0;
-                            ReadFile(statusRead, discard.data(),
-                                     std::min<DWORD>(available, static_cast<DWORD>(discard.size())),
-                                     &discarded, nullptr);
+                        constexpr DWORD MaximumBufferedStatusBytes =
+                                static_cast<DWORD>(Network::HostServiceStatusMessageBytes * 16u);
+                        if (available > MaximumBufferedStatusBytes
+                            || available % Network::HostServiceStatusMessageBytes != 0) {
+                            statusSealed = true;
+                            closeStatusLocked();
                             return false;
                         }
                         std::array<std::uint8_t, Network::HostServiceStatusMessageBytes> message{};
@@ -155,6 +173,18 @@ namespace Duel6::Client {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 } while (std::chrono::steady_clock::now() < deadline);
                 return false;
+            }
+
+            bool observeExitAndDrainStatus(
+                    HostServiceExitEvent &exit, std::vector<HostServiceStatusEvent> &statuses,
+                    const std::function<HostServiceTimePoint()> &observationClock) override {
+                if (!HostServiceChild::observeExit(exit, observationClock)) return false;
+                std::lock_guard<std::mutex> lock(statusMutex);
+                if (statusSealed) return true;
+                statusSealed = true;
+                drainSealedStatusLocked(statuses);
+                closeStatusLocked();
+                return true;
             }
 
             bool hasExited() override { return WaitForSingleObject(process, 0) == WAIT_OBJECT_0; }
@@ -192,6 +222,41 @@ namespace Duel6::Client {
             }
 
         private:
+            void closeStatusLocked() {
+                if (!statusRead) return;
+                CloseHandle(statusRead);
+                statusRead = nullptr;
+            }
+
+            void drainSealedStatusLocked(std::vector<HostServiceStatusEvent> &statuses) {
+                constexpr DWORD MaximumBufferedStatusBytes =
+                        static_cast<DWORD>(Network::HostServiceStatusMessageBytes * 16u);
+                if (!statusRead) return;
+                DWORD available = 0;
+                if (!PeekNamedPipe(statusRead, nullptr, 0, nullptr, &available, nullptr)
+                    || available == 0 || available > MaximumBufferedStatusBytes
+                    || available % Network::HostServiceStatusMessageBytes != 0)
+                    return;
+
+                std::vector<HostServiceStatusEvent> drained;
+                drained.reserve(available / Network::HostServiceStatusMessageBytes);
+                while (available > 0) {
+                    std::array<std::uint8_t, Network::HostServiceStatusMessageBytes> message{};
+                    DWORD count = 0;
+                    if (!ReadFile(statusRead, message.data(), static_cast<DWORD>(message.size()), &count, nullptr)
+                        || count != message.size())
+                        return;
+                    HostServiceStatusEvent event;
+                    std::uint64_t timestamp = 0;
+                    if (!Network::decodeHostServiceStatus(message.data(), message.size(), event.code, timestamp))
+                        return;
+                    event.receivedAt = HostServiceTimePoint(std::chrono::nanoseconds(timestamp));
+                    drained.push_back(event);
+                    available -= static_cast<DWORD>(message.size());
+                }
+                statuses.insert(statuses.end(), drained.begin(), drained.end());
+            }
+
             bool jobEmpty() const {
                 if (!job) return false;
                 JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};
@@ -205,7 +270,9 @@ namespace Duel6::Client {
             HANDLE statusRead = nullptr;
             HANDLE controlWrite = nullptr;
             std::mutex controlMutex;
+            std::mutex statusMutex;
             bool stopSent = false;
+            bool statusSealed = false;
         };
 #else
         bool moveAboveHostedDescriptors(int &descriptor) {
@@ -285,21 +352,26 @@ namespace Duel6::Client {
                 if (!cleanupWasConfirmed) forceTerminate();
                 waitForExit(std::chrono::milliseconds::zero());
                 if (controlWrite >= 0) close(controlWrite);
-                if (statusRead >= 0) close(statusRead);
+                {
+                    std::lock_guard<std::mutex> lock(statusMutex);
+                    closeStatusLocked();
+                }
             }
 
             bool readStatus(HostServiceStatusEvent &event, std::chrono::milliseconds timeout) override {
+                std::lock_guard<std::mutex> lock(statusMutex);
+                if (statusRead < 0 || statusSealed) return false;
                 pollfd descriptor{statusRead, POLLIN, 0};
                 const int ready = poll(&descriptor, 1, static_cast<int>(std::max<std::int64_t>(0, timeout.count())));
                 if (ready <= 0 || !(descriptor.revents & POLLIN)) return false;
                 int available = 0;
                 if (ioctl(statusRead, FIONREAD, &available) != 0) return false;
-                if (available != static_cast<int>(Network::HostServiceStatusMessageBytes)) {
-                    std::array<std::uint8_t, 64> discard{};
-                    const ssize_t discarded = read(
-                            statusRead, discard.data(),
-                            std::min<std::size_t>(discard.size(), static_cast<std::size_t>(available)));
-                    (void) discarded;
+                constexpr int MaximumBufferedStatusBytes =
+                        static_cast<int>(Network::HostServiceStatusMessageBytes * 16u);
+                if (available > MaximumBufferedStatusBytes
+                    || available % static_cast<int>(Network::HostServiceStatusMessageBytes) != 0) {
+                    statusSealed = true;
+                    closeStatusLocked();
                     return false;
                 }
                 std::array<std::uint8_t, Network::HostServiceStatusMessageBytes> message{};
@@ -314,6 +386,18 @@ namespace Duel6::Client {
                 if (!Network::decodeHostServiceStatus(message.data(), message.size(), event.code, timestamp))
                     return false;
                 event.receivedAt = HostServiceTimePoint(std::chrono::nanoseconds(timestamp));
+                return true;
+            }
+
+            bool observeExitAndDrainStatus(
+                    HostServiceExitEvent &exit, std::vector<HostServiceStatusEvent> &statuses,
+                    const std::function<HostServiceTimePoint()> &observationClock) override {
+                if (!HostServiceChild::observeExit(exit, observationClock)) return false;
+                std::lock_guard<std::mutex> lock(statusMutex);
+                if (statusSealed) return true;
+                statusSealed = true;
+                drainSealedStatusLocked(statuses);
+                closeStatusLocked();
                 return true;
             }
 
@@ -376,6 +460,45 @@ namespace Duel6::Client {
             }
 
         private:
+            void closeStatusLocked() {
+                if (statusRead < 0) return;
+                close(statusRead);
+                statusRead = -1;
+            }
+
+            void drainSealedStatusLocked(std::vector<HostServiceStatusEvent> &statuses) {
+                constexpr int MaximumBufferedStatusBytes =
+                        static_cast<int>(Network::HostServiceStatusMessageBytes * 16u);
+                if (statusRead < 0) return;
+                int available = 0;
+                if (ioctl(statusRead, FIONREAD, &available) != 0 || available <= 0
+                    || available > MaximumBufferedStatusBytes
+                    || available % static_cast<int>(Network::HostServiceStatusMessageBytes) != 0)
+                    return;
+
+                std::vector<HostServiceStatusEvent> drained;
+                drained.reserve(static_cast<std::size_t>(available)
+                                / Network::HostServiceStatusMessageBytes);
+                while (available > 0) {
+                    std::array<std::uint8_t, Network::HostServiceStatusMessageBytes> message{};
+                    std::size_t offset = 0;
+                    while (offset < message.size()) {
+                        const ssize_t count = read(statusRead, message.data() + offset, message.size() - offset);
+                        if (count < 0 && errno == EINTR) continue;
+                        if (count <= 0) return;
+                        offset += static_cast<std::size_t>(count);
+                    }
+                    HostServiceStatusEvent event;
+                    std::uint64_t timestamp = 0;
+                    if (!Network::decodeHostServiceStatus(message.data(), message.size(), event.code, timestamp))
+                        return;
+                    event.receivedAt = HostServiceTimePoint(std::chrono::nanoseconds(timestamp));
+                    drained.push_back(event);
+                    available -= static_cast<int>(message.size());
+                }
+                statuses.insert(statuses.end(), drained.begin(), drained.end());
+            }
+
             bool observeLeaderExitLocked() {
                 if (leaderExitObserved || leaderReaped) return true;
                 siginfo_t information{};
@@ -439,8 +562,10 @@ namespace Duel6::Client {
             int statusRead = -1;
             int controlWrite = -1;
             std::mutex controlMutex;
+            std::mutex statusMutex;
             mutable std::mutex processMutex;
             bool stopSent = false;
+            bool statusSealed = false;
             bool leaderExitObserved = false;
             bool leaderReaped = false;
             bool ownershipAnchorLost = false;

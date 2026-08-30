@@ -254,11 +254,16 @@ namespace Duel6::Client {
         for (;;) {
             SelectedStop stop = SelectedStop::None;
             HostServiceOutcome stopOutcome = HostServiceOutcome::None;
+            std::vector<HostServiceStatusEvent> events;
             HostServiceStatusEvent event;
-            bool received = false;
-            try { received = child->readStatus(event, std::chrono::milliseconds(5)); } catch (...) {}
+            try {
+                if (child->readStatus(event, std::chrono::milliseconds(5))) events.push_back(event);
+            } catch (...) {}
             if (!exitObserved) {
-                try { exitObserved = child->observeExit(exitEvent, [this] { return now(); }); }
+                try {
+                    exitObserved = child->observeExitAndDrainStatus(
+                            exitEvent, events, [this] { return now(); });
+                }
                 catch (...) {
                     exitObserved = true;
                     exitEvent.observedAt = now();
@@ -273,23 +278,31 @@ namespace Duel6::Client {
                     stop = selectedStop;
                     stopOutcome = selectedOutcome;
                 } else if (state == HostServiceState::Starting) {
-                    const bool currentAttempt = received && event.receivedAt >= startupBegan;
-                    const bool beforeDeadline = currentAttempt && event.receivedAt < startupDeadline;
-                    const bool specificFailure = beforeDeadline
-                                                 && event.code != Network::HostServiceStatusCode::Ready;
-                    if (specificFailure) {
-                        selectStopLocked(SelectedStop::StartupFailure, outcomeForStatus(event.code));
+                    const auto specificFailure = std::find_if(events.begin(), events.end(), [&](const auto &status) {
+                        return status.receivedAt >= startupBegan && status.receivedAt < startupDeadline
+                               && status.code != Network::HostServiceStatusCode::Ready;
+                    });
+                    const auto readiness = std::find_if(events.begin(), events.end(), [&](const auto &status) {
+                        return status.receivedAt >= startupBegan && status.receivedAt < startupDeadline
+                               && status.code == Network::HostServiceStatusCode::Ready;
+                    });
+                    const bool statusAtOrAfterDeadline = std::any_of(
+                            events.begin(), events.end(), [&](const auto &status) {
+                                return status.receivedAt >= startupDeadline;
+                            });
+                    if (specificFailure != events.end()) {
+                        selectStopLocked(SelectedStop::StartupFailure, outcomeForStatus(specificFailure->code));
                     } else if (exitObserved) {
                         // A Ready message and direct-child exit observed in one cycle never expose Active.
                         const auto exitOutcome = exitEvent.observedAt < startupDeadline
                                                  ? HostServiceOutcome::ExitedBeforeReady
                                                  : HostServiceOutcome::StartupTimedOut;
                         selectStopLocked(SelectedStop::StartupFailure, exitOutcome);
-                    } else if (beforeDeadline && event.code == Network::HostServiceStatusCode::Ready) {
+                    } else if (readiness != events.end()) {
                         state = HostServiceState::Active;
                         outcome = HostServiceOutcome::None;
                         didTransition = true;
-                    } else if ((currentAttempt && !beforeDeadline) || now() >= startupDeadline) {
+                    } else if (statusAtOrAfterDeadline || now() >= startupDeadline) {
                         selectStopLocked(SelectedStop::StartupFailure, HostServiceOutcome::StartupTimedOut);
                     }
                     stop = selectedStop;

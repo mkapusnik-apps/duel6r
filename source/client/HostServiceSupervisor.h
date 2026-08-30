@@ -98,6 +98,18 @@ namespace Duel6::Client {
             event.observedAt = firstExitObservation;
             return true;
         }
+        virtual bool observeExitAndDrainStatus(
+                HostServiceExitEvent &exit, std::vector<HostServiceStatusEvent> &statuses,
+                const std::function<HostServiceTimePoint()> &observationClock) {
+            if (!observeExit(exit, observationClock)) return false;
+            constexpr unsigned MaximumBufferedStatuses = 16;
+            for (unsigned index = 0; index < MaximumBufferedStatuses; ++index) {
+                HostServiceStatusEvent status;
+                if (!readStatus(status, std::chrono::milliseconds::zero())) break;
+                statuses.push_back(status);
+            }
+            return true;
+        }
         virtual void requestStop() = 0;
         virtual bool waitForExit(std::chrono::milliseconds timeout) = 0;
         virtual void forceTerminate() = 0;
