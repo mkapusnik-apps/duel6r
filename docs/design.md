@@ -163,7 +163,17 @@ The following values come from renderer and GUI source.
 - A focused text field must append an underscore to its text.
 - Only one text field must have focus at a time.
 - The person-name field must accept only its implemented character set.
-- The rounds field must accept digits only.
+- The Rounds field must accept digits only.
+- The Rounds field must show `0` at application startup unless a startup setting overrides it.
+- The application must keep the applied Rounds value during the current application session.
+- The Rounds field must show the applied value when gameplay returns to the menu.
+- The application must not restore a Rounds value from an earlier application session.
+- Focus must clear the Rounds field immediately when the field shows exactly `0`.
+- Focus must keep the Rounds field value unchanged when the field shows a positive value.
+- The focused empty Rounds field must show only the standard focus underscore.
+- Focus loss from an empty Rounds field must show `0` and set unlimited-round semantics.
+- Focus loss from a non-empty Rounds field must not apply the edit.
+- Enter and Play must retain their existing Rounds application behavior.
 - The menu has no implemented disabled style.
 - Invalid actions may produce no visible change unless a blocking message is documented for that action.
 
@@ -269,9 +279,12 @@ The following values come from renderer and GUI source.
 - A visual-impact change must update each affected screen specification and wireframe.
 - A visual-impact change must invalidate each affected screenshot entry.
 - A shared token or component change must trigger an assessment of all screens.
-- Screenshot provenance must record branch, source SHA, environment, workflow, state, viewport, artifact path, selected menu background filename, runtime asset manifest revision, and session identifier where the menu background is visible.
+- Screenshot provenance must record branch, source SHA, environment, workflow, state, viewport, and artifact path.
+- Evidence for menu background selection or persistence must also record the selected filename, runtime asset manifest revision, and session identifier.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
-- The 12 affected screenshot entries remain `Planned` until issue #38 implements and captures the target `MENU-01`, `MENU-02`, `CONS-01`, and `NET-01`–`NET-09` states; existing local screenshots cannot be reused as target evidence.
+- Eleven screenshot entries remain `Planned` until issue #38 implements and captures `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
+- `SS-001` must represent the current implemented `MENU-01` state.
+- Issue #38 must invalidate and recapture `SS-001` when it implements the target Network footer.
 
 ## Reviewed implementation sources
 

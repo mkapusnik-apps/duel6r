@@ -1,4 +1,4 @@
-# MENU-01 wireframe — Main menu with planned network entry
+# MENU-01 wireframe — Main menu with current Rounds state and planned network entry
 
 Representative viewport: 1920 by 1080 px desktop client.
 Wireframe coordinates use a top-left origin.
@@ -6,6 +6,9 @@ The 850 by 700 logical menu canvas uses the 135% cap, renders at approximately 1
 The screen has no mobile layout and does not reflow.
 The complete client is filled by a centered-cover gameplay still with Gaussian-equivalent blur and a 55% black scrim.
 The scaled grey canvas is unblurred and undimmed and has a 2-logical-pixel black perimeter keyline.
+The representative state shows applied Rounds `3` after gameplay returns during the same application session.
+The current representative state uses the implemented three-action footer.
+The four-action footer remains a target variant for issue #38.
 
 ## Canvas zones
 
@@ -36,7 +39,7 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 │        ││                ││people       ││1 …  │ preset      │ D ││☑ Assistance  ││
 │        ││                ││             ││… up to 15 rows       ││☑ Quick Liquid ││
 │        ││                ││             ││                      ││☑ Burnable Trees││
-│        ││                ││             ││[E] [S] [batch D]     ││Rounds [0___]  ││
+│        ││                ││             ││[E] [S] [batch D]     ││Rounds [3___]  ││
 │        ││                ││[name_______]││                      ││               ││
 │        ││                ││[Remove][<<][>>][Add]                 ││               ││
 │        │└────────────────┘└──────────────┘└──────────────────────┘└───────────────┘│
@@ -58,6 +61,9 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 - The canvas and raised controls must use the retro grey beveled treatment in `docs/design.md`.
 - Each setup panel must use the blue panel header and white panel header text from `docs/design.md`.
 - White inset surfaces must contain lists, spinners, and text fields.
+- The representative populated state must show every saved person with at least one Elo game in the Elo scoreboard.
+- The populated Elo rows must use descending Elo order and show rank, person name, Elo, and Elo trend.
+- The representative populated state must show two qualifying saved persons with existing Elo history.
 - A selected list row must use blue fill and white text.
 - Team-mode player rows must use the applicable team background colors.
 - The Players panel must preserve one control spinner and one `D` action for each of the 15 roster positions.
@@ -68,15 +74,29 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 - The Burnable Trees checkbox must use the same size, bevel, label alignment, and compact row spacing as Assistance and Quick Liquid.
 - The Burnable Trees checkbox must appear directly below Quick Liquid.
 - The Rounds field must move down by one compact control row.
+- The representative state must show `3` in the unfocused Rounds field after gameplay returns.
+- The startup state must show `0` unless a startup setting overrides it.
+- Focus on exactly `0` must clear the value immediately and show only the focus underscore.
+- Focus on a positive value must keep the digits and append the focus underscore.
+- Focus loss from an empty field must restore the visible value `0` and unlimited-round semantics.
+- Focus loss from a non-empty field must not apply the edit.
+- Enter and Play must retain their existing application behavior.
+- A positive applied value must remain visible after focus changes and after gameplay returns during the same application session.
+- A new application session must not restore the previous session value.
 - The default wireframe state must show Assistance, Quick Liquid, and Burnable Trees checked.
 - All Game Settings controls must remain inside the existing panel bounds.
 - The footer captions must put the action before the shortcut.
 - Footer button widths, three internal gaps, and two outer margins must remain equal as specified above at every uniformly scaled viewport.
 - `Play (F1)` remains the independent local-only action; `Network (F2)` is a distinct target action leading to `NET-01`.
 - Issue #28 specifies this footer layout but does not implement it. The current application still has the three-action footer.
+- The current representative screenshot must use the three-action footer and must not wait for issue #38.
 - The banner must use `resources/textures/menu/` and may animate.
 - The version must use the current runtime value and must not use the Stitch sample value.
 - Sample names and statistics must not become hard-coded UI content.
+- The empty Elo variant must keep the `ELO SCOREBOARD` title, `rank`, `name`, `Elo`, and `Δ` headings visible above an empty white list surface.
+- The empty Elo variant must exclude each saved person whose Elo game count is zero.
+- The empty Elo variant must not show placeholder copy.
+- An unlimited Deathmatch, Predator match, Team deathmatch, or early match exit must leave the empty Elo variant unchanged when no person has a prior Elo game.
 - The empty-data variant must keep the same panels and show empty list and table surfaces.
 - The 15-player variant must keep each player aligned with that player's control assignment.
 - The failed-start recovery variant must restore this complete layout and its previous values.
@@ -84,4 +104,5 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 - Pressed controls must reverse their bevel and move their caption by 1 px.
 - Selection occurs once per application session; the still does not animate or change during menu navigation or a return from gameplay.
 
-Planned representative screenshot for downstream issue #38: [`SS-001`](../../screenshots/README.md#ss-001).
+Current representative screenshot: [`SS-001`](../../screenshots/README.md#ss-001).
+Issue #38 must replace this screenshot when it implements the target footer variant.

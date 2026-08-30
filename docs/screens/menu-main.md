@@ -5,7 +5,7 @@
 The implemented screen builds the local roster, assigns controls, selects match settings, shows persistent results, starts a local match, and exits the application. The approved target adds a distinct network entry without changing local Play.
 Entry occurs when the application starts or when gameplay closes.
 Implemented exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action. In the target UI, `Network (F2)` enters `NET-01`.
-The screen implements `SET-001`–`SET-029`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, and `PER-001`–`PER-005` from [`docs/features.md`](../features.md). The planned Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+The screen implements `SET-001`–`SET-035`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005`, and `AC-040`–`AC-043` from [`docs/features.md`](../features.md). The planned Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 The visual source is Stitch screen `681ae093051749fd922ab74454f47121` in project `1219346282527961142`.
 Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`, and `resources/textures/menu/`.
 
@@ -45,6 +45,16 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 ## Visible behavior and state variants
 
 - The screen must load saved people into Persons or Players according to saved roster membership.
+- The Elo scoreboard must include every saved person whose Elo game count is at least one.
+- The Elo scoreboard must include qualifying persons from both the Persons list and the Players list.
+- The Elo scoreboard must sort qualifying persons by Elo in descending order.
+- Each populated Elo row must show the rank, person name, Elo value, and Elo trend.
+- A completed Deathmatch with `Rounds` greater than `0` must update the Elo scoreboard when the match returns to the menu.
+- An unlimited Deathmatch, Predator match, Team deathmatch, or early match exit must not add an Elo game or change an Elo row.
+- The menu must restore the same qualifying Elo rows after the application restarts.
+- The empty Elo state must keep the panel title, column headings, panel bounds, and white list surface visible.
+- The empty Elo state must not show a person whose Elo game count is zero.
+- The empty Elo state must not show placeholder copy.
 - The Players label must show the selected-player count.
 - `E` must reorder players by Elo shuffle logic.
 - `S` must reorder players by random shuffle logic.
@@ -56,6 +66,12 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - An unchecked Burnable Trees checkbox must prevent explosions from igniting burnable decorative trees during the match.
 - A Burnable Trees selection must remain in effect when the user starts the match.
 - The Rounds value `0` must mean no round limit.
+- The Rounds field must show `0` at application startup unless a startup setting overrides it.
+- The application must keep the applied Rounds value during the current application session.
+- The Rounds field must show a positive applied value after focus changes.
+- The Rounds field must show the applied value when gameplay returns to the menu.
+- An application restart must not restore the Rounds value from the previous application session.
+- A startup setting may override the startup value.
 - An empty people dataset must show empty list surfaces and must retain the complete setup layout.
 - A person with no matching profile must remain selectable and must use runtime fallback customization when play starts.
 - Duplicate or empty person names must produce no new row.
@@ -83,6 +99,14 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - Double-click on a player must return that player to Persons.
 - Enter must add a person when the person-name field has focus.
 - Enter must apply Rounds when the rounds field has focus.
+- Focus must clear the Rounds field immediately when the field shows exactly `0`.
+- The focused field must show only the focus underscore after it clears `0`.
+- Focus must keep the displayed digits unchanged when the Rounds field shows a positive value.
+- The focused positive value must include the standard focus underscore.
+- Focus loss from an empty Rounds field must show `0`.
+- Focus loss from an empty Rounds field must set the round limit to unlimited.
+- Focus loss from a non-empty Rounds field must not apply the edited value.
+- Enter and Play must retain their existing Rounds application behavior.
 - F1 must start the play workflow.
 - In the target UI, F2 must open `NET-01`; the current application has no network action.
 - F3 must open the clear confirmation.
@@ -106,4 +130,7 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 
 ## Screenshot link
 
-Planned representative evidence for downstream issue #38: [`SS-001`](../screenshots/README.md#ss-001). No current application screenshot represents the target Network action.
+Current representative evidence: [`SS-001`](../screenshots/README.md#ss-001).
+The capture must show a positive applied Rounds value after gameplay returns during the same application session.
+The current capture must show the implemented three-action footer.
+Issue #38 must replace this evidence when it implements the target Network action.

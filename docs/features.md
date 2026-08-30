@@ -7,6 +7,7 @@ This document specifies the required user-facing behavior of Duel 6 Reloaded.
 Unless a requirement identifies an approved change, the requirements describe the implementation at commit `8f98d3679c4c9091e8973a1cb7a3278f04deb946`.
 The split-screen removal requirements define target product behavior that supersedes the earlier implementation baseline.
 The Burnable Trees requirements define an approved change to the earlier implementation baseline.
+The Rounds field focus and session-memory requirements define an approved change to the earlier implementation baseline.
 
 The word **person** means a persistent named record. The word **player** means a person in the active match roster.
 
@@ -51,6 +52,12 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **SET-027** The application must not save the Burnable Trees value for a later application session.
 - **SET-028** When the user starts a match, the game must apply the selected Burnable Trees value to that match.
 - **SET-029** The game must keep the applied Burnable Trees value for all rounds in the active match.
+- **SET-030** The menu must keep the applied Rounds value during the current application session.
+- **SET-031** When gameplay returns to the menu, the Rounds field must show the applied Rounds value.
+- **SET-032** The application must not save the Rounds value for a later application session.
+- **SET-033** When the Rounds field receives focus and shows exactly `0`, the menu must clear the field.
+- **SET-034** When the Rounds field receives focus and shows a positive value, the menu must keep that value.
+- **SET-035** When an empty Rounds field loses focus, the menu must set the round limit to zero and show `0`.
 
 ## Match and round lifecycle
 
@@ -434,6 +441,10 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-037** The selected Burnable Trees value remains in effect across rounds and after a return to the menu during the same application session.
 - **AC-038** After an application restart, Burnable Trees is on without regard to the value from the prior application session.
 - **AC-039** In both Burnable Trees states, terrain, walls, other decorations, and other explosion effects remain unchanged. The `shit thrower` explosion does not burn applicable trees.
+- **AC-040** An applied positive Rounds value remains available after focus changes and after gameplay returns to the menu during the same application session.
+- **AC-041** After an application restart, Rounds does not restore the prior session value. Rounds is `0` unless a startup setting changes it.
+- **AC-042** Focusing Rounds clears only the displayed value `0`. Focusing a positive value keeps that value.
+- **AC-043** If Rounds remains empty when it loses focus, the field shows `0` and the match has no last round.
 
 ## Source traceability
 

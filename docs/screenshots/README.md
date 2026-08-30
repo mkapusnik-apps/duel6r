@@ -8,7 +8,12 @@ It preserves the retro logical layout while adding uniform responsive scaling, a
 The previously conforming `MENU-01/default-1706x938.png`, `MENU-02/confirmation-1706x938.png`, and `CONS-01/open-1706x938.png` artifacts are now stale historical evidence and are not representative matrix artifacts.
 The prior `SS-002` and `SS-013` artifacts remain valid historical evidence for the current three-action menu, but they are not evidence for the changed target footer visible behind those overlays.
 The other eight existing representative screenshots remain current because their target presentation is unchanged.
-Issue #28 changes target `MENU-01`, its visible background in `MENU-02` and `CONS-01`, and adds `NET-01`–`NET-09`. Exactly 12 planned entries cover those 12 affected wireframes. No current application screenshot is valid for those changed targets because the Network action and network screens are not implemented; downstream issue #38 owns implementation and recapture.
+Issue #28 changes target `MENU-01`, its visible background in `MENU-02` and `CONS-01`, and adds `NET-01`–`NET-09`.
+Eleven planned entries cover `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
+The current `MENU-01` entry remains implementation evidence until issue #38 implements the Network footer and requires a replacement capture.
+The 2026-08-29 Rounds focus and session-memory change also affects `MENU-01`.
+The `MENU-01` representative entry shows a positive applied Rounds value after gameplay returns during one application session.
+The focus-clear, empty-blur, and restart variants remain requirements in the screen specification and wireframe and do not add screenshot entries.
 Issue #30 defines protocol, command-line, or scaffold outcomes only.
 Issue #30 has zero capturable graphical entries because it must not implement the planned network screens.
 The existing 12 planned issue #38 entries remain unchanged and must not be used as issue #30 evidence.
@@ -16,7 +21,8 @@ The obsolete `PLAY-02`, `PLAY-03`, and `PLAY-04` artifacts are not evidence and 
 
 ## Provenance requirements
 
-Each supplied artifact must include the implementation branch, source SHA, environment, route or workflow, state, viewport, destination path, selected background filename, runtime asset manifest revision, and session identifier when the menu background is visible.
+Each supplied artifact must include the implementation branch, source SHA, environment, route or workflow, state, viewport, and destination path.
+Evidence for menu background selection or persistence must also include the selected background filename, runtime asset manifest revision, and session identifier.
 Fresh menu entries must use the branch and source SHA that contain the approved menu implementation.
 The capture environment should use GL4, Lua enabled, Ubuntu 24.04 Docker, Mesa software rendering, and Xvfb.
 Fresh menu captures must use a 1920 by 1080 px client through a release display or an equivalent recorded capture configuration.
@@ -86,6 +92,23 @@ The scaled-background packet for the currently implemented three-action footer w
 - Capture artifacts: `MENU-01/default-scaled-background-1920x1080.png`, `MENU-02/confirmation-scaled-background-1920x1080.png`, and `CONS-01/open-scaled-background-1920x1080.png` under this directory.
 - Assessment status: UX confirmed conformance for the then-current implementation. The `MENU-01`, `MENU-02`, and `CONS-01` artifacts are historical after the target four-action footer approval and are not evidence for issue #28.
 
+The PR #52 Rounds evidence was reported with this setup:
+
+- Pull request: `#52`.
+- Branch: `feature/rounds-input`.
+- Pull request head: `2af47861ce5f372a42620eb7045e680143acc518`.
+- Implementation source SHA: `5020a173ab8b0c8e42fa5f7f7a7b43e1711d2ed5`.
+- Screenshot artifact commit: `2af47861ce5f372a42620eb7045e680143acc518`.
+- Worktree state: clean at the implementation source SHA before the documentation-only screenshot commit.
+- Environment: Ubuntu 24.04 Docker, Xvfb, and software OpenGL rendering.
+- Viewport: 1920 by 1080 px.
+- Session workflow: apply Rounds `3`, enter gameplay, and return to the menu in the same application session.
+- Expected state: the unfocused Rounds field shows `3`.
+- Artifact path: `MENU-01/rounds-3-retained-after-gameplay-1920x1080.png` under this directory.
+- Assessment source: exact pushed Git object `f62090d946a62270d6f2682290b2e6e3418bbf3d` at the screenshot artifact commit.
+- Assessment status: UX confirmed conformance for AC-040–AC-043 on 2026-08-29.
+- Scope note: the artifact shows the correct current three-action footer. The planned Network footer is outside PR #52.
+
 The fresh shared-arena packet has this provenance:
 
 - Branch: `feature/remove-split-screen`.
@@ -109,7 +132,7 @@ The replacement shared-arena artifacts have this provenance:
 
 | ID | Screen ID | Wireframe | Route or workflow | Representative state and setup data | Viewport | Expected visible behavior | Destination path | Provenance and status |
 |---|---|---|---|---|---:|---|---|---|
-| <a id="ss-001"></a>`SS-001` | `MENU-01` | [Main menu](../screens/wireframes/menu-main.md) | Launch the local application to the setup menu after issue #38 implements the target Network entry. | Use four saved people, two selected local players, Deathmatch, persistent local score data, Assistance on, Quick Liquid on, Burnable Trees on, and Rounds `0`. | 1920x1080 | The scaled retro menu must show distinct `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)` actions. Play remains local-only. | `docs/screenshots/MENU-01/network-entry-1920x1080.png` | `Planned` for downstream issue #38. No current screenshot is valid for this target wireframe. |
+| <a id="ss-001"></a>`SS-001` | `MENU-01` | [Main menu](../screens/wireframes/menu-main.md) | Start the application. Create saved persons Ada and Bruno. Select both persons. Focus Rounds while it shows `0`. Enter `3` and apply it with Enter. Enter gameplay. Return to the setup menu during the same application session. | Use two selected saved persons, Deathmatch, applied Rounds `3`, and Assistance, Quick Liquid, and Burnable Trees on. Capture the unfocused field after gameplay returns. | 1920x1080 | The Rounds field must show `3`. The field must not show the focus underscore. The scaled retro menu and current three-action footer must remain visible. | `docs/screenshots/MENU-01/rounds-3-retained-after-gameplay-1920x1080.png` | PR #52 packet provenance above. The exact pushed artifact shows Rounds `3` without an underscore after the reported same-session gameplay workflow. The scaled menu uses the approved current presentation and three-action footer. `Conforms`. |
 | <a id="ss-002"></a>`SS-002` | `MENU-02` | [Menu message](../screens/wireframes/menu-message.md) | After issue #38 implements the Network footer, select Clear or press F3 from the populated menu. | Use four saved people, two selected players, Deathmatch, persistent score data, and documented default settings; show `Really delete? (Y/N)`. | 1920x1080 | The unchanged scaled target menu behind the strip must visibly include equal-width `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)` footer actions. | `docs/screenshots/MENU-02/network-entry-confirmation-1920x1080.png` | `Planned` for downstream issue #38. The existing three-action-footer capture is not valid for this target wireframe. |
 | <a id="ss-003"></a>`SS-003` | `PLAY-01` | [Shared arena play](../screens/wireframes/play-fullscreen.md) | Start a local Deathmatch and press F2 once during live play. | Use 15 living players, ranking on, a finite round limit, and a state after the start fade. | 1280x900 | One undivided arena must show the whole level and all 15 players. F2 must not change the view. Live ranking, round progress, event messages, and player status must remain available. | `docs/screenshots/PLAY-01/shared-15-player-1280x900.png` | Replacement packet provenance above. Captured from an actual 15-player Deathmatch with ranking enabled and three rounds after pressing F2 once. `Conforms`. |
 | <a id="ss-007"></a>`SS-007` | `MODE-01` | [Predator](../screens/wireframes/mode-predator.md) | Start Predator from the menu. | Use three living players, one predator, ranking on, and a finite round limit. | 1280x900 | One undivided arena must show the faint predator body, visible predator weapon, opaque marines, live ranking, round progress, events, and status cues. | `docs/screenshots/MODE-01/shared-live-1280x900.png` | Fresh shared-arena packet provenance above. `Conforms`. |
@@ -134,13 +157,13 @@ The replacement shared-arena artifacts have this provenance:
 
 - Required wireframes: 20.
 - Required representative screenshot entries: 20.
-- Conforming screenshots: 8.
+- Conforming screenshots: 9.
 - Non-conforming screenshots: 0.
-- Planned screenshot entries awaiting downstream issue #38: 12.
+- Planned screenshot entries awaiting downstream issue #38: 11.
 - Pending screenshot assessments: 0; planned entries cannot be assessed before implementation and capture.
 - Screenshots per wireframe: exactly one.
 - Retired screenshot matrix entries: `SS-004`, `SS-005`, and `SS-006`.
-- Coverage status: eight unchanged implementation artifacts conform; the 12-entry issue #28 affected-wireframe matrix is planned and has no valid current artifacts.
+- Coverage status: nine implementation artifacts conform. Eleven planned entries have no valid current artifacts. Issue #38 must invalidate and replace `SS-001` when it implements the Network footer.
 
 The matrix uses one representative state for each wireframe.
 The screen specifications and wireframes document other player counts, modes, interaction states, and accessibility limits without multiplying screenshot entries.
