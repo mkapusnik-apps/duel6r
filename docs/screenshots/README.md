@@ -12,7 +12,7 @@ Issue #28 changes target `MENU-01`, its visible background in `MENU-02` and `CON
 Issue #30 defines protocol, command-line, or scaffold outcomes only.
 Issue #30 has zero capturable graphical entries because it must not implement the planned network screens.
 The existing 12 planned issue #38 entries remain unchanged and must not be used as issue #30 evidence.
-Issue #31 defines future visual states and copy but remains headless or scaffold-only at final reviewed implementation head `ac0276a53a178bb55b57ebeda3d1781a2d0f6332`.
+Issue #31 defines future visual states and copy but remains headless or scaffold-only at final reviewed implementation head `413d1c3d33812c0199757b0b496f7f6d4c8e254a`.
 Issue #31 has exactly zero capturable graphical entries because it must not implement `NET-02`, `NET-08`, `NET-09`, or another network screen.
 The issue #31 visual specification changes no representative layout and adds no wireframe.
 The 20-entry wireframe-based screenshot matrix therefore remains unchanged with exactly one representative entry per wireframe.
@@ -181,13 +181,13 @@ Issue #38 must provide exactly one representative graphical screenshot for each 
 ## Issue #31 operational evidence matrix
 
 This matrix was prepared for issue #31 and draft PR #51 at reviewed head `7e6255ffb2a5c48a65c7666ed3afe1cd3450aebf`.
-The final UX reassessment covers the implemented lifecycle scaffold at exact head `ac0276a53a178bb55b57ebeda3d1781a2d0f6332`.
+The final UX reassessment covers the implemented lifecycle scaffold at exact head `413d1c3d33812c0199757b0b496f7f6d4c8e254a`.
 The issue #31 graphical screenshot matrix contains exactly zero entries.
 Terminal output, automated results, and process-lifecycle records are operational substitutes and are not implementation screenshots.
 Each substitute must record the implementation branch, source SHA, environment, command or test scenario, machine outcome, user-visible output when applicable, and artifact path.
 The reviewed implementation evidence sources are `source/client/HostServiceSupervisor.h`, `source/client/HostServiceSupervisor.cpp`, `source/client/HostServiceProcess.cpp`, and `source/client/HostSupervisorMain.cpp`.
 The reviewed operational test sources are `tests/HostServiceSupervisorTests.cpp`, `tests/HostServiceProcessTests.py`, `tests/HostServiceTestChild.cpp`, and `tests/SessionTransportCTestRegistration.cmake`.
-The registered tests cover byte-exact identifiers and copy, strict startup timing, cancellation precedence, retained setup, cleanup-gated Retry and dismissal, post-readiness failure, the observable exactly-once intentional-end handoff boundary, handoff exclusion from all other outcomes, process cleanup, non-disclosing output, and scaffold-only scope truth.
+The registered tests cover byte-exact identifiers and copy, strict startup timing, exit-sealed status draining and fixed outcome precedence, cancellation precedence, retained setup, cleanup-gated Retry and dismissal, post-readiness failure, the observable exactly-once intentional-end handoff boundary, handoff exclusion from all other outcomes, process cleanup, non-disclosing output, and scaffold-only scope truth.
 
 | Operational scenario | Required substitute evidence |
 |---|---|
