@@ -22,6 +22,11 @@ Issue #31 has exactly zero capturable graphical entries because it must not impl
 The issue #31 visual specification changes no representative layout and adds no wireframe.
 The 20-entry wireframe-based screenshot matrix therefore remains unchanged with exactly one representative entry per wireframe.
 The existing 12 planned issue #38 entries must not be used as issue #31 evidence.
+Issue #32 defines authoritative headless match behavior and future graphical states at reviewed head `03fdc0c481b183b695eb937ea0c7b0e93b4e31b9`.
+Issue #32 has exactly zero capturable graphical entries because it must not implement `NET-04`, `NET-05`, `NET-06`, `NET-08`, or another graphical network screen.
+The issue #32 specification adds state and copy annotations but makes no approved structural layout change and adds no wireframe.
+The 20-entry wireframe-based screenshot matrix remains unchanged with exactly one representative entry per wireframe.
+The existing planned issue #38 entries must not be used as issue #32 evidence.
 The obsolete `PLAY-02`, `PLAY-03`, and `PLAY-04` artifacts are not evidence and are not in this manifest.
 
 ## Provenance requirements
@@ -228,3 +233,29 @@ The registered tests cover byte-exact identifiers and copy, strict startup timin
 | Scope truth | Build or test output must not claim graphical network UI, a playable network session, or release readiness from issue #31. |
 
 Issue #38 must capture `NET-02`, `NET-08`, and `NET-09` only when their planned graphical wireframes become implemented and reachable.
+
+## Issue #32 operational evidence matrix
+
+This matrix was prepared for issue #32 and draft PR #53 at reviewed head `03fdc0c481b183b695eb937ea0c7b0e93b4e31b9`.
+The issue #32 graphical screenshot matrix contains exactly zero capturable entries.
+Terminal output, serialized results, automated results, and process-lifecycle records are operational substitutes and are not implementation screenshots.
+Each substitute must record the implementation branch, source SHA, environment, command or test scenario, machine identifier, exact user-visible output when applicable, exit status when applicable, and artifact path.
+
+| Operational scenario | Required substitute evidence |
+|---|---|
+| Supported modes and settings | Automated results must cover Deathmatch, Predator, all six Team deathmatch variants, all three level plans, round limits 1 and 99, rejected limits, Assistance, Quick Liquid, and Burnable Trees. Results must show that unsupported and content-owned settings are rejected. |
+| Six-second round end | A deterministic trace or automated result must show one second of normal updates, five seconds without normal round updates, automatic non-final advancement, and no advancement after the final round. |
+| Host authority | Automated results must show host-only early advancement after an outcome, rejected guest and arbitrary-key advancement, rejected pre-winner Shift+F1 advancement, and host-only End session. |
+| Approved terminal copy | Actual-process or automated results must assert `authoritative-match-completed` with `Authoritative match completed.`, `authoritative-match-interrupted-no-winner` with `Authoritative match ended without a winner.`, and `authoritative-match-ended-intentionally` with `Authoritative match ended by the host.`. |
+| Completed and interrupted results | Serialized result fixtures and automated assertions must cover `Completed`, `Interrupted`, `No winner`, all match, round, player, and team fields, total-points arithmetic, player and team ranking precedence, and completed-round retention on interruption. |
+| Session-only and scripts | Automated results must show exact `Session only` labeling, no writes to statistics, Elo, people, profiles, saves, or history, and no optional Lua or profile script loading or execution. |
+| Invalid settings | An actual-process or automated result must assert `authoritative-match-settings-invalid`, exact copy, no round or result, cleared readiness, and corrected-settings eligibility for a later start. |
+| Content unavailable | An actual-process or automated result must assert `authoritative-match-content-unavailable`, exact copy, no round or result, cleared readiness, blocked later start in that hosted session, and host End session availability. |
+| Runtime failure | An actual-process or automated result must assert `authoritative-match-runtime-failed`, exact service copy, stopped progression, rejected later actions, discarded results, orderly shutdown, host mapping to `Hosted session stopped unexpectedly.`, and no intentional host-end implication. |
+| Cleanup failure | An actual-process result must assert `authoritative-match-shutdown-failed`, exact copy, exit status 4, no partial published result, and replacement of an earlier process result. |
+| Exit meanings and precedence | Automated results must cover exit statuses 0, 2, 3, and 4, permitted identifiers, start-time and in-match precedence, and the first established outcome rule. |
+| Non-disclosure | Automated results must inject peer-supplied names, release values, capabilities, paths, hashes, counts, credentials, addresses, thresholds, payloads, and raw filesystem values and must show that user-facing output contains none of them. |
+| Local Play preservation | A regression result must show unchanged Local Play unlimited-round behavior, advancement, optional scripting, persistence, and independence from renderer-free authoritative service startup. No fresh screenshot is required because Local Play visuals must not change. |
+| Scope truth | Build, test, and process output must not claim graphical network UI, playable end-to-end networking, or release readiness from issue #32. |
+
+Issue #38 must provide exactly one representative graphical screenshot for each implemented affected wireframe when it implements these planned states.

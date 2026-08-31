@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-This is a target screen for downstream issue #38; it is not implemented. It exposes participant ownership, local-player configuration, host-owned match settings, authoritative roster order, readiness, and retained session results. It implements `NET-AC-004`, `NET-AC-005`, `NET-AC-006`, `NET-AC-007`, `NET-AC-008`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+This is a target screen for downstream issue #38; it is not implemented. It exposes participant ownership, local-player configuration, host-owned match settings, authoritative roster order, readiness, and retained session results. Issue #32 defines its authoritative setup and result states in [`docs/network-authoritative-headless-match.md`](../network-authoritative-headless-match.md).
 
 Host or guest admission enters from `NET-02` or `NET-03`. Host Start match enters `NET-05`; final-summary Return to lobby enters here with readiness cleared. Confirmed guest Leave sends that guest to `NET-01`. Confirmed host End session sends the host to `NET-01` and guests to `NET-09`. Any unexpected host contact failure enters guest `NET-07`; only a valid End session notice accepted through the current established session enters guest `NET-09`.
 
@@ -13,6 +13,12 @@ Host or guest admission enters from `NET-02` or `NET-03`. Host Start match enter
 - Show host match settings and authoritative roster order. Guests see host-owned controls as read-only.
 - The representative host state shows 3 participants, 6 players, and one named unready guest.
 - Footer shows Ready/Not ready, host-only Start match, and Leave or End session as appropriate.
+- Host settings must contain only mode, level plan, round limit, Assistance, Quick Liquid, and Burnable Trees.
+- Mode must offer Deathmatch, Predator, and Team deathmatch with two, three, or four teams and Friendly fire on or off.
+- Round limit must accept only integers from 1 through 99.
+- Level plan must offer Fixed level, Shuffle all levels, and Random level.
+- The screen must state `Optional scripts are disabled for network play.`
+- The screen must not expose weapon enablement, ammunition ranges, level data, or gameplay definitions as host settings.
 
 ## Navigation and significant variants
 
@@ -27,10 +33,18 @@ Host or guest admission enters from `NET-02` or `NET-03`. Host Start match enter
 - Admission closes at match start; there is no join-in-progress control.
 - Completed result rows remain labeled `Session only`; departed rows show `Departed`; starting a new match clears the retained result and session end discards it.
 - When an active-round or non-final-summary batch leaves fewer than two roster players, this lobby shows the current `Session only • Interrupted • No winner` result and retains any already completed round outcome.
+- Invalid authoritative settings must show `Match settings are invalid. Correct the settings and try again.`
+- Invalid authoritative settings must clear all readiness values.
+- Invalid authoritative settings must keep the lobby editable for a later Start match request.
+- Unavailable supported gameplay content must show `The match cannot start with the supported gameplay content. Restore the supported gameplay content and restart the application.`
+- Unavailable supported gameplay content must clear all readiness values.
+- Unavailable supported gameplay content must disable Start match for the remaining hosted session.
+- Unavailable supported gameplay content must keep host-only `End session` available.
 
 ## Truthful copy, disabled reasons, and input
 
 - Required separate labels include participant role, ownership, `Connected` or `Reconnecting`, readiness, and `Session only` where score history is visible.
+- Validation copy must not disclose a peer-supplied name, release value, capability, path, hash, count, credential, address, threshold, payload, or raw filesystem value.
 - Example Start reason: `Waiting for Guest 2 to be ready`. Example Ready reason: `Assign a control to Cora`.
 - Focus order follows participant-owned controls, Ready, host-owned settings where applicable, Start match, and Leave/End session. Read-only controls are skipped.
 - Keyboard Tab or directional controller input traverses; Enter/Space/controller Confirm activates; Escape/controller Back focuses Leave/End session rather than silently abandoning the session.

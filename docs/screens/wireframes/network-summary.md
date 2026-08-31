@@ -8,9 +8,10 @@ Target representative viewport: 1280 by 900 px. The final arena context remains 
 │            ┌────────── NETWORK MATCH COMPLETE ──────────┐            │
 │            │ Session only                               │            │
 │            │ Not saved to local statistics or Elo       │            │
-│            │ Round 1   winner / scores                  │            │
-│            │ Round 2   winner / scores                  │            │
-│            │ Round 3   winner / final totals            │            │
+│            │ Completed • final winner / No winner       │            │
+│            │ Match settings • seed • completed rounds   │            │
+│            │ Round results • level • orientation        │            │
+│            │ Ranked players / teams • final totals      │            │
 │            │ [ Return to lobby ] [ End session ]        │            │
 │            └─────────────────────────────────────────────┘            │
 └──────────────────────────────────────────────────────────────────────┘
@@ -20,5 +21,7 @@ Target representative viewport: 1280 by 900 px. The final arena context remains 
 - Final-summary departure never reevaluates the completed outcome; retained rows use `Departed`. Starting a new match clears this set, while intentional host end or host-local supervised failure discards the host result.
 - Guest Leave, full-deadline reconnect, and intentional host End session variants and confirmations remain in the specification.
 - Keyboard/controller focus is explicit and does not depend on color.
+- The result provides Completed or Interrupted state and all match, round, player, and applicable team fields from issue #32.
+- Ranking uses labeled columns and textual rank, team, winner, No winner, and Departed values.
 
 Planned representative screenshot: [`SS-020`](../../screenshots/README.md#ss-020).
