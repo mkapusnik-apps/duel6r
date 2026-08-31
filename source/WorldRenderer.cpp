@@ -534,16 +534,14 @@ namespace Duel6 {
             roundsPlayed();
         }
 
-        if (game.isDisplayingScoreTab()) {
-            roundOverSummary(false);
-        }
-
         if (game.getRound().hasWinner()) {
             if (game.isOver()) {
                 gameOverSummary();
             } else {
                 roundOverSummary(showRoundSummaryProgress);
             }
+        } else if (game.isDisplayingScoreTab()) {
+            roundOverSummary(false);
         }
     }
 }
