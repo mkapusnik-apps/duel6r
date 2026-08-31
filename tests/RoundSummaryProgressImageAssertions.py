@@ -43,19 +43,34 @@ def white_count(image, box):
     return sum(white(image, x, y) for y in range(top, bottom) for x in range(left, right))
 
 
-def blue_strip_rows(image):
+def blue_strip_bands(image):
     rows = []
     for y in range(300, 430):
         blue = 0
-        for x in range(345, 935):
+        # Sample the glyph-free left end of the strip. SCORE text punches
+        # holes in the middle, while a duplicate no-progress panel extends
+        # this same opaque edge to a second vertical origin.
+        for x in range(345, 535):
             red, green, value = pixel(image, x, y)
             if red <= 20 and green <= 20 and value >= 220:
                 blue += 1
-        if blue >= 540:
+        if blue >= 180:
             rows.append(y)
-    if not rows:
-        return None
-    return min(rows), max(rows) + 1
+    bands = []
+    for row in rows:
+        if not bands or row != bands[-1][1]:
+            bands.append([row, row + 1])
+        else:
+            bands[-1][1] = row + 1
+    return [tuple(band) for band in bands]
+
+
+def only_blue_strip(image, label):
+    """Identify the panel by its single opaque SCORE strip."""
+    bands = blue_strip_bands(image)
+    if len(bands) != 1:
+        fail(f"{label}: expected exactly one summary panel/SCORE strip, got bands {bands}")
+    return bands[0]
 
 
 def blue_strip_bounds(image, strip):
@@ -128,10 +143,10 @@ def has_top_progress(image):
     return dark >= 1700 and glyphs >= 75, dark, glyphs
 
 
-def assert_included(root, font_path, label, played):
-    for frame in ("summary-early.png", "summary-late.png"):
+def assert_included(root, font_path, label, played, frames=("summary-early.png", "summary-late.png")):
+    for frame in frames:
         image = pixels(os.path.join(root, label, frame))
-        strip = blue_strip_rows(image)
+        strip = only_blue_strip(image, f"{label}/{frame}")
         if strip != (366, 402):
             fail(f"{label}/{frame}: expected unobstructed score strip at rows 366..401, got {strip}")
         strip_bounds = blue_strip_bounds(image, strip)
@@ -155,6 +170,16 @@ def assert_included(root, font_path, label, played):
             )
         if white_count(image, (550, 366, 730, 402)) < 250:
             fail(f"{label}/{frame}: SCORE heading is missing or obstructed")
+        # Screenshot coordinates increase downward. The dedicated progress row
+        # must therefore finish at the SCORE strip's top edge, not share or
+        # obscure any of its rows.
+        progress_glyphs = white_count(image, (progress_left, strip[0] - LABEL_HEIGHT,
+                                               progress_right, strip[0]))
+        if progress_glyphs < 90:
+            fail(
+                f"{label}/{frame}: dedicated round-progress row immediately above SCORE "
+                f"is missing (white pixels={progress_glyphs})"
+            )
         if white_count(image, (550, 403, 895, 433)) < 180:
             fail(f"{label}/{frame}: score-table title is missing or overlaps the heading")
         shown, dark, glyphs = has_top_progress(image)
@@ -164,7 +189,7 @@ def assert_included(root, font_path, label, played):
 
 def assert_excluded(root, label, relative_path, expect_top):
     image = pixels(os.path.join(root, relative_path))
-    strip = blue_strip_rows(image)
+    strip = only_blue_strip(image, label)
     if strip != (350, 386):
         fail(f"{label}: unchanged score strip expected at rows 350..385, got {strip}")
     shown, dark, glyphs = has_top_progress(image)
@@ -176,7 +201,14 @@ def main():
     if len(sys.argv) != 3:
         fail("usage: assertions.py TEST_ROOT FONT_PATH")
     root, font_path = sys.argv[1:]
-    for label, played in (("first", 1), ("resumed", 3), ("penultimate", 4)):
+    assert_included(
+        root,
+        font_path,
+        "first",
+        1,
+        ("winner-while-tab-held-early.png", "winner-while-tab-held-late.png"),
+    )
+    for label, played in (("resumed", 3), ("penultimate", 4)):
         assert_included(root, font_path, label, played)
 
     assert_excluded(root, "final", "final/summary.png", True)
@@ -188,7 +220,7 @@ def main():
         shown, dark, glyphs = has_top_progress(image)
         if not shown:
             fail(f"{frame}: next-round top progress was not restored (dark={dark}, glyphs={glyphs})")
-        if blue_strip_rows(image) is not None:
+        if blue_strip_bands(image):
             fail(f"{frame}: round-summary panel remained on the next-round frame")
 
     print("round-summary-progress: all visual behavior assertions passed")

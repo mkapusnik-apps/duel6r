@@ -9,6 +9,7 @@ set -euo pipefail
 
 workspace_dir="${WORKSPACE_DIR:-/workspace}"
 build_dir="${BUILD_DIR:-${workspace_dir}/build}"
+resource_dir="${RESOURCE_DIR:-${build_dir}}"
 test_root="${TEST_ROOT:-${build_dir}/round-summary-progress}"
 display="${DISPLAY:-:94}"
 
@@ -28,7 +29,12 @@ export DISPLAY="$display" SDL_AUDIODRIVER=dummy LIBGL_ALWAYS_SOFTWARE=1
 
 xvfb_pid=""
 app_pid=""
+tab_held=false
 cleanup() {
+    if [[ "$tab_held" == true ]]; then
+        xdotool keyup Tab >/dev/null 2>&1 || true
+        tab_held=false
+    fi
     if [[ -n "$app_pid" ]] && kill -0 "$app_pid" 2>/dev/null; then
         kill "$app_pid" 2>/dev/null || true
         wait "$app_pid" 2>/dev/null || true
@@ -120,8 +126,8 @@ start_scenario() {
     mkdir -p "$runtime_dir"
     cp "${build_dir}/duel6r" "$runtime_dir/"
     for resource in data levels profiles shaders sound textures; do
-        [[ -d "${build_dir}/${resource}" ]] || fail "runtime resource is missing: $resource"
-        cp -a "${build_dir}/${resource}" "$runtime_dir/"
+        [[ -d "${resource_dir}/${resource}" ]] || fail "runtime resource is missing: $resource"
+        cp -a "${resource_dir}/${resource}" "$runtime_dir/"
     done
     write_fixture "$runtime_dir" "$played"
     mkdir -p "${scenario_dir}/home"
@@ -157,12 +163,21 @@ start_scenario() {
     fi
 }
 
-capture_active_tab() {
+hold_active_tab() {
     sleep 0.5
-    xdotool key --window "$window_id" Tab
+    # Keep the live score state enabled across the winner transition. This is
+    # intentionally keydown rather than a completed key press: the regression
+    # only occurred when displayScoreTab was still true as the round ended.
+    xdotool keydown --window "$window_id" Tab
+    tab_held=true
     sleep 0.25
-    import -window root "${scenario_dir}/active-tab.png"
-    xdotool key --window "$window_id" Tab
+    import -window root "${scenario_dir}/active-tab-held.png"
+    cp "${scenario_dir}/active-tab-held.png" "${scenario_dir}/active-tab.png"
+}
+
+release_active_tab() {
+    xdotool keyup --window "$window_id" Tab
+    tab_held=false
 }
 
 wait_for_summary() {
@@ -183,6 +198,12 @@ PY
             sleep 0.8
             import -window root "${scenario_dir}/summary-late.png"
             cp "${scenario_dir}/summary-late.png" "${scenario_dir}/summary.png"
+            if [[ "$tab_held" == true ]]; then
+                cp "${scenario_dir}/summary-early.png" \
+                    "${scenario_dir}/winner-while-tab-held-early.png"
+                cp "${scenario_dir}/summary-late.png" \
+                    "${scenario_dir}/winner-while-tab-held-late.png"
+            fi
             return
         fi
         sleep 0.1
@@ -193,7 +214,32 @@ PY
 
 capture_next_round() {
     xdotool key --window "$window_id" F1
-    import -window root "${scenario_dir}/next-round-first.png"
+    # Poll rendered output so a busy container cannot make the root capture
+    # race the prior backbuffer. The first retained frame must have restored
+    # arena progress and removed the summary panel.
+    next_round_ready=false
+    for _ in {1..30}; do
+        sleep 0.1
+        import -window root "${scenario_dir}/next-round-candidate.png"
+        if python3 - "${workspace_dir}/tests/RoundSummaryProgressImageAssertions.py" \
+                "${scenario_dir}/next-round-candidate.png" <<'PY'
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("round_assertions", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+image = module.pixels(sys.argv[2])
+shown, _, _ = module.has_top_progress(image)
+raise SystemExit(0 if shown and not module.blue_strip_bands(image) else 1)
+PY
+        then
+            cp "${scenario_dir}/next-round-candidate.png" "${scenario_dir}/next-round-first.png"
+            next_round_ready=true
+            break
+        fi
+    done
+    [[ "$next_round_ready" == true ]] || fail "next round did not replace the summary frame"
     sleep 0.2
     import -window root "${scenario_dir}/next-round-settled.png"
 }
@@ -211,8 +257,9 @@ stop_scenario() {
 }
 
 start_scenario first 0 5 ""
-capture_active_tab
+hold_active_tab
 wait_for_summary 1
+release_active_tab
 capture_next_round
 stop_scenario
 
@@ -233,6 +280,6 @@ wait_for_summary 3
 stop_scenario
 
 python3 "${workspace_dir}/tests/RoundSummaryProgressImageAssertions.py" "$test_root" \
-    "${build_dir}/data/font.ttf"
+    "${resource_dir}/data/font.ttf"
 
 echo "Round-summary evidence captured at ${test_root}"
