@@ -56,6 +56,7 @@ namespace Duel6 {
 
     public:
         BonusList(const GameSettings &settings, const GameResources &resources, World &world);
+        BonusList(const GameSettings &settings, World &world);
 
         void update(Float32 elapsedTime);
 

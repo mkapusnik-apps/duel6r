@@ -103,13 +103,14 @@ namespace Duel6 {
 
     class FireList {
     private:
-        SpriteList &spriteList;
+        SpriteList *spriteList;
         Texture burningTexture;
-        const std::unordered_map<Size, Texture> &textures;
+        const std::unordered_map<Size, Texture> *textures;
         std::vector<Fire> fires;
 
     public:
         FireList(const GameResources &resources, SpriteList &spriteList);
+        explicit FireList(SpriteList &spriteList);
 
         void find(const Level &level);
 

@@ -33,25 +33,30 @@ namespace Duel6 {
     World::World(Game &game, const std::string &levelPath, bool mirror)
             : gameSettings(game.getSettings()), players(game.getPlayers()),
               level(levelPath, mirror, game.getResources().getBlockMeta()),
-              levelRenderData(level, game.getAppService().getVideo().getRenderer(), D6_ANM_SPEED),
               messageQueue(D6_INFO_DURATION),
-              explosionList(game.getResources(), D6_EXPL_SPEED), fireList(game.getResources(), spriteList),
-              bonusList(game.getSettings(), game.getResources(), *this),
-              elevatorList(game.getResources().getElevatorTextures()), time(0) {
-        Console &console = game.getAppService().getConsole();
-        console.printLine(Format("...Width   : {0}") << level.getWidth());
-        console.printLine(Format("...Height  : {0}") << level.getHeight());
-        console.printLine("...Preparing faces");
-        levelRenderData.generateFaces();
-        console.printLine(Format("...Walls   : {0}") << levelRenderData.getWalls().getFaces().size());
-        console.printLine(Format("...Sprites : {0}") << levelRenderData.getSprites().getFaces().size());
-        console.printLine(Format("...Water   : {0}") << levelRenderData.getWater().getFaces().size());
+              explosionList(game.isHeadless() ? Texture() : game.getResources().getExplosionTextures(),
+                            D6_EXPL_SPEED),
+              fireList(game.isHeadless() ? FireList(spriteList) : FireList(game.getResources(), spriteList)),
+              bonusList(game.isHeadless() ? BonusList(game.getSettings(), *this)
+                                          : BonusList(game.getSettings(), game.getResources(), *this)),
+              elevatorList(game.isHeadless() ? Texture() : game.getResources().getElevatorTextures()), time(0) {
+        game.log(Format("...Width   : {0}") << level.getWidth());
+        game.log(Format("...Height  : {0}") << level.getHeight());
+        if (!game.isHeadless()) {
+            game.log("...Preparing faces");
+            levelRenderData = std::make_unique<LevelRenderData>(
+                    level, game.getAppService().getVideo().getRenderer(), D6_ANM_SPEED);
+            levelRenderData->generateFaces();
+            game.log(Format("...Walls   : {0}") << levelRenderData->getWalls().getFaces().size());
+            game.log(Format("...Sprites : {0}") << levelRenderData->getSprites().getFaces().size());
+            game.log(Format("...Water   : {0}") << levelRenderData->getWater().getFaces().size());
+        }
 
-        console.printLine("...Level initialization");
-        console.printLine("...Loading elevators");
+        game.log("...Level initialization");
+        game.log("...Loading elevators");
         elevatorList.load(levelPath, mirror);
         fireList.find(level);
-        background = findBackground(game.getResources().getBcgTextures());
+        if (!game.isHeadless()) background = findBackground(game.getResources().getBcgTextures());
     }
 
     void World::update(Float32 elapsedTime) {
@@ -59,11 +64,13 @@ namespace Duel6 {
 
         spriteList.update(elapsedTime);
         explosionList.update(elapsedTime);
-        levelRenderData.update(elapsedTime);
+        if (levelRenderData) levelRenderData->update(elapsedTime);
         shotList.update(*this, elapsedTime);
         elevatorList.update(elapsedTime);
         messageQueue.update(elapsedTime);
         bonusList.update(elapsedTime);
+
+        if (Math::isAuthoritative()) time = Math::quantizeAuthoritative(time);
 
         // Add new bonuses
         Int32 mod = Int32(3.0f / elapsedTime);
@@ -74,7 +81,7 @@ namespace Duel6 {
 
     void World::raiseWater() {
         level.raiseWater();
-        levelRenderData.generateWater();
+        if (levelRenderData) levelRenderData->generateWater();
     }
 
     std::string World::findBackground(const GameResources::BackgroundList &backgrounds) {

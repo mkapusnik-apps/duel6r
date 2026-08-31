@@ -25,8 +25,11 @@ namespace Duel6::Server::Authoritative {
 
     struct MatchRuntimeDependencies {
         std::function<std::uint64_t()> seedSource;
-        std::function<bool(const RoundStartDecision &)> worldStart;
+        std::function<bool(RoundStartDecision &)> worldStart;
         std::function<bool(Tick, bool)> worldTick;
+        std::function<bool(Identity, std::uint32_t)> worldInput;
+        std::function<bool(Identity)> worldRemove;
+        std::function<CanonicalWorldSnapshot()> worldSnapshot;
         std::function<void()> worldEnd;
         std::function<bool()> cleanup;
         std::function<std::vector<AuthoritativeAction>(Tick)> actionSource;
@@ -62,6 +65,8 @@ namespace Duel6::Server::Authoritative {
         const TerminalOutcome &outcome() const noexcept;
         const RoundStartDecision &roundDecision() const noexcept;
         bool resourcesReleased() const noexcept;
+        std::uint64_t currentStateDigest() const noexcept;
+        const CanonicalWorldSnapshot *canonicalWorldSnapshot() const noexcept;
 
     private:
         struct AttackerRecord {
@@ -105,6 +110,8 @@ namespace Duel6::Server::Authoritative {
         bool released = true;
         bool cleanupAttempted = false;
         bool contentStartBlocked = false;
+        std::uint64_t latestStateDigest = 0;
+        std::optional<CanonicalWorldSnapshot> latestCanonicalSnapshot;
 
         PlayerState *findPlayer(Identity id);
         const PlayerState *findPlayer(Identity id) const;
@@ -116,6 +123,7 @@ namespace Duel6::Server::Authoritative {
         void evaluateRoundOutcome();
         void establishRoundOutcome(std::vector<Identity> winners, Team winningTeam, bool noWinner);
         bool applyPlayerInput(PlayerState &player, const AuthoritativeAction &action);
+        bool synchronizeCanonicalWorld();
         bool applyShotDamage(PlayerState &source, PlayerState &target, std::int32_t amount);
         bool applyEnvironmentalDamage(PlayerState &target, std::int32_t amount);
         bool applyDeath(PlayerState &target, PlayerState *killer, bool environmental);

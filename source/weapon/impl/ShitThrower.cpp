@@ -36,6 +36,8 @@ namespace Duel6 {
                                                      {0, 82, 0, 82, 0, 82, 0, 82, 0, 82, 0, 82, 0, 82, -1, 0}};
     }
 
+    ShitThrower::ShitThrower() : LegacyWeapon(DEFINITION) {}
+
     ShitThrower::ShitThrower(Sound &sound, TextureManager &textureManager)
             : LegacyWeapon(sound, textureManager, DEFINITION, 16) {
         Color brownColor(83, 44, 0);

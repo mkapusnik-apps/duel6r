@@ -114,6 +114,21 @@ namespace Duel6 {
                 return 180.0f;
             }
         };
+
+        class HeadlessWater final : public Water {
+        public:
+            HeadlessWater(std::string name, Float32 airHit) : name(std::move(name)), airHit(airHit) {}
+
+            std::string getName() const override { return name; }
+            void onEnter(Player &, const Vector &, World &) const override {}
+            void onUnder(Player &player, Float32 elapsedTime) const override {
+                if (!player.hasSnorkel()) player.airHit(airHit * elapsedTime);
+            }
+
+        private:
+            std::string name;
+            Float32 airHit;
+        };
     }
 
     const Water *Water::NONE = nullptr;
@@ -125,5 +140,14 @@ namespace Duel6 {
         BLUE = new BlueWater(sound, textureManager);
         RED = new RedWater(sound, textureManager);
         GREEN = new GreenWater(sound, textureManager);
+    }
+
+    void Water::initializeHeadless() {
+        static const HeadlessWater blue("blue", 60.0f);
+        static const HeadlessWater red("red", 120.0f);
+        static const HeadlessWater green("green", 180.0f);
+        BLUE = &blue;
+        RED = &red;
+        GREEN = &green;
     }
 }

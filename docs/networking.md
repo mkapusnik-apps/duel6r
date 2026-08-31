@@ -20,11 +20,11 @@ It also provides connection-plan and command-construction helpers, an in-process
 
 ## Authoritative headless match runtime
 
-`duel6r-server --authoritative-match` runs a fixed-step authoritative match orchestration path without constructing the game application, SDL video, a renderer, audio, or local input devices. It validates and freezes stable participant/player ownership, the supported settings, canonical gameplay content, playable levels, and the built-in weapon set before the first round. Optional Lua, profile, and gameplay scripts cannot enter this path.
+`duel6r-server --authoritative-match` runs a fixed-step authoritative match path without constructing `Application` or initializing SDL video, a renderer, audio, or local input devices. It validates and freezes stable participant/player ownership, the supported settings, canonical gameplay content, playable levels, and the built-in weapon set before the first round. Optional Lua, profile, and gameplay scripts cannot enter this path.
 
-The runtime uses one nonzero supplied or operating-system-generated seed and a project-owned integer PRNG with rejection-sampled bounds. It owns deterministic level planning, orientation, starting order, starting weapons/ammunition, Predator selection, ordered trusted actions, fixed 60 Hz progression, basic mode/scoring decisions, six-second round-end timing, session-only result accumulation/ranking, and terminal cleanup. Public seams permit injected seed, clock, trusted action-source, world-lifecycle, and cleanup behavior without introducing renderer/audio/input dependencies.
+The runtime uses one nonzero supplied or operating-system-generated seed and a project-owned integer PRNG with rejection-sampled bounds. A match-owned random scope routes canonical gameplay choices through that source, and authoritative checkpoints quantize simulation values used by players, shots, elevators, and gameplay timers. The service owns deterministic level planning and orientation, ordered trusted controls, fixed 60 Hz progression, canonical `Game`/`Round`/`World` physics and rules, six-second round-end timing, session-only result accumulation/ranking, bounded state digests and invariants, and terminal cleanup.
 
-The current CLI is an incomplete developer path, not completion of issue #32. Its default world callbacks do not run the existing physics, weapon/projectile, pickup, bonus, water, elevator, sudden-death, or Burnable Trees simulation. The direct damage and environment actions are trusted evidence-driver events rather than remote participant commands. A later implementation must connect this orchestration to canonical gameplay simulation and prove Local Play parity before the authoritative target is complete.
+The production server installs a canonical runtime adapter that loads only gameplay metadata and headless weapon/water definitions, creates headless players, and runs the existing physics, controls, weapons/projectiles, pickups, bonuses, water, elevators, sudden death, Burnable Trees, game modes, event listeners, and score updates. Participant input can change canonical gameplay only through player controls. The direct-damage and environment action variants remain available only to dependency-injected orchestration tests; the production canonical adapter rejects them.
 
 For a deterministic process scenario:
 
@@ -126,7 +126,7 @@ These safeguards make the parser suitable for prototype development; the TCP bou
 
 ## Build and packaging
 
-CMake builds `duel6r-network-scaffold`, including the transport, supervisor, and authoritative-match APIs, `duel6r-host-supervisor`, `duel6r-server`, and the internal `duel6r-resolver` helper independently from the normal game executable. The headless match path uses only the network-scaffold target and operating-system services; it does not link SDL, OpenGL, audio, renderer, input, or Lua libraries. The transport uses standard OS sockets (`ws2_32` on Windows and POSIX sockets/threads/processes on Linux) with no new third-party dependency. Existing Linux and Windows runtime bundle scripts place the explicitly invoked supervisor and server scaffolds plus the required resolver helper beside `duel6r` because those are the repository's current coherent binary packaging paths. The helper is an internal transport component with no supported command-line interface. Issue #40 still owns supported release packaging and deployment instructions.
+CMake builds a reusable `duel6r-game-engine`, the `duel6r-network-scaffold`, `duel6r-host-supervisor`, `duel6r-server`, and the internal `duel6r-resolver` helper. The server links the existing game engine and its platform libraries so authoritative matches execute the same gameplay implementation as Local Play, but the headless path does not construct or initialize the presentation, audio, or local-input services. The transport uses standard OS sockets (`ws2_32` on Windows and POSIX sockets/threads/processes on Linux) with no new third-party dependency. Existing Linux and Windows runtime bundle scripts place the explicitly invoked supervisor and server scaffolds plus the required resolver helper beside `duel6r` because those are the repository's current coherent binary packaging paths. The helper is an internal transport component with no supported command-line interface. Issue #40 still owns supported release packaging and deployment instructions.
 
 There is no dedicated headless-server package. Existing runtime bundles still include all client resources, and no release-facing documentation advertises network support.
 
@@ -135,7 +135,7 @@ There is no dedicated headless-server package. Existing runtime bundles still in
 The following essential pieces are absent:
 
 - playable remote or local client/server sessions;
-- complete authoritative gameplay-world simulation and Local Play parity;
+- independent acceptance evidence for authoritative Local Play parity;
 - lobby and session lifecycle handling;
 - complete world, score, round, and entity replication;
 - lobby integration for admitted participants;

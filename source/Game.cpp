@@ -33,11 +33,20 @@
 
 namespace Duel6 {
     Game::Game(AppService &appService, GameResources &resources, GameSettings &settings)
-            : appService(appService), resources(resources), settings(settings), worldRenderer(appService, *this),
-              playedRounds(0) {}
+            : appService(&appService), resources(resources), settings(settings), gameMode(nullptr),
+              worldRenderer(std::make_unique<WorldRenderer>(appService, *this)), menu(nullptr), headless(false),
+              currentRound(0), playedRounds(0) {}
+
+    Game::Game(GameResources &resources, GameSettings &settings)
+            : appService(nullptr), resources(resources), settings(settings), gameMode(nullptr), menu(nullptr),
+              headless(true), currentRound(0), playedRounds(0) {}
+
+    void Game::log(const std::string &message) const {
+        if (appService) appService->getConsole().printLine(message);
+    }
 
     void Game::beforeStart(Context *prevContext) {
-        SDL_ShowCursor(SDL_DISABLE);
+        if (!headless) SDL_ShowCursor(SDL_DISABLE);
     }
 
     void Game::beforeClose(Context *nextContext) {
@@ -45,7 +54,7 @@ namespace Duel6 {
     }
 
     void Game::render() const {
-        worldRenderer.render();
+        if (worldRenderer) worldRenderer->render();
     }
 
     void Game::update(Float32 elapsedTime) {
@@ -96,10 +105,10 @@ namespace Duel6 {
 
     void Game::start(const std::vector<PlayerDefinition> &playerDefinitions, const std::vector<std::string> &levels,
                      const std::vector<Size> &backgrounds, GameMode &gameMode) {
-        Console &console = appService.getConsole();
+        Console &console = appService->getConsole();
         console.printLine("\n=== Starting new game ===");
         console.printLine(Format("...Rounds: {0}") << settings.getMaxRounds());
-        TextureManager &textureManager = appService.getTextureManager();
+        TextureManager &textureManager = appService->getTextureManager();
         players.clear();
 
         for (auto &skin : skins) {
@@ -119,12 +128,45 @@ namespace Duel6 {
         }
 
         this->levels = levels;
-        std::shuffle(this->levels.begin(), this->levels.end(), Math::randomEngine);
+        Math::shuffle(this->levels);
 
         this->backgrounds = backgrounds;
         this->gameMode = &gameMode;
         gameMode.initializeGame(*this, players, settings.isQuickLiquid(), settings.isGlobalAssistances());
         startRound();
+    }
+
+    void Game::startHeadless(const std::vector<std::string> &playerNames,
+                             const std::vector<std::string> &levels, GameMode &gameMode) {
+        initializeHeadlessPlayers(playerNames, gameMode);
+        this->levels = levels;
+        Math::shuffle(this->levels);
+        startRound();
+    }
+
+    void Game::initializeHeadlessPlayers(const std::vector<std::string> &playerNames, GameMode &gameMode) {
+        players.clear();
+        headlessPeople.clear();
+        headlessPeople.reserve(playerNames.size());
+        players.reserve(playerNames.size());
+        for (const auto &name: playerNames) headlessPeople.emplace_back(name, nullptr);
+        for (auto &person: headlessPeople) players.emplace_back(person);
+        backgrounds.clear();
+        this->gameMode = &gameMode;
+        gameMode.initializeGame(*this, players, settings.isQuickLiquid(), settings.isGlobalAssistances());
+    }
+
+    void Game::startHeadlessRound(const std::vector<std::string> &playerNames, const std::string &level,
+                                  bool mirror, GameMode &gameMode) {
+        initializeHeadlessPlayers(playerNames, gameMode);
+        currentRound = playedRounds;
+        round = std::make_unique<Round>(*this, playedRounds, level, mirror);
+        round->setOnRoundEnd([this]() { onRoundEnd(); });
+        round->start();
+    }
+
+    void Game::endHeadlessRound() {
+        if (round) endRound();
     }
 
     void Game::startRound() {
@@ -136,20 +178,19 @@ namespace Duel6 {
         const std::string levelPath = levels[level];
         bool mirror = Math::random(2) == 0;
 
-        Console &console = appService.getConsole();
-        console.printLine(Format("\n===Loading level {0}===") << levelPath);
-        console.printLine(Format("...Parameters: mirror: {0}") << mirror);
+        log(Format("\n===Loading level {0}===") << levelPath);
+        log(Format("...Parameters: mirror: {0}") << mirror);
 
         round = std::make_unique<Round>(*this, playedRounds, levelPath, mirror);
         round->setOnRoundEnd([this]() {
             onRoundEnd();
         });
         round->start();
-        worldRenderer.prerender();
+        if (worldRenderer) worldRenderer->prerender();
     }
 
     void Game::endRound() {
-        round->end();
+        if (round) round->end();
     }
 
     void Game::onRoundEnd() {
@@ -157,7 +198,7 @@ namespace Duel6 {
         if (round->isLast()) {
             getMode().updateElo(players);
         }
-        menu->savePersonData();
+        if (!headless && menu) menu->savePersonData();
     }
 
     void Game::nextRound() {

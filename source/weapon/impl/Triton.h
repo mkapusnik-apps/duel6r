@@ -33,6 +33,7 @@
 namespace Duel6 {
     class Triton : public LegacyWeapon {
     public:
+        Triton();
         Triton(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;

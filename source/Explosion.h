@@ -51,6 +51,7 @@ namespace Duel6 {
 
     public:
         ExplosionList(const GameResources &resources, Float32 speed);
+        ExplosionList(Texture textures, Float32 speed);
 
         void update(Float32 elapsedTime);
 

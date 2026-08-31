@@ -32,24 +32,58 @@
 namespace Duel6 {
     std::random_device Math::randomDevice;
     std::default_random_engine Math::randomEngine(randomDevice());
+    thread_local RandomSource *Math::authoritativeRandom = nullptr;
     const Float64 Math::Pi = 3.14159265358979323846;
+
+    Math::RandomScope::RandomScope(RandomSource &source) : previous(authoritativeRandom) {
+        authoritativeRandom = &source;
+    }
+
+    Math::RandomScope::~RandomScope() {
+        authoritativeRandom = previous;
+    }
 
     Int32 Math::random(Int32 max) {
         return random(0, max - 1);
     }
 
     Int32 Math::random(Int32 min, Int32 max) {
+        if (authoritativeRandom) {
+            const std::uint64_t span = static_cast<std::uint64_t>(static_cast<Int64>(max) - min) + 1u;
+            return static_cast<Int32>(static_cast<Int64>(min)
+                                      + static_cast<Int64>(authoritativeRandom->bounded(span)));
+        }
         std::uniform_int_distribution<> uniformDistribution(min, max);
         return uniformDistribution(randomEngine);
     }
 
     Float32 Math::random(Float32 min, Float32 max) {
+        if (authoritativeRandom) {
+            const Float32 unit = static_cast<Float32>(authoritativeRandom->next() >> 40u)
+                                 / static_cast<Float32>(UINT32_C(1) << 24u);
+            return min + (max - min) * unit;
+        }
         std::uniform_real_distribution<Float32> uniformDistribution(min, max);
         return uniformDistribution(randomEngine);
     }
 
     Float64 Math::random(Float64 min, Float64 max) {
+        if (authoritativeRandom) {
+            const Float64 unit = static_cast<Float64>(authoritativeRandom->next() >> 11u)
+                                 / static_cast<Float64>(UINT64_C(1) << 53u);
+            return min + (max - min) * unit;
+        }
         std::uniform_real_distribution<Float64> uniformDistribution(min, max);
         return uniformDistribution(randomEngine);
+    }
+
+    bool Math::isAuthoritative() noexcept {
+        return authoritativeRandom != nullptr;
+    }
+
+    Float32 Math::quantizeAuthoritative(Float32 value) {
+        if (!authoritativeRandom || !std::isfinite(value)) return value;
+        constexpr Float32 scale = 65536.0f;
+        return std::round(value * scale) / scale;
     }
 }

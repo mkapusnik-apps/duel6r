@@ -53,6 +53,10 @@ namespace Duel6 {
 
     void LegacyShot::move(Float32 elapsedTime) {
         position += velocity * bulletSpeed * elapsedTime;
+        if (Math::isAuthoritative()) {
+            position.x = Math::quantizeAuthoritative(position.x);
+            position.y = Math::quantizeAuthoritative(position.y);
+        }
         sprite->setPosition(getSpritePosition());
     }
 

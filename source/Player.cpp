@@ -51,11 +51,17 @@ namespace Duel6 {
 
     Player::Player(Person &person, const PlayerSkin &skin, const PlayerSounds &sounds, const PlayerControls &controls)
             : person(person),
-              skin(skin),
-              animations(skin.getAnimations()),
-              sounds(sounds),
-              controls(controls),
-              orientation(Orientation::Left) {
+              skin(&skin),
+              animations(&skin.getAnimations()),
+              sounds(&sounds),
+              controls(&controls),
+              orientation(Orientation::Left), headless(false), roundElapsedTime(0) {
+        camera.rotate(180.0, 0.0, 0.0);
+    }
+
+    Player::Player(Person &person)
+            : person(person), skin(nullptr), animations(nullptr), sounds(nullptr), controls(nullptr),
+              orientation(Orientation::Left), headless(true), roundElapsedTime(0) {
         camera.rotate(180.0, 0.0, 0.0);
     }
 
@@ -66,11 +72,13 @@ namespace Duel6 {
         this->world = &world;
         collider.initPosition(Float32(startBlockX), Float32(startBlockY) + 0.0001f);
 
-        sprite = world.getSpriteList().add(animations.getStand().get(), skin.getTexture());
-        sprite->setPosition(getSpritePosition(), 0.5f);
+        if (!headless) {
+            sprite = world.getSpriteList().add(animations->getStand().get(), skin->getTexture());
+            sprite->setPosition(getSpritePosition(), 0.5f);
+        }
 
         this->weapon = weapon;
-        gunSprite = weapon.makeSprite(world.getSpriteList());
+        if (!headless) gunSprite = weapon.makeSprite(world.getSpriteList());
 
         flags = FlagHasGun;
         orientation = Math::random(2) == 0 ? Orientation::Left : Orientation::Right;
@@ -94,12 +102,14 @@ namespace Duel6 {
         indicators.getBonus().show(bonusDuration);
         indicators.getBullets().show(4.0f);
 
-        roundStartTime = clock();
+        roundStartTime = headless ? 0 : clock();
+        roundElapsedTime = 0;
         getPerson().addGames(1);
     }
 
     void Player::endRound() {
-        Int32 gameTime = Int32((clock() - roundStartTime) / CLOCKS_PER_SEC);
+        Int32 gameTime = headless ? Int32(roundElapsedTime)
+                                  : Int32((clock() - roundStartTime) / CLOCKS_PER_SEC);
         getPerson().addTotalGameTime(gameTime);
         if (isAlive()) {
             getPerson().addTimeAlive(gameTime);
@@ -202,7 +212,7 @@ namespace Duel6 {
             indicators.getBullets().show();
             ammo--;
         }
-        gunSprite->setFrame(0);
+        if (!headless) gunSprite->setFrame(0);
         getPerson().addShots(1);
         Orientation originalOrientation = getOrientation();
 
@@ -239,8 +249,10 @@ namespace Duel6 {
         indicators.getReload().show(timeToReload + Indicator::FADE_DURATION);
         indicators.getBullets().show();
 
-        world->getSpriteList().remove(gunSprite);
-        gunSprite = weapon.makeSprite(world->getSpriteList());
+        if (!headless) {
+            world->getSpriteList().remove(gunSprite);
+            gunSprite = weapon.makeSprite(world->getSpriteList());
+        }
 
         return *this;
     }
@@ -253,7 +265,7 @@ namespace Duel6 {
         collider.collideWithElevators(world->getElevatorList(), elapsedTime, speed);
         collider.collideWithLevel(level, elapsedTime, speed);
 
-        if (isPickingGun() && sprite->isFinished()) {
+        if (isPickingGun() && (headless || sprite->isFinished())) {
             unsetFlag(FlagPick);
             setFlag(FlagHasGun);
         }
@@ -377,31 +389,33 @@ namespace Duel6 {
     }
 
     void Player::updateControllerStatus() {
+        if (headless) return;
         controllerState = 0;
-        if (controls.getLeft().isPressed()) {
+        if (controls->getLeft().isPressed()) {
             controllerState |= ButtonLeft;
         }
-        if (controls.getRight().isPressed()) {
+        if (controls->getRight().isPressed()) {
             controllerState |= ButtonRight;
         }
-        if (controls.getUp().isPressed()) {
+        if (controls->getUp().isPressed()) {
             controllerState |= ButtonUp;
         }
-        if (controls.getDown().isPressed()) {
+        if (controls->getDown().isPressed()) {
             controllerState |= ButtonDown;
         }
-        if (controls.getShoot().isPressed()) {
+        if (controls->getShoot().isPressed()) {
             controllerState |= ButtonShoot;
         }
-        if (controls.getPick().isPressed()) {
+        if (controls->getPick().isPressed()) {
             controllerState |= ButtonPick;
         }
-        if (controls.getStatus().isPressed()) {
+        if (controls->getStatus().isPressed()) {
             controllerState |= ButtonStatus;
         }
     }
 
     void Player::update(World &world, Float32 elapsedTime) {
+        if (headless) roundElapsedTime += elapsedTime;
         checkWater(world, elapsedTime);
         if (isAlive()) {
             world.getBonusList().checkBonus(*this);
@@ -445,29 +459,41 @@ namespace Duel6 {
         timeSinceHit += elapsedTime;
 
         checkStuck(world.getLevel(), elapsedTime);
+        if (Math::isAuthoritative()) {
+            life = Math::quantizeAuthoritative(life);
+            air = Math::quantizeAuthoritative(air);
+            timeToReload = Math::quantizeAuthoritative(timeToReload);
+            bonusRemainingTime = Math::quantizeAuthoritative(bonusRemainingTime);
+            bonusDuration = Math::quantizeAuthoritative(bonusDuration);
+            timeSinceHit = Math::quantizeAuthoritative(timeSinceHit);
+            timeStuckInWall = Math::quantizeAuthoritative(timeStuckInWall);
+            tempSkinDuration = Math::quantizeAuthoritative(tempSkinDuration);
+            roundElapsedTime = Math::quantizeAuthoritative(roundElapsedTime);
+        }
     }
 
     void Player::setAnm() {
+        if (headless) return;
         Animation animation;
         sprite->setSpeed(1.0f);
         if (!isAlive() && !isGhost()) {
             if (isLying()) {
                 if (isDying()) {
-                    if (sprite->getAnimation() == animations.getDying().get() && sprite->isFinished()) {
+                    if (sprite->getAnimation() == animations->getDying().get() && sprite->isFinished()) {
                         unsetFlag(FlagDying);
                         setFlag(FlagDead);
                     }
-                    animation = animations.getDying().get();
+                    animation = animations->getDying().get();
                 } else { //dead
                     if (!collider.isOnHardSurface()) {
-                        animation = animations.getDeadFall().get();
+                        animation = animations->getDeadFall().get();
                     } else {
-                        if (sprite->getAnimation() == animations.getDeadFall().get()) {
-                            animation = animations.getDeadHit().get();
+                        if (sprite->getAnimation() == animations->getDeadFall().get()) {
+                            animation = animations->getDeadHit().get();
                             sprite->setLooping(AnimationLooping::OnceAndStop);
                         } else {
                             if (sprite->isFinished()) {
-                                animation = animations.getDeadLying().get();
+                                animation = animations->getDeadLying().get();
                             } else {
                                 animation = sprite->getAnimation();
                             }
@@ -476,35 +502,35 @@ namespace Duel6 {
                 }
             } else {
                 sprite->setDraw(false);
-                animation = animations.getStand().get();
+                animation = animations->getStand().get();
             }
         } else if (isPickingGun()) {
-            animation = animations.getPick().get();
+            animation = animations->getPick().get();
         } else if (isKneeling()) {
-            animation = timeSinceHit < 0.5f ? animations.getHitDuck().get() : animations.getDuck().get();
+            animation = timeSinceHit < 0.5f ? animations->getHitDuck().get() : animations->getDuck().get();
             sprite->setLooping(AnimationLooping::RepeatForever);
         } else if (isOnElevator()) {
             if (!isMoving()) {
-                animation = animations.getStand().get();
+                animation = animations->getStand().get();
             } else {
                 sprite->setSpeed(getVelocity().length());
-                animation = animations.getWalk().get();
+                animation = animations->getWalk().get();
                 sprite->setLooping(AnimationLooping::RepeatForever);
             }
         } else if (!isOnGround()) {
             if (isRising()) {
-                animation = animations.getJump().get();
+                animation = animations->getJump().get();
                 sprite->setLooping(AnimationLooping::RepeatForever);
             } else {
-                animation = animations.getFall().get();
+                animation = animations->getFall().get();
                 sprite->setLooping(AnimationLooping::RepeatForever);
             }
             sprite->setSpeed(getVelocity().length());
         } else if (!isMoving()) {
-            animation = timeSinceHit < 0.5f ? animations.getHitStand().get() : animations.getStand().get();
+            animation = timeSinceHit < 0.5f ? animations->getHitStand().get() : animations->getStand().get();
         } else {
             sprite->setSpeed(getVelocity().length());
-            animation = animations.getWalk().get();
+            animation = animations->getWalk().get();
             sprite->setLooping(AnimationLooping::RepeatForever);
         }
 
@@ -682,12 +708,12 @@ namespace Duel6 {
 
     void Player::useTemporarySkin(PlayerSkin &tempSkin) {
         tempSkinDuration = Float32(10 + Math::random(5));
-        sprite->setTexture(tempSkin.getTexture());
+        if (!headless) sprite->setTexture(tempSkin.getTexture());
     }
 
     void Player::switchToOriginalSkin() {
         tempSkinDuration = 0;
-        sprite->setTexture(skin.getTexture());
+        if (!headless) sprite->setTexture(skin->getTexture());
     }
 
     void Player::processShot(Shot &shot, std::vector<Player *> &playersHit, std::vector<Player *> &playersKilled) {
@@ -743,12 +769,15 @@ namespace Duel6 {
     }
 
     void Player::die() {
-        setFlag(FlagDying | FlagLying);
+        setFlag((headless ? FlagDead : FlagDying) | FlagLying);
         unsetFlag(FlagMoveUp | FlagMoveDown | FlagMoveLeft | FlagMoveRight | FlagKnee | FlagPick);
-        sprite->setPosition(getSpritePosition()).setLooping(AnimationLooping::OnceAndStop);
-        gunSprite->setDraw(false);
+        if (!headless) {
+            sprite->setPosition(getSpritePosition()).setLooping(AnimationLooping::OnceAndStop);
+            gunSprite->setDraw(false);
+        }
 
-        Int32 timeAlive = Int32((clock() - roundStartTime) / CLOCKS_PER_SEC);
+        Int32 timeAlive = headless ? Int32(roundElapsedTime)
+                                   : Int32((clock() - roundStartTime) / CLOCKS_PER_SEC);
         getPerson().addTimeAlive(timeAlive);
     }
 

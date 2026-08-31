@@ -57,6 +57,7 @@ namespace Duel6 {
 
     public:
         static void initialize(Sound &sound, TextureManager &textureManager);
+        static void initializeHeadless();
     };
 }
 

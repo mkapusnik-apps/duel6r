@@ -29,6 +29,7 @@
 
 #include "WorldCollision.h"
 #include "../Rectangle.h"
+#include "../math/Math.h"
 namespace Duel6 {
 //TODO Duplicity
 static const float GRAVITATIONAL_ACCELERATION = -11.0f;
@@ -48,7 +49,7 @@ void CollidingEntity::collideWithElevators(ElevatorList & elevators, Float32 ela
 }
 
 void CollidingEntity::collideWithLevel(const Level & level, Float32 elapsedTime, Float32 speed) {
-    static bool bleft = false, bright = false, bup = false, bdown = false;
+    bool bleft = false, bright = false, bup = false, bdown = false;
     {
         Float32 delta = 0.8f * VERTICAL_DELTA;
         Float32 down = position.y - FLOOR_DISTANCE_THRESHOLD;
@@ -102,8 +103,6 @@ void CollidingEntity::collideWithLevel(const Level & level, Float32 elapsedTime,
         externalForcesSpeed.x = std::copysign(0.5f, externalForcesSpeed.x) / speed;
     }
     Vector totalSpeed = velocity + externalForcesSpeed;
-    bleft = false, bright = false, bup = false, bdown = false;
-
     //collision detection here we go
 
     {
@@ -212,6 +211,15 @@ void CollidingEntity::collideWithLevel(const Level & level, Float32 elapsedTime,
     lastCollisionCheck.right = bright;
     lastCollisionCheck.down = bdown;
     lastCollisionCheck.left = bleft;
+    if (Math::isAuthoritative()) {
+        position.x = Math::quantizeAuthoritative(position.x);
+        position.y = Math::quantizeAuthoritative(position.y);
+        position.z = Math::quantizeAuthoritative(position.z);
+        velocity.x = Math::quantizeAuthoritative(velocity.x);
+        velocity.y = Math::quantizeAuthoritative(velocity.y);
+        externalForcesSpeed.x = Math::quantizeAuthoritative(externalForcesSpeed.x);
+        externalForcesSpeed.y = Math::quantizeAuthoritative(externalForcesSpeed.y);
+    }
 }
 
 void CollidingEntity::initPosition(Float32 x, Float32 y, Float32 z) {

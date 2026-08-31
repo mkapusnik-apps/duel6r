@@ -36,6 +36,8 @@ namespace Duel6 {
                                                      {1, 163, 2, 163, 0, 82, 0, 82, 0, 82, 0, 82, 0, 820, -1, 0}};
     }
 
+    Slime::Slime() : LegacyWeapon(DEFINITION) {}
+
     Slime::Slime(Sound &sound, TextureManager &textureManager)
             : LegacyWeapon(sound, textureManager, DEFINITION, 10) {}
 

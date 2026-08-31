@@ -52,6 +52,10 @@ namespace Duel6 {
         }
     }
 
+    LegacyWeapon::LegacyWeapon(const Definition &definition)
+            : WeaponBase(definition.name, definition.reloadSpeed), definition(definition) {
+    }
+
     Float32 LegacyWeapon::getShotSpeed(Float32 coefficient) const {
         return isChargeable() ? getBulletSpeed() * coefficient : getBulletSpeed();
     }

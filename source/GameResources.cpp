@@ -32,6 +32,13 @@
 #include "Bonus.h"
 
 namespace Duel6 {
+    void GameResources::loadHeadless(const std::string &resourcesPath) {
+        Weapon::initializeHeadless();
+        Water::initializeHeadless();
+        FireList::initialize();
+        blockMeta = Block::loadMeta(resourcesPath + "/data/blocks.json");
+    }
+
     void GameResources::load(Console &console, Sound &sound, TextureManager &textureManager) {
         console.printLine("\n===Initializing game resources===");
         console.printLine("\n...Weapon initialization");

@@ -486,6 +486,11 @@ if (D6R_WITH_LUA)
             source/script/lua/LuaScriptLoader.cpp
             )
 endif (D6R_WITH_LUA)
+
+set(D6R_ENGINE_SOURCES ${D6R_SOURCES})
+list(REMOVE_ITEM D6R_ENGINE_SOURCES source/Main.cpp)
+add_library(duel6r-game-engine STATIC ${D6R_ENGINE_SOURCES})
+target_include_directories(duel6r-game-engine PUBLIC ${CMAKE_SOURCE_DIR}/source)
 endif ()
 
 set(D6R_NETWORK_SCAFFOLD_SOURCES
@@ -525,6 +530,9 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/server/AuthoritativeMatchValidation.h
         source/server/DeterministicRandom.cpp
         source/server/DeterministicRandom.h
+        source/math/Math.cpp
+        source/math/Math.h
+        source/math/RandomSource.h
         source/server/HostedServiceChannel.cpp
         source/server/HostedServiceChannel.h
         source/server/AdmissionSession.cpp
@@ -556,8 +564,17 @@ else ()
 endif ()
 
 set(D6R_SERVER_APP_NAME "duel6r-server" CACHE STRING "Filename of the experimental server scaffold.")
-add_executable(${D6R_SERVER_APP_NAME} source/server/ServerMain.cpp)
+set(D6R_SERVER_SOURCES source/server/ServerMain.cpp)
+if (NOT D6R_TRANSPORT_ONLY)
+    list(APPEND D6R_SERVER_SOURCES
+            source/server/CanonicalMatchRuntime.cpp
+            source/server/CanonicalMatchRuntime.h)
+endif ()
+add_executable(${D6R_SERVER_APP_NAME} ${D6R_SERVER_SOURCES})
 target_link_libraries(${D6R_SERVER_APP_NAME} duel6r-network-scaffold)
+if (NOT D6R_TRANSPORT_ONLY)
+    target_link_libraries(${D6R_SERVER_APP_NAME} duel6r-game-engine)
+endif ()
 set_target_properties(${D6R_SERVER_APP_NAME} PROPERTIES VERSION 6.0.0)
 if (MINGW)
     set_property(TARGET ${D6R_SERVER_APP_NAME} APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
@@ -632,7 +649,7 @@ endif (BUILD_TESTING)
 
 if (NOT D6R_TRANSPORT_ONLY)
 if (WIN32)
-    set(D6R_SOURCES ${D6R_SOURCES} source/duel6r.rc)
+    set(D6R_APP_PLATFORM_SOURCES source/duel6r.rc)
 endif (WIN32)
 
 ########################
@@ -641,7 +658,8 @@ endif (WIN32)
 
 set(D6R_APP_NAME "duel6r" CACHE STRING "Filename of the application.")
 set(D6R_APP_DEBUG_NAME "duel6rd" CACHE STRING "Filename of the debug version of the application.")
-add_executable(${D6R_APP_NAME} ${D6R_SOURCES})
+add_executable(${D6R_APP_NAME} source/Main.cpp ${D6R_APP_PLATFORM_SOURCES})
+target_link_libraries(${D6R_APP_NAME} duel6r-game-engine)
 set_target_properties(${D6R_APP_NAME} PROPERTIES VERSION 6.0.0 DEBUG_OUTPUT_NAME ${D6R_APP_DEBUG_NAME})
 
 #########################################################################
@@ -666,6 +684,18 @@ else (WIN32 AND NOT MINGW) # Linux GCC
     target_link_libraries(${D6R_APP_NAME} ${LIB_OPEN_GL})
 endif (WIN32 AND NOT MINGW)
 
+if (NOT D6R_TRANSPORT_ONLY)
+    if (WIN32 AND NOT MINGW)
+        target_link_libraries(${D6R_SERVER_APP_NAME} opengl32.lib)
+    elseif (MINGW)
+        target_link_libraries(${D6R_SERVER_APP_NAME} opengl32)
+    elseif (APPLE)
+        target_link_libraries(${D6R_SERVER_APP_NAME} ${LIB_OPEN_GL})
+    else ()
+        target_link_libraries(${D6R_SERVER_APP_NAME} ${LIB_OPEN_GL})
+    endif ()
+endif ()
+
 # SDL
 find_path(HEADERS_SDL2 SDL2/SDL.h DOC "Path to SDL2 headers")
 include_directories(${HEADERS_SDL2})
@@ -682,6 +712,12 @@ if (MINGW)
 else (MINGW)
     target_link_libraries(${D6R_APP_NAME} ${LIB_SDL2_MAIN} ${LIB_SDL2} ${LIB_SDL2_MIXER} ${LIB_SDL2_TTF} ${LIB_SDL2_IMAGE})
 endif (MINGW)
+if (NOT D6R_TRANSPORT_ONLY)
+    target_link_libraries(${D6R_SERVER_APP_NAME} ${LIB_SDL2} ${LIB_SDL2_MIXER} ${LIB_SDL2_TTF} ${LIB_SDL2_IMAGE})
+    if (MINGW)
+        target_link_libraries(${D6R_SERVER_APP_NAME} -lsetupapi -lwinmm -limm32 -lversion)
+    endif ()
+endif ()
 
 # GLEW
 if (WIN32)
@@ -690,6 +726,9 @@ else (WIN32)
     find_library(LIB_GLEW GLEW DOC "Path to GLEW library")
 endif (WIN32)
 target_link_libraries(${D6R_APP_NAME} ${LIB_GLEW})
+if (NOT D6R_TRANSPORT_ONLY)
+    target_link_libraries(${D6R_SERVER_APP_NAME} ${LIB_GLEW})
+endif ()
 find_path(HEADERS_GLEW GL/glew.h DOC "Path to GLEW headers")
 include_directories(${HEADERS_GLEW})
 
@@ -711,5 +750,8 @@ if (D6R_WITH_LUA)
         find_path(HEADERS_LUA lua5.3/lua.hpp DOC "Path to LUA headers")
         include_directories(${HEADERS_LUA}/lua5.3)
     endif (WIN32 AND NOT MINGW)
+    if (NOT D6R_TRANSPORT_ONLY)
+        target_link_libraries(${D6R_SERVER_APP_NAME} ${LIB_LUA})
+    endif ()
 endif (D6R_WITH_LUA)
 endif ()

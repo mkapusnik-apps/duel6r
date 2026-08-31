@@ -6,13 +6,15 @@
 #include <utility>
 #include <vector>
 
+#include "../math/RandomSource.h"
+
 namespace Duel6::Server::Authoritative {
-    class DeterministicRandom {
+    class DeterministicRandom : public RandomSource {
     public:
         explicit DeterministicRandom(std::uint64_t seed);
 
-        std::uint64_t next();
-        std::uint64_t bounded(std::uint64_t exclusiveUpperBound);
+        std::uint64_t next() override;
+        std::uint64_t bounded(std::uint64_t exclusiveUpperBound) override;
 
         template<typename Value>
         void shuffle(std::vector<Value> &values) {

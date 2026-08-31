@@ -63,7 +63,7 @@ namespace Duel6 {
     }
 
     void TeamDeathMatch::initializePlayerPositions(Game &game, std::vector<Player> &players, World &world) const {
-        game.getAppService().getConsole().printLine("...Preparing team players");
+        game.log("...Preparing team players");
         Level::StartingPositionList startingPositions;
         world.getLevel().findStartingPositions(startingPositions);
 

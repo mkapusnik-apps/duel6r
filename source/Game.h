@@ -85,13 +85,14 @@ namespace Duel6 {
         };
 
     private:
-        AppService &appService;
+        AppService *appService;
         GameResources &resources;
         GameSettings &settings;
         GameMode *gameMode;
         std::unique_ptr<Round> round;
-        WorldRenderer worldRenderer;
+        std::unique_ptr<WorldRenderer> worldRenderer;
         const Menu *menu;
+        bool headless;
 
         std::vector<std::string> levels;
         std::vector<Size> backgrounds;
@@ -99,6 +100,7 @@ namespace Duel6 {
         Int32 currentRound;
         Int32 playedRounds;
 
+        std::vector<Person> headlessPeople;
         std::vector<Player> players;
         std::vector<PlayerSkin> skins;
         std::unique_ptr<PlayerAnimations> playerAnimations;
@@ -106,9 +108,15 @@ namespace Duel6 {
 
     public:
         Game(AppService &appService, GameResources &resources, GameSettings &settings);
+        Game(GameResources &resources, GameSettings &settings);
 
         void start(const std::vector<PlayerDefinition> &playerDefinitions, const std::vector<std::string> &levels,
                    const std::vector<Size> &backgrounds, GameMode &gameMode);
+        void startHeadless(const std::vector<std::string> &playerNames, const std::vector<std::string> &levels,
+                           GameMode &gameMode);
+        void startHeadlessRound(const std::vector<std::string> &playerNames, const std::string &level,
+                                bool mirror, GameMode &gameMode);
+        void endHeadlessRound();
 
         void keyEvent(const KeyPressEvent &event) override;
 
@@ -129,8 +137,11 @@ namespace Duel6 {
         void render() const override;
 
         AppService &getAppService() const {
-            return appService;
+            return *appService;
         }
+
+        bool isHeadless() const { return headless; }
+        void log(const std::string &message) const;
 
         const std::vector<Size> &getBackgrounds() const {
             return backgrounds;
@@ -187,11 +198,11 @@ namespace Duel6 {
         }
 
         WorldRenderer &getWorldRenderer() {
-            return worldRenderer;
+            return *worldRenderer;
         }
 
         const WorldRenderer &getWorldRenderer() const {
-            return worldRenderer;
+            return *worldRenderer;
         }
 
         GameMode &getMode() {
@@ -207,6 +218,7 @@ namespace Duel6 {
         }
 
     private:
+        void initializeHeadlessPlayers(const std::vector<std::string> &playerNames, GameMode &gameMode);
         void beforeStart(Context *prevContext) override;
 
         void beforeClose(Context *nextContext) override;

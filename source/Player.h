@@ -101,11 +101,11 @@ namespace Duel6 {
 
     private:
         Person &person;
-        PlayerSkin skin;
+        const PlayerSkin *skin;
         Camera camera;
-        const PlayerAnimations &animations;
-        const PlayerSounds &sounds;
-        const PlayerControls &controls;
+        const PlayerAnimations *animations;
+        const PlayerSounds *sounds;
+        const PlayerControls *controls;
         PlayerView view;
         WaterState water;
         SpriteList::Iterator sprite;
@@ -132,9 +132,12 @@ namespace Duel6 {
         PlayerIndicators indicators;
         Uint32 controllerState;
         CollidingEntity collider;
+        bool headless;
+        Float32 roundElapsedTime;
 
     public:
         Player(Person &person, const PlayerSkin &skin, const PlayerSounds &sounds, const PlayerControls &controls);
+        explicit Player(Person &person);
 
         ~Player();
 
@@ -374,7 +377,7 @@ namespace Duel6 {
         }
 
         const PlayerSkin &getSkin() const {
-            return skin;
+            return *skin;
         }
 
         const WaterState &getWaterState() const {
@@ -382,7 +385,7 @@ namespace Duel6 {
         }
 
         void playSound(PlayerSounds::Type type) const {
-            sounds.getRandomSample(type).play();
+            if (sounds) sounds->getRandomSample(type).play();
         }
 
         void setBodyAlpha(Float32 alpha) {
@@ -396,6 +399,14 @@ namespace Duel6 {
 
         void pressButton(Uint32 button) {
             controllerState |= button;
+        }
+
+        void setControllerState(Uint32 state) {
+            controllerState = state;
+        }
+
+        Uint32 getControllerState() const {
+            return controllerState;
         }
 
         void die();

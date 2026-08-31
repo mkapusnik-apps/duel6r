@@ -113,6 +113,23 @@ namespace Duel6::Server::Authoritative {
         std::int64_t totalPoints() const;
     };
 
+    struct CanonicalPlayerSnapshot {
+        Identity playerId = 0;
+        bool alive = false;
+        std::int32_t life = 0;
+        std::int64_t positionX = 0;
+        std::int64_t positionY = 0;
+        PlayerStatistics statistics;
+    };
+
+    struct CanonicalWorldSnapshot {
+        std::vector<CanonicalPlayerSnapshot> players;
+        bool roundOver = false;
+        bool valid = false;
+        std::uint64_t stateDigest = 0;
+        std::size_t dynamicEntityCount = 0;
+    };
+
     struct PlayerResultRow {
         Identity playerId = 0;
         Identity participantId = 0;

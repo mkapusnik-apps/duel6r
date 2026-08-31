@@ -53,6 +53,7 @@ namespace Duel6 {
 
     public:
         void load(Console &console, Sound &sound, TextureManager &textureManager);
+        void loadHeadless(const std::string &resourcesPath);
 
         const Block::Meta &getBlockMeta() const {
             return blockMeta;

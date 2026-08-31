@@ -33,6 +33,7 @@
 namespace Duel6 {
     class Bow : public LegacyWeapon {
     public:
+        Bow();
         Bow(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;

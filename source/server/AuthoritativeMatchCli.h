@@ -4,10 +4,14 @@
 #include <functional>
 #include <iosfwd>
 
+#include "AuthoritativeMatch.h"
+
 namespace Duel6::Server::Authoritative {
     struct AuthoritativeMatchCliDependencies {
         std::function<bool()> stopRequested;
         std::function<bool()> reportReady;
+        std::function<MatchRuntimeDependencies(const MatchConfig &, const std::vector<PlayerDefinition> &,
+                                               const std::string &)> runtimeFactory;
     };
 
     bool authoritativeMatchRequested(int argc, char **argv);

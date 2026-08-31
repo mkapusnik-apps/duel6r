@@ -29,10 +29,10 @@
 
 namespace Duel6 {
     void GameModeBase::initializePlayerPositions(Game &game, std::vector<Player> &players, World &world) const {
-        game.getAppService().getConsole().printLine("...Preparing base players");
+        game.log("...Preparing base players");
         Level::StartingPositionList startingPositions;
         world.getLevel().findStartingPositions(startingPositions);
-        std::shuffle(startingPositions.begin(), startingPositions.end(), Math::randomEngine);
+        Math::shuffle(startingPositions);
 
         Size playerIndex = 0;
         for (Player &player : players) {

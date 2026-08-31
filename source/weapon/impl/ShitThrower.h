@@ -37,6 +37,7 @@ namespace Duel6 {
         std::unique_ptr<PlayerSkin> brownSkin;
 
     public:
+        ShitThrower();
         ShitThrower(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;

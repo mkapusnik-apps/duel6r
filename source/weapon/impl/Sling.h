@@ -33,6 +33,7 @@
 namespace Duel6 {
     class Sling : public LegacyWeapon {
     public:
+        Sling();
         Sling(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;

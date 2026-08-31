@@ -3,6 +3,7 @@
 #include <utility>
 
 #include "AuthoritativeMatchCli.h"
+#include "CanonicalMatchRuntime.h"
 #include "HeadlessServer.h"
 #include "HostedServiceChannel.h"
 #include "ServerConfig.h"
@@ -12,6 +13,10 @@ int main(int argc, char **argv) {
     try {
         if (Duel6::Server::Authoritative::authoritativeMatchRequested(argc, argv)) {
             Duel6::Server::Authoritative::AuthoritativeMatchCliDependencies dependencies;
+            dependencies.runtimeFactory = [](const auto &config, const auto &roster, const auto &resources) {
+                return Duel6::Server::Authoritative::CanonicalMatchRuntime::createDependencies(
+                        config, roster, resources);
+            };
             if (hostedChannel) {
                 dependencies.stopRequested = [hostedChannel] { return hostedChannel->stopRequested(); };
                 dependencies.reportReady = [hostedChannel] {

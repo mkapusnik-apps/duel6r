@@ -33,6 +33,7 @@
 namespace Duel6 {
     class Uzi : public LegacyWeapon {
     public:
+        Uzi();
         Uzi(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;

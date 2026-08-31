@@ -33,6 +33,7 @@
 namespace Duel6 {
     class DoubleLaser : public LegacyWeapon {
     public:
+        DoubleLaser();
         DoubleLaser(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;

@@ -236,6 +236,59 @@ namespace Duel6::Server::Authoritative {
                 if (match.outcome().code == OutcomeCode::None) match.advanceOneTick();
             }
         }
+
+        void driveCanonicalCompleteScenario(AuthoritativeMatch &match, const MatchConfig &config,
+                                            const std::vector<PlayerDefinition> &roster,
+                                            const std::function<bool()> &stopped) {
+            std::uint64_t sequence = 1;
+            std::vector<std::uint32_t> previousInputs(roster.size(), std::numeric_limits<std::uint32_t>::max());
+            while (match.outcome().code == OutcomeCode::None) {
+                if (stopped && stopped()) {
+                    submitChecked(match, {match.currentTick(), sequence++, config.hostParticipantId, 0,
+                                          ActionKind::EndSession, 0, 0, 0});
+                    break;
+                }
+                if (match.phase() == MatchPhase::ActiveRound && match.currentTick() % 5u == 0) {
+                    const CanonicalWorldSnapshot *world = match.canonicalWorldSnapshot();
+                    if (!world) return;
+                    for (std::size_t index = 0; index < roster.size(); ++index) {
+                        const auto current = std::find_if(world->players.begin(), world->players.end(),
+                                [&](const auto &player) { return player.playerId == roster[index].playerId; });
+                        if (current == world->players.end() || !current->alive) continue;
+                        const CanonicalPlayerSnapshot *target = nullptr;
+                        std::uint64_t nearest = std::numeric_limits<std::uint64_t>::max();
+                        for (const auto &candidate: world->players) {
+                            if (!candidate.alive || candidate.playerId == current->playerId) continue;
+                            const auto candidateRoster = std::find_if(roster.begin(), roster.end(),
+                                    [&](const auto &player) { return player.playerId == candidate.playerId; });
+                            if (candidateRoster == roster.end()) continue;
+                            if (config.mode == Mode::Predator
+                                && current->playerId != match.roundDecision().predatorPlayerId
+                                && candidate.playerId != match.roundDecision().predatorPlayerId) continue;
+                            if (config.mode == Mode::TeamDeathmatch
+                                && roster[index].rosterOrder % config.teamCount
+                                   == candidateRoster->rosterOrder % config.teamCount) continue;
+                            const std::uint64_t distance = static_cast<std::uint64_t>(
+                                    std::llabs(candidate.positionX - current->positionX)
+                                    + std::llabs(candidate.positionY - current->positionY));
+                            if (distance < nearest) { nearest = distance; target = &candidate; }
+                        }
+                        if (!target) continue;
+                        std::uint32_t input = target->positionX < current->positionX ? MoveLeft : MoveRight;
+                        const std::int64_t vertical = target->positionY - current->positionY;
+                        if (vertical > 32768 || (match.currentTick() + index * 17u) % 120u < 5u) input |= Jump;
+                        if (std::llabs(vertical) < 98304
+                            && (match.currentTick() / 30u + index) % 2u == 0) input |= Shoot;
+                        if ((match.currentTick() + index * 31u) % 600u < 5u) input |= PickOrSwapWeapon;
+                        if (input == previousInputs[index]) continue;
+                        previousInputs[index] = input;
+                        submitChecked(match, {match.currentTick(), sequence++, roster[index].participantId,
+                                              roster[index].playerId, ActionKind::PlayerInput, 0, input, 0});
+                    }
+                }
+                if (match.outcome().code == OutcomeCode::None) match.advanceOneTick();
+            }
+        }
     }
 
     bool authoritativeMatchRequested(int argc, char **argv) {
@@ -272,6 +325,8 @@ namespace Duel6::Server::Authoritative {
             }
 
             MatchRuntimeDependencies runtime;
+            if (cliDependencies.runtimeFactory)
+                runtime = cliDependencies.runtimeFactory(options.config, options.roster, options.resources);
             if (options.scenario == "cleanup-failure") runtime.cleanup = [] { return false; };
             AuthoritativeMatch match(std::move(runtime));
             Network::GameplayManifest manifest = built.manifest;
@@ -302,7 +357,10 @@ namespace Duel6::Server::Authoritative {
                 submitChecked(match, {0, 1, options.config.hostParticipantId, 0,
                                       ActionKind::RuntimeFailure, 0, 0, 0});
             } else if (options.scenario == "complete" || options.scenario == "cleanup-failure") {
-                driveCompleteScenario(match, options.config, options.roster, cliDependencies.stopRequested);
+                if (cliDependencies.runtimeFactory)
+                    driveCanonicalCompleteScenario(match, options.config, options.roster,
+                                                   cliDependencies.stopRequested);
+                else driveCompleteScenario(match, options.config, options.roster, cliDependencies.stopRequested);
             } else {
                 const auto invalid = terminalOutcome(OutcomeCode::SettingsInvalid);
                 printOutcome(output, invalid, std::nullopt);

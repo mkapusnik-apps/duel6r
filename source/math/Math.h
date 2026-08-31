@@ -33,15 +33,33 @@
 #include <cstdlib>
 #include <random>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "../Type.h"
+#include "RandomSource.h"
 
 namespace Duel6 {
     class Math {
+    private:
+        static thread_local RandomSource *authoritativeRandom;
+
     public:
         static const Float64 Pi;
         static std::random_device randomDevice;
         static std::default_random_engine randomEngine;
+
+        class RandomScope final {
+        public:
+            explicit RandomScope(RandomSource &source);
+            ~RandomScope();
+
+            RandomScope(const RandomScope &) = delete;
+            RandomScope &operator=(const RandomScope &) = delete;
+
+        private:
+            RandomSource *previous;
+        };
 
     public:
         template<class T>
@@ -116,6 +134,23 @@ namespace Duel6 {
         static Float32 random(Float32 min, Float32 max);
 
         static Float64 random(Float64 min, Float64 max);
+
+        template<typename Value>
+        static void shuffle(std::vector<Value> &values) {
+            if (!authoritativeRandom) {
+                std::shuffle(values.begin(), values.end(), randomEngine);
+                return;
+            }
+            for (Size remaining = values.size(); remaining > 1; --remaining) {
+                const Size selected = static_cast<Size>(authoritativeRandom->bounded(remaining));
+                Value temporary = std::move(values[remaining - 1]);
+                values[remaining - 1] = std::move(values[selected]);
+                values[selected] = std::move(temporary);
+            }
+        }
+
+        static bool isAuthoritative() noexcept;
+        static Float32 quantizeAuthoritative(Float32 value);
     };
 }
 

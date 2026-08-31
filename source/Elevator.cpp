@@ -68,6 +68,11 @@ namespace Duel6 {
 
         position += velocity * elapsedTime;
         travelled += elapsedTime;
+        if (Math::isAuthoritative()) {
+            position.x = Math::quantizeAuthoritative(position.x);
+            position.y = Math::quantizeAuthoritative(position.y);
+            travelled = Math::quantizeAuthoritative(travelled);
+        }
     }
 
     void Elevator::render(Renderer &renderer, Texture texture) const {

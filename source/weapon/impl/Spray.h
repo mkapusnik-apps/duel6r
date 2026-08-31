@@ -33,6 +33,7 @@
 namespace Duel6 {
     class Spray : public LegacyWeapon {
     public:
+        Spray();
         Spray(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;

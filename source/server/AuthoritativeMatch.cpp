@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "AuthoritativeMatchValidation.h"
+#include "../math/Math.h"
 
 namespace Duel6::Server::Authoritative {
     namespace {
@@ -178,6 +179,8 @@ namespace Duel6::Server::Authoritative {
         result.reset();
         completedRounds.clear();
         completedPlayerStatistics.clear();
+        latestStateDigest = 0;
+        latestCanonicalSnapshot.reset();
         terminal = terminalOutcome(OutcomeCode::None);
         if (!startRound()) failRuntime();
         return terminal;
@@ -257,10 +260,18 @@ namespace Duel6::Server::Authoritative {
         currentRoundWinners.clear();
         currentRoundWinningTeam = Team::None;
         roundEndTicks = 0;
-        try { worldActive = dependencies.worldStart(currentRoundDecision); }
+        try {
+            Math::RandomScope randomScope(*random);
+            worldActive = dependencies.worldStart(currentRoundDecision);
+        }
         catch (...) { worldActive = false; }
         if (!worldActive) return false;
+        if (config.mode == Mode::Predator) predatorPlayer = currentRoundDecision.predatorPlayerId;
         currentPhase = MatchPhase::ActiveRound;
+        if (dependencies.worldSnapshot && !synchronizeCanonicalWorld()) {
+            endWorld();
+            return false;
+        }
         return true;
     }
 
@@ -307,6 +318,14 @@ namespace Duel6::Server::Authoritative {
             PlayerState *removed = findPlayer(action.targetPlayerId);
             if (!removed || removed->departed || action.targetPlayerId == 0)
                 return ActionResult::RejectedValue;
+            if (dependencies.worldRemove) {
+                try {
+                    if (!dependencies.worldRemove(action.targetPlayerId)) return ActionResult::RejectedValue;
+                } catch (...) {
+                    failRuntime();
+                    return ActionResult::RuntimeFailed;
+                }
+            }
             removed->departed = true;
             removed->alive = false;
             interruptIfRosterTooSmall();
@@ -324,10 +343,12 @@ namespace Duel6::Server::Authoritative {
         bool applied = false;
         if (action.kind == ActionKind::PlayerInput) applied = applyPlayerInput(*source, action);
         else if (action.kind == ActionKind::ShotDamage) {
+            if (dependencies.worldSnapshot) return ActionResult::RejectedAuthority;
             if (action.inputMask != 0 || action.targetPlayerId == 0) return ActionResult::RejectedValue;
             PlayerState *target = findPlayer(action.targetPlayerId);
             applied = target && applyShotDamage(*source, *target, action.amount);
         } else if (action.kind == ActionKind::EnvironmentalDamage) {
+            if (dependencies.worldSnapshot) return ActionResult::RejectedAuthority;
             if (action.inputMask != 0 || action.targetPlayerId != action.playerId)
                 return ActionResult::RejectedValue;
             applied = applyEnvironmentalDamage(*source, action.amount);
@@ -343,7 +364,15 @@ namespace Duel6::Server::Authoritative {
         if (!player.alive || action.inputMask == 0 || (action.inputMask & ~AllPlayerInputs) != 0
             || action.amount != 0 || action.targetPlayerId != 0 || player.lastInputTick == tick) return false;
         player.lastInputTick = tick;
-        if ((action.inputMask & Shoot) != 0 && !checkedAdd(player.total.shots, 1)) {
+        if (dependencies.worldInput) {
+            try {
+                if (!dependencies.worldInput(player.definition.playerId, action.inputMask)) return false;
+            } catch (...) {
+                failRuntime();
+                return false;
+            }
+        }
+        if (!dependencies.worldSnapshot && (action.inputMask & Shoot) != 0 && !checkedAdd(player.total.shots, 1)) {
             failRuntime();
             return false;
         }
@@ -447,9 +476,11 @@ namespace Duel6::Server::Authoritative {
     void AuthoritativeMatch::establishRoundOutcome(std::vector<Identity> winners, Team winningTeam,
                                                     bool noWinner) {
         if (currentPhase != MatchPhase::ActiveRound) return;
-        for (Identity id: winners) {
-            PlayerState *winner = findPlayer(id);
-            if (!winner || !checkedAdd(winner->total.wins, 1)) { failRuntime(); return; }
+        if (!dependencies.worldSnapshot) {
+            for (Identity id: winners) {
+                PlayerState *winner = findPlayer(id);
+                if (!winner || !checkedAdd(winner->total.wins, 1)) { failRuntime(); return; }
+            }
         }
         currentRoundWinners = std::move(winners);
         currentRoundWinningTeam = winningTeam;
@@ -465,8 +496,13 @@ namespace Duel6::Server::Authoritative {
                             || currentPhase == MatchPhase::RoundEndActive;
         if (normalUpdate) {
             try {
+                Math::RandomScope randomScope(*random);
                 if (!dependencies.worldTick(tick, true)) { failRuntime(); return false; }
             } catch (...) { failRuntime(); return false; }
+            if (dependencies.worldSnapshot && !synchronizeCanonicalWorld()) {
+                failRuntime();
+                return false;
+            }
             for (auto &player: players) {
                 if (player.alive && !player.departed && !checkedAdd(player.total.survivalTicks, 1)) {
                     failRuntime();
@@ -488,6 +524,40 @@ namespace Duel6::Server::Authoritative {
             }
         }
         return terminal.code == OutcomeCode::None;
+    }
+
+    bool AuthoritativeMatch::synchronizeCanonicalWorld() {
+        CanonicalWorldSnapshot snapshot;
+        try { snapshot = dependencies.worldSnapshot(); }
+        catch (...) { return false; }
+        if (!snapshot.valid || snapshot.stateDigest == 0 || snapshot.players.size() != players.size()
+            || snapshot.dynamicEntityCount > 100000u) return false;
+        latestStateDigest = snapshot.stateDigest;
+        latestCanonicalSnapshot = snapshot;
+        for (const auto &canonical: snapshot.players) {
+            PlayerState *player = findPlayer(canonical.playerId);
+            if (!player || canonical.life < 0 || canonical.life > MaximumLife) return false;
+            player->alive = canonical.alive && !player->departed;
+            player->life = canonical.life;
+            const auto apply = [&player](std::uint64_t &target, std::uint64_t start, std::uint64_t value) {
+                if (value > MaximumCounter || start > MaximumCounter - value) return false;
+                target = start + value;
+                return true;
+            };
+            const PlayerStatistics &value = canonical.statistics;
+            if (!apply(player->total.shots, player->roundStart.shots, value.shots)
+                || !apply(player->total.hits, player->roundStart.hits, value.hits)
+                || !apply(player->total.kills, player->roundStart.kills, value.kills)
+                || !apply(player->total.deaths, player->roundStart.deaths, value.deaths)
+                || !apply(player->total.assists, player->roundStart.assists, value.assists)
+                || !apply(player->total.wins, player->roundStart.wins, value.wins)
+                || !apply(player->total.penalties, player->roundStart.penalties, value.penalties)
+                || !apply(player->total.damage, player->roundStart.damage, value.damage)
+                || !apply(player->total.assistedDamage, player->roundStart.assistedDamage, value.assistedDamage))
+                return false;
+        }
+        if (snapshot.roundOver) evaluateRoundOutcome();
+        return true;
     }
 
     bool AuthoritativeMatch::recordRound() {
@@ -642,4 +712,8 @@ namespace Duel6::Server::Authoritative {
     const TerminalOutcome &AuthoritativeMatch::outcome() const noexcept { return terminal; }
     const RoundStartDecision &AuthoritativeMatch::roundDecision() const noexcept { return currentRoundDecision; }
     bool AuthoritativeMatch::resourcesReleased() const noexcept { return released; }
+    std::uint64_t AuthoritativeMatch::currentStateDigest() const noexcept { return latestStateDigest; }
+    const CanonicalWorldSnapshot *AuthoritativeMatch::canonicalWorldSnapshot() const noexcept {
+        return latestCanonicalSnapshot ? &*latestCanonicalSnapshot : nullptr;
+    }
 }

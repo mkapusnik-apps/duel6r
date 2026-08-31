@@ -67,6 +67,10 @@ namespace Duel6 {
             return world;
         }
 
+        World &getWorld() {
+            return world;
+        }
+
         bool hasWinner() const {
             return winner;
         }

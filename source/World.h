@@ -28,6 +28,8 @@
 #ifndef DUEL6_WORLD_H
 #define DUEL6_WORLD_H
 
+#include <memory>
+
 #include "Level.h"
 #include "InfoMessageQueue.h"
 #include "LevelRenderData.h"
@@ -46,7 +48,7 @@ namespace Duel6 {
         std::vector<Player> &players;
         Level level;
         std::string background;
-        LevelRenderData levelRenderData;
+        std::unique_ptr<LevelRenderData> levelRenderData;
         InfoMessageQueue messageQueue;
         SpriteList spriteList;
         ShotList shotList;
@@ -84,11 +86,11 @@ namespace Duel6 {
         }
 
         LevelRenderData &getLevelRenderData() {
-            return levelRenderData;
+            return *levelRenderData;
         }
 
         const LevelRenderData &getLevelRenderData() const {
-            return levelRenderData;
+            return *levelRenderData;
         }
 
         InfoMessageQueue &getMessageQueue() {

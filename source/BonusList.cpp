@@ -35,6 +35,9 @@ namespace Duel6 {
     BonusList::BonusList(const GameSettings &settings, const GameResources &resources, World &world)
             : settings(settings), texture(resources.getBonusTextures()), world(world) {}
 
+    BonusList::BonusList(const GameSettings &settings, World &world)
+            : settings(settings), world(world) {}
+
     void BonusList::render(Renderer &renderer) const {
         for (const Bonus &bonus : bonuses) {
             bonus.render(renderer, texture);
@@ -157,6 +160,8 @@ namespace Duel6 {
             weapon.collider.collideWithLevel(world.getLevel(), elapsedTime, elapsedTime);
             if(weapon.pickTimeout > 0){
                 weapon.pickTimeout -= elapsedTime;
+                if (Math::isAuthoritative())
+                    weapon.pickTimeout = Math::quantizeAuthoritative(weapon.pickTimeout);
             }
         }
     }
