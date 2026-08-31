@@ -8,6 +8,7 @@ Unless a requirement identifies an approved change, the requirements describe th
 The split-screen removal requirements define target product behavior that supersedes the earlier implementation baseline.
 The Burnable Trees requirements define an approved change to the earlier implementation baseline.
 The Rounds field focus and session-memory requirements define an approved change to the earlier implementation baseline.
+The consolidated Teams menu requirements define an approved change to the earlier implementation baseline.
 
 The word **person** means a persistent named record. The word **player** means a person in the active match roster.
 
@@ -30,8 +31,8 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **SET-005** The roster must contain a maximum of 15 players.
 - **SET-006** The game must refuse to start with fewer than two players.
 - **SET-007** After SET-006 occurs, the menu must show `Can't play alone ...` and wait for an input event.
-- **SET-008** The menu must let the user select Deathmatch, Predator, or one of six Team deathmatch variants.
-- **SET-009** The Team deathmatch variants must combine two, three, or four teams with friendly fire on or off.
+- **SET-008** The game mode selector must show `Deathmatch`, `Predator`, and `Teams`.
+- **SET-009** The game mode selector must show `Teams` one time.
 - **SET-010** The menu must let the user set Assistance, Quick Liquid, Burnable Trees, and the round limit before a match.
 - **SET-011** The round-limit field must accept digits only.
 - **SET-012** An empty round-limit field must set the round limit to zero.
@@ -58,6 +59,18 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **SET-033** When the Rounds field receives focus and shows exactly `0`, the menu must clear the field.
 - **SET-034** When the Rounds field receives focus and shows a positive value, the menu must keep that value.
 - **SET-035** When an empty Rounds field loses focus, the menu must set the round limit to zero and show `0`.
+- **SET-036** When `Teams` is selected, the menu must show `Num. of Team` and `Friendly Fire` as additional settings.
+- **SET-037** When `Teams` is not selected, the menu must not show `Num. of Team` or `Friendly Fire`.
+- **SET-038** The `Num. of Team` setting must let the user select two, three, or four teams.
+- **SET-039** The `Friendly Fire` setting must let the user select off or on.
+- **SET-040** At each application start, `Num. of Team` must default to two teams.
+- **SET-041** At each application start, `Friendly Fire` must default to off.
+- **SET-042** When the user selects another game mode, the menu must keep the current Team setting values.
+- **SET-043** When the user selects `Teams` again, the menu must show the retained Team setting values.
+- **SET-044** When gameplay returns to the menu, the menu must keep the selected game mode.
+- **SET-045** When gameplay returns to the menu, the menu must keep both Team setting values.
+- **SET-046** When a Team setting combination starts a match, the game must use the corresponding existing Team deathmatch rules.
+- **SET-047** When the user changes `Num. of Team`, the roster must update the team-color assignments.
 
 ## Match and round lifecycle
 
@@ -402,13 +415,13 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 
 ## Acceptance criteria
 
-- **AC-001** A user can create a valid roster of two through 15 unique persons and start each selectable game mode.
+- **AC-001** A user can create a valid roster of two through 15 unique persons. The user can start each selectable game mode and Team configuration.
 - **AC-002** The menu blocks a one-player start and shows the implemented message.
 - **AC-003** Limited and unlimited match starts follow LIF-023 through LIF-029 for resume and clear choices.
 - **AC-004** Consecutive rounds follow the configured limit, level-selection mode, mirror selection, end delay, and transition rules.
 - **AC-005** Deathmatch produces the winner and no-winner outcomes in MOD-DM-001 through MOD-DM-003.
 - **AC-006** Predator applies the role, damage, ammo, and winner rules in MOD-PR-001 through MOD-PR-008.
-- **AC-007** Every Team deathmatch variant applies team assignment, team identity, friendly-fire, scoring, ranking, and winner rules.
+- **AC-007** Each Team setting combination applies the applicable team assignment, team identity, friendly-fire, scoring, ranking, and winner rules.
 - **AC-008** A qualifying attack awards assists according to SCO-007 through SCO-017 in free-for-all and team scenarios.
 - **AC-009** Total points, ranking order, penalties, deaths, and Elo behavior follow SCO-001 through SCO-024.
 - **AC-010** Each action in INP-012 works through an assigned keyboard or connected game-controller preset. Repeated jump input produces the implemented double-jump. INP-008 defines detection precedence.
@@ -445,6 +458,14 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-041** After an application restart, Rounds does not restore the prior session value. Rounds is `0` unless a startup setting changes it.
 - **AC-042** Focusing Rounds clears only the displayed value `0`. Focusing a positive value keeps that value.
 - **AC-043** If Rounds remains empty when it loses focus, the field shows `0` and the match has no last round.
+- **AC-044** The game mode selector shows `Deathmatch`, `Predator`, and one `Teams` option.
+- **AC-045** Selecting `Teams` shows `Num. of Team` and `Friendly Fire`. Selecting another game mode hides both settings.
+- **AC-046** At each application start, the Team settings are two teams and Friendly Fire off.
+- **AC-047** The Team settings support all combinations of two, three, or four teams with Friendly Fire off or on.
+- **AC-048** Switching away from `Teams` and back keeps both Team setting values.
+- **AC-049** After gameplay returns to the menu, the selected game mode and both Team setting values remain unchanged.
+- **AC-050** A change to `Num. of Team` updates roster team colors according to SET-020 and SET-021.
+- **AC-051** Each Team setting combination starts Team deathmatch with its selected team count and Friendly Fire value.
 
 ## Source traceability
 

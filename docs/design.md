@@ -160,6 +160,15 @@ The following values come from renderer and GUI source.
 - A player row must support double-click to remove the player from the roster.
 - A spinner must use left and right triangle buttons.
 - A checkbox must reverse its frame when it is checked.
+- The game mode spinner must show `Deathmatch`, `Predator`, and `Teams`.
+- The game mode spinner must show `Teams` one time.
+- The Game Settings panel must show `Num. of Team` and `Friendly Fire` only when `Teams` is selected.
+- Conditional settings must stay inside the existing Game Settings panel bounds.
+- Controls below a hidden conditional group must move up to keep one compact vertical stack.
+- The roster must use the applicable team colors only when `Teams` is selected.
+- A change to the team count must update the roster colors immediately.
+- A non-Team mode must use the standard roster row colors.
+- Player text and selection feedback must remain readable over each roster team color.
 - A focused text field must append an underscore to its text.
 - Only one text field must have focus at a time.
 - The person-name field must accept only its implemented character set.
@@ -298,8 +307,9 @@ The following values come from renderer and GUI source.
 - Evidence for menu background selection or persistence must also record the selected filename, runtime asset manifest revision, and session identifier.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
 - Eleven screenshot entries remain `Planned` until issue #38 implements and captures `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
-- `SS-001` must represent the current implemented `MENU-01` state.
-- Issue #38 must invalidate and recapture `SS-001` when it implements the target Network footer.
+- `SS-001` and `SS-024` must represent the two approved `MENU-01` conditional-layout wireframes.
+- Existing `MENU-01` evidence is stale until the consolidated Teams selector is implemented and both wireframes are captured.
+- Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources
 
@@ -323,6 +333,10 @@ The following values come from renderer and GUI source.
 ## Stitch synchronization
 
 The corresponding Stitch project is `projects/1219346282527961142` (`Duel 6 Reloaded`).
+For PR #54 and subsequent assessment of this approved change, Stitch is a supplementary visual workspace.
+`docs/features.md`, this file, the applicable screen specifications, the version-controlled wireframes, and conforming implementation screenshots are authoritative.
+A missing or stale Stitch representation must not replace or weaken any local design, wireframe, screenshot, provenance, or implementation-presentation gate.
+A Stitch synchronization failure does not block visual acceptance when all authoritative local sources exist, remain current, and conform.
 The project includes two `MENU-01 — Main menu and session setup` explorations at screens `681ae093051749fd922ab74454f47121` and `e26294cba3d946a0af458bcf33c275a0`.
 Screen `681ae093051749fd922ab74454f47121` is the visual reference for the retro grey canvas, black matte, four-panel hierarchy, score table, and footer actions.
 The application behavior and copy in `docs/features.md` override illustrative Stitch names, statistics, settings, version text, and shortcut syntax.
@@ -332,3 +346,8 @@ The Stitch request timed out, so the screen update result is not confirmed.
 The Stitch design system uses an exploratory dark tactical style that does not match this native visual baseline.
 The retro `MENU-01` screen direction is an approved screen-specific exception to that exploratory design system.
 This file and `docs/features.md` remain authoritative for implementation details that the Stitch samples do not represent accurately.
+Two consolidated Teams variants were requested from screen `681ae093051749fd922ab74454f47121` on 2026-08-31.
+An inspection after the timeout found no generated consolidated Teams variants in the project screen inventory.
+The two existing `MENU-01` explorations remain `681ae093051749fd922ab74454f47121` and `e26294cba3d946a0af458bcf33c275a0`.
+The local screen specification and wireframes are complete and remain sufficient for implementation and visual assessment.
+The stale Stitch screens are a documented non-blocking limitation for PR #54.

@@ -52,6 +52,8 @@ namespace Duel6 {
 
             void setPosition(int X, int Y, int W, int M, const std::string &allowed);
 
+            void setLocation(int X, int Y);
+
             void setLabel(const std::string &label);
 
             void setLabelLeft(bool labelLeft);
