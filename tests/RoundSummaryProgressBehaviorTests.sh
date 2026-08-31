@@ -118,7 +118,11 @@ start_scenario() {
     scenario_dir="${test_root}/${label}"
     runtime_dir="${scenario_dir}/runtime"
     mkdir -p "$runtime_dir"
-    cp -a "${build_dir}/." "$runtime_dir/"
+    cp "${build_dir}/duel6r" "$runtime_dir/"
+    for resource in data levels profiles shaders sound textures; do
+        [[ -d "${build_dir}/${resource}" ]] || fail "runtime resource is missing: $resource"
+        cp -a "${build_dir}/${resource}" "$runtime_dir/"
+    done
     write_fixture "$runtime_dir" "$played"
     mkdir -p "${scenario_dir}/home"
     (
@@ -175,13 +179,23 @@ PY
 )"
         if [[ "$actual" == "$expected" ]]; then
             sleep 0.2
-            import -window root "${scenario_dir}/summary.png"
+            import -window root "${scenario_dir}/summary-early.png"
+            sleep 0.8
+            import -window root "${scenario_dir}/summary-late.png"
+            cp "${scenario_dir}/summary-late.png" "${scenario_dir}/summary.png"
             return
         fi
         sleep 0.1
     done
     import -window root "${scenario_dir}/summary-timeout.png" || true
     fail "summary for ${scenario_dir} did not reach played-round count $expected"
+}
+
+capture_next_round() {
+    xdotool key --window "$window_id" F1
+    import -window root "${scenario_dir}/next-round-first.png"
+    sleep 0.2
+    import -window root "${scenario_dir}/next-round-settled.png"
 }
 
 stop_scenario() {
@@ -199,6 +213,7 @@ stop_scenario() {
 start_scenario first 0 5 ""
 capture_active_tab
 wait_for_summary 1
+capture_next_round
 stop_scenario
 
 start_scenario resumed 2 5 y
@@ -217,38 +232,7 @@ start_scenario unlimited 2 0 n
 wait_for_summary 3
 stop_scenario
 
-python3 - "$test_root" <<'PY'
-import subprocess
-import sys
-
-root = sys.argv[1]
-
-def progress_signal(path):
-    # At 1280x900 the right side of the centered title bar contains only the
-    # new progress label. Thresholding isolates its white glyphs from blue.
-    value = subprocess.check_output([
-        "convert", path, "-crop", "180x36+740+350", "-colorspace", "gray",
-        "-threshold", "90%", "-format", "%[fx:mean]", "info:",
-    ], text=True)
-    return float(value)
-
-included = {
-    label: progress_signal(f"{root}/{label}/summary.png")
-    for label in ("first", "resumed", "penultimate")
-}
-excluded = {
-    "final": progress_signal(f"{root}/final/summary.png"),
-    "unlimited": progress_signal(f"{root}/unlimited/summary.png"),
-    "active-tab": progress_signal(f"{root}/first/active-tab.png"),
-}
-for label, signal in included.items():
-    if signal < 0.03:
-        raise SystemExit(f"{label}: missing round-progress glyphs ({signal:.6f})")
-for label, signal in excluded.items():
-    if signal > 0.01:
-        raise SystemExit(f"{label}: unexpected round-progress glyphs ({signal:.6f})")
-print("included-signals", included)
-print("excluded-signals", excluded)
-PY
+python3 "${workspace_dir}/tests/RoundSummaryProgressImageAssertions.py" "$test_root" \
+    "${build_dir}/data/font.ttf"
 
 echo "Round-summary evidence captured at ${test_root}"
