@@ -82,8 +82,7 @@ The manifest must include content that can change authoritative simulation or ma
 - every gameplay level that the host can select during the session;
 - gameplay metadata for each included level;
 - gameplay data referenced by an included level when that data can change simulation or outcomes;
-- gameplay configuration and data definitions;
-- host-installed and host-enabled gameplay scripts.
+- gameplay configuration and data definitions.
 
 The level scope is not limited to the initial level or rotation. Lobby changes may select only levels in the frozen manifest.
 
@@ -98,7 +97,7 @@ The manifest must exclude:
 
 Participant profile data must not affect compatibility. The network session must not load or execute a participant profile script.
 
-Only host-installed and host-enabled gameplay scripts may affect authoritative network play. Those scripts must be present in the manifest.
+First-release network matches must not enable or execute an optional gameplay script. The authoritative policy is in [`network-authoritative-headless-match.md`](network-authoritative-headless-match.md).
 
 ### Entry fields and canonical paths
 
@@ -131,7 +130,7 @@ A missing, additional, changed, or case-different valid entry causes a gameplay-
 
 The scaffold uses SHA-256 over each file's exact bytes as the 32-byte cross-platform content identity. The wire representation carries those 32 bytes directly and does not compare textual hash encodings.
 
-The host and guest manifest builder includes every regular file under `levels/`, `data/blocks.json`, `data/config.script`, and each explicitly enabled `scripts/` path supplied through `--gameplay-script=`. It does not enumerate `profiles/`, people, controls, saves, statistics, documentation, or presentation directories. A profile script therefore cannot enter or execute through admission.
+The current scaffold manifest builder includes every regular file under `levels/`, `data/blocks.json`, and `data/config.script`. It can also include an explicitly enabled `scripts/` path from its diagnostic script option. That option is not part of the supported first-release match path. The supported path must not supply that option. It must not enumerate `profiles/`, optional gameplay scripts, people, controls, saves, statistics, documentation, or presentation directories. A profile or optional gameplay script therefore cannot enter or execute through a supported first-release network match.
 
 The builder sorts logical paths before hashing and rejects symlinks or reparse points, hard-linked files, non-regular entries, root escape, cross-device or cross-volume traversal, unsafe aliases, duplicate or invalid paths, missing required content, more than 256 manifest entries, more than 256 traversed directories, more than 512 examined filesystem entries, an individual file above 64 MiB, or more than 256 MiB of included content. Native descriptor- or handle-based reads use no-follow opens and revalidate file identity, size, and modification metadata after hashing. On Windows, the builder uses Win32 wide APIs throughout: it converts the configured UTF-8 root strictly, resolves an absolute requested path with `GetFullPathNameW`, opens and identifies the selected root object, obtains its normalized extended final handle path with `GetFinalPathNameByHandleW`, and pins both the complete requested and resolved ancestor chains through that same root identity. It does not pass extended Win32, volume, or UNC final-handle paths through `std::filesystem` canonicalization. Every pinned directory denies delete/rename sharing and must remain a non-reparse, non-device directory on the same volume with the same file identity and ordinal final path. Enumeration and file opens remain wide under the pinned final path, revalidate the root and ancestor chain before every pathname operation, compare normalized paths with `CompareStringOrdinal`, and convert bounded logical relative names to ASCII only after safe wide enumeration. Parent junctions, ancestor or root rename/replacement, root-identity changes, invalid UTF-8/UTF-16, case/Unicode alias mismatch, volume escape, non-regular content, mutation, and read failure therefore fail closed or remain bound to the originally pinned root object without publishing a partial manifest. These bounds limit pre-listener and pre-connection hashing work; they do not change the 262,144-byte admission-payload bound.
 
@@ -367,7 +366,7 @@ These commands provide process-level protocol evidence only. Successful output r
 - **AC-011:** A changed gameplay level or level metadata file must fail as gameplay-content mismatch.
 - **AC-012:** Cosmetic assets, profiles, people, controls, statistics, and saves must not affect compatibility.
 - **AC-013:** The network session must not load or execute a participant profile script.
-- **AC-014:** Only host-installed and host-enabled gameplay scripts may enter the authoritative manifest.
+- **AC-014:** An optional gameplay script must not enter or execute through a supported first-release network match.
 - **AC-015:** Admission must reject a request that would exceed 15 participants or 15 roster players.
 - **AC-016:** Rejection or disconnect before commit must allocate no participant, player slot, ownership, or committed identity; a lost final confirmation after commit must not roll host state back.
 - **AC-017:** The host must apply every admission outcome in the fixed precedence order.
