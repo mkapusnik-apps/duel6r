@@ -164,8 +164,7 @@ namespace Duel6 {
             font.print(x + width - roundProgressWidth, y + height - fontSize, 0.0f, fontColor, roundProgress,
                        fontSize);
         }
-        font.print(x + width - kadWidth, y + height - 2 * fontSize, 0.0f, fontColor, "  K   A   D   K/D  PTS",
-                   fontSize);
+        font.print(posX + tableWidth - kadWidth, y + height - 2 * fontSize, 0.0f, fontColor, kad, fontSize);
         for (const auto &entry : ranking.entries) {
             posY = renderRankingEntry(entry, posX, posY, maxLength, fontSize, true);
             for (const auto &nestedRankingEntry : entry.entries) {
@@ -540,7 +539,7 @@ namespace Duel6 {
             if (game.isOver()) {
                 gameOverSummary();
             } else {
-                roundOverSummary(settings.isRoundLimit());
+                roundOverSummary(settings.isRoundLimit() && !game.getRound().isLast());
             }
         }
     }
