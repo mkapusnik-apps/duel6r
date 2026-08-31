@@ -138,6 +138,7 @@ The PR #54 consolidated Teams evidence was assessed with this setup:
 - Assessment source: the two raw artifacts at screenshot artifact commit `4117bb6634b78f914516ec949e26df5b1586f808`.
 - Visual assessment: both artifacts conform to their wireframes, the native menu design system, and AC-044–AC-051.
 - Evidence status: both artifacts conform and have complete required provenance.
+- Stitch qualification: the two stale `MENU-01` Stitch explorations are supplementary and do not block PR #54 visual acceptance because the authoritative local design documentation, wireframes, and implementation evidence conform.
 
 The fresh shared-arena packet has this provenance:
 

@@ -333,6 +333,10 @@ The following values come from renderer and GUI source.
 ## Stitch synchronization
 
 The corresponding Stitch project is `projects/1219346282527961142` (`Duel 6 Reloaded`).
+For PR #54 and subsequent assessment of this approved change, Stitch is a supplementary visual workspace.
+`docs/features.md`, this file, the applicable screen specifications, the version-controlled wireframes, and conforming implementation screenshots are authoritative.
+A missing or stale Stitch representation must not replace or weaken any local design, wireframe, screenshot, provenance, or implementation-presentation gate.
+A Stitch synchronization failure does not block visual acceptance when all authoritative local sources exist, remain current, and conform.
 The project includes two `MENU-01 — Main menu and session setup` explorations at screens `681ae093051749fd922ab74454f47121` and `e26294cba3d946a0af458bcf33c275a0`.
 Screen `681ae093051749fd922ab74454f47121` is the visual reference for the retro grey canvas, black matte, four-panel hierarchy, score table, and footer actions.
 The application behavior and copy in `docs/features.md` override illustrative Stitch names, statistics, settings, version text, and shortcut syntax.
@@ -345,5 +349,5 @@ This file and `docs/features.md` remain authoritative for implementation details
 Two consolidated Teams variants were requested from screen `681ae093051749fd922ab74454f47121` on 2026-08-31.
 An inspection after the timeout found no generated consolidated Teams variants in the project screen inventory.
 The two existing `MENU-01` explorations remain `681ae093051749fd922ab74454f47121` and `e26294cba3d946a0af458bcf33c275a0`.
-The local screen specification and wireframes are complete and remain sufficient for implementation.
-Stitch synchronization remains required for final visual-source alignment, but its absence does not block implementation.
+The local screen specification and wireframes are complete and remain sufficient for implementation and visual assessment.
+The stale Stitch screens are a documented non-blocking limitation for PR #54.
