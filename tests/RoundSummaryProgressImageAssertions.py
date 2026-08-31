@@ -8,6 +8,10 @@ import sys
 
 WIDTH = 1280
 HEIGHT = 900
+LABEL_WIDTH = 176
+LABEL_HEIGHT = 32
+PANEL_INSET = 16
+SCORE_STRIP_OVERHANG = 5
 
 
 def fail(message):
@@ -54,18 +58,45 @@ def blue_strip_rows(image):
     return min(rows), max(rows) + 1
 
 
+def blue_strip_bounds(image, strip):
+    """Return the longest opaque-blue run in the SCORE strip."""
+    best = None
+    for y in range(*strip):
+        run_start = None
+        for x in range(300, 981):
+            red, green, blue = pixel(image, x, y)
+            opaque_blue = red <= 20 and green <= 20 and blue >= 220
+            if opaque_blue and run_start is None:
+                run_start = x
+            if not opaque_blue and run_start is not None:
+                candidate = (run_start, x)
+                if best is None or candidate[1] - candidate[0] > best[1] - best[0]:
+                    best = candidate
+                run_start = None
+        if run_start is not None:
+            candidate = (run_start, 981)
+            if best is None or candidate[1] - candidate[0] > best[1] - best[0]:
+                best = candidate
+    return best
+
+
 def expected_text_mask(font_path, text):
     raw = subprocess.check_output([
         "convert", "-background", "black", "-fill", "white", "-font", font_path,
-        "-pointsize", "32", f"label:{text}", "-resize", "176x32!", "-depth", "8", "gray:-",
+        "-pointsize", "32", f"label:{text}", "-resize", f"{LABEL_WIDTH}x{LABEL_HEIGHT}!",
+        "-depth", "8", "gray:-",
     ])
-    if len(raw) != 176 * 32:
+    if len(raw) != LABEL_WIDTH * LABEL_HEIGHT:
         fail(f"could not render expected label {text!r}")
     return [value >= 64 for value in raw]
 
 
 def observed_text_mask(image, left, top):
-    return [white(image, left + x, top + y) for y in range(32) for x in range(176)]
+    return [
+        white(image, left + x, top + y)
+        for y in range(LABEL_HEIGHT)
+        for x in range(LABEL_WIDTH)
+    ]
 
 
 def dice(first, second):
@@ -74,14 +105,13 @@ def dice(first, second):
     return 2.0 * overlap / total if total else 0.0
 
 
-def label_scores(image, font_path):
+def label_scores(image, font_path, left):
     scores = {}
     for played in range(10):
         expected = expected_text_mask(font_path, f"Rounds: {played}|5")
         score = 0.0
-        for left in range(549, 556):
-            for top in range(336, 344):
-                score = max(score, dice(observed_text_mask(image, left, top), expected))
+        for top in range(336, 344):
+            score = max(score, dice(observed_text_mask(image, left, top), expected))
         scores[played] = score
     return scores
 
@@ -104,10 +134,25 @@ def assert_included(root, font_path, label, played):
         strip = blue_strip_rows(image)
         if strip != (366, 402):
             fail(f"{label}/{frame}: expected unobstructed score strip at rows 366..401, got {strip}")
-        scores = label_scores(image, font_path)
+        strip_bounds = blue_strip_bounds(image, strip)
+        if strip_bounds is None:
+            fail(f"{label}/{frame}: could not determine SCORE strip horizontal bounds")
+        # The opaque SCORE strip extends five pixels beyond each side of the
+        # translucent outer panel. The progress text's layout box must end
+        # exactly 16 pixels inside that panel's right edge. Checking the one
+        # resulting origin (rather than a horizontal OCR search range) rejects
+        # the former centered placement and every off-by-one inset regression.
+        panel_right = strip_bounds[1] - SCORE_STRIP_OVERHANG
+        progress_right = panel_right - PANEL_INSET
+        progress_left = progress_right - LABEL_WIDTH
+        scores = label_scores(image, font_path, progress_left)
         winner = max(scores, key=scores.get)
         if winner != played or scores[played] < 0.42:
-            fail(f"{label}/{frame}: expected exact Rounds: {played}|5 label; OCR scores={scores}")
+            fail(
+                f"{label}/{frame}: expected exact right-aligned Rounds: {played}|5 label "
+                f"at x={progress_left} (panel right={panel_right}, inset={PANEL_INSET}); "
+                f"OCR scores={scores}"
+            )
         if white_count(image, (550, 366, 730, 402)) < 250:
             fail(f"{label}/{frame}: SCORE heading is missing or obstructed")
         if white_count(image, (550, 403, 895, 433)) < 180:
