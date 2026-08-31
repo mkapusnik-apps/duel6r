@@ -5,7 +5,7 @@
 This overlay reports ranking after a non-final round and provides the transition to the next round.
 Entry occurs when the game mode reports a winner or no winner in a non-final finite match or an unlimited match.
 Exit occurs automatically after the wait or through an accepted advance input.
-The overlay implements `LIF-011`–`LIF-017`, `MOD-DM-001`–`MOD-DM-003`, `MOD-PR-005`–`MOD-PR-008`, `MOD-TM-005`–`MOD-TM-011`, `UI-012`, `UI-RND-001`–`UI-RND-010`, and `AC-044` from [`docs/features.md`](../features.md).
+The overlay implements `LIF-011`–`LIF-017`, `MOD-DM-001`–`MOD-DM-003`, `MOD-PR-005`–`MOD-PR-008`, `MOD-TM-005`–`MOD-TM-011`, `UI-012`, `UI-RND-001`–`UI-RND-010`, and `AC-052` from [`docs/features.md`](../features.md).
 Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`, and `source/WorldRenderer.cpp:120-178,514-547`.
 
 ## Layout and hierarchy

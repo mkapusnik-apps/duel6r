@@ -367,24 +367,27 @@ namespace Duel6 {
 
         initializeGameModes();
         gameModeSwitch = new Gui::Spinner(gui);
-        for (Size i = 0; i < gameModes.size(); i++) {
-            if (i < 2) {
-                gameModeSwitch->addItem(gameModes[i]->getName());
-            } else {
-                gameModeSwitch->addItem(Format("{0} teams, FF: {1}") << (1 + i / 2) << (i % 2 ? "on" : "off"));
-            }
-        }
+        gameModeSwitch->addItem(gameModes[0]->getName());
+        gameModeSwitch->addItem(gameModes[1]->getName());
+        gameModeSwitch->addItem("Teams");
         gameModeSwitch->setPosition(654, 540, 182, 20);
-        gameModeSwitch->onToggled([this](Int32 selectedIndex) {
-            if (selectedIndex < 2) {
-                playerListBox->onColorize(Gui::ListBox::defaultColorize);
-            } else {
-                Int32 teamCount = 1 + selectedIndex / 2;
-                playerListBox->onColorize([teamCount](Int32 index, const std::string &label) {
-                    return Gui::ListBox::ItemColor{Color::BLACK, TEAMS[index % teamCount].color};
-                });
-            }
+
+        teamCountLabel = new Gui::Label(gui);
+        teamCountLabel->setCaption("Num. of Team");
+        teamCountLabel->setPosition(654, 512, 96, 20);
+
+        teamCountSwitch = new Gui::Spinner(gui);
+        teamCountSwitch->addItem("2", 2);
+        teamCountSwitch->addItem("3", 3);
+        teamCountSwitch->addItem("4", 4);
+        teamCountSwitch->setPosition(750, 512, 86, 20);
+        teamCountSwitch->onToggled([this](Int32) {
+            updatePlayerColors();
         });
+
+        friendlyFireCheckBox = new Gui::CheckBox(gui, false);
+        friendlyFireCheckBox->setLabel("Friendly Fire");
+        friendlyFireCheckBox->setPosition(654, 484, 170, 20);
 
         globalAssistanceCheckBox = new Gui::CheckBox(gui, true);
         globalAssistanceCheckBox->setLabel("Assistance");
@@ -403,6 +406,13 @@ namespace Duel6 {
         roundsTextbox->setLabelLeft(true);
         roundsTextbox->setPosition(792, 424, 4, 4, D6_NUM_CHR);
         updateRoundsTextbox();
+
+        gameModeSwitch->onToggled([this](Int32) {
+            updateGameSettingsLayout();
+            updatePlayerColors();
+        });
+        updateGameSettingsLayout();
+        updatePlayerColors();
 
         backgroundCount = File::countFiles(D6_TEXTURE_BCG_PATH);
         levelList.initialize(D6_FILE_LEVEL, D6_LEVEL_EXTENSION);
@@ -626,6 +636,49 @@ namespace Duel6 {
         gameModes.push_back(std::make_unique<TeamDeathMatch>(4, true));
     }
 
+    bool Menu::isTeamModeSelected() {
+        return gameModeSwitch->currentItem() == 2;
+    }
+
+    Int32 Menu::selectedTeamCount() {
+        return teamCountSwitch->currentValue().first;
+    }
+
+    GameMode &Menu::selectedGameMode() {
+        Int32 modeIndex = gameModeSwitch->currentItem();
+        if (modeIndex < 2) {
+            return *gameModes[modeIndex];
+        }
+
+        Int32 teamModeIndex = 2 + (selectedTeamCount() - 2) * 2 + (friendlyFireCheckBox->isChecked() ? 1 : 0);
+        return *gameModes[teamModeIndex];
+    }
+
+    void Menu::updateGameSettingsLayout() {
+        bool showTeamSettings = isTeamModeSelected();
+        teamCountLabel->setVisible(showTeamSettings);
+        teamCountSwitch->setVisible(showTeamSettings);
+        friendlyFireCheckBox->setVisible(showTeamSettings);
+
+        Int32 offset = showTeamSettings ? -54 : 0;
+        globalAssistanceCheckBox->setPosition(654, 510 + offset, 170, 20);
+        quickLiquidCheckBox->setPosition(654, 482 + offset, 170, 20);
+        burnableTreesCheckBox->setPosition(654, 454 + offset, 170, 20);
+        roundsTextbox->setLocation(792, 424 + offset);
+    }
+
+    void Menu::updatePlayerColors() {
+        if (!isTeamModeSelected()) {
+            playerListBox->onColorize(Gui::ListBox::defaultColorize);
+            return;
+        }
+
+        Int32 teamCount = selectedTeamCount();
+        playerListBox->onColorize([teamCount](Int32 index, const std::string &) {
+            return Gui::ListBox::ItemColor{Color::BLACK, TEAMS[index % teamCount].color};
+        });
+    }
+
     void Menu::savePersonData() const {
         Json::Value json = Json::Value::makeObject();
         json.set("persons", persons.toJson());
@@ -834,7 +887,7 @@ namespace Duel6 {
             }
         }
 
-        GameMode &selectedMode = *gameModes[gameModeSwitch->currentItem()];
+        GameMode &selectedMode = selectedGameMode();
 
         std::vector<Game::PlayerDefinition> playerDefinitions;
         for (Size i = 0; i < playerListBox->size(); i++) {
@@ -1212,7 +1265,7 @@ namespace Duel6 {
 
         }
 
-        Int32 teamPlayerCount = 1 + gameModeSwitch->currentItem() / 2;
+        Int32 teamPlayerCount = isTeamModeSelected() ? selectedTeamCount() : 1;
         for (Int32 start = 0; start < Int32(playerCount); start += teamPlayerCount) {
             auto span = std::min(teamPlayerCount, Int32(playerCount) - start);
             auto first = shuffle.begin() + start;

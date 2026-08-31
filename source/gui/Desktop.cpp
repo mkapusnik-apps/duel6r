@@ -58,7 +58,9 @@ namespace Duel6 {
 
         void Desktop::update(Float32 elapsedTime) {
             for (auto &control : controls) {
-                control->update(elapsedTime);
+                if (control->isVisible()) {
+                    control->update(elapsedTime);
+                }
             }
         }
 
@@ -69,7 +71,9 @@ namespace Duel6 {
             renderer.quadXY(Vector(0, 0), Vector(canvasWidth, canvasHeight), bcgColor);
 
             for (auto &control : controls) {
-                control->draw(renderer, font);
+                if (control->isVisible()) {
+                    control->draw(renderer, font);
+                }
             }
 
             renderer.setViewMatrix(Matrix::IDENTITY);
@@ -77,34 +81,44 @@ namespace Duel6 {
 
         void Desktop::keyEvent(const KeyPressEvent &event) {
             for (auto &control : controls) {
-                control->keyEvent(event);
+                if (control->isVisible()) {
+                    control->keyEvent(event);
+                }
             }
         }
 
         void Desktop::textInputEvent(const TextInputEvent &event) {
             for (auto &control : controls) {
-                control->textInputEvent(event);
+                if (control->isVisible()) {
+                    control->textInputEvent(event);
+                }
             }
         }
 
         void Desktop::mouseButtonEvent(const MouseButtonEvent &event) {
             MouseButtonEvent translatedEvent = event.inverseTransform(scale, trX, trY);
             for (auto &control : controls) {
-                control->mouseButtonEvent(translatedEvent);
+                if (control->isVisible()) {
+                    control->mouseButtonEvent(translatedEvent);
+                }
             }
         }
 
         void Desktop::mouseMotionEvent(const MouseMotionEvent &event) {
             MouseMotionEvent translatedEvent = event.inverseTransform(scale, trX, trY);
             for (auto &control : controls) {
-                control->mouseMotionEvent(translatedEvent);
+                if (control->isVisible()) {
+                    control->mouseMotionEvent(translatedEvent);
+                }
             }
         }
 
         void Desktop::mouseWheelEvent(const MouseWheelEvent &event) {
             MouseWheelEvent translatedEvent = event.inverseTransform(scale, trX, trY);
             for (auto &control : controls) {
-                control->mouseWheelEvent(translatedEvent);
+                if (control->isVisible()) {
+                    control->mouseWheelEvent(translatedEvent);
+                }
             }
         }
     }

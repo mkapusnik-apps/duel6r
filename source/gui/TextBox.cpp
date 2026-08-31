@@ -44,13 +44,17 @@ namespace Duel6 {
         }
 
         void Textbox::setPosition(int X, int Y, int W, int M, const std::string &allowed) {
-            x = X + 2;
-            y = Y - 2;
+            setLocation(X, Y);
             max = M;
             width = W;
 
             allowedCharacters = allowed;
             text.clear();
+        }
+
+        void Textbox::setLocation(int X, int Y) {
+            x = X + 2;
+            y = Y - 2;
         }
 
         void Textbox::setLabel(const std::string &label) {

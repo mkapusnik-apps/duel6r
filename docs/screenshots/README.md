@@ -2,7 +2,7 @@
 
 ## Assessment status
 
-This manifest requires exactly one representative screenshot entry for each wireframe. A downstream target entry is `Planned` until implementation starts. An affected implemented-screen entry is `Pending` until its changed UI exists and is captured. A planned or pending path is not implementation evidence.
+This manifest requires exactly one representative screenshot entry for each wireframe. An entry is `Planned` when downstream implementation does not exist. An entry is `Pending` when implementation evidence is required but unavailable. Planned and pending paths are not implementation evidence.
 The 2026-08-26 approved menu presentation affects `MENU-01`, `MENU-02`, and `CONS-01`.
 It preserves the retro logical layout while adding uniform responsive scaling, a session-persistent blurred and scrimmed gameplay still, and a canvas keyline.
 The previously conforming `MENU-01/default-1706x938.png`, `MENU-02/confirmation-1706x938.png`, and `CONS-01/open-1706x938.png` artifacts are now stale historical evidence and are not representative matrix artifacts.
@@ -10,10 +10,15 @@ The prior `SS-002` and `SS-013` artifacts remain valid historical evidence for t
 Seven other existing representative screenshots remain current because their target presentation is unchanged.
 Issue #28 changes target `MENU-01`, its visible background in `MENU-02` and `CONS-01`, and adds `NET-01`–`NET-09`.
 Eleven planned entries cover `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
-The current `MENU-01` entry remains implementation evidence until issue #38 implements the Network footer and requires a replacement capture.
+The previous `MENU-01` entry is historical evidence after the consolidated Teams approval.
 The 2026-08-29 Rounds focus and session-memory change also affects `MENU-01`.
 The `MENU-01` representative entry shows a positive applied Rounds value after gameplay returns during one application session.
 The focus-clear, empty-blur, and restart variants remain requirements in the screen specification and wireframe and do not add screenshot entries.
+The 2026-08-31 consolidated Teams selector adds one conditional-layout wireframe to `MENU-01`.
+The change invalidates the prior `SS-001` artifact because the mode selector and Game Settings layout can visibly change.
+`SS-001` now covers the non-Team wireframe.
+`SS-024` covers the Teams wireframe.
+The two entries use the approved specification at `ea5d918cf4d9f9402addfbc341759cd428ce5441` on `docs/consolidate-team-mode` as their requirements baseline.
 Issue #30 defines protocol, command-line, or scaffold outcomes only.
 Issue #30 has zero capturable graphical entries because it must not implement the planned network screens.
 The existing 12 planned issue #38 entries remain unchanged and must not be used as issue #30 evidence.
@@ -167,6 +172,27 @@ The corrected PR #55 round-summary progress artifact has this provenance:
 - Artifact path: `OVER-02/resumed-round-3-of-5-1280x900.png` under this directory.
 - Assessment status: UX confirmed visual conformance for corrected `UI-RND-010` and `AC-044` at exact pull request head `4e5c9e6945b33a4d5911fdb7ea944d544f31a9f8` on 2026-08-31. Temporal restoration of top-center progress in the next active round remains tester evidence and does not require another screenshot.
 
+The PR #54 consolidated Teams evidence was assessed with this setup:
+
+- Pull request: `#54`.
+- Branch: `docs/consolidate-team-mode`.
+- Implementation source SHA: `7de2b9b79523ad5f17e87c1f362819f6bd11ba43`.
+- Screenshot artifact commit and head: `4117bb6634b78f914516ec949e26df5b1586f808`.
+- Environment: Ubuntu 24.04 Docker image `duel6r-build:local`, Release, GL4, Lua enabled, Mesa software rendering, Xvfb at 1920 by 1080 by 24, and dummy SDL audio.
+- Viewport: 1920 by 1080 px.
+- Session workflow: one uninterrupted application process created and selected eight persons; selected Teams; set `Num. of Team` to `4`; set Friendly Fire on; captured Deathmatch after switching away; returned to Teams; applied Rounds `3`; entered gameplay; and captured Teams after returning to the menu.
+- Session label: deterministic post-capture label `menu01-4117bb6-c829061a-7728d632`, anchored to screenshot commit `4117bb6634b78f914516ec949e26df5b1586f808` and both reported artifact hashes.
+- Selected background: `forest-foundry.png`, verified by matching the screenshot artifact to the runtime resource; the ephemeral capture log did not retain the filename.
+- Runtime asset Git tree: `399c8a8bdddd86e526e8811ae2da2461d9229866`.
+- `SS-001` artifact: `MENU-01/non-team-settings-hidden-1920x1080.png`.
+- `SS-001` reported SHA-256: `c829061ae118a597bb5fe144cd8aa6025883db4291a2f988091ab39d0e97a94c`.
+- `SS-024` artifact: `MENU-01/teams-4-ff-on-retained-after-gameplay-1920x1080.png`.
+- `SS-024` reported SHA-256: `7728d632245866857638a41766b680070ead5c603f13b0a405d0ae05a305c92e`.
+- Assessment source: the two raw artifacts at screenshot artifact commit `4117bb6634b78f914516ec949e26df5b1586f808`.
+- Visual assessment: both artifacts conform to their wireframes, the native menu design system, and AC-044–AC-051.
+- Evidence status: both artifacts conform and have complete required provenance.
+- Stitch qualification: the two stale `MENU-01` Stitch explorations are supplementary and do not block PR #54 visual acceptance because the authoritative local design documentation, wireframes, and implementation evidence conform.
+
 The fresh shared-arena packet has this provenance:
 
 - Branch: `feature/remove-split-screen`.
@@ -190,7 +216,7 @@ The replacement shared-arena artifacts have this provenance:
 
 | ID | Screen ID | Wireframe | Route or workflow | Representative state and setup data | Viewport | Expected visible behavior | Destination path | Provenance and status |
 |---|---|---|---|---|---:|---|---|---|
-| <a id="ss-001"></a>`SS-001` | `MENU-01` | [Main menu](../screens/wireframes/menu-main.md) | Start the application. Create saved persons Ada and Bruno. Select both persons. Focus Rounds while it shows `0`. Enter `3` and apply it with Enter. Enter gameplay. Return to the setup menu during the same application session. | Use two selected saved persons, Deathmatch, applied Rounds `3`, and Assistance, Quick Liquid, and Burnable Trees on. Capture the unfocused field after gameplay returns. | 1920x1080 | The Rounds field must show `3`. The field must not show the focus underscore. The scaled retro menu and current three-action footer must remain visible. | `docs/screenshots/MENU-01/rounds-3-retained-after-gameplay-1920x1080.png` | PR #52 packet provenance above. The exact pushed artifact shows Rounds `3` without an underscore after the reported same-session gameplay workflow. The scaled menu uses the approved current presentation and three-action footer. `Conforms`. |
+| <a id="ss-001"></a>`SS-001` | `MENU-01` | [Non-Team Game Settings](../screens/wireframes/menu-main.md#menu-01-a--non-team-state) | Start the application. Create eight saved persons and select all eight. Select `Teams`, set `Num. of Team` to `4`, set `Friendly Fire` on, and then select `Deathmatch`. | Use Deathmatch with eight selected players. Keep Assistance, Quick Liquid, and Burnable Trees on. Keep the hidden Team values at four teams and Friendly Fire on. | 1920x1080 | The mode selector must show Deathmatch. `Num. of Team` and `Friendly Fire` must be absent. The remaining settings must form one compact stack inside the existing panel. Every roster row must use standard non-Team colors. | `docs/screenshots/MENU-01/non-team-settings-hidden-1920x1080.png` | PR #54 packet above. The artifact shows Deathmatch, no Team controls or reserved Team rows, eight standard roster rows, readable text, the unchanged panel bounds, and the current three-action footer. `Conforms`. |
 | <a id="ss-002"></a>`SS-002` | `MENU-02` | [Menu message](../screens/wireframes/menu-message.md) | After issue #38 implements the Network footer, select Clear or press F3 from the populated menu. | Use four saved people, two selected players, Deathmatch, persistent score data, and documented default settings; show `Really delete? (Y/N)`. | 1920x1080 | The unchanged scaled target menu behind the strip must visibly include equal-width `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)` footer actions. | `docs/screenshots/MENU-02/network-entry-confirmation-1920x1080.png` | `Planned` for downstream issue #38. The existing three-action-footer capture is not valid for this target wireframe. |
 | <a id="ss-003"></a>`SS-003` | `PLAY-01` | [Shared arena play](../screens/wireframes/play-fullscreen.md) | Start a local Deathmatch and press F2 once during live play. | Use 15 living players, ranking on, a finite round limit, and a state after the start fade. | 1280x900 | One undivided arena must show the whole level and all 15 players. F2 must not change the view. Live ranking, round progress, event messages, and player status must remain available. | `docs/screenshots/PLAY-01/shared-15-player-1280x900.png` | Replacement packet provenance above. Captured from an actual 15-player Deathmatch with ranking enabled and three rounds after pressing F2 once. `Conforms`. |
 | <a id="ss-007"></a>`SS-007` | `MODE-01` | [Predator](../screens/wireframes/mode-predator.md) | Start Predator from the menu. | Use three living players, one predator, ranking on, and a finite round limit. | 1280x900 | One undivided arena must show the faint predator body, visible predator weapon, opaque marines, live ranking, round progress, events, and status cues. | `docs/screenshots/MODE-01/shared-live-1280x900.png` | Fresh shared-arena packet provenance above. `Conforms`. |
@@ -210,18 +236,19 @@ The replacement shared-arena artifacts have this provenance:
 | <a id="ss-021"></a>`SS-021` | `NET-07` | [Guest reconnect](../screens/wireframes/network-reconnect.md) | Interrupt a guest connection during an active network match. | Reconnecting with 24 positive ceiling seconds remaining after host crash or another ambiguous transport failure. | 1280x900 | Endpoint, unchanged reservation deadline, no-input state, active simulation, retryable status, and `Leave session` consequence are visible; the state does not claim host end or player removal. | `docs/screenshots/NET-07/reconnecting-24s-1280x900.png` | `Planned` for downstream issue #38; reconnect is not implemented. |
 | <a id="ss-022"></a>`SS-022` | `NET-08` | [Connection failure](../screens/wireframes/network-failure.md) | Attempt to join an unavailable direct endpoint. | Initial `Host unreachable.` with endpoint context, Retry, Edit setup, and Return to Network. | 1920x1080 | Initial admission uses fixed precedence; terminal reconnect disables Retry; expiry uses truthful copy; host-local service failure uses `Hosted session stopped unexpectedly.` only for the host. | `docs/screenshots/NET-08/host-unreachable-1920x1080.png` | `Planned` for downstream issue #38; no current network UI exists. |
 | <a id="ss-023"></a>`SS-023` | `NET-09` | [Host-ended session overlay](../screens/wireframes/network-host-ended.md) | Receive a valid intentional host End session notice during an active network match. | Host-ended outcome over the last authoritative arena context. | 1280x900 | A blocking `HOST ENDED SESSION` overlay states no migration/resume or persistence and can arise only from an End notice accepted through the current established session. | `docs/screenshots/NET-09/host-ended-1280x900.png` | `Planned` for downstream issue #38; host-ended UI is not implemented. |
+| <a id="ss-024"></a>`SS-024` | `MENU-01` | [Teams Game Settings](../screens/wireframes/menu-main.md#menu-01-b--teams-state) | In the same application session, select `Teams`, set `Num. of Team` to `4`, set `Friendly Fire` on, apply Rounds `3`, start gameplay, and return to the menu. | Use eight selected saved persons. Return with Teams selected, four teams, Friendly Fire on, and Rounds `3`. | 1920x1080 | The mode selector must show Teams. `Num. of Team` must show `4`. Friendly Fire must show on. Rounds must show `3` without a focus underscore. The roster must repeat Alpha red, Bravo green, Charlie yellow, and Delta magenta by roster position. All settings must stay inside the existing panel without overlap. | `docs/screenshots/MENU-01/teams-4-ff-on-retained-after-gameplay-1920x1080.png` | PR #54 packet above. The artifact shows retained Teams, team count `4`, Friendly Fire on, Rounds `3`, eight cyclic team-colored rows with readable text, and seven controls inside the unchanged panel without overlap. `Conforms`. |
 
 ## Coverage
 
-- Required wireframes: 20.
-- Required representative screenshot entries: 20.
-- Conforming screenshots: 9.
+- Required wireframes: 21.
+- Required representative screenshot entries: 21.
+- Fully conforming screenshot entries: 10.
 - Non-conforming screenshots: 0.
 - Planned screenshot entries awaiting downstream issue #38: 11.
 - Pending screenshot assessments: 0; planned entries cannot be assessed before implementation and capture.
 - Screenshots per wireframe: exactly one.
 - Retired screenshot matrix entries: `SS-004`, `SS-005`, and `SS-006`.
-- Coverage status: nine implementation artifacts conform. Eleven planned entries have no valid current artifacts. Issue #38 must invalidate and replace `SS-001` when it implements the Network footer.
+- Coverage status: ten implementation entries fully conform. Eleven planned entries have no current artifacts.
 
 The matrix uses one representative state for each wireframe.
 The screen specifications and wireframes document other player counts, modes, interaction states, and accessibility limits without multiplying screenshot entries.

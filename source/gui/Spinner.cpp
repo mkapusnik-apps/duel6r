@@ -52,6 +52,11 @@ namespace Duel6 {
         std::pair<Int32, std::string> & Spinner::currentValue() {
             return items[selectedIndex];
         }
+        void Spinner::setVisible(bool value) {
+            Control::setVisible(value);
+            left->setVisible(value);
+            right->setVisible(value);
+        }
         void Spinner::setCurrent(Int32 index) {
             Int32 itemCount = items.size();
             if ((index >= 0 && index < itemCount) || (index == -1 && itemCount == 0)) {

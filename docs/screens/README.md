@@ -29,17 +29,21 @@ The update adds `Rounds: <played>|<total>` in a dedicated row above the score he
 The update right-aligns the label 16 px inside the round-summary panel's right bound.
 The update hides the top-center arena progress while the summary is visible and restores it when the next round begins.
 The update does not add a screen or a wireframe.
+The 2026-08-31 consolidated Teams update gives `MENU-01` two conditional-layout wireframes.
+The non-Team wireframe hides the Team settings and uses standard roster rows.
+The Teams wireframe shows both Team settings and uses the selected team-count colors.
+The update does not add a full-screen state or a new screen identifier.
 
 | Screen ID | Screen or state | Specification | Wireframe | Functional requirements | Primary source |
 |---|---|---|---|---|---|
-| `MENU-01` | Main menu and session setup; planned Network entry | [Specification](menu-main.md) | [Wireframe](wireframes/menu-main.md) | `SET-001`–`SET-035`, `AC-040`–`AC-043`, plus target `NET-AC-002`, `NET-AC-009`, `NET-AC-015` | Current: `source/Menu.cpp`; target: `docs/features.md` and `docs/network-play-first-release.md` |
+| `MENU-01` | Main menu and session setup; conditional Team settings; planned Network entry | [Specification](menu-main.md) | [Non-Team and Teams wireframes](wireframes/menu-main.md) | `SET-001`–`SET-047`, `AC-040`–`AC-051`, plus target `NET-AC-002`, `NET-AC-009`, `NET-AC-015` | Current: `source/Menu.cpp`; target: `docs/features.md` and `docs/network-play-first-release.md` |
 | `MENU-02` | Menu blocking message over planned Network footer | [Specification](menu-message.md) | [Wireframe](wireframes/menu-message.md) | Existing local requirements plus target `NET-AC-015`, `NET-AC-017` | Current: `source/Menu.cpp`; target footer: `docs/network-play-first-release.md` |
 | `PLAY-01` | Live shared arena gameplay for 2–15 players | [Specification](play-fullscreen.md) | [Wireframe](wireframes/play-fullscreen.md) | `LIF-001`–`LIF-022`, `INP-012`–`INP-017`, `PLY-001`–`PLY-010`, `ENV-001`–`ENV-013`, `CMB-001`–`CMB-020`, `BON-001`–`BON-020`, `SCO-001`–`SCO-018`, `UI-001`–`UI-020` | Target: `docs/features.md`; context: `source/WorldRenderer.cpp` |
 | `MODE-01` | Predator live gameplay | [Specification](mode-predator.md) | [Wireframe](wireframes/mode-predator.md) | `MOD-PR-001`–`MOD-PR-008`, `UI-001`–`UI-020` | `source/gamemodes/Predator.cpp` |
 | `MODE-02` | Team live gameplay and ranking | [Specification](mode-team.md) | [Wireframe](wireframes/mode-team.md) | `SET-020`–`SET-021`, `SCO-005`–`SCO-006`, `SCO-013`–`SCO-017`, `MOD-TM-001`–`MOD-TM-011`, `UI-001`–`UI-020` | `source/gamemodes/TeamDeathMatch.cpp` |
 | `PLAY-05` | Sudden-death rising water | [Specification](play-sudden-death.md) | [Wireframe](wireframes/play-sudden-death.md) | `ENV-002`–`ENV-007`, `ENV-009`–`ENV-013`, `UI-001`–`UI-020` | `source/Round.cpp:146-200` |
 | `OVER-01` | Score-tab overlay | [Specification](overlay-score-tab.md) | [Wireframe](wireframes/overlay-score-tab.md) | `SCO-018`, `MOD-TM-010`–`MOD-TM-011`, `UI-011` | `source/Game.cpp:62-83` |
-| `OVER-02` | Round-over summary | [Specification](overlay-round-over.md) | [Wireframe](wireframes/overlay-round-over.md) | `LIF-011`–`LIF-017`, `MOD-DM-001`–`MOD-DM-003`, `MOD-PR-005`–`MOD-PR-008`, `MOD-TM-005`–`MOD-TM-011`, `UI-012`, `UI-RND-001`–`UI-RND-010`, `AC-044` | Target: `docs/features.md`; context: `source/Game.cpp:130-169`, `source/WorldRenderer.cpp:120-178,514-547` |
+| `OVER-02` | Round-over summary | [Specification](overlay-round-over.md) | [Wireframe](wireframes/overlay-round-over.md) | `LIF-011`–`LIF-017`, `MOD-DM-001`–`MOD-DM-003`, `MOD-PR-005`–`MOD-PR-008`, `MOD-TM-005`–`MOD-TM-011`, `UI-012`, `UI-RND-001`–`UI-RND-010`, `AC-052` | Target: `docs/features.md`; context: `source/Game.cpp:130-169`, `source/WorldRenderer.cpp:120-178,514-547` |
 | `OVER-03` | Game-over summary | [Specification](overlay-game-over.md) | [Wireframe](wireframes/overlay-game-over.md) | `LIF-018`, `SCO-022`–`SCO-023`, `UI-013`–`UI-014` | `source/Game.cpp:51-79,158-164` |
 | `CONS-01` | Console over menu with planned Network footer | [Specification](console-menu.md) | [Wireframe](wireframes/console-menu.md) | Existing console requirements plus target `NET-AC-015`, `NET-AC-017` | Current: `source/console/ConsoleRenderer.cpp`; target footer: `docs/network-play-first-release.md` |
 | `CONS-02` | Console over gameplay | [Specification](console-gameplay.md) | [Wireframe](wireframes/console-gameplay.md) | `CFG-001`–`CFG-002`, `CFG-008`–`CFG-020` | `source/console/ConsoleRenderer.cpp` |
