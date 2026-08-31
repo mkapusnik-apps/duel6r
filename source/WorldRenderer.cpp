@@ -117,7 +117,7 @@ namespace Duel6 {
         return posY - charHeight;
     }
 
-    void WorldRenderer::roundOverSummary() const {
+    void WorldRenderer::roundOverSummary(bool showRoundProgress) const {
         Float32 fontSize = 32;
         Float32 fontWidth = fontSize / 2;
         Ranking ranking = game.getMode().getRanking(game.getPlayers());
@@ -133,6 +133,14 @@ namespace Duel6 {
         const auto kad = " K    A   D  K/D  PTS  ";
         const auto kadWidth = font.getTextWidth(kad, fontSize);
         const auto scoreWidth = font.getTextWidth(score, fontSize);
+        std::string roundProgress;
+        Float32 roundProgressWidth = 0;
+        if (showRoundProgress) {
+            roundProgress = Format("Rounds: {0}|{1}") << game.getPlayedRounds() << game.getSettings().getMaxRounds();
+            roundProgressWidth = font.getTextWidth(roundProgress, fontSize);
+            width = std::max(width, Int32(roundProgressWidth));
+            height += fontSize;
+        }
 
         int x = video.getScreen().getClientWidth() / 2 - width / 2;
         int y = video.getScreen().getClientHeight() / 2 - height / 2;
@@ -143,18 +151,21 @@ namespace Duel6 {
         renderer.quadXY(Vector(x - fontWidth + 2, y - fontSize + 2),
                         Vector(width + 2 * fontWidth - 4, height + 2 * fontSize - 4), Color(0, 0, 255, 80));
 
-        renderer.quadXY(Vector(x - fontWidth - 5, height + y - fontSize),
-                        Vector(width + 2 * fontWidth + 10, fontSize + 4), Color(0, 0, 255, 255));
+        Float32 scoreY = y + height - fontSize * (showRoundProgress ? 2 : 1);
+        renderer.quadXY(Vector(x - fontWidth - 5, scoreY),
+                         Vector(width + 2 * fontWidth + 10, fontSize + 4), Color(0, 0, 255, 255));
         renderer.setBlendFunc(BlendFunc::SrcColor);
 
-        Int32 posX = video.getScreen().getClientWidth() / 2 - tableWidth / 2;;
-        Int32 posY = y + height - fontSize * 3;
+        Int32 posX = video.getScreen().getClientWidth() / 2 - tableWidth / 2;
+        Int32 posY = scoreY - fontSize * 2;
 
         Color fontColor = Color::WHITE;
 
-        font.print(x + (width - scoreWidth) / 2, y + height - fontSize, 0.0f, fontColor, score, fontSize);
-        font.print(x + width - kadWidth, y + height - 2 * fontSize, 0.0f, fontColor, "  K   A   D   K/D  PTS",
-                   fontSize);
+        font.print(x + (width - scoreWidth) / 2, scoreY, 0.0f, fontColor, score, fontSize);
+        if (showRoundProgress) {
+            font.print(x + width - roundProgressWidth, scoreY + fontSize, 0.0f, fontColor, roundProgress, fontSize);
+        }
+        font.print(posX + tableWidth - kadWidth, scoreY - fontSize, 0.0f, fontColor, kad, fontSize);
         for (const auto &entry : ranking.entries) {
             posY = renderRankingEntry(entry, posX, posY, maxLength, fontSize, true);
             for (const auto &nestedRankingEntry : entry.entries) {
@@ -164,7 +175,7 @@ namespace Duel6 {
     }
 
     void WorldRenderer::gameOverSummary() const {
-        roundOverSummary();
+        roundOverSummary(false);
     }
 
     void WorldRenderer::roundsPlayed() const {
@@ -501,6 +512,8 @@ namespace Duel6 {
 
     void WorldRenderer::render() const {
         const GameSettings &settings = game.getSettings();
+        const bool showRoundSummaryProgress = game.getRound().hasWinner() && !game.isOver() &&
+                                              settings.isRoundLimit() && !game.getRound().isLast();
 
         sharedArena();
 
@@ -517,20 +530,18 @@ namespace Duel6 {
             playerRankings();
         }
 
-        if (settings.isRoundLimit()) {
+        if (settings.isRoundLimit() && !showRoundSummaryProgress) {
             roundsPlayed();
-        }
-
-        if (game.isDisplayingScoreTab()) {
-            roundOverSummary();
         }
 
         if (game.getRound().hasWinner()) {
             if (game.isOver()) {
                 gameOverSummary();
             } else {
-                roundOverSummary();
+                roundOverSummary(showRoundSummaryProgress);
             }
+        } else if (game.isDisplayingScoreTab()) {
+            roundOverSummary(false);
         }
     }
 }

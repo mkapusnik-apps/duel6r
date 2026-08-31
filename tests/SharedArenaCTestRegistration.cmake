@@ -95,4 +95,19 @@ set_tests_properties(
     RUN_SERIAL TRUE
     TIMEOUT 300
 )
+
+add_test(
+    NAME round-summary-progress-behavior
+    COMMAND ${D6R_BASH_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/RoundSummaryProgressBehaviorTests.sh
+)
+set_tests_properties(
+    round-summary-progress-behavior
+    PROPERTIES
+    ENVIRONMENT
+        "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/round-summary-progress;DISPLAY=:94"
+    LABELS "application;regression;e2e;round-summary"
+    RUN_SERIAL TRUE
+    TIMEOUT 300
+)
 include(${CMAKE_SOURCE_DIR}/tests/SessionTransportCTestRegistration.cmake)

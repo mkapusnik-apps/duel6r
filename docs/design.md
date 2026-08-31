@@ -112,6 +112,15 @@ The following values come from renderer and GUI source.
 - The Players panel must keep each player next to that player's control assignment.
 - Gameplay overlays must use flat translucent fills without drop shadows.
 - The score summary must use two translucent rectangular layers and a solid blue heading strip.
+- A non-final limited-round summary must show its round-progress label in a dedicated row above the score heading strip.
+- The round-progress label must use the score-summary type and the score-summary heading-strip text color.
+- The round-progress label must align to the top-right of the score panel.
+- The right edge of the round-progress label must be 16 px inside the right bound of the translucent outer panel.
+- The progress row must start 32 px below the top bound of the translucent outer panel.
+- The score heading must remain aligned to the horizontal center of the score panel.
+- The progress row must use a 32 px row height.
+- The progress row must not use the solid blue fill of the score heading strip.
+- The score panel must keep the progress row and the score heading strip separate and legible.
 - New documentation must not specify rounded corners, shadows, or gradients that the implementation does not provide. Blur is reserved for the approved full-client menu background.
 
 ## Imagery and assets
@@ -235,7 +244,20 @@ The following values come from renderer and GUI source.
 - Team identity must also change headband, trousers, and hair-top colors.
 - Predator identity must use a body alpha of 0.1 while the weapon remains visible.
 - Live ranking must remain available for every supported player count.
-- Event messages, player status, score summaries, and round progress must remain available in the shared arena view.
+- Event messages, player status, and score summaries must remain available in the shared arena view.
+- Round progress must remain available in the shared arena view except while a non-final limited-round summary panel is visible.
+- A non-final limited-round summary must show `Rounds: <played>|<total>` in a dedicated row above the solid blue score heading strip.
+- The summary round-progress label must use the exact `Rounds: <played>|<total>` format.
+- The summary round-progress label must align to the panel top-right in the dedicated progress row.
+- The right edge of the summary round-progress label must be 16 px inside the right bound of the translucent outer panel.
+- The summary round-progress label must include the round that has just ended in `<played>`.
+- The summary round-progress label must use the configured positive round limit in `<total>`.
+- A resumed match must use its accumulated played-round count in the summary round-progress label.
+- An unlimited round summary must not show the summary round-progress label.
+- The final game summary and the active-round Tab score overlay must not show the new summary round-progress label.
+- The top-center arena round progress must be hidden while the non-final limited-round summary panel is visible.
+- The top-center arena round progress must return in the first visible frame of the next active round.
+- The summary popup must show only one round-count location.
 - F2 must not change the gameplay view.
 
 ### Blocking menu messages
@@ -346,6 +368,9 @@ The Stitch request timed out, so the screen update result is not confirmed.
 The Stitch design system uses an exploratory dark tactical style that does not match this native visual baseline.
 The retro `MENU-01` screen direction is an approved screen-specific exception to that exploratory design system.
 This file and `docs/features.md` remain authoritative for implementation details that the Stitch samples do not represent accurately.
+The project and screen inventory were reviewed again on 2026-08-31 for the corrected `OVER-02` round-progress alignment.
+The project contains an `OVER-01 Score tab overlay`, but the reviewed Stitch metadata does not identify a confirmed `OVER-02` source screen.
+The `OVER-02` wireframe in this repository is the implementation target until the matching Stitch screen is identified and aligned without applying the exploratory tactical style.
 Two consolidated Teams variants were requested from screen `681ae093051749fd922ab74454f47121` on 2026-08-31.
 An inspection after the timeout found no generated consolidated Teams variants in the project screen inventory.
 The two existing `MENU-01` explorations remain `681ae093051749fd922ab74454f47121` and `e26294cba3d946a0af458bcf33c275a0`.
