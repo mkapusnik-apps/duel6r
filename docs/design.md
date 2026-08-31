@@ -114,7 +114,10 @@ The following values come from renderer and GUI source.
 - The score summary must use two translucent rectangular layers and a solid blue heading strip.
 - A non-final limited-round summary must show its round-progress label in a dedicated row above the score heading strip.
 - The round-progress label must use the score-summary type and the score-summary heading-strip text color.
-- The round-progress label and the score heading must each align to the horizontal center of the score panel.
+- The round-progress label must align to the top-right of the score panel.
+- The right edge of the round-progress label must be 16 px inside the right bound of the translucent outer panel.
+- The progress row must start 32 px below the top bound of the translucent outer panel.
+- The score heading must remain aligned to the horizontal center of the score panel.
 - The progress row must use a 32 px row height.
 - The progress row must not use the solid blue fill of the score heading strip.
 - The score panel must keep the progress row and the score heading strip separate and legible.
@@ -235,6 +238,9 @@ The following values come from renderer and GUI source.
 - Event messages, player status, and score summaries must remain available in the shared arena view.
 - Round progress must remain available in the shared arena view except while a non-final limited-round summary panel is visible.
 - A non-final limited-round summary must show `Rounds: <played>|<total>` in a dedicated row above the solid blue score heading strip.
+- The summary round-progress label must use the exact `Rounds: <played>|<total>` format.
+- The summary round-progress label must align to the panel top-right in the dedicated progress row.
+- The right edge of the summary round-progress label must be 16 px inside the right bound of the translucent outer panel.
 - The summary round-progress label must include the round that has just ended in `<played>`.
 - The summary round-progress label must use the configured positive round limit in `<total>`.
 - A resumed match must use its accumulated played-round count in the summary round-progress label.
@@ -348,6 +354,6 @@ The Stitch request timed out, so the screen update result is not confirmed.
 The Stitch design system uses an exploratory dark tactical style that does not match this native visual baseline.
 The retro `MENU-01` screen direction is an approved screen-specific exception to that exploratory design system.
 This file and `docs/features.md` remain authoritative for implementation details that the Stitch samples do not represent accurately.
-The project and screen inventory were reviewed again on 2026-08-31 for the `OVER-02` round-progress change.
+The project and screen inventory were reviewed again on 2026-08-31 for the corrected `OVER-02` round-progress alignment.
 The project contains an `OVER-01 Score tab overlay`, but the reviewed Stitch metadata does not identify a confirmed `OVER-02` source screen.
 The `OVER-02` wireframe in this repository is the implementation target until the matching Stitch screen is identified and aligned without applying the exploratory tactical style.

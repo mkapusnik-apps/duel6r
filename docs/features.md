@@ -280,7 +280,7 @@ The **shared arena view** is one gameplay view that shows the whole level to all
 - **UI-013** After the last limited round ends, the game must show the game summary.
 - **UI-014** A limited match must show round progress.
 - **UI-015** Status and event messages must identify relevant winners, kills, teammates, assistants, deaths, bonuses, and weapon pickups.
-- **UI-RND-001** After a non-final round ends in a limited match, the round summary panel must show round progress in a separate row above its heading strip.
+- **UI-RND-001** After a non-final round ends in a limited match, the round summary panel must show round progress in a separate top row above its `SCORE` heading strip.
 - **UI-RND-002** The round summary panel must use `Rounds: <played>|<total>` for round progress.
 - **UI-RND-003** In UI-RND-002, `<played>` must include the round that has just ended.
 - **UI-RND-004** In UI-RND-002, `<total>` must equal the configured positive round limit.
@@ -289,6 +289,7 @@ The **shared arena view** is one gameplay view that shows the whole level to all
 - **UI-RND-007** The round-progress row must not overlap or replace the score heading strip.
 - **UI-RND-008** When the next round starts, the shared arena view must show its top-edge round progress again.
 - **UI-RND-009** The final game summary and the active-round Tab score summary must not show the round-progress row from UI-RND-001.
+- **UI-RND-010** The round summary panel must right-align the round-progress label in the panel's top-right corner.
 
 ### Split-screen removal scope
 
@@ -455,7 +456,7 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-041** After an application restart, Rounds does not restore the prior session value. Rounds is `0` unless a startup setting changes it.
 - **AC-042** Focusing Rounds clears only the displayed value `0`. Focusing a positive value keeps that value.
 - **AC-043** If Rounds remains empty when it loses focus, the field shows `0` and the match has no last round.
-- **AC-044** After each non-final round in a limited match, the round summary panel shows `Rounds: <played>|<total>`. The label is in a separate row above the score heading strip. The label does not overlap or replace the heading strip. `<played>` includes the completed round. `<total>` equals the configured round limit. While the panel is visible, the top edge of the arena does not show duplicate round progress. The top-edge progress returns when the next round starts. An unlimited-match summary does not show the panel label. The final game summary and the active-round Tab score summary remain unchanged.
+- **AC-044** After each non-final round in a limited match, the round summary panel shows `Rounds: <played>|<total>`. The label is in a separate top row above the `SCORE` heading strip. The panel right-aligns the label in the panel's top-right corner. The label does not overlap or replace the heading strip. `<played>` includes the completed round. `<total>` equals the configured round limit. While the panel is visible, the top edge of the arena does not show duplicate round progress. The top-edge progress returns when the next round starts. An unlimited-match summary does not show the panel label. The final game summary and the active-round Tab score summary remain unchanged.
 
 ## Source traceability
 

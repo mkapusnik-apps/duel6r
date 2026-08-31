@@ -163,8 +163,7 @@ namespace Duel6 {
 
         font.print(x + (width - scoreWidth) / 2, scoreY, 0.0f, fontColor, score, fontSize);
         if (showRoundProgress) {
-            font.print(x + (width - roundProgressWidth) / 2, scoreY + fontSize, 0.0f, fontColor, roundProgress,
-                       fontSize);
+            font.print(x + width - roundProgressWidth, scoreY + fontSize, 0.0f, fontColor, roundProgress, fontSize);
         }
         font.print(posX + tableWidth - kadWidth, scoreY - fontSize, 0.0f, fontColor, kad, fontSize);
         for (const auto &entry : ranking.entries) {

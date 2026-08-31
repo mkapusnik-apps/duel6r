@@ -5,7 +5,7 @@
 This overlay reports ranking after a non-final round and provides the transition to the next round.
 Entry occurs when the game mode reports a winner or no winner in a non-final finite match or an unlimited match.
 Exit occurs automatically after the wait or through an accepted advance input.
-The overlay implements `LIF-011`–`LIF-017`, `MOD-DM-001`–`MOD-DM-003`, `MOD-PR-005`–`MOD-PR-008`, `MOD-TM-005`–`MOD-TM-011`, `UI-012`, `UI-RND-001`–`UI-RND-009`, and `AC-044` from [`docs/features.md`](../features.md).
+The overlay implements `LIF-011`–`LIF-017`, `MOD-DM-001`–`MOD-DM-003`, `MOD-PR-005`–`MOD-PR-008`, `MOD-TM-005`–`MOD-TM-011`, `UI-012`, `UI-RND-001`–`UI-RND-010`, and `AC-044` from [`docs/features.md`](../features.md).
 Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`, and `source/WorldRenderer.cpp:120-178,514-547`.
 
 ## Layout and hierarchy
@@ -16,7 +16,11 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 - The centered score panel must use the same structure as the score-tab overlay.
 - The score panel must align its horizontal and vertical center to the client center.
 - A non-final limited-match summary must show `Rounds: <played>|<total>` in a dedicated row above the solid blue heading strip.
-- The progress label must align to the horizontal center of the score panel.
+- The progress row must be the top content row of the score panel.
+- The top edge of the progress row must equal the top outer-panel bound plus 32 px.
+- The progress row must span from 16 px inside the left outer-panel bound to 16 px inside the right outer-panel bound.
+- The progress label must align to the right edge of the progress row.
+- The right edge of the rendered progress label must equal the right outer-panel bound minus 16 px.
 - The label must use the white 32 px score-summary text style.
 - The progress row must be 32 px high.
 - The progress row must use the translucent panel surface and must not use the solid blue heading fill.
@@ -64,7 +68,8 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 - Outcome messages must provide textual result cues.
 - Column headings must identify score values.
 - The panel and curtain must adapt to current client dimensions.
-- The progress label and the score heading must remain horizontally centered at each supported desktop viewport.
+- The progress label must remain right-aligned 16 px inside the score panel at each supported desktop viewport.
+- The score heading must remain horizontally centered at each supported desktop viewport.
 - The panel must keep its specified pixel dimensions and must recalculate its center from the client dimensions.
 - The implementation does not show an explicit `Continue` prompt.
 - No mobile layout exists, so one desktop wireframe is sufficient.

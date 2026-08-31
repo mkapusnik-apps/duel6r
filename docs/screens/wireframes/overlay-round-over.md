@@ -12,7 +12,7 @@ The screen has no mobile layout, so this single desktop wireframe covers the tar
 │ winner event text                                      [no arena round count]   │
 │                                                                                │
 │              ┌────────────────────────────────────────────┐                    │
-│              │                 Rounds: 3|5                │ ← 32 px progress row
+│              │                              Rounds: 3|5  │ ← 32 px progress row
 │              ├──────────── solid blue heading strip ──────┤                    │
 │              │                 ---SCORE---                 │ ← 36 px strip      │
 │              │                   K   A   D  K/D  PTS       │                    │
@@ -27,7 +27,11 @@ The screen has no mobile layout, so this single desktop wireframe covers the tar
 
 The panel label uses the exact format `Rounds: <played>|<total>`.
 The representative `3|5` value includes the completed round and the two rounds completed before resume.
-The progress label and `---SCORE---` use centered 32 px white text on separate 32 px baseline rows.
+The progress label and `---SCORE---` use 32 px white text on separate baseline rows.
+The top edge of the progress row is 32 px below the translucent outer panel's top bound.
+The progress row spans the panel inner width with 16 px inset from each outer-panel side.
+The right edge of `Rounds: 3|5` is 16 px inside the translucent outer panel's right bound.
+The `---SCORE---` heading remains horizontally centered in its strip.
 The progress row uses the translucent panel surface.
 The heading strip uses the existing solid blue fill and extends 5 px beyond each outer-panel side.
 The outer panel uses 16 px horizontal padding and 32 px vertical padding around its content.
