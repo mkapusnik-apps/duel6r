@@ -514,6 +514,17 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/network/SessionTransport.h
         source/server/HeadlessServer.cpp
         source/server/HeadlessServer.h
+        source/server/AuthoritativeMatch.cpp
+        source/server/AuthoritativeMatch.h
+        source/server/AuthoritativeMatchCli.cpp
+        source/server/AuthoritativeMatchCli.h
+        source/server/AuthoritativeMatchSerialization.cpp
+        source/server/AuthoritativeMatchSerialization.h
+        source/server/AuthoritativeMatchTypes.h
+        source/server/AuthoritativeMatchValidation.cpp
+        source/server/AuthoritativeMatchValidation.h
+        source/server/DeterministicRandom.cpp
+        source/server/DeterministicRandom.h
         source/server/HostedServiceChannel.cpp
         source/server/HostedServiceChannel.h
         source/server/AdmissionSession.cpp

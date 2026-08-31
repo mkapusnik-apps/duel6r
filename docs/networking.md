@@ -2,7 +2,7 @@
 
 ## Status
 
-The networking code now includes a production TCP session-transport layer, command-line compatibility admission, and a player-hosted service supervisor under an experimental, incomplete developer scaffold. It does not add playable network support to Duel 6 Reloaded. Normal `duel6r` startup, Play, and every existing local game journey remain independent of this code: the game does not bind or connect a socket, start a transport worker or server, or expose network controls.
+The networking code now includes a production TCP session-transport layer, command-line compatibility admission, a player-hosted service supervisor, and an explicitly invoked authoritative headless match runtime under an experimental, incomplete developer scaffold. It does not add playable network support to Duel 6 Reloaded. Normal `duel6r` startup, Play, and every existing local game journey remain independent of this code: the game does not bind or connect a socket, start a transport worker or server, or expose network controls.
 
 The approved future first-release scope and journeys are defined in [`docs/network-play-first-release.md`](network-play-first-release.md). The authoritative headless match target is in [`docs/network-authoritative-headless-match.md`](network-authoritative-headless-match.md). The authoritative compatibility and admission target is in [`docs/network-compatibility-and-admission.md`](network-compatibility-and-admission.md). The player-hosted service lifecycle target is in [`docs/network-host-service-lifecycle.md`](network-host-service-lifecycle.md). Enforced exposure boundaries and reusable abuse controls are documented in [`docs/network-trust-and-abuse-limits.md`](network-trust-and-abuse-limits.md). Those policies do not change the scaffold's current status and must not be read as implemented or playable network behavior.
 
@@ -17,6 +17,31 @@ The scaffold provides transport-neutral data transfer objects and a prototype te
 - endpoints and client connection configuration.
 
 It also provides connection-plan and command-construction helpers, an in-process loopback handshake helper, server configuration parsing, the explicitly invoked `duel6r-server` executable, and the explicitly invoked `duel6r-host-supervisor` operational scaffold.
+
+## Authoritative headless match runtime
+
+`duel6r-server --authoritative-match` runs a fixed-step authoritative match orchestration path without constructing the game application, SDL video, a renderer, audio, or local input devices. It validates and freezes stable participant/player ownership, the supported settings, canonical gameplay content, playable levels, and the built-in weapon set before the first round. Optional Lua, profile, and gameplay scripts cannot enter this path.
+
+The runtime uses one nonzero supplied or operating-system-generated seed and a project-owned integer PRNG with rejection-sampled bounds. It owns deterministic level planning, orientation, starting order, starting weapons/ammunition, Predator selection, ordered trusted actions, fixed 60 Hz progression, basic mode/scoring decisions, six-second round-end timing, session-only result accumulation/ranking, and terminal cleanup. Public seams permit injected seed, clock, trusted action-source, world-lifecycle, and cleanup behavior without introducing renderer/audio/input dependencies.
+
+The current CLI is an incomplete developer path, not completion of issue #32. Its default world callbacks do not run the existing physics, weapon/projectile, pickup, bonus, water, elevator, sudden-death, or Burnable Trees simulation. The direct damage and environment actions are trusted evidence-driver events rather than remote participant commands. A later implementation must connect this orchestration to canonical gameplay simulation and prove Local Play parity before the authoritative target is complete.
+
+For a deterministic process scenario:
+
+```sh
+./build/duel6r-server \
+  --authoritative-match \
+  --resources=resources \
+  --seed=424242 \
+  --match-mode=deathmatch \
+  --level-plan=shuffle \
+  --rounds=3 \
+  --scenario=complete
+```
+
+The bounded `--actions-stdin` driver accepts trusted lines containing `tick sequence participant-id player-id kind target-player-id amount input-mask`. It is an operational/test-driver interface, not remote input or transport. Output contains the fixed terminal identifier and copy plus at most one bounded canonical `session-result=` JSON line. No result is written to people, profiles, statistics, Elo, saves, or history.
+
+The runtime also supports bounded `interrupted`, `runtime-failure`, and cleanup evidence scenarios. This explicit CLI does not implement replication, remote input, reconnect, graphical networking, deployment support, or a playable network journey.
 
 ## Player-hosted supervisor scaffold
 
@@ -101,7 +126,7 @@ These safeguards make the parser suitable for prototype development; the TCP bou
 
 ## Build and packaging
 
-CMake builds `duel6r-network-scaffold`, including the transport and supervisor APIs, `duel6r-host-supervisor`, `duel6r-server`, and the internal `duel6r-resolver` helper independently from the normal game executable. The transport uses standard OS sockets (`ws2_32` on Windows and POSIX sockets/threads/processes on Linux) with no new third-party dependency. Existing Linux and Windows runtime bundle scripts place the explicitly invoked supervisor and server scaffolds plus the required resolver helper beside `duel6r` because those are the repository's current coherent binary packaging paths. The helper is an internal transport component with no supported command-line interface. Issue #40 still owns supported release packaging and deployment instructions.
+CMake builds `duel6r-network-scaffold`, including the transport, supervisor, and authoritative-match APIs, `duel6r-host-supervisor`, `duel6r-server`, and the internal `duel6r-resolver` helper independently from the normal game executable. The headless match path uses only the network-scaffold target and operating-system services; it does not link SDL, OpenGL, audio, renderer, input, or Lua libraries. The transport uses standard OS sockets (`ws2_32` on Windows and POSIX sockets/threads/processes on Linux) with no new third-party dependency. Existing Linux and Windows runtime bundle scripts place the explicitly invoked supervisor and server scaffolds plus the required resolver helper beside `duel6r` because those are the repository's current coherent binary packaging paths. The helper is an internal transport component with no supported command-line interface. Issue #40 still owns supported release packaging and deployment instructions.
 
 There is no dedicated headless-server package. Existing runtime bundles still include all client resources, and no release-facing documentation advertises network support.
 
@@ -110,7 +135,7 @@ There is no dedicated headless-server package. Existing runtime bundles still in
 The following essential pieces are absent:
 
 - playable remote or local client/server sessions;
-- the authoritative simulation runtime specified in [`network-authoritative-headless-match.md`](network-authoritative-headless-match.md);
+- complete authoritative gameplay-world simulation and Local Play parity;
 - lobby and session lifecycle handling;
 - complete world, score, round, and entity replication;
 - lobby integration for admitted participants;

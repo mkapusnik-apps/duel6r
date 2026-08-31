@@ -2,6 +2,7 @@
 #include <iostream>
 #include <utility>
 
+#include "AuthoritativeMatchCli.h"
 #include "HeadlessServer.h"
 #include "HostedServiceChannel.h"
 #include "ServerConfig.h"
@@ -9,6 +10,17 @@
 int main(int argc, char **argv) {
     const auto hostedChannel = Duel6::Server::HostedServiceChannel::fromCommandLine(argc, argv);
     try {
+        if (Duel6::Server::Authoritative::authoritativeMatchRequested(argc, argv)) {
+            Duel6::Server::Authoritative::AuthoritativeMatchCliDependencies dependencies;
+            if (hostedChannel) {
+                dependencies.stopRequested = [hostedChannel] { return hostedChannel->stopRequested(); };
+                dependencies.reportReady = [hostedChannel] {
+                    return hostedChannel->send(Duel6::Network::HostServiceStatusCode::Ready);
+                };
+            }
+            return Duel6::Server::Authoritative::runAuthoritativeMatchCli(
+                    argc, argv, std::cin, std::cout, std::move(dependencies));
+        }
         Duel6::Server::ServerConfig config = Duel6::Server::parseServerConfig(argc, argv);
         if (config.hostedServiceIpc && (!hostedChannel || !hostedChannel->active())) return 1;
         Duel6::Server::AdmissionRuntimeDependencies dependencies;
