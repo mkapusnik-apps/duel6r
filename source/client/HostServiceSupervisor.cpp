@@ -277,6 +277,8 @@ namespace Duel6::Client {
         HostServiceExitEvent exitEvent;
         bool exitObserved = false;
         for (;;) {
+            // Complete this cycle's status and exit observations before a newly crossed deadline can win.
+            const auto cycleObservedAt = now();
             SelectedStop stop = SelectedStop::None;
             HostServiceOutcome stopOutcome = HostServiceOutcome::None;
             std::vector<HostServiceStatusEvent> events;
@@ -325,7 +327,7 @@ namespace Duel6::Client {
                         state = HostServiceState::Active;
                         outcome = HostServiceOutcome::None;
                         didTransition = true;
-                    } else if (statusAtOrAfterDeadline || now() >= startupDeadline) {
+                    } else if (statusAtOrAfterDeadline || cycleObservedAt >= startupDeadline) {
                         selectStopLocked(SelectedStop::StartupFailure, HostServiceOutcome::StartupTimedOut);
                     }
                     stop = selectedStop;
