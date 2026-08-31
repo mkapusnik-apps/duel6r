@@ -25,7 +25,7 @@ The existing 12 planned issue #38 entries must not be used as issue #31 evidence
 The obsolete `PLAY-02`, `PLAY-03`, and `PLAY-04` artifacts are not evidence and are not in this manifest.
 The 2026-08-31 `OVER-02` wireframe adds the round-progress label to the score panel for a non-final limited round.
 The existing `OVER-02/shared-round-over-1280x900.png` artifact is stale because it does not show this target label.
-`SS-011` has a fresh representative artifact and is pending UX assessment.
+`SS-011` has a fresh representative artifact that UX confirmed on 2026-08-31.
 
 ## Provenance requirements
 
@@ -122,6 +122,7 @@ The PR #55 round-summary progress artifact has this provenance:
 - Pull request: `#55`.
 - Branch: `feature/round-summary-progress`.
 - Implementation source SHA: `4a831c52a62b64b9a47cab0fab067c173839a3ea`.
+- Screenshot artifact and manifest head: `cd91df7a99c78a800ebda7eeb9342582cff76749`.
 - Worktree state: clean at the implementation source SHA before capture; the ignored Docker-built runtime bundle was present.
 - Environment: Release, GL4, Lua enabled, Ubuntu 24.04 Docker image, Mesa software rendering, and Xvfb.
 - Viewport: 1280 by 900 px.
@@ -129,7 +130,7 @@ The PR #55 round-summary progress artifact has this provenance:
 - Session workflow: resume the saved match, complete round 3 of 5, and capture the winner summary after the persisted played-round count becomes `3`.
 - Expected and visible state: three ranked players, one winning predator, unobstructed centered `---SCORE---`, panel-top-right `Rounds: 3|5`, and finite-match progress above the arena.
 - Artifact path: `OVER-02/resumed-round-3-of-5-1280x900.png` under this directory.
-- Assessment status: fresh implementation evidence supplied; UX assessment is pending.
+- Assessment status: UX confirmed conformance at exact screenshot and manifest head `cd91df7a99c78a800ebda7eeb9342582cff76749` on 2026-08-31. The exact panel label, heading clearance, table alignment, retained arena progress, readability, and native design-system presentation conform to `UI-RND-001`–`UI-RND-006`, `AC-044`, and the `OVER-02` specification and wireframe.
 
 The fresh shared-arena packet has this provenance:
 
@@ -161,7 +162,7 @@ The replacement shared-arena artifacts have this provenance:
 | <a id="ss-008"></a>`SS-008` | `MODE-02` | [Team mode](../screens/wireframes/mode-team.md) | Start `Team deathmatch (2 teams, FF: off)` from the menu. | Use two living players per team, ranking on, and a finite round limit. | 1280x900 | One undivided arena must show all four players. Team apparel and named grouped ranking must remain visible with events, status cues, and round progress. | `docs/screenshots/MODE-02/shared-live-1280x900.png` | Replacement packet provenance above. Captured from an actual four-player `Team deathmatch (2 teams, FF: off)` with two players per team, grouped live ranking, and three rounds. `Conforms`. |
 | <a id="ss-009"></a>`SS-009` | `PLAY-05` | [Sudden death](../screens/wireframes/play-sudden-death.md) | Start Deathmatch with Quick Liquid on and reach rising water. | Use two living players, ranking on, raised water in the safe arena, and one submerged player. | 1280x900 | One undivided arena must show both players, raised water, the air indicator, live ranking, status cues, events, and round progress. | `docs/screenshots/PLAY-05/shared-rising-water-1280x900.png` | Fresh shared-arena packet provenance above. `Conforms`. |
 | <a id="ss-010"></a>`SS-010` | `OVER-01` | [Score tab](../screens/wireframes/overlay-score-tab.md) | Press Tab during a live Team deathmatch round. | Use four players in two teams with non-zero K, A, D, K/D, and PTS values. | 1280x900 | The centered score panel must show grouped team rows over one undivided live arena. The winner curtain must not appear. | `docs/screenshots/OVER-01/shared-score-tab-1280x900.png` | Replacement packet provenance above. Captured by pressing Tab during round 5 of an actual four-player Team deathmatch after normal runtime play produced grouped team rows and non-zero K, A, D, K/D, and PTS values; no winner curtain is present. `Conforms`. |
-| <a id="ss-011"></a>`SS-011` | `OVER-02` | [Round over](../screens/wireframes/overlay-round-over.md) | Resume a five-round Predator match with two accumulated completed rounds, then finish the next non-final round. | Use three ranked players, one winning predator, accumulated played-round count `2`, and configured round limit `5`; capture the interim summary after the completed count becomes `3`. | 1280x900 | The dark red curtain and centered score panel must appear over one undivided arena. The panel must show `Rounds: 3|5` at its top-right without overlapping `---SCORE---`. The existing finite-match progress above the arena must remain visible. | `docs/screenshots/OVER-02/resumed-round-3-of-5-1280x900.png` | Fresh artifact supplied from the PR #55 implementation source SHA recorded above; UX assessment is pending. The former `shared-round-over-1280x900.png` artifact is stale historical evidence because it predates the panel label. |
+| <a id="ss-011"></a>`SS-011` | `OVER-02` | [Round over](../screens/wireframes/overlay-round-over.md) | Resume a five-round Predator match with two accumulated completed rounds, then finish the next non-final round. | Use three ranked players, one winning predator, accumulated played-round count `2`, and configured round limit `5`; capture the interim summary after the completed count becomes `3`. | 1280x900 | The dark red curtain and centered score panel must appear over one undivided arena. The panel must show `Rounds: 3|5` at its top-right without overlapping `---SCORE---`. The existing finite-match progress above the arena must remain visible. | `docs/screenshots/OVER-02/resumed-round-3-of-5-1280x900.png` | PR #55 packet provenance above. The label, centered heading, aligned score table, and existing top-center arena progress are legible and unobstructed. `Conforms`. The former `shared-round-over-1280x900.png` artifact is stale historical evidence because it predates the panel label. |
 | <a id="ss-012"></a>`SS-012` | `OVER-03` | [Game over](../screens/wireframes/overlay-game-over.md) | Finish the only round of a one-round Team deathmatch. | Use two teams, four ranked players, and one winning team. | 1280x900 | The Team outcome, final score panel, dark red curtain, and final round progress must appear over one undivided arena. The state must not add an exit label. | `docs/screenshots/OVER-03/shared-game-over-1280x900.png` | Replacement packet provenance above. Captured after Team Bravo won the only round of an actual four-player Team deathmatch; the final grouped score panel, dark red curtain, and `1 | 1` round progress are visible without an exit label. `Conforms`. |
 | <a id="ss-013"></a>`SS-013` | `CONS-01` | [Console over menu](../screens/wireframes/console-menu.md) | After issue #38 implements the Network footer, open the console over the populated local menu. | Use the planned four-action footer, recent startup output, and an empty input line. | 1920x1080 | The console spans the client width while the visible scaled menu below includes equal-width `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)` actions. | `docs/screenshots/CONS-01/network-entry-open-1920x1080.png` | `Planned` for downstream issue #38. The existing three-action-footer capture is not valid for this target wireframe. |
 | <a id="ss-014"></a>`SS-014` | `CONS-02` | [Console over play](../screens/wireframes/console-gameplay.md) | Open the console during active Deathmatch and enter or inspect any command that previously affected the gameplay view. | Use four living players, ranking on, a finite round limit, and recent game output. | 1280x900 | The console must overlay one undivided arena. The command must not create player-specific views. The simulation, ranking, round progress, events, and status state must remain present behind the console where visible. | `docs/screenshots/CONS-02/shared-open-1280x900.png` | Fresh shared-arena packet provenance above. `Conforms`. |
@@ -179,13 +180,13 @@ The replacement shared-arena artifacts have this provenance:
 
 - Required wireframes: 20.
 - Required representative screenshot entries: 20.
-- Conforming screenshots: 8.
+- Conforming screenshots: 9.
 - Non-conforming screenshots: 0.
 - Planned screenshot entries awaiting downstream issue #38: 11.
-- Pending screenshot assessments: 1 (`SS-011`); planned entries cannot be assessed before implementation and capture.
+- Pending screenshot assessments: 0; planned entries cannot be assessed before implementation and capture.
 - Screenshots per wireframe: exactly one.
 - Retired screenshot matrix entries: `SS-004`, `SS-005`, and `SS-006`.
-- Coverage status: eight implementation artifacts conform; `SS-011` has fresh implementation evidence and is pending UX assessment. Eleven planned entries have no valid current artifacts. Issue #38 must invalidate and replace `SS-001` when it implements the Network footer.
+- Coverage status: nine implementation artifacts conform. Eleven planned entries have no valid current artifacts. Issue #38 must invalidate and replace `SS-001` when it implements the Network footer.
 
 The matrix uses one representative state for each wireframe.
 The screen specifications and wireframes document other player counts, modes, interaction states, and accessibility limits without multiplying screenshot entries.
