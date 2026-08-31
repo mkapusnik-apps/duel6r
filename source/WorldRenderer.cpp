@@ -117,7 +117,7 @@ namespace Duel6 {
         return posY - charHeight;
     }
 
-    void WorldRenderer::roundOverSummary() const {
+    void WorldRenderer::roundOverSummary(bool showRoundProgress) const {
         Float32 fontSize = 32;
         Float32 fontWidth = fontSize / 2;
         Ranking ranking = game.getMode().getRanking(game.getPlayers());
@@ -133,6 +133,13 @@ namespace Duel6 {
         const auto kad = " K    A   D  K/D  PTS  ";
         const auto kadWidth = font.getTextWidth(kad, fontSize);
         const auto scoreWidth = font.getTextWidth(score, fontSize);
+        std::string roundProgress;
+        Float32 roundProgressWidth = 0;
+        if (showRoundProgress) {
+            roundProgress = Format("Rounds: {0}|{1}") << game.getPlayedRounds() << game.getSettings().getMaxRounds();
+            roundProgressWidth = font.getTextWidth(roundProgress, fontSize);
+            width = std::max(width, Int32(scoreWidth + 2 * roundProgressWidth + 2 * fontWidth));
+        }
 
         int x = video.getScreen().getClientWidth() / 2 - width / 2;
         int y = video.getScreen().getClientHeight() / 2 - height / 2;
@@ -153,6 +160,10 @@ namespace Duel6 {
         Color fontColor = Color::WHITE;
 
         font.print(x + (width - scoreWidth) / 2, y + height - fontSize, 0.0f, fontColor, score, fontSize);
+        if (showRoundProgress) {
+            font.print(x + width - roundProgressWidth, y + height - fontSize, 0.0f, fontColor, roundProgress,
+                       fontSize);
+        }
         font.print(x + width - kadWidth, y + height - 2 * fontSize, 0.0f, fontColor, "  K   A   D   K/D  PTS",
                    fontSize);
         for (const auto &entry : ranking.entries) {
@@ -164,7 +175,7 @@ namespace Duel6 {
     }
 
     void WorldRenderer::gameOverSummary() const {
-        roundOverSummary();
+        roundOverSummary(false);
     }
 
     void WorldRenderer::roundsPlayed() const {
@@ -522,14 +533,14 @@ namespace Duel6 {
         }
 
         if (game.isDisplayingScoreTab()) {
-            roundOverSummary();
+            roundOverSummary(false);
         }
 
         if (game.getRound().hasWinner()) {
             if (game.isOver()) {
                 gameOverSummary();
             } else {
-                roundOverSummary();
+                roundOverSummary(settings.isRoundLimit());
             }
         }
     }

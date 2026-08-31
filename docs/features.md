@@ -8,6 +8,7 @@ Unless a requirement identifies an approved change, the requirements describe th
 The split-screen removal requirements define target product behavior that supersedes the earlier implementation baseline.
 The Burnable Trees requirements define an approved change to the earlier implementation baseline.
 The Rounds field focus and session-memory requirements define an approved change to the earlier implementation baseline.
+The round-summary progress requirements define an approved change to the earlier implementation baseline.
 
 The word **person** means a persistent named record. The word **player** means a person in the active match roster.
 
@@ -279,6 +280,12 @@ The **shared arena view** is one gameplay view that shows the whole level to all
 - **UI-013** After the last limited round ends, the game must show the game summary.
 - **UI-014** A limited match must show round progress.
 - **UI-015** Status and event messages must identify relevant winners, kills, teammates, assistants, deaths, bonuses, and weapon pickups.
+- **UI-RND-001** After a non-final round ends in a limited match, the round summary panel must show round progress in its top-right corner.
+- **UI-RND-002** The round summary panel must use `Rounds: <played>|<total>` for round progress.
+- **UI-RND-003** In UI-RND-002, `<played>` must include the round that has just ended.
+- **UI-RND-004** In UI-RND-002, `<total>` must equal the configured positive round limit.
+- **UI-RND-005** The round summary panel must not show round progress for an unlimited match.
+- **UI-RND-006** UI-RND-001 must not remove the existing round progress above the arena.
 
 ### Split-screen removal scope
 
@@ -445,6 +452,7 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-041** After an application restart, Rounds does not restore the prior session value. Rounds is `0` unless a startup setting changes it.
 - **AC-042** Focusing Rounds clears only the displayed value `0`. Focusing a positive value keeps that value.
 - **AC-043** If Rounds remains empty when it loses focus, the field shows `0` and the match has no last round.
+- **AC-044** After each non-final round in a limited match, the round summary panel shows `Rounds: <played>|<total>` in its top-right corner. `<played>` includes the completed round. `<total>` equals the configured round limit. The existing round progress above the arena remains visible. An unlimited match does not show round progress in the panel.
 
 ## Source traceability
 

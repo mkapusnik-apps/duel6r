@@ -112,6 +112,9 @@ The following values come from renderer and GUI source.
 - The Players panel must keep each player next to that player's control assignment.
 - Gameplay overlays must use flat translucent fills without drop shadows.
 - The score summary must use two translucent rectangular layers and a solid blue heading strip.
+- A non-final limited-round summary must show its round-progress label in the top-right corner of the score panel.
+- The round-progress label must use the score-summary type and the score-summary heading-strip text color.
+- The score panel must keep the centered score heading and the round-progress label separate and legible.
 - New documentation must not specify rounded corners, shadows, or gradients that the implementation does not provide. Blur is reserved for the approved full-client menu background.
 
 ## Imagery and assets
@@ -227,6 +230,13 @@ The following values come from renderer and GUI source.
 - Predator identity must use a body alpha of 0.1 while the weapon remains visible.
 - Live ranking must remain available for every supported player count.
 - Event messages, player status, score summaries, and round progress must remain available in the shared arena view.
+- A non-final limited-round summary must show `Rounds: <played>|<total>` in the top-right corner of its score panel.
+- The summary round-progress label must include the round that has just ended in `<played>`.
+- The summary round-progress label must use the configured positive round limit in `<total>`.
+- A resumed match must use its accumulated played-round count in the summary round-progress label.
+- An unlimited round summary must not show the summary round-progress label.
+- The final game summary and the active-round Tab score overlay must not show the new summary round-progress label.
+- The existing finite-match round progress above the arena must remain visible with the summary round-progress label.
 - F2 must not change the gameplay view.
 
 ### Blocking menu messages
@@ -332,3 +342,6 @@ The Stitch request timed out, so the screen update result is not confirmed.
 The Stitch design system uses an exploratory dark tactical style that does not match this native visual baseline.
 The retro `MENU-01` screen direction is an approved screen-specific exception to that exploratory design system.
 This file and `docs/features.md` remain authoritative for implementation details that the Stitch samples do not represent accurately.
+The project and screen inventory were reviewed again on 2026-08-31 for the `OVER-02` round-progress change.
+The project contains an `OVER-01 Score tab overlay`, but the reviewed Stitch metadata does not identify a confirmed `OVER-02` source screen.
+The `OVER-02` wireframe in this repository is the implementation target until the matching Stitch screen is identified and aligned without applying the exploratory tactical style.
