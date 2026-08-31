@@ -87,6 +87,9 @@ namespace Duel6 {
         Gui::Textbox *textbox;
         Gui::Textbox *roundsTextbox;
         Gui::Spinner *gameModeSwitch;
+        Gui::Label *teamCountLabel;
+        Gui::Spinner *teamCountSwitch;
+        Gui::CheckBox *friendlyFireCheckBox;
         Gui::CheckBox *globalAssistanceCheckBox;
         Gui::CheckBox *quickLiquidCheckBox;
         Gui::CheckBox *burnableTreesCheckBox;
@@ -155,6 +158,16 @@ namespace Duel6 {
         void beforeClose(Context *nextContext) override;
 
         void initializeGameModes();
+
+        bool isTeamModeSelected();
+
+        Int32 selectedTeamCount();
+
+        GameMode &selectedGameMode();
+
+        void updateGameSettingsLayout();
+
+        void updatePlayerColors();
 
         void initializePresentation();
 
