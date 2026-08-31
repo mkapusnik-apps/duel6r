@@ -112,9 +112,12 @@ The following values come from renderer and GUI source.
 - The Players panel must keep each player next to that player's control assignment.
 - Gameplay overlays must use flat translucent fills without drop shadows.
 - The score summary must use two translucent rectangular layers and a solid blue heading strip.
-- A non-final limited-round summary must show its round-progress label in the top-right corner of the score panel.
+- A non-final limited-round summary must show its round-progress label in a dedicated row above the score heading strip.
 - The round-progress label must use the score-summary type and the score-summary heading-strip text color.
-- The score panel must keep the centered score heading and the round-progress label separate and legible.
+- The round-progress label and the score heading must each align to the horizontal center of the score panel.
+- The progress row must use a 32 px row height.
+- The progress row must not use the solid blue fill of the score heading strip.
+- The score panel must keep the progress row and the score heading strip separate and legible.
 - New documentation must not specify rounded corners, shadows, or gradients that the implementation does not provide. Blur is reserved for the approved full-client menu background.
 
 ## Imagery and assets
@@ -229,14 +232,17 @@ The following values come from renderer and GUI source.
 - Team identity must also change headband, trousers, and hair-top colors.
 - Predator identity must use a body alpha of 0.1 while the weapon remains visible.
 - Live ranking must remain available for every supported player count.
-- Event messages, player status, score summaries, and round progress must remain available in the shared arena view.
-- A non-final limited-round summary must show `Rounds: <played>|<total>` in the top-right corner of its score panel.
+- Event messages, player status, and score summaries must remain available in the shared arena view.
+- Round progress must remain available in the shared arena view except while a non-final limited-round summary panel is visible.
+- A non-final limited-round summary must show `Rounds: <played>|<total>` in a dedicated row above the solid blue score heading strip.
 - The summary round-progress label must include the round that has just ended in `<played>`.
 - The summary round-progress label must use the configured positive round limit in `<total>`.
 - A resumed match must use its accumulated played-round count in the summary round-progress label.
 - An unlimited round summary must not show the summary round-progress label.
 - The final game summary and the active-round Tab score overlay must not show the new summary round-progress label.
-- The existing finite-match round progress above the arena must remain visible with the summary round-progress label.
+- The top-center arena round progress must be hidden while the non-final limited-round summary panel is visible.
+- The top-center arena round progress must return in the first visible frame of the next active round.
+- The summary popup must show only one round-count location.
 - F2 must not change the gameplay view.
 
 ### Blocking menu messages
