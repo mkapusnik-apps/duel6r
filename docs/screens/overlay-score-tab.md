@@ -17,6 +17,14 @@ Primary sources are `source/Game.cpp:62-83` and `source/WorldRenderer.cpp:120-16
 - The panel must contain the column heading `K`, `A`, `D`, `K/D`, and `PTS`.
 - Rows must use the current game mode ranking structure.
 - Team mode must use team rows with nested player rows.
+- Each team row must stay directly adjacent to that team's nested player rows.
+- An 8 px separator band must separate adjacent team groups.
+- A 2 px `team-group-separator` rule must cross the score-table width at the vertical center of each separator band.
+- The separator band must keep 3 px of clear inner-panel space above and below the rule.
+- The last team group must not have a separator band after it.
+- The panel height must add 8 px for each boundary between team groups.
+- The separator treatment must support two through four teams.
+- Team names, team colors, row colors, headings, values, ranking order, column alignment, and Tab behavior must remain unchanged.
 - Predator and free-for-all modes must preserve their ranking rows.
 - The panel must use the translucent outer and inner surfaces from `docs/design.md`.
 
@@ -33,6 +41,7 @@ Primary sources are `source/Game.cpp:62-83` and `source/WorldRenderer.cpp:120-16
 
 - Text headings must identify every numeric column.
 - Team names must supplement team row colors.
+- The separator rule and separator space must identify team boundaries without color.
 - The panel must calculate its center from current client dimensions.
 - The panel may grow with ranking row count and name length.
 - The implementation does not add scrolling or clipping recovery for an oversized panel.

@@ -89,6 +89,7 @@ The following values come from renderer and GUI source.
 | `summary-outer` | `rgba(255,255,255,0.31)` | Score summary outer panel |
 | `summary-inner` | `rgba(0,0,255,0.31)` | Score summary inner panel |
 | `summary-header` | `#0000FF` | Score summary heading strip |
+| `team-group-separator` | `rgba(255,255,255,0.70)` | Rule between adjacent team groups in Team score overviews |
 | `winner-curtain` | animated `rgba(128,0,0,0..0.78)` | Full-screen round-end curtain |
 | `console-surface` | `#EEDD00` | Console panel |
 | `console-separator` | `#FF0000` | Console separator text |
@@ -121,6 +122,16 @@ The following values come from renderer and GUI source.
 - The progress row must use a 32 px row height.
 - The progress row must not use the solid blue fill of the score heading strip.
 - The score panel must keep the progress row and the score heading strip separate and legible.
+- A Team score overview must keep each team row directly adjacent to that team's nested player rows.
+- A Team score overview must use an 8 px separator band between adjacent team groups.
+- The separator band must contain a 2 px horizontal `team-group-separator` rule at its vertical center.
+- The separator rule must span the score-table width.
+- The separator band must use 3 px of clear inner-panel space above and below the rule.
+- A Team score overview must not add a separator band after the last team group.
+- The separator treatment must apply only to the active-round Tab scoreboard and the non-final post-round interim scoreboard.
+- The separator treatment must support two through four teams.
+- The separator treatment must not change team colors, team names, row colors, score columns, ranking order, row alignment, controls, or round-progress behavior.
+- A non-Team score overview and the final game summary must remain unchanged.
 - New documentation must not specify rounded corners, shadows, or gradients that the implementation does not provide. Blur is reserved for the approved full-client menu background.
 
 ## Imagery and assets
@@ -241,6 +252,7 @@ The following values come from renderer and GUI source.
 - Ammunition must use blue text on a yellow rectangle.
 - Round kills must use blue point marks.
 - Team ranking must group named team rows and nested player rows.
+- Team score-overview groups must use the defined separator treatment in `OVER-01` and non-final `OVER-02`.
 - Team identity must also change headband, trousers, and hair-top colors.
 - Predator identity must use a body alpha of 0.1 while the weapon remains visible.
 - Live ranking must remain available for every supported player count.
@@ -368,9 +380,14 @@ The Stitch request timed out, so the screen update result is not confirmed.
 The Stitch design system uses an exploratory dark tactical style that does not match this native visual baseline.
 The retro `MENU-01` screen direction is an approved screen-specific exception to that exploratory design system.
 This file and `docs/features.md` remain authoritative for implementation details that the Stitch samples do not represent accurately.
-The project and screen inventory were reviewed again on 2026-08-31 for the corrected `OVER-02` round-progress alignment.
-The project contains an `OVER-01 Score tab overlay`, but the reviewed Stitch metadata does not identify a confirmed `OVER-02` source screen.
-The `OVER-02` wireframe in this repository is the implementation target until the matching Stitch screen is identified and aligned without applying the exploratory tactical style.
+The project and screen inventory were reviewed again on 2026-09-01 for the Team score-overview grouping change.
+Stitch screen `172c3e16a6424bf1a7d95723038f3e43` is `OVER-01 — Score-tab overlay`.
+Stitch screen `46c697bc75274ba9a668b0641e077dc0` is `OVER-02 — Round-over summary`.
+A separator-treatment edit was requested for both screens on 2026-09-01.
+The request preserved the native overlay, four Team groups, score content, alignment, `OVER-02` progress row, and curtain behavior.
+The request specified an 8 px boundary band with a centered 2 px white rule at 70% opacity.
+The Stitch request timed out, so the screen update result is not confirmed.
+The local specifications and wireframes remain the implementation target.
 Two consolidated Teams variants were requested from screen `681ae093051749fd922ab74454f47121` on 2026-08-31.
 An inspection after the timeout found no generated consolidated Teams variants in the project screen inventory.
 The two existing `MENU-01` explorations remain `681ae093051749fd922ab74454f47121` and `e26294cba3d946a0af458bcf33c275a0`.

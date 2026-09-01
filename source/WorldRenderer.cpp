@@ -32,6 +32,7 @@
 #include "Game.h"
 #include "GameMode.h"
 #include "Explosion.h"
+#include "gamemodes/TeamDeathMatch.h"
 
 namespace Duel6 {
     WorldRenderer::WorldRenderer(Duel6::AppService &appService, const Duel6::Game &game)
@@ -117,10 +118,13 @@ namespace Duel6 {
         return posY - charHeight;
     }
 
-    void WorldRenderer::roundOverSummary(bool showRoundProgress) const {
+    void WorldRenderer::roundOverSummary(bool showRoundProgress, bool separateTeamGroups) const {
         Float32 fontSize = 32;
         Float32 fontWidth = fontSize / 2;
         Ranking ranking = game.getMode().getRanking(game.getPlayers());
+        const bool showTeamSeparators =
+                separateTeamGroups && dynamic_cast<const TeamDeathMatch *>(&game.getMode()) != nullptr;
+        const Int32 teamSeparatorHeight = 8;
         Int32 maxLength = ranking.getMaxLength() + 6;
         Int32 maxNameLength = maxLength + 20;
         int height = fontSize * 3; // reserve for 'SCORE'
@@ -128,6 +132,9 @@ namespace Duel6 {
         int width = std::max(tableWidth, 200);
         for (const auto &entry : ranking.entries) {
             height += fontSize * (1 + entry.entries.size());
+        }
+        if (showTeamSeparators && ranking.entries.size() > 1) {
+            height += teamSeparatorHeight * Int32(ranking.entries.size() - 1);
         }
         const auto score = "---SCORE---";
         const auto kad = " K    A   D  K/D  PTS  ";
@@ -166,16 +173,23 @@ namespace Duel6 {
             font.print(x + width - roundProgressWidth, scoreY + fontSize, 0.0f, fontColor, roundProgress, fontSize);
         }
         font.print(posX + tableWidth - kadWidth, scoreY - fontSize, 0.0f, fontColor, kad, fontSize);
-        for (const auto &entry : ranking.entries) {
+        for (Size index = 0; index < ranking.entries.size(); index++) {
+            const auto &entry = ranking.entries[index];
             posY = renderRankingEntry(entry, posX, posY, maxLength, fontSize, true);
             for (const auto &nestedRankingEntry : entry.entries) {
                 posY = renderRankingEntry(nestedRankingEntry, posX, posY, maxLength, fontSize, true);
+            }
+            if (showTeamSeparators && index + 1 < ranking.entries.size()) {
+                posY -= teamSeparatorHeight;
+                renderer.setBlendFunc(BlendFunc::SrcAlpha);
+                renderer.quadXY(Vector(posX, posY + Int32(fontSize) + 4), Vector(tableWidth, 2),
+                                Color(255, 255, 255, 178));
             }
         }
     }
 
     void WorldRenderer::gameOverSummary() const {
-        roundOverSummary(false);
+        roundOverSummary(false, false);
     }
 
     void WorldRenderer::roundsPlayed() const {
@@ -538,10 +552,10 @@ namespace Duel6 {
             if (game.isOver()) {
                 gameOverSummary();
             } else {
-                roundOverSummary(showRoundSummaryProgress);
+                roundOverSummary(showRoundSummaryProgress, true);
             }
         } else if (game.isDisplayingScoreTab()) {
-            roundOverSummary(false);
+            roundOverSummary(false, true);
         }
     }
 }

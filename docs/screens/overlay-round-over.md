@@ -34,6 +34,14 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 - The solid blue heading strip width must equal the content width plus 42 px.
 - The limited-summary content height must equal 32 px multiplied by the sum of four and the number of visible ranking rows.
 - Each top-level ranking row and each nested ranking row must count as one visible ranking row.
+- In Team deathmatch, each team row must stay directly adjacent to that team's nested player rows.
+- In Team deathmatch, an 8 px separator band must separate adjacent team groups.
+- A 2 px `team-group-separator` rule must cross the score-table width at the vertical center of each separator band.
+- The separator band must keep 3 px of clear inner-panel space above and below the rule.
+- The last team group must not have a separator band after it.
+- The limited-summary content height for Team deathmatch must add 8 px for each boundary between team groups.
+- The separator treatment must support two through four teams.
+- Team names, team colors, row colors, headings, values, ranking order, column alignment, controls, and progress behavior must remain unchanged.
 - The translucent outer panel height must equal the limited-summary content height plus 64 px.
 - The progress row must add exactly 32 px to the unchanged score-summary panel height.
 - The score table must keep its existing 32 px row height and alignment.
@@ -53,6 +61,7 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 - An unlimited-match summary must not show the score-panel round-progress label.
 - An unlimited-match summary must not reserve the 32 px progress row.
 - A final game summary must remain unchanged and must not show the new score-panel round-progress label.
+- A final game summary must not use the new team-group separator treatment.
 - An active-round Tab score overlay must remain unchanged and must not show the new score-panel round-progress label.
 - The first visible frame of the next active limited round must restore the top-center arena round progress.
 - The next active round must not retain the summary progress row.
@@ -67,6 +76,7 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 
 - Outcome messages must provide textual result cues.
 - Column headings must identify score values.
+- The separator rule and separator space must identify team boundaries without color.
 - The panel and curtain must adapt to current client dimensions.
 - The progress label must remain right-aligned 16 px inside the score panel at each supported desktop viewport.
 - The score heading must remain horizontally centered at each supported desktop viewport.
