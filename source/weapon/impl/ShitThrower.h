@@ -37,6 +37,8 @@ namespace Duel6 {
     class ShitThrower : public LegacyWeapon {
     private:
 #ifndef D6R_HEADLESS_CORE
+        std::unique_ptr<animation::Animation> brownAnimation;
+        std::unique_ptr<PlayerAnimations> brownAnimations;
         std::unique_ptr<PlayerSkin> brownSkin;
 #endif
 
