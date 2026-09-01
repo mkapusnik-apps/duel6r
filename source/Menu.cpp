@@ -239,7 +239,7 @@ namespace Duel6 {
 
         auto personListLabel = new Gui::Label(gui);
         personListLabel->setPosition(14, 553, 352, 18);
-        personListLabel->setCaption(Format("{0,-4}{1,-25}{2,6}{3,7}")
+        personListLabel->setCaption(Format("{0,-5}{1,-24}{2,6}{3,7}")
                                     << "Rank" << "Name" << "Elo" << "Trend");
 
         personListBox = new Gui::ListBox(gui, true);
@@ -747,8 +747,8 @@ namespace Duel6 {
 
         auto addPersonRow = [this](const Person &person, const std::string &rank,
                                    const std::string &elo, const std::string &trend) {
-            std::string clippedName = person.getName().substr(0, 25);
-            personListBox->addItem(Format("{0,-4}{1,-25}{2,6}{3,7}")
+            std::string clippedName = person.getName().substr(0, 24);
+            personListBox->addItem(Format("{0,-5}{1,-24}{2,6}{3,7}")
                                    << rank << clippedName << elo << trend);
             personListNames.push_back(person.getName());
         };
