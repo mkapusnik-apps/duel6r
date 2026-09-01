@@ -157,6 +157,16 @@ namespace Duel6::Server::Authoritative {
             currentPhase = MatchPhase::Lobby;
             return terminalOutcome(OutcomeCode::ContentUnavailable);
         }
+        if (dependencies.contentPreflight) {
+            bool preflighted = false;
+            try { preflighted = dependencies.contentPreflight(manifest); } catch (...) {}
+            if (!preflighted) {
+                contentStartBlocked = true;
+                currentPhase = MatchPhase::Lobby;
+                result.reset();
+                return terminalOutcome(OutcomeCode::ContentUnavailable);
+            }
+        }
 
         config = std::move(requested);
         random = std::make_unique<DeterministicRandom>(config.seed);
@@ -182,6 +192,18 @@ namespace Duel6::Server::Authoritative {
         latestStateDigest = 0;
         latestCanonicalSnapshot.reset();
         checkpoints.clear();
+        acceptedSequences.clear();
+        for (const auto &player: players)
+            acceptedSequences.emplace(SequenceDomain{0, player.definition.participantId,
+                                                       player.definition.playerId}, 0);
+        acceptedSequences.emplace(SequenceDomain{1, config.hostParticipantId, 0}, 0);
+        acceptedSequences.emplace(SequenceDomain{2, config.hostParticipantId, 0}, 0);
+        internalHostControlSequence = 0;
+        totalActions = 0;
+        acceptedExternalActions = 0;
+        rejectedActions = 0;
+        actionsThisTick = 0;
+        actionTick = 0;
         terminal = terminalOutcome(OutcomeCode::None);
         if (!startRound()) failRuntime();
         return terminal;
@@ -283,7 +305,132 @@ namespace Duel6::Server::Authoritative {
         return true;
     }
 
+    AuthoritativeMatch::SequenceDomain AuthoritativeMatch::sequenceDomain(
+            const AuthoritativeAction &action, bool internalHostControl) const noexcept {
+        if (internalHostControl) return {2, config.hostParticipantId, 0};
+        const bool hostControl = action.kind == ActionKind::AdvanceRound || action.kind == ActionKind::EndSession
+                                 || action.kind == ActionKind::RemovePlayer
+                                 || action.kind == ActionKind::RuntimeFailure;
+        return {static_cast<std::uint8_t>(hostControl ? 1 : 0), action.participantId,
+                hostControl ? 0 : action.playerId};
+    }
+
+    ActionResult AuthoritativeMatch::reject(ActionResult result) noexcept {
+        if (rejectedActions != std::numeric_limits<std::uint64_t>::max()) ++rejectedActions;
+        return result;
+    }
+
+    bool AuthoritativeMatch::accept(const AuthoritativeAction &action, bool internalHostControl) noexcept {
+        const auto sequence = acceptedSequences.find(sequenceDomain(action, internalHostControl));
+        if (sequence == acceptedSequences.end()) return false;
+        sequence->second = action.sequence;
+        ++totalActions;
+        if (!internalHostControl) {
+            ++acceptedExternalActions;
+            ++actionsThisTick;
+        }
+        return true;
+    }
+
+    ActionResult AuthoritativeMatch::validateAction(const AuthoritativeAction &action,
+                                                     bool internalHostControl) const {
+        const bool hostControl = action.kind == ActionKind::AdvanceRound || action.kind == ActionKind::EndSession
+                                 || action.kind == ActionKind::RemovePlayer
+                                 || action.kind == ActionKind::RuntimeFailure;
+        switch (action.kind) {
+            case ActionKind::PlayerInput:
+                if (action.targetPlayerId != 0 || action.amount != 0
+                    || (action.inputMask & ~AllPlayerInputs) != 0) return ActionResult::RejectedValue;
+                break;
+            case ActionKind::ShotDamage:
+                if (action.targetPlayerId == 0 || action.inputMask != 0
+                    || action.amount <= 0 || action.amount > MaximumLife) return ActionResult::RejectedValue;
+                break;
+            case ActionKind::EnvironmentalDamage:
+                if (action.targetPlayerId == 0 || action.targetPlayerId != action.playerId
+                    || action.inputMask != 0 || action.amount <= 0
+                    || action.amount > MaximumLife) return ActionResult::RejectedValue;
+                break;
+            case ActionKind::RemovePlayer:
+                if (action.targetPlayerId == 0 || action.amount != 0 || action.inputMask != 0)
+                    return ActionResult::RejectedValue;
+                break;
+            case ActionKind::AdvanceRound:
+            case ActionKind::EndSession:
+            case ActionKind::RuntimeFailure:
+                if (action.targetPlayerId != 0 || action.amount != 0 || action.inputMask != 0)
+                    return ActionResult::RejectedValue;
+                break;
+            default: return ActionResult::RejectedValue;
+        }
+        if (action.participantId == 0 || (!hostControl && action.playerId == 0)
+            || (hostControl && action.playerId != 0)) return ActionResult::RejectedAuthority;
+        if (hostControl && (!isHost(action.participantId)
+            || (internalHostControl && action.participantId != config.hostParticipantId)))
+            return ActionResult::RejectedAuthority;
+
+        const PlayerState *source = hostControl ? nullptr : findPlayer(action.playerId);
+        if (!hostControl && (!source || source->departed
+            || source->definition.participantId != action.participantId)) return ActionResult::RejectedAuthority;
+        if (action.kind == ActionKind::ShotDamage) {
+            const PlayerState *target = findPlayer(action.targetPlayerId);
+            if (!target || !target->alive || target->departed) return ActionResult::RejectedValue;
+        }
+        if (!hostControl && (!source || !source->alive))
+            return ActionResult::RejectedValue;
+        if (action.kind == ActionKind::RemovePlayer) {
+            const PlayerState *target = findPlayer(action.targetPlayerId);
+            if (!target || target->departed) return ActionResult::RejectedValue;
+        }
+
+        if (currentPhase == MatchPhase::Failed || currentPhase == MatchPhase::Completed
+            || currentPhase == MatchPhase::Ended || terminal.code != OutcomeCode::None)
+            return ActionResult::RejectedPhase;
+        if (action.kind == ActionKind::AdvanceRound) {
+            if ((currentPhase != MatchPhase::RoundEndActive && currentPhase != MatchPhase::RoundEndFrozen)
+                || completedRoundCount + 1 >= config.roundLimit) return ActionResult::RejectedPhase;
+        } else if (!hostControl && currentPhase != MatchPhase::ActiveRound
+                   && currentPhase != MatchPhase::RoundEndActive) {
+            return ActionResult::RejectedPhase;
+        }
+
+        if ((action.kind == ActionKind::ShotDamage || action.kind == ActionKind::EnvironmentalDamage)
+            && dependencies.worldSnapshot) return ActionResult::RejectedAuthority;
+        if (action.tick != tick || action.sequence == 0) return ActionResult::RejectedOrder;
+        const auto previous = acceptedSequences.find(sequenceDomain(action, internalHostControl));
+        if (previous != acceptedSequences.end() && action.sequence <= previous->second)
+            return ActionResult::RejectedOrder;
+        if (action.kind == ActionKind::PlayerInput && source->lastInputTick == tick)
+            return ActionResult::RejectedValue;
+        return ActionResult::Accepted;
+    }
+
     ActionResult AuthoritativeMatch::submit(const AuthoritativeAction &action) {
+        return submitImpl(action, false);
+    }
+
+    ActionResult AuthoritativeMatch::submitHostControl(Identity participantId, ActionKind kind,
+                                                        Identity targetPlayerId) {
+        if (internalHostControlSequence == std::numeric_limits<std::uint64_t>::max()) {
+            failRuntime();
+            return ActionResult::RuntimeFailed;
+        }
+        const std::uint64_t sequence = internalHostControlSequence + 1;
+        AuthoritativeAction action{tick, sequence, participantId, 0, kind,
+                                   targetPlayerId, 0, 0};
+        const std::uint64_t acceptedBefore = totalActions;
+        const ActionResult result = submitImpl(action, true);
+        if (totalActions != acceptedBefore) internalHostControlSequence = sequence;
+        return result;
+    }
+
+    ActionResult AuthoritativeMatch::submitImpl(const AuthoritativeAction &action, bool internalHostControl) {
+        const ActionResult validation = validateAction(action, internalHostControl);
+        if (validation != ActionResult::Accepted) return reject(validation);
+        if (action.tick != actionTick) { actionTick = action.tick; actionsThisTick = 0; }
+        if (!internalHostControl
+            && (actionsThisTick >= MaxActionsPerTick || acceptedExternalActions >= MaxActions))
+            return reject(ActionResult::RejectedLimit);
         std::unique_ptr<Math::RandomScope> authoritativeScope;
         try {
             if (random) authoritativeScope = std::make_unique<Math::RandomScope>(*random);
@@ -291,25 +438,13 @@ namespace Duel6::Server::Authoritative {
             failRuntime();
             return ActionResult::RuntimeFailed;
         }
-        if (currentPhase == MatchPhase::Failed || currentPhase == MatchPhase::Completed
-            || currentPhase == MatchPhase::Ended || terminal.code != OutcomeCode::None)
-            return ActionResult::RejectedPhase;
-        if (action.tick != tick || action.sequence == 0 || action.sequence <= lastSequence)
-            return ActionResult::RejectedOrder;
-        if (action.tick != actionTick) { actionTick = action.tick; actionsThisTick = 0; }
-        if (++actionsThisTick > MaxActionsPerTick || ++totalActions > MaxActions) {
+        if (!accept(action, internalHostControl)) {
             failRuntime();
-            return ActionResult::RejectedLimit;
+            return ActionResult::RuntimeFailed;
         }
         if (action.kind == ActionKind::AdvanceRound || action.kind == ActionKind::EndSession
             || action.kind == ActionKind::RemovePlayer || action.kind == ActionKind::RuntimeFailure) {
-            if (!isHost(action.participantId) || action.playerId != 0)
-                return ActionResult::RejectedAuthority;
-            if (action.amount != 0 || action.inputMask != 0
-                || (action.kind != ActionKind::RemovePlayer && action.targetPlayerId != 0))
-                return ActionResult::RejectedValue;
             if (action.kind == ActionKind::EndSession) {
-                lastSequence = action.sequence;
                 endWorld();
                 result.reset();
                 currentPhase = MatchPhase::Ended;
@@ -317,25 +452,22 @@ namespace Duel6::Server::Authoritative {
                 return ActionResult::Accepted;
             }
             if (action.kind == ActionKind::RuntimeFailure) {
-                lastSequence = action.sequence;
                 failRuntime();
                 return ActionResult::RuntimeFailed;
             }
             if (action.kind == ActionKind::AdvanceRound) {
-                if ((currentPhase != MatchPhase::RoundEndActive && currentPhase != MatchPhase::RoundEndFrozen)
-                    || completedRoundCount + 1 >= config.roundLimit) return ActionResult::RejectedPhase;
                 finishRound();
                 if (terminal.code == OutcomeCode::None && !startRound()) failRuntime();
-                lastSequence = action.sequence;
                 return terminal.code == OutcomeCode::RuntimeFailed
                        ? ActionResult::RuntimeFailed : ActionResult::Accepted;
             }
             PlayerState *removed = findPlayer(action.targetPlayerId);
-            if (!removed || removed->departed || action.targetPlayerId == 0)
-                return ActionResult::RejectedValue;
             if (dependencies.worldRemove) {
                 try {
-                    if (!dependencies.worldRemove(action.targetPlayerId)) return ActionResult::RejectedValue;
+                    if (!dependencies.worldRemove(action.targetPlayerId)) {
+                        failRuntime();
+                        return ActionResult::RuntimeFailed;
+                    }
                 } catch (...) {
                     failRuntime();
                     return ActionResult::RuntimeFailed;
@@ -346,39 +478,27 @@ namespace Duel6::Server::Authoritative {
             interruptIfRosterTooSmall();
             if (terminal.code == OutcomeCode::None && currentPhase == MatchPhase::ActiveRound)
                 evaluateRoundOutcome();
-            lastSequence = action.sequence;
             return ActionResult::Accepted;
         }
 
-        if (currentPhase != MatchPhase::ActiveRound && currentPhase != MatchPhase::RoundEndActive)
-            return ActionResult::RejectedPhase;
         PlayerState *source = findPlayer(action.playerId);
-        if (!source || source->departed || source->definition.participantId != action.participantId)
-            return ActionResult::RejectedAuthority;
         bool applied = false;
         if (action.kind == ActionKind::PlayerInput) applied = applyPlayerInput(*source, action);
         else if (action.kind == ActionKind::ShotDamage) {
-            if (dependencies.worldSnapshot) return ActionResult::RejectedAuthority;
-            if (action.inputMask != 0 || action.targetPlayerId == 0) return ActionResult::RejectedValue;
             PlayerState *target = findPlayer(action.targetPlayerId);
-            applied = target && applyShotDamage(*source, *target, action.amount);
+            applied = applyShotDamage(*source, *target, action.amount);
         } else if (action.kind == ActionKind::EnvironmentalDamage) {
-            if (dependencies.worldSnapshot) return ActionResult::RejectedAuthority;
-            if (action.inputMask != 0 || action.targetPlayerId != action.playerId)
-                return ActionResult::RejectedValue;
             applied = applyEnvironmentalDamage(*source, action.amount);
         }
-        if (!applied) return terminal.code == OutcomeCode::RuntimeFailed
-                             ? ActionResult::RuntimeFailed : ActionResult::RejectedValue;
+        if (!applied) {
+            if (terminal.code == OutcomeCode::None) failRuntime();
+            return ActionResult::RuntimeFailed;
+        }
         evaluateRoundOutcome();
-        lastSequence = action.sequence;
         return ActionResult::Accepted;
     }
 
     bool AuthoritativeMatch::applyPlayerInput(PlayerState &player, const AuthoritativeAction &action) {
-        if (!player.alive || (action.inputMask & ~AllPlayerInputs) != 0
-            || action.amount != 0 || action.targetPlayerId != 0 || player.lastInputTick == tick) return false;
-        player.lastInputTick = tick;
         if (dependencies.worldInput) {
             try {
                 if (!dependencies.worldInput(player.definition.playerId, action.inputMask)) return false;
@@ -387,6 +507,7 @@ namespace Duel6::Server::Authoritative {
                 return false;
             }
         }
+        player.lastInputTick = tick;
         const bool shootPressed = (action.inputMask & Shoot) != 0 && (player.inputMask & Shoot) == 0;
         player.inputMask = action.inputMask;
         if (!dependencies.worldSnapshot && shootPressed && !checkedAdd(player.total.shots, 1)) {
@@ -695,9 +816,19 @@ namespace Duel6::Server::Authoritative {
             std::vector<AuthoritativeAction> actions;
             try { actions = dependencies.actionSource(dependencies.clock()); }
             catch (...) { failRuntime(); break; }
-            if (actions.size() > MaxActionsPerTick) { failRuntime(); break; }
             for (const auto &action: actions) {
-                const ActionResult accepted = submit(action);
+                const bool hostControl = action.kind == ActionKind::AdvanceRound
+                                         || action.kind == ActionKind::EndSession
+                                         || action.kind == ActionKind::RemovePlayer
+                                         || action.kind == ActionKind::RuntimeFailure;
+                const bool validControlShape = action.playerId == 0 && action.amount == 0
+                                               && action.inputMask == 0
+                                               && (action.kind == ActionKind::RemovePlayer
+                                                   ? action.targetPlayerId != 0 : action.targetPlayerId == 0);
+                const ActionResult accepted = hostControl && validControlShape
+                                              ? submitHostControl(action.participantId, action.kind,
+                                                                  action.targetPlayerId)
+                                              : submit(action);
                 if (accepted == ActionResult::RuntimeFailed || terminal.code != OutcomeCode::None) break;
             }
             if (terminal.code == OutcomeCode::None) advanceOneTick();
@@ -769,4 +900,6 @@ namespace Duel6::Server::Authoritative {
         static const std::vector<DeterministicRandom::Decision> empty;
         return random ? random->decisionTrace() : empty;
     }
+    std::uint64_t AuthoritativeMatch::acceptedActionCount() const noexcept { return totalActions; }
+    std::uint64_t AuthoritativeMatch::rejectedActionCount() const noexcept { return rejectedActions; }
 }

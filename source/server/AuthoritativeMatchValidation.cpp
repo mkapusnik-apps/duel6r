@@ -102,17 +102,19 @@ namespace Duel6::Server::Authoritative {
         if (!Network::validCanonicalManifest(manifest)) return invalid("manifest-invalid");
         if (config.optionalScriptsEnabled) return invalid("optional-scripts");
         std::set<std::string> paths;
+        std::set<std::string> frozenPlayableLevels;
         for (const auto &entry: manifest) {
             if (entry.logicalPath.compare(0, 8, "scripts/") == 0
                 || entry.logicalPath.compare(0, 9, "profiles/") == 0)
                 return invalid("script-content");
             paths.insert(entry.logicalPath);
+            if (levelPath(entry.logicalPath)) frozenPlayableLevels.insert(entry.logicalPath);
         }
         if (!paths.count("data/blocks.json") || !paths.count("data/config.script"))
             return invalid("gameplay-data-missing");
-        for (const auto &level: config.playableLevels) {
-            if (!paths.count(level)) return invalid("playable-level-missing");
-        }
+        const std::set<std::string> configuredPlayableLevels(config.playableLevels.begin(),
+                                                              config.playableLevels.end());
+        if (configuredPlayableLevels != frozenPlayableLevels) return invalid("playable-level-set");
         return {true, {}};
     }
 }

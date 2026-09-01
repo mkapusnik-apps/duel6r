@@ -54,7 +54,10 @@ namespace Duel6 {
 
     // Very important fun aspect!
     static const float SHOT_FORCE_FACTOR = 0.05f;
-    static const float WEAPON_PICK_LOCK_DURATION = 0.5f;
+    // The authoritative headless runtime has no profile animation clock. Its fixed
+    // canonical lock matches the supported default Pick animation without changing
+    // Local Play's animation-completion rule.
+    static const float HEADLESS_WEAPON_PICK_LOCK_DURATION = 0.5f;
 
 #ifndef D6R_HEADLESS_CORE
     Player::Player(Person &person, const PlayerSkin &skin, const PlayerSounds &sounds, const PlayerControls &controls,
@@ -293,7 +296,7 @@ namespace Duel6 {
 
     Player &Player::pickWeapon(Weapon weapon, Int32 bullets, Float32 remainingReloadTime) {
         setFlag(FlagPick);
-        weaponPickLockRemaining = WEAPON_PICK_LOCK_DURATION;
+        weaponPickLockRemaining = HEADLESS_WEAPON_PICK_LOCK_DURATION;
         unsetFlag(FlagMoveLeft | FlagMoveRight);
 
         this->weapon = weapon;
@@ -324,7 +327,13 @@ namespace Duel6 {
         collider.collideWithElevators(world->getElevatorList(), elapsedTime, speed);
         collider.collideWithLevel(level, elapsedTime, speed);
 
-        if (isPickingGun() && weaponPickLockRemaining <= 0) {
+        if (isPickingGun()
+#ifdef D6R_HEADLESS_CORE
+            && weaponPickLockRemaining <= 0
+#else
+            && (headless ? weaponPickLockRemaining <= 0 : sprite->isFinished())
+#endif
+        ) {
             unsetFlag(FlagPick);
             setFlag(FlagHasGun);
         }
@@ -502,7 +511,7 @@ namespace Duel6 {
         }
 
         checkKeys();
-        if (weaponPickLockRemaining > 0)
+        if (headless && weaponPickLockRemaining > 0)
             weaponPickLockRemaining = std::max(0.0f, weaponPickLockRemaining - elapsedTime);
         updateDimensions();
         makeMove(world.getLevel(), elapsedTime);

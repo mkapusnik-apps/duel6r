@@ -22,6 +22,7 @@ namespace Duel6::Server::Authoritative {
     class CanonicalMatchRuntime final : public std::enable_shared_from_this<CanonicalMatchRuntime> {
     public:
         CanonicalMatchRuntime(MatchConfig config, std::vector<PlayerDefinition> roster,
+                               Network::GameplayManifest frozenManifest,
                                std::shared_ptr<const Network::FrozenGameplayContent> frozenContent);
         ~CanonicalMatchRuntime();
 
@@ -35,6 +36,7 @@ namespace Duel6::Server::Authoritative {
         std::map<Identity, Player *> canonicalPlayersById;
         std::map<Identity, std::uint32_t> heldInputsByPlayerId;
         std::set<Identity> departedPlayerIds;
+        Network::GameplayManifest frozenManifest;
         std::shared_ptr<const Network::FrozenGameplayContent> frozenContent;
         std::unique_ptr<GameResources> resources;
         std::unique_ptr<GameSettings> settings;
@@ -57,6 +59,7 @@ namespace Duel6::Server::Authoritative {
         bool previousRoundOver = false;
         bool sourceEventsEnabled = false;
 
+        bool preflightContent(const Network::GameplayManifest &manifest);
         bool startWorld(RoundStartDecision &decision, RandomSource &randomSource);
         bool tickWorld(Tick tick, bool simulate, RandomSource &randomSource);
         bool setPlayerInput(Identity playerId, std::uint32_t inputMask);

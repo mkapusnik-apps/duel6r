@@ -5,6 +5,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <tuple>
 #include <vector>
 
 #include "AuthoritativeMatchTypes.h"
@@ -34,6 +35,7 @@ namespace Duel6::Server::Authoritative {
         std::function<CanonicalWorldSnapshot()> worldSnapshot;
         std::function<void()> worldEnd;
         std::function<void(RandomSource &)> worldEndWithRandom;
+        std::function<bool(const Network::GameplayManifest &)> contentPreflight;
         std::function<bool()> cleanup;
         std::function<std::vector<AuthoritativeAction>(Tick)> actionSource;
         std::function<Tick()> clock;
@@ -57,6 +59,7 @@ namespace Duel6::Server::Authoritative {
         TerminalOutcome start(MatchConfig config, std::vector<PlayerDefinition> roster,
                               const Network::GameplayManifest &manifest);
         ActionResult submit(const AuthoritativeAction &action);
+        ActionResult submitHostControl(Identity participantId, ActionKind kind, Identity targetPlayerId = 0);
         bool advanceOneTick();
         TerminalOutcome runUntilTerminal(Tick maximumTicks = MaxMatchTicks);
         TerminalOutcome shutdown();
@@ -74,6 +77,8 @@ namespace Duel6::Server::Authoritative {
         std::uint64_t randomDecisionCount() const noexcept;
         std::uint64_t randomDecisionDigest() const noexcept;
         const std::vector<DeterministicRandom::Decision> &randomDecisionTrace() const noexcept;
+        std::uint64_t acceptedActionCount() const noexcept;
+        std::uint64_t rejectedActionCount() const noexcept;
 
     private:
         struct AttackerRecord {
@@ -99,8 +104,12 @@ namespace Duel6::Server::Authoritative {
         std::unique_ptr<DeterministicRandom> random;
         MatchPhase currentPhase = MatchPhase::Lobby;
         Tick tick = 0;
-        std::uint64_t lastSequence = 0;
-        std::size_t totalActions = 0;
+        using SequenceDomain = std::tuple<std::uint8_t, Identity, Identity>;
+        std::map<SequenceDomain, std::uint64_t> acceptedSequences;
+        std::uint64_t internalHostControlSequence = 0;
+        std::uint64_t totalActions = 0;
+        std::uint64_t acceptedExternalActions = 0;
+        std::uint64_t rejectedActions = 0;
         std::size_t actionsThisTick = 0;
         Tick actionTick = 0;
         std::uint32_t roundEndTicks = 0;
@@ -125,6 +134,11 @@ namespace Duel6::Server::Authoritative {
         PlayerState *findPlayer(Identity id);
         const PlayerState *findPlayer(Identity id) const;
         bool isHost(Identity participant) const;
+        ActionResult submitImpl(const AuthoritativeAction &action, bool internalHostControl);
+        ActionResult validateAction(const AuthoritativeAction &action, bool internalHostControl) const;
+        ActionResult reject(ActionResult result) noexcept;
+        bool accept(const AuthoritativeAction &action, bool internalHostControl) noexcept;
+        SequenceDomain sequenceDomain(const AuthoritativeAction &action, bool internalHostControl) const noexcept;
         bool checkedAdd(std::uint64_t &target, std::uint64_t amount);
         bool startRound();
         bool recordRound();

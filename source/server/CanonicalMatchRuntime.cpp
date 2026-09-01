@@ -4,17 +4,21 @@
 #include <cmath>
 #include <cctype>
 #include <limits>
+#include <string_view>
 #include <utility>
 
 #include "../Game.h"
 #include "../GameMode.h"
 #include "../GameResources.h"
 #include "../GameSettings.h"
+#include "../ElevatorList.h"
+#include "../Level.h"
 #include "../Player.h"
 #include "../Weapon.h"
 #include "../gamemodes/DeathMatch.h"
 #include "../gamemodes/Predator.h"
 #include "../gamemodes/TeamDeathMatch.h"
+#include "FrozenGameplayConfig.h"
 
 namespace Duel6::Server::Authoritative {
     namespace {
@@ -78,21 +82,26 @@ namespace Duel6::Server::Authoritative {
     }
 
     CanonicalMatchRuntime::CanonicalMatchRuntime(MatchConfig config, std::vector<PlayerDefinition> roster,
-                                                  std::shared_ptr<const Network::FrozenGameplayContent> frozenContent)
-            : config(std::move(config)), roster(std::move(roster)), frozenContent(std::move(frozenContent)) {}
+                                                   Network::GameplayManifest frozenManifest,
+                                                   std::shared_ptr<const Network::FrozenGameplayContent> frozenContent)
+            : config(std::move(config)), roster(std::move(roster)), frozenManifest(std::move(frozenManifest)),
+              frozenContent(std::move(frozenContent)) {}
 
     CanonicalMatchRuntime::~CanonicalMatchRuntime() { endWorld(); }
 
     MatchRuntimeDependencies CanonicalMatchRuntime::createDependencies(MatchConfig config,
             std::vector<PlayerDefinition> roster, const Network::ManifestBuildResult &content) {
         auto runtime = std::make_shared<CanonicalMatchRuntime>(
-                std::move(config), std::move(roster), content.content);
+                std::move(config), std::move(roster), content.manifest, content.content);
         return runtime->dependencies();
     }
 
     MatchRuntimeDependencies CanonicalMatchRuntime::dependencies() {
         const auto self = shared_from_this();
         MatchRuntimeDependencies result;
+        result.contentPreflight = [self](const Network::GameplayManifest &manifest) {
+            return self->preflightContent(manifest);
+        };
         result.worldStartWithRandom = [self](RoundStartDecision &decision, RandomSource &randomSource) {
             return self->startWorld(decision, randomSource);
         };
@@ -107,6 +116,57 @@ namespace Duel6::Server::Authoritative {
         result.worldEndWithRandom = [self](RandomSource &randomSource) { self->endWorld(&randomSource); };
         result.cleanup = [self] { return self->cleanup(); };
         return result;
+    }
+
+    bool CanonicalMatchRuntime::preflightContent(const Network::GameplayManifest &manifest) {
+        if (!Network::gameplayManifestsEqual(manifest, frozenManifest)) return false;
+        if (initialized) return resources && resources->hasFrozenGameplayContent();
+        try {
+            if (!frozenContent || frozenContent->empty()) return false;
+            const auto configEntry = frozenContent->find("data/config.script");
+            if (configEntry == frozenContent->end()) return false;
+            FrozenGameplayConfig parsedConfig;
+            if (!parseFrozenGameplayConfig(std::string_view(
+                    reinterpret_cast<const char *>(configEntry->second.data()), configEntry->second.size()),
+                                           parsedConfig)) return false;
+            if (parsedConfig.enabledWeapons != config.enabledWeapons) return false;
+            if (!config.compactSpawnLayout
+                && (parsedConfig.startingAmmoMinimum != config.startingAmmoMinimum
+                    || parsedConfig.startingAmmoMaximum != config.startingAmmoMaximum)) return false;
+
+            const auto blocksEntry = frozenContent->find("data/blocks.json");
+            if (blocksEntry == frozenContent->end()) return false;
+            const Block::Meta blocks = Block::loadMeta(blocksEntry->second);
+            if (blocks.size() <= 33 || !blocks[4].is(Block::Type::Water)
+                || !blocks[16].is(Block::Type::Water) || !blocks[33].is(Block::Type::Water)) return false;
+            for (std::size_t index = 0; index < blocks.size(); ++index) {
+                if (blocks[index].getIndex() != index || blocks[index].getTextures().empty()
+                    || std::any_of(blocks[index].getTextures().begin(), blocks[index].getTextures().end(),
+                                   [](Int32 texture) { return texture < 0; })) return false;
+            }
+
+            DeterministicRandom validationRandom(config.seed);
+            for (const std::string &levelPath: config.playableLevels) {
+                const auto levelEntry = frozenContent->find(levelPath);
+                if (levelEntry == frozenContent->end()) return false;
+                Level level(levelEntry->second, false, blocks, validationRandom);
+                Level::StartingPositionList positions;
+                level.findStartingPositions(positions);
+                if (positions.empty() || (config.mode == Mode::TeamDeathmatch
+                    && positions.size() < config.teamCount)) return false;
+                ElevatorList elevators{Texture()};
+                elevators.load(levelEntry->second, false);
+            }
+            auto validatedResources = std::make_unique<GameResources>();
+            validatedResources->loadHeadless(frozenContent);
+            resources = std::move(validatedResources);
+            initialized = true;
+            return true;
+        } catch (...) {
+            resources.reset();
+            initialized = false;
+            return false;
+        }
     }
 
     bool CanonicalMatchRuntime::startWorld(RoundStartDecision &decision, RandomSource &randomSource) {

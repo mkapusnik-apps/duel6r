@@ -26,9 +26,11 @@
 */
 
 #include <queue>
+#include <limits>
 #include "Game.h"
 #include "Level.h"
 #include "json/JsonParser.h"
+#include "DataException.h"
 #include "GameException.h"
 
 namespace Duel6 {
@@ -65,11 +67,23 @@ namespace Duel6 {
         height = root.get("height").asInt();
         background = root.getOrDefault("background", Json::Value::makeString("")).asString();
 
-        Int32 blockCount = width * height;
+        constexpr std::int64_t MaximumLevelCells = 4 * 1024 * 1024;
+        if (width <= 0 || height <= 0) D6_THROW(DataException, "Level dimensions must be positive");
+        const std::int64_t blockCount = static_cast<std::int64_t>(width) * height;
+        if (blockCount <= 0 || blockCount > MaximumLevelCells)
+            D6_THROW(DataException, "Level dimensions are unsupported");
         Json::Value blocks = root.get("blocks");
-        levelData.resize(blockCount);
+        if (blocks.getLength() != static_cast<Size>(blockCount))
+            D6_THROW(DataException, "Level block count does not match its dimensions");
+        if (blockMeta.empty()
+            || blockMeta.size() > static_cast<Size>(std::numeric_limits<Uint16>::max()) + 1u)
+            D6_THROW(DataException, "Level block metadata is unavailable");
+        levelData.resize(static_cast<Size>(blockCount));
         for (Size i = 0; i < blocks.getLength(); i++) {
-            levelData[i] = Uint16(blocks.get(i).asInt());
+            const Int32 block = blocks.get(i).asInt();
+            if (block < 0 || static_cast<Size>(block) >= blockMeta.size())
+                D6_THROW(DataException, "Level references unavailable block metadata");
+            levelData[i] = static_cast<Uint16>(block);
         }
 
         if (mirror) {

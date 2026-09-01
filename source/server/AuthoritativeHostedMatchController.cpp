@@ -1,7 +1,6 @@
 #include "AuthoritativeHostedMatchController.h"
 
 #include <set>
-#include <limits>
 #include <utility>
 
 #include "AuthoritativeMatchValidation.h"
@@ -62,7 +61,10 @@ namespace Duel6::Server::Authoritative {
         const TerminalOutcome started = activeMatch->start(config, roster, manifest);
         if (started.code == OutcomeCode::None) currentStage = HostedMatchStage::MatchActive;
         else if (started.code == OutcomeCode::RuntimeFailed) currentStage = HostedMatchStage::UnexpectedStop;
-        else if (started.code == OutcomeCode::ContentUnavailable) currentStage = HostedMatchStage::ContentBlocked;
+        else if (started.code == OutcomeCode::ContentUnavailable) {
+            clearReadiness();
+            currentStage = HostedMatchStage::ContentBlocked;
+        }
         else currentStage = HostedMatchStage::Lobby;
         if (currentStage != HostedMatchStage::MatchActive) activeMatch.reset();
         return started;
@@ -72,9 +74,7 @@ namespace Duel6::Server::Authoritative {
         if (participantId == 0 || participantId != hostParticipantId)
             return terminalOutcome(OutcomeCode::SettingsInvalid);
         if (currentStage == HostedMatchStage::MatchActive && activeMatch) {
-            const ActionResult accepted = activeMatch->submit({activeMatch->currentTick(),
-                    std::numeric_limits<std::uint64_t>::max(), participantId, 0,
-                    ActionKind::EndSession, 0, 0, 0});
+            const ActionResult accepted = activeMatch->submitHostControl(participantId, ActionKind::EndSession);
             if (accepted != ActionResult::Accepted) return activeMatch->outcome();
             const TerminalOutcome stopped = activeMatch->shutdown();
             currentStage = stopped.code == OutcomeCode::ShutdownFailed

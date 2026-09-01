@@ -37,6 +37,7 @@ namespace Duel6::Server::Authoritative {
             std::string resources = "resources";
             std::string scenario = "complete";
             std::string diagnosticFixture;
+            std::string legacyFixedLevel;
             bool actionsFromInput = false;
         };
 
@@ -114,8 +115,10 @@ namespace Duel6::Server::Authoritative {
                     else if (value == "shuffle") options.config.levelPlan = LevelPlan::ShuffleAll;
                     else if (value == "random") options.config.levelPlan = LevelPlan::Random;
                     else throw std::invalid_argument("invalid level plan");
-                } else if (startsWith(argument, "--level="))
-                    options.config.playableLevels.push_back(after(argument, "--level="));
+                } else if (startsWith(argument, "--level=")) {
+                    if (!options.legacyFixedLevel.empty()) throw std::invalid_argument("duplicate level identity");
+                    options.legacyFixedLevel = after(argument, "--level=");
+                }
                 else if (startsWith(argument, "--fixed-level="))
                     options.config.fixedLevel = after(argument, "--fixed-level=");
                 else if (startsWith(argument, "--rounds=")) {
@@ -158,6 +161,14 @@ namespace Duel6::Server::Authoritative {
             }
             if (options.actionsFromInput && !options.diagnosticFixture.empty())
                 throw std::invalid_argument("diagnostic fixtures cannot consume authoritative stdin actions");
+            if (options.config.levelPlan != LevelPlan::Fixed
+                && (!options.legacyFixedLevel.empty() || !options.config.fixedLevel.empty()))
+                throw std::invalid_argument("non-fixed plans always use the complete frozen level set");
+            if (!options.legacyFixedLevel.empty()) {
+                if (!options.config.fixedLevel.empty() && options.config.fixedLevel != options.legacyFixedLevel)
+                    throw std::invalid_argument("conflicting fixed level identities");
+                options.config.fixedLevel = options.legacyFixedLevel;
+            }
             return options;
         }
 
@@ -236,6 +247,8 @@ namespace Duel6::Server::Authoritative {
                 }
             }
             output << '\n' << "eventCount=" << (snapshot ? snapshot->events.size() : 0u) << '\n'
+                    << "acceptedActionCount=" << match.acceptedActionCount() << '\n'
+                    << "rejectedActionCount=" << match.rejectedActionCount() << '\n'
                     << "cleanupConfirmed=" << (match.resourcesReleased() ? "true" : "false") << '\n'
                     << "forbiddenGlobalRandomAccessCount=" << Math::forbiddenAuthoritativeRandomAccesses() << '\n'
                     << "forbiddenWallClockAccessCount=0\n";
@@ -293,12 +306,21 @@ namespace Duel6::Server::Authoritative {
                 actions.push_back(action);
             }
             if (!std::is_sorted(actions.begin(), actions.end(), [](const auto &left, const auto &right) {
-                return left.tick < right.tick || (left.tick == right.tick && left.sequence < right.sequence);
-            })) throw std::invalid_argument("unordered actions");
+                return left.tick < right.tick;
+            })) throw std::invalid_argument("unordered action ticks");
             return actions;
         }
 
         bool submitChecked(AuthoritativeMatch &match, const AuthoritativeAction &action) {
+            const bool hostControl = action.kind == ActionKind::AdvanceRound || action.kind == ActionKind::EndSession
+                                     || action.kind == ActionKind::RemovePlayer
+                                     || action.kind == ActionKind::RuntimeFailure;
+            const bool validControlShape = action.playerId == 0 && action.amount == 0 && action.inputMask == 0
+                                           && (action.kind == ActionKind::RemovePlayer
+                                               ? action.targetPlayerId != 0 : action.targetPlayerId == 0);
+            if (hostControl && validControlShape)
+                return match.submitHostControl(action.participantId, action.kind,
+                                               action.targetPlayerId) == ActionResult::Accepted;
             return match.submit(action) == ActionResult::Accepted;
         }
 
@@ -308,8 +330,7 @@ namespace Duel6::Server::Authoritative {
             std::uint64_t sequence = 1;
             while (match.outcome().code == OutcomeCode::None) {
                 if (stopped && stopped()) {
-                    submitChecked(match, {match.currentTick(), sequence++, config.hostParticipantId, 0,
-                                          ActionKind::EndSession, 0, 0, 0});
+                    match.submitHostControl(config.hostParticipantId, ActionKind::EndSession);
                     break;
                 }
                 if (match.phase() == MatchPhase::ActiveRound) {
@@ -349,8 +370,7 @@ namespace Duel6::Server::Authoritative {
             std::vector<std::uint32_t> previousInputs(roster.size(), std::numeric_limits<std::uint32_t>::max());
             while (match.outcome().code == OutcomeCode::None) {
                 if (stopped && stopped()) {
-                    submitChecked(match, {match.currentTick(), sequence++, config.hostParticipantId, 0,
-                                          ActionKind::EndSession, 0, 0, 0});
+                    match.submitHostControl(config.hostParticipantId, ActionKind::EndSession);
                     break;
                 }
                 if (match.phase() == MatchPhase::ActiveRound && match.currentTick() % 5u == 0) {
@@ -436,13 +456,12 @@ namespace Duel6::Server::Authoritative {
                        << "Hosted gameplay content is invalid. Restore the supported gameplay content and restart the application.\n";
                 return 2;
             }
-            if (options.config.playableLevels.empty()) {
-                for (const auto &entry: built.manifest)
-                    if (startsWith(entry.logicalPath, "levels/")
-                        && entry.logicalPath.size() > 5
-                        && entry.logicalPath.compare(entry.logicalPath.size() - 5, 5, ".json") == 0)
-                        options.config.playableLevels.push_back(entry.logicalPath);
-            }
+            options.config.playableLevels.clear();
+            for (const auto &entry: built.manifest)
+                if (startsWith(entry.logicalPath, "levels/")
+                    && entry.logicalPath.size() > 5
+                    && entry.logicalPath.compare(entry.logicalPath.size() - 5, 5, ".json") == 0)
+                    options.config.playableLevels.push_back(entry.logicalPath);
             if (options.config.levelPlan == LevelPlan::Fixed && options.config.fixedLevel.empty()
                 && !options.config.playableLevels.empty())
                 options.config.fixedLevel = options.config.playableLevels.front();
