@@ -26,11 +26,14 @@ namespace Duel6::Server::Authoritative {
     struct MatchRuntimeDependencies {
         std::function<std::uint64_t()> seedSource;
         std::function<bool(RoundStartDecision &)> worldStart;
+        std::function<bool(RoundStartDecision &, RandomSource &)> worldStartWithRandom;
         std::function<bool(Tick, bool)> worldTick;
+        std::function<bool(Tick, bool, RandomSource &)> worldTickWithRandom;
         std::function<bool(Identity, std::uint32_t)> worldInput;
         std::function<bool(Identity)> worldRemove;
         std::function<CanonicalWorldSnapshot()> worldSnapshot;
         std::function<void()> worldEnd;
+        std::function<void(RandomSource &)> worldEndWithRandom;
         std::function<bool()> cleanup;
         std::function<std::vector<AuthoritativeAction>(Tick)> actionSource;
         std::function<Tick()> clock;
@@ -86,6 +89,7 @@ namespace Duel6::Server::Authoritative {
             PlayerStatistics roundStart;
             std::map<Identity, AttackerRecord> attackers;
             Tick lastInputTick = static_cast<Tick>(-1);
+            std::uint32_t inputMask = 0;
         };
 
         MatchRuntimeDependencies dependencies;

@@ -52,11 +52,13 @@ namespace Duel6 {
         void initializePlayers(std::vector<Game::PlayerDefinition> &definitions) override;
 #endif
 
-        void initializeRound(Game &game, std::vector<Player> &players, World &world) override;
+        void initializeRound(Game &game, std::vector<Player> &players, World &world,
+                             RandomSource &randomSource) override;
 
         bool checkRoundOver(World &world, const std::vector<Player *> &alivePlayers) override;
 
-        void initializePlayerPositions(Game &game, std::vector<Player> &players, World &world) const override;
+        void initializePlayerPositions(Game &game, std::vector<Player> &players, World &world,
+                                       RandomSource &randomSource) const override;
 
         Ranking getRanking(const std::vector<Player> &players) const override;
 

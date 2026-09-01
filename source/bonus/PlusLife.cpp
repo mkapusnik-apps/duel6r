@@ -41,7 +41,7 @@ namespace Duel6 {
 
         void PlusLife::onApply(Player &player, World &world, Int32 duration) const {
             Int32 hit = (Int32(D6_MAX_LIFE) / 7)
-                        + Math::random(Int32(D6_MAX_LIFE) / 2, "plus-life-amount");
+                        + Math::random(Int32(D6_MAX_LIFE) / 2, world.getRandomSource(), "plus-life-amount");
             player.addLife(Float32(hit));
             world.getMessageQueue().add(player, Format("Life +{0}") << hit);
         }

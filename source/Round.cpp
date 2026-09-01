@@ -37,8 +37,10 @@
 #endif
 
 namespace Duel6 {
-    Round::Round(Game &game, Int32 roundNumber, const std::string &levelPath, bool mirror)
-            : game(game), roundNumber(roundNumber), world(game, levelPath, mirror),
+    Round::Round(Game &game, Int32 roundNumber, const std::string &levelPath, bool mirror,
+                 RandomSource &randomSource)
+            : game(game), randomSource(randomSource), roundNumber(roundNumber),
+              world(game, levelPath, mirror, randomSource),
               suddenDeathMode(false), waterFillWait(0), showYouAreHere(D6_YOU_ARE_HERE_DURATION), gameOverWait(0),
               winner(false)
 #ifndef D6R_HEADLESS_CORE
@@ -53,9 +55,9 @@ namespace Duel6 {
         startTime = game.isHeadless() ? 0 : SDL_GetTicks();
 #endif
         auto &players = world.getPlayers();
-        game.getMode().initializePlayerPositions(game, players, world);
+        game.getMode().initializePlayerPositions(game, players, world, randomSource);
         setPlayerViews();
-        game.getMode().initializeRound(game, players, world);
+        game.getMode().initializeRound(game, players, world, randomSource);
         scriptStart();
 #ifndef D6R_HEADLESS_CORE
         if (!game.isHeadless()) game.getResources().getRoundStartSound().play();

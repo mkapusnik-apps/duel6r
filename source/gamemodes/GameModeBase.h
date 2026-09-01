@@ -46,9 +46,11 @@ namespace Duel6 {
             this->globalAssistances = globalAssistances;
         }
 
-        void initializeRound(Game &game, std::vector<Player> &players, World &world) override {}
+        void initializeRound(Game &game, std::vector<Player> &players, World &world,
+                             RandomSource &randomSource) override {}
 
-        void initializePlayerPositions(Game &game, std::vector<Player> &players, World &world) const override;
+        void initializePlayerPositions(Game &game, std::vector<Player> &players, World &world,
+                                       RandomSource &randomSource) const override;
 
         Ranking getRanking(const std::vector<Player> &players) const override;
 

@@ -56,28 +56,32 @@ namespace Duel6 {
     }
 
     void BonusList::addRandomBonus() {
-        bool weapon = (Math::random(2, "pickup-kind") == 1);
+        RandomSource &randomSource = world.getRandomSource();
+        bool weapon = (Math::random(2, randomSource, "pickup-kind") == 1);
         const ValidPositionList& validPositionList = findValidPositions(weapon);
 
         if (validPositionList.empty()) {
             return;
         }
 
-        ValidPosition position = validPositionList[Math::random(validPositionList.size(), "pickup-position")];
+        ValidPosition position = validPositionList[
+                Math::random(validPositionList.size(), randomSource, "pickup-position")];
         Int32 x = position.first, y = position.second;
 
         bool isOverLimit = (weapons.size() + bonuses.size()) >= (validPositionList.size() / 4);
 
         if (weapon) {
-            Int32 bullets = Math::random(10, "pickup-ammo") + 10;
-            weapons.push_back(LyingWeapon(Weapon::getRandomEnabled(settings), bullets, Vector(x, y), nextStableId++));
+            Int32 bullets = Math::random(10, randomSource, "pickup-ammo") + 10;
+            weapons.push_back(LyingWeapon(Weapon::getRandomEnabled(settings, randomSource), bullets,
+                                          Vector(x, y), nextStableId++));
             if(isOverLimit) {
                 weapons.pop_front();
             }
         } else {
-            const BonusType *type = BonusType::ALL[Math::random(BonusType::ALL.size(), "bonus-type")];
-            bool random = Math::random(RANDOM_BONUS_FREQUENCY, "bonus-reroll") == 0;
-            Int32 duration = type->isOneTime() ? 0 : 13 + Math::random(17, "bonus-duration");
+            const BonusType *type = BonusType::ALL[
+                    Math::random(BonusType::ALL.size(), randomSource, "bonus-type")];
+            bool random = Math::random(RANDOM_BONUS_FREQUENCY, randomSource, "bonus-reroll") == 0;
+            Int32 duration = type->isOneTime() ? 0 : 13 + Math::random(17, randomSource, "bonus-duration");
             bonuses.push_back(
                     Bonus(type, duration, Vector(x + 0.2f, y + 0.2f), random ? 0 : type->getTextureIndex(),
                           nextStableId++));

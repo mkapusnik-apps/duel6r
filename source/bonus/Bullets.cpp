@@ -41,7 +41,7 @@ namespace Duel6 {
         }
 
         void Bullets::onApply(Player &player, World &world, Int32 duration) const {
-            Int32 bullets = 5 + Math::random(12, "bonus-ammo-amount");
+            Int32 bullets = 5 + Math::random(12, world.getRandomSource(), "bonus-ammo-amount");
             player.pickAmmo(bullets);
             world.getMessageQueue().add(player, Format("Bullets +{0}") << bullets);
         }

@@ -64,27 +64,30 @@ namespace Duel6 {
     }
 #endif
 
-    void TeamDeathMatch::initializePlayerPositions(Game &game, std::vector<Player> &players, World &world) const {
+    void TeamDeathMatch::initializePlayerPositions(Game &game, std::vector<Player> &players, World &world,
+                                                    RandomSource &randomSource) const {
         game.log("...Preparing team players");
         Level::StartingPositionList startingPositions;
         world.getLevel().findStartingPositions(startingPositions);
 
         Int32 layerSpan = Int32(startingPositions.size()) / teamsCount;
-        Int32 randomizer = Math::random(teamsCount, "team-spawn-rotation");
+        Int32 randomizer = Math::random(teamsCount, randomSource, "team-spawn-rotation");
         for (Player &player : players) {
             auto &ammoRange = game.getSettings().getAmmoRange();
-            Int32 ammo = Math::random(ammoRange.first, ammoRange.second, "starting-ammo");
+            Int32 ammo = Math::random(ammoRange.first, ammoRange.second, randomSource, "starting-ammo");
 
             Int32 playerTeam = (static_cast<Int32>(player.getRosterSlot()) + randomizer) % teamsCount;
-            Int32 playerTeamIndex = Math::random(layerSpan, "team-spawn-position");
+            Int32 playerTeamIndex = Math::random(layerSpan, randomSource, "team-spawn-position");
             Int32 index = (layerSpan * playerTeam) + playerTeamIndex % layerSpan;
 
             Level::StartingPosition position = startingPositions[index];
-            player.startRound(world, position.first, position.second, ammo, Weapon::getRandomEnabled(game.getSettings()));
+            player.startRound(world, position.first, position.second, ammo,
+                              Weapon::getRandomEnabled(game.getSettings(), randomSource));
         }
     }
 
-    void TeamDeathMatch::initializeRound(Game &game, std::vector<Player> &players, World &world) {
+    void TeamDeathMatch::initializeRound(Game &game, std::vector<Player> &players, World &world,
+                                         RandomSource &) {
         teamMap.clear();
         for (auto &player : players) {
             const Team &team = getPlayerTeam(static_cast<Int32>(player.getRosterSlot()));

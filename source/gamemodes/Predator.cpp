@@ -28,8 +28,9 @@
 #include "Predator.h"
 
 namespace Duel6 {
-    void Predator::initializeRound(Game &game, std::vector<Player> &players, World &world) {
-        Size predatorIndex = Math::random(world.getPlayers().size(), "predator-selection");
+    void Predator::initializeRound(Game &game, std::vector<Player> &players, World &world,
+                                   RandomSource &randomSource) {
+        Size predatorIndex = Math::random(world.getPlayers().size(), randomSource, "predator-selection");
         predator = &players[predatorIndex];
 
         eventListener = std::make_unique<PredatorPlayerEventListener>(world.getMessageQueue(), game.getSettings(),

@@ -30,15 +30,15 @@
 #include "Weapon.h"
 
 namespace Duel6 {
-    World::World(Game &game, const std::string &levelPath, bool mirror)
-            : gameSettings(game.getSettings()), players(game.getPlayers()),
+    World::World(Game &game, const std::string &levelPath, bool mirror, RandomSource &randomSource)
+            : gameSettings(game.getSettings()), players(game.getPlayers()), randomSource(randomSource),
 #ifdef D6R_HEADLESS_CORE
               level(game.getResources().hasFrozenGameplayContent()
                     ? Level(game.getResources().getFrozenGameplayContent(levelPath), mirror,
-                            game.getResources().getBlockMeta())
-                    : Level(levelPath, mirror, game.getResources().getBlockMeta())),
+                            game.getResources().getBlockMeta(), randomSource)
+                    : Level(levelPath, mirror, game.getResources().getBlockMeta(), randomSource)),
 #else
-              level(levelPath, mirror, game.getResources().getBlockMeta()),
+              level(levelPath, mirror, game.getResources().getBlockMeta(), randomSource),
 #endif
               messageQueue(D6_INFO_DURATION),
 #ifndef D6R_HEADLESS_CORE
@@ -102,7 +102,7 @@ namespace Duel6 {
 
         // Add new bonuses
         Int32 mod = Int32(3.0f / elapsedTime);
-        if (mod != 0 && Math::random(mod, "bonus-spawn-timing") == 0) {
+        if (mod != 0 && Math::random(mod, randomSource, "bonus-spawn-timing") == 0) {
             bonusList.addRandomBonus();
         }
     }
@@ -133,7 +133,7 @@ namespace Duel6 {
             bcgNames.push_back(entry.first);
         }
 
-        Int32 bcgIndex = Math::random(Int32(bcgNames.size()), "background-selection");
+        Int32 bcgIndex = Math::random(Int32(bcgNames.size()), randomSource, "background-selection");
         return bcgNames[bcgIndex];
     }
 #endif

@@ -42,6 +42,7 @@ namespace Duel6 {
     class Round {
     private:
         Game &game;
+        RandomSource &randomSource;
         Int32 roundNumber;
         World world;
         bool suddenDeathMode;
@@ -57,7 +58,8 @@ namespace Duel6 {
         std::function<void()> onRoundEnd;
 
     public:
-        Round(Game &game, Int32 roundNumber, const std::string &levelPath, bool mirror);
+        Round(Game &game, Int32 roundNumber, const std::string &levelPath, bool mirror,
+              RandomSource &randomSource);
 
         void start();
 

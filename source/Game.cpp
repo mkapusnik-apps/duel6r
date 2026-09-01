@@ -37,17 +37,26 @@
 namespace Duel6 {
 #ifndef D6R_HEADLESS_CORE
     Game::Game(AppService &appService, GameResources &resources, GameSettings &settings)
-            : appService(&appService), resources(resources), settings(settings), gameMode(nullptr),
+            : appService(&appService), resources(resources), settings(settings),
+              randomSource(Math::localRandomSource()), gameMode(nullptr),
               headless(false), worldRenderer(std::make_unique<WorldRenderer>(appService, *this)), menu(nullptr),
               currentRound(0), playedRounds(0) {}
 #endif
 
     Game::Game(GameResources &resources, GameSettings &settings)
 #ifdef D6R_HEADLESS_CORE
-            : resources(resources), settings(settings), gameMode(nullptr), headless(true), currentRound(0), playedRounds(0) {}
+            : Game(resources, settings, Math::localRandomSource()) {}
 #else
-            : appService(nullptr), resources(resources), settings(settings), gameMode(nullptr), headless(true),
-              menu(nullptr), currentRound(0), playedRounds(0) {}
+            : Game(resources, settings, Math::localRandomSource()) {}
+#endif
+
+    Game::Game(GameResources &resources, GameSettings &settings, RandomSource &randomSource)
+#ifdef D6R_HEADLESS_CORE
+            : resources(resources), settings(settings), randomSource(randomSource), gameMode(nullptr), headless(true),
+              currentRound(0), playedRounds(0) {}
+#else
+            : appService(nullptr), resources(resources), settings(settings), randomSource(randomSource),
+              gameMode(nullptr), headless(true), menu(nullptr), currentRound(0), playedRounds(0) {}
 #endif
 
     void Game::log(const std::string &message) const {
@@ -147,7 +156,7 @@ namespace Duel6 {
         }
 
         this->levels = levels;
-        Math::shuffle(this->levels, "local-level-shuffle");
+        Math::shuffle(this->levels, randomSource, "local-level-shuffle");
 
         this->backgrounds = backgrounds;
         this->gameMode = &gameMode;
@@ -161,7 +170,7 @@ namespace Duel6 {
         for (Size index = 0; index < rosterSlots.size(); ++index) rosterSlots[index] = index;
         initializeHeadlessPlayers(playerNames, rosterSlots, gameMode);
         this->levels = levels;
-        Math::shuffle(this->levels, "headless-level-shuffle");
+        Math::shuffle(this->levels, randomSource, "headless-level-shuffle");
         startRound();
     }
 #endif
@@ -187,7 +196,7 @@ namespace Duel6 {
                                   const std::vector<Size> &rosterSlots, bool mirror, GameMode &gameMode) {
         initializeHeadlessPlayers(playerNames, rosterSlots, gameMode);
         currentRound = playedRounds;
-        round = std::make_unique<Round>(*this, playedRounds, level, mirror);
+        round = std::make_unique<Round>(*this, playedRounds, level, mirror, randomSource);
         round->setOnRoundEnd([this]() { onRoundEnd(); });
         round->start();
     }
@@ -203,14 +212,14 @@ namespace Duel6 {
 
         bool shuffle = settings.getLevelSelectionMode() == LevelSelectionMode::Shuffle;
         Int32 level = shuffle ? playedRounds % Int32(levels.size())
-                              : Math::random(Int32(levels.size()), "round-level");
+                               : Math::random(Int32(levels.size()), randomSource, "round-level");
         const std::string levelPath = levels[level];
-        bool mirror = Math::random(2, "round-orientation") == 0;
+        bool mirror = Math::random(2, randomSource, "round-orientation") == 0;
 
         log(Format("\n===Loading level {0}===") << levelPath);
         log(Format("...Parameters: mirror: {0}") << mirror);
 
-        round = std::make_unique<Round>(*this, playedRounds, levelPath, mirror);
+        round = std::make_unique<Round>(*this, playedRounds, levelPath, mirror, randomSource);
         round->setOnRoundEnd([this]() {
             onRoundEnd();
         });

@@ -142,6 +142,7 @@ namespace Duel6::Server::Authoritative {
         bool hasWeapon = false;
         std::string timedBonus;
         std::int64_t bonusRemaining = 0;
+        std::int64_t temporarySlowdownRemaining = 0;
         PlayerStatistics statistics;
     };
 
@@ -183,6 +184,7 @@ namespace Duel6::Server::Authoritative {
         std::vector<CanonicalEntitySnapshot> hazards;
         std::vector<CanonicalEntitySnapshot> trees;
         std::vector<CanonicalEvent> events;
+        std::vector<CanonicalEvent> transitions;
         Tick worldTick = 0;
         std::int32_t waterLevel = 0;
         bool waterRaising = false;

@@ -49,6 +49,7 @@
 #include "GameSettings.h"
 #include "GameResources.h"
 #include "Round.h"
+#include "math/RandomSource.h"
 
 namespace Duel6 {
     class GameMode;
@@ -102,6 +103,7 @@ namespace Duel6 {
 #endif
         GameResources &resources;
         GameSettings &settings;
+        RandomSource &randomSource;
         GameMode *gameMode;
         std::unique_ptr<Round> round;
         bool headless;
@@ -128,6 +130,8 @@ namespace Duel6 {
         Game(AppService &appService, GameResources &resources, GameSettings &settings);
 #endif
         Game(GameResources &resources, GameSettings &settings);
+
+        Game(GameResources &resources, GameSettings &settings, RandomSource &randomSource);
 
 #ifndef D6R_HEADLESS_CORE
         void start(const std::vector<PlayerDefinition> &playerDefinitions, const std::vector<std::string> &levels,
@@ -199,6 +203,8 @@ namespace Duel6 {
         const GameSettings &getSettings() const {
             return settings;
         }
+
+        RandomSource &getRandomSource() const { return randomSource; }
 
         Round &getRound() {
             return *round;

@@ -93,25 +93,30 @@ namespace Duel6::Server::Authoritative {
     MatchRuntimeDependencies CanonicalMatchRuntime::dependencies() {
         const auto self = shared_from_this();
         MatchRuntimeDependencies result;
-        result.worldStart = [self](RoundStartDecision &decision) { return self->startWorld(decision); };
-        result.worldTick = [self](Tick tick, bool simulate) { return self->tickWorld(tick, simulate); };
+        result.worldStartWithRandom = [self](RoundStartDecision &decision, RandomSource &randomSource) {
+            return self->startWorld(decision, randomSource);
+        };
+        result.worldTickWithRandom = [self](Tick tick, bool simulate, RandomSource &randomSource) {
+            return self->tickWorld(tick, simulate, randomSource);
+        };
         result.worldInput = [self](Identity playerId, std::uint32_t mask) {
             return self->setPlayerInput(playerId, mask);
         };
         result.worldRemove = [self](Identity playerId) { return self->removePlayer(playerId); };
         result.worldSnapshot = [self] { return self->snapshot(); };
-        result.worldEnd = [self] { self->endWorld(); };
+        result.worldEndWithRandom = [self](RandomSource &randomSource) { self->endWorld(&randomSource); };
         result.cleanup = [self] { return self->cleanup(); };
         return result;
     }
 
-    bool CanonicalMatchRuntime::startWorld(RoundStartDecision &decision) {
+    bool CanonicalMatchRuntime::startWorld(RoundStartDecision &decision, RandomSource &randomSource) {
         endWorld();
         try {
             authoritativeRound = decision.roundNumber;
             previousLife.clear();
             previousStatistics.clear();
             previousEntities.clear();
+            previousElevatorVelocities.clear();
             previousWaterLevel = 0;
             previousSuddenDeath = false;
             previousRoundOver = false;
@@ -153,9 +158,22 @@ namespace Duel6::Server::Authoritative {
                 names.push_back(player.displayName);
                 rosterSlots.push_back(player.rosterOrder);
             }
-            game = std::make_unique<Game>(*resources, *settings);
+            game = std::make_unique<Game>(*resources, *settings, randomSource);
             game->startHeadlessRound(names, decision.level, rosterSlots,
                                      decision.mirrored, *mode);
+
+            canonicalPlayersById.clear();
+            heldInputsByPlayerId.clear();
+            departedPlayerIds.clear();
+            auto &canonicalPlayers = game->getPlayers();
+            if (canonicalPlayers.size() != activeRoster.size()) return false;
+            for (std::size_t index = 0; index < activeRoster.size(); ++index) {
+                const Identity playerId = activeRoster[index].playerId;
+                if (playerId == 0 || !canonicalPlayersById.emplace(playerId, &canonicalPlayers[index]).second)
+                    return false;
+                heldInputsByPlayerId.emplace(playerId, 0);
+                canonicalPlayers[index].setControllerState(0);
+            }
 
             game->getRound().getWorld().setGameplayEventSink([this](const GameplayEvent &event) {
                 const auto playerId = [this](Size rosterSlot) -> Identity {
@@ -172,8 +190,13 @@ namespace Duel6::Server::Authoritative {
                 const std::uint64_t entity = event.localEntityId == 0 ? 0
                         : (static_cast<std::uint64_t>(authoritativeRound) << 48u)
                           | (category << 40u) | event.localEntityId;
-                appendEvent(event.kind, entity, playerId(event.playerRosterSlot),
-                            playerId(event.targetRosterSlot), event.valueCategory, event.value);
+                const Identity player = playerId(event.playerRosterSlot);
+                const Identity target = playerId(event.targetRosterSlot);
+                if (event.kind == "reload-completed" || event.kind == "weapon-charge-ready"
+                    || event.kind == "weapon-charge-released" || event.kind == "bonus-expired"
+                    || event.kind == "temporary-slowdown-expired" || event.kind == "air-level-changed")
+                    appendTransition(event.kind, entity, player, target, event.valueCategory, event.value);
+                else appendEvent(event.kind, entity, player, target, event.valueCategory, event.value);
             });
             sourceEventsEnabled = true;
 
@@ -240,35 +263,41 @@ namespace Duel6::Server::Authoritative {
         }
     }
 
-    bool CanonicalMatchRuntime::tickWorld(Tick tick, bool simulate) {
+    bool CanonicalMatchRuntime::tickWorld(Tick tick, bool simulate, RandomSource &randomSource) {
         if (!game) return false;
+        if (&game->getRandomSource() != &randomSource) return false;
         worldTick = tick + (simulate ? 1u : 0u);
-        if (simulate) game->update(1.0f / static_cast<Float32>(FixedTickRate));
+        if (simulate) {
+            for (const auto &[playerId, player]: canonicalPlayersById) {
+                player->setControllerState(0);
+                if (!departedPlayerIds.count(playerId)) {
+                    const auto held = heldInputsByPlayerId.find(playerId);
+                    if (held == heldInputsByPlayerId.end()) return false;
+                    player->setControllerState(controllerState(held->second));
+                }
+            }
+            game->update(1.0f / static_cast<Float32>(FixedTickRate));
+        }
         return true;
     }
 
     bool CanonicalMatchRuntime::setPlayerInput(Identity playerId, std::uint32_t inputMask) {
         if (!game) return false;
-        const auto definition = std::find_if(activeRoster.begin(), activeRoster.end(), [playerId](const auto &entry) {
-            return entry.playerId == playerId;
-        });
-        if (definition == activeRoster.end()) return false;
-        const std::size_t index = static_cast<std::size_t>(std::distance(activeRoster.begin(), definition));
-        if (index >= game->getPlayers().size()) return false;
-        game->getPlayers()[index].setControllerState(controllerState(inputMask));
+        if (departedPlayerIds.count(playerId) || !canonicalPlayersById.count(playerId)) return false;
+        const auto held = heldInputsByPlayerId.find(playerId);
+        if (held == heldInputsByPlayerId.end()) return false;
+        held->second = inputMask;
         return true;
     }
 
     bool CanonicalMatchRuntime::removePlayer(Identity playerId) {
         if (!game) return false;
-        const auto definition = std::find_if(activeRoster.begin(), activeRoster.end(), [playerId](const auto &entry) {
-            return entry.playerId == playerId;
-        });
-        if (definition == activeRoster.end()) return false;
-        const std::size_t index = static_cast<std::size_t>(std::distance(activeRoster.begin(), definition));
-        if (index >= game->getPlayers().size()) return false;
-        Player &player = game->getPlayers()[index];
+        const auto found = canonicalPlayersById.find(playerId);
+        if (found == canonicalPlayersById.end() || departedPlayerIds.count(playerId)) return false;
+        Player &player = *found->second;
         player.setControllerState(0);
+        heldInputsByPlayerId[playerId] = 0;
+        departedPlayerIds.insert(playerId);
         if (player.isAlive()) player.die();
         return true;
     }
@@ -280,6 +309,15 @@ namespace Duel6::Server::Authoritative {
         if (eventTrace.size() >= MaxCanonicalEvents) eventTrace.erase(eventTrace.begin());
         eventTrace.push_back({worldTick, nextEventSequence++, std::move(kind), entityId,
                               playerId, targetPlayerId, std::move(valueCategory), value});
+    }
+
+    void CanonicalMatchRuntime::appendTransition(std::string kind, std::uint64_t entityId, Identity playerId,
+                                                  Identity targetPlayerId, std::string valueCategory,
+                                                  std::int64_t value) {
+        if (kind.empty() || kind.size() > 64 || valueCategory.size() > 64 || nextTransitionSequence == 0) return;
+        if (transitionTrace.size() >= MaxCanonicalEvents) transitionTrace.erase(transitionTrace.begin());
+        transitionTrace.push_back({worldTick, nextTransitionSequence++, std::move(kind), entityId,
+                                   playerId, targetPlayerId, std::move(valueCategory), value});
     }
 
     CanonicalWorldSnapshot CanonicalMatchRuntime::snapshot() {
@@ -330,14 +368,15 @@ namespace Duel6::Server::Authoritative {
             player.statistics = statistics(players[index].getPerson());
             result.players.push_back(player);
             std::int64_t positionX = 0, positionY = 0, velocityX = 0, velocityY = 0;
-            std::int64_t reload = 0, charge = 0, air = 0, bonusRemaining = 0;
+            std::int64_t reload = 0, charge = 0, air = 0, bonusRemaining = 0, slowdownRemaining = 0;
             if (!fixedValue(players[index].getPosition().x, positionX)
                 || !fixedValue(players[index].getPosition().y, positionY)
                 || !fixedValue(players[index].getVelocity().x, velocityX)
                 || !fixedValue(players[index].getVelocity().y, velocityY)
                 || !fixedValue(players[index].getReloadTime(), reload)
                 || !fixedValue(players[index].getAir(), air)
-                || !fixedValue(players[index].getBonusRemainingTime(), bonusRemaining)) return {};
+                || !fixedValue(players[index].getBonusRemainingTime(), bonusRemaining)
+                || !fixedValue(players[index].getTemporarySlowdownRemaining(), slowdownRemaining)) return {};
             if (players[index].getWeapon().isChargeable()
                 && !fixedValue(players[index].getChargeLevel(), charge)) return {};
             result.players.back().positionX = positionX;
@@ -348,6 +387,7 @@ namespace Duel6::Server::Authoritative {
             result.players.back().charge = charge;
             result.players.back().air = air;
             result.players.back().bonusRemaining = bonusRemaining;
+            result.players.back().temporarySlowdownRemaining = slowdownRemaining;
             digestValue(digest, definition.playerId);
             digestValue(digest, definition.rosterOrder);
             digestValue(digest, result.players.back().spawnIdentity);
@@ -359,6 +399,8 @@ namespace Duel6::Server::Authoritative {
             digestValue(digest, static_cast<std::uint64_t>(std::max(players[index].getLife(), 0.0f) * 256.0f));
             digestValue(digest, static_cast<std::uint64_t>(reload));
             digestValue(digest, static_cast<std::uint64_t>(air));
+            if (slowdownRemaining != 0)
+                digestValue(digest, static_cast<std::uint64_t>(slowdownRemaining));
             digestText(digest, result.players.back().weapon);
             digestText(digest, result.players.back().timedBonus);
             const auto previous = previousLife.find(definition.playerId);
@@ -453,6 +495,12 @@ namespace Duel6::Server::Authoritative {
                 || !fixedValue(elevator.getVelocity().x, entity.velocityX)
                 || !fixedValue(elevator.getVelocity().y, entity.velocityY)) return {};
             result.elevators.push_back(entity); currentEntities.insert(entity.stableId);
+            const auto previousVelocity = previousElevatorVelocities.find(entity.stableId);
+            if (previousVelocity != previousElevatorVelocities.end()
+                && previousVelocity->second != std::make_pair(entity.velocityX, entity.velocityY))
+                appendTransition("elevator-velocity-changed", entity.stableId, 0, 0,
+                                 "velocity-y", entity.velocityY);
+            previousElevatorVelocities[entity.stableId] = {entity.velocityX, entity.velocityY};
         }
         localId = 1;
         for (const Fire &fire: world.getFireList().values()) {
@@ -483,6 +531,7 @@ namespace Duel6::Server::Authoritative {
         previousSuddenDeath = result.suddenDeath;
         previousRoundOver = result.roundOver;
         result.events = eventTrace;
+        result.transitions = transitionTrace;
         for (const auto &collection: {&result.projectiles, &result.pickups, &result.elevators,
                                      &result.hazards, &result.trees}) {
             for (const auto &entity: *collection) {
@@ -497,16 +546,21 @@ namespace Duel6::Server::Authoritative {
         }
         const std::size_t entityCount = players.size() + result.projectiles.size() + result.pickups.size()
                                         + result.elevators.size() + result.hazards.size() + result.trees.size();
-        if (entityCount > MaxCanonicalEntities || result.events.size() > MaxCanonicalEvents) return {};
+        if (entityCount > MaxCanonicalEntities || result.events.size() > MaxCanonicalEvents
+            || result.transitions.size() > MaxCanonicalEvents) return {};
         result.valid = true;
         result.stateDigest = digest == 0 ? 1 : digest;
         result.dynamicEntityCount = entityCount;
         return result;
     }
 
-    void CanonicalMatchRuntime::endWorld() {
+    void CanonicalMatchRuntime::endWorld(RandomSource *randomSource) {
+        if (game && randomSource && &game->getRandomSource() != randomSource) return;
         if (game) game->endHeadlessRound();
         game.reset();
+        canonicalPlayersById.clear();
+        heldInputsByPlayerId.clear();
+        departedPlayerIds.clear();
         mode.reset();
         settings.reset();
     }

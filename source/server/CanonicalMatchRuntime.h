@@ -15,6 +15,7 @@ namespace Duel6 {
     class GameMode;
     class GameResources;
     class GameSettings;
+    class Player;
 }
 
 namespace Duel6::Server::Authoritative {
@@ -31,6 +32,9 @@ namespace Duel6::Server::Authoritative {
         MatchConfig config;
         std::vector<PlayerDefinition> roster;
         std::vector<PlayerDefinition> activeRoster;
+        std::map<Identity, Player *> canonicalPlayersById;
+        std::map<Identity, std::uint32_t> heldInputsByPlayerId;
+        std::set<Identity> departedPlayerIds;
         std::shared_ptr<const Network::FrozenGameplayContent> frozenContent;
         std::unique_ptr<GameResources> resources;
         std::unique_ptr<GameSettings> settings;
@@ -41,23 +45,29 @@ namespace Duel6::Server::Authoritative {
         std::uint8_t authoritativeRound = 0;
         std::uint64_t nextEventSequence = 1;
         std::vector<CanonicalEvent> eventTrace;
+        std::uint64_t nextTransitionSequence = 1;
+        std::vector<CanonicalEvent> transitionTrace;
         std::map<Identity, std::int32_t> previousLife;
         std::map<Identity, PlayerStatistics> previousStatistics;
         std::set<std::uint64_t> previousEntities;
+        std::map<std::uint64_t, std::pair<std::int64_t, std::int64_t>> previousElevatorVelocities;
         std::map<Identity, std::uint32_t> spawnIdentities;
         std::int32_t previousWaterLevel = 0;
         bool previousSuddenDeath = false;
         bool previousRoundOver = false;
         bool sourceEventsEnabled = false;
 
-        bool startWorld(RoundStartDecision &decision);
-        bool tickWorld(Tick tick, bool simulate);
+        bool startWorld(RoundStartDecision &decision, RandomSource &randomSource);
+        bool tickWorld(Tick tick, bool simulate, RandomSource &randomSource);
         bool setPlayerInput(Identity playerId, std::uint32_t inputMask);
         bool removePlayer(Identity playerId);
         CanonicalWorldSnapshot snapshot();
         void appendEvent(std::string kind, std::uint64_t entityId = 0, Identity playerId = 0,
                           Identity targetPlayerId = 0, std::string valueCategory = {}, std::int64_t value = 0);
-        void endWorld();
+        void appendTransition(std::string kind, std::uint64_t entityId = 0, Identity playerId = 0,
+                              Identity targetPlayerId = 0, std::string valueCategory = {},
+                              std::int64_t value = 0);
+        void endWorld(RandomSource *randomSource = nullptr);
         bool cleanup();
         MatchRuntimeDependencies dependencies();
     };

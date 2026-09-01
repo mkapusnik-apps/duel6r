@@ -33,12 +33,20 @@
 
 namespace Duel6 {
     Level::Level(const std::string &path, bool mirror, const Block::Meta &blockMeta)
-            : blockMeta(blockMeta), raisingWater(false) {
+            : Level(path, mirror, blockMeta, Math::localRandomSource()) {}
+
+    Level::Level(const std::string &path, bool mirror, const Block::Meta &blockMeta,
+                 RandomSource &randomSource)
+            : blockMeta(blockMeta), randomSource(randomSource), raisingWater(false) {
         load(path, mirror);
     }
 
     Level::Level(const std::vector<Uint8> &bytes, bool mirror, const Block::Meta &blockMeta)
-            : blockMeta(blockMeta), raisingWater(false) {
+            : Level(bytes, mirror, blockMeta, Math::localRandomSource()) {}
+
+    Level::Level(const std::vector<Uint8> &bytes, bool mirror, const Block::Meta &blockMeta,
+                 RandomSource &randomSource)
+            : blockMeta(blockMeta), randomSource(randomSource), raisingWater(false) {
         load(bytes, mirror);
     }
 
@@ -101,7 +109,7 @@ namespace Duel6 {
         }
 
         static Uint16 waterBlocks[] = {4, 16, 33};
-        return waterBlocks[Math::random(3, "water-type")];
+        return waterBlocks[Math::random(3, randomSource, "water-type")];
     }
 
     Int32 Level::findWaterLevel(Uint16 waterBlock) const {

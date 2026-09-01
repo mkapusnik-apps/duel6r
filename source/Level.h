@@ -37,6 +37,7 @@
 namespace Duel6 {
     namespace Json { class Value; }
     class Game;
+    class RandomSource;
 
     class Level {
     public:
@@ -45,6 +46,7 @@ namespace Duel6 {
 
     private:
         const Block::Meta &blockMeta;
+        RandomSource &randomSource;
         Int32 width;
         Int32 height;
         std::string background;
@@ -56,7 +58,12 @@ namespace Duel6 {
     public:
         Level(const std::string &path, bool mirror, const Block::Meta &blockMeta);
 
+        Level(const std::string &path, bool mirror, const Block::Meta &blockMeta, RandomSource &randomSource);
+
         Level(const std::vector<Uint8> &bytes, bool mirror, const Block::Meta &blockMeta);
+
+        Level(const std::vector<Uint8> &bytes, bool mirror, const Block::Meta &blockMeta,
+              RandomSource &randomSource);
 
         Int32 getWidth() const {
             return width;

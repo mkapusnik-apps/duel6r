@@ -65,16 +65,20 @@ namespace Duel6 {
               sounds(&sounds),
               controls(&controls),
               orientation(Orientation::Left), headless(false), roundElapsedTime(0), rosterSlot(rosterSlot) {
+        controllerState = 0;
         camera.rotate(180.0, 0.0, 0.0);
     }
 #endif
 
     Player::Player(Person &person, Size rosterSlot)
 #ifdef D6R_HEADLESS_CORE
-            : person(person), orientation(Orientation::Left), headless(true), roundElapsedTime(0), rosterSlot(rosterSlot) {}
+            : person(person), orientation(Orientation::Left), headless(true), roundElapsedTime(0), rosterSlot(rosterSlot) {
+        controllerState = 0;
+    }
 #else
             : person(person), skin(nullptr), animations(nullptr), sounds(nullptr), controls(nullptr),
               orientation(Orientation::Left), headless(true), roundElapsedTime(0), rosterSlot(rosterSlot) {
+        controllerState = 0;
         camera.rotate(180.0, 0.0, 0.0);
     }
 #endif
@@ -99,7 +103,9 @@ namespace Duel6 {
 #endif
 
         flags = FlagHasGun;
-        orientation = Math::random(2, "player-orientation") == 0 ? Orientation::Left : Orientation::Right;
+        controllerState = 0;
+        orientation = Math::random(2, world.getRandomSource(), "player-orientation") == 0
+                      ? Orientation::Left : Orientation::Right;
         timeToReload = weapon.isChargeable() ? getReloadInterval() : 0;
         life = D6_MAX_LIFE;
         air = D6_MAX_AIR;
@@ -474,6 +480,9 @@ namespace Duel6 {
     }
 
     void Player::update(World &world, Float32 elapsedTime) {
+        const Float32 reloadBefore = timeToReload;
+        const Float32 chargeBefore = weapon.isChargeable() ? getChargeLevel() : 0.0f;
+        const Float32 airBefore = air;
         if (Math::isAuthoritative()) {
             life = Math::quantizeAuthoritative(life);
             air = Math::quantizeAuthoritative(air);
@@ -517,7 +526,9 @@ namespace Duel6 {
 
         if (getBonusRemainingTime() > 0) {
             if ((bonusRemainingTime -= elapsedTime) <= 0) {
+                const std::string expired = bonus ? bonus->getName() : "none";
                 setBonus(BonusType::NONE, 0);
+                world.emitGameplayEvent({"bonus-expired", {}, 0, rosterSlot, rosterSlot, expired, 0});
             }
         }
 
@@ -528,6 +539,8 @@ namespace Duel6 {
         if (tempSkinDuration > 0) {
             if ((tempSkinDuration -= elapsedTime) <= 0) {
                 switchToOriginalSkin();
+                world.emitGameplayEvent({"temporary-slowdown-expired", {}, 0, rosterSlot, rosterSlot,
+                                         "remaining", 0});
             }
         }
 
@@ -546,6 +559,20 @@ namespace Duel6 {
             weaponPickLockRemaining = Math::quantizeAuthoritative(weaponPickLockRemaining);
             roundElapsedTime = Math::quantizeAuthoritative(roundElapsedTime);
         }
+        if (reloadBefore > 0 && timeToReload <= 0)
+            world.emitGameplayEvent({"reload-completed", {}, 0, rosterSlot, rosterSlot, "remaining", 0});
+        if (weapon.isChargeable()) {
+            const Float32 chargeAfter = getChargeLevel();
+            if (chargeBefore < 0.5f && chargeAfter >= 0.5f)
+                world.emitGameplayEvent({"weapon-charge-ready", {}, 0, rosterSlot, rosterSlot,
+                                         "charge", static_cast<std::int64_t>(chargeAfter * 65536.0f)});
+            if (chargeBefore >= 0.5f && chargeAfter < 0.5f)
+                world.emitGameplayEvent({"weapon-charge-released", {}, 0, rosterSlot, rosterSlot,
+                                         "charge", static_cast<std::int64_t>(chargeBefore * 65536.0f)});
+        }
+        if (static_cast<Int32>(std::ceil(airBefore)) != static_cast<Int32>(std::ceil(air)))
+            world.emitGameplayEvent({"air-level-changed", {}, 0, rosterSlot, rosterSlot,
+                                     "air", static_cast<std::int64_t>(air * 65536.0f)});
     }
 
     void Player::setAnm() {
@@ -835,7 +862,8 @@ namespace Duel6 {
 #endif
 
     void Player::applyTemporarySkinEffect() {
-        tempSkinDuration = Float32(10 + Math::random(5, "temporary-skin-duration"));
+        tempSkinDuration = Float32(10 + Math::random(
+                5, world->getRandomSource(), "temporary-skin-duration"));
     }
 
     void Player::switchToOriginalSkin() {

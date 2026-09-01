@@ -60,6 +60,7 @@ namespace Duel6 {
     private:
         const GameSettings &gameSettings;
         std::vector<Player> &players;
+        RandomSource &randomSource;
         Level level;
 #ifndef D6R_HEADLESS_CORE
         std::string background;
@@ -78,7 +79,7 @@ namespace Duel6 {
         std::function<void(const GameplayEvent &)> gameplayEventSink;
 
     public:
-        World(Game &game, const std::string &levelPath, bool mirror);
+        World(Game &game, const std::string &levelPath, bool mirror, RandomSource &randomSource);
 
         void update(Float32 elapsedTime);
 
@@ -97,6 +98,8 @@ namespace Duel6 {
         const GameSettings &getGameSettings() const {
             return gameSettings;
         }
+
+        RandomSource &getRandomSource() const { return randomSource; }
 
         std::vector<Player> &getPlayers() {
             return players;

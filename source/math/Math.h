@@ -60,7 +60,6 @@ namespace Duel6 {
         class RandomScope final {
         public:
             explicit RandomScope(RandomSource &source);
-            explicit RandomScope(RandomSource *source);
             ~RandomScope();
 
             RandomScope(const RandomScope &) = delete;
@@ -140,11 +139,32 @@ namespace Duel6 {
 
         static Int32 random(Int32 max, std::string_view purpose = {});
 
+        static Int32 random(Int32 max, RandomSource &source, std::string_view purpose);
+
         static Int32 random(Int32 min, Int32 max, std::string_view purpose = {});
+
+        static Int32 random(Int32 min, Int32 max, RandomSource &source, std::string_view purpose);
 
         static Float32 random(Float32 min, Float32 max, std::string_view purpose = {});
 
+        static Float32 random(Float32 min, Float32 max, RandomSource &source, std::string_view purpose);
+
         static Float64 random(Float64 min, Float64 max, std::string_view purpose = {});
+
+        static Float64 random(Float64 min, Float64 max, RandomSource &source, std::string_view purpose);
+
+        static RandomSource &localRandomSource();
+
+        template<typename Value>
+        static void shuffle(std::vector<Value> &values, RandomSource &source, std::string_view purpose) {
+            if (purpose.empty()) throw std::logic_error("Random purpose is required");
+            for (Size remaining = values.size(); remaining > 1; --remaining) {
+                const Size selected = static_cast<Size>(source.bounded(remaining, purpose));
+                Value temporary = std::move(values[remaining - 1]);
+                values[remaining - 1] = std::move(values[selected]);
+                values[selected] = std::move(temporary);
+            }
+        }
 
         template<typename Value>
         static void shuffle(std::vector<Value> &values, std::string_view purpose = {}) {
@@ -159,7 +179,12 @@ namespace Duel6 {
             }
             for (Size remaining = values.size(); remaining > 1; --remaining) {
                 if (purpose.empty()) throw std::logic_error("Authoritative random purpose is required");
-                const Size selected = static_cast<Size>(authoritativeRandom->bounded(remaining, purpose));
+                RandomSource *const source = authoritativeRandom;
+                if (!source) {
+                    ++forbiddenRandomAccessCount;
+                    throw std::logic_error("Authoritative random source is unavailable");
+                }
+                const Size selected = static_cast<Size>(source->bounded(remaining, purpose));
                 Value temporary = std::move(values[remaining - 1]);
                 values[remaining - 1] = std::move(values[selected]);
                 values[selected] = std::move(temporary);

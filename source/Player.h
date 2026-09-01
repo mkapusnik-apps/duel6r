@@ -311,6 +311,8 @@ namespace Duel6 {
             return bonusDuration;
         }
 
+        Float32 getTemporarySlowdownRemaining() const { return tempSkinDuration; }
+
         Player &addLife(Float32 life, bool showHpBar = true);
 
         Player &setFullLife() {

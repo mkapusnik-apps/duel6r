@@ -173,15 +173,19 @@ namespace Duel6 {
     }
 
     const Weapon &Weapon::getRandomEnabled(const GameSettings &settings) {
+        return getRandomEnabled(settings, Math::localRandomSource());
+    }
+
+    const Weapon &Weapon::getRandomEnabled(const GameSettings &settings, RandomSource &randomSource) {
         auto &enabledWeapons = settings.getEnabledWeapons();
         if (Math::isAuthoritative()) {
             std::vector<const Weapon *> ordered;
             ordered.reserve(enabledWeapons.size());
             for (const Weapon &weapon: weapons)
                 if (enabledWeapons.find(weapon) != enabledWeapons.end()) ordered.push_back(&weapon);
-            return *ordered[Math::random(ordered.size(), "starting-weapon")];
+            return *ordered[Math::random(ordered.size(), randomSource, "starting-weapon")];
         }
-        Size randomIndex = Math::random(enabledWeapons.size(), "starting-weapon");
+        Size randomIndex = Math::random(enabledWeapons.size(), randomSource, "starting-weapon");
         auto randomWeapon = enabledWeapons.cbegin();
         std::advance(randomWeapon, randomIndex);
         return *randomWeapon;

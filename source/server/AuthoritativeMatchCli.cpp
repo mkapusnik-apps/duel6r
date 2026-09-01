@@ -194,6 +194,18 @@ namespace Duel6::Server::Authoritative {
                            << player.positionX << ':' << player.positionY;
                 }
             }
+            output << '\n' << "canonicalPlayerStates=";
+            if (snapshot) {
+                first = true;
+                for (const auto &player: snapshot->players) {
+                    if (!first) output << ',';
+                    first = false;
+                    output << player.playerId << ':' << player.weapon << ':' << player.reload << ':'
+                           << player.charge << ':' << player.air << ':' << player.bonusRemaining << ':'
+                           << player.temporarySlowdownRemaining << ':' << (player.underWater ? 1 : 0) << ':'
+                           << (player.drowning ? 1 : 0) << ':' << (player.hasWeapon ? 1 : 0);
+                }
+            }
             output << '\n' << "stateCheckpoints=";
             first = true;
             for (const auto &checkpoint: match.stateCheckpoints()) {
@@ -210,6 +222,17 @@ namespace Duel6::Server::Authoritative {
                     output << event.sequence << ':' << event.tick << ':' << event.kind << ':' << event.entityId << ':'
                            << event.playerId << ':' << event.targetPlayerId << ':' << event.valueCategory << ':'
                            << event.value;
+                }
+            }
+            output << '\n' << "canonicalStateTransitions=";
+            if (snapshot) {
+                first = true;
+                for (const auto &event: snapshot->transitions) {
+                    if (!first) output << ',';
+                    first = false;
+                    output << event.sequence << ':' << event.tick << ':' << event.kind << ':' << event.entityId
+                           << ':' << event.playerId << ':' << event.targetPlayerId << ':' << event.valueCategory
+                           << ':' << event.value;
                 }
             }
             output << '\n' << "eventCount=" << (snapshot ? snapshot->events.size() : 0u) << '\n'

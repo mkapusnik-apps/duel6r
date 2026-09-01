@@ -39,6 +39,7 @@
 #endif
 
 namespace Duel6 {
+    class RandomSource;
     class World;
     class GameSettings;
     class Player;
@@ -116,6 +117,8 @@ namespace Duel6 {
         static void initializeHeadless();
 
         static const Weapon &getRandomEnabled(const GameSettings &settings);
+
+        static const Weapon &getRandomEnabled(const GameSettings &settings, RandomSource &randomSource);
     };
 }
 

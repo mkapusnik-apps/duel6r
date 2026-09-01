@@ -54,7 +54,8 @@ namespace Duel6 {
             return "Predator";
         }
 
-        void initializeRound(Game &game, std::vector<Player> &players, World &world) override;
+        void initializeRound(Game &game, std::vector<Player> &players, World &world,
+                             RandomSource &randomSource) override;
 
         bool checkRoundOver(World &world, const std::vector<Player *> &alivePlayers) override;
 
