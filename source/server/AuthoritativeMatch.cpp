@@ -212,8 +212,9 @@ namespace Duel6::Server::Authoritative {
     }
 
     bool AuthoritativeMatch::startRound() {
-        endWorld();
         if (!random || completedRoundCount >= config.roundLimit) return false;
+        Math::RandomScope authoritativeScope(random.get());
+        endWorld();
         currentRoundDecision = {};
         currentRoundDecision.roundNumber = static_cast<std::uint8_t>(completedRoundCount + 1);
         if (config.levelPlan == LevelPlan::Fixed) currentRoundDecision.level = config.fixedLevel;
@@ -265,10 +266,7 @@ namespace Duel6::Server::Authoritative {
         currentRoundWinners.clear();
         currentRoundWinningTeam = Team::None;
         roundEndTicks = 0;
-        try {
-            Math::RandomScope randomScope(*random);
-            worldActive = dependencies.worldStart(currentRoundDecision);
-        }
+        try { worldActive = dependencies.worldStart(currentRoundDecision); }
         catch (...) { worldActive = false; }
         if (!worldActive) return false;
         if (config.mode == Mode::Predator) predatorPlayer = currentRoundDecision.predatorPlayerId;
@@ -281,6 +279,13 @@ namespace Duel6::Server::Authoritative {
     }
 
     ActionResult AuthoritativeMatch::submit(const AuthoritativeAction &action) {
+        std::unique_ptr<Math::RandomScope> authoritativeScope;
+        try {
+            if (random) authoritativeScope = std::make_unique<Math::RandomScope>(random.get());
+        } catch (...) {
+            failRuntime();
+            return ActionResult::RuntimeFailed;
+        }
         if (currentPhase == MatchPhase::Failed || currentPhase == MatchPhase::Completed
             || currentPhase == MatchPhase::Ended || terminal.code != OutcomeCode::None)
             return ActionResult::RejectedPhase;
@@ -499,9 +504,12 @@ namespace Duel6::Server::Authoritative {
         if (tick >= MaxMatchTicks) { failRuntime(); return false; }
         bool normalUpdate = currentPhase == MatchPhase::ActiveRound
                             || currentPhase == MatchPhase::RoundEndActive;
+        std::unique_ptr<Math::RandomScope> authoritativeScope;
+        try {
+            if (random) authoritativeScope = std::make_unique<Math::RandomScope>(random.get());
+        } catch (...) { failRuntime(); return false; }
         if (normalUpdate) {
             try {
-                Math::RandomScope randomScope(*random);
                 if (!dependencies.worldTick(tick, true)) { failRuntime(); return false; }
             } catch (...) { failRuntime(); return false; }
             if (dependencies.worldSnapshot && !synchronizeCanonicalWorld()) {
@@ -698,12 +706,19 @@ namespace Duel6::Server::Authoritative {
 
     void AuthoritativeMatch::endWorld() noexcept {
         if (!worldActive) return;
-        try { dependencies.worldEnd(); } catch (...) {}
+        try {
+            Math::RandomScope authoritativeScope(random.get());
+            dependencies.worldEnd();
+        } catch (...) {}
         worldActive = false;
     }
 
     TerminalOutcome AuthoritativeMatch::shutdown() {
         if (cleanupAttempted) return terminal;
+        std::unique_ptr<Math::RandomScope> authoritativeScope;
+        try {
+            if (random) authoritativeScope = std::make_unique<Math::RandomScope>(random.get());
+        } catch (...) { failRuntime(); }
         endWorld();
         cleanupAttempted = true;
         bool cleaned = false;

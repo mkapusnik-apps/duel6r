@@ -54,6 +54,7 @@ namespace Duel6 {
 
     // Very important fun aspect!
     static const float SHOT_FORCE_FACTOR = 0.05f;
+    static const float WEAPON_PICK_LOCK_DURATION = 0.5f;
 
 #ifndef D6R_HEADLESS_CORE
     Player::Player(Person &person, const PlayerSkin &skin, const PlayerSounds &sounds, const PlayerControls &controls,
@@ -108,6 +109,7 @@ namespace Duel6 {
         bonusDuration = 2.0f;
         bonusRemainingTime = 2.0f;
         tempSkinDuration = 0;
+        weaponPickLockRemaining = 0;
         roundKills = 0;
         bodyAlpha = 1.0f;
         alpha = 1.0f;
@@ -121,14 +123,22 @@ namespace Duel6 {
         indicators.getBullets().show(4.0f);
 #endif
 
+#ifdef D6R_HEADLESS_CORE
+        roundStartTime = 0;
+#else
         roundStartTime = headless ? 0 : clock();
+#endif
         roundElapsedTime = 0;
         getPerson().addGames(1);
     }
 
     void Player::endRound() {
+#ifdef D6R_HEADLESS_CORE
+        Int32 gameTime = Int32(roundElapsedTime);
+#else
         Int32 gameTime = headless ? Int32(roundElapsedTime)
                                   : Int32((clock() - roundStartTime) / CLOCKS_PER_SEC);
+#endif
         getPerson().addTotalGameTime(gameTime);
         if (isAlive()) {
             getPerson().addTimeAlive(gameTime);
@@ -243,13 +253,26 @@ namespace Duel6 {
         getPerson().addShots(1);
         Orientation originalOrientation = getOrientation();
 
+        const auto emitShots = [this](std::uint64_t firstIdentity) {
+            const std::uint64_t nextIdentity = world->getShotList().nextStableIdentity();
+            if (firstIdentity == nextIdentity)
+                world->emitGameplayEvent({"shot-fired", {}, 0, rosterSlot,
+                                          static_cast<Size>(-1), "shot-count", 1});
+            for (std::uint64_t identity = firstIdentity; identity < nextIdentity; ++identity)
+                world->emitGameplayEvent({"shot-fired", "projectile", identity, rosterSlot,
+                                          static_cast<Size>(-1), "shot-count", 1});
+        };
+        std::uint64_t firstShotIdentity = world->getShotList().nextStableIdentity();
         getWeapon().shoot(*this, originalOrientation, *world);
+        emitShots(firstShotIdentity);
 
         if (getBonus() == BonusType::SPLIT_FIRE) {
             getPerson().addShots(1);
             Orientation secondaryOrientation =
                     originalOrientation == Orientation::Left ? Orientation::Right : Orientation::Left;
+            firstShotIdentity = world->getShotList().nextStableIdentity();
             getWeapon().shoot(*this, secondaryOrientation, *world);
+            emitShots(firstShotIdentity);
         }
 
         if (weapon.isChargeable()) {
@@ -264,6 +287,7 @@ namespace Duel6 {
 
     Player &Player::pickWeapon(Weapon weapon, Int32 bullets, Float32 remainingReloadTime) {
         setFlag(FlagPick);
+        weaponPickLockRemaining = WEAPON_PICK_LOCK_DURATION;
         unsetFlag(FlagMoveLeft | FlagMoveRight);
 
         this->weapon = weapon;
@@ -294,11 +318,7 @@ namespace Duel6 {
         collider.collideWithElevators(world->getElevatorList(), elapsedTime, speed);
         collider.collideWithLevel(level, elapsedTime, speed);
 
-        if (isPickingGun()
-#ifndef D6R_HEADLESS_CORE
-                && (headless || sprite->isFinished())
-#endif
-        ) {
+        if (isPickingGun() && weaponPickLockRemaining <= 0) {
             unsetFlag(FlagPick);
             setFlag(FlagHasGun);
         }
@@ -463,6 +483,7 @@ namespace Duel6 {
             timeSinceHit = Math::quantizeAuthoritative(timeSinceHit);
             timeStuckInWall = Math::quantizeAuthoritative(timeStuckInWall);
             tempSkinDuration = Math::quantizeAuthoritative(tempSkinDuration);
+            weaponPickLockRemaining = Math::quantizeAuthoritative(weaponPickLockRemaining);
             roundElapsedTime = Math::quantizeAuthoritative(roundElapsedTime);
         }
         if (headless) roundElapsedTime += elapsedTime;
@@ -472,6 +493,8 @@ namespace Duel6 {
         }
 
         checkKeys();
+        if (weaponPickLockRemaining > 0)
+            weaponPickLockRemaining = std::max(0.0f, weaponPickLockRemaining - elapsedTime);
         updateDimensions();
         makeMove(world.getLevel(), elapsedTime);
         setAnm();
@@ -520,6 +543,7 @@ namespace Duel6 {
             timeSinceHit = Math::quantizeAuthoritative(timeSinceHit);
             timeStuckInWall = Math::quantizeAuthoritative(timeStuckInWall);
             tempSkinDuration = Math::quantizeAuthoritative(tempSkinDuration);
+            weaponPickLockRemaining = Math::quantizeAuthoritative(weaponPickLockRemaining);
             roundElapsedTime = Math::quantizeAuthoritative(roundElapsedTime);
         }
     }
@@ -646,8 +670,18 @@ namespace Duel6 {
         Player &shootingPlayer = shot.getPlayer();
         Person &shootingPerson = shootingPlayer.getPerson();
 
+        const Float32 lifeBefore = life;
         if (!eventListener->onDamageByShot(*this, shootingPlayer, amount, shot, directHit)) {
             return false;
+        }
+
+        world->emitGameplayEvent({"player-life-changed", "projectile", shot.getStableId(), rosterSlot,
+                                  shootingPlayer.getRosterSlot(), "life-delta",
+                                  static_cast<std::int64_t>(life - lifeBefore)});
+        if (directHit) {
+            world->emitGameplayEvent({"shot-hit", "projectile", shot.getStableId(),
+                                      shootingPlayer.getRosterSlot(), rosterSlot, "life-delta",
+                                      static_cast<std::int64_t>(life - lifeBefore)});
         }
 
         timeSinceHit = 0;
@@ -664,6 +698,11 @@ namespace Duel6 {
 
         if (life <= 0.0f) {
             die();
+            world->emitGameplayEvent({"player-died", "projectile", shot.getStableId(), rosterSlot,
+                                      shootingPlayer.getRosterSlot(), "life-delta",
+                                      static_cast<std::int64_t>(life - lifeBefore)});
+            world->emitGameplayEvent({"player-killed", "projectile", shot.getStableId(),
+                                      shootingPlayer.getRosterSlot(), rosterSlot, "kill-count", 1});
             orientation = (hitPoint.x < getCentre().x) ? Orientation::Left : Orientation::Right;
             shot.onKillPlayer(*this, directHit, hitPoint, *world);
             return true;
@@ -679,14 +718,21 @@ namespace Duel6 {
             return false;
         }
 
+        const Float32 lifeBefore = life;
         if (!eventListener->onDamageByEnv(*this, amount)) {
             return false;
         }
+        world->emitGameplayEvent({"environmental-damage", {}, 0, rosterSlot, rosterSlot, "life-delta",
+                                  static_cast<std::int64_t>(life - lifeBefore)});
+        world->emitGameplayEvent({"player-life-changed", {}, 0, rosterSlot, rosterSlot, "life-delta",
+                                  static_cast<std::int64_t>(life - lifeBefore)});
 
         timeSinceHit = 0;
 
         if (life <= 0.0f) {
             die();
+            world->emitGameplayEvent({"player-died", {}, 0, rosterSlot, rosterSlot, "life-delta",
+                                      static_cast<std::int64_t>(life - lifeBefore)});
             eventListener->onKillByEnv(*this);
 
             return true;
@@ -760,8 +806,12 @@ namespace Duel6 {
         Float32 feetY = rect.left.y + rect.getSize().y * 0.1f;
         Float32 bottomY = rect.left.y;
 
+        const Water *previousHeadWater = water.headUnderWater;
         const Water *headWater = world.getLevel().getWaterType(Int32(centerX), Int32(headY));
         water.headUnderWater = headWater;
+        if (headWater != previousHeadWater)
+            world.emitGameplayEvent({headWater == Water::NONE ? "water-exited" : "water-entered", {}, 0,
+                                     rosterSlot, rosterSlot, "water-state", headWater == Water::NONE ? 0 : 1});
 
         if (headWater != Water::NONE) {
             water.feetInWater = headWater;
@@ -867,8 +917,12 @@ namespace Duel6 {
         }
 #endif
 
+#ifdef D6R_HEADLESS_CORE
+        Int32 timeAlive = Int32(roundElapsedTime);
+#else
         Int32 timeAlive = headless ? Int32(roundElapsedTime)
                                    : Int32((clock() - roundStartTime) / CLOCKS_PER_SEC);
+#endif
         getPerson().addTimeAlive(timeAlive);
     }
 

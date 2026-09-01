@@ -30,6 +30,7 @@
 #include "Fire.h"
 #include "Weapon.h"
 #include "Bonus.h"
+#include "DataException.h"
 
 namespace Duel6 {
     void GameResources::loadHeadless(const std::string &resourcesPath) {
@@ -37,6 +38,24 @@ namespace Duel6 {
         Water::initializeHeadless();
         FireList::initialize();
         blockMeta = Block::loadMeta(resourcesPath + "/data/blocks.json");
+    }
+
+    void GameResources::loadHeadless(
+            std::shared_ptr<const std::map<std::string, std::vector<Uint8>>> content) {
+        Weapon::initializeHeadless();
+        Water::initializeHeadless();
+        FireList::initialize();
+        frozenGameplayContent = std::move(content);
+        blockMeta = Block::loadMeta(getFrozenGameplayContent("data/blocks.json"));
+    }
+
+    const std::vector<Uint8> &GameResources::getFrozenGameplayContent(const std::string &logicalPath) const {
+        if (!frozenGameplayContent)
+            D6_THROW(DataException, "Frozen gameplay content is unavailable: " + logicalPath);
+        const auto entry = frozenGameplayContent->find(logicalPath);
+        if (entry == frozenGameplayContent->end())
+            D6_THROW(DataException, "Frozen gameplay content is unavailable: " + logicalPath);
+        return entry->second;
     }
 
 #ifndef D6R_HEADLESS_CORE

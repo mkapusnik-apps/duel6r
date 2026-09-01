@@ -30,6 +30,7 @@
 
 #include <vector>
 #include <unordered_map>
+#include <functional>
 #include "Type.h"
 #include "SpriteList.h"
 #ifndef D6R_HEADLESS_CORE
@@ -108,6 +109,7 @@ namespace Duel6 {
         Texture burningTexture;
         const std::unordered_map<Size, Texture> *textures;
         std::vector<Fire> fires;
+        std::function<void(Size)> burnedSink;
 
     public:
 #ifndef D6R_HEADLESS_CORE
@@ -118,6 +120,8 @@ namespace Duel6 {
         void find(const Level &level);
 
         void check(const Vector &explCentre, Float32 d);
+
+        void setBurnedSink(std::function<void(Size)> sink) { burnedSink = std::move(sink); }
 
         static void initialize();
 

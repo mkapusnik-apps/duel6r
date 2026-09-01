@@ -31,16 +31,44 @@
 
 namespace Duel6 {
     std::random_device Math::randomDevice;
-    std::default_random_engine Math::randomEngine(randomDevice());
+    std::default_random_engine Math::randomEngine;
+    bool Math::randomEngineSeeded = false;
     thread_local RandomSource *Math::authoritativeRandom = nullptr;
+    thread_local bool Math::authoritativeRequired = false;
+    thread_local std::uint64_t Math::forbiddenRandomAccessCount = 0;
     const Float64 Math::Pi = 3.14159265358979323846;
 
-    Math::RandomScope::RandomScope(RandomSource &source) : previous(authoritativeRandom) {
-        authoritativeRandom = &source;
+    void Math::ensureRandomEngineSeeded() {
+        if (!randomEngineSeeded) {
+            randomEngine.seed(randomDevice());
+            randomEngineSeeded = true;
+        }
+    }
+
+    Math::RandomScope::RandomScope(RandomSource &source) : RandomScope(&source) {}
+
+    Math::RandomScope::RandomScope(RandomSource *source)
+            : previous(authoritativeRandom), previousRequired(authoritativeRequired),
+              previousRounding(std::fegetround()) {
+        authoritativeRequired = true;
+        authoritativeRandom = source;
+        if (!source) {
+            ++forbiddenRandomAccessCount;
+            authoritativeRandom = previous;
+            authoritativeRequired = previousRequired;
+            throw std::logic_error("Authoritative random source is unavailable");
+        }
+        if (std::fesetround(FE_TONEAREST) != 0) {
+            authoritativeRandom = previous;
+            authoritativeRequired = previousRequired;
+            throw std::logic_error("Authoritative floating-point mode is unavailable");
+        }
     }
 
     Math::RandomScope::~RandomScope() {
         authoritativeRandom = previous;
+        authoritativeRequired = previousRequired;
+        if (previousRounding != -1) std::fesetround(previousRounding);
     }
 
     Int32 Math::random(Int32 max, std::string_view purpose) {
@@ -54,6 +82,11 @@ namespace Duel6 {
             return static_cast<Int32>(static_cast<Int64>(min)
                                       + static_cast<Int64>(authoritativeRandom->bounded(span, purpose)));
         }
+        if (authoritativeRequired) {
+            ++forbiddenRandomAccessCount;
+            throw std::logic_error("Authoritative random source is unavailable");
+        }
+        ensureRandomEngineSeeded();
         std::uniform_int_distribution<> uniformDistribution(min, max);
         return uniformDistribution(randomEngine);
     }
@@ -65,6 +98,11 @@ namespace Duel6 {
                                  / static_cast<Float32>(UINT32_C(1) << 24u);
             return min + (max - min) * unit;
         }
+        if (authoritativeRequired) {
+            ++forbiddenRandomAccessCount;
+            throw std::logic_error("Authoritative random source is unavailable");
+        }
+        ensureRandomEngineSeeded();
         std::uniform_real_distribution<Float32> uniformDistribution(min, max);
         return uniformDistribution(randomEngine);
     }
@@ -76,6 +114,11 @@ namespace Duel6 {
                                  / static_cast<Float64>(UINT64_C(1) << 53u);
             return min + (max - min) * unit;
         }
+        if (authoritativeRequired) {
+            ++forbiddenRandomAccessCount;
+            throw std::logic_error("Authoritative random source is unavailable");
+        }
+        ensureRandomEngineSeeded();
         std::uniform_real_distribution<Float64> uniformDistribution(min, max);
         return uniformDistribution(randomEngine);
     }
@@ -88,5 +131,9 @@ namespace Duel6 {
         if (!authoritativeRandom || !std::isfinite(value)) return value;
         constexpr Float32 scale = 65536.0f;
         return std::round(value * scale) / scale;
+    }
+
+    std::uint64_t Math::forbiddenAuthoritativeRandomAccesses() noexcept {
+        return forbiddenRandomAccessCount;
     }
 }

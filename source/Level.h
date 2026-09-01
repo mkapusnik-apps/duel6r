@@ -35,6 +35,7 @@
 #include "Water.h"
 
 namespace Duel6 {
+    namespace Json { class Value; }
     class Game;
 
     class Level {
@@ -54,6 +55,8 @@ namespace Duel6 {
 
     public:
         Level(const std::string &path, bool mirror, const Block::Meta &blockMeta);
+
+        Level(const std::vector<Uint8> &bytes, bool mirror, const Block::Meta &blockMeta);
 
         Int32 getWidth() const {
             return width;
@@ -107,6 +110,10 @@ namespace Duel6 {
 
     private:
         void load(const std::string &path, bool mirror);
+
+        void load(const std::vector<Uint8> &bytes, bool mirror);
+
+        void load(const Json::Value &root, bool mirror);
 
         void mirrorLevelData();
 

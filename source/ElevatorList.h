@@ -36,6 +36,7 @@
 #endif
 #include "collision/WorldCollision.h"
 namespace Duel6 {
+    namespace Json { class Value; }
     class Player; // Forward declaration
     class CollidingEntity; // Forward declaration
 
@@ -48,6 +49,13 @@ namespace Duel6 {
         ElevatorList(Texture texture);
 
         void load(const std::string &path, bool mirror);
+
+        void load(const std::vector<Uint8> &bytes, bool mirror);
+
+    private:
+        void load(const Json::Value &root, bool mirror);
+
+    public:
 
         void add(Elevator &elevator);
 

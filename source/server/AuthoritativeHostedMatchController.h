@@ -18,7 +18,8 @@ namespace Duel6::Server::Authoritative {
 
     class AuthoritativeHostedMatchController final {
     public:
-        explicit AuthoritativeHostedMatchController(MatchRuntimeDependencies dependencies = {});
+        AuthoritativeHostedMatchController(Identity hostParticipantId,
+                                           MatchRuntimeDependencies dependencies = {});
 
         bool markServiceReady();
         bool setParticipantReady(Identity participantId, bool ready);
@@ -37,7 +38,7 @@ namespace Duel6::Server::Authoritative {
         MatchRuntimeDependencies dependencies;
         HostedMatchStage currentStage = HostedMatchStage::ServiceStarting;
         std::map<Identity, bool> readiness;
-        Identity hostParticipantId = 0;
+        const Identity hostParticipantId;
         std::unique_ptr<AuthoritativeMatch> activeMatch;
 
         void clearReadiness() noexcept;

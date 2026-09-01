@@ -29,6 +29,7 @@
 #define DUEL6_GAMERESOURCES_H
 
 #include <unordered_map>
+#include <map>
 #include "Water.h"
 #include "Block.h"
 #ifndef D6R_HEADLESS_CORE
@@ -37,12 +38,15 @@
 #endif
 namespace Duel6 {
     class GameResources {
-#ifdef D6R_HEADLESS_CORE
     private:
+        std::shared_ptr<const std::map<std::string, std::vector<Uint8>>> frozenGameplayContent;
+#ifdef D6R_HEADLESS_CORE
         Block::Meta blockMeta;
 
     public:
         void loadHeadless(const std::string &resourcesPath);
+
+        void loadHeadless(std::shared_ptr<const std::map<std::string, std::vector<Uint8>>> content);
 
         const Block::Meta &getBlockMeta() const { return blockMeta; }
 #else
@@ -65,6 +69,8 @@ namespace Duel6 {
     public:
         void load(Console &console, Sound &sound, TextureManager &textureManager);
         void loadHeadless(const std::string &resourcesPath);
+
+        void loadHeadless(std::shared_ptr<const std::map<std::string, std::vector<Uint8>>> content);
 
         const Block::Meta &getBlockMeta() const {
             return blockMeta;
@@ -110,6 +116,10 @@ namespace Duel6 {
         	return playerAnimation;
         }
 #endif
+
+        bool hasFrozenGameplayContent() const { return frozenGameplayContent && !frozenGameplayContent->empty(); }
+
+        const std::vector<Uint8> &getFrozenGameplayContent(const std::string &logicalPath) const;
     };
 }
 

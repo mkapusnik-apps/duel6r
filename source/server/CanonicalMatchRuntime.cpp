@@ -78,15 +78,15 @@ namespace Duel6::Server::Authoritative {
     }
 
     CanonicalMatchRuntime::CanonicalMatchRuntime(MatchConfig config, std::vector<PlayerDefinition> roster,
-                                                 std::string resourcesPath)
-            : config(std::move(config)), roster(std::move(roster)), resourcesPath(std::move(resourcesPath)) {}
+                                                  std::shared_ptr<const Network::FrozenGameplayContent> frozenContent)
+            : config(std::move(config)), roster(std::move(roster)), frozenContent(std::move(frozenContent)) {}
 
     CanonicalMatchRuntime::~CanonicalMatchRuntime() { endWorld(); }
 
     MatchRuntimeDependencies CanonicalMatchRuntime::createDependencies(MatchConfig config,
-            std::vector<PlayerDefinition> roster, std::string resourcesPath) {
+            std::vector<PlayerDefinition> roster, const Network::ManifestBuildResult &content) {
         auto runtime = std::make_shared<CanonicalMatchRuntime>(
-                std::move(config), std::move(roster), std::move(resourcesPath));
+                std::move(config), std::move(roster), content.content);
         return runtime->dependencies();
     }
 
@@ -115,9 +115,10 @@ namespace Duel6::Server::Authoritative {
             previousWaterLevel = 0;
             previousSuddenDeath = false;
             previousRoundOver = false;
+            sourceEventsEnabled = false;
             if (!initialized) {
                 resources = std::make_unique<GameResources>();
-                resources->loadHeadless(resourcesPath);
+                resources->loadHeadless(frozenContent);
                 initialized = true;
             }
             settings = std::make_unique<GameSettings>();
@@ -153,8 +154,28 @@ namespace Duel6::Server::Authoritative {
                 rosterSlots.push_back(player.rosterOrder);
             }
             game = std::make_unique<Game>(*resources, *settings);
-            game->startHeadlessRound(names, resourcesPath + "/" + decision.level, rosterSlots,
+            game->startHeadlessRound(names, decision.level, rosterSlots,
                                      decision.mirrored, *mode);
+
+            game->getRound().getWorld().setGameplayEventSink([this](const GameplayEvent &event) {
+                const auto playerId = [this](Size rosterSlot) -> Identity {
+                    const auto found = std::find_if(activeRoster.begin(), activeRoster.end(),
+                            [rosterSlot](const auto &entry) { return entry.rosterOrder == rosterSlot; });
+                    return found == activeRoster.end() ? 0 : found->playerId;
+                };
+                std::uint64_t category = 0;
+                if (event.entityKind == "projectile") category = 1;
+                else if (event.entityKind == "bonus") category = 2;
+                else if (event.entityKind == "weapon-pickup") category = 3;
+                else if (event.entityKind == "tree") category = 5;
+                else if (event.entityKind == "hazard") category = 6;
+                const std::uint64_t entity = event.localEntityId == 0 ? 0
+                        : (static_cast<std::uint64_t>(authoritativeRound) << 48u)
+                          | (category << 40u) | event.localEntityId;
+                appendEvent(event.kind, entity, playerId(event.playerRosterSlot),
+                            playerId(event.targetRosterSlot), event.valueCategory, event.value);
+            });
+            sourceEventsEnabled = true;
 
             const auto &players = game->getPlayers();
             if (!config.fixedStartingWeapon.empty()) {
@@ -221,8 +242,8 @@ namespace Duel6::Server::Authoritative {
 
     bool CanonicalMatchRuntime::tickWorld(Tick tick, bool simulate) {
         if (!game) return false;
-        if (simulate) game->update(1.0f / static_cast<Float32>(FixedTickRate));
         worldTick = tick + (simulate ? 1u : 0u);
+        if (simulate) game->update(1.0f / static_cast<Float32>(FixedTickRate));
         return true;
     }
 
@@ -344,14 +365,14 @@ namespace Duel6::Server::Authoritative {
             if (previous == previousLife.end()) appendEvent("player-spawned", 0, definition.playerId, 0,
                                                             "spawn-identity",
                                                             result.players.back().spawnIdentity);
-            else if (previous->second != result.players.back().life) {
+            else if (!sourceEventsEnabled && previous->second != result.players.back().life) {
                 appendEvent(result.players.back().alive ? "player-life-changed" : "player-died", 0,
                             definition.playerId, 0, "life-delta",
                             result.players.back().life - previous->second);
             }
             previousLife[definition.playerId] = result.players.back().life;
             const auto previousStats = previousStatistics.find(definition.playerId);
-            if (previousStats != previousStatistics.end()) {
+            if (!sourceEventsEnabled && previousStats != previousStatistics.end()) {
                 const PlayerStatistics &before = previousStats->second;
                 const PlayerStatistics &after = result.players.back().statistics;
                 if (after.shots > before.shots)
@@ -452,11 +473,12 @@ namespace Duel6::Server::Authoritative {
         for (const auto entity: previousEntities)
             if (!currentEntities.count(entity)) appendEvent("entity-removed", entity);
         previousEntities = std::move(currentEntities);
-        if (previousWaterLevel != result.waterLevel) appendEvent("water-level-changed", water.stableId, 0, 0,
-                                                                 "level", result.waterLevel);
-        if (!previousSuddenDeath && result.suddenDeath) appendEvent("sudden-death-started");
+        if (!sourceEventsEnabled && previousWaterLevel != result.waterLevel)
+            appendEvent("water-level-changed", water.stableId, 0, 0, "level", result.waterLevel);
+        if (!sourceEventsEnabled && !previousSuddenDeath && result.suddenDeath)
+            appendEvent("sudden-death-started");
         result.roundOver = game->getRound().hasWinner();
-        if (!previousRoundOver && result.roundOver) appendEvent("round-ended");
+        if (!sourceEventsEnabled && !previousRoundOver && result.roundOver) appendEvent("round-ended");
         previousWaterLevel = result.waterLevel;
         previousSuddenDeath = result.suddenDeath;
         previousRoundOver = result.roundOver;

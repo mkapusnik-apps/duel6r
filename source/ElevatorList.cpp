@@ -39,8 +39,14 @@ namespace Duel6 {
     }
 
     void ElevatorList::load(const std::string &path, bool mirror) {
-        Json::Parser parser;
-        Json::Value root = parser.parse(path);
+        load(Json::Parser().parse(path), mirror);
+    }
+
+    void ElevatorList::load(const std::vector<Uint8> &bytes, bool mirror) {
+        load(Json::Parser().parse(bytes), mirror);
+    }
+
+    void ElevatorList::load(const Json::Value &root, bool mirror) {
 
         Int32 width = root.get("width").asInt();
         Int32 height = root.get("height").asInt();

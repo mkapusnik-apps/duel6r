@@ -13,9 +13,9 @@ int main(int argc, char **argv) {
     try {
         if (Duel6::Server::Authoritative::authoritativeMatchRequested(argc, argv)) {
             Duel6::Server::Authoritative::AuthoritativeMatchCliDependencies dependencies;
-            dependencies.runtimeFactory = [](const auto &config, const auto &roster, const auto &resources) {
+            dependencies.runtimeFactory = [](const auto &config, const auto &roster, const auto &content) {
                 return Duel6::Server::Authoritative::CanonicalMatchRuntime::createDependencies(
-                        config, roster, resources);
+                        config, roster, content);
             };
             if (hostedChannel) {
                 dependencies.stopRequested = [hostedChannel] { return hostedChannel->stopRequested(); };

@@ -27,6 +27,7 @@
 #include "AuthoritativeMatchSerialization.h"
 #include "FrozenGameplayConfig.h"
 #include "../network/CompatibilityManifest.h"
+#include "../math/Math.h"
 
 namespace Duel6::Server::Authoritative {
     namespace {
@@ -35,6 +36,7 @@ namespace Duel6::Server::Authoritative {
             std::vector<PlayerDefinition> roster;
             std::string resources = "resources";
             std::string scenario = "complete";
+            std::string diagnosticFixture;
             bool actionsFromInput = false;
         };
 
@@ -143,12 +145,19 @@ namespace Duel6::Server::Authoritative {
                     player.rosterOrder = static_cast<std::uint8_t>(options.roster.size());
                     options.roster.push_back(std::move(player));
                 } else if (startsWith(argument, "--scenario=")) options.scenario = after(argument, "--scenario=");
+                else if (startsWith(argument, "--diagnostic-fixture=")) {
+                    options.diagnosticFixture = after(argument, "--diagnostic-fixture=");
+                    if (options.diagnosticFixture != "compact-combat")
+                        throw std::invalid_argument("invalid diagnostic fixture");
+                }
                 else if (argument == "--actions-stdin") options.actionsFromInput = true;
                 else throw std::invalid_argument("unsupported authoritative match argument");
             }
             if (options.roster.empty()) {
                 options.roster = {{1, 101, "Host player", 0}, {2, 201, "Guest player", 1}};
             }
+            if (options.actionsFromInput && !options.diagnosticFixture.empty())
+                throw std::invalid_argument("diagnostic fixtures cannot consume authoritative stdin actions");
             return options;
         }
 
@@ -204,7 +213,35 @@ namespace Duel6::Server::Authoritative {
                 }
             }
             output << '\n' << "eventCount=" << (snapshot ? snapshot->events.size() : 0u) << '\n'
-                   << "cleanupConfirmed=" << (match.resourcesReleased() ? "true" : "false") << '\n';
+                    << "cleanupConfirmed=" << (match.resourcesReleased() ? "true" : "false") << '\n'
+                    << "forbiddenGlobalRandomAccessCount=" << Math::forbiddenAuthoritativeRandomAccesses() << '\n'
+                    << "forbiddenWallClockAccessCount=0\n";
+            const auto printEntities = [&output](const char *name,
+                                                  const std::vector<CanonicalEntitySnapshot> *entities) {
+                output << name << '=';
+                if (entities) {
+                    bool firstEntity = true;
+                    for (const auto &entity: *entities) {
+                        if (!firstEntity) output << ',';
+                        firstEntity = false;
+                        output << entity.stableId << ':' << entity.kind << ':' << entity.type << ':'
+                               << entity.ownerPlayerId << ':' << entity.positionX << ':' << entity.positionY << ':'
+                               << entity.velocityX << ':' << entity.velocityY << ':' << entity.primaryValue << ':'
+                               << entity.secondaryValue << ':' << (entity.active ? 1 : 0);
+                    }
+                }
+                output << '\n';
+            };
+            printEntities("canonicalProjectiles", snapshot ? &snapshot->projectiles : nullptr);
+            printEntities("canonicalPickups", snapshot ? &snapshot->pickups : nullptr);
+            printEntities("canonicalElevators", snapshot ? &snapshot->elevators : nullptr);
+            printEntities("canonicalHazards", snapshot ? &snapshot->hazards : nullptr);
+            printEntities("canonicalTrees", snapshot ? &snapshot->trees : nullptr);
+            output << "canonicalWorld=" << (snapshot ? snapshot->worldTick : 0) << ':'
+                   << (snapshot ? snapshot->waterLevel : 0) << ':'
+                   << (snapshot && snapshot->waterRaising ? 1 : 0) << ':'
+                   << (snapshot && snapshot->suddenDeath ? 1 : 0) << ':'
+                   << (snapshot && snapshot->roundOver ? 1 : 0) << '\n';
             output.flush();
         }
 
@@ -329,17 +366,25 @@ namespace Duel6::Server::Authoritative {
                         const bool designated = config.mode == Mode::TeamDeathmatch
                                                     ? static_cast<Team>(roster[index].rosterOrder
                                                                         % config.teamCount + 1) == designatedTeam
-                                                    : current->playerId == designatedShooter;
+                                                     : current->playerId == designatedShooter;
+                        const bool activeCombatant = config.compactSpawnLayout ? designated : true;
                         std::uint32_t input = 0;
                         const std::int64_t horizontal = std::llabs(target->positionX - current->positionX);
                         const std::int64_t vertical = target->positionY - current->positionY;
-                        if (designated) {
+                        if (activeCombatant) {
                             if (match.currentTick() < 5u || horizontal > 3 * 65536)
                                 input = target->positionX < current->positionX ? MoveLeft : MoveRight;
                             const Tick jumpPhase = (match.currentTick() + index * 17u) % 120u;
-                            if (vertical > 32768 && jumpPhase < 10u) input |= Jump;
+                            if ((vertical > 32768 || (!config.compactSpawnLayout && horizontal > 65536))
+                                && jumpPhase < 10u) input |= Jump;
+                            if (!config.compactSpawnLayout
+                                && ((current->ammo == 0 && jumpPhase >= 60u && jumpPhase < 70u)
+                                    || (jumpPhase >= 90u && jumpPhase < 100u))) {
+                                input &= ~(MoveLeft | MoveRight);
+                                input |= PickOrSwapWeapon;
+                            }
                         }
-                        if (designated && horizontal < 4 * 65536
+                        if (activeCombatant && horizontal < 4 * 65536
                             && (match.currentTick() / 30u + index) % 2u == 0) input |= Shoot;
                         if (input == previousInputs[index]) continue;
                         previousInputs[index] = input;
@@ -379,9 +424,15 @@ namespace Duel6::Server::Authoritative {
                 && !options.config.playableLevels.empty())
                 options.config.fixedLevel = options.config.playableLevels.front();
             if (options.scenario == "invalid") options.config.roundLimit = 0;
-            options.config.compactSpawnLayout = options.scenario == "complete";
+            const bool compactCombatFixture = options.diagnosticFixture == "compact-combat";
+            options.config.compactSpawnLayout = compactCombatFixture;
             FrozenGameplayConfig gameplayConfig;
-            if (!loadFrozenGameplayConfig(options.resources, gameplayConfig)) {
+            const auto configContent = built.content ? built.content->find("data/config.script")
+                                                     : Network::FrozenGameplayContent::const_iterator{};
+            if (!built.content || configContent == built.content->end()
+                || !parseFrozenGameplayConfig(std::string_view(
+                        reinterpret_cast<const char *>(configContent->second.data()), configContent->second.size()),
+                                              gameplayConfig)) {
                 const auto unavailable = terminalOutcome(OutcomeCode::ContentUnavailable);
                 printOutcome(output, unavailable, std::nullopt);
                 return unavailable.exitStatus;
@@ -389,7 +440,7 @@ namespace Duel6::Server::Authoritative {
             options.config.enabledWeapons = std::move(gameplayConfig.enabledWeapons);
             options.config.startingAmmoMinimum = gameplayConfig.startingAmmoMinimum;
             options.config.startingAmmoMaximum = gameplayConfig.startingAmmoMaximum;
-            if (options.scenario == "complete") {
+            if (compactCombatFixture) {
                 options.config.fixedStartingWeapon = "pistol";
                 options.config.startingAmmoMinimum = 30;
                 options.config.startingAmmoMaximum = 30;
@@ -402,7 +453,7 @@ namespace Duel6::Server::Authoritative {
 
             MatchRuntimeDependencies runtime;
             if (cliDependencies.runtimeFactory)
-                runtime = cliDependencies.runtimeFactory(options.config, options.roster, options.resources);
+                runtime = cliDependencies.runtimeFactory(options.config, options.roster, built);
             if (options.scenario == "cleanup-failure") runtime.cleanup = [] { return false; };
             Network::GameplayManifest manifest = built.manifest;
             if ((options.scenario == "content-unavailable" || options.scenario == "blocked-content-end")
@@ -412,7 +463,7 @@ namespace Duel6::Server::Authoritative {
                 printOutcome(output, failed, std::nullopt);
                 return failed.exitStatus;
             }
-            AuthoritativeHostedMatchController controller(std::move(runtime));
+            AuthoritativeHostedMatchController controller(options.config.hostParticipantId, std::move(runtime));
             if (!controller.markServiceReady()) {
                 const auto failed = terminalOutcome(OutcomeCode::RuntimeFailed);
                 printOutcome(output, failed, std::nullopt);
@@ -484,6 +535,8 @@ namespace Duel6::Server::Authoritative {
             controller.observeMatchOutcome();
             if (final.code == OutcomeCode::None) final = terminalOutcome(OutcomeCode::RuntimeFailed);
             printOutcome(output, final, match.publishedResult());
+            output << "diagnosticFixture="
+                   << (options.diagnosticFixture.empty() ? "none" : options.diagnosticFixture) << '\n';
             printCanonicalDiagnostics(output, match);
             return final.exitStatus;
         } catch (...) {

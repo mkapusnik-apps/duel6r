@@ -15,7 +15,6 @@ namespace Duel6::Server::Authoritative {
 
     const std::vector<std::string> &canonicalWeaponKeys();
     bool parseFrozenGameplayConfig(std::string_view source, FrozenGameplayConfig &result) noexcept;
-    bool loadFrozenGameplayConfig(const std::string &resourcesPath, FrozenGameplayConfig &result) noexcept;
 }
 
 #endif

@@ -11,7 +11,7 @@ namespace Duel6::Server::Authoritative {
         std::function<bool()> stopRequested;
         std::function<bool()> reportReady;
         std::function<MatchRuntimeDependencies(const MatchConfig &, const std::vector<PlayerDefinition> &,
-                                               const std::string &)> runtimeFactory;
+                                                const Network::ManifestBuildResult &)> runtimeFactory;
     };
 
     bool authoritativeMatchRequested(int argc, char **argv);

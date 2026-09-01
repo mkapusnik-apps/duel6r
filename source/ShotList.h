@@ -52,6 +52,8 @@ namespace Duel6 {
 
         void update(World &world, Float32 elapsedTime);
 
+        std::uint64_t nextStableIdentity() const noexcept { return nextStableId; }
+
         void forEach(std::function<bool(const Shot &)> handler) const;
 
         void forEach(std::function<bool(Shot &)> handler);

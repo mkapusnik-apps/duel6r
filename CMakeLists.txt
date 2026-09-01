@@ -511,6 +511,7 @@ set(D6R_CANONICAL_GAMEPLAY_SOURCES
         source/GameSettings.cpp
         source/InfoMessageQueue.cpp
         source/Level.cpp
+        source/msdir.c
         source/Person.cpp
         source/Player.cpp
         source/PlayerEventListener.cpp
@@ -587,7 +588,13 @@ set(D6R_CANONICAL_GAMEPLAY_SOURCES
 
 add_library(duel6r-canonical-gameplay-core STATIC ${D6R_CANONICAL_GAMEPLAY_SOURCES})
 target_include_directories(duel6r-canonical-gameplay-core PUBLIC ${CMAKE_SOURCE_DIR}/source)
-target_compile_definitions(duel6r-canonical-gameplay-core PRIVATE D6R_HEADLESS_CORE)
+target_compile_definitions(duel6r-canonical-gameplay-core PRIVATE D6R_HEADLESS_CORE NOMINMAX)
+if (MSVC)
+    target_compile_options(duel6r-canonical-gameplay-core PRIVATE /fp:strict)
+else ()
+    target_compile_options(duel6r-canonical-gameplay-core PRIVATE
+            -fno-fast-math -ffp-contract=off -frounding-math)
+endif ()
 
 set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/client/ConnectionPlan.cpp
@@ -656,6 +663,13 @@ endif ()
 add_library(duel6r-network-scaffold STATIC ${D6R_NETWORK_SCAFFOLD_SOURCES})
 add_dependencies(duel6r-network-scaffold ${D6R_RESOLVER_APP_NAME})
 target_include_directories(duel6r-network-scaffold PUBLIC ${CMAKE_SOURCE_DIR}/source)
+target_compile_definitions(duel6r-network-scaffold PRIVATE NOMINMAX)
+if (MSVC)
+    target_compile_options(duel6r-network-scaffold PRIVATE /fp:strict)
+else ()
+    target_compile_options(duel6r-network-scaffold PRIVATE
+            -fno-fast-math -ffp-contract=off -frounding-math)
+endif ()
 if (WIN32)
     target_link_libraries(duel6r-network-scaffold PUBLIC ws2_32 bcrypt iphlpapi)
 else ()

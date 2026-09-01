@@ -7,8 +7,9 @@
 #include "AuthoritativeMatchValidation.h"
 
 namespace Duel6::Server::Authoritative {
-    AuthoritativeHostedMatchController::AuthoritativeHostedMatchController(MatchRuntimeDependencies dependencies)
-            : dependencies(std::move(dependencies)) {}
+    AuthoritativeHostedMatchController::AuthoritativeHostedMatchController(
+            Identity hostParticipantId, MatchRuntimeDependencies dependencies)
+            : dependencies(std::move(dependencies)), hostParticipantId(hostParticipantId) {}
 
     bool AuthoritativeHostedMatchController::markServiceReady() {
         if (currentStage != HostedMatchStage::ServiceStarting) return false;
@@ -44,12 +45,13 @@ namespace Duel6::Server::Authoritative {
             return terminalOutcome(OutcomeCode::ContentUnavailable);
         if (currentStage != HostedMatchStage::Lobby || activeMatch)
             return terminalOutcome(OutcomeCode::SettingsInvalid);
+        if (hostParticipantId == 0 || config.hostParticipantId != hostParticipantId)
+            return terminalOutcome(OutcomeCode::SettingsInvalid);
         const ValidationResult settings = validateMatchConfig(config, roster);
         if (!settings.valid || !allParticipantsReady(roster)) {
             clearReadiness();
             return terminalOutcome(OutcomeCode::SettingsInvalid);
         }
-        hostParticipantId = config.hostParticipantId;
         const ValidationResult content = validateFrozenContent(config, manifest);
         if (!content.valid) {
             clearReadiness();
@@ -67,7 +69,7 @@ namespace Duel6::Server::Authoritative {
     }
 
     TerminalOutcome AuthoritativeHostedMatchController::end(Identity participantId) {
-        if (participantId == 0 || (hostParticipantId != 0 && participantId != hostParticipantId))
+        if (participantId == 0 || participantId != hostParticipantId)
             return terminalOutcome(OutcomeCode::SettingsInvalid);
         if (currentStage == HostedMatchStage::MatchActive && activeMatch) {
             const ActionResult accepted = activeMatch->submit({activeMatch->currentTick(),

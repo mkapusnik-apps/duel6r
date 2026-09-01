@@ -29,6 +29,7 @@
 #define DUEL6_WORLD_H
 
 #include <memory>
+#include <functional>
 
 #include "Format.h"
 #include "Level.h"
@@ -44,6 +45,16 @@
 
 namespace Duel6 {
     class Game;
+
+    struct GameplayEvent {
+        std::string kind;
+        std::string entityKind;
+        std::uint64_t localEntityId = 0;
+        Size playerRosterSlot = static_cast<Size>(-1);
+        Size targetRosterSlot = static_cast<Size>(-1);
+        std::string valueCategory;
+        std::int64_t value = 0;
+    };
 
     class World {
     private:
@@ -64,6 +75,7 @@ namespace Duel6 {
         BonusList bonusList;
         ElevatorList elevatorList;
         Float32 time;
+        std::function<void(const GameplayEvent &)> gameplayEventSink;
 
     public:
         World(Game &game, const std::string &levelPath, bool mirror);
@@ -71,6 +83,16 @@ namespace Duel6 {
         void update(Float32 elapsedTime);
 
         void raiseWater();
+
+        void setGameplayEventSink(std::function<void(const GameplayEvent &)> sink) {
+            gameplayEventSink = std::move(sink);
+        }
+
+        void emitGameplayEvent(GameplayEvent event) const {
+            if (gameplayEventSink) {
+                try { gameplayEventSink(event); } catch (...) {}
+            }
+        }
 
         const GameSettings &getGameSettings() const {
             return gameSettings;

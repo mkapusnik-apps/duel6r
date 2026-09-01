@@ -154,10 +154,12 @@ namespace Duel6 {
 
         if (!suddenDeathMode && game.getMode().checkForSuddenDeathMode(world, alivePlayers)) {
             suddenDeathMode = true;
+            world.emitGameplayEvent({"sudden-death-started"});
         }
 
         if (game.getMode().checkRoundOver(world, alivePlayers)) {
             winner = true;
+            world.emitGameplayEvent({"round-ended"});
             gameOverWait = D6_GAME_OVER_WAIT;
 
 #ifndef D6R_HEADLESS_CORE

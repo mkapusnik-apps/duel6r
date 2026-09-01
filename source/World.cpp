@@ -32,7 +32,14 @@
 namespace Duel6 {
     World::World(Game &game, const std::string &levelPath, bool mirror)
             : gameSettings(game.getSettings()), players(game.getPlayers()),
+#ifdef D6R_HEADLESS_CORE
+              level(game.getResources().hasFrozenGameplayContent()
+                    ? Level(game.getResources().getFrozenGameplayContent(levelPath), mirror,
+                            game.getResources().getBlockMeta())
+                    : Level(levelPath, mirror, game.getResources().getBlockMeta())),
+#else
               level(levelPath, mirror, game.getResources().getBlockMeta()),
+#endif
               messageQueue(D6_INFO_DURATION),
 #ifndef D6R_HEADLESS_CORE
               explosionList(game.isHeadless() ? Texture() : game.getResources().getExplosionTextures(),
@@ -62,8 +69,17 @@ namespace Duel6 {
 
         game.log("...Level initialization");
         game.log("...Loading elevators");
-        elevatorList.load(levelPath, mirror);
+#ifdef D6R_HEADLESS_CORE
+        if (game.getResources().hasFrozenGameplayContent())
+            elevatorList.load(game.getResources().getFrozenGameplayContent(levelPath), mirror);
+        else
+#endif
+            elevatorList.load(levelPath, mirror);
         fireList.find(level);
+        fireList.setBurnedSink([this](Size localIdentity) {
+            emitGameplayEvent({"tree-burned", "tree", localIdentity, static_cast<Size>(-1),
+                               static_cast<Size>(-1), "burned", 1});
+        });
 #ifndef D6R_HEADLESS_CORE
         if (!game.isHeadless()) background = findBackground(game.getResources().getBcgTextures());
 #endif
@@ -92,7 +108,11 @@ namespace Duel6 {
     }
 
     void World::raiseWater() {
+        const Int32 previousLevel = level.getWaterLevel();
         level.raiseWater();
+        if (previousLevel != level.getWaterLevel())
+            emitGameplayEvent({"water-level-changed", "hazard", 1, static_cast<Size>(-1),
+                               static_cast<Size>(-1), "level", level.getWaterLevel()});
 #ifndef D6R_HEADLESS_CORE
         if (levelRenderData) levelRenderData->generateWater();
 #endif

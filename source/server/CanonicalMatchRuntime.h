@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "AuthoritativeMatch.h"
+#include "../network/CompatibilityManifest.h"
 
 namespace Duel6 {
     class Game;
@@ -20,17 +21,17 @@ namespace Duel6::Server::Authoritative {
     class CanonicalMatchRuntime final : public std::enable_shared_from_this<CanonicalMatchRuntime> {
     public:
         CanonicalMatchRuntime(MatchConfig config, std::vector<PlayerDefinition> roster,
-                              std::string resourcesPath);
+                               std::shared_ptr<const Network::FrozenGameplayContent> frozenContent);
         ~CanonicalMatchRuntime();
 
         static MatchRuntimeDependencies createDependencies(MatchConfig config,
-                std::vector<PlayerDefinition> roster, std::string resourcesPath);
+                std::vector<PlayerDefinition> roster, const Network::ManifestBuildResult &content);
 
     private:
         MatchConfig config;
         std::vector<PlayerDefinition> roster;
         std::vector<PlayerDefinition> activeRoster;
-        std::string resourcesPath;
+        std::shared_ptr<const Network::FrozenGameplayContent> frozenContent;
         std::unique_ptr<GameResources> resources;
         std::unique_ptr<GameSettings> settings;
         std::unique_ptr<GameMode> mode;
@@ -47,6 +48,7 @@ namespace Duel6::Server::Authoritative {
         std::int32_t previousWaterLevel = 0;
         bool previousSuddenDeath = false;
         bool previousRoundOver = false;
+        bool sourceEventsEnabled = false;
 
         bool startWorld(RoundStartDecision &decision);
         bool tickWorld(Tick tick, bool simulate);

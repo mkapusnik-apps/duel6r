@@ -20,13 +20,15 @@ It also provides connection-plan and command-construction helpers, an in-process
 
 ## Authoritative headless match runtime
 
-`duel6r-server --authoritative-match` runs a fixed-step authoritative match path without constructing `Application` or initializing SDL video, a renderer, audio, or local input devices. It validates and freezes stable participant/player ownership, the supported settings, canonical gameplay content, playable levels, and the built-in weapon set before the first round. Optional Lua, profile, and gameplay scripts cannot enter this path.
+`duel6r-server --authoritative-match` runs a fixed-step authoritative match path without constructing `Application` or initializing SDL video, a renderer, audio, or local input devices. It validates stable participant/player ownership and supported settings, then reads each accepted gameplay file once into a bounded immutable snapshot before the first round. Manifest identities, configuration parsing, block metadata, level construction, and elevator construction all consume those exact accepted bytes; the authoritative simulation does not reopen accepted gameplay paths. Optional Lua, profile, and gameplay scripts cannot enter this path.
 
-The runtime uses one nonzero supplied or operating-system-generated seed and a project-owned integer PRNG with rejection-sampled bounds. A match-owned random scope routes canonical gameplay choices through that source, and authoritative checkpoints quantize simulation values used by players, shots, elevators, and gameplay timers. The service owns deterministic level planning and orientation, ordered trusted controls, fixed 60 Hz progression, canonical `Game`/`Round`/`World` physics and rules, six-second round-end timing, session-only result accumulation/ranking, bounded state digests and invariants, and terminal cleanup.
+The runtime uses one nonzero supplied or operating-system-generated seed and a project-owned integer PRNG with rejection-sampled bounds. Match-owned random scopes cover round/world construction, controls, every tick, world removal, teardown, and cleanup. An authoritative random call without that source fails with a fixed invariant instead of falling back to the process-global generator. Canonical targets compile with strict floating-point semantics, set round-to-nearest while authoritative code executes, and quantize simulation branch inputs used by players, shots, collisions, elevators, and gameplay timers. The service owns deterministic level planning and orientation, ordered trusted controls, fixed 60 Hz progression, canonical `Game`/`Round`/`World` physics and rules, six-second round-end timing, session-only result accumulation/ranking, bounded state digests and invariants, and terminal cleanup.
 
 The production server installs a canonical runtime adapter that loads only gameplay metadata and headless weapon/water definitions, creates headless players, and runs the existing physics, controls, weapons/projectiles, pickups, bonuses, water, elevators, sudden death, Burnable Trees, game modes, event listeners, and score updates. Participant input can change canonical gameplay only through player controls. The direct-damage and environment action variants remain available only to dependency-injected orchestration tests; the production canonical adapter rejects them.
 
-For a deterministic process scenario:
+Normal `--authoritative-match` and `--actions-stdin` runs retain the content-derived level layout, enabled weapons, starting weapon decisions, and ammunition range. The compact layout, fixed pistol, and 30-round loadout used for short process evidence are available only through the explicit `--diagnostic-fixture=compact-combat` option. Output identifies the selected fixture as `diagnosticFixture=compact-combat`; normal runs report `diagnosticFixture=none`. A diagnostic fixture cannot be combined with `--actions-stdin`.
+
+For the deterministic compact-combat process scenario:
 
 ```sh
 ./build/duel6r-server \
@@ -36,10 +38,11 @@ For a deterministic process scenario:
   --match-mode=deathmatch \
   --level-plan=shuffle \
   --rounds=3 \
-  --scenario=complete
+  --scenario=complete \
+  --diagnostic-fixture=compact-combat
 ```
 
-The bounded `--actions-stdin` driver accepts trusted lines containing `tick sequence participant-id player-id kind target-player-id amount input-mask`. It is an operational/test-driver interface, not remote input or transport. Output contains the fixed terminal identifier and copy plus at most one bounded canonical `session-result=` JSON line. Trusted local evidence output also includes bounded random decisions, per-second state checkpoints, canonical player values, and canonical events with stable sequence, tick, type, entity, actor, target, value category, and value fields. These diagnostics contain only implementation-owned labels and numeric state; they do not accept or expose peer text, paths, endpoints, credentials, profiles, or secrets. No result is written to people, profiles, statistics, Elo, saves, or history.
+The bounded `--actions-stdin` driver accepts trusted lines containing `tick sequence participant-id player-id kind target-player-id amount input-mask`. It is an operational/test-driver interface, not remote input or transport. Output contains the fixed terminal identifier and copy plus at most one bounded canonical `session-result=` JSON line. Trusted local evidence output also includes bounded purpose-labelled random decisions, per-second state checkpoints, canonical player values, detailed projectile, pickup, elevator, hazard, tree, water, sudden-death, and round snapshots, and canonical events with stable sequence, tick, type, entity, actor, target, value category, and value fields. Combat, pickup, and water events are emitted at their canonical gameplay source; lifecycle transitions and stable entity changes are observed at the canonical runtime boundary. Cleanup confirmation and forbidden global-random and wall-clock access counts are machine-visible. These diagnostics contain only implementation-owned labels and numeric state; they do not accept or expose peer text, paths, endpoints, credentials, profiles, or secrets. No result is written to people, profiles, statistics, Elo, saves, or history.
 
 The runtime also supports bounded `interrupted`, `runtime-failure`, and cleanup evidence scenarios. This explicit CLI does not implement replication, remote input, reconnect, graphical networking, deployment support, or a playable network journey.
 

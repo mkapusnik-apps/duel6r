@@ -87,6 +87,9 @@ namespace Duel6 {
             }
 
             fire.setBurned(true);
+            if (burnedSink) {
+                try { burnedSink(static_cast<Size>(&fire - fires.data()) + 1); } catch (...) {}
+            }
 
             if (!textures) continue;
             auto sprite = spriteList->add(burningAnimation.data(), burningTexture);

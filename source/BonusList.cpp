@@ -154,6 +154,8 @@ namespace Duel6 {
                 } else {
                     player.setBonus(type, bonus.getDuration());
                 }
+                world.emitGameplayEvent({"bonus-picked", "bonus", bonus.getStableId(), player.getRosterSlot(),
+                                         player.getRosterSlot(), "duration", bonus.getDuration()});
 
 #ifndef D6R_HEADLESS_CORE
                 player.playSound(PlayerSounds::Type::PickedBonus);
@@ -191,6 +193,9 @@ namespace Duel6 {
                 }
 
                 player.pickWeapon(type, weapon.getBullets(), weapon.remainingReloadTime);
+                world.emitGameplayEvent({"weapon-picked", "weapon-pickup", weapon.getStableId(),
+                                         player.getRosterSlot(), player.getRosterSlot(), "ammo",
+                                         weapon.getBullets()});
                 world.getMessageQueue().add(player, Format("You picked up gun {0}") << type.getName());
 
                 weapons.erase(weaponIter);

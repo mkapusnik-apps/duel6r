@@ -37,10 +37,21 @@ namespace Duel6 {
         load(path, mirror);
     }
 
+    Level::Level(const std::vector<Uint8> &bytes, bool mirror, const Block::Meta &blockMeta)
+            : blockMeta(blockMeta), raisingWater(false) {
+        load(bytes, mirror);
+    }
+
     void Level::load(const std::string &path, bool mirror) {
+        load(Json::Parser().parse(path), mirror);
+    }
+
+    void Level::load(const std::vector<Uint8> &bytes, bool mirror) {
+        load(Json::Parser().parse(bytes), mirror);
+    }
+
+    void Level::load(const Json::Value &root, bool mirror) {
         levelData.clear();
-        Json::Parser parser;
-        Json::Value root = parser.parse(path);
 
         width = root.get("width").asInt();
         height = root.get("height").asInt();

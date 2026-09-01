@@ -29,6 +29,7 @@
 #define DUEL6_MATH_MATH_H
 
 #include <cmath>
+#include <cfenv>
 #include <algorithm>
 #include <cstdlib>
 #include <random>
@@ -45,6 +46,11 @@ namespace Duel6 {
     class Math {
     private:
         static thread_local RandomSource *authoritativeRandom;
+        static thread_local bool authoritativeRequired;
+        static thread_local std::uint64_t forbiddenRandomAccessCount;
+        static bool randomEngineSeeded;
+
+        static void ensureRandomEngineSeeded();
 
     public:
         static const Float64 Pi;
@@ -54,6 +60,7 @@ namespace Duel6 {
         class RandomScope final {
         public:
             explicit RandomScope(RandomSource &source);
+            explicit RandomScope(RandomSource *source);
             ~RandomScope();
 
             RandomScope(const RandomScope &) = delete;
@@ -61,6 +68,8 @@ namespace Duel6 {
 
         private:
             RandomSource *previous;
+            bool previousRequired;
+            int previousRounding;
         };
 
     public:
@@ -140,6 +149,11 @@ namespace Duel6 {
         template<typename Value>
         static void shuffle(std::vector<Value> &values, std::string_view purpose = {}) {
             if (!authoritativeRandom) {
+                if (authoritativeRequired) {
+                    ++forbiddenRandomAccessCount;
+                    throw std::logic_error("Authoritative random source is unavailable");
+                }
+                ensureRandomEngineSeeded();
                 std::shuffle(values.begin(), values.end(), randomEngine);
                 return;
             }
@@ -154,6 +168,7 @@ namespace Duel6 {
 
         static bool isAuthoritative() noexcept;
         static Float32 quantizeAuthoritative(Float32 value);
+        static std::uint64_t forbiddenAuthoritativeRandomAccesses() noexcept;
     };
 }
 

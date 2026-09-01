@@ -133,6 +133,7 @@ namespace Duel6 {
         Float32 timeSinceHit;
         Float32 timeStuckInWall;
         Float32 tempSkinDuration;
+        Float32 weaponPickLockRemaining;
         Float32 alpha;
         Weapon weapon;
         PlayerEventListener *eventListener;

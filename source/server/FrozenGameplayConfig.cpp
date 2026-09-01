@@ -1,8 +1,6 @@
 #include "FrozenGameplayConfig.h"
 
-#include <array>
 #include <charconv>
-#include <fstream>
 #include <sstream>
 #include <system_error>
 #include <unordered_set>
@@ -86,23 +84,6 @@ namespace Duel6::Server::Authoritative {
             if (parsed.enabledWeapons.empty()) return false;
             result = std::move(parsed);
             return true;
-        } catch (...) {
-            return false;
-        }
-    }
-
-    bool loadFrozenGameplayConfig(const std::string &resourcesPath, FrozenGameplayConfig &result) noexcept {
-        try {
-            std::ifstream input(resourcesPath + "/data/config.script", std::ios::binary);
-            if (!input) return false;
-            std::string source;
-            std::array<char, 4096> buffer{};
-            while (input) {
-                input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-                source.append(buffer.data(), static_cast<std::size_t>(input.gcount()));
-                if (source.size() > MaximumConfigBytes) return false;
-            }
-            return input.eof() && parseFrozenGameplayConfig(source, result);
         } catch (...) {
             return false;
         }
