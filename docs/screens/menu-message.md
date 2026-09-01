@@ -12,7 +12,7 @@ Primary source is `source/Menu.cpp:368-486`.
 ## Layout and hierarchy
 
 - The state must place the message strip over the unchanged main menu.
-- The unchanged main menu must include the session-selected blurred and scrimmed gameplay still, the scaled approved four-panel canvas, and its keyline.
+- The unchanged main menu must include the session-selected blurred and scrimmed gameplay still, the scaled approved three-panel canvas, and its keyline.
 - The background Game Settings panel must include the Burnable Trees checkbox from `MENU-01`.
 - The target background footer must show `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)` with the equal widths, gaps, and outer margins from `MENU-01`.
 - The strip must use the centered layout in [`menu-message.md`](wireframes/menu-message.md).

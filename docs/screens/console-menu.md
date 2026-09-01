@@ -13,7 +13,7 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 
 - The overlay must match [`console-menu.md`](wireframes/console-menu.md).
 - The complete menu must remain rendered behind the console.
-- The visible menu area behind the console must use the approved blurred and scrimmed session background plus the scaled four-panel canvas and keyline.
+- The visible menu area behind the console must use the approved blurred and scrimmed session background plus the scaled three-panel canvas and keyline.
 - The visible Game Settings area must include the Burnable Trees checkbox from `MENU-01`.
 - The visible target footer must show `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)` with the equal widths, gaps, and outer margins from `MENU-01`.
 - The console must span the complete client width at the top of the visible client area.

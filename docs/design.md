@@ -350,7 +350,7 @@ The following values come from renderer and GUI source.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
 - Eleven screenshot entries remain `Planned` until issue #38 implements and captures `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
 - `SS-001` and `SS-024` must represent the two approved `MENU-01` conditional-layout wireframes.
-- Existing `MENU-01` evidence is stale for the consolidated-person-list change until both affected wireframes are implemented and captured.
+- `SS-001` and `SS-024` conform to the consolidated-person-list requirements at PR #58 evidence head `0e503e31b73a6c7cde002d85eb4458ae57cde3b3`.
 - Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources

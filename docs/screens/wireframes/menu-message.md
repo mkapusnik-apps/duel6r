@@ -22,7 +22,7 @@ The screen has no mobile layout, so this single desktop wireframe covers all imp
 The implementation must render short messages, including `Really delete? (Y/N)`, on one 20-logical-pixel high line.
 The implementation must calculate a short panel width from the complete message length.
 Long messages may wrap at word boundaries within the logical canvas and must grow the panel by one 16-logical-pixel text row for each additional line. Sentence boundaries should be preferred where practical.
-The implementation must keep the approved four-panel MENU-01 canvas unchanged behind the message.
+The implementation must keep the approved three-panel `MENU-01` canvas unchanged behind the message.
 The visible target footer must use the equal-width `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)` coordinates documented by `MENU-01`.
 The visible Game Settings panel must show the checked Burnable Trees checkbox in the representative default setup.
 

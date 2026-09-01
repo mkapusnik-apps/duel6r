@@ -1031,10 +1031,6 @@ namespace Duel6 {
     }
 
     void Menu::addPerson() {
-        if (!textbox->isFocused()) {
-            return;
-        }
-
         const std::string &personName = textbox->getText();
 
         if (!personName.empty() && !persons.contains(personName)) {
@@ -1102,7 +1098,7 @@ namespace Duel6 {
         if (event.getCode() == SDLK_RETURN) {
             if (roundsTextbox->isFocused()) {
                 applyRoundsTextbox();
-            } else {
+            } else if (textbox->isFocused()) {
                 addPerson();
             }
         }
