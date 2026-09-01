@@ -43,6 +43,7 @@ namespace Duel6 {
 
     private:
         std::list<ShotPointer> shots;
+        std::uint64_t nextStableId = 1;
 
     public:
         ShotList();

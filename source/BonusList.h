@@ -46,6 +46,7 @@ namespace Duel6 {
         World &world;
         std::list<Bonus> bonuses;
         std::list<LyingWeapon> weapons;
+        std::uint64_t nextStableId = 1;
 
         static const Int32 RANDOM_BONUS_FREQUENCY = 6;
         typedef std::pair<Int32, Int32> ValidPosition;
@@ -69,6 +70,9 @@ namespace Duel6 {
         void checkBonus(Player &player);
 
         void checkWeapon(Player &player);
+
+        const std::list<Bonus> &getBonuses() const noexcept { return bonuses; }
+        const std::list<LyingWeapon> &getWeapons() const noexcept { return weapons; }
     };
 
 }

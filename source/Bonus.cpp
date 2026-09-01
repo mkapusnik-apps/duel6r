@@ -65,8 +65,9 @@ namespace Duel6 {
                                                            BonusType::VAMPIRE_SHOTS, BonusType::INFINITE_AMMO,
                                                            BonusType::SNORKEL};
 
-    Bonus::Bonus(const BonusType *type, Int32 duration, const Vector &position, Int32 textureIndex)
-            : type(type), duration(duration), position(position), textureIndex(textureIndex) {
+    Bonus::Bonus(const BonusType *type, Int32 duration, const Vector &position, Int32 textureIndex,
+                 std::uint64_t stableId)
+            : type(type), duration(duration), position(position), textureIndex(textureIndex), stableId(stableId) {
         this->position.z = 0.5f;
     }
 
@@ -81,14 +82,15 @@ namespace Duel6 {
         return Vector(position.x - 0.2f, position.y - 0.2f, 0.47f);
     }
 
-    LyingWeapon::LyingWeapon(Weapon weapon, Int32 bullets, const Vector &position) :
-            weapon(weapon), bullets(bullets), collider(position) {
+    LyingWeapon::LyingWeapon(Weapon weapon, Int32 bullets, const Vector &position, std::uint64_t stableId) :
+            weapon(weapon), bullets(bullets), stableId(stableId), collider(position) {
         collider.position.z = 0.5f;
     }
 
     LyingWeapon::LyingWeapon(Weapon weapon, Int32 bullets, Float32 remainingReloadTime,
-                             const CollidingEntity &playerCollider)
-            : weapon(weapon), bullets(bullets), collider(playerCollider), remainingReloadTime(remainingReloadTime) {
+                             const CollidingEntity &playerCollider, std::uint64_t stableId)
+            : weapon(weapon), bullets(bullets), stableId(stableId), collider(playerCollider),
+              remainingReloadTime(remainingReloadTime) {
         collider.position.z = 0.5f;
         collider.velocity.x *= 2;
         collider.velocity.y *= 2;

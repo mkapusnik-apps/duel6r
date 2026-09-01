@@ -5,6 +5,7 @@
 #include <string_view>
 
 #include "../network/NetworkTrustPolicy.h"
+#include "FrozenGameplayConfig.h"
 
 namespace Duel6::Server::Authoritative {
     namespace {
@@ -46,10 +47,20 @@ namespace Duel6::Server::Authoritative {
 
         if (config.playableLevels.size() > MaxLevels) return invalid("level-count");
         if (config.enabledWeapons.size() > 256) return invalid("weapon-count");
+        if (config.startingAmmoMinimum > config.startingAmmoMaximum
+            || config.startingAmmoMaximum > 100000u) return invalid("starting-ammo-range");
         std::set<std::string> levels;
         for (const auto &level: config.playableLevels) {
             if (!levelPath(level) || !levels.insert(level).second) return invalid("level-path");
         }
+        std::set<std::string> weapons;
+        const auto &knownWeapons = canonicalWeaponKeys();
+        for (const auto &weapon: config.enabledWeapons) {
+            if (std::find(knownWeapons.begin(), knownWeapons.end(), weapon) == knownWeapons.end()
+                || !weapons.insert(weapon).second) return invalid("weapon-name");
+        }
+        if (!config.fixedStartingWeapon.empty() && !weapons.count(config.fixedStartingWeapon))
+            return invalid("fixed-starting-weapon");
         if (config.levelPlan != LevelPlan::Fixed && !config.fixedLevel.empty()) {
             return invalid("unexpected-fixed-level");
         }

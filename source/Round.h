@@ -75,6 +75,8 @@ namespace Duel6 {
             return winner;
         }
 
+        bool isSuddenDeath() const noexcept { return suddenDeathMode; }
+
         Float32 getRemainingYouAreHere() const {
             return showYouAreHere;
         }

@@ -67,6 +67,9 @@ namespace Duel6::Server::Authoritative {
         bool resourcesReleased() const noexcept;
         std::uint64_t currentStateDigest() const noexcept;
         const CanonicalWorldSnapshot *canonicalWorldSnapshot() const noexcept;
+        std::uint64_t randomDecisionCount() const noexcept;
+        std::uint64_t randomDecisionDigest() const noexcept;
+        const std::vector<DeterministicRandom::Decision> &randomDecisionTrace() const noexcept;
 
     private:
         struct AttackerRecord {

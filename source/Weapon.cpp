@@ -177,9 +177,9 @@ namespace Duel6 {
             ordered.reserve(enabledWeapons.size());
             for (const Weapon &weapon: weapons)
                 if (enabledWeapons.find(weapon) != enabledWeapons.end()) ordered.push_back(&weapon);
-            return *ordered[Math::random(ordered.size())];
+            return *ordered[Math::random(ordered.size(), "starting-weapon")];
         }
-        Size randomIndex = Math::random(enabledWeapons.size());
+        Size randomIndex = Math::random(enabledWeapons.size(), "starting-weapon");
         auto randomWeapon = enabledWeapons.cbegin();
         std::advance(randomWeapon, randomIndex);
         return *randomWeapon;

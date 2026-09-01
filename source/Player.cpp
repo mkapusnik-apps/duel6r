@@ -49,19 +49,20 @@ namespace Duel6 {
     // Very important fun aspect!
     static const float SHOT_FORCE_FACTOR = 0.05f;
 
-    Player::Player(Person &person, const PlayerSkin &skin, const PlayerSounds &sounds, const PlayerControls &controls)
+    Player::Player(Person &person, const PlayerSkin &skin, const PlayerSounds &sounds, const PlayerControls &controls,
+                   Size rosterSlot)
             : person(person),
               skin(&skin),
               animations(&skin.getAnimations()),
               sounds(&sounds),
               controls(&controls),
-              orientation(Orientation::Left), headless(false), roundElapsedTime(0) {
+              orientation(Orientation::Left), headless(false), roundElapsedTime(0), rosterSlot(rosterSlot) {
         camera.rotate(180.0, 0.0, 0.0);
     }
 
-    Player::Player(Person &person)
+    Player::Player(Person &person, Size rosterSlot)
             : person(person), skin(nullptr), animations(nullptr), sounds(nullptr), controls(nullptr),
-              orientation(Orientation::Left), headless(true), roundElapsedTime(0) {
+              orientation(Orientation::Left), headless(true), roundElapsedTime(0), rosterSlot(rosterSlot) {
         camera.rotate(180.0, 0.0, 0.0);
     }
 
@@ -81,7 +82,7 @@ namespace Duel6 {
         if (!headless) gunSprite = weapon.makeSprite(world.getSpriteList());
 
         flags = FlagHasGun;
-        orientation = Math::random(2) == 0 ? Orientation::Left : Orientation::Right;
+        orientation = Math::random(2, "player-orientation") == 0 ? Orientation::Left : Orientation::Right;
         timeToReload = weapon.isChargeable() ? getReloadInterval() : 0;
         life = D6_MAX_LIFE;
         air = D6_MAX_AIR;
@@ -415,6 +416,17 @@ namespace Duel6 {
     }
 
     void Player::update(World &world, Float32 elapsedTime) {
+        if (Math::isAuthoritative()) {
+            life = Math::quantizeAuthoritative(life);
+            air = Math::quantizeAuthoritative(air);
+            timeToReload = Math::quantizeAuthoritative(timeToReload);
+            bonusRemainingTime = Math::quantizeAuthoritative(bonusRemainingTime);
+            bonusDuration = Math::quantizeAuthoritative(bonusDuration);
+            timeSinceHit = Math::quantizeAuthoritative(timeSinceHit);
+            timeStuckInWall = Math::quantizeAuthoritative(timeStuckInWall);
+            tempSkinDuration = Math::quantizeAuthoritative(tempSkinDuration);
+            roundElapsedTime = Math::quantizeAuthoritative(roundElapsedTime);
+        }
         if (headless) roundElapsedTime += elapsedTime;
         checkWater(world, elapsedTime);
         if (isAlive()) {
@@ -707,7 +719,7 @@ namespace Duel6 {
     }
 
     void Player::useTemporarySkin(PlayerSkin &tempSkin) {
-        tempSkinDuration = Float32(10 + Math::random(5));
+        tempSkinDuration = Float32(10 + Math::random(5, "temporary-skin-duration"));
         if (!headless) sprite->setTexture(tempSkin.getTexture());
     }
 
@@ -783,5 +795,22 @@ namespace Duel6 {
 
     const CollidingEntity &Player::getCollider() const {
         return collider;
+    }
+
+    void Player::setHeadlessPosition(Int32 x, Int32 y) {
+        if (!headless) return;
+        collider.position = Vector(static_cast<Float32>(x), static_cast<Float32>(y));
+        collider.velocity = Vector();
+        collider.acceleration = Vector();
+        collider.externalForces = Vector();
+        collider.externalForcesSpeed = Vector();
+    }
+
+    void Player::setHeadlessLoadout(const Weapon &weapon, Int32 ammo) {
+        if (!headless) return;
+        this->weapon = weapon;
+        this->ammo = ammo;
+        timeToReload = weapon.isChargeable() ? getReloadInterval() : 0;
+        setFlag(FlagHasGun);
     }
 }

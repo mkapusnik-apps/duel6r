@@ -23,7 +23,9 @@
 #endif
 
 #include "AuthoritativeMatch.h"
+#include "AuthoritativeHostedMatchController.h"
 #include "AuthoritativeMatchSerialization.h"
+#include "FrozenGameplayConfig.h"
 #include "../network/CompatibilityManifest.h"
 
 namespace Duel6::Server::Authoritative {
@@ -86,9 +88,6 @@ namespace Duel6::Server::Authoritative {
 
         CliOptions parse(int argc, char **argv) {
             CliOptions options;
-            options.config.enabledWeapons = {"pistol", "machine-gun", "shotgun", "bazooka", "laser",
-                                              "plasma", "bow", "sling", "spray", "uzi", "lightning",
-                                              "triton", "double-laser", "slime", "stopper-gun", "kiss-of-death"};
             options.config.roundLimit = 1;
             options.config.hostParticipantId = 1;
             for (int index = 1; index < argc; ++index) {
@@ -160,6 +159,34 @@ namespace Duel6::Server::Authoritative {
                 const auto serialized = serializeSessionResult(*result);
                 if (serialized) output << "session-result=" << *serialized << '\n';
             }
+            output.flush();
+        }
+
+        void printCanonicalDiagnostics(std::ostream &output, const AuthoritativeMatch &match) {
+            output << "stateDigest=" << match.currentStateDigest() << '\n'
+                   << "randomDecisionCount=" << match.randomDecisionCount() << '\n'
+                   << "randomDigest=" << match.randomDecisionDigest() << '\n'
+                   << "randomTrace=";
+            bool first = true;
+            for (const auto &decision: match.randomDecisionTrace()) {
+                if (!first) output << ',';
+                first = false;
+                output << decision.index << ':' << decision.purpose << ':' << decision.bound << ':' << decision.value;
+            }
+            const CanonicalWorldSnapshot *snapshot = match.canonicalWorldSnapshot();
+            output << '\n' << "canonicalPlayers=";
+            if (snapshot) {
+                first = true;
+                for (const auto &player: snapshot->players) {
+                    if (!first) output << ',';
+                    first = false;
+                    output << player.playerId << ':' << player.life << ':' << player.ammo << ':'
+                           << player.statistics.shots << ':' << player.statistics.hits << ':'
+                           << player.positionX << ':' << player.positionY;
+                }
+            }
+            output << '\n' << "eventCount=" << (snapshot ? snapshot->events.size() : 0u) << '\n'
+                   << "cleanupConfirmed=" << (match.resourcesReleased() ? "true" : "false") << '\n';
             output.flush();
         }
 
@@ -251,6 +278,13 @@ namespace Duel6::Server::Authoritative {
                 if (match.phase() == MatchPhase::ActiveRound && match.currentTick() % 5u == 0) {
                     const CanonicalWorldSnapshot *world = match.canonicalWorldSnapshot();
                     if (!world) return;
+                    const Identity designatedShooter = config.mode == Mode::Predator
+                                                          ? match.roundDecision().predatorPlayerId
+                                                          : roster.back().playerId;
+                    const Team designatedTeam = config.mode == Mode::TeamDeathmatch
+                                                    ? static_cast<Team>(roster.back().rosterOrder
+                                                                        % config.teamCount + 1)
+                                                    : Team::None;
                     for (std::size_t index = 0; index < roster.size(); ++index) {
                         const auto current = std::find_if(world->players.begin(), world->players.end(),
                                 [&](const auto &player) { return player.playerId == roster[index].playerId; });
@@ -274,12 +308,22 @@ namespace Duel6::Server::Authoritative {
                             if (distance < nearest) { nearest = distance; target = &candidate; }
                         }
                         if (!target) continue;
-                        std::uint32_t input = target->positionX < current->positionX ? MoveLeft : MoveRight;
+                        const bool designated = config.mode == Mode::TeamDeathmatch
+                                                    ? static_cast<Team>(roster[index].rosterOrder
+                                                                        % config.teamCount + 1) == designatedTeam
+                                                    : current->playerId == designatedShooter;
+                        std::uint32_t input = 0;
+                        const std::int64_t horizontal = std::llabs(target->positionX - current->positionX);
                         const std::int64_t vertical = target->positionY - current->positionY;
-                        if (vertical > 32768 || (match.currentTick() + index * 17u) % 120u < 5u) input |= Jump;
-                        if (std::llabs(vertical) < 98304
+                        if (designated) {
+                            if (match.currentTick() < 5u || horizontal > 3 * 65536)
+                                input = target->positionX < current->positionX ? MoveLeft : MoveRight;
+                            const Tick jumpPhase = (match.currentTick() + index * 17u) % 120u;
+                            if (vertical > 32768 && jumpPhase < 10u) input |= Jump;
+                        }
+                        if (designated && horizontal > 65536 && horizontal < 4 * 65536
+                            && std::llabs(vertical) < 32768
                             && (match.currentTick() / 30u + index) % 2u == 0) input |= Shoot;
-                        if ((match.currentTick() + index * 31u) % 600u < 5u) input |= PickOrSwapWeapon;
                         if (input == previousInputs[index]) continue;
                         previousInputs[index] = input;
                         submitChecked(match, {match.currentTick(), sequence++, roster[index].participantId,
@@ -318,6 +362,17 @@ namespace Duel6::Server::Authoritative {
                 && !options.config.playableLevels.empty())
                 options.config.fixedLevel = options.config.playableLevels.front();
             if (options.scenario == "invalid") options.config.roundLimit = 0;
+            options.config.compactSpawnLayout = options.scenario == "complete";
+            FrozenGameplayConfig gameplayConfig;
+            if (!loadFrozenGameplayConfig(options.resources, gameplayConfig)) {
+                const auto unavailable = terminalOutcome(OutcomeCode::ContentUnavailable);
+                printOutcome(output, unavailable, std::nullopt);
+                return unavailable.exitStatus;
+            }
+            options.config.enabledWeapons = std::move(gameplayConfig.enabledWeapons);
+            options.config.startingAmmoMinimum = gameplayConfig.startingAmmoMinimum;
+            options.config.startingAmmoMaximum = gameplayConfig.startingAmmoMaximum;
+            if (options.scenario == "complete") options.config.fixedStartingWeapon = "pistol";
             if (options.config.seed == 0 && !secureSeed(options.config.seed)) {
                 const auto failed = terminalOutcome(OutcomeCode::RuntimeFailed);
                 printOutcome(output, failed, std::nullopt);
@@ -328,18 +383,55 @@ namespace Duel6::Server::Authoritative {
             if (cliDependencies.runtimeFactory)
                 runtime = cliDependencies.runtimeFactory(options.config, options.roster, options.resources);
             if (options.scenario == "cleanup-failure") runtime.cleanup = [] { return false; };
-            AuthoritativeMatch match(std::move(runtime));
             Network::GameplayManifest manifest = built.manifest;
-            if (options.scenario == "content-unavailable" && !manifest.empty()) manifest.pop_back();
-            TerminalOutcome startup = match.start(options.config, options.roster, manifest);
+            if ((options.scenario == "content-unavailable" || options.scenario == "blocked-content-end")
+                && !manifest.empty()) manifest.pop_back();
+            if (cliDependencies.reportReady && !cliDependencies.reportReady()) {
+                const auto failed = terminalOutcome(OutcomeCode::RuntimeFailed);
+                printOutcome(output, failed, std::nullopt);
+                return failed.exitStatus;
+            }
+            AuthoritativeHostedMatchController controller(std::move(runtime));
+            if (!controller.markServiceReady()) {
+                const auto failed = terminalOutcome(OutcomeCode::RuntimeFailed);
+                printOutcome(output, failed, std::nullopt);
+                return failed.exitStatus;
+            }
+            const auto readyParticipants = [&] {
+                for (const auto &player: options.roster)
+                    if (!controller.setParticipantReady(player.participantId, true)) return false;
+                return true;
+            };
+            if (!readyParticipants()) {
+                const auto failed = terminalOutcome(OutcomeCode::RuntimeFailed);
+                printOutcome(output, failed, std::nullopt);
+                return failed.exitStatus;
+            }
+            if (options.scenario == "invalid-then-corrected") {
+                MatchConfig invalid = options.config;
+                invalid.roundLimit = 0;
+                const TerminalOutcome rejected = controller.start(invalid, options.roster, manifest);
+                output << "hostedAttempt=" << rejected.identifier << '\n';
+                if (rejected.code != OutcomeCode::SettingsInvalid || !readyParticipants()) {
+                    const auto failed = terminalOutcome(OutcomeCode::RuntimeFailed);
+                    printOutcome(output, failed, std::nullopt);
+                    return failed.exitStatus;
+                }
+            }
+            TerminalOutcome startup = controller.start(options.config, options.roster, manifest);
+            if (options.scenario == "blocked-content-end" && startup.code == OutcomeCode::ContentUnavailable) {
+                output << "hostedAttempt=" << startup.identifier << '\n';
+                const TerminalOutcome ended = controller.end(options.config.hostParticipantId);
+                printOutcome(output, ended, std::nullopt);
+                output << "cleanupConfirmed=true\n";
+                return ended.exitStatus;
+            }
             if (startup.code != OutcomeCode::None) {
                 printOutcome(output, startup, std::nullopt);
                 return startup.exitStatus;
             }
-            if (cliDependencies.reportReady && !cliDependencies.reportReady()) {
-                submitChecked(match, {match.currentTick(), 1, options.config.hostParticipantId, 0,
-                                      ActionKind::RuntimeFailure, 0, 0, 0});
-            } else if (options.actionsFromInput) {
+            AuthoritativeMatch &match = *controller.match();
+            if (options.actionsFromInput) {
                 const auto actions = readActions(input);
                 std::size_t next = 0;
                 while (match.outcome().code == OutcomeCode::None && next < actions.size()) {
@@ -356,7 +448,8 @@ namespace Duel6::Server::Authoritative {
             } else if (options.scenario == "runtime-failure") {
                 submitChecked(match, {0, 1, options.config.hostParticipantId, 0,
                                       ActionKind::RuntimeFailure, 0, 0, 0});
-            } else if (options.scenario == "complete" || options.scenario == "cleanup-failure") {
+            } else if (options.scenario == "complete" || options.scenario == "cleanup-failure"
+                       || options.scenario == "invalid-then-corrected") {
                 if (cliDependencies.runtimeFactory)
                     driveCanonicalCompleteScenario(match, options.config, options.roster,
                                                    cliDependencies.stopRequested);
@@ -367,8 +460,10 @@ namespace Duel6::Server::Authoritative {
                 return invalid.exitStatus;
             }
             TerminalOutcome final = match.shutdown();
+            controller.observeMatchOutcome();
             if (final.code == OutcomeCode::None) final = terminalOutcome(OutcomeCode::RuntimeFailed);
             printOutcome(output, final, match.publishedResult());
+            printCanonicalDiagnostics(output, match);
             return final.exitStatus;
         } catch (...) {
             const auto invalid = terminalOutcome(OutcomeCode::SettingsInvalid);

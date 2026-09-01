@@ -74,7 +74,7 @@ namespace Duel6 {
 
         // Add new bonuses
         Int32 mod = Int32(3.0f / elapsedTime);
-        if (mod != 0 && Math::random(mod) == 0) {
+        if (mod != 0 && Math::random(mod, "bonus-spawn-timing") == 0) {
             bonusList.addRandomBonus();
         }
     }
@@ -98,7 +98,7 @@ namespace Duel6 {
             bcgNames.push_back(entry.first);
         }
 
-        Int32 bcgIndex = Math::random(Int32(bcgNames.size()));
+        Int32 bcgIndex = Math::random(Int32(bcgNames.size()), "background-selection");
         return bcgNames[bcgIndex];
     }
 }

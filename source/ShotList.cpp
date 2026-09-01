@@ -29,11 +29,14 @@
 #include "World.h"
 #include "Weapon.h"
 #include "Player.h"
+#include <stdexcept>
 
 namespace Duel6 {
     ShotList::ShotList() {}
 
     void ShotList::addShot(ShotPointer &&shot) {
+        if (!shot || nextStableId == 0) throw std::overflow_error("Shot identity space exhausted");
+        shot->setStableId(nextStableId++);
         shots.push_back(std::forward<ShotPointer>(shot));
     }
 

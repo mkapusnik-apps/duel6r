@@ -90,7 +90,7 @@ namespace Duel6 {
         }
 
         static Uint16 waterBlocks[] = {4, 16, 33};
-        return waterBlocks[Math::random(3)];
+        return waterBlocks[Math::random(3, "water-type")];
     }
 
     Int32 Level::findWaterLevel(Uint16 waterBlock) const {

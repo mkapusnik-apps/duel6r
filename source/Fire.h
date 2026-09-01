@@ -117,6 +117,8 @@ namespace Duel6 {
         void check(const Vector &explCentre, Float32 d);
 
         static void initialize();
+
+        const std::vector<Fire> &values() const noexcept { return fires; }
     };
 }
 

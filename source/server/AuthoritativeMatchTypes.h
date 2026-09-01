@@ -16,6 +16,8 @@ namespace Duel6::Server::Authoritative {
     constexpr std::size_t MaxActions = 65536;
     constexpr std::size_t MaxActionsPerTick = 64;
     constexpr std::size_t MaxResultBytes = 1024 * 1024;
+    constexpr std::size_t MaxCanonicalEntities = 100000;
+    constexpr std::size_t MaxCanonicalEvents = 4096;
     constexpr std::size_t MaxDisplayNameBytes = 64;
     constexpr Tick MaxMatchTicks = 60u * 60u * 60u * 24u;
     constexpr std::uint32_t FixedTickRate = 60;
@@ -77,10 +79,14 @@ namespace Duel6::Server::Authoritative {
         std::string fixedLevel;
         std::vector<std::string> playableLevels;
         std::vector<std::string> enabledWeapons;
+        std::string fixedStartingWeapon;
+        std::uint32_t startingAmmoMinimum = 15;
+        std::uint32_t startingAmmoMaximum = 15;
         std::uint8_t roundLimit = 1;
         bool assistance = false;
         bool quickLiquid = false;
         bool burnableTrees = true;
+        bool compactSpawnLayout = false;
         bool optionalScriptsEnabled = false;
         Identity hostParticipantId = 0;
         std::uint64_t seed = 0;
@@ -117,13 +123,63 @@ namespace Duel6::Server::Authoritative {
         Identity playerId = 0;
         bool alive = false;
         std::int32_t life = 0;
+        std::uint8_t rosterSlot = 0;
+        Team team = Team::None;
+        std::uint32_t spawnIdentity = 0;
         std::int64_t positionX = 0;
         std::int64_t positionY = 0;
+        std::int64_t velocityX = 0;
+        std::int64_t velocityY = 0;
+        std::string weapon;
+        std::int32_t ammo = 0;
+        std::int64_t reload = 0;
+        std::int64_t charge = 0;
+        std::int64_t air = 0;
+        bool underWater = false;
+        bool drowning = false;
+        bool crouching = false;
+        bool hasWeapon = false;
+        std::string timedBonus;
+        std::int64_t bonusRemaining = 0;
         PlayerStatistics statistics;
+    };
+
+    struct CanonicalEntitySnapshot {
+        std::uint64_t stableId = 0;
+        std::string kind;
+        std::string type;
+        Identity ownerPlayerId = 0;
+        std::int64_t positionX = 0;
+        std::int64_t positionY = 0;
+        std::int64_t velocityX = 0;
+        std::int64_t velocityY = 0;
+        std::int64_t primaryValue = 0;
+        std::int64_t secondaryValue = 0;
+        bool active = true;
+    };
+
+    struct CanonicalEvent {
+        Tick tick = 0;
+        std::uint64_t sequence = 0;
+        std::string kind;
+        std::uint64_t entityId = 0;
+        Identity playerId = 0;
+        Identity targetPlayerId = 0;
+        std::int64_t value = 0;
     };
 
     struct CanonicalWorldSnapshot {
         std::vector<CanonicalPlayerSnapshot> players;
+        std::vector<CanonicalEntitySnapshot> projectiles;
+        std::vector<CanonicalEntitySnapshot> pickups;
+        std::vector<CanonicalEntitySnapshot> elevators;
+        std::vector<CanonicalEntitySnapshot> hazards;
+        std::vector<CanonicalEntitySnapshot> trees;
+        std::vector<CanonicalEvent> events;
+        Tick worldTick = 0;
+        std::int32_t waterLevel = 0;
+        bool waterRaising = false;
+        bool suddenDeath = false;
         bool roundOver = false;
         bool valid = false;
         std::uint64_t stateDigest = 0;

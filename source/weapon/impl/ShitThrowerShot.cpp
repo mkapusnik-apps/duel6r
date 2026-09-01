@@ -35,7 +35,7 @@ namespace Duel6 {
     }
 
     ShitThrowerShot::ShitThrowerShot(Player &player, World &world, const LegacyWeapon &weapon, Orientation orientation,
-                                     PlayerSkin &brownSkin)
+                                     PlayerSkin *brownSkin)
             : LegacyShot(player, world, weapon, shotAnimation, boomAnimation, orientation, collistionRectangle), brownSkin(brownSkin) {
     }
 
@@ -55,7 +55,7 @@ namespace Duel6 {
     }
 
     void ShitThrowerShot::onHitPlayer(Player &player, bool directHit, const Vector &point, World &world) {
-        player.useTemporarySkin(brownSkin);
+        if (brownSkin) player.useTemporarySkin(*brownSkin);
     }
 
     SpriteList::Iterator ShitThrowerShot::makeBoomSprite(SpriteList &spriteList) {

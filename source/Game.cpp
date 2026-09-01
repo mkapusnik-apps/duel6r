@@ -30,6 +30,7 @@
 #include "Game.h"
 #include "Menu.h"
 #include "GameMode.h"
+#include <stdexcept>
 
 namespace Duel6 {
     Game::Game(AppService &appService, GameResources &resources, GameSettings &settings)
@@ -118,17 +119,18 @@ namespace Duel6 {
 
         Size playerIndex = 0;
         players.reserve(playerDefinitions.size());
+        skins.reserve(playerDefinitions.size());
         playerAnimations = std::make_unique<PlayerAnimations>(resources.getPlayerAnimation());
         for (const PlayerDefinition &playerDef : playerDefinitions) {
             console.printLine(Format("...Generating player for person: {0}") << playerDef.getPerson().getName());
             skins.push_back(PlayerSkin(playerDef.getColors(), textureManager, *playerAnimations));
             players.emplace_back(
-                    playerDef.getPerson(), skins.back(), playerDef.getSounds(), playerDef.getControls());
+                    playerDef.getPerson(), skins.back(), playerDef.getSounds(), playerDef.getControls(), playerIndex);
             playerIndex++;
         }
 
         this->levels = levels;
-        Math::shuffle(this->levels);
+        Math::shuffle(this->levels, "local-level-shuffle");
 
         this->backgrounds = backgrounds;
         this->gameMode = &gameMode;
@@ -138,27 +140,32 @@ namespace Duel6 {
 
     void Game::startHeadless(const std::vector<std::string> &playerNames,
                              const std::vector<std::string> &levels, GameMode &gameMode) {
-        initializeHeadlessPlayers(playerNames, gameMode);
+        std::vector<Size> rosterSlots(playerNames.size());
+        for (Size index = 0; index < rosterSlots.size(); ++index) rosterSlots[index] = index;
+        initializeHeadlessPlayers(playerNames, rosterSlots, gameMode);
         this->levels = levels;
-        Math::shuffle(this->levels);
+        Math::shuffle(this->levels, "headless-level-shuffle");
         startRound();
     }
 
-    void Game::initializeHeadlessPlayers(const std::vector<std::string> &playerNames, GameMode &gameMode) {
+    void Game::initializeHeadlessPlayers(const std::vector<std::string> &playerNames,
+                                         const std::vector<Size> &rosterSlots, GameMode &gameMode) {
+        if (playerNames.size() != rosterSlots.size()) throw std::invalid_argument("Headless roster mismatch");
         players.clear();
         headlessPeople.clear();
         headlessPeople.reserve(playerNames.size());
         players.reserve(playerNames.size());
         for (const auto &name: playerNames) headlessPeople.emplace_back(name, nullptr);
-        for (auto &person: headlessPeople) players.emplace_back(person);
+        for (Size index = 0; index < headlessPeople.size(); ++index)
+            players.emplace_back(headlessPeople[index], rosterSlots[index]);
         backgrounds.clear();
         this->gameMode = &gameMode;
         gameMode.initializeGame(*this, players, settings.isQuickLiquid(), settings.isGlobalAssistances());
     }
 
     void Game::startHeadlessRound(const std::vector<std::string> &playerNames, const std::string &level,
-                                  bool mirror, GameMode &gameMode) {
-        initializeHeadlessPlayers(playerNames, gameMode);
+                                  const std::vector<Size> &rosterSlots, bool mirror, GameMode &gameMode) {
+        initializeHeadlessPlayers(playerNames, rosterSlots, gameMode);
         currentRound = playedRounds;
         round = std::make_unique<Round>(*this, playedRounds, level, mirror);
         round->setOnRoundEnd([this]() { onRoundEnd(); });
@@ -174,9 +181,10 @@ namespace Duel6 {
         displayScoreTab = false;
 
         bool shuffle = settings.getLevelSelectionMode() == LevelSelectionMode::Shuffle;
-        Int32 level = shuffle ? playedRounds % Int32(levels.size()) : Math::random(Int32(levels.size()));
+        Int32 level = shuffle ? playedRounds % Int32(levels.size())
+                              : Math::random(Int32(levels.size()), "round-level");
         const std::string levelPath = levels[level];
-        bool mirror = Math::random(2) == 0;
+        bool mirror = Math::random(2, "round-orientation") == 0;
 
         log(Format("\n===Loading level {0}===") << levelPath);
         log(Format("...Parameters: mirror: {0}") << mirror);

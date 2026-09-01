@@ -49,30 +49,31 @@ namespace Duel6 {
     }
 
     void BonusList::addRandomBonus() {
-        bool weapon = (Math::random(2) == 1);
+        bool weapon = (Math::random(2, "pickup-kind") == 1);
         const ValidPositionList& validPositionList = findValidPositions(weapon);
 
         if (validPositionList.empty()) {
             return;
         }
 
-        ValidPosition position = validPositionList[Math::random(validPositionList.size())];
+        ValidPosition position = validPositionList[Math::random(validPositionList.size(), "pickup-position")];
         Int32 x = position.first, y = position.second;
 
         bool isOverLimit = (weapons.size() + bonuses.size()) >= (validPositionList.size() / 4);
 
         if (weapon) {
-            Int32 bullets = Math::random(10) + 10;
-            weapons.push_back(LyingWeapon(Weapon::getRandomEnabled(settings), bullets, Vector(x, y)));
+            Int32 bullets = Math::random(10, "pickup-ammo") + 10;
+            weapons.push_back(LyingWeapon(Weapon::getRandomEnabled(settings), bullets, Vector(x, y), nextStableId++));
             if(isOverLimit) {
                 weapons.pop_front();
             }
         } else {
-            const BonusType *type = BonusType::ALL[Math::random(BonusType::ALL.size())];
-            bool random = Math::random(RANDOM_BONUS_FREQUENCY) == 0;
-            Int32 duration = type->isOneTime() ? 0 : 13 + Math::random(17);
+            const BonusType *type = BonusType::ALL[Math::random(BonusType::ALL.size(), "bonus-type")];
+            bool random = Math::random(RANDOM_BONUS_FREQUENCY, "bonus-reroll") == 0;
+            Int32 duration = type->isOneTime() ? 0 : 13 + Math::random(17, "bonus-duration");
             bonuses.push_back(
-                    Bonus(type, duration, Vector(x + 0.2f, y + 0.2f), random ? 0 : type->getTextureIndex()));
+                    Bonus(type, duration, Vector(x + 0.2f, y + 0.2f), random ? 0 : type->getTextureIndex(),
+                          nextStableId++));
             if(isOverLimit) {
                 bonuses.pop_front();
             }
@@ -129,7 +130,8 @@ namespace Duel6 {
     }
 
     void BonusList::addPlayerGun(Player &player, const CollidingEntity &playerCollider) {
-        weapons.push_back(LyingWeapon(player.getWeapon(), player.getAmmo(), player.getReloadTime(), playerCollider));
+        weapons.push_back(LyingWeapon(player.getWeapon(), player.getAmmo(), player.getReloadTime(), playerCollider,
+                                      nextStableId++));
     }
 
     void BonusList::checkBonus(Player &player) {

@@ -173,7 +173,7 @@ namespace Duel6::Server::Authoritative {
             players.push_back(std::move(state));
         }
         shuffledLevels = config.playableLevels;
-        if (config.levelPlan == LevelPlan::ShuffleAll) random->shuffle(shuffledLevels);
+        if (config.levelPlan == LevelPlan::ShuffleAll) random->shuffle(shuffledLevels, "level-plan-shuffle");
         released = false;
         cleanupAttempted = false;
         result.reset();
@@ -218,8 +218,9 @@ namespace Duel6::Server::Authoritative {
         if (config.levelPlan == LevelPlan::Fixed) currentRoundDecision.level = config.fixedLevel;
         else if (config.levelPlan == LevelPlan::ShuffleAll)
             currentRoundDecision.level = shuffledLevels[completedRoundCount % shuffledLevels.size()];
-        else currentRoundDecision.level = config.playableLevels[random->bounded(config.playableLevels.size())];
-        currentRoundDecision.mirrored = random->bounded(2) == 0;
+        else currentRoundDecision.level = config.playableLevels[
+                random->bounded(config.playableLevels.size(), "round-level")];
+        currentRoundDecision.mirrored = random->bounded(2, "round-orientation") == 0;
         currentRoundDecision.rosterOrder.clear();
         currentRoundDecision.startingAmmo.clear();
         currentRoundDecision.startingWeaponIndices.clear();
@@ -227,7 +228,7 @@ namespace Duel6::Server::Authoritative {
         std::vector<std::uint32_t> positions;
         for (std::size_t index = 0; index < players.size(); ++index)
             if (!players[index].departed) positions.push_back(static_cast<std::uint32_t>(index));
-        random->shuffle(positions);
+        random->shuffle(positions, "round-position-order");
         std::vector<Identity> active;
         for (auto &player: players) {
             player.alive = !player.departed;
@@ -244,14 +245,17 @@ namespace Duel6::Server::Authoritative {
         currentRoundDecision.startingPositionOrder = std::move(positions);
         predatorPlayer = 0;
         if (config.mode == Mode::Predator) {
-            predatorPlayer = active[random->bounded(active.size())];
+            predatorPlayer = active[random->bounded(active.size(), "predator-selection")];
             currentRoundDecision.predatorPlayerId = predatorPlayer;
         }
         for (const auto &player: players) {
             if (player.departed) continue;
             currentRoundDecision.startingWeaponIndices.push_back(
-                    static_cast<std::uint32_t>(random->bounded(config.enabledWeapons.size())));
-            std::uint32_t ammunition = static_cast<std::uint32_t>(10 + random->bounded(10));
+                    static_cast<std::uint32_t>(random->bounded(config.enabledWeapons.size(), "starting-weapon")));
+            const std::uint64_t ammoSpan = static_cast<std::uint64_t>(config.startingAmmoMaximum)
+                                           - config.startingAmmoMinimum + 1u;
+            std::uint32_t ammunition = config.startingAmmoMinimum
+                                       + static_cast<std::uint32_t>(random->bounded(ammoSpan, "starting-ammo"));
             if (config.mode == Mode::Predator && player.definition.playerId != predatorPlayer)
                 ammunition += 10;
             currentRoundDecision.startingAmmo.push_back(ammunition);
@@ -715,5 +719,15 @@ namespace Duel6::Server::Authoritative {
     std::uint64_t AuthoritativeMatch::currentStateDigest() const noexcept { return latestStateDigest; }
     const CanonicalWorldSnapshot *AuthoritativeMatch::canonicalWorldSnapshot() const noexcept {
         return latestCanonicalSnapshot ? &*latestCanonicalSnapshot : nullptr;
+    }
+    std::uint64_t AuthoritativeMatch::randomDecisionCount() const noexcept {
+        return random ? random->decisionCount() : 0;
+    }
+    std::uint64_t AuthoritativeMatch::randomDecisionDigest() const noexcept {
+        return random ? random->decisionDigest() : 0;
+    }
+    const std::vector<DeterministicRandom::Decision> &AuthoritativeMatch::randomDecisionTrace() const noexcept {
+        static const std::vector<DeterministicRandom::Decision> empty;
+        return random ? random->decisionTrace() : empty;
     }
 }

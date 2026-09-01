@@ -53,6 +53,16 @@ namespace Duel6 {
     }
 
     void Elevator::update(Float32 elapsedTime) {
+        if (Math::isAuthoritative()) {
+            position.x = Math::quantizeAuthoritative(position.x);
+            position.y = Math::quantizeAuthoritative(position.y);
+            velocity.x = Math::quantizeAuthoritative(velocity.x);
+            velocity.y = Math::quantizeAuthoritative(velocity.y);
+            remainingWait = Math::quantizeAuthoritative(remainingWait);
+            travelled = Math::quantizeAuthoritative(travelled);
+            distance = Math::quantizeAuthoritative(distance);
+            elapsedTime = Math::quantizeAuthoritative(elapsedTime);
+        }
         if (controlPoints.size() < 2) {
             return;
         }

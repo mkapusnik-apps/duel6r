@@ -53,6 +53,6 @@ namespace Duel6 {
     }
 
     std::unique_ptr<Shot> ShitThrower::makeShot(Player &player, World &world, Orientation orientation) const {
-        return std::make_unique<ShitThrowerShot>(player, world, *this, orientation, *brownSkin);
+        return std::make_unique<ShitThrowerShot>(player, world, *this, orientation, brownSkin.get());
     }
 }

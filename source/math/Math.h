@@ -32,7 +32,9 @@
 #include <algorithm>
 #include <cstdlib>
 #include <random>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -127,22 +129,23 @@ namespace Duel6 {
             return std::min(diff, 360.0f - diff);
         }
 
-        static Int32 random(Int32 max);
+        static Int32 random(Int32 max, std::string_view purpose = {});
 
-        static Int32 random(Int32 min, Int32 max);
+        static Int32 random(Int32 min, Int32 max, std::string_view purpose = {});
 
-        static Float32 random(Float32 min, Float32 max);
+        static Float32 random(Float32 min, Float32 max, std::string_view purpose = {});
 
-        static Float64 random(Float64 min, Float64 max);
+        static Float64 random(Float64 min, Float64 max, std::string_view purpose = {});
 
         template<typename Value>
-        static void shuffle(std::vector<Value> &values) {
+        static void shuffle(std::vector<Value> &values, std::string_view purpose = {}) {
             if (!authoritativeRandom) {
                 std::shuffle(values.begin(), values.end(), randomEngine);
                 return;
             }
             for (Size remaining = values.size(); remaining > 1; --remaining) {
-                const Size selected = static_cast<Size>(authoritativeRandom->bounded(remaining));
+                if (purpose.empty()) throw std::logic_error("Authoritative random purpose is required");
+                const Size selected = static_cast<Size>(authoritativeRandom->bounded(remaining, purpose));
                 Value temporary = std::move(values[remaining - 1]);
                 values[remaining - 1] = std::move(values[selected]);
                 values[selected] = std::move(temporary);

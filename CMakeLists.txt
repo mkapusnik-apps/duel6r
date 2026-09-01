@@ -12,7 +12,7 @@ cmake_minimum_required(VERSION 3.5)
 project(Duel6r)
 
 if (WIN32)
-    add_compile_definitions(D6R_TRANSPORT_WINDOWS)
+    add_compile_definitions(D6R_TRANSPORT_WINDOWS NOMINMAX)
 endif ()
 
 include(CTest)
@@ -528,6 +528,10 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/server/AuthoritativeMatchTypes.h
         source/server/AuthoritativeMatchValidation.cpp
         source/server/AuthoritativeMatchValidation.h
+        source/server/AuthoritativeHostedMatchController.cpp
+        source/server/AuthoritativeHostedMatchController.h
+        source/server/FrozenGameplayConfig.cpp
+        source/server/FrozenGameplayConfig.h
         source/server/DeterministicRandom.cpp
         source/server/DeterministicRandom.h
         source/math/Math.cpp
@@ -574,6 +578,14 @@ add_executable(${D6R_SERVER_APP_NAME} ${D6R_SERVER_SOURCES})
 target_link_libraries(${D6R_SERVER_APP_NAME} duel6r-network-scaffold)
 if (NOT D6R_TRANSPORT_ONLY)
     target_link_libraries(${D6R_SERVER_APP_NAME} duel6r-game-engine)
+    add_custom_command(TARGET ${D6R_SERVER_APP_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    ${CMAKE_SOURCE_DIR}/resources/data
+                    $<TARGET_FILE_DIR:${D6R_SERVER_APP_NAME}>/data
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    ${CMAKE_SOURCE_DIR}/resources/levels
+                    $<TARGET_FILE_DIR:${D6R_SERVER_APP_NAME}>/levels
+            COMMENT "Copying canonical headless gameplay resources")
 endif ()
 set_target_properties(${D6R_SERVER_APP_NAME} PROPERTIES VERSION 6.0.0)
 if (MINGW)

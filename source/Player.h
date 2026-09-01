@@ -134,10 +134,12 @@ namespace Duel6 {
         CollidingEntity collider;
         bool headless;
         Float32 roundElapsedTime;
+        const Size rosterSlot;
 
     public:
-        Player(Person &person, const PlayerSkin &skin, const PlayerSounds &sounds, const PlayerControls &controls);
-        explicit Player(Person &person);
+        Player(Person &person, const PlayerSkin &skin, const PlayerSounds &sounds, const PlayerControls &controls,
+               Size rosterSlot);
+        explicit Player(Person &person, Size rosterSlot = 0);
 
         ~Player();
 
@@ -218,6 +220,10 @@ namespace Duel6 {
 
         const Person &getPerson() const {
             return person;
+        }
+
+        Size getRosterSlot() const {
+            return rosterSlot;
         }
 
         const Camera &getCamera() const {
@@ -412,6 +418,10 @@ namespace Duel6 {
         void die();
 
         const CollidingEntity &getCollider() const;
+
+        void setHeadlessPosition(Int32 x, Int32 y);
+
+        void setHeadlessLoadout(const Weapon &weapon, Int32 ammo);
 
     private:
         void makeMove(const Level &level, Float32 elapsedTime);

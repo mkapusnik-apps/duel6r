@@ -68,29 +68,25 @@ namespace Duel6 {
         world.getLevel().findStartingPositions(startingPositions);
 
         Int32 layerSpan = Int32(startingPositions.size()) / teamsCount;
-        Int32 randomizer = Math::random(teamsCount);
-        Int32 playerIndex = 0;
+        Int32 randomizer = Math::random(teamsCount, "team-spawn-rotation");
         for (Player &player : players) {
             auto &ammoRange = game.getSettings().getAmmoRange();
-            Int32 ammo = Math::random(ammoRange.first, ammoRange.second);
+            Int32 ammo = Math::random(ammoRange.first, ammoRange.second, "starting-ammo");
 
-            Int32 playerTeam = (playerIndex + randomizer) % teamsCount;
-            Int32 playerTeamIndex = Math::random(layerSpan);
+            Int32 playerTeam = (static_cast<Int32>(player.getRosterSlot()) + randomizer) % teamsCount;
+            Int32 playerTeamIndex = Math::random(layerSpan, "team-spawn-position");
             Int32 index = (layerSpan * playerTeam) + playerTeamIndex % layerSpan;
 
             Level::StartingPosition position = startingPositions[index];
             player.startRound(world, position.first, position.second, ammo, Weapon::getRandomEnabled(game.getSettings()));
-            playerIndex++;
         }
     }
 
     void TeamDeathMatch::initializeRound(Game &game, std::vector<Player> &players, World &world) {
         teamMap.clear();
-        Int32 index = 0;
         for (auto &player : players) {
-            const Team &team = getPlayerTeam(index);
+            const Team &team = getPlayerTeam(static_cast<Int32>(player.getRosterSlot()));
             teamMap.insert(std::make_pair(&player, &team));
-            index++;
         }
 
         eventListener = std::make_unique<TeamDeathMatchPlayerEventListener>(world.getMessageQueue(), game.getSettings(),
@@ -139,9 +135,8 @@ namespace Duel6 {
             ranking.entries.push_back(entry);
         }
 
-        Int32 index = 0;
         for (const auto &player : players) {
-            Int32 teamIndex = index % teamsCount;
+            Int32 teamIndex = static_cast<Int32>(player.getRosterSlot()) % teamsCount;
             Ranking::Entry &teamEntry = ranking.entries[teamIndex];
 
             teamEntry.points += player.getPerson().getTotalPoints();
@@ -159,7 +154,6 @@ namespace Duel6 {
             entry.penalties = player.getPerson().getPenalties();
             entry.assistances = player.getPerson().getAssistances();
             teamEntry.addSubEntry(entry);
-            index++;
         }
 
         std::sort(ranking.entries.begin(), ranking.entries.end(), rankingComparator);
@@ -175,13 +169,11 @@ namespace Duel6 {
             return true;
         }
         std::vector<Uint32> teamCounts(teamsCount, 0);
-        Size index = 0;
         for (auto const &player: world.getPlayers()) {
-            Size teamIndex = index % teamsCount;
+            Size teamIndex = player.getRosterSlot() % static_cast<Size>(teamsCount);
             if (player.isAlive()) {
                 teamCounts[teamIndex]++;
             }
-            index++;
         }
         for (auto count: teamCounts) {
             if (count < 2) {

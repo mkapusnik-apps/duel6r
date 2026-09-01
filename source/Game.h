@@ -115,7 +115,7 @@ namespace Duel6 {
         void startHeadless(const std::vector<std::string> &playerNames, const std::vector<std::string> &levels,
                            GameMode &gameMode);
         void startHeadlessRound(const std::vector<std::string> &playerNames, const std::string &level,
-                                bool mirror, GameMode &gameMode);
+                                 const std::vector<Size> &rosterSlots, bool mirror, GameMode &gameMode);
         void endHeadlessRound();
 
         void keyEvent(const KeyPressEvent &event) override;
@@ -218,7 +218,8 @@ namespace Duel6 {
         }
 
     private:
-        void initializeHeadlessPlayers(const std::vector<std::string> &playerNames, GameMode &gameMode);
+        void initializeHeadlessPlayers(const std::vector<std::string> &playerNames,
+                                       const std::vector<Size> &rosterSlots, GameMode &gameMode);
         void beforeStart(Context *prevContext) override;
 
         void beforeClose(Context *nextContext) override;

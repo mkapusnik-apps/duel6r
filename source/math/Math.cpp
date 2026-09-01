@@ -43,23 +43,25 @@ namespace Duel6 {
         authoritativeRandom = previous;
     }
 
-    Int32 Math::random(Int32 max) {
-        return random(0, max - 1);
+    Int32 Math::random(Int32 max, std::string_view purpose) {
+        return random(0, max - 1, purpose);
     }
 
-    Int32 Math::random(Int32 min, Int32 max) {
+    Int32 Math::random(Int32 min, Int32 max, std::string_view purpose) {
         if (authoritativeRandom) {
+            if (purpose.empty()) throw std::logic_error("Authoritative random purpose is required");
             const std::uint64_t span = static_cast<std::uint64_t>(static_cast<Int64>(max) - min) + 1u;
             return static_cast<Int32>(static_cast<Int64>(min)
-                                      + static_cast<Int64>(authoritativeRandom->bounded(span)));
+                                      + static_cast<Int64>(authoritativeRandom->bounded(span, purpose)));
         }
         std::uniform_int_distribution<> uniformDistribution(min, max);
         return uniformDistribution(randomEngine);
     }
 
-    Float32 Math::random(Float32 min, Float32 max) {
+    Float32 Math::random(Float32 min, Float32 max, std::string_view purpose) {
         if (authoritativeRandom) {
-            const Float32 unit = static_cast<Float32>(authoritativeRandom->next() >> 40u)
+            if (purpose.empty()) throw std::logic_error("Authoritative random purpose is required");
+            const Float32 unit = static_cast<Float32>(authoritativeRandom->next(purpose) >> 40u)
                                  / static_cast<Float32>(UINT32_C(1) << 24u);
             return min + (max - min) * unit;
         }
@@ -67,9 +69,10 @@ namespace Duel6 {
         return uniformDistribution(randomEngine);
     }
 
-    Float64 Math::random(Float64 min, Float64 max) {
+    Float64 Math::random(Float64 min, Float64 max, std::string_view purpose) {
         if (authoritativeRandom) {
-            const Float64 unit = static_cast<Float64>(authoritativeRandom->next() >> 11u)
+            if (purpose.empty()) throw std::logic_error("Authoritative random purpose is required");
+            const Float64 unit = static_cast<Float64>(authoritativeRandom->next(purpose) >> 11u)
                                  / static_cast<Float64>(UINT64_C(1) << 53u);
             return min + (max - min) * unit;
         }
