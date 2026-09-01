@@ -80,9 +80,9 @@ namespace Duel6 {
         LevelList levelList;
         PersonList persons;
         Gui::ListBox *personListBox;
+        std::vector<std::string> personListNames;
         Gui::ListBox *playerListBox;
         Gui::ListBox *scoreListBox;
-        Gui::ListBox *eloListBox;
         Gui::Spinner *controlSwitch[D6_MAX_PLAYERS];
         Gui::Textbox *textbox;
         Gui::Textbox *roundsTextbox;
@@ -219,6 +219,8 @@ namespace Duel6 {
 
         void removePlayer(Int32 c);
 
+        bool isPlayer(const std::string &name) const;
+
         void updatePlayerCount();
 
         void updateRoundsTextbox();
@@ -226,6 +228,8 @@ namespace Duel6 {
         void applyRoundsTextbox();
 
         void rebuildTable();
+
+        void rebuildPersonList();
 
         bool question(const std::string &question);
 

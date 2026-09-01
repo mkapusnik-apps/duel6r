@@ -184,22 +184,16 @@ namespace Duel6 {
             return;
         }
 
-        personListBox->clear();
         playerListBox->clear();
 
         Json::Parser parser;
         Json::Value json = parser.parse(filePath);
         persons.fromJson(json.get("persons"), personProfiles);
 
-        for (const Person &person : persons.list()) {
-            personListBox->addItem(person.getName());
-        }
-
         Json::Value playing = json.get("playing");
         for (Size i = 0; i < playing.getLength(); i++) {
             std::string name = playing.get(i).asString();
             playerListBox->addItem(name);
-            personListBox->removeItem(name);
         }
 
         updatePlayerCount();
@@ -229,12 +223,8 @@ namespace Duel6 {
                        D6_MENU_WIDTH, D6_MENU_HEIGHT,
                        menuTranslationX, menuTranslationY, menuScale);
 
-        auto eloPanel = new Gui::Panel(gui);
-        eloPanel->setPosition(10, 578, 185, 326);
-        eloPanel->setCaption("ELO SCOREBOARD");
-
         auto personsPanel = new Gui::Panel(gui);
-        personsPanel->setPosition(200, 578, 185, 326);
+        personsPanel->setPosition(10, 578, 375, 326);
         personsPanel->setCaption("PERSONS");
 
         playersPanel = new Gui::Panel(gui);
@@ -247,8 +237,13 @@ namespace Duel6 {
         scoreListBox = new Gui::ListBox(gui, true);
         scoreListBox->setPosition(10, 222, 101, 8, 16);
 
+        auto personListLabel = new Gui::Label(gui);
+        personListLabel->setPosition(14, 553, 352, 18);
+        personListLabel->setCaption(Format("{0,-4}{1,-25}{2,6}{3,7}")
+                                    << "Rank" << "Name" << "Elo" << "Trend");
+
         personListBox = new Gui::ListBox(gui, true);
-        personListBox->setPosition(204, 553, 20, 12, 18);
+        personListBox->setPosition(14, 535, 44, 11, 18);
         personListBox->onDoubleClick([this](Int32 index, const std::string &item) {
             addPlayer(index);
         });
@@ -259,35 +254,31 @@ namespace Duel6 {
             removePlayer(index);
         });
 
-        eloListBox = new Gui::ListBox(gui, true);
-        eloListBox->setPosition(14, 553, 20, 15, 18);
-
         loadPersonProfiles(D6_FILE_PROFILES);
 
         auto addPlayerButton = new Gui::Button(gui);
-        addPlayerButton->setPosition(294, 301, 35, 25);
+        addPlayerButton->setPosition(104, 301, 35, 25);
         addPlayerButton->setCaption(">>");
         addPlayerButton->onClick([this](Gui::Button &) {
             addPlayer(personListBox->selectedIndex());
         });
 
         auto removePlayerButton = new Gui::Button(gui);
-        removePlayerButton->setPosition(257, 301, 35, 25);
+        removePlayerButton->setPosition(67, 301, 35, 25);
         removePlayerButton->setCaption("<<");
         removePlayerButton->onClick([this](Gui::Button &) {
             removePlayer(playerListBox->selectedIndex());
         });
 
         auto removePersonButton = new Gui::Button(gui);
-        removePersonButton->setPosition(204, 301, 51, 25);
+        removePersonButton->setPosition(14, 301, 51, 25);
         removePersonButton->setCaption("Remove");
         removePersonButton->onClick([this](Gui::Button &) {
             deletePerson();
-            rebuildTable();
         });
 
         auto addPersonButton = new Gui::Button(gui);
-        addPersonButton->setPosition(331, 301, 50, 25);
+        addPersonButton->setPosition(141, 301, 50, 25);
         addPersonButton->setCaption("Add");
         addPersonButton->onClick([this](Gui::Button &) {
             addPerson();
@@ -338,7 +329,7 @@ namespace Duel6 {
         });
 
         textbox = new Gui::Textbox(gui);
-        textbox->setPosition(204, 326, 20, 10, D6_ALL_CHR);
+        textbox->setPosition(14, 326, 44, 10, D6_ALL_CHR);
 
         // Player controls
         for (Size i = 0; i < D6_MAX_PLAYERS; i++) {
@@ -696,6 +687,7 @@ namespace Duel6 {
     }
 
     void Menu::rebuildTable() {
+        rebuildPersonList();
         scoreListBox->clear();
         if (persons.isEmpty())
             return;
@@ -731,6 +723,14 @@ namespace Duel6 {
                             << person->getTotalDamage();
             scoreListBox->addItem(personStat);
         }
+    }
+
+    void Menu::rebuildPersonList() {
+        std::string selectedName;
+        Int32 selectedIndex = personListBox->selectedIndex();
+        if (selectedIndex >= 0 && Size(selectedIndex) < personListNames.size()) {
+            selectedName = personListNames[selectedIndex];
+        }
 
         std::vector<const Person *> eloRanking;
         for (const Person &person : persons.list()) {
@@ -738,18 +738,42 @@ namespace Duel6 {
                 eloRanking.push_back(&person);
             }
         }
-        std::sort(eloRanking.begin(), eloRanking.end(), [](const Person *left, const Person *right) {
+        std::stable_sort(eloRanking.begin(), eloRanking.end(), [](const Person *left, const Person *right) {
             return left->getElo() > right->getElo();
         });
 
-        eloListBox->clear();
+        personListBox->clear();
+        personListNames.clear();
+
+        auto addPersonRow = [this](const Person &person, const std::string &rank,
+                                   const std::string &elo, const std::string &trend) {
+            std::string clippedName = person.getName().substr(0, 25);
+            personListBox->addItem(Format("{0,-4}{1,-25}{2,6}{3,7}")
+                                   << rank << clippedName << elo << trend);
+            personListNames.push_back(person.getName());
+        };
+
         Int32 index = 1;
-        for (auto person : eloRanking) {
+        for (const Person *person : eloRanking) {
             auto trend = person->getEloTrend();
-            auto sign = trend > 0 ? "+" : "-";
-            std::string trendStr = trend == 0 ? std::string() : Format("{0}{1}") << sign << std::abs(trend);
-            eloListBox->addItem(Format("{0,2|0}{1,-10}{2,4}{3,4}") << index << person->getName() << person->getElo() << trendStr);
+            std::string trendStr = trend > 0 ? "+" + std::to_string(trend) : std::to_string(trend);
+            addPersonRow(*person, Format("{0,2|0}") << index,
+                         Format("{0}") << person->getElo(), trendStr);
             index++;
+        }
+
+        for (const Person &person : persons.list()) {
+            if (person.getEloGames() == 0) {
+                addPersonRow(person, "", "", "");
+            }
+        }
+
+        if (!selectedName.empty()) {
+            auto selected = std::find(personListNames.begin(), personListNames.end(), selectedName);
+            if (selected != personListNames.end()) {
+                Int32 refreshedIndex = Int32(selected - personListNames.begin());
+                personListBox->selectItem(refreshedIndex).scrollToView(refreshedIndex);
+            }
         }
     }
 
@@ -954,18 +978,19 @@ namespace Duel6 {
     }
 
     void Menu::addPlayer(Int32 index) {
-        if (index != -1 && playerListBox->size() < D6_MAX_PLAYERS) {
-            const std::string &name = personListBox->getItem(index);
+        if (index >= 0 && Size(index) < personListNames.size() && playerListBox->size() < D6_MAX_PLAYERS) {
+            const std::string &name = personListNames[index];
+            if (isPlayer(name)) {
+                return;
+            }
             playerListBox->addItem(name);
-            personListBox->removeItem(index);
         }
         updatePlayerCount();
+        rebuildPersonList();
     }
 
     void Menu::removePlayer(Int32 index) {
         if (index != -1) {
-            const std::string &playerName = playerListBox->getItem(index);
-            personListBox->addItem(playerName);
             playerListBox->removeItem(index);
 
             for (Int32 i = index; i + 1 < D6_MAX_PLAYERS; i++) {
@@ -973,6 +998,16 @@ namespace Duel6 {
             }
         }
         updatePlayerCount();
+        rebuildPersonList();
+    }
+
+    bool Menu::isPlayer(const std::string &name) const {
+        for (Size i = 0; i < playerListBox->size(); i++) {
+            if (playerListBox->getItem(i) == name) {
+                return true;
+            }
+        }
+        return false;
     }
 
     void Menu::updatePlayerCount() {
@@ -1004,7 +1039,6 @@ namespace Duel6 {
 
         if (!personName.empty() && !persons.contains(personName)) {
             persons.add(Person(personName, nullptr));
-            personListBox->addItem(personName);
             rebuildTable();
             textbox->flush();
         }
@@ -1012,13 +1046,16 @@ namespace Duel6 {
 
     void Menu::deletePerson() {
         Int32 index = personListBox->selectedIndex();
-        if (index != -1) {
+        if (index >= 0 && Size(index) < personListNames.size()) {
+            const std::string personName = personListNames[index];
+            if (isPlayer(personName)) {
+                return;
+            }
             if (!deleteQuestion())
                 return;
 
-            const std::string &playerName = personListBox->selectedItem();
-            persons.remove(playerName);
-            personListBox->removeItem(playerName);
+            persons.remove(personName);
+            rebuildTable();
         }
     }
 
