@@ -33,6 +33,10 @@ The 2026-08-31 consolidated Teams update gives `MENU-01` two conditional-layout 
 The non-Team wireframe hides the Team settings and uses standard roster rows.
 The Teams wireframe shows both Team settings and uses the selected team-count colors.
 The update does not add a full-screen state or a new screen identifier.
+The approved 2026-09-01 Team score-overview update affects the Team variants of `OVER-01` and non-final `OVER-02`.
+The update adds an 8 px separator band with a centered 2 px rule between adjacent team groups.
+The update does not change non-Team score overviews or `OVER-03`.
+The update does not add a screen or a wireframe.
 
 | Screen ID | Screen or state | Specification | Wireframe | Functional requirements | Primary source |
 |---|---|---|---|---|---|

@@ -158,30 +158,72 @@ def score_geometry(players, teams):
     if teams:
         longest = max(longest, len(("Alpha", "Bravo", "Charlie", "Delta")[teams - 1]))
     width = (longest + 6 + 20) * 16
-    height = 96 + 32 * rows
-    return WIDTH // 2 - width // 2, width, rows, 530 - height // 2
+    separator_height = 8 if teams else 0
+    height = 96 + 32 * rows + separator_height * max(0, teams - 1)
+    first_y = 530 - height // 2
+    if not teams:
+        centers = [first_y + 32 * index for index in range(rows)]
+        return WIDTH // 2 - width // 2, width, centers, []
+
+    return WIDTH // 2 - width // 2, width, first_y, height
+
+
+def assert_team_separators(data, label, left, width, separators):
+    def rule_fraction(y):
+        values = region_pixels(data, left, y, left + width, y + 1)
+        return fraction(values, lambda rgb: min(rgb) >= 165 and max(rgb) - min(rgb) <= 85)
+
+    for index, top in enumerate(separators, 1):
+        rule = min(rule_fraction(top), rule_fraction(top + 1))
+        clear_above = max(rule_fraction(y) for y in range(top - 3, top))
+        clear_below = max(rule_fraction(y) for y in range(top + 2, top + 5))
+        if rule < 0.85:
+            fail(f"{label}: team separator {index} does not span the table: coverage={rule:.3f}")
+        if clear_above >= 0.85 or clear_below >= 0.85:
+            fail(
+                f"{label}: team separator {index} is not a centered 2px rule in an 8px band: "
+                f"above={clear_above:.3f} below={clear_below:.3f}"
+            )
 
 
 def assert_score_overlay(data, label, players, teams):
-    left, width, rows, first_y = score_geometry(players, teams)
+    geometry = score_geometry(players, teams)
+    left, width = geometry[:2]
+    rows = players + teams
     groups = []
-    for index in range(rows):
-        center_y = first_y + 32 * index
-        values = region_pixels(data, left + 2, center_y - 9,
-                               left + width - 2, center_y + 9)
-        if not teams:
+    if not teams:
+        centers = geometry[2]
+        for index, center_y in enumerate(centers):
+            values = region_pixels(data, left + 2, center_y - 9,
+                                   left + width - 2, center_y + 9)
             coverage = blue_overlay_fraction(values)
             if coverage < 0.25:
                 fail(f"{label}: score row {index + 1}/{rows} missing: blue={coverage:.3f}")
-        else:
+        header_y = centers[0] - 64
+    else:
+        first_y, height = geometry[2:]
+        # Ranking order can change when team point totals tie, and a 15-player
+        # roster does not divide evenly among four teams. Locate the rendered
+        # parent-row bands rather than assuming either team order or group size.
+        parent_rows = []
+        for y in range(first_y - 16, first_y + height - 80):
+            values = region_pixels(data, left + 2, y, left + width - 2, y + 1)
             parent_fractions = parent_team_fractions(values)
             color = max(parent_fractions, key=parent_fractions.get)
             if parent_fractions[color] >= 0.25:
-                groups.append(color)
-    if teams and (len(groups) != teams or len(set(groups)) != teams):
-        fail(f"{label}: expected {teams} score group headers, got {groups}")
+                if not parent_rows or y != parent_rows[-1][1]:
+                    parent_rows.append([y, y + 1, color])
+                else:
+                    parent_rows[-1][1] = y + 1
+        groups = [band[2] for band in parent_rows]
+        if len(groups) != teams or len(set(groups)) != teams:
+            fail(f"{label}: expected {teams} score group headers, got {groups}")
+        separators = [parent_rows[index][0] - 5 for index in range(1, len(parent_rows))]
+        if len(separators) != teams - 1:
+            fail(f"{label}: expected {teams - 1} separator positions, got {separators}")
+        assert_team_separators(data, label, left, width, separators)
+        header_y = (parent_rows[0][0] + parent_rows[0][1]) // 2 - 64
 
-    header_y = first_y - 64
     header = region_median(data, WIDTH // 2 - 80, header_y - 8,
                            WIDTH // 2 + 80, header_y + 8)
     if blue_strength(header) < 80:

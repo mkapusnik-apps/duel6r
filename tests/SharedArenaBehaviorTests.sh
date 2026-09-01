@@ -35,7 +35,12 @@ export LIBGL_ALWAYS_SOFTWARE=1
 
 xvfb_pid=""
 app_pid=""
+tab_held=false
 cleanup() {
+    if [[ "$tab_held" == true ]]; then
+        xdotool keyup Tab >/dev/null 2>&1 || true
+        tab_held=false
+    fi
     if [[ -n "$app_pid" ]] && kill -0 "$app_pid" >/dev/null 2>&1; then
         kill "$app_pid" >/dev/null 2>&1 || true
         wait "$app_pid" >/dev/null 2>&1 || true
@@ -413,12 +418,19 @@ PY
     import -window root "${scenario_dir}/ranking-toggled.png"
     python3 "$image_assertions" "${scenario_dir}/after-console-command.png" "$label-live-ranking" \
         "$player_count" "$team_count" --without-ranking "${scenario_dir}/ranking-toggled.png"
-    xdotool key --window "$window_id" Tab
+    # The score overview is hold-to-display. Keep Tab down until the rendered
+    # frame has passed its behavioral assertions instead of racing a tap's
+    # keydown and keyup through the SDL event loop.
+    xdotool keydown --window "$window_id" Tab
+    tab_held=true
     score_assertion=""
     score_ready=false
     for _ in {1..30}; do
         sleep 0.1
         import -window root "${scenario_dir}/score-tab.png"
+        if [[ ! -f "${scenario_dir}/score-tab-first.png" ]]; then
+            cp "${scenario_dir}/score-tab.png" "${scenario_dir}/score-tab-first.png"
+        fi
         if score_assertion="$(python3 "$image_assertions" "${scenario_dir}/score-tab.png" \
                 "$label-score-tab" "$player_count" "$team_count" --score 2>&1)"; then
             score_ready=true
@@ -427,6 +439,8 @@ PY
         fi
     done
     [[ "$score_ready" == true ]] || fail "$score_assertion"
+    xdotool keyup --window "$window_id" Tab
+    tab_held=false
     local ranking_delta score_delta
     ranking_delta="$(image_distance "${scenario_dir}/after-console-command.png" "${scenario_dir}/ranking-toggled.png")"
     score_delta="$(image_distance "${scenario_dir}/ranking-toggled.png" "${scenario_dir}/score-tab.png")"
