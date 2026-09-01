@@ -27,17 +27,23 @@
 
 #include <algorithm>
 #include <queue>
+#ifndef D6R_HEADLESS_CORE
 #include "Sound.h"
 #include "TextureManager.h"
+#endif
 #include "InfoMessageQueue.h"
 #include "World.h"
 #include "Player.h"
 #include "BonusList.h"
 #include "Weapon.h"
 #include "ElevatorList.h"
+#ifndef D6R_HEADLESS_CORE
 #include "Explosion.h"
+#endif
 #include "math/Math.h"
+#ifndef D6R_HEADLESS_CORE
 #include "Video.h"
+#endif
 #include "PlayerEventListener.h"
 
 namespace Duel6 {
@@ -49,6 +55,7 @@ namespace Duel6 {
     // Very important fun aspect!
     static const float SHOT_FORCE_FACTOR = 0.05f;
 
+#ifndef D6R_HEADLESS_CORE
     Player::Player(Person &person, const PlayerSkin &skin, const PlayerSounds &sounds, const PlayerControls &controls,
                    Size rosterSlot)
             : person(person),
@@ -59,12 +66,17 @@ namespace Duel6 {
               orientation(Orientation::Left), headless(false), roundElapsedTime(0), rosterSlot(rosterSlot) {
         camera.rotate(180.0, 0.0, 0.0);
     }
+#endif
 
     Player::Player(Person &person, Size rosterSlot)
+#ifdef D6R_HEADLESS_CORE
+            : person(person), orientation(Orientation::Left), headless(true), roundElapsedTime(0), rosterSlot(rosterSlot) {}
+#else
             : person(person), skin(nullptr), animations(nullptr), sounds(nullptr), controls(nullptr),
               orientation(Orientation::Left), headless(true), roundElapsedTime(0), rosterSlot(rosterSlot) {
         camera.rotate(180.0, 0.0, 0.0);
     }
+#endif
 
     Player::~Player() {
     }
@@ -73,13 +85,17 @@ namespace Duel6 {
         this->world = &world;
         collider.initPosition(Float32(startBlockX), Float32(startBlockY) + 0.0001f);
 
+#ifndef D6R_HEADLESS_CORE
         if (!headless) {
             sprite = world.getSpriteList().add(animations->getStand().get(), skin->getTexture());
             sprite->setPosition(getSpritePosition(), 0.5f);
         }
+#endif
 
         this->weapon = weapon;
+#ifndef D6R_HEADLESS_CORE
         if (!headless) gunSprite = weapon.makeSprite(world.getSpriteList());
+#endif
 
         flags = FlagHasGun;
         orientation = Math::random(2, "player-orientation") == 0 ? Orientation::Left : Orientation::Right;
@@ -98,10 +114,12 @@ namespace Duel6 {
         water.headUnderWater = Water::NONE;
         water.feetInWater = Water::NONE;
 
+#ifndef D6R_HEADLESS_CORE
         indicators.hideAll(false);
         indicators.getName().show(4.0f);
         indicators.getBonus().show(bonusDuration);
         indicators.getBullets().show(4.0f);
+#endif
 
         roundStartTime = headless ? 0 : clock();
         roundElapsedTime = 0;
@@ -117,9 +135,11 @@ namespace Duel6 {
         }
     }
 
+#ifndef D6R_HEADLESS_CORE
     void Player::setView(const PlayerView &view) {
         this->view = view;
     }
+#endif
 
     bool Player::isOnGround() const {
         return collider.isOnGround();
@@ -198,7 +218,9 @@ namespace Duel6 {
             return;
 
 
+#ifndef D6R_HEADLESS_CORE
         indicators.getReload().show(timeToReload + Indicator::FADE_DURATION);
+#endif
 
         if (isReloading())
             return;
@@ -210,10 +232,14 @@ namespace Duel6 {
         }
 
         if (getBonus() != BonusType::INFINITE_AMMO) {
+#ifndef D6R_HEADLESS_CORE
             indicators.getBullets().show();
+#endif
             ammo--;
         }
+#ifndef D6R_HEADLESS_CORE
         if (!headless) gunSprite->setFrame(0);
+#endif
         getPerson().addShots(1);
         Orientation originalOrientation = getOrientation();
 
@@ -247,6 +273,7 @@ namespace Duel6 {
         } else {
             timeToReload = remainingReloadTime;
         }
+#ifndef D6R_HEADLESS_CORE
         indicators.getReload().show(timeToReload + Indicator::FADE_DURATION);
         indicators.getBullets().show();
 
@@ -254,6 +281,7 @@ namespace Duel6 {
             world->getSpriteList().remove(gunSprite);
             gunSprite = weapon.makeSprite(world->getSpriteList());
         }
+#endif
 
         return *this;
     }
@@ -266,7 +294,11 @@ namespace Duel6 {
         collider.collideWithElevators(world->getElevatorList(), elapsedTime, speed);
         collider.collideWithLevel(level, elapsedTime, speed);
 
-        if (isPickingGun() && (headless || sprite->isFinished())) {
+        if (isPickingGun()
+#ifndef D6R_HEADLESS_CORE
+                && (headless || sprite->isFinished())
+#endif
+        ) {
             unsetFlag(FlagPick);
             setFlag(FlagHasGun);
         }
@@ -333,7 +365,9 @@ namespace Duel6 {
         }
 
         if (controllerState & ButtonStatus) {
+#ifndef D6R_HEADLESS_CORE
             indicators.showAll(5.0f);
+#endif
         }
 
         if (isPickingGun()) {
@@ -390,6 +424,9 @@ namespace Duel6 {
     }
 
     void Player::updateControllerStatus() {
+#ifdef D6R_HEADLESS_CORE
+        return;
+#else
         if (headless) return;
         controllerState = 0;
         if (controls->getLeft().isPressed()) {
@@ -413,6 +450,7 @@ namespace Duel6 {
         if (controls->getStatus().isPressed()) {
             controllerState |= ButtonStatus;
         }
+#endif
     }
 
     void Player::update(World &world, Float32 elapsedTime) {
@@ -445,7 +483,9 @@ namespace Duel6 {
         }
 
         // Move intervals
+#ifndef D6R_HEADLESS_CORE
         indicators.updateAll(elapsedTime);
+#endif
         if (isReloading()) {
             if (!weapon.isChargeable() || hasFlag(FlagShoot) || getChargeLevel() < 0.5) {
                 timeToReload = std::max(0.0f, getReloadTime() - elapsedTime);
@@ -485,6 +525,9 @@ namespace Duel6 {
     }
 
     void Player::setAnm() {
+#ifdef D6R_HEADLESS_CORE
+        return;
+#else
         if (headless) return;
         Animation animation;
         sprite->setSpeed(1.0f);
@@ -555,8 +598,10 @@ namespace Duel6 {
                 .setOrientation(getOrientation())
                 .setDraw(hasGun() && isAlive() && !isPickingGun())
                 .setAlpha(alpha);
+#endif
     }
 
+#ifndef D6R_HEADLESS_CORE
     void Player::prepareCam(const Video &video, Int32 levelSizeX, Int32 levelSizeY) {
         Float32 fovX, fovY, mZ, dX = 0.0, dY = 0.0;
         fovY = Math::degTan(video.getView().getFieldOfView() / 2.0f);
@@ -582,6 +627,7 @@ namespace Duel6 {
 
         camera.setPosition(position);
     }
+#endif
 
     bool
     Player::hitByShot(Float32 amount, Shot &shot, bool directHit, const Vector &hitPoint, const Vector &shotVector) {
@@ -607,7 +653,9 @@ namespace Duel6 {
         timeSinceHit = 0;
 
         if (directHit) {
+#ifndef D6R_HEADLESS_CORE
             playSound(PlayerSounds::Type::GotHit);
+#endif
             shootingPerson.addHits(1);
             if (shootingPlayer.getBonus() == BonusType::VAMPIRE_SHOTS) {
                 shootingPlayer.addLife(amount);
@@ -660,15 +708,19 @@ namespace Duel6 {
         }
 
         if (air != oldAir) {
+#ifndef D6R_HEADLESS_CORE
             if (air == D6_MAX_AIR) {
                 indicators.getAir().hide();
             } else {
                 indicators.getAir().show();
             }
+#endif
         }
 
         if (outOfAir && hit(amount)) {
+#ifndef D6R_HEADLESS_CORE
             playSound(PlayerSounds::Type::Drowned);
+#endif
             return true;
         }
 
@@ -681,16 +733,23 @@ namespace Duel6 {
         }
         world->getBonusList().addPlayerGun(*this, collider);
         unsetFlag(FlagHasGun);
+#ifndef D6R_HEADLESS_CORE
         indicators.getReload().hide();
         indicators.getBullets().hide();
+#endif
     }
 
     Player &Player::addLife(Float32 change, bool showHpBar) {
         Float32 oldLife = life;
         life = std::max(0.0f, std::min(Float32(D6_MAX_LIFE), life + change));
+#ifndef D6R_HEADLESS_CORE
         if (showHpBar && oldLife != life) {
             indicators.getHealth().show();
         }
+#else
+        (void) oldLife;
+        (void) showHpBar;
+#endif
         return *this;
     }
 
@@ -718,36 +777,52 @@ namespace Duel6 {
         }
     }
 
+#ifndef D6R_HEADLESS_CORE
     void Player::useTemporarySkin(PlayerSkin &tempSkin) {
-        tempSkinDuration = Float32(10 + Math::random(5, "temporary-skin-duration"));
+        applyTemporarySkinEffect();
         if (!headless) sprite->setTexture(tempSkin.getTexture());
+    }
+#endif
+
+    void Player::applyTemporarySkinEffect() {
+        tempSkinDuration = Float32(10 + Math::random(5, "temporary-skin-duration"));
     }
 
     void Player::switchToOriginalSkin() {
         tempSkinDuration = 0;
+#ifndef D6R_HEADLESS_CORE
         if (!headless) sprite->setTexture(skin->getTexture());
+#endif
     }
 
     void Player::processShot(Shot &shot, std::vector<Player *> &playersHit, std::vector<Player *> &playersKilled) {
         bool suicide = (std::find(playersKilled.begin(), playersKilled.end(), this) != playersKilled.end());
 
         if (suicide) {
+#ifndef D6R_HEADLESS_CORE
             playSound(PlayerSounds::Type::Suicide);
+#endif
             eventListener->onSuicide(*this, playersKilled);
         } else if (!playersKilled.empty()) {
+#ifndef D6R_HEADLESS_CORE
             playSound(PlayerSounds::Type::KilledOther);
+#endif
         }
 
         for (Player *player : playersKilled) {
             if (!player->is(*this)) {
+#ifndef D6R_HEADLESS_CORE
                 player->playSound(PlayerSounds::Type::WasKilled);
+#endif
                 player->eventListener->onKillByPlayer(*player, *this, shot, suicide);
             }
         }
 
         bool hittedSelf = (std::find(playersHit.begin(), playersHit.end(), this) != playersHit.end());
         if (!hittedSelf && !playersHit.empty()) {
+#ifndef D6R_HEADLESS_CORE
             playSound(PlayerSounds::Type::HitOther);
+#endif
         }
     }
 
@@ -776,17 +851,21 @@ namespace Duel6 {
         if (bonus != BonusType::NONE) {
             bonus->onApply(*this, *world, Int32(bonusDuration));
         }
+#ifndef D6R_HEADLESS_CORE
         indicators.getBonus().show(bonusDuration);
+#endif
         return *this;
     }
 
     void Player::die() {
         setFlag((headless ? FlagDead : FlagDying) | FlagLying);
         unsetFlag(FlagMoveUp | FlagMoveDown | FlagMoveLeft | FlagMoveRight | FlagKnee | FlagPick);
+#ifndef D6R_HEADLESS_CORE
         if (!headless) {
             sprite->setPosition(getSpritePosition()).setLooping(AnimationLooping::OnceAndStop);
             gunSprite->setDraw(false);
         }
+#endif
 
         Int32 timeAlive = headless ? Int32(roundElapsedTime)
                                    : Int32((clock() - roundStartTime) / CLOCKS_PER_SEC);

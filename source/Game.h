@@ -34,12 +34,18 @@
 #include <string>
 #include <algorithm>
 #include "Type.h"
+#ifndef D6R_HEADLESS_CORE
 #include "Context.h"
+#endif
 #include "World.h"
 #include "Player.h"
+#ifndef D6R_HEADLESS_CORE
 #include "WorldRenderer.h"
+#endif
 #include "Water.h"
+#ifndef D6R_HEADLESS_CORE
 #include "AppService.h"
+#endif
 #include "GameSettings.h"
 #include "GameResources.h"
 #include "Round.h"
@@ -49,7 +55,12 @@ namespace Duel6 {
 
     class Menu;
 
-    class Game : public Context {
+    class Game
+#ifndef D6R_HEADLESS_CORE
+            : public Context
+#endif
+    {
+#ifndef D6R_HEADLESS_CORE
     public:
         class PlayerDefinition {
         private:
@@ -83,41 +94,52 @@ namespace Duel6 {
                 return controls;
             }
         };
+#endif
 
     private:
+#ifndef D6R_HEADLESS_CORE
         AppService *appService;
+#endif
         GameResources &resources;
         GameSettings &settings;
         GameMode *gameMode;
         std::unique_ptr<Round> round;
+        bool headless;
+#ifndef D6R_HEADLESS_CORE
         std::unique_ptr<WorldRenderer> worldRenderer;
         const Menu *menu;
-        bool headless;
-
         std::vector<std::string> levels;
         std::vector<Size> backgrounds;
+#endif
 
         Int32 currentRound;
         Int32 playedRounds;
 
         std::vector<Person> headlessPeople;
         std::vector<Player> players;
+#ifndef D6R_HEADLESS_CORE
         std::vector<PlayerSkin> skins;
         std::unique_ptr<PlayerAnimations> playerAnimations;
         bool displayScoreTab = false;
+#endif
 
     public:
+#ifndef D6R_HEADLESS_CORE
         Game(AppService &appService, GameResources &resources, GameSettings &settings);
+#endif
         Game(GameResources &resources, GameSettings &settings);
 
+#ifndef D6R_HEADLESS_CORE
         void start(const std::vector<PlayerDefinition> &playerDefinitions, const std::vector<std::string> &levels,
                    const std::vector<Size> &backgrounds, GameMode &gameMode);
         void startHeadless(const std::vector<std::string> &playerNames, const std::vector<std::string> &levels,
                            GameMode &gameMode);
+#endif
         void startHeadlessRound(const std::vector<std::string> &playerNames, const std::string &level,
                                  const std::vector<Size> &rosterSlots, bool mirror, GameMode &gameMode);
         void endHeadlessRound();
 
+#ifndef D6R_HEADLESS_CORE
         void keyEvent(const KeyPressEvent &event) override;
 
         void textInputEvent(const TextInputEvent &event) override;
@@ -135,17 +157,24 @@ namespace Duel6 {
         void update(Float32 elapsedTime) override;
 
         void render() const override;
+#else
+        void update(Float32 elapsedTime);
+#endif
 
+#ifndef D6R_HEADLESS_CORE
         AppService &getAppService() const {
             return *appService;
         }
+#endif
 
         bool isHeadless() const { return headless; }
         void log(const std::string &message) const;
 
+#ifndef D6R_HEADLESS_CORE
         const std::vector<Size> &getBackgrounds() const {
             return backgrounds;
         }
+#endif
 
         std::vector<Player> &getPlayers() {
             return players;
@@ -193,6 +222,7 @@ namespace Duel6 {
             return getRound().isLast() && getRound().isOver();
         }
 
+#ifndef D6R_HEADLESS_CORE
         bool isDisplayingScoreTab() const {
             return displayScoreTab;
         }
@@ -204,6 +234,7 @@ namespace Duel6 {
         const WorldRenderer &getWorldRenderer() const {
             return *worldRenderer;
         }
+#endif
 
         GameMode &getMode() {
             return *gameMode;
@@ -213,13 +244,16 @@ namespace Duel6 {
             return *gameMode;
         }
 
+#ifndef D6R_HEADLESS_CORE
         void setMenuReference(const Menu &menu) {
             this->menu = &menu;
         }
+#endif
 
     private:
         void initializeHeadlessPlayers(const std::vector<std::string> &playerNames,
                                        const std::vector<Size> &rosterSlots, GameMode &gameMode);
+#ifndef D6R_HEADLESS_CORE
         void beforeStart(Context *prevContext) override;
 
         void beforeClose(Context *nextContext) override;
@@ -227,6 +261,7 @@ namespace Duel6 {
         void startRound();
 
         void nextRound();
+#endif
 
         void endRound();
 

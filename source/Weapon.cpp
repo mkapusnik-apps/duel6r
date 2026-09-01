@@ -126,6 +126,7 @@ namespace Duel6 {
     bool Weapon::isChargeable() const {
         return impl->isChargeable();
     }
+#ifndef D6R_HEADLESS_CORE
     void Weapon::initialize(Sound &sound, TextureManager &textureManager) {
         add(std::make_unique<Pistol>(sound, textureManager));
         add(std::make_unique<Bazooka>(sound, textureManager));
@@ -145,6 +146,7 @@ namespace Duel6 {
         add(std::make_unique<StopperGun>(sound, textureManager));
         add(std::make_unique<ShitThrower>(sound, textureManager));
     }
+#endif
 
     void Weapon::initializeHeadless() {
         add(std::make_unique<Pistol>());

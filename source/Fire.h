@@ -31,13 +31,14 @@
 #include <vector>
 #include <unordered_map>
 #include "Type.h"
-#include "FaceList.h"
-#include "TextureManager.h"
 #include "SpriteList.h"
+#ifndef D6R_HEADLESS_CORE
 #include "GameResources.h"
+#endif
 #include "Level.h"
 
 namespace Duel6 {
+    class GameResources;
     class FireType {
     public:
         static const FireType CONIFEROUS_TREE;
@@ -109,7 +110,9 @@ namespace Duel6 {
         std::vector<Fire> fires;
 
     public:
+#ifndef D6R_HEADLESS_CORE
         FireList(const GameResources &resources, SpriteList &spriteList);
+#endif
         explicit FireList(SpriteList &spriteList);
 
         void find(const Level &level);

@@ -125,6 +125,7 @@ set(D6R_SOURCES
         source/FontCache.h
         source/FontException.h
         source/Format.cpp
+        source/InfoMessageQueue.cpp
         source/Format.h
         source/FormatException.h
         source/Formatter.h
@@ -179,6 +180,8 @@ set(D6R_SOURCES
         source/Rectangle.h
         source/resource.h
         source/Round.cpp
+        source/Sprite.cpp
+        source/SpriteList.cpp
         source/Round.h
         source/ScreenParameters.h
         source/Shot.h
@@ -493,6 +496,99 @@ add_library(duel6r-game-engine STATIC ${D6R_ENGINE_SOURCES})
 target_include_directories(duel6r-game-engine PUBLIC ${CMAKE_SOURCE_DIR}/source)
 endif ()
 
+set(D6R_CANONICAL_GAMEPLAY_SOURCES
+        source/Block.cpp
+        source/Bonus.cpp
+        source/BonusList.cpp
+        source/Color.cpp
+        source/Elevator.cpp
+        source/ElevatorList.cpp
+        source/File.cpp
+        source/Fire.cpp
+        source/Format.cpp
+        source/Game.cpp
+        source/GameResources.cpp
+        source/GameSettings.cpp
+        source/InfoMessageQueue.cpp
+        source/Level.cpp
+        source/Person.cpp
+        source/Player.cpp
+        source/PlayerEventListener.cpp
+        source/Round.cpp
+        source/ShotList.cpp
+        source/Sprite.cpp
+        source/SpriteList.cpp
+        source/Water.cpp
+        source/Weapon.cpp
+        source/World.cpp
+        source/bonus/Bullets.cpp
+        source/bonus/FastMovement.cpp
+        source/bonus/FastReload.cpp
+        source/bonus/FullLife.cpp
+        source/bonus/InfiniteAmmo.cpp
+        source/bonus/Invisibility.cpp
+        source/bonus/Invulnerability.cpp
+        source/bonus/MinusLife.cpp
+        source/bonus/PlusLife.cpp
+        source/bonus/PowerfulShots.cpp
+        source/bonus/Snorkel.cpp
+        source/bonus/SplitFire.cpp
+        source/bonus/VampireShots.cpp
+        source/collision/Collision.cpp
+        source/collision/WorldCollision.cpp
+        source/gamemodes/DeathMatch.cpp
+        source/gamemodes/GameModeBase.cpp
+        source/gamemodes/Predator.cpp
+        source/gamemodes/PredatorPlayerEventListener.cpp
+        source/gamemodes/TeamDeathMatch.cpp
+        source/gamemodes/TeamDeathMatchPlayerEventListener.cpp
+        source/json/JsonParser.cpp
+        source/json/JsonValue.cpp
+        source/math/Vector.cpp
+        source/server/CanonicalMatchRuntime.cpp
+        source/weapon/LegacyShot.cpp
+        source/weapon/LegacyWeapon.cpp
+        source/weapon/ShotBase.cpp
+        source/weapon/WeaponBase.cpp
+        source/weapon/impl/Bazooka.cpp
+        source/weapon/impl/BazookaShot.cpp
+        source/weapon/impl/Bow.cpp
+        source/weapon/impl/BowShot.cpp
+        source/weapon/impl/DoubleLaser.cpp
+        source/weapon/impl/DoubleLaserShot.cpp
+        source/weapon/impl/KissOfDeath.cpp
+        source/weapon/impl/KissOfDeathShot.cpp
+        source/weapon/impl/Laser.cpp
+        source/weapon/impl/LaserShot.cpp
+        source/weapon/impl/Lightning.cpp
+        source/weapon/impl/LightningShot.cpp
+        source/weapon/impl/MachineGun.cpp
+        source/weapon/impl/MachineGunShot.cpp
+        source/weapon/impl/Pistol.cpp
+        source/weapon/impl/PistolShot.cpp
+        source/weapon/impl/Plasma.cpp
+        source/weapon/impl/PlasmaShot.cpp
+        source/weapon/impl/ShitThrower.cpp
+        source/weapon/impl/ShitThrowerShot.cpp
+        source/weapon/impl/Shotgun.cpp
+        source/weapon/impl/ShotgunShot.cpp
+        source/weapon/impl/Slime.cpp
+        source/weapon/impl/SlimeShot.cpp
+        source/weapon/impl/Sling.cpp
+        source/weapon/impl/SlingShot.cpp
+        source/weapon/impl/Spray.cpp
+        source/weapon/impl/SprayShot.cpp
+        source/weapon/impl/StopperGun.cpp
+        source/weapon/impl/StopperGunShot.cpp
+        source/weapon/impl/Triton.cpp
+        source/weapon/impl/TritonShot.cpp
+        source/weapon/impl/Uzi.cpp
+        source/weapon/impl/UziShot.cpp)
+
+add_library(duel6r-canonical-gameplay-core STATIC ${D6R_CANONICAL_GAMEPLAY_SOURCES})
+target_include_directories(duel6r-canonical-gameplay-core PUBLIC ${CMAKE_SOURCE_DIR}/source)
+target_compile_definitions(duel6r-canonical-gameplay-core PRIVATE D6R_HEADLESS_CORE)
+
 set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/client/ConnectionPlan.cpp
         source/client/ConnectionPlan.h
@@ -569,24 +665,16 @@ endif ()
 
 set(D6R_SERVER_APP_NAME "duel6r-server" CACHE STRING "Filename of the experimental server scaffold.")
 set(D6R_SERVER_SOURCES source/server/ServerMain.cpp)
-if (NOT D6R_TRANSPORT_ONLY)
-    list(APPEND D6R_SERVER_SOURCES
-            source/server/CanonicalMatchRuntime.cpp
-            source/server/CanonicalMatchRuntime.h)
-endif ()
 add_executable(${D6R_SERVER_APP_NAME} ${D6R_SERVER_SOURCES})
-target_link_libraries(${D6R_SERVER_APP_NAME} duel6r-network-scaffold)
-if (NOT D6R_TRANSPORT_ONLY)
-    target_link_libraries(${D6R_SERVER_APP_NAME} duel6r-game-engine)
-    add_custom_command(TARGET ${D6R_SERVER_APP_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                    ${CMAKE_SOURCE_DIR}/resources/data
-                    $<TARGET_FILE_DIR:${D6R_SERVER_APP_NAME}>/data
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                    ${CMAKE_SOURCE_DIR}/resources/levels
-                    $<TARGET_FILE_DIR:${D6R_SERVER_APP_NAME}>/levels
-            COMMENT "Copying canonical headless gameplay resources")
-endif ()
+target_link_libraries(${D6R_SERVER_APP_NAME} duel6r-network-scaffold duel6r-canonical-gameplay-core)
+add_custom_command(TARGET ${D6R_SERVER_APP_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                ${CMAKE_SOURCE_DIR}/resources/data
+                $<TARGET_FILE_DIR:${D6R_SERVER_APP_NAME}>/data
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                ${CMAKE_SOURCE_DIR}/resources/levels
+                $<TARGET_FILE_DIR:${D6R_SERVER_APP_NAME}>/levels
+        COMMENT "Copying canonical headless gameplay resources")
 set_target_properties(${D6R_SERVER_APP_NAME} PROPERTIES VERSION 6.0.0)
 if (MINGW)
     set_property(TARGET ${D6R_SERVER_APP_NAME} APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
@@ -696,18 +784,6 @@ else (WIN32 AND NOT MINGW) # Linux GCC
     target_link_libraries(${D6R_APP_NAME} ${LIB_OPEN_GL})
 endif (WIN32 AND NOT MINGW)
 
-if (NOT D6R_TRANSPORT_ONLY)
-    if (WIN32 AND NOT MINGW)
-        target_link_libraries(${D6R_SERVER_APP_NAME} opengl32.lib)
-    elseif (MINGW)
-        target_link_libraries(${D6R_SERVER_APP_NAME} opengl32)
-    elseif (APPLE)
-        target_link_libraries(${D6R_SERVER_APP_NAME} ${LIB_OPEN_GL})
-    else ()
-        target_link_libraries(${D6R_SERVER_APP_NAME} ${LIB_OPEN_GL})
-    endif ()
-endif ()
-
 # SDL
 find_path(HEADERS_SDL2 SDL2/SDL.h DOC "Path to SDL2 headers")
 include_directories(${HEADERS_SDL2})
@@ -724,13 +800,6 @@ if (MINGW)
 else (MINGW)
     target_link_libraries(${D6R_APP_NAME} ${LIB_SDL2_MAIN} ${LIB_SDL2} ${LIB_SDL2_MIXER} ${LIB_SDL2_TTF} ${LIB_SDL2_IMAGE})
 endif (MINGW)
-if (NOT D6R_TRANSPORT_ONLY)
-    target_link_libraries(${D6R_SERVER_APP_NAME} ${LIB_SDL2} ${LIB_SDL2_MIXER} ${LIB_SDL2_TTF} ${LIB_SDL2_IMAGE})
-    if (MINGW)
-        target_link_libraries(${D6R_SERVER_APP_NAME} -lsetupapi -lwinmm -limm32 -lversion)
-    endif ()
-endif ()
-
 # GLEW
 if (WIN32)
     find_library(LIB_GLEW glew32 DOC "Path to GLEW library")
@@ -738,9 +807,6 @@ else (WIN32)
     find_library(LIB_GLEW GLEW DOC "Path to GLEW library")
 endif (WIN32)
 target_link_libraries(${D6R_APP_NAME} ${LIB_GLEW})
-if (NOT D6R_TRANSPORT_ONLY)
-    target_link_libraries(${D6R_SERVER_APP_NAME} ${LIB_GLEW})
-endif ()
 find_path(HEADERS_GLEW GL/glew.h DOC "Path to GLEW headers")
 include_directories(${HEADERS_GLEW})
 
@@ -762,8 +828,5 @@ if (D6R_WITH_LUA)
         find_path(HEADERS_LUA lua5.3/lua.hpp DOC "Path to LUA headers")
         include_directories(${HEADERS_LUA}/lua5.3)
     endif (WIN32 AND NOT MINGW)
-    if (NOT D6R_TRANSPORT_ONLY)
-        target_link_libraries(${D6R_SERVER_APP_NAME} ${LIB_LUA})
-    endif ()
 endif (D6R_WITH_LUA)
 endif ()

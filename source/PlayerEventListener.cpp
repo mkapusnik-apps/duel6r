@@ -28,6 +28,7 @@
 #include <algorithm>
 
 #include "PlayerEventListener.h"
+#include "Format.h"
 #include "Weapon.h"
 
 namespace Duel6 {

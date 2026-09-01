@@ -31,7 +31,9 @@
 #include <vector>
 #include "Type.h"
 #include "Elevator.h"
+#ifndef D6R_HEADLESS_CORE
 #include "TextureManager.h"
+#endif
 #include "collision/WorldCollision.h"
 namespace Duel6 {
     class Player; // Forward declaration

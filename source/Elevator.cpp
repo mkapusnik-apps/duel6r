@@ -29,7 +29,9 @@
 
 #include "Elevator.h"
 #include "math/Math.h"
+#ifndef D6R_HEADLESS_CORE
 #include "Video.h"
+#endif
 
 #define D6_ELEV_SPEED 1.83f
 
@@ -86,6 +88,7 @@ namespace Duel6 {
     }
 
     void Elevator::render(Renderer &renderer, Texture texture) const {
+#ifndef D6R_HEADLESS_CORE
         Float32 X = position.x, Y = position.y - 0.3f;
         Material material = Material::makeTexture(texture);
 
@@ -101,6 +104,10 @@ namespace Duel6 {
 
         renderer.quadXZ(Vector(X, Y + 0.3f, 0.3f), Vector(1.0f, 0.0f, 0.4f), Vector::ZERO, Vector(1, 1), material);
         renderer.quadXZ(Vector(X, Y, 0.7f), Vector(1.0f, 0.0f, -0.4f), Vector::ZERO, Vector(1, 1), material);
+#else
+        (void) renderer;
+        (void) texture;
+#endif
     }
 
     void Elevator::nextSection() {

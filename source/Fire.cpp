@@ -42,9 +42,11 @@ namespace Duel6 {
     Fire::Fire(const FireType &type, SpriteList::Iterator sprite, const Vector &position)
             : type(type), sprite(sprite), position(position), burned(false) {}
 
+#ifndef D6R_HEADLESS_CORE
     FireList::FireList(const GameResources &resources, SpriteList &spriteList)
             : spriteList(&spriteList), burningTexture(resources.getBurningTexture()),
               textures(&resources.getFireTextures()) {}
+#endif
 
     FireList::FireList(SpriteList &spriteList)
             : spriteList(&spriteList), textures(nullptr) {}

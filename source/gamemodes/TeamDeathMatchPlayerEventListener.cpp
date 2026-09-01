@@ -26,6 +26,7 @@
 */
 
 #include "TeamDeathMatchPlayerEventListener.h"
+#include "../Format.h"
 
 namespace Duel6 {
     bool TeamDeathMatchPlayerEventListener::onDamageByShot(Player &player, Player &shootingPlayer, Float32 amount,

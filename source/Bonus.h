@@ -31,13 +31,18 @@
 #include <cstdint>
 
 #include "Type.h"
+#ifndef D6R_HEADLESS_CORE
 #include "TextureManager.h"
+#else
+#include "renderer/RendererTypes.h"
+#endif
 #include "math/Vector.h"
 #include "Rectangle.h"
 #include "Weapon.h"
 #include "collision/WorldCollision.h"
 
 namespace Duel6 {
+    class Renderer;
     class Player;
 
     class World;

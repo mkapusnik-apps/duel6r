@@ -39,6 +39,7 @@ namespace Duel6 {
         blockMeta = Block::loadMeta(resourcesPath + "/data/blocks.json");
     }
 
+#ifndef D6R_HEADLESS_CORE
     void GameResources::load(Console &console, Sound &sound, TextureManager &textureManager) {
         console.printLine("\n===Initializing game resources===");
         console.printLine("\n...Weapon initialization");
@@ -74,4 +75,5 @@ namespace Duel6 {
         Texture burn = textureManager.loadStack("textures/fire/burn/", TextureFilter::Linear, true);
         burningTexture = burn;
     }
+#endif
 }

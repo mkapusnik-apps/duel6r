@@ -38,6 +38,7 @@ namespace Duel6 {
 
     ShitThrower::ShitThrower() : LegacyWeapon(DEFINITION) {}
 
+#ifndef D6R_HEADLESS_CORE
     ShitThrower::ShitThrower(Sound &sound, TextureManager &textureManager)
             : LegacyWeapon(sound, textureManager, DEFINITION, 16) {
         Color brownColor(83, 44, 0);
@@ -47,12 +48,17 @@ namespace Duel6 {
         PlayerSkinColors skinColors(brownColor);
         brownSkin = std::make_unique<PlayerSkin>(skinColors, textureManager, playerAnimation);
     }
+#endif
 
     Float32 ShitThrower::getBulletSpeed() const {
         return 5.49f;
     }
 
     std::unique_ptr<Shot> ShitThrower::makeShot(Player &player, World &world, Orientation orientation) const {
+#ifdef D6R_HEADLESS_CORE
+        return std::make_unique<ShitThrowerShot>(player, world, *this, orientation, nullptr);
+#else
         return std::make_unique<ShitThrowerShot>(player, world, *this, orientation, brownSkin.get());
+#endif
     }
 }

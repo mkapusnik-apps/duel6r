@@ -250,15 +250,25 @@ namespace Duel6 {
 
     void LegacyShot::addPlayerExplosion(Player &player, World &world) {
         player.removeBody();
+#ifndef D6R_HEADLESS_CORE
         world.getExplosionList().add(player.getCentre(), 0.5f, 1.2f, getPlayerExplosionColor());
+#else
+        (void) world;
+#endif
     }
 
     void LegacyShot::addPlayerBlood(const Player &player, const Vector &point, World &world) {
+#ifndef D6R_HEADLESS_CORE
         Rectangle rect = player.getCollisionRect();
         world.getExplosionList().add(
                 Vector(rect.left.x + (0.3f + (Math::random(40, "blood-position")) * 0.01f) * rect.getSize().x,
                        point.y), 0.2f, 0.5f,
                 Color::RED);
+#else
+        (void) player;
+        (void) point;
+        (void) world;
+#endif
     }
 
     ShotHit LegacyShot::getShotHit() {

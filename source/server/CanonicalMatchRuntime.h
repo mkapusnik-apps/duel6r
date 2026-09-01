@@ -54,7 +54,7 @@ namespace Duel6::Server::Authoritative {
         bool removePlayer(Identity playerId);
         CanonicalWorldSnapshot snapshot();
         void appendEvent(std::string kind, std::uint64_t entityId = 0, Identity playerId = 0,
-                         Identity targetPlayerId = 0, std::int64_t value = 0);
+                          Identity targetPlayerId = 0, std::string valueCategory = {}, std::int64_t value = 0);
         void endWorld();
         bool cleanup();
         MatchRuntimeDependencies dependencies();

@@ -185,6 +185,24 @@ namespace Duel6::Server::Authoritative {
                            << player.positionX << ':' << player.positionY;
                 }
             }
+            output << '\n' << "stateCheckpoints=";
+            first = true;
+            for (const auto &checkpoint: match.stateCheckpoints()) {
+                if (!first) output << ',';
+                first = false;
+                output << checkpoint.tick << ':' << checkpoint.stateDigest;
+            }
+            output << '\n' << "canonicalEvents=";
+            if (snapshot) {
+                first = true;
+                for (const auto &event: snapshot->events) {
+                    if (!first) output << ',';
+                    first = false;
+                    output << event.sequence << ':' << event.tick << ':' << event.kind << ':' << event.entityId << ':'
+                           << event.playerId << ':' << event.targetPlayerId << ':' << event.valueCategory << ':'
+                           << event.value;
+                }
+            }
             output << '\n' << "eventCount=" << (snapshot ? snapshot->events.size() : 0u) << '\n'
                    << "cleanupConfirmed=" << (match.resourcesReleased() ? "true" : "false") << '\n';
             output.flush();
@@ -321,8 +339,7 @@ namespace Duel6::Server::Authoritative {
                             const Tick jumpPhase = (match.currentTick() + index * 17u) % 120u;
                             if (vertical > 32768 && jumpPhase < 10u) input |= Jump;
                         }
-                        if (designated && horizontal > 65536 && horizontal < 4 * 65536
-                            && std::llabs(vertical) < 32768
+                        if (designated && horizontal < 4 * 65536
                             && (match.currentTick() / 30u + index) % 2u == 0) input |= Shoot;
                         if (input == previousInputs[index]) continue;
                         previousInputs[index] = input;
@@ -372,7 +389,11 @@ namespace Duel6::Server::Authoritative {
             options.config.enabledWeapons = std::move(gameplayConfig.enabledWeapons);
             options.config.startingAmmoMinimum = gameplayConfig.startingAmmoMinimum;
             options.config.startingAmmoMaximum = gameplayConfig.startingAmmoMaximum;
-            if (options.scenario == "complete") options.config.fixedStartingWeapon = "pistol";
+            if (options.scenario == "complete") {
+                options.config.fixedStartingWeapon = "pistol";
+                options.config.startingAmmoMinimum = 30;
+                options.config.startingAmmoMaximum = 30;
+            }
             if (options.config.seed == 0 && !secureSeed(options.config.seed)) {
                 const auto failed = terminalOutcome(OutcomeCode::RuntimeFailed);
                 printOutcome(output, failed, std::nullopt);

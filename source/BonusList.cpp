@@ -28,17 +28,21 @@
 #include "math/Math.h"
 #include "Sound.h"
 #include "BonusList.h"
+#include "Format.h"
 #include "World.h"
 #include "collision/Collision.h"
 
 namespace Duel6 {
+#ifndef D6R_HEADLESS_CORE
     BonusList::BonusList(const GameSettings &settings, const GameResources &resources, World &world)
             : settings(settings), texture(resources.getBonusTextures()), world(world) {}
+#endif
 
     BonusList::BonusList(const GameSettings &settings, World &world)
             : settings(settings), world(world) {}
 
     void BonusList::render(Renderer &renderer) const {
+#ifndef D6R_HEADLESS_CORE
         for (const Bonus &bonus : bonuses) {
             bonus.render(renderer, texture);
         }
@@ -46,6 +50,9 @@ namespace Duel6 {
         for (const LyingWeapon &weapon : weapons) {
             weapon.render(renderer);
         }
+#else
+        (void) renderer;
+#endif
     }
 
     void BonusList::addRandomBonus() {
@@ -148,7 +155,9 @@ namespace Duel6 {
                     player.setBonus(type, bonus.getDuration());
                 }
 
+#ifndef D6R_HEADLESS_CORE
                 player.playSound(PlayerSounds::Type::PickedBonus);
+#endif
                 bonusIter = bonuses.erase(bonusIter);
             } else {
                 ++bonusIter;

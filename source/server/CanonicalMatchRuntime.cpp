@@ -253,11 +253,12 @@ namespace Duel6::Server::Authoritative {
     }
 
     void CanonicalMatchRuntime::appendEvent(std::string kind, std::uint64_t entityId, Identity playerId,
-                                             Identity targetPlayerId, std::int64_t value) {
-        if (kind.empty() || kind.size() > 64 || nextEventSequence == 0) return;
+                                             Identity targetPlayerId, std::string valueCategory,
+                                             std::int64_t value) {
+        if (kind.empty() || kind.size() > 64 || valueCategory.size() > 64 || nextEventSequence == 0) return;
         if (eventTrace.size() >= MaxCanonicalEvents) eventTrace.erase(eventTrace.begin());
         eventTrace.push_back({worldTick, nextEventSequence++, std::move(kind), entityId,
-                              playerId, targetPlayerId, value});
+                              playerId, targetPlayerId, std::move(valueCategory), value});
     }
 
     CanonicalWorldSnapshot CanonicalMatchRuntime::snapshot() {
@@ -341,10 +342,12 @@ namespace Duel6::Server::Authoritative {
             digestText(digest, result.players.back().timedBonus);
             const auto previous = previousLife.find(definition.playerId);
             if (previous == previousLife.end()) appendEvent("player-spawned", 0, definition.playerId, 0,
+                                                            "spawn-identity",
                                                             result.players.back().spawnIdentity);
             else if (previous->second != result.players.back().life) {
                 appendEvent(result.players.back().alive ? "player-life-changed" : "player-died", 0,
-                            definition.playerId, 0, result.players.back().life - previous->second);
+                            definition.playerId, 0, "life-delta",
+                            result.players.back().life - previous->second);
             }
             previousLife[definition.playerId] = result.players.back().life;
             const auto previousStats = previousStatistics.find(definition.playerId);
@@ -353,12 +356,15 @@ namespace Duel6::Server::Authoritative {
                 const PlayerStatistics &after = result.players.back().statistics;
                 if (after.shots > before.shots)
                     appendEvent("shot-fired", 0, definition.playerId, 0,
+                                "shot-count",
                                 static_cast<std::int64_t>(after.shots - before.shots));
                 if (after.hits > before.hits)
                     appendEvent("shot-hit", 0, definition.playerId, 0,
+                                "hit-count",
                                 static_cast<std::int64_t>(after.hits - before.hits));
                 if (after.kills > before.kills)
                     appendEvent("player-killed", 0, definition.playerId, 0,
+                                "kill-count",
                                 static_cast<std::int64_t>(after.kills - before.kills));
             }
             previousStatistics[definition.playerId] = result.players.back().statistics;
@@ -447,7 +453,7 @@ namespace Duel6::Server::Authoritative {
             if (!currentEntities.count(entity)) appendEvent("entity-removed", entity);
         previousEntities = std::move(currentEntities);
         if (previousWaterLevel != result.waterLevel) appendEvent("water-level-changed", water.stableId, 0, 0,
-                                                                 result.waterLevel);
+                                                                 "level", result.waterLevel);
         if (!previousSuddenDeath && result.suddenDeath) appendEvent("sudden-death-started");
         result.roundOver = game->getRound().hasWinner();
         if (!previousRoundOver && result.roundOver) appendEvent("round-ended");

@@ -181,6 +181,7 @@ namespace Duel6::Server::Authoritative {
         completedPlayerStatistics.clear();
         latestStateDigest = 0;
         latestCanonicalSnapshot.reset();
+        checkpoints.clear();
         terminal = terminalOutcome(OutcomeCode::None);
         if (!startRound()) failRuntime();
         return terminal;
@@ -536,8 +537,15 @@ namespace Duel6::Server::Authoritative {
         catch (...) { return false; }
         if (!snapshot.valid || snapshot.stateDigest == 0 || snapshot.players.size() != players.size()
             || snapshot.dynamicEntityCount > 100000u) return false;
+        const bool roundEnded = snapshot.roundOver
+                                && (!latestCanonicalSnapshot || !latestCanonicalSnapshot->roundOver);
         latestStateDigest = snapshot.stateDigest;
         latestCanonicalSnapshot = snapshot;
+        if ((snapshot.worldTick % FixedTickRate == 0 || roundEnded)
+            && (checkpoints.empty() || checkpoints.back().tick != snapshot.worldTick)) {
+            if (checkpoints.size() >= MaxCanonicalCheckpoints) checkpoints.erase(checkpoints.begin());
+            checkpoints.push_back({snapshot.worldTick, snapshot.stateDigest});
+        }
         for (const auto &canonical: snapshot.players) {
             PlayerState *player = findPlayer(canonical.playerId);
             if (!player || canonical.life < 0 || canonical.life > MaximumLife) return false;
@@ -719,6 +727,10 @@ namespace Duel6::Server::Authoritative {
     std::uint64_t AuthoritativeMatch::currentStateDigest() const noexcept { return latestStateDigest; }
     const CanonicalWorldSnapshot *AuthoritativeMatch::canonicalWorldSnapshot() const noexcept {
         return latestCanonicalSnapshot ? &*latestCanonicalSnapshot : nullptr;
+    }
+
+    const std::vector<CanonicalStateCheckpoint> &AuthoritativeMatch::stateCheckpoints() const noexcept {
+        return checkpoints;
     }
     std::uint64_t AuthoritativeMatch::randomDecisionCount() const noexcept {
         return random ? random->decisionCount() : 0;

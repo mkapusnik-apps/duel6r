@@ -30,10 +30,13 @@
 
 #include <memory>
 
+#include "Format.h"
 #include "Level.h"
 #include "InfoMessageQueue.h"
+#ifndef D6R_HEADLESS_CORE
 #include "LevelRenderData.h"
 #include "Explosion.h"
+#endif
 #include "Fire.h"
 #include "ShotList.h"
 #include "BonusList.h"
@@ -47,12 +50,16 @@ namespace Duel6 {
         const GameSettings &gameSettings;
         std::vector<Player> &players;
         Level level;
+#ifndef D6R_HEADLESS_CORE
         std::string background;
         std::unique_ptr<LevelRenderData> levelRenderData;
+#endif
         InfoMessageQueue messageQueue;
         SpriteList spriteList;
         ShotList shotList;
+#ifndef D6R_HEADLESS_CORE
         ExplosionList explosionList;
+#endif
         FireList fireList;
         BonusList bonusList;
         ElevatorList elevatorList;
@@ -85,6 +92,7 @@ namespace Duel6 {
             return level;
         }
 
+#ifndef D6R_HEADLESS_CORE
         LevelRenderData &getLevelRenderData() {
             return *levelRenderData;
         }
@@ -92,6 +100,7 @@ namespace Duel6 {
         const LevelRenderData &getLevelRenderData() const {
             return *levelRenderData;
         }
+#endif
 
         InfoMessageQueue &getMessageQueue() {
             return messageQueue;
@@ -117,6 +126,7 @@ namespace Duel6 {
             return shotList;
         }
 
+#ifndef D6R_HEADLESS_CORE
         ExplosionList &getExplosionList() {
             return explosionList;
         }
@@ -124,6 +134,7 @@ namespace Duel6 {
         const ExplosionList &getExplosionList() const {
             return explosionList;
         }
+#endif
 
         FireList &getFireList() {
             return fireList;
@@ -133,9 +144,11 @@ namespace Duel6 {
             return fireList;
         }
 
+#ifndef D6R_HEADLESS_CORE
         std::string getBackground() const {
             return background;
         }
+#endif
 
         BonusList &getBonusList() {
             return bonusList;
@@ -158,7 +171,9 @@ namespace Duel6 {
         }
 
     private:
+#ifndef D6R_HEADLESS_CORE
         std::string findBackground(const GameResources::BackgroundList &backgrounds);
+#endif
     };
 }
 

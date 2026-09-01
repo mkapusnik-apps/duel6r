@@ -46,6 +46,7 @@ namespace Duel6 {
         return TEAMS[playerTeam];
     }
 
+#ifndef D6R_HEADLESS_CORE
     void TeamDeathMatch::initializePlayers(std::vector<Game::PlayerDefinition> &definitions) {
         Int32 index = 0;
         for (auto &definition : definitions) {
@@ -61,6 +62,7 @@ namespace Duel6 {
             index++;
         }
     }
+#endif
 
     void TeamDeathMatch::initializePlayerPositions(Game &game, std::vector<Player> &players, World &world) const {
         game.log("...Preparing team players");

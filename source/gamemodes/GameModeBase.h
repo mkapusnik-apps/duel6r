@@ -37,7 +37,9 @@ namespace Duel6 {
         bool globalAssistances;
 
     public:
+#ifndef D6R_HEADLESS_CORE
         void initializePlayers(std::vector<Game::PlayerDefinition> &definitions) override {}
+#endif
 
         void initializeGame(Game &game, std::vector<Player> &players, bool quickLiquid, bool globalAssistances) override {
             this->quickLiquid = quickLiquid;

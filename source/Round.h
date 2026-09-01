@@ -32,7 +32,9 @@
 #include <queue>
 #include "Player.h"
 #include "World.h"
+#ifndef D6R_HEADLESS_CORE
 #include "SysEvent.h"
+#endif
 
 namespace Duel6 {
     class Game;
@@ -49,7 +51,9 @@ namespace Duel6 {
         Uint32 startTime;
         bool winner;
         std::vector<Player *> alivePlayers;
+#ifndef D6R_HEADLESS_CORE
         Script::RoundScriptContext scriptContext;
+#endif
         std::function<void()> onRoundEnd;
 
     public:
@@ -61,7 +65,9 @@ namespace Duel6 {
 
         void end();
 
+#ifndef D6R_HEADLESS_CORE
         void keyEvent(const KeyPressEvent &event);
+#endif
 
         const World &getWorld() const {
             return world;

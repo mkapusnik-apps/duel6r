@@ -67,6 +67,7 @@ namespace Duel6::Server::Authoritative {
         bool resourcesReleased() const noexcept;
         std::uint64_t currentStateDigest() const noexcept;
         const CanonicalWorldSnapshot *canonicalWorldSnapshot() const noexcept;
+        const std::vector<CanonicalStateCheckpoint> &stateCheckpoints() const noexcept;
         std::uint64_t randomDecisionCount() const noexcept;
         std::uint64_t randomDecisionDigest() const noexcept;
         const std::vector<DeterministicRandom::Decision> &randomDecisionTrace() const noexcept;
@@ -115,6 +116,7 @@ namespace Duel6::Server::Authoritative {
         bool contentStartBlocked = false;
         std::uint64_t latestStateDigest = 0;
         std::optional<CanonicalWorldSnapshot> latestCanonicalSnapshot;
+        std::vector<CanonicalStateCheckpoint> checkpoints;
 
         PlayerState *findPlayer(Identity id);
         const PlayerState *findPlayer(Identity id) const;

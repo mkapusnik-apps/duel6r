@@ -31,10 +31,21 @@
 #include <unordered_map>
 #include "Water.h"
 #include "Block.h"
+#ifndef D6R_HEADLESS_CORE
 #include "AppService.h"
 #include "aseprite/animation.h"
+#endif
 namespace Duel6 {
     class GameResources {
+#ifdef D6R_HEADLESS_CORE
+    private:
+        Block::Meta blockMeta;
+
+    public:
+        void loadHeadless(const std::string &resourcesPath);
+
+        const Block::Meta &getBlockMeta() const { return blockMeta; }
+#else
     public:
         typedef TextureDictionary BackgroundList;
 
@@ -98,6 +109,7 @@ namespace Duel6 {
         animation::Animation & getPlayerAnimation() {
         	return playerAnimation;
         }
+#endif
     };
 }
 

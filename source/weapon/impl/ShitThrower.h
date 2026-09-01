@@ -28,17 +28,23 @@
 #ifndef DUEL6_WEAPON_IMPL_SHITTHROWER_H
 #define DUEL6_WEAPON_IMPL_SHITTHROWER_H
 
+#ifndef D6R_HEADLESS_CORE
 #include "../../PlayerSkin.h"
+#endif
 #include "../LegacyWeapon.h"
 
 namespace Duel6 {
     class ShitThrower : public LegacyWeapon {
     private:
+#ifndef D6R_HEADLESS_CORE
         std::unique_ptr<PlayerSkin> brownSkin;
+#endif
 
     public:
         ShitThrower();
+#ifndef D6R_HEADLESS_CORE
         ShitThrower(Sound &sound, TextureManager &textureManager);
+#endif
 
         Float32 getBulletSpeed() const override;
 

@@ -25,27 +25,40 @@
 * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include "Game.h"
+#ifndef D6R_HEADLESS_CORE
 #include "Sound.h"
 #include "WorldRenderer.h"
-#include "Game.h"
 #include "Menu.h"
+#endif
 #include "GameMode.h"
 #include <stdexcept>
 
 namespace Duel6 {
+#ifndef D6R_HEADLESS_CORE
     Game::Game(AppService &appService, GameResources &resources, GameSettings &settings)
             : appService(&appService), resources(resources), settings(settings), gameMode(nullptr),
-              worldRenderer(std::make_unique<WorldRenderer>(appService, *this)), menu(nullptr), headless(false),
+              headless(false), worldRenderer(std::make_unique<WorldRenderer>(appService, *this)), menu(nullptr),
               currentRound(0), playedRounds(0) {}
+#endif
 
     Game::Game(GameResources &resources, GameSettings &settings)
-            : appService(nullptr), resources(resources), settings(settings), gameMode(nullptr), menu(nullptr),
-              headless(true), currentRound(0), playedRounds(0) {}
+#ifdef D6R_HEADLESS_CORE
+            : resources(resources), settings(settings), gameMode(nullptr), headless(true), currentRound(0), playedRounds(0) {}
+#else
+            : appService(nullptr), resources(resources), settings(settings), gameMode(nullptr), headless(true),
+              menu(nullptr), currentRound(0), playedRounds(0) {}
+#endif
 
     void Game::log(const std::string &message) const {
+#ifndef D6R_HEADLESS_CORE
         if (appService) appService->getConsole().printLine(message);
+#else
+        (void) message;
+#endif
     }
 
+#ifndef D6R_HEADLESS_CORE
     void Game::beforeStart(Context *prevContext) {
         if (!headless) SDL_ShowCursor(SDL_DISABLE);
     }
@@ -57,18 +70,22 @@ namespace Duel6 {
     void Game::render() const {
         if (worldRenderer) worldRenderer->render();
     }
+#endif
 
     void Game::update(Float32 elapsedTime) {
         if (getRound().isOver()) {
+#ifndef D6R_HEADLESS_CORE
             if (!getRound().isLast()) {
                 nextRound();
 
             }
+#endif
         } else {
             getRound().update(elapsedTime);
         }
     }
 
+#ifndef D6R_HEADLESS_CORE
     void Game::keyEvent(const KeyPressEvent &event) {
         if (event.getCode() == SDLK_ESCAPE && (isOver() || event.withShift())) {
             close();
@@ -147,6 +164,7 @@ namespace Duel6 {
         Math::shuffle(this->levels, "headless-level-shuffle");
         startRound();
     }
+#endif
 
     void Game::initializeHeadlessPlayers(const std::vector<std::string> &playerNames,
                                          const std::vector<Size> &rosterSlots, GameMode &gameMode) {
@@ -158,7 +176,9 @@ namespace Duel6 {
         for (const auto &name: playerNames) headlessPeople.emplace_back(name, nullptr);
         for (Size index = 0; index < headlessPeople.size(); ++index)
             players.emplace_back(headlessPeople[index], rosterSlots[index]);
+#ifndef D6R_HEADLESS_CORE
         backgrounds.clear();
+#endif
         this->gameMode = &gameMode;
         gameMode.initializeGame(*this, players, settings.isQuickLiquid(), settings.isGlobalAssistances());
     }
@@ -176,6 +196,7 @@ namespace Duel6 {
         if (round) endRound();
     }
 
+#ifndef D6R_HEADLESS_CORE
     void Game::startRound() {
         currentRound = playedRounds;
         displayScoreTab = false;
@@ -196,6 +217,7 @@ namespace Duel6 {
         round->start();
         if (worldRenderer) worldRenderer->prerender();
     }
+#endif
 
     void Game::endRound() {
         if (round) round->end();
@@ -206,13 +228,17 @@ namespace Duel6 {
         if (round->isLast()) {
             getMode().updateElo(players);
         }
+#ifndef D6R_HEADLESS_CORE
         if (!headless && menu) menu->savePersonData();
+#endif
     }
 
+#ifndef D6R_HEADLESS_CORE
     void Game::nextRound() {
         endRound();
         startRound();
     }
+#endif
 
     Int32 Game::getCurrentRound() const {
         return currentRound;

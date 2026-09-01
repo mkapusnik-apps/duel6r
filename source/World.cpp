@@ -34,14 +34,21 @@ namespace Duel6 {
             : gameSettings(game.getSettings()), players(game.getPlayers()),
               level(levelPath, mirror, game.getResources().getBlockMeta()),
               messageQueue(D6_INFO_DURATION),
+#ifndef D6R_HEADLESS_CORE
               explosionList(game.isHeadless() ? Texture() : game.getResources().getExplosionTextures(),
                             D6_EXPL_SPEED),
+#endif
+#ifdef D6R_HEADLESS_CORE
+              fireList(spriteList), bonusList(game.getSettings(), *this), elevatorList(Texture()), time(0) {
+#else
               fireList(game.isHeadless() ? FireList(spriteList) : FireList(game.getResources(), spriteList)),
               bonusList(game.isHeadless() ? BonusList(game.getSettings(), *this)
                                           : BonusList(game.getSettings(), game.getResources(), *this)),
               elevatorList(game.isHeadless() ? Texture() : game.getResources().getElevatorTextures()), time(0) {
+#endif
         game.log(Format("...Width   : {0}") << level.getWidth());
         game.log(Format("...Height  : {0}") << level.getHeight());
+#ifndef D6R_HEADLESS_CORE
         if (!game.isHeadless()) {
             game.log("...Preparing faces");
             levelRenderData = std::make_unique<LevelRenderData>(
@@ -51,20 +58,25 @@ namespace Duel6 {
             game.log(Format("...Sprites : {0}") << levelRenderData->getSprites().getFaces().size());
             game.log(Format("...Water   : {0}") << levelRenderData->getWater().getFaces().size());
         }
+#endif
 
         game.log("...Level initialization");
         game.log("...Loading elevators");
         elevatorList.load(levelPath, mirror);
         fireList.find(level);
+#ifndef D6R_HEADLESS_CORE
         if (!game.isHeadless()) background = findBackground(game.getResources().getBcgTextures());
+#endif
     }
 
     void World::update(Float32 elapsedTime) {
         time += elapsedTime;
 
         spriteList.update(elapsedTime);
+#ifndef D6R_HEADLESS_CORE
         explosionList.update(elapsedTime);
         if (levelRenderData) levelRenderData->update(elapsedTime);
+#endif
         shotList.update(*this, elapsedTime);
         elevatorList.update(elapsedTime);
         messageQueue.update(elapsedTime);
@@ -81,9 +93,12 @@ namespace Duel6 {
 
     void World::raiseWater() {
         level.raiseWater();
+#ifndef D6R_HEADLESS_CORE
         if (levelRenderData) levelRenderData->generateWater();
+#endif
     }
 
+#ifndef D6R_HEADLESS_CORE
     std::string World::findBackground(const GameResources::BackgroundList &backgrounds) {
         const std::string &levelBackground = level.getBackground();
         auto &bcgDict = backgrounds.getTextures();
@@ -101,4 +116,5 @@ namespace Duel6 {
         Int32 bcgIndex = Math::random(Int32(bcgNames.size()), "background-selection");
         return bcgNames[bcgIndex];
     }
+#endif
 }

@@ -48,7 +48,9 @@ namespace Duel6 {
             return Format("Team deathmatch ({0} teams, FF: {1})") << teamsCount << (friendlyFire ? "on" : "off");
         }
 
+#ifndef D6R_HEADLESS_CORE
         void initializePlayers(std::vector<Game::PlayerDefinition> &definitions) override;
+#endif
 
         void initializeRound(Game &game, std::vector<Player> &players, World &world) override;
 

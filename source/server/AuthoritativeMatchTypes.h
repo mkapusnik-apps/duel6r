@@ -18,6 +18,7 @@ namespace Duel6::Server::Authoritative {
     constexpr std::size_t MaxResultBytes = 1024 * 1024;
     constexpr std::size_t MaxCanonicalEntities = 100000;
     constexpr std::size_t MaxCanonicalEvents = 4096;
+    constexpr std::size_t MaxCanonicalCheckpoints = 256;
     constexpr std::size_t MaxDisplayNameBytes = 64;
     constexpr Tick MaxMatchTicks = 60u * 60u * 60u * 24u;
     constexpr std::uint32_t FixedTickRate = 60;
@@ -165,7 +166,13 @@ namespace Duel6::Server::Authoritative {
         std::uint64_t entityId = 0;
         Identity playerId = 0;
         Identity targetPlayerId = 0;
+        std::string valueCategory;
         std::int64_t value = 0;
+    };
+
+    struct CanonicalStateCheckpoint {
+        Tick tick = 0;
+        std::uint64_t stateDigest = 0;
     };
 
     struct CanonicalWorldSnapshot {
