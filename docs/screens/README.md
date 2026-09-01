@@ -37,10 +37,12 @@ The approved 2026-09-01 Team score-overview update affects the Team variants of 
 The update adds an 8 px separator band with a centered 2 px rule between adjacent team groups.
 The update does not change non-Team score overviews or `OVER-03`.
 The update does not add a screen or a wireframe.
+The consolidated-person-list update replaces the separate Elo and available-person panels with one `PERSONS` panel.
+The update affects both `MENU-01` wireframes and does not add a screen or wireframe.
 
 | Screen ID | Screen or state | Specification | Wireframe | Functional requirements | Primary source |
 |---|---|---|---|---|---|
-| `MENU-01` | Main menu and session setup; conditional Team settings; planned Network entry | [Specification](menu-main.md) | [Non-Team and Teams wireframes](wireframes/menu-main.md) | `SET-001`–`SET-047`, `AC-040`–`AC-051`, plus target `NET-AC-002`, `NET-AC-009`, `NET-AC-015` | Current: `source/Menu.cpp`; target: `docs/features.md` and `docs/network-play-first-release.md` |
+| `MENU-01` | Main menu and session setup; consolidated person list; conditional Team settings; planned Network entry | [Specification](menu-main.md) | [Non-Team and Teams wireframes](wireframes/menu-main.md) | `SET-001`–`SET-072`, `AC-040`–`AC-051`, `AC-053`–`AC-062`, plus target `NET-AC-002`, `NET-AC-009`, `NET-AC-015` | Target: `docs/features.md`; context: `source/Menu.cpp`; planned footer: `docs/network-play-first-release.md` |
 | `MENU-02` | Menu blocking message over planned Network footer | [Specification](menu-message.md) | [Wireframe](wireframes/menu-message.md) | Existing local requirements plus target `NET-AC-015`, `NET-AC-017` | Current: `source/Menu.cpp`; target footer: `docs/network-play-first-release.md` |
 | `PLAY-01` | Live shared arena gameplay for 2–15 players | [Specification](play-fullscreen.md) | [Wireframe](wireframes/play-fullscreen.md) | `LIF-001`–`LIF-022`, `INP-012`–`INP-017`, `PLY-001`–`PLY-010`, `ENV-001`–`ENV-013`, `CMB-001`–`CMB-020`, `BON-001`–`BON-020`, `SCO-001`–`SCO-018`, `UI-001`–`UI-020` | Target: `docs/features.md`; context: `source/WorldRenderer.cpp` |
 | `MODE-01` | Predator live gameplay | [Specification](mode-predator.md) | [Wireframe](wireframes/mode-predator.md) | `MOD-PR-001`–`MOD-PR-008`, `UI-001`–`UI-020` | `source/gamemodes/Predator.cpp` |

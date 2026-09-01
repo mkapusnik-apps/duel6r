@@ -9,7 +9,7 @@ The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a seco
 
 The approved product requirements are the source of truth for visual-impact changes.
 The current native implementation remains the source for unchanged visual details.
-This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, and the planned first-release network UI defined for issue #28.
+This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, and the planned first-release network UI defined for issue #28.
 The network additions are target specifications for downstream issue #38 and are not implemented UI or evidence of playable networking.
 Issue #30 may implement protocol, command-line, or scaffold outcomes, but it must not add graphical network UI.
 
@@ -108,7 +108,7 @@ The following values come from renderer and GUI source.
 - Controls must use the implemented two-line light and dark frame.
 - A pressed control must reverse the light and dark frame and must offset its caption by 1 px.
 - The menu must use compact control spacing and must not add decorative whitespace.
-- The menu must use four raised panel groups for Elo scoreboard, Persons, Players, and Game Settings.
+- The main menu must use three raised panel groups for Persons, Players, and Game Settings.
 - Each setup panel must use the blue panel header and white panel header text.
 - The Players panel must keep each player next to that player's control assignment.
 - Gameplay overlays must use flat translucent fills without drop shadows.
@@ -176,7 +176,15 @@ The following values come from renderer and GUI source.
 - A button must show raised and pressed frame states.
 - A list must show the selected row with a blue fill and white text.
 - A list must support wheel scrolling when the pointer is inside the list.
-- A person row must support double-click to add the person to the player roster.
+- The main-menu Persons list must use one row for each saved person.
+- The main-menu Persons list must use the columns `Rank`, `Name`, `Elo`, and `Trend`.
+- A ranked person row must show all four values.
+- An unranked person row must show the name and must leave `Rank`, `Elo`, and `Trend` empty.
+- A roster member must remain visible and selectable in the Persons list.
+- The Persons list must not use a separate color or disabled treatment for a roster member.
+- The Players list must show roster membership separately.
+- A person row must support double-click to add the person to the player roster when the person is not already in the roster.
+- A double-click on a roster member in the Persons list must make no visible change.
 - A player row must support double-click to remove the player from the roster.
 - A spinner must use left and right triangle buttons.
 - A checkbox must reverse its frame when it is checked.
@@ -342,7 +350,7 @@ The following values come from renderer and GUI source.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
 - Eleven screenshot entries remain `Planned` until issue #38 implements and captures `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
 - `SS-001` and `SS-024` must represent the two approved `MENU-01` conditional-layout wireframes.
-- Existing `MENU-01` evidence is stale until the consolidated Teams selector is implemented and both wireframes are captured.
+- Existing `MENU-01` evidence is stale for the consolidated-person-list change until both affected wireframes are implemented and captured.
 - Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources
@@ -372,7 +380,8 @@ For PR #54 and subsequent assessment of this approved change, Stitch is a supple
 A missing or stale Stitch representation must not replace or weaken any local design, wireframe, screenshot, provenance, or implementation-presentation gate.
 A Stitch synchronization failure does not block visual acceptance when all authoritative local sources exist, remain current, and conform.
 The project includes two `MENU-01 — Main menu and session setup` explorations at screens `681ae093051749fd922ab74454f47121` and `e26294cba3d946a0af458bcf33c275a0`.
-Screen `681ae093051749fd922ab74454f47121` is the visual reference for the retro grey canvas, black matte, four-panel hierarchy, score table, and footer actions.
+Screen `681ae093051749fd922ab74454f47121` is a historical visual reference for the retro grey canvas, compact density, score table, and footer actions.
+Its black matte and four-panel hierarchy are stale and must not override the current scaled background or three-panel `MENU-01` wireframes.
 The application behavior and copy in `docs/features.md` override illustrative Stitch names, statistics, settings, version text, and shortcut syntax.
 The project also includes screens for Predator, Team gameplay, sudden death, and the score overlay.
 An alignment edit was requested for those four screens on 2026-08-23.
