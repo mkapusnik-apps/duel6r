@@ -1,22 +1,123 @@
 #!/usr/bin/env python3
 """Black-box authoritative headless process outcome and machine-output tests."""
 
+import atexit
 import json
 import os
 import pathlib
-import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 
 
 SERVER = sys.argv[1]
-BASE = [SERVER, "--authoritative-match", "--resources=.", "--seed=424242"]
 PROCESS_TIMEOUT_SECONDS = int(os.environ.get("D6R_TEST_TIMEOUT", "30"))
 GOLDEN = json.loads((pathlib.Path(__file__).parent / "golden" /
                      "authoritative-match-compact-combat-linux-x86_64.json").read_text(encoding="utf-8"))
 DEFAULT_GOLDEN = json.loads((pathlib.Path(__file__).parent / "golden" /
-                             "authoritative-match-canonical-default-linux-x86_64.json").read_text(encoding="utf-8"))
+                              "authoritative-match-canonical-default-linux-x86_64.json").read_text(encoding="utf-8"))
+
+
+def staging_failure(category, status):
+    raise AssertionError(f"resource-staging category={category} status={status}")
+
+
+def require_regular_file(path):
+    try:
+        information = os.lstat(path)
+    except OSError:
+        staging_failure("gameplay-resource", "unavailable")
+    reparse_attribute = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    if (not stat.S_ISREG(information.st_mode) or information.st_nlink != 1
+            or getattr(information, "st_file_attributes", 0) & reparse_attribute):
+        staging_failure("gameplay-resource", "unsafe-entry")
+
+
+def copy_regular_tree(source, destination):
+    """Copy source bytes into new files without preserving filesystem aliases or metadata."""
+    try:
+        destination.mkdir(parents=True, exist_ok=True)
+        for directory, child_directories, files in os.walk(source, topdown=True, followlinks=False):
+            child_directories.sort()
+            files.sort()
+            relative = pathlib.Path(directory).relative_to(source)
+            target_directory = destination / relative
+            target_directory.mkdir(parents=True, exist_ok=True)
+            for name in files:
+                source_file = pathlib.Path(directory) / name
+                target_file = target_directory / name
+                with source_file.open("rb") as input_file, target_file.open("xb") as output_file:
+                    while True:
+                        block = input_file.read(64 * 1024)
+                        if not block:
+                            break
+                        output_file.write(block)
+                require_regular_file(target_file)
+    except AssertionError:
+        raise
+    except (OSError, ValueError):
+        staging_failure("gameplay-resource", "copy-failed")
+
+
+def copy_gameplay_resources(source_root, destination_root, include_levels=True):
+    data_destination = destination_root / "data"
+    data_destination.mkdir(parents=True, exist_ok=True)
+    for name in ("blocks.json", "config.script"):
+        source_file = source_root / "data" / name
+        target_file = data_destination / name
+        try:
+            with source_file.open("rb") as input_file, target_file.open("xb") as output_file:
+                while True:
+                    block = input_file.read(64 * 1024)
+                    if not block:
+                        break
+                    output_file.write(block)
+        except OSError:
+            staging_failure("required-gameplay-resource", "copy-failed")
+        require_regular_file(target_file)
+    if include_levels:
+        copy_regular_tree(source_root / "levels", destination_root / "levels")
+
+
+def verify_gameplay_root(root):
+    require_regular_file(root / "data" / "blocks.json")
+    require_regular_file(root / "data" / "config.script")
+    try:
+        levels = sorted(path for path in (root / "levels").rglob("*") if path.is_file())
+    except OSError:
+        staging_failure("gameplay-levels", "unavailable")
+    if not levels:
+        staging_failure("gameplay-levels", "missing")
+    for level in levels:
+        require_regular_file(level)
+
+
+def authoritative_base(root, seed=None):
+    verify_gameplay_root(root)
+    command = [SERVER, "--authoritative-match", f"--resources={root}"]
+    if seed is not None:
+        command.append(f"--seed={seed}")
+    return command
+
+
+SOURCE_RESOURCE_ROOT = pathlib.Path.cwd()
+RESOURCE_ROOT = SOURCE_RESOURCE_ROOT
+WINDOWS_RESOURCE_TEMP = None
+if os.name == "nt":
+    # C:\workspace is a Docker bind mount in native Windows evidence. Its root or
+    # entries can carry reparse/link metadata that the secure manifest correctly
+    # rejects, so simulations consume independent container-local regular files.
+    WINDOWS_RESOURCE_TEMP = tempfile.TemporaryDirectory(prefix="duel6r-authoritative-resources-")
+    atexit.register(WINDOWS_RESOURCE_TEMP.cleanup)
+    RESOURCE_ROOT = pathlib.Path(WINDOWS_RESOURCE_TEMP.name)
+    copy_gameplay_resources(SOURCE_RESOURCE_ROOT, RESOURCE_ROOT)
+
+if os.name == "nt":
+    BASE = authoritative_base(RESOURCE_ROOT, 424242)
+else:
+    verify_gameplay_root(RESOURCE_ROOT)
+    BASE = [SERVER, "--authoritative-match", "--resources=.", "--seed=424242"]
 
 
 def run(*arguments, stdin="", base=None):
@@ -27,6 +128,8 @@ def run(*arguments, stdin="", base=None):
     assert completed.stderr == "", completed.stderr
     lines = completed.stdout.splitlines()
     assert len(lines) >= 2, completed.stdout
+    if lines[0] == "host-gameplay-content-manifest-invalid":
+        raise AssertionError("unexpected-manifest category=host-gameplay-content status=invalid")
     return completed.returncode, lines
 
 
@@ -148,7 +251,7 @@ for expected_mode, arguments, expected_teams, expected_friendly_fire, expected_w
 # Machine Gun action produce extra teammate hits and damage only when FF is on.
 with tempfile.TemporaryDirectory(prefix="duel6r-canonical-friendly-fire-") as frozen_directory:
     frozen_root = pathlib.Path(frozen_directory)
-    shutil.copytree("data", frozen_root / "data")
+    copy_gameplay_resources(RESOURCE_ROOT, frozen_root, include_levels=False)
     (frozen_root / "levels").mkdir()
     (frozen_root / "levels" / "friendly-fire.json").write_text(json.dumps({
         "width": 10,
@@ -161,7 +264,7 @@ with tempfile.TemporaryDirectory(prefix="duel6r-canonical-friendly-fire-") as fr
         f"gun {index} {'true' if index == 6 else 'false'}" for index in range(17))
     (frozen_root / "data" / "config.script").write_text(
         "\n".join(friendly_fire_config) + "\n", encoding="utf-8")
-    friendly_fire_base = [SERVER, "--authoritative-match", f"--resources={frozen_root}", "--seed=1"]
+    friendly_fire_base = authoritative_base(frozen_root, 1)
     friendly_fire_arguments = [
         "--actions-stdin", "--rounds=1", "--level-plan=fixed",
         "--fixed-level=levels/friendly-fire.json", "--level=levels/friendly-fire.json",
@@ -357,14 +460,13 @@ assert "tree-burned" in observed_weapon_event_kinds
 # action, releasing the action prevents phantom shots, and both effects expire.
 with tempfile.TemporaryDirectory(prefix="duel6r-shit-thrower-") as frozen_directory:
     frozen_root = pathlib.Path(frozen_directory)
-    shutil.copytree("data", frozen_root / "data")
-    shutil.copytree("levels", frozen_root / "levels")
+    copy_gameplay_resources(RESOURCE_ROOT, frozen_root)
     config_lines = ["volume 128", "music on"]
     config_lines.extend(f"gun {index} false" for index in range(16))
     config_lines.append("gun 16 true")
     (frozen_root / "data" / "config.script").write_text(
         "\n".join(config_lines) + "\n", encoding="utf-8")
-    shit_base = [SERVER, "--authoritative-match", f"--resources={frozen_root}"]
+    shit_base = authoritative_base(frozen_root)
     shit_arguments = [
         "--actions-stdin", "--rounds=1", "--level-plan=fixed",
         "--fixed-level=levels/duel_01.json", "--level=levels/duel_01.json",
@@ -557,10 +659,9 @@ for malformed_level, plan_arguments in (
         ("duel_02.json", ["--level-plan=shuffle", "--rounds=3"])):
     with tempfile.TemporaryDirectory(prefix="duel6r-malformed-level-") as frozen_directory:
         frozen_root = pathlib.Path(frozen_directory)
-        shutil.copytree("data", frozen_root / "data")
-        shutil.copytree("levels", frozen_root / "levels")
+        copy_gameplay_resources(RESOURCE_ROOT, frozen_root)
         (frozen_root / "levels" / malformed_level).write_text("{", encoding="utf-8")
-        malformed_base = [SERVER, "--authoritative-match", f"--resources={frozen_root}", "--seed=424242"]
+        malformed_base = authoritative_base(frozen_root, 424242)
         malformed_status, malformed_lines = run(*plan_arguments, base=malformed_base)
         assert malformed_status == 2, malformed_lines
         assert malformed_lines == [
@@ -585,7 +686,7 @@ for level_plan in ("shuffle", "random"):
 # level so pickup collision and timing remain deterministic without a runtime seam.
 with tempfile.TemporaryDirectory(prefix="duel6r-headless-pick-lock-") as frozen_directory:
     frozen_root = pathlib.Path(frozen_directory)
-    shutil.copytree("data", frozen_root / "data")
+    copy_gameplay_resources(RESOURCE_ROOT, frozen_root, include_levels=False)
     (frozen_root / "levels").mkdir()
     (frozen_root / "levels" / "pick.json").write_text(json.dumps({
         "width": 6,
@@ -602,7 +703,7 @@ with tempfile.TemporaryDirectory(prefix="duel6r-headless-pick-lock-") as frozen_
     pick_config.extend(f"gun {index} {'true' if index == 0 else 'false'}" for index in range(17))
     (frozen_root / "data" / "config.script").write_text(
         "\n".join(pick_config) + "\n", encoding="utf-8")
-    pick_base = [SERVER, "--authoritative-match", f"--resources={frozen_root}", "--seed=1"]
+    pick_base = authoritative_base(frozen_root, 1)
     pick_arguments = [
         "--actions-stdin", "--rounds=1", "--level-plan=fixed",
         "--fixed-level=levels/pick.json", "--level=levels/pick.json",
