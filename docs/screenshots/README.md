@@ -58,8 +58,12 @@ The localized PR #60 person-action refinement affects both existing `MENU-01` wi
 The PR #59 `SS-001` and `SS-024` artifacts are historical because they show `Add` in the person-action row.
 The matrix still requires exactly one representative screenshot for each existing wireframe.
 A new wireframe or additional screenshot entry is not necessary.
-The supplied Teams and non-Team artifacts conform visually and have complete required provenance.
-The focused UX assessment used integrated PR #60 head `380d956932f675c9923b4e3836f15296b6956e52`.
+The supplied PR #60 Teams and non-Team artifacts conformed visually for that refinement and are now historical.
+The localized PR #62 refinement affects both existing `MENU-01` wireframes.
+The PR #62 artifacts replace the PR #60 artifacts because the visible Persons list height, person-name row position, action-button geometry, and batch controller-detection caption changed.
+The matrix still requires exactly one representative screenshot for each existing wireframe.
+The refreshed Teams and non-Team artifacts conform visually and have complete required provenance.
+The focused UX assessment used exact pushed PR #62 head `316c43f99e2f0178b8581012393fd7ecd5353776` and fixed specification baseline `88b72a6`.
 
 ## Provenance requirements
 
@@ -381,6 +385,36 @@ The PR #60 person-action alignment artifacts have this provenance:
 - Deathmatch evidence status: `SS-001` conforms and has complete required provenance.
 - Focused UX assessment head: integrated PR #60 head `380d956932f675c9923b4e3836f15296b6956e52`.
 - Visual assessment result: both artifacts conform to `SET-078`–`SET-083`, `AC-065`, `docs/design.md`, the `MENU-01` specification, and their applicable wireframes.
+- Current status: historical after PR #62 because both artifacts show the shorter Persons list, higher person-name row, previous button geometry, and previous batch controller-detection caption.
+
+The PR #62 person-list and action-button refinement artifacts have this provenance:
+
+- Pull request: `#62`.
+- Implementation branch: `feature/person-list-button-refinement`.
+- Exact pushed artifact head: `316c43f99e2f0178b8581012393fd7ecd5353776`.
+- Fixed product baseline: `88b72a6`.
+- Production source SHA: `790c8b76f9e1f2c07260b466726db55bf83dc6db`.
+- Environment: Release, GL4, Lua enabled, Ubuntu 24.04 Docker, Mesa software rendering, Xvfb at 1920 by 1080, and SDL dummy audio.
+- Viewport: 1920 by 1080 px.
+- Runtime asset Git tree: `399c8a8bdddd86e526e8811ae2da2461d9229866`.
+- Selected background: `forest-foundry.png`.
+- Selected background SHA-256: `fa3d12b5dac0508d44596671d54ecdd999b87772b4a58d743bbe25d335b1fef4`.
+- Deathmatch session identifier: `MENU-01-PR62-DEATHMATCH-790c8b7-913cfae6`.
+- Deathmatch state: show eight selected players in Deathmatch with no visible `Equalize` or `Shuffle` controls.
+- Deathmatch artifact: `MENU-01/deathmatch-person-action-aligned-1920x1080.png`.
+- Deathmatch SHA-256: `913cfae67e79e3ad41bd4e9c91d530749743acf364ef432670281fbf5edbc511`.
+- Teams session identifier: `MENU-01-PR62-TEAMS-790c8b7-11c2b8f3`.
+- Teams state: show six selected players, two teams, Friendly Fire off, Rounds `0`, and visible `Equalize` and `Shuffle` controls.
+- Teams artifact: `MENU-01/teams-person-action-aligned-1920x1080.png`.
+- Teams SHA-256: `11c2b8f35074a17e50395f0a55c64251a10c395cedcb06471a7902ef4e80edb3`.
+- List assessment: both artifacts show one additional standard list row and put the person-name row one standard list row lower than the PR #60 layout.
+- Button assessment: `Remove`, `<<`, `>>`, `Equalize`, `Shuffle`, and `Detect All` use one visible height and keep clear caption space from every border.
+- Naming assessment: both artifacts show `Detect All` for batch controller detection and retain `D` for every row-level action.
+- Conditional-visibility assessment: Deathmatch hides `Equalize` and `Shuffle` without residual frames. Teams shows both controls with readable full captions.
+- Hierarchy and containment assessment: both artifacts preserve the three-panel hierarchy, balanced Persons and Players widths, setup-panel gaps, control alignment, and containment without clipping or overlap.
+- Evidence boundary: the static artifacts do not prove unchanged person-list content or action behavior. The visual assessment confirms that representative content and action affordances remain present.
+- Evidence status: `SS-001` and `SS-024` conform to `SET-084`–`SET-091`, `AC-066`–`AC-069`, `docs/design.md`, the `MENU-01` specification, and both applicable wireframes.
+- Visual gate: `Satisfied`.
 
 The fresh shared-arena packet has this provenance:
 
@@ -405,7 +439,7 @@ The replacement shared-arena artifacts have this provenance:
 
 | ID | Screen ID | Wireframe | Route or workflow | Representative state and setup data | Viewport | Expected visible behavior | Destination path | Provenance and status |
 |---|---|---|---|---|---:|---|---|---|
-| <a id="ss-001"></a>`SS-001` | `MENU-01` | [Non-Team Game Settings](../screens/wireframes/menu-main.md#menu-01-a--non-team-state) | Start the application with the shared consolidated-person fixture and select all eight persons. | Use Deathmatch with eight selected players. Alice and Bruno are ranked. Cora through Hana are unranked. Keep Rounds `0`. | 1920x1080 | Persons and Players must each use 315 logical px with a 5 px gap. The person-name field and `Add` must share one row. `Add` must be to the right of the field. `Remove`, `<<`, and `>>` must use the unchanged aligned person-action row. Team settings, `Equalize`, and `Shuffle` must be absent without residual frames. Roster rows must use standard colors. | `docs/screenshots/MENU-01/deathmatch-person-action-aligned-1920x1080.png` | PR #60 packet above. The artifact visually conforms and has complete required provenance. `Conforms`. |
+| <a id="ss-001"></a>`SS-001` | `MENU-01` | [Non-Team Game Settings](../screens/wireframes/menu-main.md#menu-01-a--non-team-state) | Start the application with the shared consolidated-person fixture and select all eight persons. | Use Deathmatch with eight selected players. Alice and Bruno are ranked. Cora through Hana are unranked. Keep Rounds `0`. | 1920x1080 | Persons and Players must each use 315 logical px with a 5 px gap. The Persons list must show one additional standard row, and the person-name row must be one row lower than in PR #60. `Remove`, `<<`, `>>`, and `Detect All` must use the common button height with visible caption padding. Row-level detection actions must show `D`. Team settings, `Equalize`, and `Shuffle` must be absent without residual frames. Roster rows must use standard colors. | `docs/screenshots/MENU-01/deathmatch-person-action-aligned-1920x1080.png` | PR #62 packet above. The artifact visually conforms and has complete required provenance. `Conforms`. |
 | <a id="ss-002"></a>`SS-002` | `MENU-02` | [Menu message](../screens/wireframes/menu-message.md) | After issue #38 implements the Network footer, select Clear or press F3 from the populated menu. | Use four saved people, two selected players, Deathmatch, persistent score data, and documented default settings; show `Really delete? (Y/N)`. | 1920x1080 | The unchanged scaled target menu behind the strip must visibly include equal-width `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)` footer actions. | `docs/screenshots/MENU-02/network-entry-confirmation-1920x1080.png` | `Planned` for downstream issue #38. The existing three-action-footer capture is not valid for this target wireframe. |
 | <a id="ss-003"></a>`SS-003` | `PLAY-01` | [Shared arena play](../screens/wireframes/play-fullscreen.md) | Start a local Deathmatch and press F2 once during live play. | Use 15 living players, ranking on, a finite round limit, and a state after the start fade. | 1280x900 | One undivided arena must show the whole level and all 15 players. F2 must not change the view. Live ranking, round progress, event messages, and player status must remain available. | `docs/screenshots/PLAY-01/shared-15-player-1280x900.png` | Replacement packet provenance above. Captured from an actual 15-player Deathmatch with ranking enabled and three rounds after pressing F2 once. `Conforms`. |
 | <a id="ss-007"></a>`SS-007` | `MODE-01` | [Predator](../screens/wireframes/mode-predator.md) | Start Predator from the menu. | Use three living players, one predator, ranking on, and a finite round limit. | 1280x900 | One undivided arena must show the faint predator body, visible predator weapon, opaque marines, live ranking, round progress, events, and status cues. | `docs/screenshots/MODE-01/shared-live-1280x900.png` | Fresh shared-arena packet provenance above. `Conforms`. |
@@ -425,7 +459,7 @@ The replacement shared-arena artifacts have this provenance:
 | <a id="ss-021"></a>`SS-021` | `NET-07` | [Guest reconnect](../screens/wireframes/network-reconnect.md) | Interrupt a guest connection during an active network match. | Reconnecting with 24 positive ceiling seconds remaining after host crash or another ambiguous transport failure. | 1280x900 | Endpoint, unchanged reservation deadline, no-input state, active simulation, retryable status, and `Leave session` consequence are visible; the state does not claim host end or player removal. | `docs/screenshots/NET-07/reconnecting-24s-1280x900.png` | `Planned` for downstream issue #38; reconnect is not implemented. |
 | <a id="ss-022"></a>`SS-022` | `NET-08` | [Connection failure](../screens/wireframes/network-failure.md) | Attempt to join an unavailable direct endpoint. | Initial `Host unreachable.` with endpoint context, Retry, Edit setup, and Return to Network. | 1920x1080 | Initial admission uses fixed precedence; terminal reconnect disables Retry; expiry uses truthful copy; host-local service failure uses `Hosted session stopped unexpectedly.` only for the host. | `docs/screenshots/NET-08/host-unreachable-1920x1080.png` | `Planned` for downstream issue #38; no current network UI exists. |
 | <a id="ss-023"></a>`SS-023` | `NET-09` | [Host-ended session overlay](../screens/wireframes/network-host-ended.md) | Receive a valid intentional host End session notice during an active network match. | Host-ended outcome over the last authoritative arena context. | 1280x900 | A blocking `HOST ENDED SESSION` overlay states no migration/resume or persistence and can arise only from an End notice accepted through the current established session. | `docs/screenshots/NET-09/host-ended-1280x900.png` | `Planned` for downstream issue #38; host-ended UI is not implemented. |
-| <a id="ss-024"></a>`SS-024` | `MENU-01` | [Teams Game Settings](../screens/wireframes/menu-main.md#menu-01-b--teams-state) | Open the main menu, select six players, and select `Teams`. | Use six selected players, two teams, Friendly Fire off, Rounds `0`, and visible `Equalize` and `Shuffle`. | 1920x1080 | Persons and Players must each use 315 logical px with a 5 px gap. The person-name field and `Add` must share one row. `Add` must be to the right of the field. `Remove`, `<<`, and `>>` must align vertically with the separate readable `Equalize` and `Shuffle` buttons. All controls must remain contained without overlap. | `docs/screenshots/MENU-01/teams-person-action-aligned-1920x1080.png` | PR #60 packet above. Visual presentation conforms and the artifact has complete required provenance. `Conforms`. |
+| <a id="ss-024"></a>`SS-024` | `MENU-01` | [Teams Game Settings](../screens/wireframes/menu-main.md#menu-01-b--teams-state) | Open the main menu, select six players, and select `Teams`. | Use six selected players, two teams, Friendly Fire off, Rounds `0`, and visible `Equalize` and `Shuffle`. | 1920x1080 | The Persons list must show one additional standard row, and the person-name row must be one row lower than in PR #60. `Remove`, `<<`, `>>`, `Equalize`, `Shuffle`, and `Detect All` must use one common button height with visible caption padding. Row-level detection actions must show `D`. The action rows must align and remain contained without overlap. | `docs/screenshots/MENU-01/teams-person-action-aligned-1920x1080.png` | PR #62 packet above. Visual presentation conforms and the artifact has complete required provenance. `Conforms`. |
 
 ## Coverage
 

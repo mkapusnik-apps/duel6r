@@ -5,9 +5,10 @@
 The implemented screen builds the local roster, assigns controls, selects match settings, shows persistent results, starts a local match, and exits the application. The approved target adds a distinct network entry without changing local Play.
 Entry occurs when the application starts or when gameplay closes.
 Implemented exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action. In the target UI, `Network (F2)` enters `NET-01`.
-The screen implements `SET-001`–`SET-083`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005`, `AC-011`, `AC-040`–`AC-051`, and `AC-053`–`AC-065` from [`docs/features.md`](../features.md). The planned Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+The screen implements `SET-001`–`SET-091`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005`, `AC-011`, `AC-040`–`AC-051`, and `AC-053`–`AC-069` from [`docs/features.md`](../features.md). The planned Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 The Equalize and Shuffle behavior specifically traces to `SET-017`–`SET-019`, `SET-073`–`SET-077`, `AC-011`, and `AC-063`–`AC-064` at fixed product baseline `e75552f`.
 The person-action alignment specifically traces to `SET-078`–`SET-083` and `AC-065` at fixed product baseline `e75552f`.
+The person-list and action-button refinement specifically traces to `SET-084`–`SET-091` and `AC-066`–`AC-069` at fixed product baseline `88b72a6`.
 Stitch screen `681ae093051749fd922ab74454f47121` in project `1219346282527961142` is supplementary historical context for the retro treatment only.
 The Stitch screen does not define the consolidated Persons panel.
 Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`, and `resources/textures/menu/`.
@@ -53,13 +54,19 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - Text that exceeds its cell must clip at the cell boundary.
 - The person list must use one vertical scroll bar and must not add horizontal scrolling.
 - The person list must be the first and largest interactive element in the Persons panel.
+- The person list must show one additional standard list row compared with the PR #60 layout.
+- The person-name row must be one standard list row lower than in the PR #60 layout.
 - The person-name field, `Add`, and person-action row must remain below the person list.
-- The Players panel must contain the selected-player list, each player's control spinner, each player's `D` action, and the batch `D` action in every mode.
+- The Players panel must contain the selected-player list, each player's control spinner, each player's `D` action, and the `Detect All` action in every mode.
 - The Players panel must show buttons labeled `Equalize` and `Shuffle` when `Teams` is selected.
 - The Players panel must hide `Equalize` and `Shuffle` when `Deathmatch` or `Predator` is selected.
 - The Players panel must not reserve visible control space for `Equalize` or `Shuffle` in a non-Team mode.
 - The Players panel must align each control spinner and `D` action with the applicable player row.
 - Each player name, control label, spinner action, and `D` action must remain readable inside the Players panel.
+- `Remove`, `<<`, `>>`, `Equalize`, `Shuffle`, and the batch controller-detection action must use one common button height.
+- Each caption in the common-height buttons must have visible space from its border on all sides.
+- The batch controller-detection action must use the caption `Detect All`.
+- Each row-level controller-detection action must keep the caption `D`.
 - The Game Settings panel must contain the mode spinner, Assistance checkbox, Quick Liquid checkbox, Burnable Trees checkbox, and Rounds field in every mode.
 - The mode spinner must show `Deathmatch`, `Predator`, and exactly one `Teams` option.
 - The Game Settings panel must show `Num. of Team` and `Friendly Fire` below the mode spinner when `Teams` is selected.
@@ -110,6 +117,7 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - Selecting `Deathmatch` or `Predator` must hide both roster-order controls immediately.
 - Selecting `Teams` must show both roster-order controls immediately.
 - This change must not alter another control or game behavior.
+- The list expansion and button refinement must not change person-list content, person actions, roster-order actions, or controller-detection behavior.
 - Selecting `Teams` must color player rows by roster position modulo the selected team count.
 - The team order must be Alpha, Bravo, Charlie, and Delta.
 - The roster must use Alpha red, Bravo green, Charlie yellow, and Delta magenta.
@@ -190,6 +198,8 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The Friendly Fire checkbox must use the standard checked and unchecked feedback.
 - Hiding a Team control must remove its interaction target.
 - Hiding `Equalize` or `Shuffle` must remove its interaction target.
+- `Detect All` must retain the batch controller-detection behavior.
+- Each row-level `D` action must retain its controller-detection behavior.
 
 ## Accessibility and viewport behavior
 
@@ -222,7 +232,8 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 ## Screenshot link
 
 Required representative evidence: [`SS-001`](../screenshots/README.md#ss-001) for the non-Team wireframe and [`SS-024`](../screenshots/README.md#ss-024) for the Teams wireframe.
-Each capture must show the current two-row Persons action arrangement.
+Each capture must show the expanded person list and the person-name row one standard list row lower than in the PR #60 layout.
+Each capture must show the common action-button height, visible caption padding, `Detect All`, and row-level `D` captions.
 The non-Team capture must show no `Equalize` or `Shuffle` control and must keep the person-action row at the documented position.
 The Teams capture must show the full `Equalize` and `Shuffle` labels aligned with the person-action row.
 The screen specification documents list-content, retention, and behavior variants without requiring another screenshot entry.
