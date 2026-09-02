@@ -215,6 +215,9 @@ namespace Duel6 {
     }
 
     void Menu::initialize() {
+        const Int32 menuActionY = 278;
+        const Int32 menuActionHeight = 25;
+
         appService.getConsole().printLine("\n===Menu initialization===");
         menuBannerTexture = appService.getTextureManager().loadStack(D6_TEXTURE_MENU_PATH, TextureFilter::Linear, true);
         initializePresentation();
@@ -243,7 +246,7 @@ namespace Duel6 {
                                     << "Rank" << "Name" << "Elo" << "Trend");
 
         personListBox = new Gui::ListBox(gui, true);
-        personListBox->setPosition(14, 535, 36, 11, 18);
+        personListBox->setPosition(14, 535, 36, 12, 18);
         personListBox->onDoubleClick([this](Int32 index, const std::string &item) {
             addPlayer(index);
         });
@@ -257,28 +260,28 @@ namespace Duel6 {
         loadPersonProfiles(D6_FILE_PROFILES);
 
         auto addPlayerButton = new Gui::Button(gui);
-        addPlayerButton->setPosition(104, 278, 35, 25);
+        addPlayerButton->setPosition(113, menuActionY, 35, menuActionHeight);
         addPlayerButton->setCaption(">>");
         addPlayerButton->onClick([this](Gui::Button &) {
             addPlayer(personListBox->selectedIndex());
         });
 
         auto removePlayerButton = new Gui::Button(gui);
-        removePlayerButton->setPosition(67, 278, 35, 25);
+        removePlayerButton->setPosition(76, menuActionY, 35, menuActionHeight);
         removePlayerButton->setCaption("<<");
         removePlayerButton->onClick([this](Gui::Button &) {
             removePlayer(playerListBox->selectedIndex());
         });
 
         auto removePersonButton = new Gui::Button(gui);
-        removePersonButton->setPosition(14, 278, 51, 25);
+        removePersonButton->setPosition(14, menuActionY, 60, menuActionHeight);
         removePersonButton->setCaption("Remove");
         removePersonButton->onClick([this](Gui::Button &) {
             deletePerson();
         });
 
         auto addPersonButton = new Gui::Button(gui);
-        addPersonButton->setPosition(268, 326, 52, 22);
+        addPersonButton->setPosition(268, 308, 52, 22);
         addPersonButton->setCaption("Add");
         addPersonButton->onClick([this](Gui::Button &) {
             addPerson();
@@ -316,20 +319,20 @@ namespace Duel6 {
 
         shuffleButton = new Gui::Button(gui);
         shuffleButton->setCaption("Shuffle");
-        shuffleButton->setPosition(412, 274, 68, 17);
+        shuffleButton->setPosition(412, menuActionY, 68, menuActionHeight);
         shuffleButton->onClick([this](Gui::Button &) {
             shufflePlayers();
         });
 
         equalizeButton = new Gui::Button(gui);
         equalizeButton->setCaption("Equalize");
-        equalizeButton->setPosition(334, 274, 76, 17);
+        equalizeButton->setPosition(334, menuActionY, 76, menuActionHeight);
         equalizeButton->onClick([this](Gui::Button &) {
             eloShufflePlayers();
         });
 
         textbox = new Gui::Textbox(gui);
-        textbox->setPosition(14, 326, 30, 10, D6_ALL_CHR);
+        textbox->setPosition(14, 308, 30, 10, D6_ALL_CHR);
 
         // Player controls
         for (Size i = 0; i < D6_MAX_PLAYERS; i++) {
@@ -346,8 +349,8 @@ namespace Duel6 {
 
         // Button to detect all user's controllers in a batch
         Gui::Button *button = new Gui::Button(gui);
-        button->setCaption("D");
-        button->setPosition(623, 274, 17, 17);
+        button->setCaption("Detect All");
+        button->setPosition(482, menuActionY, 92, menuActionHeight);
         button->onClick([this](Gui::Button &) {
             joyRescan();
             Size curPlayersCount = playerListBox->size();
