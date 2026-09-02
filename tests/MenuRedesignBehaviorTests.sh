@@ -372,9 +372,9 @@ capture "${scenario_dir}/initial.png"
 # retain record order (UnrankedRoster, UnrankedFree). Select RankRoster and
 # exercise no-op add/double-click/remove behavior for an existing roster member.
 xdotool mousemove "$(menu_x 315)" "$(menu_y 292)" click 1
-xdotool mousemove "$(menu_x 336)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 336)" "$(menu_y 534)" click 1
 xdotool mousemove "$(menu_x 315)" "$(menu_y 292)" click --repeat 2 --delay 80 1
-xdotool mousemove "$(menu_x 254)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 254)" "$(menu_y 534)" click 1
 
 # A non-modal roster-member Remove leaves the UI interactive. Enter in the
 # focused name field adds exactly one saved person and refreshes the list.
@@ -389,7 +389,7 @@ xdotool key --window "$window_id" BackSpace BackSpace BackSpace BackSpace BackSp
 # and person-row double-click must not duplicate roster membership.
 xdotool mousemove "$(menu_x 315)" "$(menu_y 346)" click 1
 capture "${scenario_dir}/free-selected.png"
-xdotool mousemove "$(menu_x 336)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 336)" "$(menu_y 534)" click 1
 capture "${scenario_dir}/free-after-transfer.png"
 normalize_menu "${scenario_dir}/free-selected.png" "${scenario_dir}/free-selected-normalized.png"
 normalize_menu "${scenario_dir}/free-after-transfer.png" "${scenario_dir}/free-after-transfer-normalized.png"
@@ -397,28 +397,28 @@ convert "${scenario_dir}/free-selected-normalized.png" -crop 288x18+16+237 +repa
 convert "${scenario_dir}/free-after-transfer-normalized.png" -crop 288x18+16+237 +repage "${scenario_dir}/free-after-transfer-row.png"
 assert_same "${scenario_dir}/free-selected-row.png" "${scenario_dir}/free-after-transfer-row.png" \
   "Persons selection after roster transfer"
-xdotool mousemove "$(menu_x 336)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 336)" "$(menu_y 534)" click 1
 xdotool mousemove "$(menu_x 315)" "$(menu_y 346)" click --repeat 2 --delay 80 1
 
 # Remove on a roster member is a no-op. Double-click in Players and << both
 # return the player while its consolidated Persons row remains present.
-xdotool mousemove "$(menu_x 254)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 254)" "$(menu_y 534)" click 1
 xdotool mousemove "$(menu_x 595)" "$(menu_y 292)" click --repeat 2 --delay 80 1
 xdotool mousemove "$(menu_x 315)" "$(menu_y 346)" click 1
-xdotool mousemove "$(menu_x 336)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 336)" "$(menu_y 534)" click 1
 xdotool mousemove "$(menu_x 595)" "$(menu_y 292)" click 1
-xdotool mousemove "$(menu_x 299)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 299)" "$(menu_y 534)" click 1
 
 # Reject then accept deletion of the selected non-roster person. The refresh
 # clears the deleted selection, so a following >> cannot change the roster.
 xdotool mousemove "$(menu_x 315)" "$(menu_y 346)" click 1
-xdotool mousemove "$(menu_x 254)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 254)" "$(menu_y 534)" click 1
 sleep 0.2
 xdotool key --window "$window_id" n
-xdotool mousemove "$(menu_x 254)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 254)" "$(menu_y 534)" click 1
 sleep 0.2
 xdotool key --window "$window_id" y
-xdotool mousemove "$(menu_x 336)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 336)" "$(menu_y 534)" click 1
 
 # Enter adds another person; a person-row double-click adds it to Players.
 xdotool mousemove "$(menu_x 315)" "$(menu_y 490)" click 1
@@ -454,7 +454,7 @@ PY
 start_app
 xdotool mousemove "$(menu_x 315)" "$(menu_y 490)" click 1
 xdotool type --window "$window_id" --delay 5 ButtonAdd
-xdotool mousemove "$(menu_x 381)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 509)" "$(menu_y 485)" click 1
 close_app
 python3 - "${scenario_dir}/data/persons.json" <<'PY'
 import json, sys
@@ -475,13 +475,13 @@ start_app
 xdotool mousemove "$(menu_x 565)" "$(menu_y 490)" click 1
 xdotool type --window "$window_id" --delay 5 NoLeak
 xdotool key --window "$window_id" Return
-xdotool mousemove "$(menu_x 299)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 299)" "$(menu_y 534)" click 1
 
 # A click safely inside the person-name field must affect only that field. Add
 # and focused Enter retain their existing behavior after the field is resized.
 xdotool mousemove "$(menu_x 315)" "$(menu_y 490)" click 1
 xdotool type --window "$window_id" --delay 5 ButtonFit
-xdotool mousemove "$(menu_x 381)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 509)" "$(menu_y 485)" click 1
 xdotool mousemove "$(menu_x 315)" "$(menu_y 490)" click 1
 xdotool type --window "$window_id" --delay 5 EnterFit
 xdotool key --window "$window_id" Return
@@ -642,9 +642,17 @@ crop_roster_order_controls() {
   convert "$normalized" -crop 150x20+332+425 +repage "$2"
 }
 
+crop_person_action_controls() {
+  local normalized="${2%.png}-normalized.png"
+  normalize_menu "$1" "$normalized"
+  convert "$normalized" -crop 130x27+12+421 +repage "$2"
+}
+
 # Deathmatch is selected initially. Both roster-order controls must be absent,
 # and clicking their complete former/current hit regions must not reorder rows.
 capture "${scenario_dir}/deathmatch-before-hidden-clicks.png"
+crop_person_action_controls "${scenario_dir}/deathmatch-before-hidden-clicks.png" \
+  "${scenario_dir}/deathmatch-person-actions.png"
 crop_player_rows "${scenario_dir}/deathmatch-before-hidden-clicks.png" \
   "${scenario_dir}/deathmatch-rows-before.png"
 crop_roster_order_controls "${scenario_dir}/deathmatch-before-hidden-clicks.png" \
@@ -663,12 +671,17 @@ assert_same "${scenario_dir}/deathmatch-rows-before.png" \
 xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
 sleep 0.3
 capture "${scenario_dir}/predator-before-hidden-clicks.png"
+crop_person_action_controls "${scenario_dir}/predator-before-hidden-clicks.png" \
+  "${scenario_dir}/predator-person-actions.png"
 crop_player_rows "${scenario_dir}/predator-before-hidden-clicks.png" \
   "${scenario_dir}/predator-rows-before.png"
 crop_roster_order_controls "${scenario_dir}/predator-before-hidden-clicks.png" \
   "${scenario_dir}/predator-controls.png"
 assert_same "${scenario_dir}/deathmatch-controls.png" "${scenario_dir}/predator-controls.png" \
   "Deathmatch and Predator hidden roster-order controls"
+assert_same "${scenario_dir}/deathmatch-person-actions.png" \
+  "${scenario_dir}/predator-person-actions.png" \
+  "Deathmatch and Predator person-action row position"
 xdotool mousemove 570 558 click 1
 xdotool mousemove 665 558 click 1
 sleep 0.3
@@ -683,10 +696,15 @@ assert_same "${scenario_dir}/predator-rows-before.png" \
 xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
 sleep 0.3
 capture "${scenario_dir}/teams-before-shuffle.png"
+crop_person_action_controls "${scenario_dir}/teams-before-shuffle.png" \
+  "${scenario_dir}/teams-person-actions.png"
 crop_roster_order_controls "${scenario_dir}/teams-before-shuffle.png" \
   "${scenario_dir}/teams-controls.png"
 assert_changed "${scenario_dir}/predator-controls.png" "${scenario_dir}/teams-controls.png" \
   "Teams Equalize and Shuffle controls"
+assert_same "${scenario_dir}/predator-person-actions.png" \
+  "${scenario_dir}/teams-person-actions.png" \
+  "Teams and non-Team person-action row position"
 
 # Shuffle may validly select the identity permutation. Regardless of the
 # resulting order, its visible hit target must activate and every player must

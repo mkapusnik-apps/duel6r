@@ -5,8 +5,9 @@
 The implemented screen builds the local roster, assigns controls, selects match settings, shows persistent results, starts a local match, and exits the application. The approved target adds a distinct network entry without changing local Play.
 Entry occurs when the application starts or when gameplay closes.
 Implemented exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action. In the target UI, `Network (F2)` enters `NET-01`.
-The screen implements `SET-001`–`SET-077`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005`, `AC-011`, `AC-040`–`AC-051`, and `AC-053`–`AC-064` from [`docs/features.md`](../features.md). The planned Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
-The Equalize and Shuffle behavior specifically traces to `SET-017`–`SET-019`, `SET-073`–`SET-077`, `AC-011`, and `AC-063`–`AC-064` at source commit `fed0daa3939dd517f29a7434b99b1009b30be848`.
+The screen implements `SET-001`–`SET-083`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005`, `AC-011`, `AC-040`–`AC-051`, and `AC-053`–`AC-065` from [`docs/features.md`](../features.md). The planned Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+The Equalize and Shuffle behavior specifically traces to `SET-017`–`SET-019`, `SET-073`–`SET-077`, `AC-011`, and `AC-063`–`AC-064` at fixed product baseline `e75552f`.
+The person-action alignment specifically traces to `SET-078`–`SET-083` and `AC-065` at fixed product baseline `e75552f`.
 Stitch screen `681ae093051749fd922ab74454f47121` in project `1219346282527961142` is supplementary historical context for the retro treatment only.
 The Stitch screen does not define the consolidated Persons panel.
 Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`, and `resources/textures/menu/`.
@@ -35,7 +36,13 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The Players panel must use `x=330–644` and a width of 315 logical px.
 - The Game Settings panel must remain at `x=650–839` and a width of 190 logical px.
 - The layout must keep a 5-logical-pixel gap between each adjacent setup panel.
-- The Persons panel must contain one person list, the person-name field, `Remove`, `<<`, `>>`, and `Add`.
+- The Persons panel must contain one person list, the person-name field, `Add`, and a person-action row.
+- The person-name field and `Add` must use one row below the person list.
+- `Add` must be to the right of the person-name field.
+- The person-action row must contain `Remove`, `<<`, and `>>`.
+- The person-action row must be below the person-name row.
+- The person-action row must align vertically with `Equalize` and `Shuffle` when those controls are visible.
+- The person-action row must keep the same position when `Equalize` and `Shuffle` are hidden.
 - Each Persons control must remain inside the Persons panel bounds.
 - A Persons control must not draw into a setup-panel gap or the Players region.
 - The person list must use the visible columns `Rank`, `Name`, `Elo`, and `Trend` in that order.
@@ -46,7 +53,7 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - Text that exceeds its cell must clip at the cell boundary.
 - The person list must use one vertical scroll bar and must not add horizontal scrolling.
 - The person list must be the first and largest interactive element in the Persons panel.
-- The person-name field and person actions must remain below the person list.
+- The person-name field, `Add`, and person-action row must remain below the person list.
 - The Players panel must contain the selected-player list, each player's control spinner, each player's `D` action, and the batch `D` action in every mode.
 - The Players panel must show buttons labeled `Equalize` and `Shuffle` when `Teams` is selected.
 - The Players panel must hide `Equalize` and `Shuffle` when `Deathmatch` or `Predator` is selected.
@@ -161,6 +168,8 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - `Remove` must open the existing delete confirmation only when the selected person is not in Players.
 - `Remove` must make no visible change when the selected person is in Players.
 - `Add` and Enter in the focused person-name field must retain the existing add behavior.
+- `Add` must remain in the person-name row.
+- `Remove`, `<<`, and `>>` must remain in the aligned person-action row in every mode.
 - Enter must add a person when the person-name field has focus.
 - Enter must apply Rounds when the rounds field has focus.
 - Focus must clear the Rounds field immediately when the field shows exactly `0`.
@@ -213,8 +222,9 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 ## Screenshot link
 
 Required representative evidence: [`SS-001`](../screenshots/README.md#ss-001) for the non-Team wireframe and [`SS-024`](../screenshots/README.md#ss-024) for the Teams wireframe.
-Each capture must show the consolidated Persons list with ranked, unranked, roster-member, and selected-person states.
-The non-Team capture must show no `Equalize` or `Shuffle` control.
-The Teams capture must show the full `Equalize` and `Shuffle` labels, a positive applied Rounds value, and retained Team values after gameplay returns during the same application session.
+Each capture must show the current two-row Persons action arrangement.
+The non-Team capture must show no `Equalize` or `Shuffle` control and must keep the person-action row at the documented position.
+The Teams capture must show the full `Equalize` and `Shuffle` labels aligned with the person-action row.
+The screen specification documents list-content, retention, and behavior variants without requiring another screenshot entry.
 Both current implementation captures must show the implemented three-action footer.
 Issue #38 must replace this evidence when it implements the target Network action.

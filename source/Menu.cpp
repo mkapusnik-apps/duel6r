@@ -257,28 +257,28 @@ namespace Duel6 {
         loadPersonProfiles(D6_FILE_PROFILES);
 
         auto addPlayerButton = new Gui::Button(gui);
-        addPlayerButton->setPosition(104, 301, 35, 25);
+        addPlayerButton->setPosition(104, 278, 35, 25);
         addPlayerButton->setCaption(">>");
         addPlayerButton->onClick([this](Gui::Button &) {
             addPlayer(personListBox->selectedIndex());
         });
 
         auto removePlayerButton = new Gui::Button(gui);
-        removePlayerButton->setPosition(67, 301, 35, 25);
+        removePlayerButton->setPosition(67, 278, 35, 25);
         removePlayerButton->setCaption("<<");
         removePlayerButton->onClick([this](Gui::Button &) {
             removePlayer(playerListBox->selectedIndex());
         });
 
         auto removePersonButton = new Gui::Button(gui);
-        removePersonButton->setPosition(14, 301, 51, 25);
+        removePersonButton->setPosition(14, 278, 51, 25);
         removePersonButton->setCaption("Remove");
         removePersonButton->onClick([this](Gui::Button &) {
             deletePerson();
         });
 
         auto addPersonButton = new Gui::Button(gui);
-        addPersonButton->setPosition(141, 301, 50, 25);
+        addPersonButton->setPosition(268, 326, 52, 22);
         addPersonButton->setCaption("Add");
         addPersonButton->onClick([this](Gui::Button &) {
             addPerson();
@@ -329,7 +329,7 @@ namespace Duel6 {
         });
 
         textbox = new Gui::Textbox(gui);
-        textbox->setPosition(14, 326, 37, 10, D6_ALL_CHR);
+        textbox->setPosition(14, 326, 30, 10, D6_ALL_CHR);
 
         // Player controls
         for (Size i = 0; i < D6_MAX_PLAYERS; i++) {

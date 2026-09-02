@@ -121,7 +121,7 @@ image, team_count, player_count, label = sys.argv[1], int(sys.argv[2]), int(sys.
 expected = [(255, 0, 0), (0, 255, 0), (255, 255, 0), (255, 0, 255)]
 for index in range(player_count):
     # Sample clear of the player name in the center of each 18-pixel row.
-    x, y = 470, 157 + index * 18
+    x, y = 420, 157 + index * 18
     pixel = subprocess.check_output([
         "convert", image, "-crop", f"1x1+{x}+{y}", "+repage",
         "-alpha", "off", "-depth", "8", "rgb:-",
