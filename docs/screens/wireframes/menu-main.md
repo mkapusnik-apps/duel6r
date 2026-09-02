@@ -17,6 +17,7 @@ Cora, Diego, Erin, Farah, Gus, and Hana are unranked roster members in person-re
 Cora is the selected person.
 The current implementation captures must use the implemented three-action footer.
 The four-action footer remains a target variant for issue #38.
+Both conditional-layout wireframes remain necessary because a mode change changes the visible Players panel controls and the Game Settings layout.
 
 ## Canvas zones
 
@@ -54,7 +55,7 @@ Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly F
 │        ││01   │ Alice         │ 1264 │ +18    ││Alice│ K1: Arrows │ D ││☑ Assistance  ││
 │        ││02   │ Bruno         │ 1218 │ -7     ││Bruno│ K1: Arrows │ D ││☑ Quick Liquid ││
 │        ││     │ Cora          │      │        ││                      ││☑ Burnable Trees││
-│        ││     │ Diego         │      │        ││[E] [S] [batch D]     ││Rounds [3___]  ││
+│        ││     │ Diego         │      │        ││[batch D]             ││Rounds [3___]  ││
 │        ││     │ Erin … Hana   │      │        ││… 6 more roster rows  ││               ││
 │        ││         [person name________________]│                      ││               ││
 │        ││         [Remove] [<<] [>>] [Add]    │                      ││               ││
@@ -70,6 +71,8 @@ Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly F
 ```
 
 `Num. of Team` and `Friendly Fire` must not appear in `MENU-01-A`.
+`Equalize` and `Shuffle` must not appear in `MENU-01-A`.
+The hidden roster-order controls must not leave empty button frames or interaction targets.
 The layout must not reserve empty rows for the hidden controls.
 Every roster row must use the standard non-Team list colors.
 The hidden values remain `4` and on for the current application session.
@@ -92,7 +95,7 @@ Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly F
 │        ││     │ Cora          │      │        ││                      ││☑ Assistance    ││
 │        ││     │ Diego         │      │        ││                      ││☑ Quick Liquid  ││
 │        ││     │ Erin … Hana   │      │        ││… rows repeat colors  ││☑ Burnable Trees││
-│        ││         [person name________________]│[E] [S] [batch D]     ││Rounds [3___]   ││
+│        ││         [person name________________]│[Equalize] [Shuffle] [batch D]│Rounds [3___]   ││
 │        ││         [Remove] [<<] [>>] [Add]    │                      ││                ││
 │        │└─────────────────────────────────────┘└──────────────────────┘└────────────────┘│
 │        │ Name | Elo | Pts | Win | Kill | Assist | Pen | Death | K/D | Shot | Acc. | GmTm | Dmg│
@@ -140,9 +143,15 @@ The Cora row must show the standard selected-row treatment.
 - The non-Team state must use the standard list row colors.
 - A selected roster row must remain visibly selected in both states.
 - The Players panel must preserve one control spinner and one `D` action for each of the 15 roster positions.
-- `E` must mean Elo shuffle.
-- `S` must mean random shuffle.
+- The Teams state must show buttons labeled `Equalize` and `Shuffle`.
+- `Equalize` must use the documented Elo-based team distribution behavior.
+- `Shuffle` must randomly reorder the roster.
+- Both roster-order actions must keep each player's assigned control preset.
+- The non-Team state must hide both roster-order controls and their interaction targets.
+- The roster-order control visibility must update immediately when the selected mode changes.
 - The batch `D` action must remain visually separate from the row-level `D` actions.
+- The batch `D` action must keep its existing function and roster-action-row position.
+- This change must not alter another control or game behavior.
 - The mode spinner must expose Deathmatch, Predator, and exactly one Teams option.
 - The Teams state must show `Num. of Team` and `Friendly Fire` directly below Mode.
 - The non-Team state must hide both Team controls and their interaction targets.
@@ -194,6 +203,7 @@ The Cora row must show the standard selected-row treatment.
 
 Non-Team representative screenshot: [`SS-001`](../../screenshots/README.md#ss-001).
 Teams representative screenshot: [`SS-024`](../../screenshots/README.md#ss-024).
+Both screenshots require fresh implementation evidence for the localized roster-order control change.
 The historical baseline at [`default-1706x938.png`](../../screenshots/MENU-01/default-1706x938.png) is a reference for the unchanged retro controls and footer only.
 The historical baseline is not conformance evidence for the consolidated Persons list.
 Issue #38 must replace these screenshots when it implements the target footer variant.

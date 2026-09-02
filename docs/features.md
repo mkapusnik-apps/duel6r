@@ -11,6 +11,7 @@ The Rounds field focus and session-memory requirements define an approved change
 The round-summary progress requirements define an approved change to the earlier implementation baseline.
 The consolidated Teams menu requirements define an approved change to the earlier implementation baseline.
 The consolidated person list requirements define an approved change to the earlier implementation baseline.
+The Equalize and Shuffle menu requirements define an approved change to the earlier implementation baseline.
 
 The word **person** means a persistent named record. The word **player** means a person in the active match roster.
 
@@ -42,9 +43,9 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **SET-014** A positive round limit must make that numbered round the last round.
 - **SET-015** The menu must apply the round-limit field when the user presses Enter in that field.
 - **SET-016** The menu must apply the round-limit field again when the user starts a match.
-- **SET-017** Random roster shuffle must move each control assignment with its player.
-- **SET-018** Elo shuffle must order players by descending Elo before it randomizes each consecutive group.
-- **SET-019** Elo shuffle must preserve each player's control assignment.
+- **SET-017** Shuffle must randomly reorder the player roster and move each control assignment with its player.
+- **SET-018** Equalize must first order players by descending Elo.
+- **SET-019** Equalize must preserve each player's control assignment.
 - **SET-020** In Team deathmatch, roster position modulo team count must assign the player's team.
 - **SET-021** The roster must show Team deathmatch assignments with the applicable team colors.
 - **SET-022** The Clear button and F3 must ask `Really delete? (Y/N)` before clearing statistics for every person.
@@ -103,6 +104,14 @@ The **person list** is the single main-menu list that combines person management
 - **SET-070** The consolidation must not change the existing menu keyboard shortcuts or text-field Enter actions.
 - **SET-071** The consolidation must not change controller detection, controller assignment, or controller input behavior.
 - **SET-072** The person list must keep saved persons, roster membership, statistics, Elo data, and Elo game counts unchanged across application restarts.
+
+### Team roster order actions
+
+- **SET-073** After SET-018, Equalize must divide the ordered roster into consecutive groups. Each complete group must contain as many players as the selected team count.
+- **SET-074** Equalize must randomly reorder players within each group from SET-073.
+- **SET-075** When `Teams` is selected, the Players panel must show buttons labeled `Equalize` and `Shuffle`.
+- **SET-076** When `Deathmatch` or `Predator` is selected, the Players panel must not show `Equalize` or `Shuffle`.
+- **SET-077** A hidden `Equalize` or `Shuffle` button must not have an active interaction target.
 
 ## Match and round lifecycle
 
@@ -467,7 +476,7 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-008** A qualifying attack awards assists according to SCO-007 through SCO-017 in free-for-all and team scenarios.
 - **AC-009** Total points, ranking order, penalties, deaths, and Elo behavior follow SCO-001 through SCO-024.
 - **AC-010** Each action in INP-012 works through an assigned keyboard or connected game-controller preset. Repeated jump input produces the implemented double-jump. INP-008 defines detection precedence.
-- **AC-011** Roster shuffle and Elo shuffle preserve each player's assigned control preset.
+- **AC-011** Shuffle and Equalize preserve each player's assigned control preset.
 - **AC-012** Starting weapons, ammo, shooting, charge, reload, drops, pickups, and empty-ammo behavior follow PLY-001 and CMB-001 through CMB-020. A replaced weapon must remain in the world at the player's collider position. It must receive twice the player's horizontal and vertical velocity. This behavior must also apply when the replaced weapon has zero ammo.
 - **AC-013** Each immediate and timed bonus produces the applicable behavior in BON-001 through BON-020.
 - **AC-014** Spawn protection, indicators, water, drowning, elevators, stuck recovery, regeneration, and sudden death follow PLY-003 through ENV-013.
@@ -519,6 +528,8 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-060** Statistics clear preserves Elo data and refreshes the person list as specified by SET-023 and SET-066.
 - **AC-061** An application restart restores the same persons, roster membership, statistics, and Elo data in the consolidated list.
 - **AC-062** The consolidation does not change roster controls, shuffles, settings, score table, footer actions, keyboard shortcuts, text-field Enter actions, or controller behavior.
+- **AC-063** Selecting `Teams` shows `Equalize` and `Shuffle`. Selecting `Deathmatch` or `Predator` hides both buttons and removes both interaction targets.
+- **AC-064** In `Teams`, Shuffle randomly changes roster order. Equalize distributes consecutive Elo-ranked groups across the selected team positions. Both actions keep each player's control assignment.
 
 ## Source traceability
 
