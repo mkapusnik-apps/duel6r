@@ -10,16 +10,30 @@ build_dir="${BUILD_DIR:-${workspace_dir}/build}"
 resource_dir="${RESOURCE_DIR:-${build_dir}}"
 test_root="${TEST_ROOT:-${build_dir}/local-play-shit-thrower-sanitizer}"
 display="${DISPLAY:-:97}"
+app_binary="${APP_BINARY:-${build_dir}/duel6r}"
+sanitizer_expect="${SANITIZER_EXPECT:-address,undefined}"
 
 fail() {
     printf 'local-play-shit-thrower-sanitizer: %s\n' "$*" >&2
     exit 1
 }
 
-for command in Xvfb xdotool python3 timeout; do
+for command in Xvfb xdotool python3 readelf timeout; do
     command -v "$command" >/dev/null 2>&1 || fail "required command not found: $command"
 done
-[[ -x "${build_dir}/duel6r" ]] || fail "application binary is missing"
+[[ -x "$app_binary" ]] || fail "application binary is missing: $app_binary"
+
+instrumentation="$(readelf -Ws "$app_binary" 2>/dev/null || true)"
+if [[ "$sanitizer_expect" == *address* \
+      && "$instrumentation" != *__asan_init* ]]; then
+    fail "application binary does not contain required ASan instrumentation"
+fi
+if [[ "$sanitizer_expect" == *undefined* \
+      && "$instrumentation" != *__ubsan_handle_* ]]; then
+    fail "application binary does not contain required UBSan instrumentation"
+fi
+printf 'local-play-shit-thrower-sanitizer: verified instrumentation=%s binary=%s\n' \
+    "$sanitizer_expect" "$app_binary"
 
 rm -rf "$test_root"
 mkdir -p "$test_root"
@@ -50,7 +64,7 @@ for player_count in $(seq 2 15); do
     scenario_dir="${test_root}/players-${player_count}"
     runtime_dir="${scenario_dir}/runtime"
     mkdir -p "${runtime_dir}/data" "${scenario_dir}/home"
-    cp "${build_dir}/duel6r" "${runtime_dir}/duel6r"
+    cp "$app_binary" "${runtime_dir}/duel6r"
     cp -R "${resource_dir}/data/." "${runtime_dir}/data/"
     cp -R "${resource_dir}/levels" "${resource_dir}/profiles" "${resource_dir}/shaders" \
         "${resource_dir}/sound" "${resource_dir}/textures" "$runtime_dir/"

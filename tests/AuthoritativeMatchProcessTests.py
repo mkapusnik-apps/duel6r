@@ -45,6 +45,14 @@ def diagnostics_from(lines):
                 and not line.startswith("session-result="))
 
 
+def require_linux_golden_semantics(actual, golden):
+    """Compare native semantics to the Linux contract, ignoring only commit provenance."""
+    expected = dict(golden)
+    ignored = expected.pop("productionHead")
+    assert isinstance(ignored, str) and ignored, golden
+    assert actual == expected, (actual, expected)
+
+
 interrupted = require_outcome(
     ["--scenario=interrupted"],
     0,
@@ -96,6 +104,99 @@ assert canonical_victim["kills"] == 0
 assert canonical_victim["deaths"] == 1
 assert canonical_victim["penalties"] == 0
 
+# Complete real CanonicalMatchRuntime Game/Round/World sessions for every mode
+# variant. The compact fixture changes only frozen loadout/spawn diagnostics; all
+# movement, projectiles, collisions, mode rules, scoring, and completion are real.
+mode_variants = [
+    ("Deathmatch", ["--match-mode=deathmatch"], 0, False, [201], ""),
+    ("Predator", ["--match-mode=predator"], 0, False, [101], ""),
+]
+mode_variants.extend(
+    ("Team deathmatch", ["--match-mode=team-deathmatch", f"--teams={teams}",
+                         f"--friendly-fire={'on' if friendly_fire else 'off'}"],
+     teams, friendly_fire, [201], "Bravo")
+    for teams in (2, 3, 4) for friendly_fire in (False, True)
+)
+for expected_mode, arguments, expected_teams, expected_friendly_fire, expected_winners, expected_team in mode_variants:
+    mode_result = require_outcome(
+        canonical_arguments + arguments, 0, "authoritative-match-completed",
+        "Authoritative match completed.", result=True)
+    assert mode_result["mode"] == expected_mode
+    assert mode_result["teamCount"] == expected_teams
+    assert mode_result["friendlyFire"] is expected_friendly_fire
+    assert mode_result["completedRounds"] == 1
+    assert mode_result["finalNoWinner"] is False
+    assert mode_result["finalWinnerPlayerIds"] == expected_winners
+    assert mode_result["finalWinningTeam"] == expected_team
+    assert mode_result["rounds"][0]["noWinner"] is False
+    assert mode_result["rounds"][0]["winnerPlayerIds"] == expected_winners
+    for row in mode_result["players"]:
+        score = row["cumulative"]
+        assert score["totalPoints"] == score["kills"] + score["wins"] + score["assists"] - score["penalties"]
+    if expected_mode == "Team deathmatch":
+        assert len(mode_result["teams"]) == expected_teams
+        assert mode_result["teams"][0] == {
+            "rank": 1, "team": "Bravo", "totalPoints": 2, "rankedPlayerIds": [201],
+        }
+        assert mode_result["players"][0]["team"] == "Bravo"
+        assert mode_result["players"][0]["cumulative"]["kills"] == 1
+        assert mode_result["players"][0]["cumulative"]["wins"] == 1
+        assert mode_result["players"][0]["cumulative"]["penalties"] == 0
+
+# Exercise friendly-fire through real input/projectile/collision behavior rather
+# than direct authoritative damage. The same frozen level, roster, seed, and held
+# Machine Gun action produce extra teammate hits and damage only when FF is on.
+with tempfile.TemporaryDirectory(prefix="duel6r-canonical-friendly-fire-") as frozen_directory:
+    frozen_root = pathlib.Path(frozen_directory)
+    shutil.copytree("data", frozen_root / "data")
+    (frozen_root / "levels").mkdir()
+    (frozen_root / "levels" / "friendly-fire.json").write_text(json.dumps({
+        "width": 10,
+        "height": 3,
+        "blocks": [1] * 10 + [1] + [0] * 8 + [1] + [1] * 10,
+        "elevators": [],
+    }), encoding="utf-8")
+    friendly_fire_config = ["volume 128", "music on"]
+    friendly_fire_config.extend(
+        f"gun {index} {'true' if index == 6 else 'false'}" for index in range(17))
+    (frozen_root / "data" / "config.script").write_text(
+        "\n".join(friendly_fire_config) + "\n", encoding="utf-8")
+    friendly_fire_base = [SERVER, "--authoritative-match", f"--resources={frozen_root}", "--seed=1"]
+    friendly_fire_arguments = [
+        "--actions-stdin", "--rounds=1", "--level-plan=fixed",
+        "--fixed-level=levels/friendly-fire.json", "--level=levels/friendly-fire.json",
+        "--match-mode=team-deathmatch", "--teams=2",
+        "--player=1,101,Player 1", "--player=2,102,Player 2", "--player=3,103,Player 3",
+    ]
+    friendly_fire_actions = (
+        "0 1 1 101 input 0 0 0\n"
+        "0 1 2 102 input 0 0 0\n"
+        "0 1 3 103 input 0 0 1\n"
+        "1 2 3 103 input 0 0 16\n"
+    )
+    friendly_fire_results = {}
+    for enabled in (False, True):
+        status, lines = run(
+            *friendly_fire_arguments, f"--friendly-fire={'on' if enabled else 'off'}",
+            stdin=friendly_fire_actions, base=friendly_fire_base)
+        assert status == 0, lines
+        assert lines[:2] == ["authoritative-match-completed", "Authoritative match completed."]
+        result = json.loads(next(line for line in lines if line.startswith("session-result=")).split("=", 1)[1])
+        assert result["friendlyFire"] is enabled
+        assert result["completedRounds"] == 1 and result["finalNoWinner"] is False
+        for row in result["players"]:
+            score = row["cumulative"]
+            assert score["totalPoints"] == score["kills"] + score["wins"] + score["assists"] - score["penalties"]
+        friendly_fire_results[enabled] = result
+    disabled_shooter = next(row for row in friendly_fire_results[False]["players"] if row["playerId"] == 103)
+    enabled_shooter = next(row for row in friendly_fire_results[True]["players"] if row["playerId"] == 103)
+    assert disabled_shooter["cumulative"]["hits"] == 2
+    assert disabled_shooter["cumulative"]["damage"] == 80
+    assert enabled_shooter["cumulative"]["hits"] == 4
+    assert enabled_shooter["cumulative"]["damage"] == 160
+    assert friendly_fire_results[False]["finalWinnerPlayerIds"] == [101, 103]
+    assert friendly_fire_results[True]["finalWinnerPlayerIds"] == [103]
+
 # Canonical production startup is content-derived unless the diagnostic fixture
 # is explicitly requested. An immediate authorized end keeps this assertion short.
 default_status, default_lines = run(
@@ -125,6 +226,20 @@ default_players = {fields[0]: {
     "hits": int(fields[4]), "positionX": int(fields[5]), "positionY": int(fields[6])
 } for fields in (player.split(":") for player in default_diagnostics["canonicalPlayers"].split(","))}
 assert default_players == DEFAULT_GOLDEN["canonicalPlayers"]
+require_linux_golden_semantics({
+    "platform": "linux-x86_64",
+    "buildTypes": ["Debug", "Release"],
+    "seed": 424242,
+    "scenario": "interrupted-fixed-duel-01",
+    "diagnosticFixture": default_diagnostics["diagnosticFixture"],
+    "stateDigest": int(default_diagnostics["stateDigest"]),
+    "randomDecisionCount": int(default_diagnostics["randomDecisionCount"]),
+    "randomDigest": int(default_diagnostics["randomDigest"]),
+    "stateCheckpoints": [[int(value) for value in checkpoint.split(":", 1)]
+                         for checkpoint in default_diagnostics["stateCheckpoints"].split(",")],
+    "canonicalPlayers": default_players,
+    "eventCount": int(default_diagnostics["eventCount"]),
+}, DEFAULT_GOLDEN)
 
 action_status, action_lines = run(
     "--actions-stdin", "--rounds=1", "--level-plan=fixed",
@@ -384,6 +499,35 @@ for player_id, expected in GOLDEN["players"].items():
     actual = canonical_players[player_id]
     for field in ("life", "ammo", "shots", "hits"):
         assert actual[field] == expected[field]
+
+canonical_result_players = {str(row["playerId"]): row for row in canonical_a["players"]}
+compact_players = {}
+for player_id, world in canonical_players.items():
+    cumulative = canonical_result_players[player_id]["cumulative"]
+    compact_players[player_id] = {
+        "shots": cumulative["shots"], "hits": cumulative["hits"],
+        "kills": cumulative["kills"], "deaths": cumulative["deaths"],
+        "penalties": cumulative["penalties"], "ammo": world["ammo"], "life": world["life"],
+    }
+round_result = canonical_a["rounds"][0]
+require_linux_golden_semantics({
+    "platform": "linux-x86_64",
+    "buildTypes": ["Debug", "Release"],
+    "seed": 424242,
+    "scenario": "complete-fixed-duel-01",
+    "diagnosticFixture": diagnostics["diagnosticFixture"],
+    "stateDigest": int(diagnostics["stateDigest"]),
+    "randomDecisionCount": int(diagnostics["randomDecisionCount"]),
+    "randomDigest": int(diagnostics["randomDigest"]),
+    "round": {
+        "level": round_result["level"], "orientation": round_result["orientation"],
+        "winnerPlayerIds": round_result["winnerPlayerIds"], "noWinner": round_result["noWinner"],
+    },
+    "players": compact_players,
+    "stateCheckpoints": checkpoints,
+    "eventCount": len(events),
+    "eventKinds": event_kinds,
+}, GOLDEN)
 
 random_decisions = diagnostics["randomTrace"].split(",")
 assert random_decisions[0] == "1:round-orientation:2:1"
