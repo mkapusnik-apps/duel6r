@@ -9,7 +9,8 @@ The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a seco
 
 The approved product requirements are the source of truth for visual-impact changes.
 The current native implementation remains the source for unchanged visual details.
-This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, and the planned first-release network UI defined for issue #28.
+The fixed product baseline is `docs/features.md` at source commit `fed0daa3939dd517f29a7434b99b1009b30be848`.
+This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, and the planned first-release network UI defined for issue #28.
 The network additions are target specifications for downstream issue #38 and are not implemented UI or evidence of playable networking.
 Issue #30 may implement protocol, command-line, or scaffold outcomes, but it must not add graphical network UI.
 Issue #32 defines authoritative headless match states, result data, and fixed outcome copy for the planned network screens.
@@ -197,6 +198,11 @@ The following values come from renderer and GUI source.
 - A spinner must use left and right triangle buttons.
 - A checkbox must reverse its frame when it is checked.
 - The game mode spinner must show `Deathmatch`, `Predator`, and `Teams`.
+- The Players panel must show `Equalize` and `Shuffle` only when `Teams` is selected.
+- The Players panel must provide active interaction targets for `Equalize` and `Shuffle` only when `Teams` is selected.
+- The Players panel must hide `Equalize` and `Shuffle` when `Deathmatch` or `Predator` is selected.
+- A hidden roster-order control must not have an interaction target.
+- The visibility of both roster-order controls must update immediately when the selected mode changes.
 - The game mode spinner must show `Teams` one time.
 - The Game Settings panel must show `Num. of Team` and `Friendly Fire` only when `Teams` is selected.
 - Conditional settings must stay inside the existing Game Settings panel bounds.
@@ -374,8 +380,9 @@ The following values come from renderer and GUI source.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
 - Eleven screenshot entries remain `Planned` until issue #38 implements and captures `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
 - `SS-001` and `SS-024` must represent the two approved `MENU-01` conditional-layout wireframes.
-- `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry at exact final PR #58 head `f294c742a08a90f03ea39b7ed0385d5b59ad684a`.
-- The final `SS-001` and `SS-024` artifacts conform to the panel geometry and control-containment rules.
+- `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry.
+- The current `SS-001` and `SS-024` artifacts come from PR #59 implementation source `f68bb9c1c78f8d48e4ce316fa38d47dd4fd892a9` at pushed evidence head `232f4c54b0d2bbaa40c6e5c0322e5811ee0f9d34`.
+- The current `SS-001` and `SS-024` artifacts conform to the panel geometry, control-containment, conditional-layout, and roster-order label rules.
 - Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources

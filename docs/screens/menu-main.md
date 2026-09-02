@@ -5,7 +5,8 @@
 The implemented screen builds the local roster, assigns controls, selects match settings, shows persistent results, starts a local match, and exits the application. The approved target adds a distinct network entry without changing local Play.
 Entry occurs when the application starts or when gameplay closes.
 Implemented exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action. In the target UI, `Network (F2)` enters `NET-01`.
-The screen implements `SET-001`–`SET-072`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005`, and `AC-040`–`AC-051` plus `AC-053`–`AC-062` from [`docs/features.md`](../features.md). The planned Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+The screen implements `SET-001`–`SET-077`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005`, `AC-011`, `AC-040`–`AC-051`, and `AC-053`–`AC-064` from [`docs/features.md`](../features.md). The planned Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+The Equalize and Shuffle behavior specifically traces to `SET-017`–`SET-019`, `SET-073`–`SET-077`, `AC-011`, and `AC-063`–`AC-064` at source commit `fed0daa3939dd517f29a7434b99b1009b30be848`.
 Stitch screen `681ae093051749fd922ab74454f47121` in project `1219346282527961142` is supplementary historical context for the retro treatment only.
 The Stitch screen does not define the consolidated Persons panel.
 Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`, and `resources/textures/menu/`.
@@ -46,7 +47,10 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The person list must use one vertical scroll bar and must not add horizontal scrolling.
 - The person list must be the first and largest interactive element in the Persons panel.
 - The person-name field and person actions must remain below the person list.
-- The Players panel must contain the selected-player list, each player's control spinner, each player's `D` action, the `E` action, the `S` action, and the batch `D` action.
+- The Players panel must contain the selected-player list, each player's control spinner, each player's `D` action, and the batch `D` action in every mode.
+- The Players panel must show buttons labeled `Equalize` and `Shuffle` when `Teams` is selected.
+- The Players panel must hide `Equalize` and `Shuffle` when `Deathmatch` or `Predator` is selected.
+- The Players panel must not reserve visible control space for `Equalize` or `Shuffle` in a non-Team mode.
 - The Players panel must align each control spinner and `D` action with the applicable player row.
 - Each player name, control label, spinner action, and `D` action must remain readable inside the Players panel.
 - The Game Settings panel must contain the mode spinner, Assistance checkbox, Quick Liquid checkbox, Burnable Trees checkbox, and Rounds field in every mode.
@@ -89,8 +93,16 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The empty-person state must keep the `PERSONS` title, all column headings, panel bounds, empty white list surface, person-name field, and person actions visible.
 - The empty-person state must not show placeholder copy.
 - The Players label must show the selected-player count.
-- `E` must reorder players by Elo shuffle logic.
-- `S` must reorder players by random shuffle logic.
+- `Equalize` must first order players by descending Elo.
+- `Equalize` must divide the ordered roster into consecutive groups.
+- Each complete group must contain as many players as the selected team count.
+- `Equalize` must randomly reorder players within each group.
+- `Shuffle` must randomly reorder the player roster.
+- `Equalize` and `Shuffle` must preserve each player's assigned control preset.
+- `Equalize` and `Shuffle` must be visible and interactive only when `Teams` is selected.
+- Selecting `Deathmatch` or `Predator` must hide both roster-order controls immediately.
+- Selecting `Teams` must show both roster-order controls immediately.
+- This change must not alter another control or game behavior.
 - Selecting `Teams` must color player rows by roster position modulo the selected team count.
 - The team order must be Alpha, Bravo, Charlie, and Delta.
 - The roster must use Alpha red, Bravo green, Charlie yellow, and Delta magenta.
@@ -168,6 +180,7 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - Each team-count spinner action must move within `2`, `3`, and `4`.
 - The Friendly Fire checkbox must use the standard checked and unchecked feedback.
 - Hiding a Team control must remove its interaction target.
+- Hiding `Equalize` or `Shuffle` must remove its interaction target.
 
 ## Accessibility and viewport behavior
 
@@ -181,6 +194,8 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The current menu does not provide an inline reason when `>>` or `Remove` makes no change for a roster member.
 - The Burnable Trees control must use a visible text label and must not rely only on its checked state.
 - The `Num. of Team` and `Friendly Fire` labels must remain visible next to their controls in the Teams state.
+- The Teams state must use the full labels `Equalize` and `Shuffle` instead of the abbreviations `E` and `S`.
+- The non-Team state must not show an empty or disabled substitute for either roster-order control.
 - Team roster rows must keep readable player names and visible selection feedback over team colors.
 - Team roster rows use color and ordered roster position, but the menu does not add team-name text to each row.
 - This color-only team cue is an existing accessibility limitation.
@@ -199,6 +214,7 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 
 Required representative evidence: [`SS-001`](../screenshots/README.md#ss-001) for the non-Team wireframe and [`SS-024`](../screenshots/README.md#ss-024) for the Teams wireframe.
 Each capture must show the consolidated Persons list with ranked, unranked, roster-member, and selected-person states.
-The Teams capture must show a positive applied Rounds value and retained Team values after gameplay returns during the same application session.
+The non-Team capture must show no `Equalize` or `Shuffle` control.
+The Teams capture must show the full `Equalize` and `Shuffle` labels, a positive applied Rounds value, and retained Team values after gameplay returns during the same application session.
 Both current implementation captures must show the implemented three-action footer.
 Issue #38 must replace this evidence when it implements the target Network action.
