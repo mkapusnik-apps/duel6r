@@ -320,6 +320,7 @@ The final PR #58 containment-fix packet has this provenance:
 The PR #59 roster-order control packet has this provenance:
 
 - Pull request: `#59`.
+- Provenance reassessment and exact pull request head: `c31c28f577ac1388294462142b58633c0205beb5`.
 - Implementation branch: `feature/equalize-shuffle-controls`.
 - Implementation source SHA: `f68bb9c1c78f8d48e4ce316fa38d47dd4fd892a9`.
 - Original screenshot artifact commit: `232f4c54b0d2bbaa40c6e5c0322e5811ee0f9d34`; the identified recapture produced byte-identical files.
