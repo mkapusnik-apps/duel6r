@@ -143,6 +143,22 @@ def has_top_progress(image):
     return dark >= 1700 and glyphs >= 75, dark, glyphs
 
 
+def is_expected_summary_state(image, played, total):
+    """Recognize the winner summary layout expected for this match state."""
+    bands = blue_strip_bands(image)
+    non_final_limited = total > 0 and played < total
+    expected_strip = (366, 402) if non_final_limited else (350, 386)
+    if bands != [expected_strip]:
+        return False
+
+    # A non-final limited summary moves progress into its dedicated panel row.
+    # Final summaries retain the live top indicator; unlimited summaries have
+    # no round progress in either location.
+    top_progress, _, _ = has_top_progress(image)
+    expected_top_progress = total > 0 and not non_final_limited
+    return top_progress == expected_top_progress
+
+
 def assert_included(root, font_path, label, played, frames=("summary-early.png", "summary-late.png")):
     for frame in frames:
         image = pixels(os.path.join(root, label, frame))

@@ -181,7 +181,7 @@ release_active_tab() {
 }
 
 wait_for_summary() {
-    local expected="$1"
+    local expected="$1" total="$2"
     for _ in {1..100}; do
         actual="$(python3 - "${runtime_dir}/data/persons.json" <<'PY'
 import json, sys
@@ -193,23 +193,31 @@ except (OSError, ValueError):
 PY
         )"
         if [[ "$actual" == "$expected" ]]; then
-            # Poll rendered state rather than sleeping from the persistence
-            # update. Under a throttled software renderer, elapsed simulation
-            # time can advance enough for the automatic next round while the
-            # harness is asleep even though the summary rendered correctly.
+            # Poll the scenario's exact winner-summary layout rather than any
+            # blue score strip. In the first scenario, the held active-Tab
+            # overlay is still visible when persistence advances and must not
+            # qualify as summary evidence.
             local summary_frames=0
             for _ in {1..100}; do
                 import -window root "${scenario_dir}/summary-candidate.png"
                 if python3 - "${workspace_dir}/tests/RoundSummaryProgressImageAssertions.py" \
-                        "${scenario_dir}/summary-candidate.png" <<'PY'
+                        "${scenario_dir}/summary-candidate.png" \
+                        "${scenario_dir}/summary-early.png" "$expected" "$total" <<'PY'
 import importlib.util
+import os
 import sys
 
 spec = importlib.util.spec_from_file_location("round_assertions", sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 image = module.pixels(sys.argv[2])
-raise SystemExit(0 if module.blue_strip_bands(image) else 1)
+first_path, played, total = sys.argv[3], int(sys.argv[4]), int(sys.argv[5])
+if not module.is_expected_summary_state(image, played, total):
+    raise SystemExit(1)
+if os.path.exists(first_path) and image == module.pixels(first_path):
+    # Two captures of one retained backbuffer are one render observation, not
+    # evidence that the summary survived across two distinct rendered frames.
+    raise SystemExit(1)
 PY
                 then
                     summary_frames=$((summary_frames + 1))
@@ -222,7 +230,8 @@ PY
                 fi
                 sleep 0.05
             done
-            (( summary_frames >= 2 )) || fail "summary panel did not render in two captured frames"
+            (( summary_frames >= 2 )) || fail \
+                "winner summary did not render in two distinct matching frames"
             cp "${scenario_dir}/summary-late.png" "${scenario_dir}/summary.png"
             if [[ "$tab_held" == true ]]; then
                 cp "${scenario_dir}/summary-early.png" \
@@ -284,25 +293,25 @@ stop_scenario() {
 
 start_scenario first 0 5 ""
 hold_active_tab
-wait_for_summary 1
+wait_for_summary 1 5
 release_active_tab
 capture_next_round
 stop_scenario
 
 start_scenario resumed 2 5 y
-wait_for_summary 3
+wait_for_summary 3 5
 stop_scenario
 
 start_scenario penultimate 3 5 y
-wait_for_summary 4
+wait_for_summary 4 5
 stop_scenario
 
 start_scenario final 4 5 y
-wait_for_summary 5
+wait_for_summary 5 5
 stop_scenario
 
 start_scenario unlimited 2 0 n
-wait_for_summary 3
+wait_for_summary 3 0
 stop_scenario
 
 python3 "${workspace_dir}/tests/RoundSummaryProgressImageAssertions.py" "$test_root" \
