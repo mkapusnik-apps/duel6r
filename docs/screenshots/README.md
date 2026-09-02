@@ -322,20 +322,27 @@ The PR #59 roster-order control packet has this provenance:
 - Pull request: `#59`.
 - Implementation branch: `feature/equalize-shuffle-controls`.
 - Implementation source SHA: `f68bb9c1c78f8d48e4ce316fa38d47dd4fd892a9`.
-- Screenshot artifact commit and pushed pull request head: `232f4c54b0d2bbaa40c6e5c0322e5811ee0f9d34`.
-- The developer reported the capture environment and complete provenance for both artifacts.
+- Original screenshot artifact commit: `232f4c54b0d2bbaa40c6e5c0322e5811ee0f9d34`; the identified recapture produced byte-identical files.
+- Environment: Release, GL4, Lua enabled, Ubuntu 24.04 Docker image `duel6r-build:local`, Mesa software rendering, Xvfb, and SDL dummy audio.
 - Viewport: 1920 by 1080 px.
+- Selected background: `forest-foundry.png`.
+- Runtime asset manifest revision: resource tree `3ae377dc261e9a4e407dc75dd35dfd7911fb8e79`.
+- Session identifier: `MENU-01-PR59-20260902T120116Z-63cfbce6-823b-4b03-9775-afe3d04f5fb1`.
+- Capture interval: 2026-09-02 12:02:11 through 12:02:28 UTC.
+- Worktree state: the UX-owned manifest update was the only tracked modification; production, tests, and both screenshot files matched the pushed branch before recapture. Ignored build output supplied the binary from the implementation source SHA.
 - Shared workflow: use the documented eight-person fixture and keep Cora selected in Persons.
 - `SS-001` state: show Deathmatch after the retained four-team and Friendly Fire values become hidden.
 - `SS-001` artifact: `MENU-01/deathmatch-roster-order-controls-hidden-1920x1080.png`.
+- `SS-001` SHA-256: `817fc6a2c5c1e5fdc3d548cc43b77901c6575142917068bbab416e223a0e949a`.
 - `SS-024` state: show Teams with four teams, Friendly Fire on, and unfocused Rounds `3` after gameplay returns.
 - `SS-024` artifact: `MENU-01/teams-equalize-shuffle-visible-1920x1080.png`.
+- `SS-024` SHA-256: `0919466ec83e94435e2a81336f55db4fa8215916a605dbc756ab531d9940b92c`.
 - Visual assessment: both artifacts conform to `docs/design.md`, the `MENU-01` specification, and their conditional-layout wireframes.
 - Conditional-layout assessment: `SS-001` has no visible `Equalize` or `Shuffle` control or residual button frame. `SS-024` shows separate, fully readable `Equalize` and `Shuffle` buttons.
 - Hierarchy and containment assessment: both artifacts keep the approved three-panel hierarchy, balanced Persons and Players panels, clear panel gaps, and controls inside their panel bounds.
 - Regression assessment: no clipping, overlap, label truncation, or inconsistent retro-control treatment is visible.
 - Evidence boundary: the static artifacts do not prove random ordering, control-assignment preservation, immediate mode updates, or removal of hidden interaction targets.
-- Evidence status: both artifacts conform for visual assessment and have developer-reported provenance.
+- Evidence status: both artifacts conform for visual assessment and have complete required provenance.
 
 The fresh shared-arena packet has this provenance:
 
