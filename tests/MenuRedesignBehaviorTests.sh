@@ -688,21 +688,34 @@ crop_roster_order_controls "${scenario_dir}/teams-before-shuffle.png" \
 assert_changed "${scenario_dir}/predator-controls.png" "${scenario_dir}/teams-controls.png" \
   "Teams Equalize and Shuffle controls"
 
-# Shuffle must change roster order, while every player remains paired with its
-# selected control preset.
-xdotool mousemove 665 558 click 1
+# Shuffle may validly select the identity permutation. Regardless of the
+# resulting order, its visible hit target must activate and every player must
+# remain paired with its control preset.
+xdotool mousemove 665 558 mousedown 1
+sleep 0.15
+capture "${scenario_dir}/shuffle-pressed.png"
+crop_roster_order_controls "${scenario_dir}/shuffle-pressed.png" \
+  "${scenario_dir}/shuffle-pressed-controls.png"
+assert_changed "${scenario_dir}/teams-controls.png" \
+  "${scenario_dir}/shuffle-pressed-controls.png" "Shuffle active hit target"
+xdotool mouseup 1
 sleep 0.3
 capture "${scenario_dir}/after-random.png"
-crop_player_rows "${scenario_dir}/teams-before-shuffle.png" \
-  "${scenario_dir}/teams-rows-before-shuffle.png"
-crop_player_rows "${scenario_dir}/after-random.png" \
-  "${scenario_dir}/teams-rows-after-shuffle.png"
-assert_changed "${scenario_dir}/teams-rows-before-shuffle.png" \
-  "${scenario_dir}/teams-rows-after-shuffle.png" "Shuffle roster order"
 
 # Equalize must immediately replace the shuffled roster with consecutive
 # descending-Elo groups, randomized only within each selected-team-sized group.
-xdotool mousemove 570 558 click 1
+# Its resulting order may already match the input, so assert target activation
+# and the grouping invariant rather than requiring a visual roster change.
+crop_roster_order_controls "${scenario_dir}/after-random.png" \
+  "${scenario_dir}/before-equalize-controls.png"
+xdotool mousemove 570 558 mousedown 1
+sleep 0.15
+capture "${scenario_dir}/equalize-pressed.png"
+crop_roster_order_controls "${scenario_dir}/equalize-pressed.png" \
+  "${scenario_dir}/equalize-pressed-controls.png"
+assert_changed "${scenario_dir}/before-equalize-controls.png" \
+  "${scenario_dir}/equalize-pressed-controls.png" "Equalize active hit target"
+xdotool mouseup 1
 sleep 0.3
 capture "${scenario_dir}/after-elo.png"
 
@@ -738,7 +751,6 @@ assert_row_pairs_preserved() {
 
 assert_row_pairs_preserved "${scenario_dir}/teams-before-shuffle.png" \
   "${scenario_dir}/after-random.png" "random"
-assert_changed "${scenario_dir}/after-random.png" "${scenario_dir}/after-elo.png" "Equalize roster order"
 assert_row_pairs_preserved "${scenario_dir}/after-random.png" "${scenario_dir}/after-elo.png" "elo"
 close_app
 python3 - "${scenario_dir}/data/persons.json" <<'PY'
