@@ -203,7 +203,7 @@ The Cora row must show the standard selected-row treatment.
 
 Non-Team representative screenshot: [`SS-001`](../../screenshots/README.md#ss-001).
 Teams representative screenshot: [`SS-024`](../../screenshots/README.md#ss-024).
-Both screenshots require fresh implementation evidence for the localized roster-order control change.
+Both screenshots are current implementation evidence for the localized roster-order control change at PR #59 implementation source `f68bb9c1c78f8d48e4ce316fa38d47dd4fd892a9`.
 The historical baseline at [`default-1706x938.png`](../../screenshots/MENU-01/default-1706x938.png) is a reference for the unchanged retro controls and footer only.
 The historical baseline is not conformance evidence for the consolidated Persons list.
 Issue #38 must replace these screenshots when it implements the target footer variant.

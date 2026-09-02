@@ -380,8 +380,9 @@ The following values come from renderer and GUI source.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
 - Eleven screenshot entries remain `Planned` until issue #38 implements and captures `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
 - `SS-001` and `SS-024` must represent the two approved `MENU-01` conditional-layout wireframes.
-- `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry at exact final PR #58 head `f294c742a08a90f03ea39b7ed0385d5b59ad684a`.
-- The final `SS-001` and `SS-024` artifacts conform to the panel geometry and control-containment rules.
+- `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry.
+- The current `SS-001` and `SS-024` artifacts come from PR #59 implementation source `f68bb9c1c78f8d48e4ce316fa38d47dd4fd892a9` at pushed evidence head `232f4c54b0d2bbaa40c6e5c0322e5811ee0f9d34`.
+- The current `SS-001` and `SS-024` artifacts conform to the panel geometry, control-containment, conditional-layout, and roster-order label rules.
 - Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources

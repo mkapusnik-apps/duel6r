@@ -23,6 +23,8 @@ The **Burnable Trees** setting controls explosion-triggered burn behavior for co
 
 A **tree-burning explosion** is an explosion that could burn an applicable tree in the documented implementation baseline.
 
+A **random permutation** is one roster order selected at random from all possible roster orders. The existing order is a valid result.
+
 Requirement IDs are stable references. Inventory notes are current observations and are not permanent product requirements.
 
 ## Match setup
@@ -43,7 +45,7 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **SET-014** A positive round limit must make that numbered round the last round.
 - **SET-015** The menu must apply the round-limit field when the user presses Enter in that field.
 - **SET-016** The menu must apply the round-limit field again when the user starts a match.
-- **SET-017** Shuffle must randomly reorder the player roster and move each control assignment with its player.
+- **SET-017** Shuffle must apply a random permutation to the player roster and move each control assignment with its player.
 - **SET-018** Equalize must first order players by descending Elo.
 - **SET-019** Equalize must preserve each player's control assignment.
 - **SET-020** In Team deathmatch, roster position modulo team count must assign the player's team.
@@ -108,7 +110,7 @@ The **person list** is the single main-menu list that combines person management
 ### Team roster order actions
 
 - **SET-073** After SET-018, Equalize must divide the ordered roster into consecutive groups. Each complete group must contain as many players as the selected team count.
-- **SET-074** Equalize must randomly reorder players within each group from SET-073.
+- **SET-074** Equalize must apply a random permutation within each group from SET-073.
 - **SET-075** When `Teams` is selected, the Players panel must show buttons labeled `Equalize` and `Shuffle`.
 - **SET-076** When `Deathmatch` or `Predator` is selected, the Players panel must not show `Equalize` or `Shuffle`.
 - **SET-077** A hidden `Equalize` or `Shuffle` button must not have an active interaction target.
@@ -529,7 +531,7 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-061** An application restart restores the same persons, roster membership, statistics, and Elo data in the consolidated list.
 - **AC-062** The consolidation does not change roster controls, shuffles, settings, score table, footer actions, keyboard shortcuts, text-field Enter actions, or controller behavior.
 - **AC-063** Selecting `Teams` shows `Equalize` and `Shuffle`. Selecting `Deathmatch` or `Predator` hides both buttons and removes both interaction targets.
-- **AC-064** In `Teams`, Shuffle randomly changes roster order. Equalize distributes consecutive Elo-ranked groups across the selected team positions. Both actions keep each player's control assignment.
+- **AC-064** In `Teams`, Shuffle applies a random permutation to the roster. A Shuffle result may match the prior roster order. Equalize distributes consecutive Elo-ranked groups across the selected team positions. Both actions keep each player's control assignment.
 
 ## Source traceability
 

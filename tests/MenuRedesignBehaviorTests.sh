@@ -95,7 +95,20 @@ close_app() {
 }
 
 capture() {
-  import -window root "$1"
+  local variance
+  for _ in {1..10}; do
+    import -window root "$1"
+    variance="$(convert "$1" -format '%[fx:standard_deviation]' info:)"
+    if python3 - "$variance" <<'PY'
+import sys
+raise SystemExit(0 if float(sys.argv[1]) > 0.01 else 1)
+PY
+    then
+      return
+    fi
+    sleep 0.2
+  done
+  fail "capture remained blank: $1"
 }
 
 # Release fills the 1280x900 Xvfb display. The 850x700 logical menu therefore
@@ -206,6 +219,8 @@ with open(sys.argv[1], "w", encoding="utf-8") as f:
     json.dump({"persons": persons, "playing": [], "rounds": 0}, f, indent=2)
 PY
 }
+
+if [[ "${MENU_REDESIGN_SCENARIO:-all}" != "team-roster-order" ]]; then
 
 echo "[RUN] complete consolidated-person rows for names and signed trends"
 new_scenario elo-name-widths
@@ -595,7 +610,9 @@ if before != after:
     raise SystemExit("one-player rejected start changed persisted state")
 PY
 
-echo "[RUN] random and Elo shuffles preserve player/control row pairs"
+fi
+
+echo "[RUN] Teams-only Equalize and Shuffle visibility, interaction, grouping, and controls"
 new_scenario shuffle-controls
 write_overflow_fixture
 python3 - "${scenario_dir}/data/persons.json" <<'PY'
@@ -612,11 +629,80 @@ for i in {0..5}; do
     sleep 0.05
   done
 done
-capture "${scenario_dir}/before-shuffle.png"
-xdotool mousemove "$(menu_x 576)" "$(menu_y 534)" click 1
+
+crop_player_rows() {
+  local normalized="${2%.png}-normalized.png"
+  normalize_menu "$1" "$normalized"
+  convert "$normalized" -crop 306x108+334+147 +repage "$2"
+}
+
+crop_roster_order_controls() {
+  local normalized="${2%.png}-normalized.png"
+  normalize_menu "$1" "$normalized"
+  convert "$normalized" -crop 150x20+332+425 +repage "$2"
+}
+
+# Deathmatch is selected initially. Both roster-order controls must be absent,
+# and clicking their complete former/current hit regions must not reorder rows.
+capture "${scenario_dir}/deathmatch-before-hidden-clicks.png"
+crop_player_rows "${scenario_dir}/deathmatch-before-hidden-clicks.png" \
+  "${scenario_dir}/deathmatch-rows-before.png"
+crop_roster_order_controls "${scenario_dir}/deathmatch-before-hidden-clicks.png" \
+  "${scenario_dir}/deathmatch-controls.png"
+xdotool mousemove 570 558 click 1
+xdotool mousemove 665 558 click 1
+sleep 0.3
+capture "${scenario_dir}/deathmatch-after-hidden-clicks.png"
+crop_player_rows "${scenario_dir}/deathmatch-after-hidden-clicks.png" \
+  "${scenario_dir}/deathmatch-rows-after.png"
+assert_same "${scenario_dir}/deathmatch-rows-before.png" \
+  "${scenario_dir}/deathmatch-rows-after.png" "Deathmatch hidden roster-order hit regions"
+
+# Mode changes are applied by the mode spinner callback. Predator must retain
+# the same hidden-control surface and must likewise have no active hit targets.
+xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
+sleep 0.3
+capture "${scenario_dir}/predator-before-hidden-clicks.png"
+crop_player_rows "${scenario_dir}/predator-before-hidden-clicks.png" \
+  "${scenario_dir}/predator-rows-before.png"
+crop_roster_order_controls "${scenario_dir}/predator-before-hidden-clicks.png" \
+  "${scenario_dir}/predator-controls.png"
+assert_same "${scenario_dir}/deathmatch-controls.png" "${scenario_dir}/predator-controls.png" \
+  "Deathmatch and Predator hidden roster-order controls"
+xdotool mousemove 570 558 click 1
+xdotool mousemove 665 558 click 1
+sleep 0.3
+capture "${scenario_dir}/predator-after-hidden-clicks.png"
+crop_player_rows "${scenario_dir}/predator-after-hidden-clicks.png" \
+  "${scenario_dir}/predator-rows-after.png"
+assert_same "${scenario_dir}/predator-rows-before.png" \
+  "${scenario_dir}/predator-rows-after.png" "Predator hidden roster-order hit regions"
+
+# Teams is the next mode. Its newly visible Equalize and Shuffle controls must
+# appear immediately in the same frame as the mode change.
+xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
+sleep 0.3
+capture "${scenario_dir}/teams-before-shuffle.png"
+crop_roster_order_controls "${scenario_dir}/teams-before-shuffle.png" \
+  "${scenario_dir}/teams-controls.png"
+assert_changed "${scenario_dir}/predator-controls.png" "${scenario_dir}/teams-controls.png" \
+  "Teams Equalize and Shuffle controls"
+
+# Shuffle must change roster order, while every player remains paired with its
+# selected control preset.
+xdotool mousemove 665 558 click 1
 sleep 0.3
 capture "${scenario_dir}/after-random.png"
-xdotool mousemove "$(menu_x 557)" "$(menu_y 534)" click 1
+crop_player_rows "${scenario_dir}/teams-before-shuffle.png" \
+  "${scenario_dir}/teams-rows-before-shuffle.png"
+crop_player_rows "${scenario_dir}/after-random.png" \
+  "${scenario_dir}/teams-rows-after-shuffle.png"
+assert_changed "${scenario_dir}/teams-rows-before-shuffle.png" \
+  "${scenario_dir}/teams-rows-after-shuffle.png" "Shuffle roster order"
+
+# Equalize must immediately replace the shuffled roster with consecutive
+# descending-Elo groups, randomized only within each selected-team-sized group.
+xdotool mousemove 570 558 click 1
 sleep 0.3
 capture "${scenario_dir}/after-elo.png"
 
@@ -650,20 +736,31 @@ assert_row_pairs_preserved() {
   done
 }
 
-# A random shuffle may legitimately produce the identity permutation. Verify
-# the behavioral invariant directly without requiring the visible order to
-# change: every player must remain paired with the same selected control.
-assert_row_pairs_preserved "${scenario_dir}/before-shuffle.png" "${scenario_dir}/after-random.png" "random"
-assert_changed "${scenario_dir}/after-random.png" "${scenario_dir}/after-elo.png" "Elo shuffle"
+assert_row_pairs_preserved "${scenario_dir}/teams-before-shuffle.png" \
+  "${scenario_dir}/after-random.png" "random"
+assert_changed "${scenario_dir}/after-random.png" "${scenario_dir}/after-elo.png" "Equalize roster order"
 assert_row_pairs_preserved "${scenario_dir}/after-random.png" "${scenario_dir}/after-elo.png" "elo"
 close_app
 python3 - "${scenario_dir}/data/persons.json" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as f: data = json.load(f)
-expected = [f"Rank{i:02d}" for i in range(6, 0, -1)]
-if data["playing"] != expected:
-    raise SystemExit(f"Elo shuffle did not persist descending Elo order: {data['playing']}")
+expected_groups = [
+    {"Rank06", "Rank05"},
+    {"Rank04", "Rank03"},
+    {"Rank02", "Rank01"},
+]
+actual_groups = [set(data["playing"][start:start + 2]) for start in range(0, 6, 2)]
+if actual_groups != expected_groups:
+    raise SystemExit(
+        "Equalize did not persist consecutive descending-Elo two-player groups: "
+        f"{data['playing']}"
+    )
 PY
+
+if [[ "${MENU_REDESIGN_SCENARIO:-all}" == "team-roster-order" ]]; then
+  echo "Menu Teams roster-order behavior test passed. Artifacts: $test_root"
+  exit 0
+fi
 
 echo "[RUN] Burnable Trees default, round/menu retention, and application restart reset"
 new_scenario burnable-trees-session
