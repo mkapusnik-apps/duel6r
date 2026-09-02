@@ -109,6 +109,12 @@ The following values come from renderer and GUI source.
 - A pressed control must reverse the light and dark frame and must offset its caption by 1 px.
 - The menu must use compact control spacing and must not add decorative whitespace.
 - The main menu must use three raised panel groups for Persons, Players, and Game Settings.
+- The Persons and Players panels must split their combined logical region equally.
+- The Persons panel must use `x=10–324` and a width of 315 logical px.
+- The Players panel must use `x=330–644` and a width of 315 logical px.
+- The Game Settings panel must remain at `x=650–839` and a width of 190 logical px.
+- The setup row must keep the 5-logical-pixel gap between Persons and Players.
+- The setup row must keep the 5-logical-pixel gap between Players and Game Settings.
 - Each setup panel must use the blue panel header and white panel header text.
 - The Players panel must keep each player next to that player's control assignment.
 - Gameplay overlays must use flat translucent fills without drop shadows.
@@ -350,7 +356,8 @@ The following values come from renderer and GUI source.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
 - Eleven screenshot entries remain `Planned` until issue #38 implements and captures `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
 - `SS-001` and `SS-024` must represent the two approved `MENU-01` conditional-layout wireframes.
-- `SS-001` and `SS-024` conform to the consolidated-person-list requirements at PR #58 evidence head `0e503e31b73a6c7cde002d85eb4458ae57cde3b3`.
+- `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry at exact PR #58 head `cb9cc3ee3081b399c2d042ee62e1f7b0cc016ac0`.
+- The replacement `SS-001` and `SS-024` artifacts do not conform because the person-name field extends outside the Persons panel and into the Players region.
 - Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources

@@ -29,8 +29,14 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The setup row must contain three panel groups in this order: Persons, Players, and Game Settings.
 - Each setup panel must use a blue title strip with white text.
 - The consolidated panel title must use exactly `PERSONS`.
-- The Persons panel must use the former combined width of the Elo Scoreboard and Persons panels.
+- The Persons and Players panels must split their combined region 50:50.
+- The Persons panel must use `x=10–324` and a width of 315 logical px.
+- The Players panel must use `x=330–644` and a width of 315 logical px.
+- The Game Settings panel must remain at `x=650–839` and a width of 190 logical px.
+- The layout must keep a 5-logical-pixel gap between each adjacent setup panel.
 - The Persons panel must contain one person list, the person-name field, `Remove`, `<<`, `>>`, and `Add`.
+- Each Persons control must remain inside the Persons panel bounds.
+- A Persons control must not draw into a setup-panel gap or the Players region.
 - The person list must use the visible columns `Rank`, `Name`, `Elo`, and `Trend` in that order.
 - The Rank, Elo, and Trend columns must use stable widths.
 - The Name column must use the remaining list width.
@@ -42,6 +48,7 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The person-name field and person actions must remain below the person list.
 - The Players panel must contain the selected-player list, each player's control spinner, each player's `D` action, the `E` action, the `S` action, and the batch `D` action.
 - The Players panel must align each control spinner and `D` action with the applicable player row.
+- Each player name, control label, spinner action, and `D` action must remain readable inside the Players panel.
 - The Game Settings panel must contain the mode spinner, Assistance checkbox, Quick Liquid checkbox, Burnable Trees checkbox, and Rounds field in every mode.
 - The mode spinner must show `Deathmatch`, `Predator`, and exactly one `Teams` option.
 - The Game Settings panel must show `Num. of Team` and `Friendly Fire` below the mode spinner when `Teams` is selected.

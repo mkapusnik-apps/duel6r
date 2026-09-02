@@ -39,6 +39,9 @@ The update does not change non-Team score overviews or `OVER-03`.
 The update does not add a screen or a wireframe.
 The consolidated-person-list update replaces the separate Elo and available-person panels with one `PERSONS` panel.
 The update affects both `MENU-01` wireframes and does not add a screen or wireframe.
+The approved PR #58 refinement splits the Persons and Players combined region 50:50.
+Persons and Players each use 315 logical px, both 5 px setup-panel gaps remain, and Game Settings remains unchanged.
+The refinement affects both `MENU-01` wireframes and does not add a screen or wireframe.
 
 | Screen ID | Screen or state | Specification | Wireframe | Functional requirements | Primary source |
 |---|---|---|---|---|---|

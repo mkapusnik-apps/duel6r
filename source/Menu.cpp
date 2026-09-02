@@ -329,7 +329,7 @@ namespace Duel6 {
         });
 
         textbox = new Gui::Textbox(gui);
-        textbox->setPosition(14, 326, 44, 10, D6_ALL_CHR);
+        textbox->setPosition(14, 326, 37, 10, D6_ALL_CHR);
 
         // Player controls
         for (Size i = 0; i < D6_MAX_PLAYERS; i++) {

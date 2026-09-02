@@ -37,8 +37,20 @@ namespace Duel6 {
 
             left = new Button(desk);
             left->setCaption(" ");
+            left->onPress([this](Button &, bool pressed) {
+                if (pressed) {
+                    setCurrent(selectedIndex - 1);
+                    repeatWait = 0.3f;
+                }
+            });
             right = new Button(desk);
             right->setCaption(" ");
+            right->onPress([this](Button &, bool pressed) {
+                if (pressed) {
+                    setCurrent(selectedIndex + 1);
+                    repeatWait = 0.3f;
+                }
+            });
         }
 
         void Spinner::clear() {
@@ -99,18 +111,15 @@ namespace Duel6 {
         void Spinner::update(Float32 elapsedTime) {
             if (!left->isPressed() && !right->isPressed()) {
                 repeatWait = 0.0f;
+            } else if (repeatWait > 0.0f) {
+                repeatWait -= elapsedTime;
             } else {
-                if (repeatWait > 0.0f) {
-                    repeatWait -= elapsedTime;
-                } else {
-                    if (left->isPressed()) {
-                        repeatWait = 0.3f;
-                        setCurrent(selectedIndex - 1);
-                    }
-                    if (right->isPressed()) {
-                        repeatWait = 0.3f;
-                        setCurrent(selectedIndex + 1);
-                    }
+                repeatWait = 0.3f;
+                if (left->isPressed()) {
+                    setCurrent(selectedIndex - 1);
+                }
+                if (right->isPressed()) {
+                    setCurrent(selectedIndex + 1);
                 }
             }
         }
@@ -130,7 +139,8 @@ namespace Duel6 {
             if (items.empty())
                 return;
 
-            font.print(x + 25, y - 15, Color::BLACK, items[selectedIndex].second);
+            Size labelLength = Size(std::max(width - 41, 0)) / 8;
+            font.print(x + 23, y - 15, Color::BLACK, items[selectedIndex].second.substr(0, labelLength));
         }
     }
 }

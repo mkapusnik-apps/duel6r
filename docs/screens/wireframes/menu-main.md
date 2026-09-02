@@ -2,7 +2,7 @@
 
 Representative viewport: 1920 by 1080 px desktop client.
 Wireframe coordinates use a top-left origin.
-The 850 by 700 logical menu canvas uses the 135% cap, renders at approximately 1148 by 945 client px, and starts near client coordinate `(386, 68)` at this viewport.
+The 850 by 700 logical menu canvas uses the 135% cap, renders at approximately 1148 by 945 client px, and starts at recorded client coordinate `(386, 67)` at this viewport.
 The screen has no mobile layout and does not reflow.
 The complete client is filled by a centered-cover gameplay still with Gaussian-equivalent blur and a 55% black scrim.
 The scaled grey canvas is unblurred and undimmed and has a 2-logical-pixel black perimeter keyline.
@@ -27,8 +27,10 @@ The four-action footer remains a target variant for issue #38.
 | Statistics | `x=10–839`, `y=457–606` | Show the complete persistent statistics header and table. |
 | Footer actions | `x=10–839`, `y=620–689` | Target: show four 150 by 50 px actions with balanced horizontal spacing. |
 
-The setup panel bounds are `x=10–384` for Persons, `x=390–644` for Players, and `x=650–839` for Game Settings.
-The Persons panel uses the complete area of the two former left panels and the former 5 px internal gap.
+The setup panel bounds are `x=10–324` for Persons, `x=330–644` for Players, and `x=650–839` for Game Settings.
+Persons and Players each use a width of 315 logical px and split their combined region 50:50.
+The gap at `x=325–329` and the gap at `x=645–649` must each remain 5 logical px wide.
+Game Settings must keep its width of 190 logical px.
 Each panel title strip must identify its panel.
 The panel layout may adjust internal column widths by 1 px to preserve integer coordinates.
 The banner bounds are `x=325–524` and `y=5–99`.
@@ -47,7 +49,7 @@ Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly F
 │        │                   [animated banner 200×95]                │        │
 │        │                         version <runtime>                 │        │
 │        │                                                          │        │
-│        │┌────────────── PERSONS ──────────────┐┌────── PLAYERS 8 ─────┐┌ GAME SETTINGS ┐│
+│        │┌────────── PERSONS 315 ──────────┐5px┌───────── PLAYERS 8 / 315 ─────────┐5px┌ GAME SETTINGS 190 ┐│
 │        ││Rank │ Name          │ Elo  │ Trend  ││name │ controller │ D ││Mode Deathmatch││
 │        ││01   │ Alice         │ 1264 │ +18    ││Alice│ K1: Arrows │ D ││☑ Assistance  ││
 │        ││02   │ Bruno         │ 1218 │ -7     ││Bruno│ K1: Arrows │ D ││☑ Quick Liquid ││
@@ -83,7 +85,7 @@ Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly F
 │        ┌──────────────────── 850 × 700 canvas ────────────────────┐        │
 │        │                   [animated banner 200×95]                │        │
 │        │                         version <runtime>                 │        │
-│        │┌────────────── PERSONS ──────────────┐┌────── PLAYERS 8 ─────┐┌ GAME SETTINGS ┐│
+│        │┌────────── PERSONS 315 ──────────┐5px┌───────── PLAYERS 8 / 315 ─────────┐5px┌ GAME SETTINGS 190 ┐│
 │        ││Rank │ Name          │ Elo  │ Trend  ││Alice  Alpha red  │ D ││Mode Teams      ││
 │        ││01   │ Alice         │ 1264 │ +18    ││Bruno  Bravo green│ D ││Num. of Team [4]││
 │        ││02   │ Bruno         │ 1218 │ -7     ││                      ││☑ Friendly Fire ││
@@ -116,6 +118,10 @@ The Cora row must show the standard selected-row treatment.
 - Each setup panel must use the blue panel header and white panel header text from `docs/design.md`.
 - White inset surfaces must contain lists, spinners, and text fields.
 - The Persons panel title must use exactly `PERSONS`.
+- The Persons and Players panels must each use a width of 315 logical px.
+- All Persons controls must remain inside `x=10–324`.
+- All player names, controller labels, spinner actions, and row actions must remain inside `x=330–644`.
+- No control may draw into either 5-logical-pixel setup-panel gap.
 - The Persons list must show each saved person one time.
 - The Rank, Elo, and Trend columns must keep stable widths.
 - The Name column must use the remaining width.
