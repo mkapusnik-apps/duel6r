@@ -94,6 +94,8 @@ namespace Duel6 {
         Gui::CheckBox *quickLiquidCheckBox;
         Gui::CheckBox *burnableTreesCheckBox;
         Gui::Panel *playersPanel;
+        Gui::Button *equalizeButton;
+        Gui::Button *shuffleButton;
         Size backgroundCount;
         Texture menuBannerTexture;
         mutable Texture menuBackgroundTexture;

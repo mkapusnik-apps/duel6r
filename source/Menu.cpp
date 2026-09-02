@@ -314,17 +314,17 @@ namespace Duel6 {
 
         updatePlayerCount();
 
-        Gui::Button *shuffleButton = new Gui::Button(gui);
-        shuffleButton->setCaption("S");
-        shuffleButton->setPosition(353, 274, 17, 17);
+        shuffleButton = new Gui::Button(gui);
+        shuffleButton->setCaption("Shuffle");
+        shuffleButton->setPosition(412, 274, 68, 17);
         shuffleButton->onClick([this](Gui::Button &) {
             shufflePlayers();
         });
 
-        Gui::Button *eloShuffleButton = new Gui::Button(gui);
-        eloShuffleButton->setCaption("E");
-        eloShuffleButton->setPosition(334, 274, 17, 17);
-        eloShuffleButton->onClick([this](Gui::Button &) {
+        equalizeButton = new Gui::Button(gui);
+        equalizeButton->setCaption("Equalize");
+        equalizeButton->setPosition(334, 274, 76, 17);
+        equalizeButton->onClick([this](Gui::Button &) {
             eloShufflePlayers();
         });
 
@@ -650,6 +650,8 @@ namespace Duel6 {
         teamCountLabel->setVisible(showTeamSettings);
         teamCountSwitch->setVisible(showTeamSettings);
         friendlyFireCheckBox->setVisible(showTeamSettings);
+        equalizeButton->setVisible(showTeamSettings);
+        shuffleButton->setVisible(showTeamSettings);
 
         Int32 offset = showTeamSettings ? -54 : 0;
         globalAssistanceCheckBox->setPosition(654, 510 + offset, 170, 20);
