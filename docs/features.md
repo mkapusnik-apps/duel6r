@@ -12,6 +12,7 @@ The round-summary progress requirements define an approved change to the earlier
 The consolidated Teams menu requirements define an approved change to the earlier implementation baseline.
 The consolidated person list requirements define an approved change to the earlier implementation baseline.
 The Equalize and Shuffle menu requirements define an approved change to the earlier implementation baseline.
+The person-action alignment requirements define an approved change to the earlier implementation baseline.
 
 The word **person** means a persistent named record. The word **player** means a person in the active match roster.
 
@@ -81,6 +82,10 @@ Requirement IDs are stable references. Inventory notes are current observations 
 
 The **person list** is the single main-menu list that combines person management and Elo ranking information.
 
+The **person-action row** contains `Remove`, `<<`, and `>>`.
+
+The **roster-order row** contains `Equalize` and `Shuffle` when those actions are visible.
+
 - **SET-048** The main menu must replace the separate `ELO Scoreboard` and `Persons` lists with one person list.
 - **SET-049** The person list must show each saved person one time, including persons in the player roster.
 - **SET-050** For a person with one or more Elo games, the person list must show rank, name, Elo, and Elo trend.
@@ -114,6 +119,15 @@ The **person list** is the single main-menu list that combines person management
 - **SET-075** When `Teams` is selected, the Players panel must show buttons labeled `Equalize` and `Shuffle`.
 - **SET-076** When `Deathmatch` or `Predator` is selected, the Players panel must not show `Equalize` or `Shuffle`.
 - **SET-077** A hidden `Equalize` or `Shuffle` button must not have an active interaction target.
+
+### Person action alignment
+
+- **SET-078** The Persons panel must put the person-name field and `Add` in one row.
+- **SET-079** In the row from SET-078, `Add` must be to the right of the person-name field.
+- **SET-080** The Persons panel must put the person-action row below the person list.
+- **SET-081** The person-action row and the roster-order row must have the same vertical centerline.
+- **SET-082** The position of the person-action row must not change when `Equalize` and `Shuffle` become visible or hidden.
+- **SET-083** This layout change must not change person-list behavior, person actions, roster-order actions, or person-name field behavior.
 
 ## Match and round lifecycle
 
@@ -532,6 +546,7 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-062** The consolidation does not change roster controls, shuffles, settings, score table, footer actions, keyboard shortcuts, text-field Enter actions, or controller behavior.
 - **AC-063** Selecting `Teams` shows `Equalize` and `Shuffle`. Selecting `Deathmatch` or `Predator` hides both buttons and removes both interaction targets.
 - **AC-064** In `Teams`, Shuffle applies a random permutation to the roster. A Shuffle result may match the prior roster order. Equalize distributes consecutive Elo-ranked groups across the selected team positions. Both actions keep each player's control assignment.
+- **AC-065** `Remove`, `<<`, and `>>` stay on a row that aligns vertically with the `Equalize` and `Shuffle` row in every game mode. `Add` is to the right of the person-name field in the same row as that field. All affected controls keep their specified behavior.
 
 ## Source traceability
 
