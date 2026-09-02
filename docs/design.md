@@ -9,8 +9,8 @@ The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a seco
 
 The approved product requirements are the source of truth for visual-impact changes.
 The current native implementation remains the source for unchanged visual details.
-The fixed product baseline is `docs/features.md` at source commit `fed0daa3939dd517f29a7434b99b1009b30be848`.
-This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, and the planned first-release network UI defined for issue #28.
+The fixed product baseline is `docs/features.md` at source commit `e75552f` for PR #60.
+This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, the person-action alignment specified in `SET-078`–`SET-083`, and the planned first-release network UI defined for issue #28.
 The network additions are target specifications for downstream issue #38 and are not implemented UI or evidence of playable networking.
 Issue #30 may implement protocol, command-line, or scaffold outcomes, but it must not add graphical network UI.
 Issue #32 defines authoritative headless match states, result data, and fixed outcome copy for the planned network screens.
@@ -381,8 +381,11 @@ The following values come from renderer and GUI source.
 - Eleven screenshot entries remain `Planned` until issue #38 implements and captures `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
 - `SS-001` and `SS-024` must represent the two approved `MENU-01` conditional-layout wireframes.
 - `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry.
-- The current `SS-001` and `SS-024` artifacts come from PR #59 implementation source `f68bb9c1c78f8d48e4ce316fa38d47dd4fd892a9` at pushed evidence head `232f4c54b0d2bbaa40c6e5c0322e5811ee0f9d34`.
-- The current `SS-001` and `SS-024` artifacts conform to the panel geometry, control-containment, conditional-layout, and roster-order label rules.
+- The PR #59 `SS-001` and `SS-024` artifacts are historical because they show the prior person-action arrangement.
+- PR #60 must provide one current implementation screenshot for each existing `MENU-01` wireframe.
+- The supplied Teams artifact visually conforms to the PR #60 alignment, containment, hierarchy, and Add-placement requirements.
+- A fresh `SS-001` non-Team artifact is supplied and remains pending focused UX assessment.
+- `SS-024` has complete provenance and conforms based on the supplied UX assessment.
 - Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources

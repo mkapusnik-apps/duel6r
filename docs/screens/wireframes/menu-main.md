@@ -9,12 +9,11 @@ The scaled grey canvas is unblurred and undimmed and has a 2-logical-pixel black
 This document defines two conditional-layout wireframes for the same screen.
 The non-Team wireframe shows hidden Team settings and standard roster rows.
 The Teams wireframe shows retained Team settings and team-colored roster rows.
-The Teams representative state shows applied Rounds `3` after gameplay returns during the same application session.
+The Teams representative state shows Rounds `0` and the default two-team setting.
 Both wireframes show one consolidated Persons list in place of the separate Elo Scoreboard and Persons lists.
-Both representative states use eight saved people and eight selected players.
-Alice and Bruno are ranked roster members.
-Cora, Diego, Erin, Farah, Gus, and Hana are unranked roster members in person-record order.
-Cora is the selected person.
+The non-Team representative state uses eight saved people and eight selected players.
+The Teams representative state may use six selected players because player count does not change this refinement.
+The screen specification defines ranked, unranked, roster-member, and selection variants.
 The current implementation captures must use the implemented three-action footer.
 The four-action footer remains a target variant for issue #38.
 Both conditional-layout wireframes remain necessary because a mode change changes the visible Players panel controls and the Game Settings layout.
@@ -57,8 +56,8 @@ Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly F
 │        ││     │ Cora          │      │        ││                      ││☑ Burnable Trees││
 │        ││     │ Diego         │      │        ││[batch D]             ││Rounds [3___]  ││
 │        ││     │ Erin … Hana   │      │        ││… 6 more roster rows  ││               ││
-│        ││         [person name________________]│                      ││               ││
-│        ││         [Remove] [<<] [>>] [Add]    │                      ││               ││
+│        ││[person name________________] [Add]   │                      ││               ││
+│        ││[Remove] [<<] [>>]                  │                      ││               ││
 │        │└─────────────────────────────────────┘└──────────────────────┘└───────────────┘│
 │        │ Name | Elo | Pts | Win | Kill | Assist | Pen | Death | K/D | Shot | Acc. | GmTm | Dmg│
 │        │┌──────────────── persistent statistics table ───────────────────┐│
@@ -74,13 +73,14 @@ Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly F
 `Equalize` and `Shuffle` must not appear in `MENU-01-A`.
 The hidden roster-order controls must not leave empty button frames or interaction targets.
 The layout must not reserve empty rows for the hidden controls.
+The person-action row must keep the same vertical position as it uses in `MENU-01-B`.
 Every roster row must use the standard non-Team list colors.
 The hidden values remain `4` and on for the current application session.
 The Cora row must show the standard selected-row treatment.
 
 ## MENU-01-B — Teams state
 
-Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly Fire` on, start gameplay with Rounds `3`, and return to the menu in the same application session.
+Representative setup: Select `Teams` with six selected players, `Num. of Team` set to `2`, Friendly Fire off, and Rounds `0`.
 
 ```text
 ┌──────────────────────────── 1920 × 1080 client ────────────────────────────┐
@@ -88,15 +88,15 @@ Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly F
 │        ┌──────────────────── 850 × 700 canvas ────────────────────┐        │
 │        │                   [animated banner 200×95]                │        │
 │        │                         version <runtime>                 │        │
-│        │┌────────── PERSONS 315 ──────────┐5px┌───────── PLAYERS 8 / 315 ─────────┐5px┌ GAME SETTINGS 190 ┐│
+│        │┌────────── PERSONS 315 ──────────┐5px┌───────── PLAYERS 6 / 315 ─────────┐5px┌ GAME SETTINGS 190 ┐│
 │        ││Rank │ Name          │ Elo  │ Trend  ││Alice  Alpha red  │ D ││Mode Teams      ││
-│        ││01   │ Alice         │ 1264 │ +18    ││Bruno  Bravo green│ D ││Num. of Team [4]││
-│        ││02   │ Bruno         │ 1218 │ -7     ││                      ││☑ Friendly Fire ││
+│        ││01   │ Alice         │ 1264 │ +18    ││Bruno  Bravo green│ D ││Num. of Team [2]││
+│        ││02   │ Bruno         │ 1218 │ -7     ││                      ││☐ Friendly Fire ││
 │        ││     │ Cora          │      │        ││                      ││☑ Assistance    ││
 │        ││     │ Diego         │      │        ││                      ││☑ Quick Liquid  ││
 │        ││     │ Erin … Hana   │      │        ││… rows repeat colors  ││☑ Burnable Trees││
-│        ││         [person name________________]│[Equalize] [Shuffle] [batch D]│Rounds [3___]   ││
-│        ││         [Remove] [<<] [>>] [Add]    │                      ││                ││
+│        ││[person name________________] [Add]   │                      ││Rounds [value]  ││
+│        ││[Remove] [<<] [>>]                  │[Equalize] [Shuffle] [batch D]│                ││
 │        │└─────────────────────────────────────┘└──────────────────────┘└────────────────┘│
 │        │ Name | Elo | Pts | Win | Kill | Assist | Pen | Death | K/D | Shot | Acc. | GmTm | Dmg│
 │        │┌──────────────── persistent statistics table ───────────────────┐│
@@ -110,7 +110,7 @@ The team names in this text wireframe identify the required color sequence.
 The implementation does not need to add team-name text to each roster row.
 All seven visible Game Settings controls must stay inside the existing panel bounds.
 The controls must use one compact vertical stack without overlap.
-The Cora row must show the standard selected-row treatment.
+Selection feedback remains a documented state variant.
 
 ## Component and state notes
 
@@ -123,6 +123,11 @@ The Cora row must show the standard selected-row treatment.
 - The Persons panel title must use exactly `PERSONS`.
 - The Persons and Players panels must each use a width of 315 logical px.
 - All Persons controls must remain inside `x=10–324`.
+- The person-name field and `Add` must use one row.
+- `Add` must be to the right of the person-name field.
+- `Remove`, `<<`, and `>>` must use a separate row below the person-name row.
+- The person-action row and the `Equalize` and `Shuffle` row must have the same vertical centerline.
+- The person-action row must not move when the roster-order controls become hidden.
 - All player names, controller labels, spinner actions, and row actions must remain inside `x=330–644`.
 - No control may draw into either 5-logical-pixel setup-panel gap.
 - The Persons list must show each saved person one time.
@@ -131,7 +136,7 @@ The Cora row must show the standard selected-row treatment.
 - Each row must remain one line.
 - Cell text must clip instead of wrapping or changing the row height.
 - The list must use one vertical scroll bar without horizontal scrolling.
-- The Persons list must include all eight persons even though they are also in Players.
+- The non-Team representative Persons list must include all eight persons even though they are also in Players.
 - Alice and Bruno must appear first in descending Elo order.
 - The Alice and Bruno rows must show Rank, Name, Elo, and signed Trend values.
 - Cora through Hana must follow in person-record order.
@@ -164,7 +169,7 @@ The Cora row must show the standard selected-row treatment.
 - The Burnable Trees checkbox must use the same size, bevel, label alignment, and compact row spacing as Assistance and Quick Liquid.
 - The Burnable Trees checkbox must appear directly below Quick Liquid.
 - The Rounds field must move down by one compact control row.
-- The representative state must show `3` in the unfocused Rounds field after gameplay returns.
+- Rounds retention remains a documented state variant and does not require the PR #60 alignment artifact to show `3`.
 - The startup state must show `0` unless a startup setting overrides it.
 - Focus on exactly `0` must clear the value immediately and show only the focus underscore.
 - Focus on a positive value must keep the digits and append the focus underscore.
@@ -197,13 +202,15 @@ The Cora row must show the standard selected-row treatment.
 - A person-list refresh must keep Cora selected while Cora still exists.
 - Deleting the selected person must leave the person list with no selection.
 - `>>` and a person-row double-click must add a selected non-roster person to Players without removing that person from Persons.
-- `>>` and a person-row double-click must make no visible change when any representative person is selected because all eight are roster members.
-- `Remove` must make no visible change when any representative person is selected because all eight are roster members.
+- In the non-Team representative state, `>>` and a person-row double-click must make no visible change when a representative person is selected because all eight are roster members.
+- In the non-Team representative state, `Remove` must make no visible change when a representative person is selected because all eight are roster members.
 - `<<` and a player-row double-click must remove the applicable roster entry without removing that person from Persons.
 
 Non-Team representative screenshot: [`SS-001`](../../screenshots/README.md#ss-001).
 Teams representative screenshot: [`SS-024`](../../screenshots/README.md#ss-024).
-Both screenshots are current implementation evidence for the localized roster-order control change at PR #59 implementation source `f68bb9c1c78f8d48e4ce316fa38d47dd4fd892a9`.
+The PR #59 screenshots are historical because they show the prior person-action arrangement.
+The PR #60 Teams artifact visually conforms to this wireframe at implementation source `d783c2cf2224e5071d17566782ce843f50e5e49f`.
+A fresh non-Team artifact is supplied and remains pending focused UX assessment; the Teams artifact now has complete provenance.
 The historical baseline at [`default-1706x938.png`](../../screenshots/MENU-01/default-1706x938.png) is a reference for the unchanged retro controls and footer only.
 The historical baseline is not conformance evidence for the consolidated Persons list.
 Issue #38 must replace these screenshots when it implements the target footer variant.
