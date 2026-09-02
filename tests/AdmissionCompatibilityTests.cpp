@@ -1459,6 +1459,27 @@ D6R_TEST_CASE("secure filesystem observer deterministically detects pinned-file 
                  Network::ManifestStatus::ReadFailed);
 }
 
+D6R_TEST_CASE("frozen gameplay content retains exact accepted bytes after source mutation") {
+    TemporaryResources resources;
+    resources.required();
+    D6R_REQUIRE(resources.write("levels/arena.json", "accepted-arena-bytes\nwith-exact-ending"));
+    const auto accepted = Network::CompatibilityManifestBuilder(resources.root.string()).build();
+    D6R_REQUIRE(accepted.valid());
+    D6R_REQUIRE(accepted.content);
+    const auto frozen = accepted.content->find("levels/arena.json");
+    D6R_REQUIRE(frozen != accepted.content->end());
+    const std::vector<std::uint8_t> expected{
+            'a','c','c','e','p','t','e','d','-','a','r','e','n','a','-','b','y','t','e','s','\n',
+            'w','i','t','h','-','e','x','a','c','t','-','e','n','d','i','n','g'};
+    D6R_REQUIRE_EQ(expected, frozen->second);
+
+    D6R_REQUIRE(resources.write("levels/arena.json", "later-mutated-bytes"));
+    D6R_REQUIRE_EQ(expected, accepted.content->at("levels/arena.json"));
+    const auto rebuilt = Network::CompatibilityManifestBuilder(resources.root.string()).build();
+    D6R_REQUIRE(rebuilt.valid());
+    D6R_REQUIRE(!Network::gameplayManifestsEqual(accepted.manifest, rebuilt.manifest));
+}
+
 #ifdef _WIN32
 D6R_TEST_CASE("Windows manifest rejects hardlinks and ordinal case replacement when the filesystem permits them") {
     TemporaryResources hardlinked; hardlinked.required();

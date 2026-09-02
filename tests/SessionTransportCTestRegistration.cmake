@@ -12,6 +12,41 @@ set_tests_properties(duel6r-session-transport-tests PROPERTIES
         LABELS "application;network;transport"
         TIMEOUT 180)
 
+add_executable(duel6r-authoritative-match-behavior-tests
+        ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+        ${CMAKE_SOURCE_DIR}/tests/AuthoritativeMatchBehaviorTests.cpp)
+target_include_directories(duel6r-authoritative-match-behavior-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(duel6r-authoritative-match-behavior-tests duel6r-network-scaffold)
+if (MINGW)
+    set_property(TARGET duel6r-authoritative-match-behavior-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
+add_test(NAME duel6r-authoritative-match-behavior-tests COMMAND duel6r-authoritative-match-behavior-tests)
+set_tests_properties(duel6r-authoritative-match-behavior-tests PROPERTIES
+        LABELS "application;integration;network;authoritative-match;determinism"
+        TIMEOUT 180)
+
+if (NOT D6R_TRANSPORT_ONLY)
+    add_executable(duel6r-local-play-pick-animation-tests
+            ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+            ${CMAKE_SOURCE_DIR}/tests/LocalPlayPickAnimationTests.cpp
+            ${CMAKE_SOURCE_DIR}/source/Sprite.cpp
+            ${CMAKE_SOURCE_DIR}/source/math/Vector.cpp
+            ${CMAKE_SOURCE_DIR}/source/aseprite/aseprite.cpp
+            ${CMAKE_SOURCE_DIR}/source/aseprite/aseprite_to_animation.cpp
+            ${CMAKE_SOURCE_DIR}/source/aseprite/tinf/tinf.cpp)
+    target_include_directories(duel6r-local-play-pick-animation-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_compile_definitions(duel6r-local-play-pick-animation-tests PRIVATE
+            D6R_HEADLESS_CORE
+            D6R_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    if (MINGW)
+        set_property(TARGET duel6r-local-play-pick-animation-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+    endif ()
+    add_test(NAME duel6r-local-play-pick-animation-tests COMMAND duel6r-local-play-pick-animation-tests)
+    set_tests_properties(duel6r-local-play-pick-animation-tests PROPERTIES
+            LABELS "application;local-play;animation;weapon-pick"
+            TIMEOUT 30)
+endif ()
+
 add_executable(duel6r-network-trust-policy-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
         ${CMAKE_SOURCE_DIR}/tests/NetworkTrustPolicyTests.cpp)
@@ -76,6 +111,19 @@ endif ()
 
 if (UNIX OR WIN32)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    if (NOT D6R_TRANSPORT_ONLY)
+        add_test(
+                NAME duel6r-authoritative-match-process-tests
+                COMMAND ${Python3_EXECUTABLE}
+                        ${CMAKE_SOURCE_DIR}/tests/AuthoritativeMatchProcessTests.py
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}>
+        )
+        set_tests_properties(duel6r-authoritative-match-process-tests PROPERTIES
+                WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+                LABELS "application;integration;network;authoritative-match;headless;process"
+                TIMEOUT 120)
+    endif ()
+
     add_test(
             NAME duel6r-session-transport-process-tests
             COMMAND ${Python3_EXECUTABLE}

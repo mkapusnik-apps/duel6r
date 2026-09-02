@@ -1,0 +1,499 @@
+#include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <string>
+#include <vector>
+
+#include "source/server/AuthoritativeMatch.h"
+#include "source/server/AuthoritativeHostedMatchController.h"
+#include "source/server/AuthoritativeMatchSerialization.h"
+#include "source/server/AuthoritativeMatchValidation.h"
+#include "tests/TestHarness.h"
+
+namespace {
+using namespace Duel6::Server::Authoritative;
+
+std::vector<PlayerDefinition> roster(std::size_t count = 4) {
+    std::vector<PlayerDefinition> result;
+    for (std::size_t i = 0; i < count; ++i)
+        result.push_back({i + 1, i + 101, "Player " + std::to_string(i + 1), static_cast<std::uint8_t>(i)});
+    return result;
+}
+
+Duel6::Network::GameplayManifest manifest(std::vector<std::string> levels = {"levels/a.json", "levels/b.json", "levels/c.json"}) {
+    Duel6::Network::GameplayManifest result = {{"data/blocks.json", {}}, {"data/config.script", {}}};
+    for (auto &level: levels) result.push_back({level, {}});
+    std::sort(result.begin(), result.end(), [](const auto &a, const auto &b) { return a.logicalPath < b.logicalPath; });
+    return result;
+}
+
+MatchConfig config() {
+    MatchConfig value;
+    value.seed = UINT64_C(0x123456789abcdef0);
+    value.hostParticipantId = 1;
+    value.levelPlan = LevelPlan::Fixed;
+    value.fixedLevel = "levels/a.json";
+    value.playableLevels = {"levels/a.json", "levels/b.json", "levels/c.json"};
+    value.enabledWeapons = {"pistol", "bazooka"};
+    value.roundLimit = 1;
+    return value;
+}
+
+AuthoritativeAction action(const AuthoritativeMatch &match, std::uint64_t sequence, Identity participant,
+                           Identity player, ActionKind kind, Identity target = 0, std::int32_t amount = 0,
+                           std::uint32_t input = 0) {
+    return {match.currentTick(), sequence, participant, player, kind, target, input, amount};
+}
+
+void eliminate(AuthoritativeMatch &match, std::uint64_t &sequence, const PlayerDefinition &source,
+               const PlayerDefinition &target, int hits = 1) {
+    for (int hit = 0; hit < hits; ++hit)
+        D6R_REQUIRE_EQ(ActionResult::Accepted, match.submit(action(match, sequence++, source.participantId,
+                source.playerId, ActionKind::ShotDamage, target.playerId, MaximumLife)));
+}
+
+void finishDelay(AuthoritativeMatch &match) {
+    for (std::uint32_t i = 0; i < RoundEndTotalTicks; ++i) match.advanceOneTick();
+}
+
+D6R_TEST_CASE("AHM mode matrix completes with documented winner and team assignment") {
+    struct Variant { Mode mode; std::uint8_t teams; bool friendlyFire; };
+    const std::vector<Variant> variants = {
+        {Mode::Deathmatch, 0, false}, {Mode::Predator, 0, false},
+        {Mode::TeamDeathmatch, 2, false}, {Mode::TeamDeathmatch, 2, true},
+        {Mode::TeamDeathmatch, 3, false}, {Mode::TeamDeathmatch, 3, true},
+        {Mode::TeamDeathmatch, 4, false}, {Mode::TeamDeathmatch, 4, true}};
+    for (const auto &variant: variants) {
+        MatchConfig requested = config();
+        requested.mode = variant.mode; requested.teamCount = variant.teams; requested.friendlyFire = variant.friendlyFire;
+        auto players = roster();
+        AuthoritativeMatch match;
+        D6R_REQUIRE_EQ(OutcomeCode::None, match.start(requested, players, manifest()).code);
+        std::uint64_t sequence = 1;
+        if (variant.mode == Mode::Predator) {
+            const Identity predator = match.roundDecision().predatorPlayerId;
+            auto target = std::find_if(players.begin(), players.end(), [&](const auto &p) { return p.playerId == predator; });
+            auto source = std::find_if(players.begin(), players.end(), [&](const auto &p) { return p.playerId != predator; });
+            eliminate(match, sequence, *source, *target, 4);
+        } else {
+            const auto &source = players.front();
+            for (const auto &target: players) {
+                if (target.playerId == source.playerId) continue;
+                if (variant.mode == Mode::TeamDeathmatch && target.rosterOrder % variant.teams == 0) continue;
+                eliminate(match, sequence, source, target);
+            }
+        }
+        D6R_REQUIRE_EQ(MatchPhase::RoundEndActive, match.phase());
+        finishDelay(match);
+        D6R_REQUIRE_EQ(OutcomeCode::Completed, match.outcome().code);
+        D6R_REQUIRE(match.publishedResult().has_value());
+        const auto &result = *match.publishedResult();
+        D6R_REQUIRE_EQ(1u, result.completedRounds);
+        D6R_REQUIRE(!result.finalNoWinner);
+        if (variant.mode == Mode::TeamDeathmatch) {
+            D6R_REQUIRE_EQ(Team::Alpha, result.finalWinningTeam);
+            D6R_REQUIRE_EQ(static_cast<std::size_t>(variant.teams), result.teams.size());
+            for (const auto &row: result.players)
+                D6R_REQUIRE_EQ(static_cast<Team>(row.rosterOrder % variant.teams + 1), row.team);
+        }
+        D6R_REQUIRE_EQ(OutcomeCode::Completed, match.shutdown().code);
+        D6R_REQUIRE(match.resourcesReleased());
+    }
+}
+
+D6R_TEST_CASE("AHM no-winner penalties assists friendly-fire and points are authoritative") {
+    MatchConfig requested = config();
+    requested.mode = Mode::TeamDeathmatch; requested.teamCount = 2; requested.friendlyFire = true;
+    requested.assistance = true;
+    auto players = roster();
+    AuthoritativeMatch match;
+    D6R_REQUIRE_EQ(OutcomeCode::None, match.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match.submit(action(match, sequence++, 3, 103,
+            ActionKind::ShotDamage, 102, 41)));
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match.submit(action(match, sequence++, 1, 101,
+            ActionKind::ShotDamage, 102, 59)));
+    eliminate(match, sequence, players[0], players[2], 1); // Same-team kill: penalty.
+    eliminate(match, sequence, players[0], players[3], 1);
+    finishDelay(match);
+    const auto &result = *match.publishedResult();
+    const auto assistant = std::find_if(result.players.begin(), result.players.end(), [](const auto &row) {
+        return row.playerId == 103;
+    });
+    D6R_REQUIRE(assistant != result.players.end());
+    D6R_REQUIRE_EQ(1u, assistant->statistics.assists);
+    D6R_REQUIRE_EQ(41u, assistant->statistics.assistedDamage);
+    const auto teamKiller = std::find_if(result.players.begin(), result.players.end(), [](const auto &row) {
+        return row.playerId == 101;
+    });
+    D6R_REQUIRE(teamKiller != result.players.end());
+    D6R_REQUIRE_EQ(1u, teamKiller->statistics.penalties);
+    D6R_REQUIRE_EQ(2u, teamKiller->statistics.kills);
+    D6R_REQUIRE_EQ(1u, assistant->statistics.deaths);
+    D6R_REQUIRE_EQ(0u, assistant->statistics.penalties);
+    for (const auto &row: result.players)
+        D6R_REQUIRE_EQ(static_cast<std::int64_t>(row.statistics.kills + row.statistics.wins
+                + row.statistics.assists) - static_cast<std::int64_t>(row.statistics.penalties),
+                row.statistics.totalPoints());
+    D6R_REQUIRE_EQ(Team::Alpha, result.teams.front().team);
+
+    MatchConfig noWinnerConfig = config();
+    auto two = roster(2);
+    CanonicalWorldSnapshot snapshot;
+    snapshot.valid = true; snapshot.stateDigest = 1; snapshot.players = {{101, true, 100}, {102, true, 100}};
+    MatchRuntimeDependencies dependencies;
+    dependencies.worldSnapshot = [&] { return snapshot; };
+    dependencies.worldTick = [&](Tick, bool) {
+        snapshot.players[0].alive = false; snapshot.players[0].life = 0;
+        snapshot.players[1].alive = false; snapshot.players[1].life = 0;
+        snapshot.roundOver = true; ++snapshot.stateDigest;
+        return true;
+    };
+    AuthoritativeMatch noWinner(dependencies);
+    D6R_REQUIRE_EQ(OutcomeCode::None, noWinner.start(noWinnerConfig, two, manifest()).code);
+    noWinner.advanceOneTick();
+    finishDelay(noWinner);
+    D6R_REQUIRE(noWinner.publishedResult()->finalNoWinner);
+    D6R_REQUIRE(noWinner.publishedResult()->finalWinnerPlayerIds.empty());
+}
+
+D6R_TEST_CASE("AHM opponent environmental self and team deaths apply only their qualifying penalties") {
+    const auto players = roster(2);
+    auto complete = [&](ActionKind kind, Identity participant, Identity source, Identity target) {
+        AuthoritativeMatch match;
+        D6R_REQUIRE_EQ(OutcomeCode::None, match.start(config(), players, manifest()).code);
+        D6R_REQUIRE_EQ(ActionResult::Accepted,
+                match.submit({0, 1, participant, source, kind, target, 0, MaximumLife}));
+        finishDelay(match);
+        D6R_REQUIRE(match.publishedResult());
+        return *match.publishedResult();
+    };
+
+    const auto opponent = complete(ActionKind::ShotDamage, 1, 101, 102);
+    const auto opponentKiller = std::find_if(opponent.players.begin(), opponent.players.end(),
+            [](const auto &row) { return row.playerId == 101; });
+    const auto opponentVictim = std::find_if(opponent.players.begin(), opponent.players.end(),
+            [](const auto &row) { return row.playerId == 102; });
+    D6R_REQUIRE(opponentKiller != opponent.players.end());
+    D6R_REQUIRE(opponentVictim != opponent.players.end());
+    D6R_REQUIRE_EQ(1u, opponentKiller->statistics.kills);
+    D6R_REQUIRE_EQ(0u, opponentKiller->statistics.penalties);
+    D6R_REQUIRE_EQ(1u, opponentVictim->statistics.deaths);
+    D6R_REQUIRE_EQ(0u, opponentVictim->statistics.penalties);
+
+    const auto environmental = complete(ActionKind::EnvironmentalDamage, 2, 102, 102);
+    const auto environmentalVictim = std::find_if(environmental.players.begin(), environmental.players.end(),
+            [](const auto &row) { return row.playerId == 102; });
+    D6R_REQUIRE(environmentalVictim != environmental.players.end());
+    D6R_REQUIRE_EQ(1u, environmentalVictim->statistics.deaths);
+    D6R_REQUIRE_EQ(1u, environmentalVictim->statistics.penalties);
+
+    const auto suicide = complete(ActionKind::ShotDamage, 2, 102, 102);
+    const auto selfVictim = std::find_if(suicide.players.begin(), suicide.players.end(),
+            [](const auto &row) { return row.playerId == 102; });
+    D6R_REQUIRE(selfVictim != suicide.players.end());
+    D6R_REQUIRE_EQ(1u, selfVictim->statistics.deaths);
+    D6R_REQUIRE_EQ(1u, selfVictim->statistics.penalties);
+    D6R_REQUIRE_EQ(0u, selfVictim->statistics.kills);
+}
+
+D6R_TEST_CASE("AHM validates settings roster levels weapons scripts and round bounds before content") {
+    const auto players = roster(2);
+    MatchConfig requested = config();
+    for (const std::uint8_t accepted: {std::uint8_t{1}, std::uint8_t{99}}) {
+        requested.roundLimit = accepted;
+        D6R_REQUIRE(validateMatchConfig(requested, players).valid);
+    }
+    for (const std::uint8_t rejected: {std::uint8_t{0}, std::uint8_t{100}}) {
+        requested.roundLimit = rejected;
+        D6R_REQUIRE(!validateMatchConfig(requested, players).valid);
+    }
+    requested = config(); requested.optionalScriptsEnabled = true;
+    D6R_REQUIRE_EQ(std::string("optional-scripts"), validateMatchConfig(requested, players).diagnostic);
+    requested = config(); requested.mode = Mode::TeamDeathmatch; requested.teamCount = 4;
+    D6R_REQUIRE(validateMatchConfig(requested, players).valid); // Empty configured teams are allowed.
+    auto duplicate = players; duplicate[1].playerId = duplicate[0].playerId;
+    D6R_REQUIRE(!validateMatchConfig(config(), duplicate).valid);
+    auto missingLevel = config(); missingLevel.fixedLevel = "levels/missing.json";
+    D6R_REQUIRE_EQ(std::string("fixed-level-unavailable"), validateFrozenContent(missingLevel, manifest()).diagnostic);
+    auto noWeapons = config(); noWeapons.enabledWeapons.clear();
+    D6R_REQUIRE_EQ(std::string("weapons-unavailable"), validateFrozenContent(noWeapons, manifest()).diagnostic);
+    auto scripted = manifest(); scripted.push_back({"profiles/p/script.lua", {}});
+    std::sort(scripted.begin(), scripted.end(), [](const auto &a, const auto &b) { return a.logicalPath < b.logicalPath; });
+    D6R_REQUIRE_EQ(std::string("script-content"), validateFrozenContent(config(), scripted).diagnostic);
+
+    AuthoritativeMatch precedence;
+    auto invalid = config(); invalid.roundLimit = 0; invalid.enabledWeapons.clear();
+    D6R_REQUIRE_EQ(OutcomeCode::SettingsInvalid, precedence.start(invalid, players, {}).code);
+    D6R_REQUIRE(!precedence.publishedResult());
+}
+
+D6R_TEST_CASE("AHM fixed shuffle random plans and every round decision replay deterministically") {
+    auto run = [](LevelPlan plan) {
+        MatchConfig requested = config(); requested.levelPlan = plan; requested.roundLimit = 6;
+        if (plan != LevelPlan::Fixed) requested.fixedLevel.clear();
+        AuthoritativeMatch match;
+        auto players = roster(2);
+        D6R_REQUIRE_EQ(OutcomeCode::None, match.start(requested, players, manifest()).code);
+        std::uint64_t sequence = 1;
+        while (match.outcome().code == OutcomeCode::None) {
+            if (match.phase() == MatchPhase::ActiveRound) eliminate(match, sequence, players[0], players[1]);
+            else match.advanceOneTick();
+        }
+        D6R_REQUIRE(match.publishedResult());
+        return *match.publishedResult();
+    };
+    for (LevelPlan plan: {LevelPlan::Fixed, LevelPlan::ShuffleAll, LevelPlan::Random}) {
+        const auto first = run(plan), second = run(plan);
+        D6R_REQUIRE_EQ(*serializeSessionResult(first), *serializeSessionResult(second));
+        for (const auto &round: first.rounds)
+            D6R_REQUIRE(std::find(first.config.playableLevels.begin(), first.config.playableLevels.end(), round.level)
+                        != first.config.playableLevels.end());
+    }
+    const auto fixed = run(LevelPlan::Fixed);
+    for (const auto &round: fixed.rounds) D6R_REQUIRE_EQ(std::string("levels/a.json"), round.level);
+    const auto shuffled = run(LevelPlan::ShuffleAll);
+    D6R_REQUIRE_EQ(shuffled.rounds[0].level, shuffled.rounds[3].level);
+    D6R_REQUIRE_EQ(shuffled.rounds[1].level, shuffled.rounds[4].level);
+    D6R_REQUIRE_EQ(shuffled.rounds[2].level, shuffled.rounds[5].level);
+    D6R_REQUIRE(shuffled.rounds[0].level != shuffled.rounds[1].level);
+    D6R_REQUIRE(shuffled.rounds[0].level != shuffled.rounds[2].level);
+    D6R_REQUIRE(shuffled.rounds[1].level != shuffled.rounds[2].level);
+
+    for (const LevelPlan plan: {LevelPlan::Fixed, LevelPlan::ShuffleAll, LevelPlan::Random}) {
+        MatchConfig subset = config();
+        subset.levelPlan = plan;
+        subset.playableLevels = {"levels/a.json", "levels/b.json"};
+        if (plan != LevelPlan::Fixed) subset.fixedLevel.clear();
+        D6R_REQUIRE_EQ(std::string("playable-level-set"), validateFrozenContent(subset, manifest()).diagnostic);
+    }
+}
+
+D6R_TEST_CASE("AHM departure preserves roster-derived team identity across rounds") {
+    MatchConfig requested = config();
+    requested.mode = Mode::TeamDeathmatch;
+    requested.teamCount = 2;
+    requested.roundLimit = 2;
+    auto players = roster();
+    AuthoritativeMatch match;
+    D6R_REQUIRE_EQ(OutcomeCode::None, match.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+
+    eliminate(match, sequence, players[0], players[1]);
+    eliminate(match, sequence, players[0], players[3]);
+    finishDelay(match);
+    D6R_REQUIRE_EQ(MatchPhase::ActiveRound, match.phase());
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match.submit(action(match, sequence++, 1, 0,
+            ActionKind::RemovePlayer, players[1].playerId)));
+    eliminate(match, sequence, players[0], players[3]);
+    finishDelay(match);
+
+    D6R_REQUIRE(match.publishedResult());
+    const auto &result = *match.publishedResult();
+    D6R_REQUIRE_EQ(2u, result.completedRounds);
+    D6R_REQUIRE_EQ(2u, result.rounds.size());
+    for (const auto &round: result.rounds)
+        D6R_REQUIRE_EQ(std::vector<Identity>({101, 102, 103, 104}), round.rosterOrder);
+    const auto departed = std::find_if(result.players.begin(), result.players.end(), [](const auto &row) {
+        return row.playerId == 102;
+    });
+    D6R_REQUIRE(departed != result.players.end());
+    D6R_REQUIRE(departed->departed);
+    D6R_REQUIRE_EQ(Team::Bravo, departed->team);
+    D6R_REQUIRE_EQ(1u, departed->rosterOrder);
+    D6R_REQUIRE_EQ(2u, departed->rounds.size());
+    D6R_REQUIRE_EQ(2u, result.teams.size());
+}
+
+D6R_TEST_CASE("AHM strict tick ordering ownership values bounds and advancement authority") {
+    AuthoritativeMatch match;
+    auto players = roster(2);
+    D6R_REQUIRE_EQ(OutcomeCode::None, match.start(config(), players, manifest()).code);
+    D6R_REQUIRE_EQ(ActionResult::RejectedOrder, match.submit({1, 1, 1, 101, ActionKind::PlayerInput, 0, MoveLeft, 0}));
+    D6R_REQUIRE_EQ(ActionResult::RejectedOrder, match.submit({0, 0, 1, 101, ActionKind::PlayerInput, 0, MoveLeft, 0}));
+    D6R_REQUIRE_EQ(ActionResult::RejectedAuthority, match.submit({0, 1, 2, 101, ActionKind::PlayerInput, 0, MoveLeft, 0}));
+    D6R_REQUIRE_EQ(ActionResult::RejectedValue, match.submit({0, 1, 1, 101, ActionKind::PlayerInput, 0, 1u << 20u, 0}));
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match.submit({0, 1, 1, 101, ActionKind::PlayerInput, 0, MoveLeft, 0}));
+    D6R_REQUIRE_EQ(ActionResult::RejectedOrder, match.submit({0, 1, 1, 101, ActionKind::PlayerInput, 0, MoveRight, 0}));
+    D6R_REQUIRE_EQ(ActionResult::RejectedValue, match.submit({0, 2, 1, 101, ActionKind::PlayerInput, 0, MoveRight, 0}));
+    D6R_REQUIRE_EQ(ActionResult::RejectedAuthority, match.submit({0, 2, 2, 0, ActionKind::AdvanceRound, 0, 0, 0}));
+    D6R_REQUIRE_EQ(ActionResult::RejectedPhase, match.submit({0, 2, 1, 0, ActionKind::AdvanceRound, 0, 0, 0}));
+}
+
+D6R_TEST_CASE("AHM unauthorized and malformed floods cannot progress fail or count as accepted") {
+    AuthoritativeMatch match;
+    const auto players = roster(2);
+    D6R_REQUIRE_EQ(OutcomeCode::None, match.start(config(), players, manifest()).code);
+    const Tick initialTick = match.currentTick();
+    const MatchPhase initialPhase = match.phase();
+
+    for (std::uint64_t sequence = 1; sequence <= 65; ++sequence)
+        D6R_REQUIRE_EQ(ActionResult::RejectedAuthority,
+                match.submit({initialTick, sequence, 2, 0, ActionKind::AdvanceRound, 0, 0, 0}));
+    for (std::uint64_t sequence = 1; sequence <= 65; ++sequence)
+        D6R_REQUIRE_EQ(ActionResult::RejectedValue,
+                match.submit({initialTick, sequence, 2, 102, ActionKind::PlayerInput, 0, 1u << 20u, 0}));
+
+    D6R_REQUIRE_EQ(initialTick, match.currentTick());
+    D6R_REQUIRE_EQ(initialPhase, match.phase());
+    D6R_REQUIRE_EQ(OutcomeCode::None, match.outcome().code);
+    D6R_REQUIRE(!match.publishedResult());
+    D6R_REQUIRE_EQ(UINT64_C(0), match.acceptedActionCount());
+    D6R_REQUIRE_EQ(UINT64_C(130), match.rejectedActionCount());
+    D6R_REQUIRE_EQ(ActionResult::Accepted,
+            match.submit({initialTick, 1, 2, 102, ActionKind::PlayerInput, 0, MoveLeft, 0}));
+    D6R_REQUIRE_EQ(UINT64_C(1), match.acceptedActionCount());
+}
+
+D6R_TEST_CASE("AHM sequence maxima remain per owner and cannot block host End") {
+    AuthoritativeMatch match;
+    const auto players = roster(2);
+    D6R_REQUIRE_EQ(OutcomeCode::None, match.start(config(), players, manifest()).code);
+    const auto maximum = std::numeric_limits<std::uint64_t>::max();
+
+    D6R_REQUIRE_EQ(ActionResult::Accepted,
+            match.submit({0, maximum, 2, 102, ActionKind::PlayerInput, 0, MoveLeft, 0}));
+    D6R_REQUIRE_EQ(ActionResult::Accepted,
+            match.submit({0, 1, 1, 101, ActionKind::PlayerInput, 0, MoveRight, 0}));
+    D6R_REQUIRE_EQ(ActionResult::RejectedOrder,
+            match.submit({0, 1, 2, 102, ActionKind::PlayerInput, 0, MoveRight, 0}));
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match.submitHostControl(1, ActionKind::EndSession));
+
+    D6R_REQUIRE_EQ(OutcomeCode::EndedIntentionally, match.outcome().code);
+    D6R_REQUIRE_EQ(UINT64_C(3), match.acceptedActionCount());
+    D6R_REQUIRE_EQ(UINT64_C(1), match.rejectedActionCount());
+    D6R_REQUIRE(!match.publishedResult());
+}
+
+D6R_TEST_CASE("AHM round-end boundaries update exactly one second then freeze five seconds") {
+    std::vector<bool> simulated;
+    MatchRuntimeDependencies dependencies;
+    dependencies.worldTick = [&](Tick, bool simulate) { simulated.push_back(simulate); return true; };
+    AuthoritativeMatch match(dependencies);
+    auto players = roster(2);
+    MatchConfig requested = config(); requested.roundLimit = 3;
+    D6R_REQUIRE_EQ(OutcomeCode::None, match.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+    eliminate(match, sequence, players[0], players[1]);
+    for (std::uint32_t i = 0; i < RoundEndActiveTicks - 1; ++i) {
+        match.advanceOneTick(); D6R_REQUIRE_EQ(MatchPhase::RoundEndActive, match.phase());
+    }
+    match.advanceOneTick();
+    D6R_REQUIRE_EQ(MatchPhase::RoundEndFrozen, match.phase());
+    D6R_REQUIRE_EQ(static_cast<std::size_t>(RoundEndActiveTicks), simulated.size());
+    for (std::uint32_t i = RoundEndActiveTicks; i < RoundEndTotalTicks - 1; ++i) match.advanceOneTick();
+    D6R_REQUIRE_EQ(MatchPhase::RoundEndFrozen, match.phase());
+    match.advanceOneTick();
+    D6R_REQUIRE_EQ(MatchPhase::ActiveRound, match.phase());
+
+    eliminate(match, sequence, players[0], players[1]);
+    D6R_REQUIRE_EQ(ActionResult::RejectedAuthority, match.submit(action(match, sequence++, 2, 0, ActionKind::AdvanceRound)));
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match.submit(action(match, sequence++, 1, 0, ActionKind::AdvanceRound)));
+    D6R_REQUIRE_EQ(MatchPhase::ActiveRound, match.phase());
+}
+
+D6R_TEST_CASE("AHM terminal results are atomic and cleanup controls exit meaning") {
+    auto players = roster(2);
+    AuthoritativeMatch interrupted;
+    D6R_REQUIRE_EQ(OutcomeCode::None, interrupted.start(config(), players, manifest()).code);
+    D6R_REQUIRE_EQ(ActionResult::Accepted, interrupted.submit({0, 1, 1, 0, ActionKind::RemovePlayer, 102, 0, 0}));
+    D6R_REQUIRE_EQ(OutcomeCode::InterruptedNoWinner, interrupted.outcome().code);
+    D6R_REQUIRE_EQ(0, interrupted.outcome().exitStatus);
+    D6R_REQUIRE(interrupted.publishedResult()->finalNoWinner);
+    D6R_REQUIRE_EQ(0u, interrupted.publishedResult()->completedRounds);
+
+    AuthoritativeMatch ended;
+    D6R_REQUIRE_EQ(OutcomeCode::None, ended.start(config(), players, manifest()).code);
+    D6R_REQUIRE_EQ(ActionResult::RejectedAuthority, ended.submit({0, 1, 2, 0, ActionKind::EndSession, 0, 0, 0}));
+    D6R_REQUIRE_EQ(ActionResult::Accepted, ended.submit({0, 1, 1, 0, ActionKind::EndSession, 0, 0, 0}));
+    D6R_REQUIRE(!ended.publishedResult());
+    D6R_REQUIRE_EQ(0, ended.shutdown().exitStatus);
+
+    MatchRuntimeDependencies badCleanup; badCleanup.cleanup = [] { return false; };
+    AuthoritativeMatch cleanup(badCleanup);
+    D6R_REQUIRE_EQ(OutcomeCode::None, cleanup.start(config(), players, manifest()).code);
+    D6R_REQUIRE_EQ(ActionResult::Accepted, cleanup.submit({0, 1, 1, 0, ActionKind::EndSession, 0, 0, 0}));
+    D6R_REQUIRE_EQ(OutcomeCode::ShutdownFailed, cleanup.shutdown().code);
+    D6R_REQUIRE_EQ(4, cleanup.outcome().exitStatus);
+    D6R_REQUIRE(!cleanup.resourcesReleased());
+    D6R_REQUIRE(!cleanup.publishedResult());
+
+    AuthoritativeMatch failed;
+    D6R_REQUIRE_EQ(OutcomeCode::None, failed.start(config(), players, manifest()).code);
+    D6R_REQUIRE_EQ(ActionResult::RuntimeFailed, failed.submit({0, 1, 1, 0, ActionKind::RuntimeFailure, 0, 0, 0}));
+    D6R_REQUIRE_EQ(3, failed.outcome().exitStatus);
+    D6R_REQUIRE(!failed.publishedResult());
+}
+
+D6R_TEST_CASE("AHM hosted End authorization is bound only to the frozen host identity") {
+    const auto players = roster(2);
+    AuthoritativeHostedMatchController controller(1);
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE(controller.setParticipantReady(1, true));
+    D6R_REQUIRE(controller.setParticipantReady(2, true));
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(config(), players, manifest()).code);
+    D6R_REQUIRE_EQ(HostedMatchStage::MatchActive, controller.stage());
+    D6R_REQUIRE_EQ(OutcomeCode::SettingsInvalid, controller.end(2).code);
+    D6R_REQUIRE_EQ(HostedMatchStage::MatchActive, controller.stage());
+    D6R_REQUIRE_EQ(OutcomeCode::EndedIntentionally, controller.end(1).code);
+    D6R_REQUIRE_EQ(HostedMatchStage::Ended, controller.stage());
+}
+
+D6R_TEST_CASE("AHM malformed first and later frozen levels block before rounds clear readiness and permit End") {
+    struct Case { LevelPlan plan; std::string malformedLevel; };
+    for (const Case &test: {Case{LevelPlan::Fixed, "levels/a.json"},
+                            Case{LevelPlan::ShuffleAll, "levels/b.json"}}) {
+        int preflightCalls = 0;
+        int worldStarts = 0;
+        MatchRuntimeDependencies dependencies;
+        dependencies.contentPreflight = [&](const Duel6::Network::GameplayManifest &frozen) {
+            ++preflightCalls;
+            return std::none_of(frozen.begin(), frozen.end(), [&](const auto &entry) {
+                return entry.logicalPath == test.malformedLevel;
+            });
+        };
+        dependencies.worldStart = [&](RoundStartDecision &) { ++worldStarts; return true; };
+        AuthoritativeHostedMatchController controller(1, dependencies);
+        const auto players = roster(2);
+        MatchConfig requested = config(); requested.levelPlan = test.plan; requested.roundLimit = 3;
+        if (test.plan != LevelPlan::Fixed) requested.fixedLevel.clear();
+
+        D6R_REQUIRE(controller.markServiceReady());
+        D6R_REQUIRE(controller.setParticipantReady(1, true));
+        D6R_REQUIRE(controller.setParticipantReady(2, true));
+        D6R_REQUIRE_EQ(OutcomeCode::ContentUnavailable, controller.start(requested, players, manifest()).code);
+        D6R_REQUIRE_EQ(HostedMatchStage::ContentBlocked, controller.stage());
+        D6R_REQUIRE(controller.contentStartBlocked());
+        D6R_REQUIRE(!controller.participantReady(1));
+        D6R_REQUIRE(!controller.participantReady(2));
+        D6R_REQUIRE(controller.match() == nullptr);
+        D6R_REQUIRE_EQ(1, preflightCalls);
+        D6R_REQUIRE_EQ(0, worldStarts);
+
+        D6R_REQUIRE(!controller.setParticipantReady(1, true));
+        D6R_REQUIRE_EQ(OutcomeCode::ContentUnavailable, controller.start(requested, players, manifest()).code);
+        D6R_REQUIRE_EQ(1, preflightCalls);
+        D6R_REQUIRE_EQ(0, worldStarts);
+        D6R_REQUIRE_EQ(OutcomeCode::EndedIntentionally, controller.end(1).code);
+        D6R_REQUIRE_EQ(HostedMatchStage::Ended, controller.stage());
+    }
+}
+
+D6R_TEST_CASE("AHM canonical JSON is stable escaped bounded and excludes persistence and secrets") {
+    SessionResult result;
+    result.config = config(); result.completedRounds = 1;
+    result.rounds.push_back({1, "levels/a.json", true, {101}, Team::None, false, {101, 102}});
+    PlayerResultRow player; player.playerId = 101; player.participantId = 1;
+    player.displayName = "quote\" slash\\ line\n"; player.rounds.push_back({});
+    result.players.push_back(player); result.finalWinnerPlayerIds = {101};
+    const auto first = serializeSessionResult(result);
+    const auto second = serializeSessionResult(result);
+    D6R_REQUIRE(first && second); D6R_REQUIRE_EQ(*first, *second);
+    D6R_REQUIRE(first->find("quote\\\" slash\\\\ line\\n") != std::string::npos);
+    for (const std::string forbidden: {"credential", "endpoint", "password", "elo", "history", "personRecord"})
+        D6R_REQUIRE(first->find(forbidden) == std::string::npos);
+    result.rounds.resize(100);
+    result.completedRounds = 100;
+    D6R_REQUIRE(!serializeSessionResult(result));
+}
+}

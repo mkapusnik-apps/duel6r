@@ -1,0 +1,43 @@
+{
+  "productionHead": "6eca64ca7c3165dfdaf8a9ca7cc8a31d39f6844f",
+  "platform": "linux-x86_64",
+  "buildTypes": ["Debug", "Release"],
+  "seed": 424242,
+  "scenario": "complete-fixed-duel-01",
+  "diagnosticFixture": "compact-combat",
+  "stateDigest": 11345986410249602683,
+  "randomDecisionCount": 453,
+  "randomDigest": 5843232627817585604,
+  "round": {
+    "level": "levels/duel_01.json",
+    "orientation": "Normal",
+    "winnerPlayerIds": [201],
+    "noWinner": false
+  },
+  "players": {
+    "101": {"shots": 0, "hits": 0, "kills": 0, "deaths": 1, "penalties": 0, "ammo": 30, "life": 0},
+    "201": {"shots": 7, "hits": 4, "kills": 1, "deaths": 0, "penalties": 0, "ammo": 23, "life": 100}
+  },
+  "stateCheckpoints": [
+    [0, 3861942420061398842],
+    [60, 3638803174510104653],
+    [120, 14703942450058290348],
+    [180, 11788006029098498173],
+    [240, 11459167278787433136],
+    [300, 14463801804374374442],
+    [336, 9826710055120567197],
+    [360, 5286993246523578911]
+  ],
+  "eventCount": 43,
+  "eventKinds": {
+    "player-spawned": 2,
+    "entity-spawned": 16,
+    "entity-removed": 7,
+    "shot-fired": 7,
+    "player-life-changed": 4,
+    "shot-hit": 4,
+    "player-died": 1,
+    "player-killed": 1,
+    "round-ended": 1
+  }
+}
