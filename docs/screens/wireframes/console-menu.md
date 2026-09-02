@@ -13,7 +13,7 @@ The screen has no mobile layout. This target wireframe includes the planned `MEN
 │================================================================================│ red
 │]_                                                                              │
 │──────────────────────────────── 3 px black edge ────────────────────────────────│
-│ blurred session still │ scaled/keylined four-panel menu │ blurred session still │
+│ blurred session still │ scaled/keylined three-panel menu │ blurred session still │
 │                                                                                │
 │                                                                                │
 └────────────────────────────────────────────────────────────────────────────────┘

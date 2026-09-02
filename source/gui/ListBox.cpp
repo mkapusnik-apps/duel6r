@@ -75,7 +75,8 @@ namespace Duel6 {
         }
 
         ListBox &ListBox::scrollToView(Int32 index) {
-            listPos.start = selected - listPos.showCount / 2;
+            listPos.start = std::max(0, std::min(index - listPos.showCount / 2,
+                                                listPos.items - listPos.showCount));
             return *this;
         }
 

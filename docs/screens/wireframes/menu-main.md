@@ -2,7 +2,7 @@
 
 Representative viewport: 1920 by 1080 px desktop client.
 Wireframe coordinates use a top-left origin.
-The 850 by 700 logical menu canvas uses the 135% cap, renders at approximately 1148 by 945 client px, and starts near client coordinate `(386, 68)` at this viewport.
+The 850 by 700 logical menu canvas uses the 135% cap, renders at approximately 1148 by 945 client px, and starts at recorded client coordinate `(386, 67)` at this viewport.
 The screen has no mobile layout and does not reflow.
 The complete client is filled by a centered-cover gameplay still with Gaussian-equivalent blur and a 55% black scrim.
 The scaled grey canvas is unblurred and undimmed and has a 2-logical-pixel black perimeter keyline.
@@ -10,6 +10,11 @@ This document defines two conditional-layout wireframes for the same screen.
 The non-Team wireframe shows hidden Team settings and standard roster rows.
 The Teams wireframe shows retained Team settings and team-colored roster rows.
 The Teams representative state shows applied Rounds `3` after gameplay returns during the same application session.
+Both wireframes show one consolidated Persons list in place of the separate Elo Scoreboard and Persons lists.
+Both representative states use eight saved people and eight selected players.
+Alice and Bruno are ranked roster members.
+Cora, Diego, Erin, Farah, Gus, and Hana are unranked roster members in person-record order.
+Cora is the selected person.
 The current implementation captures must use the implemented three-action footer.
 The four-action footer remains a target variant for issue #38.
 
@@ -18,11 +23,14 @@ The four-action footer remains a target variant for issue #38.
 | Zone | Canvas bounds | Requirement |
 |---|---:|---|
 | Header | `x=10–839`, `y=5–121` | Center the existing 200 by 95 px animated banner and show the runtime version below it. |
-| Setup panels | `x=10–839`, `y=122–447` | Show the four raised panel groups in one row. |
+| Setup panels | `x=10–839`, `y=122–447` | Show the Persons, Players, and Game Settings panel groups in one row. |
 | Statistics | `x=10–839`, `y=457–606` | Show the complete persistent statistics header and table. |
 | Footer actions | `x=10–839`, `y=620–689` | Target: show four 150 by 50 px actions with balanced horizontal spacing. |
 
-The setup panel bounds are `x=10–194` for Elo scoreboard, `x=200–384` for Persons, `x=390–644` for Players, and `x=650–839` for Game Settings.
+The setup panel bounds are `x=10–324` for Persons, `x=330–644` for Players, and `x=650–839` for Game Settings.
+Persons and Players each use a width of 315 logical px and split their combined region 50:50.
+The gap at `x=325–329` and the gap at `x=645–649` must each remain 5 logical px wide.
+Game Settings must keep its width of 190 logical px.
 Each panel title strip must identify its panel.
 The panel layout may adjust internal column widths by 1 px to preserve integer coordinates.
 The banner bounds are `x=325–524` and `y=5–99`.
@@ -41,15 +49,16 @@ Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly F
 │        │                   [animated banner 200×95]                │        │
 │        │                         version <runtime>                 │        │
 │        │                                                          │        │
-│        │┌ ELO SCOREBOARD ┐┌── PERSONS ──┐┌────── PLAYERS n ─────┐┌ GAME SETTINGS ┐│
-│        ││rank name Elo Δ ││available    ││name │ controller │ D ││Mode Deathmatch││
-│        ││                ││people       ││1 … standard row  │ D ││☑ Assistance  ││
-│        ││                ││             ││2 … standard row  │ D ││☑ Quick Liquid ││
-│        ││                ││             ││                      ││☑ Burnable Trees││
-│        ││                ││             ││[E] [S] [batch D]     ││Rounds [3___]  ││
-│        ││                ││[name_______]││                      ││               ││
-│        ││                ││[Remove][<<][>>][Add]                 ││               ││
-│        │└────────────────┘└──────────────┘└──────────────────────┘└───────────────┘│
+│        │┌────────── PERSONS 315 ──────────┐5px┌───────── PLAYERS 8 / 315 ─────────┐5px┌ GAME SETTINGS 190 ┐│
+│        ││Rank │ Name          │ Elo  │ Trend  ││name │ controller │ D ││Mode Deathmatch││
+│        ││01   │ Alice         │ 1264 │ +18    ││Alice│ K1: Arrows │ D ││☑ Assistance  ││
+│        ││02   │ Bruno         │ 1218 │ -7     ││Bruno│ K1: Arrows │ D ││☑ Quick Liquid ││
+│        ││     │ Cora          │      │        ││                      ││☑ Burnable Trees││
+│        ││     │ Diego         │      │        ││[E] [S] [batch D]     ││Rounds [3___]  ││
+│        ││     │ Erin … Hana   │      │        ││… 6 more roster rows  ││               ││
+│        ││         [person name________________]│                      ││               ││
+│        ││         [Remove] [<<] [>>] [Add]    │                      ││               ││
+│        │└─────────────────────────────────────┘└──────────────────────┘└───────────────┘│
 │        │ Name | Elo | Pts | Win | Kill | Assist | Pen | Death | K/D | Shot | Acc. | GmTm | Dmg│
 │        │┌──────────────── persistent statistics table ───────────────────┐│
 │        ││ compact rows; horizontal content remains inside the canvas     ││
@@ -64,6 +73,7 @@ Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly F
 The layout must not reserve empty rows for the hidden controls.
 Every roster row must use the standard non-Team list colors.
 The hidden values remain `4` and on for the current application session.
+The Cora row must show the standard selected-row treatment.
 
 ## MENU-01-B — Teams state
 
@@ -75,18 +85,16 @@ Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly F
 │        ┌──────────────────── 850 × 700 canvas ────────────────────┐        │
 │        │                   [animated banner 200×95]                │        │
 │        │                         version <runtime>                 │        │
-│        │┌ ELO SCOREBOARD ┐┌── PERSONS ──┐┌────── PLAYERS 8 ─────┐┌ GAME SETTINGS ┐│
-│        ││rank name Elo Δ ││available    ││1 Alpha   red      │ D ││Mode Teams     ││
-│        ││                ││people       ││2 Bravo   green    │ D ││Num. of Team [4]││
-│        ││                ││             ││3 Charlie yellow   │ D ││☑ Friendly Fire││
-│        ││                ││             ││4 Delta   magenta  │ D ││☑ Assistance   ││
-│        ││                ││             ││5 Alpha   red      │ D ││☑ Quick Liquid ││
-│        ││                ││             ││6 Bravo   green    │ D ││☑ Burnable Trees││
-│        ││                ││             ││7 Charlie yellow   │ D ││Rounds [3___]   ││
-│        ││                ││             ││8 Delta   magenta  │ D ││                ││
-│        ││                ││[name_______]││[E] [S] [batch D]      ││                ││
-│        ││                ││[Remove][<<][>>][Add]                 ││                ││
-│        │└────────────────┘└──────────────┘└──────────────────────┘└────────────────┘│
+│        │┌────────── PERSONS 315 ──────────┐5px┌───────── PLAYERS 8 / 315 ─────────┐5px┌ GAME SETTINGS 190 ┐│
+│        ││Rank │ Name          │ Elo  │ Trend  ││Alice  Alpha red  │ D ││Mode Teams      ││
+│        ││01   │ Alice         │ 1264 │ +18    ││Bruno  Bravo green│ D ││Num. of Team [4]││
+│        ││02   │ Bruno         │ 1218 │ -7     ││                      ││☑ Friendly Fire ││
+│        ││     │ Cora          │      │        ││                      ││☑ Assistance    ││
+│        ││     │ Diego         │      │        ││                      ││☑ Quick Liquid  ││
+│        ││     │ Erin … Hana   │      │        ││… rows repeat colors  ││☑ Burnable Trees││
+│        ││         [person name________________]│[E] [S] [batch D]     ││Rounds [3___]   ││
+│        ││         [Remove] [<<] [>>] [Add]    │                      ││                ││
+│        │└─────────────────────────────────────┘└──────────────────────┘└────────────────┘│
 │        │ Name | Elo | Pts | Win | Kill | Assist | Pen | Death | K/D | Shot | Acc. | GmTm | Dmg│
 │        │┌──────────────── persistent statistics table ───────────────────┐│
 │        │└────────────────────────────────────────────────────────────────┘│
@@ -99,6 +107,7 @@ The team names in this text wireframe identify the required color sequence.
 The implementation does not need to add team-name text to each roster row.
 All seven visible Game Settings controls must stay inside the existing panel bounds.
 The controls must use one compact vertical stack without overlap.
+The Cora row must show the standard selected-row treatment.
 
 ## Component and state notes
 
@@ -108,10 +117,25 @@ The controls must use one compact vertical stack without overlap.
 - The canvas and raised controls must use the retro grey beveled treatment in `docs/design.md`.
 - Each setup panel must use the blue panel header and white panel header text from `docs/design.md`.
 - White inset surfaces must contain lists, spinners, and text fields.
-- The representative populated state must show every saved person with at least one Elo game in the Elo scoreboard.
-- The populated Elo rows must use descending Elo order and show rank, person name, Elo, and Elo trend.
-- The representative populated state must show two qualifying saved persons with existing Elo history.
+- The Persons panel title must use exactly `PERSONS`.
+- The Persons and Players panels must each use a width of 315 logical px.
+- All Persons controls must remain inside `x=10–324`.
+- All player names, controller labels, spinner actions, and row actions must remain inside `x=330–644`.
+- No control may draw into either 5-logical-pixel setup-panel gap.
+- The Persons list must show each saved person one time.
+- The Rank, Elo, and Trend columns must keep stable widths.
+- The Name column must use the remaining width.
+- Each row must remain one line.
+- Cell text must clip instead of wrapping or changing the row height.
+- The list must use one vertical scroll bar without horizontal scrolling.
+- The Persons list must include all eight persons even though they are also in Players.
+- Alice and Bruno must appear first in descending Elo order.
+- The Alice and Bruno rows must show Rank, Name, Elo, and signed Trend values.
+- Cora through Hana must follow in person-record order.
+- The Cora through Hana rows must leave Rank, Elo, and Trend empty.
+- The Persons list must not show an inline roster badge or team color.
 - A selected list row must use blue fill and white text.
+- The selected-row fill must span all four person columns.
 - The Teams state must use the applicable team background colors.
 - The non-Team state must use the standard list row colors.
 - A selected roster row must remain visibly selected in both states.
@@ -150,17 +174,26 @@ The controls must use one compact vertical stack without overlap.
 - The banner must use `resources/textures/menu/` and may animate.
 - The version must use the current runtime value and must not use the Stitch sample value.
 - Sample names and statistics must not become hard-coded UI content.
-- The empty Elo variant must keep the `ELO SCOREBOARD` title, `rank`, `name`, `Elo`, and `Δ` headings visible above an empty white list surface.
-- The empty Elo variant must exclude each saved person whose Elo game count is zero.
-- The empty Elo variant must not show placeholder copy.
-- An unlimited Deathmatch, Predator match, Team deathmatch, or early match exit must leave the empty Elo variant unchanged when no person has a prior Elo game.
-- The empty-data variant must keep the same panels and show empty list and table surfaces.
+- The empty-person variant must keep the `PERSONS` title and the `Rank`, `Name`, `Elo`, and `Trend` headings above an empty white list surface.
+- The empty-person variant must keep the person-name field and all four person actions.
+- The empty-person variant must not show placeholder copy.
+- A dataset with only unranked persons must show every person after the headings with empty Rank, Elo, and Trend cells.
+- An unlimited Deathmatch, Predator match, Team deathmatch, or early match exit must not move an unranked person into the ranked group.
+- The empty-data variant must keep the same three panels and show empty list and table surfaces.
 - The 15-player variant must keep each player aligned with that player's control assignment.
 - The failed-start recovery variant must restore this complete layout and its previous values.
 - The failed-start recovery variant must not add a disabled Play style or prerequisite status indicators.
 - Pressed controls must reverse their bevel and move their caption by 1 px.
 - Selection occurs once per application session; the still does not animate or change during menu navigation or a return from gameplay.
+- A person-list refresh must keep Cora selected while Cora still exists.
+- Deleting the selected person must leave the person list with no selection.
+- `>>` and a person-row double-click must add a selected non-roster person to Players without removing that person from Persons.
+- `>>` and a person-row double-click must make no visible change when any representative person is selected because all eight are roster members.
+- `Remove` must make no visible change when any representative person is selected because all eight are roster members.
+- `<<` and a player-row double-click must remove the applicable roster entry without removing that person from Persons.
 
 Non-Team representative screenshot: [`SS-001`](../../screenshots/README.md#ss-001).
 Teams representative screenshot: [`SS-024`](../../screenshots/README.md#ss-024).
-Issue #38 must replace this screenshot when it implements the target footer variant.
+The historical baseline at [`default-1706x938.png`](../../screenshots/MENU-01/default-1706x938.png) is a reference for the unchanged retro controls and footer only.
+The historical baseline is not conformance evidence for the consolidated Persons list.
+Issue #38 must replace these screenshots when it implements the target footer variant.

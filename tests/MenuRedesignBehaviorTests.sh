@@ -16,7 +16,7 @@ fail() {
   exit 1
 }
 
-for command in Xvfb xdotool import compare convert timeout python3; do
+for command in Xvfb xdotool import compare convert timeout python3 cc; do
   command -v "$command" >/dev/null 2>&1 || fail "required command not found: $command"
 done
 [[ -x "${build_dir}/duel6r" ]] || fail "application binary is missing"
@@ -57,10 +57,14 @@ new_scenario() {
 
 start_app() {
   local startup_command="${1:-}"
+  local preload="${2:-}"
   mkdir -p "${scenario_dir}/home"
   (
     export HOME="${scenario_dir}/home"
     export XDG_CACHE_HOME="$HOME/.cache" XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share"
+    if [[ -n "$preload" ]]; then
+      export LD_PRELOAD="$preload"
+    fi
     cd "$scenario_dir"
     if [[ -n "$startup_command" ]]; then
       timeout --kill-after=3s 35s ./duel6r "$startup_command" >app.stdout 2>app.stderr
@@ -203,7 +207,7 @@ with open(sys.argv[1], "w", encoding="utf-8") as f:
 PY
 }
 
-echo "[RUN] complete Elo rows for 8-, 9-, and 10-character names and signed trends"
+echo "[RUN] complete consolidated-person rows for names and signed trends"
 new_scenario elo-name-widths
 write_elo_name_fixture
 start_app
@@ -214,7 +218,7 @@ import subprocess, sys
 
 image = sys.argv[1]
 left = 16
-first_top = 147
+first_top = 165
 
 def rgb_crop(x, y, width, height=18):
     return subprocess.check_output([
@@ -229,15 +233,16 @@ lengths = (8, 8, 9, 9, 10, 10)
 signs = []
 for row, length in enumerate(lengths):
     top = first_top + 18 * row
-    final_name_x = left + (2 + length - 1) * 8
+    # Consolidated rows use Rank(5), Name(19), Elo(6), and Trend(6).
+    final_name_x = left + (5 + length - 1) * 8
     if dark_pixels(rgb_crop(final_name_x, top, 8)) < 4:
         raise SystemExit(f"Elo row {row + 1}: final character of {length}-character name is not visible")
-    # All fixture trends have two digits: the sign occupies field character 17
-    # and the final digit occupies character 19 of the exact 20-character row.
-    sign = rgb_crop(left + 17 * 8, top, 8)
+    # All fixture trends have two digits. Right alignment in the six-character
+    # Trend field puts the sign at character 33 and final digit at character 35.
+    sign = rgb_crop(left + 33 * 8, top, 8)
     if dark_pixels(sign) < 3:
         raise SystemExit(f"Elo row {row + 1}: trend sign is not visible")
-    if dark_pixels(rgb_crop(left + 19 * 8, top, 8)) < 4:
+    if dark_pixels(rgb_crop(left + 35 * 8, top, 8)) < 4:
         raise SystemExit(f"Elo row {row + 1}: final trend digit is clipped")
     signs.append(sign)
 
@@ -247,30 +252,30 @@ for positive, negative in ((0, 1), (2, 3), (4, 5)):
 PY
 close_app
 
-echo "[RUN] overflowing Elo and persistent score lists: wheel, arrows, track/thumb"
+echo "[RUN] overflowing Persons and persistent score lists: wheel, arrows, track/thumb"
 new_scenario overflow-scroll
 write_overflow_fixture
 start_app
 capture "${scenario_dir}/initial.png"
 
-# Elo list (15 visible of 20): wheel, down arrow, track, then thumb drag.
-xdotool mousemove "$(menu_x 300)" "$(menu_y 400)" click 5
+# Persons list (11 visible of 20): wheel, down arrow, track, then thumb drag.
+xdotool mousemove "$(menu_x 315)" "$(menu_y 400)" click 5
 sleep 0.2
 capture "${scenario_dir}/elo-wheel.png"
-assert_changed "${scenario_dir}/initial.png" "${scenario_dir}/elo-wheel.png" "Elo wheel"
-xdotool mousemove "$(menu_x 400)" "$(menu_y 513)" mousedown 1 sleep 0.15 mouseup 1
+assert_changed "${scenario_dir}/initial.png" "${scenario_dir}/elo-wheel.png" "Persons wheel"
+xdotool mousemove "$(menu_x 527)" "$(menu_y 449)" mousedown 1 sleep 0.15 mouseup 1
 sleep 0.2
 capture "${scenario_dir}/elo-arrow.png"
-assert_changed "${scenario_dir}/elo-wheel.png" "${scenario_dir}/elo-arrow.png" "Elo down arrow"
-xdotool mousemove "$(menu_x 400)" "$(menu_y 300)" click 1
+assert_changed "${scenario_dir}/elo-wheel.png" "${scenario_dir}/elo-arrow.png" "Persons down arrow"
+xdotool mousemove "$(menu_x 527)" "$(menu_y 320)" click 1
 sleep 0.2
 capture "${scenario_dir}/elo-track.png"
-assert_changed "${scenario_dir}/elo-arrow.png" "${scenario_dir}/elo-track.png" "Elo track"
-xdotool mousemove "$(menu_x 400)" "$(menu_y 300)" mousedown 1 \
-  mousemove "$(menu_x 400)" "$(menu_y 470)" sleep 0.1 mouseup 1
+assert_changed "${scenario_dir}/elo-arrow.png" "${scenario_dir}/elo-track.png" "Persons track"
+xdotool mousemove "$(menu_x 527)" "$(menu_y 320)" mousedown 1 \
+  mousemove "$(menu_x 527)" "$(menu_y 420)" sleep 0.1 mouseup 1
 sleep 0.2
 capture "${scenario_dir}/elo-thumb.png"
-assert_changed "${scenario_dir}/elo-track.png" "${scenario_dir}/elo-thumb.png" "Elo thumb drag"
+assert_changed "${scenario_dir}/elo-track.png" "${scenario_dir}/elo-thumb.png" "Persons thumb drag"
 
 # Persistent score list (8 visible of 20): wheel, down arrow, track/thumb.
 xdotool mousemove "$(menu_x 700)" "$(menu_y 630)" click 5
@@ -325,79 +330,242 @@ for person in after["persons"]:
         raise SystemExit(f"non-Elo stats were not cleared for {person['name']}")
 PY
 
-echo "[RUN] no-saved-person roster, names, transfer, 15-player cap, delete confirmation"
-new_scenario no-saved-roster
+echo "[RUN] consolidated Persons add, transfer, duplicate, delete, selection, and restart behavior"
+new_scenario consolidated-persons
+python3 - "${scenario_dir}/data/persons.json" <<'PY'
+import json, sys
+
+def person(name, elo=1000, trend=0, elo_games=0):
+    return {"name": name, "shots": 3, "hits": 2, "kills": 1, "deaths": 1,
+            "assistances": 0, "wins": 0, "penalties": 0, "games": 1,
+            "timeAlive": 10, "totalGameTime": 20, "totalDamage": 30,
+            "assistedDamage": 0, "elo": elo, "eloTrend": trend,
+            "eloGames": elo_games}
+
+# Person-record order deliberately differs from the required ranked ordering.
+persons = [person("UnrankedRoster"), person("RankLow", 1100, -7, 2),
+           person("UnrankedFree"), person("RankHigh", 1400, 12, 4),
+           person("RankRoster", 1250, 0, 3)]
+with open(sys.argv[1], "w", encoding="utf-8") as output:
+    json.dump({"persons": persons,
+               "playing": ["RankRoster", "UnrankedRoster"], "rounds": 0}, output)
+PY
 start_app
-capture "${scenario_dir}/players-0.png"
+capture "${scenario_dir}/initial.png"
 
-# Focus the centered name field. Empty Enter is ignored.
-xdotool mousemove "$(menu_x 500)" "$(menu_y 484)" click 1
+# Ranked display order is RankHigh, RankRoster, RankLow; unranked rows then
+# retain record order (UnrankedRoster, UnrankedFree). Select RankRoster and
+# exercise no-op add/double-click/remove behavior for an existing roster member.
+xdotool mousemove "$(menu_x 315)" "$(menu_y 292)" click 1
+xdotool mousemove "$(menu_x 336)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 315)" "$(menu_y 292)" click --repeat 2 --delay 80 1
+xdotool mousemove "$(menu_x 254)" "$(menu_y 511)" click 1
+
+# A non-modal roster-member Remove leaves the UI interactive. Enter in the
+# focused name field adds exactly one saved person and refreshes the list.
+xdotool mousemove "$(menu_x 315)" "$(menu_y 490)" click 1
+xdotool type --window "$window_id" --delay 5 EnterAdded
 xdotool key --window "$window_id" Return
-for i in $(seq -w 1 16); do
-  xdotool type --window "$window_id" --delay 5 "P${i}"
-  xdotool key --window "$window_id" Return
-done
-# Duplicate is ignored; clear the retained duplicate text afterwards.
-xdotool type --window "$window_id" --delay 5 P01
+xdotool type --window "$window_id" --delay 5 EnterAdded
 xdotool key --window "$window_id" Return
-xdotool key --window "$window_id" BackSpace BackSpace BackSpace
+xdotool key --window "$window_id" BackSpace BackSpace BackSpace BackSpace BackSpace BackSpace BackSpace BackSpace BackSpace BackSpace
 
-# Double-click transfer once and button-transfer a second player.
-xdotool mousemove "$(menu_x 450)" "$(menu_y 255)" click --repeat 2 --delay 80 1
-xdotool mousemove "$(menu_x 450)" "$(menu_y 255)" click 1
-xdotool mousemove "$(menu_x 526)" "$(menu_y 499)" click 1
-capture "${scenario_dir}/players-2.png"
+# Add UnrankedFree with >>. Refresh must retain its selected row; repeated >>
+# and person-row double-click must not duplicate roster membership.
+xdotool mousemove "$(menu_x 315)" "$(menu_y 346)" click 1
+capture "${scenario_dir}/free-selected.png"
+xdotool mousemove "$(menu_x 336)" "$(menu_y 511)" click 1
+capture "${scenario_dir}/free-after-transfer.png"
+normalize_menu "${scenario_dir}/free-selected.png" "${scenario_dir}/free-selected-normalized.png"
+normalize_menu "${scenario_dir}/free-after-transfer.png" "${scenario_dir}/free-after-transfer-normalized.png"
+convert "${scenario_dir}/free-selected-normalized.png" -crop 288x18+16+237 +repage "${scenario_dir}/free-selected-row.png"
+convert "${scenario_dir}/free-after-transfer-normalized.png" -crop 288x18+16+237 +repage "${scenario_dir}/free-after-transfer-row.png"
+assert_same "${scenario_dir}/free-selected-row.png" "${scenario_dir}/free-after-transfer-row.png" \
+  "Persons selection after roster transfer"
+xdotool mousemove "$(menu_x 336)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 315)" "$(menu_y 346)" click --repeat 2 --delay 80 1
 
-# Button-transfer thirteen more players, then verify the sixteenth person
-# cannot exceed the roster cap. Remove and re-add one player.
-for _ in {1..13}; do
-  xdotool mousemove "$(menu_x 450)" "$(menu_y 255)" click 1
-  xdotool mousemove "$(menu_x 526)" "$(menu_y 499)" click 1
-done
-capture "${scenario_dir}/players-15.png"
+# Remove on a roster member is a no-op. Double-click in Players and << both
+# return the player while its consolidated Persons row remains present.
+xdotool mousemove "$(menu_x 254)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 595)" "$(menu_y 292)" click --repeat 2 --delay 80 1
+xdotool mousemove "$(menu_x 315)" "$(menu_y 346)" click 1
+xdotool mousemove "$(menu_x 336)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 595)" "$(menu_y 292)" click 1
+xdotool mousemove "$(menu_x 299)" "$(menu_y 511)" click 1
 
-# The player count is the only changing content in the panel header, while the
-# controller controls below remain aligned at every requested roster size.
-for count in 0 2 15; do
-  normalize_menu "${scenario_dir}/players-${count}.png" "${scenario_dir}/players-${count}-normalized.png"
-  convert "${scenario_dir}/players-${count}-normalized.png" -crop 255x22+390+122 +repage \
-    "${scenario_dir}/players-${count}-header.png"
-  convert "${scenario_dir}/players-${count}-normalized.png" -crop 166x274+478+146 +repage \
-    "${scenario_dir}/players-${count}-controllers.png"
-done
-assert_changed "${scenario_dir}/players-0-header.png" "${scenario_dir}/players-2-header.png" \
-  "Players header 0 to 2"
-assert_changed "${scenario_dir}/players-2-header.png" "${scenario_dir}/players-15-header.png" \
-  "Players header 2 to 15"
-assert_same "${scenario_dir}/players-0-controllers.png" "${scenario_dir}/players-2-controllers.png" \
-  "controller alignment at 0 and 2 players"
-assert_same "${scenario_dir}/players-2-controllers.png" "${scenario_dir}/players-15-controllers.png" \
-  "controller alignment at 2 and 15 players"
-
-xdotool mousemove "$(menu_x 450)" "$(menu_y 255)" click --repeat 2 --delay 80 1
-xdotool mousemove "$(menu_x 650)" "$(menu_y 255)" click --repeat 2 --delay 80 1
-xdotool mousemove "$(menu_x 450)" "$(menu_y 255)" click 1
-xdotool mousemove "$(menu_x 526)" "$(menu_y 499)" click 1
-
-# One available person remains. Reject deletion, then accept it.
-xdotool mousemove "$(menu_x 450)" "$(menu_y 255)" click 1
-xdotool mousemove "$(menu_x 444)" "$(menu_y 499)" click 1
+# Reject then accept deletion of the selected non-roster person. The refresh
+# clears the deleted selection, so a following >> cannot change the roster.
+xdotool mousemove "$(menu_x 315)" "$(menu_y 346)" click 1
+xdotool mousemove "$(menu_x 254)" "$(menu_y 511)" click 1
 sleep 0.2
 xdotool key --window "$window_id" n
-xdotool mousemove "$(menu_x 444)" "$(menu_y 499)" click 1
+xdotool mousemove "$(menu_x 254)" "$(menu_y 511)" click 1
 sleep 0.2
 xdotool key --window "$window_id" y
+xdotool mousemove "$(menu_x 336)" "$(menu_y 511)" click 1
+
+# Enter adds another person; a person-row double-click adds it to Players.
+xdotool mousemove "$(menu_x 315)" "$(menu_y 490)" click 1
+xdotool type --window "$window_id" --delay 5 Transfer
+xdotool key --window "$window_id" Return
+xdotool mousemove "$(menu_x 315)" "$(menu_y 364)" click --repeat 2 --delay 80 1
 close_app
 
 python3 - "${scenario_dir}/data/persons.json" <<'PY'
 import json, sys
-with open(sys.argv[1], encoding="utf-8") as f: data = json.load(f)
-names = [p["name"] for p in data["persons"]]
-if len(names) != 15 or len(set(names)) != 15:
-    raise SystemExit(f"expected 15 unique persons after deleting the one non-player: {names}")
-if len(data["playing"]) != 15 or set(data["playing"]) != set(names):
-    raise SystemExit(f"expected a persisted 15-player roster: {data['playing']}")
+with open(sys.argv[1], encoding="utf-8") as source:
+    data = json.load(source)
+names = [person["name"] for person in data["persons"]]
+expected = ["UnrankedRoster", "RankLow", "RankHigh", "RankRoster",
+            "EnterAdded", "Transfer"]
+if names != expected:
+    raise SystemExit(f"unexpected persisted person records: {names}")
+if data["playing"] != ["RankRoster", "UnrankedRoster", "Transfer"]:
+    raise SystemExit(f"unexpected persisted roster: {data['playing']}")
 PY
+cp "${scenario_dir}/data/persons.json" "${scenario_dir}/before-restart.json"
+start_app
+close_app
+python3 - "${scenario_dir}/before-restart.json" "${scenario_dir}/data/persons.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source: before = json.load(source)
+with open(sys.argv[2], encoding="utf-8") as source: after = json.load(source)
+if after != before:
+    raise SystemExit("application restart changed persons, roster, statistics, or Elo data")
+PY
+
+# The Add button must apply the same focused-name behavior as Enter.
+start_app
+xdotool mousemove "$(menu_x 315)" "$(menu_y 490)" click 1
+xdotool type --window "$window_id" --delay 5 ButtonAdd
+xdotool mousemove "$(menu_x 381)" "$(menu_y 511)" click 1
+close_app
+python3 - "${scenario_dir}/data/persons.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source: data = json.load(source)
+names = [person["name"] for person in data["persons"]]
+if "ButtonAdd" not in names:
+    raise SystemExit("Add button did not add the focused person name")
+PY
+
+echo "[RUN] full-roster lower rows and resized person-name field remain independent"
+new_scenario full-roster-control-isolation
+write_overflow_fixture
+start_app
+
+# The fourteenth Players row shares vertical space with the person-name field.
+# Selecting it near the left edge of Players must not focus that field. Text
+# input and Enter are therefore ignored, while << removes only Rank14.
+xdotool mousemove "$(menu_x 565)" "$(menu_y 490)" click 1
+xdotool type --window "$window_id" --delay 5 NoLeak
+xdotool key --window "$window_id" Return
+xdotool mousemove "$(menu_x 299)" "$(menu_y 511)" click 1
+
+# A click safely inside the person-name field must affect only that field. Add
+# and focused Enter retain their existing behavior after the field is resized.
+xdotool mousemove "$(menu_x 315)" "$(menu_y 490)" click 1
+xdotool type --window "$window_id" --delay 5 ButtonFit
+xdotool mousemove "$(menu_x 381)" "$(menu_y 511)" click 1
+xdotool mousemove "$(menu_x 315)" "$(menu_y 490)" click 1
+xdotool type --window "$window_id" --delay 5 EnterFit
+xdotool key --window "$window_id" Return
+close_app
+
+python3 - "${scenario_dir}/data/persons.json" <<'PY'
+import json, sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    data = json.load(source)
+
+names = [person["name"] for person in data["persons"]]
+if "NoLeak" in names:
+    raise SystemExit("clicking a lower Players row also focused the person-name field")
+for expected in ("ButtonFit", "EnterFit"):
+    if expected not in names:
+        raise SystemExit(f"person-name action did not add {expected}")
+
+expected_roster = [f"Rank{i:02d}" for i in range(1, 16) if i != 14]
+if data["playing"] != expected_roster:
+    raise SystemExit(f"lower-row action changed the wrong roster entry: {data['playing']}")
+PY
+
+echo "[RUN] long controller label, spinner arrows, and row detection stay independent"
+new_scenario controller-control-containment
+python3 - "${scenario_dir}/data/persons.json" <<'PY'
+import json, sys
+
+def person(name):
+    return {"name": name, "shots": 0, "hits": 0, "kills": 0, "deaths": 0,
+            "assistances": 0, "wins": 0, "penalties": 0, "games": 0,
+            "timeAlive": 0, "totalGameTime": 0, "totalDamage": 0,
+            "assistedDamage": 0, "elo": 1000, "eloTrend": 0, "eloGames": 0}
+
+with open(sys.argv[1], "w", encoding="utf-8") as output:
+    json.dump({"persons": [person("Alpha"), person("Beta")],
+               "playing": ["Alpha", "Beta"], "rounds": 0}, output)
+PY
+
+virtual_controller="${test_root}/virtual-controller-preload.so"
+cc -shared -fPIC "${workspace_dir}/tests/VirtualControllerPreload.c" -o "$virtual_controller" -ldl
+start_app "" "$virtual_controller"
+capture "${scenario_dir}/controller-short.png"
+
+# Move from K1 through the six keyboard presets to the supported 18-character
+# virtual-controller label by clicking only the spinner's right arrow.
+for _ in {1..6}; do
+  xdotool mousemove "$(menu_x 826)" "$(menu_y 255)" click 1
+  sleep 0.08
+done
+capture "${scenario_dir}/controller-long.png"
+
+normalize_menu "${scenario_dir}/controller-short.png" "${scenario_dir}/controller-short-normalized.png"
+normalize_menu "${scenario_dir}/controller-long.png" "${scenario_dir}/controller-long-normalized.png"
+convert "${scenario_dir}/controller-short-normalized.png" -crop 18x18+602+147 +repage \
+  "${scenario_dir}/controller-short-right-arrow.png"
+convert "${scenario_dir}/controller-long-normalized.png" -crop 18x18+602+147 +repage \
+  "${scenario_dir}/controller-long-right-arrow.png"
+convert "${scenario_dir}/controller-short-normalized.png" -crop 146x18+456+147 +repage \
+  "${scenario_dir}/controller-short-value.png"
+convert "${scenario_dir}/controller-long-normalized.png" -crop 146x18+456+147 +repage \
+  "${scenario_dir}/controller-long-value.png"
+assert_changed "${scenario_dir}/controller-short-value.png" "${scenario_dir}/controller-long-value.png" \
+  "18-character controller value"
+assert_same "${scenario_dir}/controller-short-right-arrow.png" \
+  "${scenario_dir}/controller-long-right-arrow.png" \
+  "right spinner arrow with 18-character controller label"
+
+# The left arrow returns to K6, and the right arrow restores the long label.
+xdotool mousemove "$(menu_x 658)" "$(menu_y 255)" click 1
+sleep 0.15
+capture "${scenario_dir}/controller-after-left.png"
+xdotool mousemove "$(menu_x 826)" "$(menu_y 255)" click 1
+sleep 0.15
+capture "${scenario_dir}/controller-after-right.png"
+normalize_menu "${scenario_dir}/controller-after-left.png" "${scenario_dir}/controller-after-left-normalized.png"
+normalize_menu "${scenario_dir}/controller-after-right.png" "${scenario_dir}/controller-after-right-normalized.png"
+convert "${scenario_dir}/controller-after-left-normalized.png" -crop 146x18+456+147 +repage \
+  "${scenario_dir}/controller-after-left-value.png"
+convert "${scenario_dir}/controller-after-right-normalized.png" -crop 146x18+456+147 +repage \
+  "${scenario_dir}/controller-after-right-value.png"
+assert_changed "${scenario_dir}/controller-after-left-value.png" \
+  "${scenario_dir}/controller-after-right-value.png" "right controller spinner arrow"
+assert_same "${scenario_dir}/controller-long-value.png" \
+  "${scenario_dir}/controller-after-right-value.png" "restored 18-character controller value"
+
+# The row-level D action remains a separate hit target. K2 input completes
+# detection and updates the same row without requiring either spinner arrow.
+xdotool mousemove "$(menu_x 846)" "$(menu_y 255)" click 1
+sleep 0.2
+xdotool key --window "$window_id" a
+sleep 0.3
+capture "${scenario_dir}/controller-after-detect.png"
+normalize_menu "${scenario_dir}/controller-after-detect.png" "${scenario_dir}/controller-after-detect-normalized.png"
+convert "${scenario_dir}/controller-after-detect-normalized.png" -crop 146x18+456+147 +repage \
+  "${scenario_dir}/controller-after-detect-value.png"
+assert_changed "${scenario_dir}/controller-after-right-value.png" \
+  "${scenario_dir}/controller-after-detect-value.png" "row-level controller detection"
+close_app
 
 echo "[RUN] one-player F1 validation and state preservation"
 new_scenario one-player
@@ -445,10 +613,10 @@ for i in {0..5}; do
   done
 done
 capture "${scenario_dir}/before-shuffle.png"
-xdotool mousemove "$(menu_x 636)" "$(menu_y 534)" click 1
+xdotool mousemove "$(menu_x 576)" "$(menu_y 534)" click 1
 sleep 0.3
 capture "${scenario_dir}/after-random.png"
-xdotool mousemove "$(menu_x 617)" "$(menu_y 534)" click 1
+xdotool mousemove "$(menu_x 557)" "$(menu_y 534)" click 1
 sleep 0.3
 capture "${scenario_dir}/after-elo.png"
 

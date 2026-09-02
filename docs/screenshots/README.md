@@ -44,6 +44,14 @@ The treatment adds an 8 px separator band with a centered 2 px rule between adja
 The previous `SS-010` artifact was stale because adjacent Team groups used color as their only boundary cue.
 The previous `SS-011` artifact remains historical evidence for corrected round progress, but it is not representative evidence for the affected Team `OVER-02` wireframe.
 Fresh `SS-010` and `SS-011` artifacts include complete provenance below and conform to the approved Team score-overview requirements.
+The 2026-09-01 consolidated-person-list specification affects both `MENU-01` wireframes.
+The fixed product baseline is source commit `d0e78496f6adfc9cefc08a1b99a28d140ea7248f` with `SET-048`–`SET-072` and `AC-053`–`AC-062`.
+The change invalidates the conforming PR #54 artifacts for `SS-001` and `SS-024` because both artifacts show separate `ELO SCOREBOARD` and `PERSONS` lists.
+The historical [`MENU-01/default-1706x938.png`](MENU-01/default-1706x938.png) remains a reference for unchanged retro controls, density, statistics table, and footer placement only.
+The historical 1706 by 938 artifact is not evidence for the consolidated Persons list or the current scaled-background presentation.
+The first `SS-001` and `SS-024` consolidated-person artifacts became historical when the user approved the 50:50 Persons and Players split.
+The first 50:50 replacement artifacts at PR #58 head `cb9cc3ee3081b399c2d042ee62e1f7b0cc016ac0` are historical because the person-name field crossed the right edge of Persons.
+Final replacement artifacts at exact PR #58 head `f294c742a08a90f03ea39b7ed0385d5b59ad684a` conform to the approved panel widths and control-containment rules.
 
 ## Provenance requirements
 
@@ -224,6 +232,87 @@ The PR #54 consolidated Teams evidence was assessed with this setup:
 - Visual assessment: both artifacts conform to their wireframes, the native menu design system, and AC-044–AC-051.
 - Evidence status: both artifacts conform and have complete required provenance.
 - Stitch qualification: the two stale `MENU-01` Stitch explorations are supplementary and do not block PR #54 visual acceptance because the authoritative local design documentation, wireframes, and implementation evidence conform.
+- Current status: historical after the consolidated-person-list specification because both artifacts show two left-side lists.
+
+The PR #58 consolidated-person-list packet has this provenance:
+
+- Pull request: `#58`.
+- Requirements baseline source SHA: `d0e78496f6adfc9cefc08a1b99a28d140ea7248f`.
+- Implementation branch: `feature/consolidate-person-list`.
+- Rendering source SHA: `0f198780ea685bf69aa1d78245d4a562d0a5a836`.
+- Evidence commit and pull request head: `0e503e31b73a6c7cde002d85eb4458ae57cde3b3`.
+- Environment: Release, GL4, Lua enabled, Ubuntu 24.04 Docker image `duel6r-build:local`, Mesa software rendering, Xvfb at 1920 by 1080 by 24, and dummy SDL audio.
+- Worktree state: tracked implementation files were clean at the rendering source. Prior untracked destination artifacts and ignored Docker capture files were present. The capture replaced the destination artifacts.
+- Session identifier: `menu01-0f19878-e9441ea9-29744655`.
+- Selected background: `forest-foundry.png`.
+- Runtime asset Git tree: `3ae377dc261e9a4e407dc75dd35dfd7911fb8e79`.
+- Viewport: 1920 by 1080 px.
+- Saved-person fixture: Alice and Bruno have Elo games and distinct Elo values; Cora, Diego, Erin, Farah, Gus, and Hana have zero Elo games in that person-record order.
+- Roster fixture: all eight saved persons are selected players.
+- Selection fixture: Cora is selected in the Persons list.
+- Expected list order: Alice and Bruno appear first in descending Elo order; Cora through Hana follow in person-record order.
+- Expected row content: Alice and Bruno show Rank, Name, Elo, and signed Trend; Cora through Hana show Name and empty Rank, Elo, and Trend cells.
+- Session workflow: one application session used eight saved and selected persons. `SS-001` shows Deathmatch with Cora selected. `SS-024` shows Teams, four teams, Friendly Fire on, and Rounds `3` after gameplay return, with Cora selected.
+- `SS-001` artifact: `MENU-01/non-team-consolidated-persons-1920x1080.png`.
+- `SS-001` SHA-256: `e9441ea9addd2c25b5541f34d5ee285f12646e600ed3f53f5164c13782a1b0c9`.
+- `SS-024` artifact: `MENU-01/teams-consolidated-persons-retained-1920x1080.png`.
+- `SS-024` SHA-256: `29744655314db3de009ddd247d01fd0972f6a7e4e2185a530a976a883310827f`.
+- Visual assessment: both artifacts conform to `docs/design.md`, the `MENU-01` specification, and the applicable wireframes. The screen keeps one large `PERSONS` list separate from Players and Game Settings. The headings, row alignment, clipping bounds, ranked and unranked treatment, Cora selection, roster retention, conditional Team settings, scale, keyline, background, and retro controls conform.
+- Accessibility assessment: headings and numeric signs provide non-color meaning in Persons. The selected row uses a full-width blue fill with white text. Team roster identity still depends on color and position, as the canonical specification records.
+- Evidence status: both artifacts conform and have complete required provenance.
+- Current status: historical after the approved 50:50 Persons and Players split.
+
+The PR #58 50:50 replacement packet has this provenance:
+
+- Pull request: `#58`.
+- Implementation branch: `feature/consolidate-person-list`.
+- Rendering source SHA: `89904c876148e3e8bc2aba603a894db725e952db`.
+- Evidence commit and exact pull request head: `cb9cc3ee3081b399c2d042ee62e1f7b0cc016ac0`.
+- Environment: Release, GL4, Lua enabled, Ubuntu 24.04 Docker, Mesa software rendering, and Xvfb at 1920 by 1080 by 24.
+- Viewport: 1920 by 1080 px.
+- Menu transform: scale `1.35` and recorded client origin `(386, 67)` with no internal reflow.
+- Session identifier: `menu01-89904c8-b9171d37-7f5626df`.
+- Selected background: `forest-foundry.png` from `resources/textures/menu-backgrounds/` at evidence head `cb9cc3ee3081b399c2d042ee62e1f7b0cc016ac0`.
+- Runtime asset manifest revision: evidence head `cb9cc3ee3081b399c2d042ee62e1f7b0cc016ac0`, with the selected asset path recorded above.
+- Shared workflow: use one application session with eight saved and selected persons. Keep Cora selected in Persons for both captures.
+- `SS-001` state: show Deathmatch after retained four-team and Friendly Fire values become hidden.
+- `SS-024` state: show Teams with four teams, Friendly Fire on, and unfocused Rounds `3` after gameplay returns.
+- `SS-001` artifact: `MENU-01/non-team-consolidated-persons-1920x1080.png`.
+- `SS-001` SHA-256: `b9171d3768b12eb247aac41482cf4b8af8d0b71525be661959b165a1ec098189`.
+- `SS-024` artifact: `MENU-01/teams-consolidated-persons-retained-1920x1080.png`.
+- `SS-024` SHA-256: `7f5626dfa6d05dfaceca70a19ad9d2fd403914f3672e8f16cc1f0a68e6af8a5e`.
+- Geometry assessment: both artifacts show Persons at `x=10–324`, Players at `x=330–644`, Game Settings at `x=650–839`, and both 5 logical px gaps.
+- Usability assessment: Rank, Name, Elo, and Trend remain legible. Player names, controller labels, spinner controls, and row `D` actions remain legible.
+- Blocking finding: the person-name field keeps its former width. It extends beyond `x=324`, crosses the Persons-to-Players gap, and draws under the Players region in both artifacts.
+- Unchanged presentation: the fixed canvas, uniform scaling, background, panel headers, list clipping, selected row, conditional Team controls, roster colors, score table, and three-action footer otherwise conform.
+- Evidence status: both replacement artifacts have complete provenance but do not conform to the approved control-containment rule.
+- Current status: historical after the person-name field containment fix.
+
+The final PR #58 containment-fix packet has this provenance:
+
+- Pull request: `#58`.
+- Implementation branch: `feature/consolidate-person-list`.
+- Rendering source SHA: `971157f2fc2dd7aecc581ac8be78c9dc7b11ce1d`.
+- Evidence commit and exact final pull request head: `f294c742a08a90f03ea39b7ed0385d5b59ad684a`.
+- Environment: Release, GL4, Lua enabled, Ubuntu 24.04 Docker, Mesa software rendering, Xvfb at 1920 by 1080 by 24, and SDL dummy audio.
+- Viewport: 1920 by 1080 px.
+- Menu transform: fixed 850 by 700 logical canvas, scale `1.35`, recorded client origin `(386, 67)`, and no internal reflow.
+- Session identifier: `menu01-971157f-9a7a49ad-d571ec67`.
+- Selected background: `forest-foundry.png` from `resources/textures/menu-backgrounds/`.
+- Runtime asset provenance: unchanged from the preceding PR #58 packet.
+- Shared workflow: use one application session with eight saved and selected persons. Keep Cora selected in Persons for both captures.
+- `SS-001` state: show Deathmatch after retained four-team and Friendly Fire values become hidden.
+- `SS-024` state: show Teams with four teams, Friendly Fire on, and unfocused Rounds `3` after gameplay returns.
+- `SS-001` artifact: `MENU-01/non-team-consolidated-persons-1920x1080.png`.
+- `SS-001` SHA-256: `9a7a49ad360166759c549cb812d5b720f44b133668b4f537ebd5cce42f94a134`.
+- `SS-024` artifact: `MENU-01/teams-consolidated-persons-retained-1920x1080.png`.
+- `SS-024` SHA-256: `d571ec67bd5966b1a31fe93897515bb983ab83f433e96b68abfa1ed5bcbce6ee`.
+- Geometry assessment: both artifacts show balanced 315-logical-pixel Persons and Players panels, the unchanged 190-logical-pixel Game Settings panel, and two clear 5-logical-pixel gaps.
+- Containment assessment: the resized person-name field remains fully inside Persons. It does not draw into a gap or the Players region.
+- Usability assessment: Rank, Name, Elo, and Trend remain aligned and legible. Player names, controller labels, spinner controls, and row `D` actions remain legible.
+- Regression assessment: no clipping, overlap, panel, gap, or uniform-scaling regression is visible.
+- Unchanged presentation: the background, keyline, panel headers, selected row, conditional Team controls, roster colors, score table, and three-action footer conform.
+- Evidence status: both final artifacts conform and have complete required provenance.
 
 The fresh shared-arena packet has this provenance:
 
@@ -248,7 +337,7 @@ The replacement shared-arena artifacts have this provenance:
 
 | ID | Screen ID | Wireframe | Route or workflow | Representative state and setup data | Viewport | Expected visible behavior | Destination path | Provenance and status |
 |---|---|---|---|---|---:|---|---|---|
-| <a id="ss-001"></a>`SS-001` | `MENU-01` | [Non-Team Game Settings](../screens/wireframes/menu-main.md#menu-01-a--non-team-state) | Start the application. Create eight saved persons and select all eight. Select `Teams`, set `Num. of Team` to `4`, set `Friendly Fire` on, and then select `Deathmatch`. | Use Deathmatch with eight selected players. Keep Assistance, Quick Liquid, and Burnable Trees on. Keep the hidden Team values at four teams and Friendly Fire on. | 1920x1080 | The mode selector must show Deathmatch. `Num. of Team` and `Friendly Fire` must be absent. The remaining settings must form one compact stack inside the existing panel. Every roster row must use standard non-Team colors. | `docs/screenshots/MENU-01/non-team-settings-hidden-1920x1080.png` | PR #54 packet above. The artifact shows Deathmatch, no Team controls or reserved Team rows, eight standard roster rows, readable text, the unchanged panel bounds, and the current three-action footer. `Conforms`. |
+| <a id="ss-001"></a>`SS-001` | `MENU-01` | [Non-Team Game Settings](../screens/wireframes/menu-main.md#menu-01-a--non-team-state) | Start the application with the shared consolidated-person fixture. Select all eight persons. Select `Teams`, set `Num. of Team` to `4`, set `Friendly Fire` on, and then select `Deathmatch`. Select Cora in Persons. | Use Deathmatch with eight selected players. Alice and Bruno are ranked. Cora through Hana are unranked. Keep Assistance, Quick Liquid, and Burnable Trees on. Keep the hidden Team values at four teams and Friendly Fire on. | 1920x1080 | Persons and Players must each use 315 logical px with a 5 px gap. Game Settings must remain unchanged after the second 5 px gap. Persons must show every saved person once. Ranked rows must show Rank, Name, Elo, and signed Trend in descending Elo order. Unranked rows must follow in record order with empty Rank, Elo, and Trend cells. Cora must show the selected-row treatment. All Persons controls must remain inside the panel. All eight persons must remain visible in Persons while they also appear in Players. The mode selector must show Deathmatch. Team settings must be absent. Roster rows must use standard colors. | `docs/screenshots/MENU-01/non-team-consolidated-persons-1920x1080.png` | Final PR #58 containment-fix packet above at exact head `f294c742a08a90f03ea39b7ed0385d5b59ad684a`. Panel balance, control containment, information usability, gaps, clipping, and scaling conform. `Conforms`. |
 | <a id="ss-002"></a>`SS-002` | `MENU-02` | [Menu message](../screens/wireframes/menu-message.md) | After issue #38 implements the Network footer, select Clear or press F3 from the populated menu. | Use four saved people, two selected players, Deathmatch, persistent score data, and documented default settings; show `Really delete? (Y/N)`. | 1920x1080 | The unchanged scaled target menu behind the strip must visibly include equal-width `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)` footer actions. | `docs/screenshots/MENU-02/network-entry-confirmation-1920x1080.png` | `Planned` for downstream issue #38. The existing three-action-footer capture is not valid for this target wireframe. |
 | <a id="ss-003"></a>`SS-003` | `PLAY-01` | [Shared arena play](../screens/wireframes/play-fullscreen.md) | Start a local Deathmatch and press F2 once during live play. | Use 15 living players, ranking on, a finite round limit, and a state after the start fade. | 1280x900 | One undivided arena must show the whole level and all 15 players. F2 must not change the view. Live ranking, round progress, event messages, and player status must remain available. | `docs/screenshots/PLAY-01/shared-15-player-1280x900.png` | Replacement packet provenance above. Captured from an actual 15-player Deathmatch with ranking enabled and three rounds after pressing F2 once. `Conforms`. |
 | <a id="ss-007"></a>`SS-007` | `MODE-01` | [Predator](../screens/wireframes/mode-predator.md) | Start Predator from the menu. | Use three living players, one predator, ranking on, and a finite round limit. | 1280x900 | One undivided arena must show the faint predator body, visible predator weapon, opaque marines, live ranking, round progress, events, and status cues. | `docs/screenshots/MODE-01/shared-live-1280x900.png` | Fresh shared-arena packet provenance above. `Conforms`. |
@@ -268,7 +357,7 @@ The replacement shared-arena artifacts have this provenance:
 | <a id="ss-021"></a>`SS-021` | `NET-07` | [Guest reconnect](../screens/wireframes/network-reconnect.md) | Interrupt a guest connection during an active network match. | Reconnecting with 24 positive ceiling seconds remaining after host crash or another ambiguous transport failure. | 1280x900 | Endpoint, unchanged reservation deadline, no-input state, active simulation, retryable status, and `Leave session` consequence are visible; the state does not claim host end or player removal. | `docs/screenshots/NET-07/reconnecting-24s-1280x900.png` | `Planned` for downstream issue #38; reconnect is not implemented. |
 | <a id="ss-022"></a>`SS-022` | `NET-08` | [Connection failure](../screens/wireframes/network-failure.md) | Attempt to join an unavailable direct endpoint. | Initial `Host unreachable.` with endpoint context, Retry, Edit setup, and Return to Network. | 1920x1080 | Initial admission uses fixed precedence; terminal reconnect disables Retry; expiry uses truthful copy; host-local service failure uses `Hosted session stopped unexpectedly.` only for the host. | `docs/screenshots/NET-08/host-unreachable-1920x1080.png` | `Planned` for downstream issue #38; no current network UI exists. |
 | <a id="ss-023"></a>`SS-023` | `NET-09` | [Host-ended session overlay](../screens/wireframes/network-host-ended.md) | Receive a valid intentional host End session notice during an active network match. | Host-ended outcome over the last authoritative arena context. | 1280x900 | A blocking `HOST ENDED SESSION` overlay states no migration/resume or persistence and can arise only from an End notice accepted through the current established session. | `docs/screenshots/NET-09/host-ended-1280x900.png` | `Planned` for downstream issue #38; host-ended UI is not implemented. |
-| <a id="ss-024"></a>`SS-024` | `MENU-01` | [Teams Game Settings](../screens/wireframes/menu-main.md#menu-01-b--teams-state) | In the same application session, select `Teams`, set `Num. of Team` to `4`, set `Friendly Fire` on, apply Rounds `3`, start gameplay, and return to the menu. | Use eight selected saved persons. Return with Teams selected, four teams, Friendly Fire on, and Rounds `3`. | 1920x1080 | The mode selector must show Teams. `Num. of Team` must show `4`. Friendly Fire must show on. Rounds must show `3` without a focus underscore. The roster must repeat Alpha red, Bravo green, Charlie yellow, and Delta magenta by roster position. All settings must stay inside the existing panel without overlap. | `docs/screenshots/MENU-01/teams-4-ff-on-retained-after-gameplay-1920x1080.png` | PR #54 packet above. The artifact shows retained Teams, team count `4`, Friendly Fire on, Rounds `3`, eight cyclic team-colored rows with readable text, and seven controls inside the unchanged panel without overlap. `Conforms`. |
+| <a id="ss-024"></a>`SS-024` | `MENU-01` | [Teams Game Settings](../screens/wireframes/menu-main.md#menu-01-b--teams-state) | In one application session, use the shared consolidated-person fixture, select all eight persons, select `Teams`, set `Num. of Team` to `4`, set `Friendly Fire` on, apply Rounds `3`, start gameplay, and return to the menu. Select Cora in Persons. | Use eight selected saved persons. Alice and Bruno are ranked. Cora through Hana are unranked. Return with Teams selected, four teams, Friendly Fire on, and Rounds `3`. | 1920x1080 | Persons and Players must each use 315 logical px with a 5 px gap. Game Settings must remain unchanged after the second 5 px gap. Persons must show all eight saved persons once with the same ranked and unranked row treatment as `SS-001`. Cora must show the selected-row treatment. Every Persons control must remain inside the panel. The mode selector must show Teams. Team count must show `4`. Friendly Fire must show on. Rounds must show `3` without a focus underscore. The roster must repeat the four team colors by position. The Persons rows must not use team colors. All settings must stay inside the existing panel without overlap. | `docs/screenshots/MENU-01/teams-consolidated-persons-retained-1920x1080.png` | Final PR #58 containment-fix packet above at exact head `f294c742a08a90f03ea39b7ed0385d5b59ad684a`. Panel balance, control containment, information usability, gaps, clipping, Team settings, and scaling conform. `Conforms`. |
 
 ## Coverage
 

@@ -10,6 +10,7 @@ The Burnable Trees requirements define an approved change to the earlier impleme
 The Rounds field focus and session-memory requirements define an approved change to the earlier implementation baseline.
 The round-summary progress requirements define an approved change to the earlier implementation baseline.
 The consolidated Teams menu requirements define an approved change to the earlier implementation baseline.
+The consolidated person list requirements define an approved change to the earlier implementation baseline.
 
 The word **person** means a persistent named record. The word **player** means a person in the active match roster.
 
@@ -72,6 +73,36 @@ Requirement IDs are stable references. Inventory notes are current observations 
 - **SET-045** When gameplay returns to the menu, the menu must keep both Team setting values.
 - **SET-046** When a Team setting combination starts a match, the game must use the corresponding existing Team deathmatch rules.
 - **SET-047** When the user changes `Num. of Team`, the roster must update the team-color assignments.
+
+### Consolidated person list
+
+The **person list** is the single main-menu list that combines person management and Elo ranking information.
+
+- **SET-048** The main menu must replace the separate `ELO Scoreboard` and `Persons` lists with one person list.
+- **SET-049** The person list must show each saved person one time, including persons in the player roster.
+- **SET-050** For a person with one or more Elo games, the person list must show rank, name, Elo, and Elo trend.
+- **SET-051** The person list must put persons with one or more Elo games before persons with zero Elo games.
+- **SET-052** The person list must order persons with one or more Elo games by descending Elo.
+- **SET-053** The person list must keep persons with zero Elo games in person-record order.
+- **SET-054** The person list must not give an Elo rank to a person with zero Elo games.
+- **SET-055** The user must be able to select one person in the person list with a pointer click.
+- **SET-056** The mouse wheel must scroll the person list when the pointer is inside the list.
+- **SET-057** If the selected person is not in the player roster, `>>` must add that person to the roster.
+- **SET-058** If the selected person is in the player roster, `>>` must make no change.
+- **SET-059** A double-click on a person list row must apply SET-057 and SET-058.
+- **SET-060** The `<<` action and a double-click in the player roster must return the applicable player from the roster.
+- **SET-061** After SET-060, the person must remain in the person list.
+- **SET-062** `Remove` must request the existing delete confirmation only for a selected person that is not in the player roster.
+- **SET-063** For a selected person in the player roster, `Remove` must make no change and must not show a confirmation.
+- **SET-064** The person-name field and `Add` action must keep the behavior in SET-001 and SET-002.
+- **SET-065** The person list must refresh after the user adds or deletes a person.
+- **SET-066** The person list must refresh after a roster change, statistics clear, completed match, or saved-data load.
+- **SET-067** When the person list refreshes, it must keep the selected person if that person still exists.
+- **SET-068** When the selected person no longer exists, the person list must have no selection.
+- **SET-069** The consolidation must not change the player roster, control assignment, shuffle, match setting, score table, or footer action behavior.
+- **SET-070** The consolidation must not change the existing menu keyboard shortcuts or text-field Enter actions.
+- **SET-071** The consolidation must not change controller detection, controller assignment, or controller input behavior.
+- **SET-072** The person list must keep saved persons, roster membership, statistics, Elo data, and Elo game counts unchanged across application restarts.
 
 ## Match and round lifecycle
 
@@ -478,6 +509,16 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-050** A change to `Num. of Team` updates roster team colors according to SET-020 and SET-021.
 - **AC-051** Each Team setting combination starts Team deathmatch with its selected team count and Friendly Fire value.
 - **AC-052** After each non-final round in a limited match, the round summary panel shows `Rounds: <played>|<total>`. The label is in a separate top row above the `SCORE` heading strip. The panel right-aligns the label in the panel's top-right corner. The label does not overlap or replace the heading strip. `<played>` includes the completed round. `<total>` equals the configured round limit. While the panel is visible, the top edge of the arena does not show duplicate round progress. The top-edge progress returns when the next round starts. An unlimited-match summary does not show the panel label. The final game summary and the active-round Tab score summary remain unchanged.
+- **AC-053** The main menu has one person list instead of separate `ELO Scoreboard` and `Persons` lists.
+- **AC-054** The person list shows each saved person once. It includes roster members and persons with zero Elo games.
+- **AC-055** Ranked rows show rank, name, Elo, and Elo trend in descending Elo order. Unranked rows follow them without an Elo rank.
+- **AC-056** Pointer selection, wheel scrolling, `>>`, `<<`, `Remove`, `Add`, and both documented double-click actions follow SET-055 through SET-068.
+- **AC-057** A roster member cannot be added again or deleted through the person list.
+- **AC-058** Person-list refreshes keep a valid selection and clear a deleted selection.
+- **AC-059** A match result updates the ranked rows without changing person records or roster membership.
+- **AC-060** Statistics clear preserves Elo data and refreshes the person list as specified by SET-023 and SET-066.
+- **AC-061** An application restart restores the same persons, roster membership, statistics, and Elo data in the consolidated list.
+- **AC-062** The consolidation does not change roster controls, shuffles, settings, score table, footer actions, keyboard shortcuts, text-field Enter actions, or controller behavior.
 
 ## Source traceability
 
