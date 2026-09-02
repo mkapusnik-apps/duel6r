@@ -356,8 +356,8 @@ The following values come from renderer and GUI source.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
 - Eleven screenshot entries remain `Planned` until issue #38 implements and captures `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
 - `SS-001` and `SS-024` must represent the two approved `MENU-01` conditional-layout wireframes.
-- `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry at exact PR #58 head `cb9cc3ee3081b399c2d042ee62e1f7b0cc016ac0`.
-- The replacement `SS-001` and `SS-024` artifacts do not conform because the person-name field extends outside the Persons panel and into the Players region.
+- `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry at exact final PR #58 head `f294c742a08a90f03ea39b7ed0385d5b59ad684a`.
+- The final `SS-001` and `SS-024` artifacts conform to the panel geometry and control-containment rules.
 - Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources
