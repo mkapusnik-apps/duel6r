@@ -35,7 +35,7 @@ namespace Duel6 {
             Color frameLightColor(235, 235, 235), frameDarkColor(0, 0, 0);
         }
 
-        Control::Control(Desktop &desk) {
+        Control::Control(Desktop &desk) : visible(true) {
             desk.addControl(this);
         }
 

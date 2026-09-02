@@ -5,7 +5,7 @@
 The implemented screen builds the local roster, assigns controls, selects match settings, shows persistent results, starts a local match, and exits the application. The approved target adds a distinct network entry without changing local Play.
 Entry occurs when the application starts or when gameplay closes.
 Implemented exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action. In the target UI, `Network (F2)` enters `NET-01`.
-The screen implements `SET-001`–`SET-035`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005`, and `AC-040`–`AC-043` from [`docs/features.md`](../features.md). The planned Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+The screen implements `SET-001`–`SET-047`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005`, and `AC-040`–`AC-051` from [`docs/features.md`](../features.md). The planned Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 The visual source is Stitch screen `681ae093051749fd922ab74454f47121` in project `1219346282527961142`.
 Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`, and `resources/textures/menu/`.
 
@@ -30,7 +30,12 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The Persons panel must contain the available-person list, person-name field, `Remove`, `<<`, `>>`, and `Add`.
 - The Players panel must contain the selected-player list, each player's control spinner, each player's `D` action, the `E` action, the `S` action, and the batch `D` action.
 - The Players panel must align each control spinner and `D` action with the applicable player row.
-- The Game Settings panel must contain the mode spinner, Assistance checkbox, Quick Liquid checkbox, Burnable Trees checkbox, and Rounds field.
+- The Game Settings panel must contain the mode spinner, Assistance checkbox, Quick Liquid checkbox, Burnable Trees checkbox, and Rounds field in every mode.
+- The mode spinner must show `Deathmatch`, `Predator`, and exactly one `Teams` option.
+- The Game Settings panel must show `Num. of Team` and `Friendly Fire` below the mode spinner when `Teams` is selected.
+- The Game Settings panel must hide `Num. of Team` and `Friendly Fire` when `Deathmatch` or `Predator` is selected.
+- The controls below the Team settings must move up when the Team settings are hidden.
+- The visible controls must form one compact vertical stack without empty reserved Team rows.
 - The Burnable Trees checkbox must appear directly below the Quick Liquid checkbox.
 - The Rounds field must move down by one compact control row.
 - The Game Settings panel bounds must not change.
@@ -58,8 +63,20 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The Players label must show the selected-player count.
 - `E` must reorder players by Elo shuffle logic.
 - `S` must reorder players by random shuffle logic.
-- Team mode selection must color player rows by team assignment.
-- The game mode spinner must contain Deathmatch, Predator, and the six implemented team variants.
+- Selecting `Teams` must color player rows by roster position modulo the selected team count.
+- The team order must be Alpha, Bravo, Charlie, and Delta.
+- The roster must use Alpha red, Bravo green, Charlie yellow, and Delta magenta.
+- A change to `Num. of Team` must update all visible roster team colors immediately.
+- Selecting `Deathmatch` or `Predator` must remove all team coloring from the roster immediately.
+- A shuffle or roster change must update team coloring for the new roster positions while `Teams` is selected.
+- `Num. of Team` must provide the values `2`, `3`, and `4`.
+- `Num. of Team` must show `2` at each application start.
+- `Friendly Fire` must provide off and on states.
+- `Friendly Fire` must show off at each application start.
+- Switching to another mode must retain both Team setting values while their controls are hidden.
+- Switching back to `Teams` must show both retained values.
+- A return from gameplay must retain the selected mode and both Team setting values.
+- Starting `Teams` must apply the selected team count and Friendly Fire value to the existing Team deathmatch rules.
 - The Assistance, Quick Liquid, and Burnable Trees checkboxes must start checked in the default settings state.
 - The Burnable Trees label must use exactly `Burnable Trees`.
 - A checked Burnable Trees checkbox must allow explosions to ignite burnable decorative trees during the match.
@@ -112,13 +129,21 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - F3 must open the clear confirmation.
 - Escape must close the menu context.
 - Focus must appear only as an underscore in the focused text field.
+- Each mode-spinner action must expose only the three approved mode labels.
+- Each team-count spinner action must move within `2`, `3`, and `4`.
+- The Friendly Fire checkbox must use the standard checked and unchecked feedback.
+- Hiding a Team control must remove its interaction target.
 
 ## Accessibility and viewport behavior
 
 - Shortcut text must remain visible in all bottom action captions; the target network entry adds a fourth caption.
 - Labels must identify all major lists and settings.
 - The Burnable Trees control must use a visible text label and must not rely only on its checked state.
-- Team rows must use color and ordered team assignment, but the menu does not add team-name text to each player row.
+- The `Num. of Team` and `Friendly Fire` labels must remain visible next to their controls in the Teams state.
+- Team roster rows must keep readable player names and visible selection feedback over team colors.
+- Team roster rows use color and ordered roster position, but the menu does not add team-name text to each row.
+- This color-only team cue is an existing accessibility limitation.
+- The non-Team state must not leave team color on any roster row.
 - The uniformly scaled canvas must remain centered at desktop client sizes.
 - The internal layout must not reflow.
 - An 850 by 700 px client must render at 100%.
@@ -126,11 +151,11 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - A 1920 by 1080 px client must render at the 135% cap, producing an approximately 1148 by 945 px centered canvas.
 - Larger clients must retain the 135% cap and increase the visible photographic background area.
 - A supported client must be at least 850 by 700 px.
-- No mobile layout exists, so one desktop wireframe is sufficient.
+- No mobile layout exists, so each conditional state needs only one desktop viewport wireframe.
 
 ## Screenshot link
 
-Current representative evidence: [`SS-001`](../screenshots/README.md#ss-001).
-The capture must show a positive applied Rounds value after gameplay returns during the same application session.
-The current capture must show the implemented three-action footer.
+Required representative evidence: [`SS-001`](../screenshots/README.md#ss-001) for the non-Team wireframe and [`SS-024`](../screenshots/README.md#ss-024) for the Teams wireframe.
+The Teams capture must show a positive applied Rounds value and retained Team values after gameplay returns during the same application session.
+Both current implementation captures must show the implemented three-action footer.
 Issue #38 must replace this evidence when it implements the target Network action.

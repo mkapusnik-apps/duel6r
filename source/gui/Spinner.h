@@ -61,6 +61,8 @@ namespace Duel6 {
 
             std::pair<Int32, std::string> & currentValue();
 
+            void setVisible(bool value) override;
+
             void clear();
 
             Control::Type getType() const override {

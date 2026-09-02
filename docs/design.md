@@ -91,6 +91,7 @@ The following values come from renderer and GUI source.
 | `summary-outer` | `rgba(255,255,255,0.31)` | Score summary outer panel |
 | `summary-inner` | `rgba(0,0,255,0.31)` | Score summary inner panel |
 | `summary-header` | `#0000FF` | Score summary heading strip |
+| `team-group-separator` | `rgba(255,255,255,0.70)` | Rule between adjacent team groups in Team score overviews |
 | `winner-curtain` | animated `rgba(128,0,0,0..0.78)` | Full-screen round-end curtain |
 | `console-surface` | `#EEDD00` | Console panel |
 | `console-separator` | `#FF0000` | Console separator text |
@@ -114,6 +115,25 @@ The following values come from renderer and GUI source.
 - The Players panel must keep each player next to that player's control assignment.
 - Gameplay overlays must use flat translucent fills without drop shadows.
 - The score summary must use two translucent rectangular layers and a solid blue heading strip.
+- A non-final limited-round summary must show its round-progress label in a dedicated row above the score heading strip.
+- The round-progress label must use the score-summary type and the score-summary heading-strip text color.
+- The round-progress label must align to the top-right of the score panel.
+- The right edge of the round-progress label must be 16 px inside the right bound of the translucent outer panel.
+- The progress row must start 32 px below the top bound of the translucent outer panel.
+- The score heading must remain aligned to the horizontal center of the score panel.
+- The progress row must use a 32 px row height.
+- The progress row must not use the solid blue fill of the score heading strip.
+- The score panel must keep the progress row and the score heading strip separate and legible.
+- A Team score overview must keep each team row directly adjacent to that team's nested player rows.
+- A Team score overview must use an 8 px separator band between adjacent team groups.
+- The separator band must contain a 2 px horizontal `team-group-separator` rule at its vertical center.
+- The separator rule must span the score-table width.
+- The separator band must use 3 px of clear inner-panel space above and below the rule.
+- A Team score overview must not add a separator band after the last team group.
+- The separator treatment must apply only to the active-round Tab scoreboard and the non-final post-round interim scoreboard.
+- The separator treatment must support two through four teams.
+- The separator treatment must not change team colors, team names, row colors, score columns, ranking order, row alignment, controls, or round-progress behavior.
+- A non-Team score overview and the final game summary must remain unchanged.
 - New documentation must not specify rounded corners, shadows, or gradients that the implementation does not provide. Blur is reserved for the approved full-client menu background.
 
 ## Imagery and assets
@@ -162,6 +182,15 @@ The following values come from renderer and GUI source.
 - A player row must support double-click to remove the player from the roster.
 - A spinner must use left and right triangle buttons.
 - A checkbox must reverse its frame when it is checked.
+- The game mode spinner must show `Deathmatch`, `Predator`, and `Teams`.
+- The game mode spinner must show `Teams` one time.
+- The Game Settings panel must show `Num. of Team` and `Friendly Fire` only when `Teams` is selected.
+- Conditional settings must stay inside the existing Game Settings panel bounds.
+- Controls below a hidden conditional group must move up to keep one compact vertical stack.
+- The roster must use the applicable team colors only when `Teams` is selected.
+- A change to the team count must update the roster colors immediately.
+- A non-Team mode must use the standard roster row colors.
+- Player text and selection feedback must remain readable over each roster team color.
 - A focused text field must append an underscore to its text.
 - Only one text field must have focus at a time.
 - The person-name field must accept only its implemented character set.
@@ -238,10 +267,24 @@ The following values come from renderer and GUI source.
 - Ammunition must use blue text on a yellow rectangle.
 - Round kills must use blue point marks.
 - Team ranking must group named team rows and nested player rows.
+- Team score-overview groups must use the defined separator treatment in `OVER-01` and non-final `OVER-02`.
 - Team identity must also change headband, trousers, and hair-top colors.
 - Predator identity must use a body alpha of 0.1 while the weapon remains visible.
 - Live ranking must remain available for every supported player count.
-- Event messages, player status, score summaries, and round progress must remain available in the shared arena view.
+- Event messages, player status, and score summaries must remain available in the shared arena view.
+- Round progress must remain available in the shared arena view except while a non-final limited-round summary panel is visible.
+- A non-final limited-round summary must show `Rounds: <played>|<total>` in a dedicated row above the solid blue score heading strip.
+- The summary round-progress label must use the exact `Rounds: <played>|<total>` format.
+- The summary round-progress label must align to the panel top-right in the dedicated progress row.
+- The right edge of the summary round-progress label must be 16 px inside the right bound of the translucent outer panel.
+- The summary round-progress label must include the round that has just ended in `<played>`.
+- The summary round-progress label must use the configured positive round limit in `<total>`.
+- A resumed match must use its accumulated played-round count in the summary round-progress label.
+- An unlimited round summary must not show the summary round-progress label.
+- The final game summary and the active-round Tab score overlay must not show the new summary round-progress label.
+- The top-center arena round progress must be hidden while the non-final limited-round summary panel is visible.
+- The top-center arena round progress must return in the first visible frame of the next active round.
+- The summary popup must show only one round-count location.
 - F2 must not change the gameplay view.
 
 ### Blocking menu messages
@@ -316,8 +359,9 @@ The following values come from renderer and GUI source.
 - Evidence for menu background selection or persistence must also record the selected filename, runtime asset manifest revision, and session identifier.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
 - Eleven screenshot entries remain `Planned` until issue #38 implements and captures `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
-- `SS-001` must represent the current implemented `MENU-01` state.
-- Issue #38 must invalidate and recapture `SS-001` when it implements the target Network footer.
+- `SS-001` and `SS-024` must represent the two approved `MENU-01` conditional-layout wireframes.
+- Existing `MENU-01` evidence is stale until the consolidated Teams selector is implemented and both wireframes are captured.
+- Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources
 
@@ -341,6 +385,10 @@ The following values come from renderer and GUI source.
 ## Stitch synchronization
 
 The corresponding Stitch project is `projects/1219346282527961142` (`Duel 6 Reloaded`).
+For PR #54 and subsequent assessment of this approved change, Stitch is a supplementary visual workspace.
+`docs/features.md`, this file, the applicable screen specifications, the version-controlled wireframes, and conforming implementation screenshots are authoritative.
+A missing or stale Stitch representation must not replace or weaken any local design, wireframe, screenshot, provenance, or implementation-presentation gate.
+A Stitch synchronization failure does not block visual acceptance when all authoritative local sources exist, remain current, and conform.
 The project includes two `MENU-01 — Main menu and session setup` explorations at screens `681ae093051749fd922ab74454f47121` and `e26294cba3d946a0af458bcf33c275a0`.
 Screen `681ae093051749fd922ab74454f47121` is the visual reference for the retro grey canvas, black matte, four-panel hierarchy, score table, and footer actions.
 The application behavior and copy in `docs/features.md` override illustrative Stitch names, statistics, settings, version text, and shortcut syntax.
@@ -350,3 +398,16 @@ The Stitch request timed out, so the screen update result is not confirmed.
 The Stitch design system uses an exploratory dark tactical style that does not match this native visual baseline.
 The retro `MENU-01` screen direction is an approved screen-specific exception to that exploratory design system.
 This file and `docs/features.md` remain authoritative for implementation details that the Stitch samples do not represent accurately.
+The project and screen inventory were reviewed again on 2026-09-01 for the Team score-overview grouping change.
+Stitch screen `172c3e16a6424bf1a7d95723038f3e43` is `OVER-01 — Score-tab overlay`.
+Stitch screen `46c697bc75274ba9a668b0641e077dc0` is `OVER-02 — Round-over summary`.
+A separator-treatment edit was requested for both screens on 2026-09-01.
+The request preserved the native overlay, four Team groups, score content, alignment, `OVER-02` progress row, and curtain behavior.
+The request specified an 8 px boundary band with a centered 2 px white rule at 70% opacity.
+The Stitch request timed out, so the screen update result is not confirmed.
+The local specifications and wireframes remain the implementation target.
+Two consolidated Teams variants were requested from screen `681ae093051749fd922ab74454f47121` on 2026-08-31.
+An inspection after the timeout found no generated consolidated Teams variants in the project screen inventory.
+The two existing `MENU-01` explorations remain `681ae093051749fd922ab74454f47121` and `e26294cba3d946a0af458bcf33c275a0`.
+The local screen specification and wireframes are complete and remain sufficient for implementation and visual assessment.
+The stale Stitch screens are a documented non-blocking limitation for PR #54.
