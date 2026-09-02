@@ -27,7 +27,7 @@ Issue #31 has exactly zero capturable graphical entries because it must not impl
 The issue #31 visual specification changes no representative layout and adds no wireframe.
 At the issue #31 baseline, the 21-entry wireframe-based screenshot matrix had exactly one representative entry per wireframe.
 The existing 11 planned issue #38 entries must not be used as issue #31 evidence.
-Issue #32 defines authoritative headless match behavior and future graphical states at reviewed head `03fdc0c481b183b695eb937ea0c7b0e93b4e31b9`.
+Issue #32 defines authoritative headless match behavior and future graphical states at final merged reassessment head `5c18155ef16ba5c1ffcbe71e4de433873ed0e072`.
 Issue #32 has exactly zero capturable graphical entries because it must not implement `NET-04`, `NET-05`, `NET-06`, `NET-08`, or another graphical network screen.
 The issue #32 specification adds state and copy annotations but makes no approved structural layout change and adds no wireframe.
 The 21-entry wireframe-based screenshot matrix remains unchanged with exactly one representative entry per wireframe.
@@ -343,10 +343,17 @@ Issue #38 must capture `NET-02`, `NET-08`, and `NET-09` only when their planned 
 
 ## Issue #32 operational evidence matrix
 
-This matrix was prepared for issue #32 and draft PR #53 at reviewed head `03fdc0c481b183b695eb937ea0c7b0e93b4e31b9`.
+This matrix was prepared for issue #32 and draft PR #53 at specification head `03fdc0c481b183b695eb937ea0c7b0e93b4e31b9`.
+The final UX reassessment covers the merged headless scope at exact head `5c18155ef16ba5c1ffcbe71e4de433873ed0e072`.
+The final tester execution provenance remains recorded against implementation base `d38ba491505d670e20c71162aa896e3f520750a5` in `tests/AuthoritativeMatchAcceptanceCoverage.md`.
+The merged-head reassessment confirms that the reviewed copy, result, state, authority, session-only, non-disclosure, persistence, and scope contracts remain unchanged.
 The issue #32 graphical screenshot matrix contains exactly zero capturable entries.
 Terminal output, serialized results, automated results, and process-lifecycle records are operational substitutes and are not implementation screenshots.
 Each substitute must record the implementation branch, source SHA, environment, command or test scenario, machine identifier, exact user-visible output when applicable, exit status when applicable, and artifact path.
+The reviewed implementation sources are `source/server/AuthoritativeMatch.cpp`, `source/server/AuthoritativeMatchTypes.h`, `source/server/AuthoritativeMatchValidation.cpp`, `source/server/AuthoritativeHostedMatchController.cpp`, `source/server/AuthoritativeMatchSerialization.cpp`, and `source/server/AuthoritativeMatchCli.cpp`.
+The reviewed operational evidence sources are `tests/AuthoritativeMatchBehaviorTests.cpp`, `tests/AuthoritativeMatchProcessTests.py`, and `tests/AuthoritativeMatchAcceptanceCoverage.md`.
+The registered evidence covers fixed outcome copy, completed and interrupted results, ranking, host-only controls, session-only output, script exclusion, persistence-field exclusion, bounded non-disclosing failures, Local Play isolation, and scaffold-only scope truth.
+No reviewed source adds graphical network UI, changes a Local Play visual requirement, or claims a playable network session or release readiness.
 
 | Operational scenario | Required substitute evidence |
 |---|---|
