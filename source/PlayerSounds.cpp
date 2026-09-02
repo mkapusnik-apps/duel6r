@@ -95,7 +95,7 @@ namespace Duel6 {
 
     const Sound::Sample &PlayerSounds::getRandomSample(Type type) const {
         const std::vector<Sound::Sample> &samples = sounds[(Int32) type];
-        Size which = (Size) Math::random(Int32(samples.size()));
+        Size which = (Size) Math::random(Int32(samples.size()), "player-sound");
         return samples[which];
     }
 

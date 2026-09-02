@@ -12,6 +12,8 @@ The current native implementation remains the source for unchanged visual detail
 This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, and the planned first-release network UI defined for issue #28.
 The network additions are target specifications for downstream issue #38 and are not implemented UI or evidence of playable networking.
 Issue #30 may implement protocol, command-line, or scaffold outcomes, but it must not add graphical network UI.
+Issue #32 defines authoritative headless match states, result data, and fixed outcome copy for the planned network screens.
+Issue #32 must not add graphical network UI.
 
 ## Visual principles
 
@@ -237,6 +239,19 @@ The following values come from renderer and GUI source.
 - Trusted diagnostics may identify one differing path only after the application validates that path against every canonical-path rule.
 - Trusted diagnostics must not include an invalid path or raw payload.
 - Final network results must show the exact label `Session only` near the summary heading or result table.
+- Final network results must show result state `Completed` or `Interrupted`.
+- A result without a winner must show the exact value `No winner`.
+- Final network results must state `Not saved to local statistics or Elo`.
+- Network match setup must expose only mode, level plan, round limit, Assistance, Quick Liquid, and Burnable Trees.
+- Network round limit must accept only integers from 1 through 99.
+- Network match setup must not expose weapon enablement, ammunition ranges, level data, or gameplay definitions as settings.
+- Network match status must state that optional Lua and profile scripts are disabled for network play.
+- Only the host may show an enabled early-advance action after a round outcome exists.
+- Guests must not see an enabled round-advance action.
+- Network round-end presentation must distinguish the first-second active phase from the final-five-second frozen phase.
+- The final round must enter the final summary and must not show a next-round action.
+- Only the host may show the `End session` action.
+- The interface must keep Local Play copy, settings, advancement, scripting, and persistence behavior unchanged.
 - Target network UI must not offer discovery, matchmaking, Internet, NAT traversal, accounts, passwords, dedicated servers, join-in-progress, or host migration.
 
 ### Gameplay presentation
@@ -317,6 +332,9 @@ The following values come from renderer and GUI source.
 - Starting, cancelling, failure, Retry eligibility, and cleanup status must remain available as persistent text.
 - A disabled Retry control must show a persistent textual reason and must not receive focus.
 - Unsupported actions must be absent rather than represented by ambiguous disabled affordances.
+- Round-end phase, automatic-advance timing, result state, no-winner state, script exclusion, and no-persistence status must remain visible as text.
+- Result tables must use text headings for ranking criteria and values.
+- Result tables must not rely only on row order or color to communicate rank, team, winner, or departed state.
 
 ## Responsive behavior
 

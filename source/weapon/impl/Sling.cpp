@@ -36,6 +36,8 @@ namespace Duel6 {
                                                      {0, 82, 1, 82, 0, 82, 2, 82, 0, 82, 0, 82, 0, 82, -1, 0}};
     }
 
+    Sling::Sling() : LegacyWeapon(DEFINITION) {}
+
     Sling::Sling(Sound &sound, TextureManager &textureManager)
             : LegacyWeapon(sound, textureManager, DEFINITION, 14) {}
 

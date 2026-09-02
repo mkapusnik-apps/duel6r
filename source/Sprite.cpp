@@ -26,7 +26,9 @@
 */
 
 #include "Sprite.h"
+#ifndef D6R_HEADLESS_CORE
 #include "Video.h"
+#endif
 
 namespace Duel6 {
     Sprite::Sprite(Animation animation, Texture texture) {
@@ -153,6 +155,7 @@ namespace Duel6 {
         }
     }
 
+#ifndef D6R_HEADLESS_CORE
     void Sprite::render(Renderer &renderer) const {
         if (!visible) {
             return;
@@ -188,4 +191,7 @@ namespace Duel6 {
             renderer.enableDepthTest(true);
         }
     }
+#else
+    void Sprite::render(Renderer &) const {}
+#endif
 }

@@ -33,6 +33,7 @@
 namespace Duel6 {
     class Shotgun : public LegacyWeapon {
     public:
+        Shotgun();
         Shotgun(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;

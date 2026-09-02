@@ -28,14 +28,21 @@
 #ifndef DUEL6_BONUS_H
 #define DUEL6_BONUS_H
 
+#include <cstdint>
+
 #include "Type.h"
+#ifndef D6R_HEADLESS_CORE
 #include "TextureManager.h"
+#else
+#include "renderer/RendererTypes.h"
+#endif
 #include "math/Vector.h"
 #include "Rectangle.h"
 #include "Weapon.h"
 #include "collision/WorldCollision.h"
 
 namespace Duel6 {
+    class Renderer;
     class Player;
 
     class World;
@@ -82,9 +89,11 @@ namespace Duel6 {
         Int32 duration;
         Vector position;
         Int32 textureIndex;
+        std::uint64_t stableId;
 
     public:
-        Bonus(const BonusType *type, Int32 duration, const Vector &position, Int32 textureIndex);
+        Bonus(const BonusType *type, Int32 duration, const Vector &position, Int32 textureIndex,
+              std::uint64_t stableId = 0);
 
         void render(Renderer &renderer, Texture texture) const;
 
@@ -109,19 +118,23 @@ namespace Duel6 {
         }
 
         Vector getSpritePosition() const;
+
+        std::uint64_t getStableId() const noexcept { return stableId; }
     };
 
     class LyingWeapon {
         Weapon weapon;
         Int32 bullets;
+        std::uint64_t stableId;
     public:
         CollidingEntity collider;
         Float32 pickTimeout = 0.5f;
         Float32 remainingReloadTime = 0.0f;
     public:
-        LyingWeapon(Weapon weapon, Int32 bullets, Float32 remainingReloadTime, const CollidingEntity &playerCollider);
+        LyingWeapon(Weapon weapon, Int32 bullets, Float32 remainingReloadTime,
+                    const CollidingEntity &playerCollider, std::uint64_t stableId = 0);
 
-        LyingWeapon(Weapon weapon, Int32 bullets, const Vector &position);
+        LyingWeapon(Weapon weapon, Int32 bullets, const Vector &position, std::uint64_t stableId = 0);
 
         void render(Renderer &renderer) const;
 
@@ -146,6 +159,8 @@ namespace Duel6 {
         }
 
         Vector getSpritePosition() const;
+
+        std::uint64_t getStableId() const noexcept { return stableId; }
     };
 }
 

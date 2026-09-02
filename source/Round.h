@@ -32,7 +32,9 @@
 #include <queue>
 #include "Player.h"
 #include "World.h"
+#ifndef D6R_HEADLESS_CORE
 #include "SysEvent.h"
+#endif
 
 namespace Duel6 {
     class Game;
@@ -40,6 +42,7 @@ namespace Duel6 {
     class Round {
     private:
         Game &game;
+        RandomSource &randomSource;
         Int32 roundNumber;
         World world;
         bool suddenDeathMode;
@@ -49,11 +52,14 @@ namespace Duel6 {
         Uint32 startTime;
         bool winner;
         std::vector<Player *> alivePlayers;
+#ifndef D6R_HEADLESS_CORE
         Script::RoundScriptContext scriptContext;
+#endif
         std::function<void()> onRoundEnd;
 
     public:
-        Round(Game &game, Int32 roundNumber, const std::string &levelPath, bool mirror);
+        Round(Game &game, Int32 roundNumber, const std::string &levelPath, bool mirror,
+              RandomSource &randomSource);
 
         void start();
 
@@ -61,15 +67,23 @@ namespace Duel6 {
 
         void end();
 
+#ifndef D6R_HEADLESS_CORE
         void keyEvent(const KeyPressEvent &event);
+#endif
 
         const World &getWorld() const {
+            return world;
+        }
+
+        World &getWorld() {
             return world;
         }
 
         bool hasWinner() const {
             return winner;
         }
+
+        bool isSuddenDeath() const noexcept { return suddenDeathMode; }
 
         Float32 getRemainingYouAreHere() const {
             return showYouAreHere;

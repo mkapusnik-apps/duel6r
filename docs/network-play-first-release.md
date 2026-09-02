@@ -8,6 +8,8 @@ The target network screens in [`docs/screens`](screens/README.md) implement this
 
 The authoritative player-hosted service lifecycle target is in [`network-host-service-lifecycle.md`](network-host-service-lifecycle.md).
 
+The authoritative headless match target is in [`network-authoritative-headless-match.md`](network-authoritative-headless-match.md).
+
 ## Terminology and clock
 
 - **Participant:** One admitted game instance. The host is one participant; every other participant is a guest.
@@ -79,8 +81,9 @@ Same-machine support means separate running instances communicating through the 
 The compatibility manifest includes content that can alter authoritative simulation or match outcomes:
 
 - gameplay levels and their gameplay metadata;
-- gameplay configuration and data definitions;
-- enabled, trusted gameplay scripts.
+- gameplay configuration and data definitions that control the approved built-in simulation.
+
+First-release network matches disable all optional Lua, profile, and gameplay scripts. The authoritative policy is in [`network-authoritative-headless-match.md`](network-authoritative-headless-match.md).
 
 It excludes presentation-only and participant-local material:
 

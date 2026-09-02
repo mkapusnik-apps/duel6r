@@ -33,6 +33,7 @@
 namespace Duel6 {
     class Slime : public LegacyWeapon {
     public:
+        Slime();
         Slime(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;

@@ -36,6 +36,8 @@ namespace Duel6 {
                                                      {1, 82, 0, 82, 0, 82, 0, 82, 0, 82, 0, 82, 0, 820, -1, 0}};
     }
 
+    Laser::Laser() : LegacyWeapon(DEFINITION) {}
+
     Laser::Laser(Sound &sound, TextureManager &textureManager)
             : LegacyWeapon(sound, textureManager, DEFINITION, 5) {}
 

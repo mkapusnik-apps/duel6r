@@ -36,6 +36,8 @@ namespace Duel6 {
                                                      {1, 82, 2, 82, 3, 82, 4, 82, 5, 82, 6, 82, 0, 820, -1, 0}};
     }
 
+    Pistol::Pistol() : LegacyWeapon(DEFINITION) {}
+
     Pistol::Pistol(Sound &sound, TextureManager &textureManager)
             : LegacyWeapon(sound, textureManager, DEFINITION, 0) {}
 

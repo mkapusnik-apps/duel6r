@@ -37,6 +37,8 @@ namespace Duel6 {
         public:
             Value parse(const std::string &fileName) const;
 
+            Value parse(const std::vector<Uint8> &bytes) const;
+
         private:
             Uint8 peekNextCharacter(File &file) const;
 

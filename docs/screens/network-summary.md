@@ -9,7 +9,13 @@ Normal match completion enters from `NET-05`. Host Return to lobby sends all con
 ## Representative layout
 
 - Use the final arena frame or retro summary context consistently with the existing score-summary visual language.
-- Show the match outcome, three-round result rows in the representative state, participant/player identity, and final authoritative totals.
+- Show result state `Completed` or `Interrupted`.
+- Show final-round winner identity, winning team, or `No winner`.
+- Show mode, applicable team count and Friendly fire, Assistance, Quick Liquid, Burnable Trees, level plan, round limit, nonzero match seed, and completed-round count.
+- Show one row for each completed round with round number, level identity, orientation, winner or `No winner`, and authoritative roster order.
+- Show each player identity, owner participant, display name, applicable team, applicable `Departed` state, rounds played, shots, hits, kills, deaths, assists, wins, penalties, survival time, damage, assisted damage, and total points.
+- Show per-round player values and cumulative match values.
+- Show team totals when the mode uses teams.
 - Place the exact label `Session only` beside the heading or result table and show `Not saved to local statistics or Elo` as supporting copy.
 - Show host-only `Return to lobby` and `End session`; guests see a waiting status and `Leave`.
 
@@ -23,10 +29,21 @@ Normal match completion enters from `NET-05`. Host Return to lobby sends all con
 - Accepted intentional host End enters `NET-09` and discards the result; every unexpected host failure remains guest `NET-07` until terminal rejection or deadline expiry.
 - Starting a new match clears this result set; no result survives as local persistence.
 - The summary must not offer Save, Elo update, account upload, or local-statistics merge.
+- Player rows must rank by total points, wins, damage, and authoritative roster order in descending precedence.
+- Team rows must rank by team point total and then Alpha, Bravo, Charlie, and Delta.
+- Player rows inside a team must use the player ranking rules.
+- Total points must equal kills plus wins plus assists minus penalties.
+- An interrupted result must show exactly `Session only • Interrupted • No winner`.
+- An interrupted result must include only completed rounds.
+- The result must not show Elo, Elo trend, Elo game count, local person records, saved profile state, endpoints, credentials, or persistent history.
 
 ## Truthful copy, disabled reasons, and input
 
 - `Session only` must remain visible without relying on tooltip or color.
+- `Completed`, `Interrupted`, `No winner`, `Departed`, rank, and team must remain visible as text.
+- Column headings must identify every displayed result value.
+- The table must not use color or row position as the only rank, winner, team, or departure cue.
+- Result content must not disclose an endpoint, credential, raw filesystem value, or peer-supplied diagnostic value.
 - Guests see `Waiting for host to return to lobby or end session`; disabled host actions must not appear enabled.
 - Focus order is Return to lobby → End session for host, or Leave for guest. Confirmation dialogs have Confirm then Cancel and retain visible focus.
 - Keyboard arrows/Tab and controller directions traverse; Enter/Space/controller Confirm activates; Escape/controller Back opens the applicable Leave/End confirmation.

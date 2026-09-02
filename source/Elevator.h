@@ -32,9 +32,12 @@
 #include "Type.h"
 #include "math/Vector.h"
 #include "renderer/RendererTypes.h"
+#ifndef D6R_HEADLESS_CORE
 #include "renderer/Renderer.h"
+#endif
 
 namespace Duel6 {
+    class Renderer;
     class Elevator {
     public:
         class ControlPoint {

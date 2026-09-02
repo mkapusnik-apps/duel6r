@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,8 @@ namespace Duel6::Network {
 
     using GameplayManifest = std::vector<GameplayManifestEntry>;
 
+    using FrozenGameplayContent = std::map<std::string, std::vector<std::uint8_t>>;
+
     enum class ManifestStatus {
         Valid,
         InvalidRoot,
@@ -40,6 +43,7 @@ namespace Duel6::Network {
     struct ManifestBuildResult {
         ManifestStatus status = ManifestStatus::InvalidRoot;
         GameplayManifest manifest;
+        std::shared_ptr<const FrozenGameplayContent> content;
 
         bool valid() const { return status == ManifestStatus::Valid; }
     };

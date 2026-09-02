@@ -33,6 +33,7 @@
 namespace Duel6 {
     class StopperGun : public LegacyWeapon {
     public:
+        StopperGun();
         StopperGun(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;

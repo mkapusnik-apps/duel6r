@@ -32,8 +32,10 @@
 #include "Type.h"
 #include "Bonus.h"
 #include "Player.h"
+#ifndef D6R_HEADLESS_CORE
 #include "PlayerSounds.h"
 #include "TextureManager.h"
+#endif
 #include "Level.h"
 #include "GameSettings.h"
 #include "GameResources.h"
@@ -46,6 +48,7 @@ namespace Duel6 {
         World &world;
         std::list<Bonus> bonuses;
         std::list<LyingWeapon> weapons;
+        std::uint64_t nextStableId = 1;
 
         static const Int32 RANDOM_BONUS_FREQUENCY = 6;
         typedef std::pair<Int32, Int32> ValidPosition;
@@ -55,7 +58,10 @@ namespace Duel6 {
         bool isValidPosition(const Int32 x, const Int32 y, bool weapon);
 
     public:
+#ifndef D6R_HEADLESS_CORE
         BonusList(const GameSettings &settings, const GameResources &resources, World &world);
+#endif
+        BonusList(const GameSettings &settings, World &world);
 
         void update(Float32 elapsedTime);
 
@@ -68,6 +74,9 @@ namespace Duel6 {
         void checkBonus(Player &player);
 
         void checkWeapon(Player &player);
+
+        const std::list<Bonus> &getBonuses() const noexcept { return bonuses; }
+        const std::list<LyingWeapon> &getWeapons() const noexcept { return weapons; }
     };
 
 }

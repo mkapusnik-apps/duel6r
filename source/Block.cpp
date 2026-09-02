@@ -55,14 +55,12 @@ namespace Duel6 {
         return (Block::Type) (typeIter - typeBegin);
     }
 
-    Block::Meta Block::loadMeta(const std::string &path) {
+    namespace {
+        Block::Meta parseMeta(const Json::Value &root) {
         Block::Meta meta;
-        Json::Parser parser;
-        Json::Value root = parser.parse(path);
-
         for (Size i = 0; i < root.getLength(); i++) {
             Json::Value block = root.get(i);
-            Block::Type type = determineType(block.get("kind").asString());
+            Block::Type type = Block::determineType(block.get("kind").asString());
             Json::Value animations = block.get("animations");
             std::vector<Int32> textures;
             for (Size j = 0; j < animations.getLength(); j++) {
@@ -72,5 +70,14 @@ namespace Duel6 {
         }
 
         return meta;
+        }
+    }
+
+    Block::Meta Block::loadMeta(const std::string &path) {
+        return parseMeta(Json::Parser().parse(path));
+    }
+
+    Block::Meta Block::loadMeta(const std::vector<Uint8> &bytes) {
+        return parseMeta(Json::Parser().parse(bytes));
     }
 }

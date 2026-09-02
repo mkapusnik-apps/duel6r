@@ -36,6 +36,8 @@ namespace Duel6 {
                                                      {0, 82, 1, 82, 0, 82, 1, 82, 0, 82, 0, 82, 0, 82, -1, 0}};
     }
 
+    Spray::Spray() : LegacyWeapon(DEFINITION) {}
+
     Spray::Spray(Sound &sound, TextureManager &textureManager)
             : LegacyWeapon(sound, textureManager, DEFINITION, 13) {}
 

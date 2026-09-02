@@ -36,6 +36,8 @@ namespace Duel6 {
                                                      {1, 82, 2, 82, 3, 82, 0, 82, 0, 82, 0, 82, 0, 820, -1, 0}};
     }
 
+    Triton::Triton() : LegacyWeapon(DEFINITION) {}
+
     Triton::Triton(Sound &sound, TextureManager &textureManager)
             : LegacyWeapon(sound, textureManager, DEFINITION, 7) {}
 

@@ -9,6 +9,7 @@
 #define ASEPRITE_TO_ANIMATION_H_
 #include "aseprite.h"
 #include "animation.h"
+#include <stdexcept>
 
 animation::LoopType from(uint16_t type) {
     switch (type) {
@@ -35,16 +36,21 @@ animation::Animation fromASEPRITE(const aseprite::ASEPRITE & ase) {
     animation.height = ase.header.height;
     animation.framesCount = ase.header.frames;
     animation.transparentIndex = ase.header.transparentIndex;
-    animation.frames.reserve(animation.framesCount);
+    if (animation.width == 0 || animation.height == 0 || animation.framesCount == 0
+        || ase.frames.size() != animation.framesCount)
+        throw std::runtime_error("Aseprite animation dimensions or frame count are invalid");
+    animation.frames.resize(animation.framesCount);
 
     for (const auto & chunk : ase.frames[0].chunks) {
         if (chunk.type == 0x2019) {
             const auto & palette_chunk = std::get<aseprite::PALETTE_CHUNK>(chunk.data);
+            if (palette_chunk.colors.size() > animation.palette.colors.size())
+                throw std::runtime_error("Aseprite palette is too large");
             for (size_t i = 0; i < palette_chunk.colors.size(); i++) {
-                animation.palette.colors[i].r = palette_chunk.colors[i].r;
-                animation.palette.colors[i].g = palette_chunk.colors[i].g;
-                animation.palette.colors[i].b = palette_chunk.colors[i].b;
-                animation.palette.colors[i].a = palette_chunk.colors[i].a;
+                animation.palette.colors.at(i).r = palette_chunk.colors[i].r;
+                animation.palette.colors.at(i).g = palette_chunk.colors[i].g;
+                animation.palette.colors.at(i).b = palette_chunk.colors[i].b;
+                animation.palette.colors.at(i).a = palette_chunk.colors[i].a;
 
             }
 
@@ -77,10 +83,16 @@ animation::Animation fromASEPRITE(const aseprite::ASEPRITE & ase) {
         for (const auto & chunk : ase.frames[f].chunks) {
             if (chunk.type == 0x2005) {
                 const auto & cel_chunk = std::get<aseprite::CEL_CHUNK>(chunk.data);
-                auto & layer = animation.layers[cel_chunk.layerIndex]; //TODO bounds check
-                auto & cel = layer.frames[f];
+                if (cel_chunk.layerIndex >= animation.layers.size())
+                    throw std::runtime_error("Aseprite cel layer index is invalid");
+                auto & layer = animation.layers.at(cel_chunk.layerIndex);
+                if (layer.isGroupLayer || f >= layer.frames.size())
+                    throw std::runtime_error("Aseprite cel references an invalid layer frame");
+                auto & cel = layer.frames.at(f);
                 if (cel_chunk.type == 1) { // linked cel
-                    auto & linkedCel = animation.layers[cel_chunk.layerIndex].frames[cel_chunk.frameLink];
+                    if (cel_chunk.frameLink >= layer.frames.size())
+                        throw std::runtime_error("Aseprite linked cel frame is invalid");
+                    const auto & linkedCel = layer.frames.at(cel_chunk.frameLink);
                     cel.image = linkedCel.image;
                     cel.opacity = linkedCel.opacity;
                     cel.x = linkedCel.x;
@@ -100,6 +112,8 @@ animation::Animation fromASEPRITE(const aseprite::ASEPRITE & ase) {
         }
     }
     for (const auto & loop : animation.loops) {
+        if (loop.from > loop.to || loop.to >= animation.framesCount)
+            throw std::runtime_error("Aseprite animation loop range is invalid");
         std::vector<int32_t> animationLoop;
 
         if (loop.loopType == animation::LoopType::FORWARD) {
@@ -119,7 +133,7 @@ animation::Animation fromASEPRITE(const aseprite::ASEPRITE & ase) {
                 animationLoop.push_back(frame);
                 animationLoop.push_back(animation.frames[frame].duration);
             }
-            for (uint16_t frame = loop.to; frame >= loop.from; frame--) {
+            for (int32_t frame = loop.to; frame >= loop.from; --frame) {
                 animationLoop.push_back(frame);
                 animationLoop.push_back(animation.frames[frame].duration);
             }
@@ -128,7 +142,7 @@ animation::Animation fromASEPRITE(const aseprite::ASEPRITE & ase) {
             uint16_t loopLength = loop.to - loop.from + 1;
             animationLoop.reserve(loopLength * 2 + 2); // format is frame,duration,...,frame,duraion,-1,0
 
-            for (uint16_t frame = loop.to; frame >= loop.from; frame--) {
+            for (int32_t frame = loop.to; frame >= loop.from; --frame) {
                 animationLoop.push_back(frame);
                 animationLoop.push_back(animation.frames[frame].duration);
             }

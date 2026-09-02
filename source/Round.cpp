@@ -32,22 +32,36 @@
 #include "GameException.h"
 #include "GameMode.h"
 #include "Weapon.h"
+#ifndef D6R_HEADLESS_CORE
 #include "PersonProfile.h"
+#endif
 
 namespace Duel6 {
-    Round::Round(Game &game, Int32 roundNumber, const std::string &levelPath, bool mirror)
-            : game(game), roundNumber(roundNumber), world(game, levelPath, mirror),
+    Round::Round(Game &game, Int32 roundNumber, const std::string &levelPath, bool mirror,
+                 RandomSource &randomSource)
+            : game(game), randomSource(randomSource), roundNumber(roundNumber),
+              world(game, levelPath, mirror, randomSource),
               suddenDeathMode(false), waterFillWait(0), showYouAreHere(D6_YOU_ARE_HERE_DURATION), gameOverWait(0),
-              winner(false), scriptContext(world) {}
+              winner(false)
+#ifndef D6R_HEADLESS_CORE
+              , scriptContext(world)
+#endif
+              {}
 
     void Round::start() {
-        startTime = SDL_GetTicks();
+#ifdef D6R_HEADLESS_CORE
+        startTime = 0;
+#else
+        startTime = game.isHeadless() ? 0 : SDL_GetTicks();
+#endif
         auto &players = world.getPlayers();
-        game.getMode().initializePlayerPositions(game, players, world);
+        game.getMode().initializePlayerPositions(game, players, world, randomSource);
         setPlayerViews();
-        game.getMode().initializeRound(game, players, world);
+        game.getMode().initializeRound(game, players, world, randomSource);
         scriptStart();
-        game.getResources().getRoundStartSound().play();
+#ifndef D6R_HEADLESS_CORE
+        if (!game.isHeadless()) game.getResources().getRoundStartSound().play();
+#endif
     }
 
     void Round::end() {
@@ -60,6 +74,10 @@ namespace Duel6 {
     }
 
     void Round::scriptStart() {
+#ifdef D6R_HEADLESS_CORE
+        return;
+#else
+        if (game.isHeadless()) return;
         auto &players = world.getPlayers();
         for (auto &player : players) {
             PersonProfile *profile = player.getPerson().getProfile();
@@ -70,9 +88,15 @@ namespace Duel6 {
                 }
             }
         }
+#endif
     }
 
     void Round::scriptUpdate(Player &player) {
+#ifdef D6R_HEADLESS_CORE
+        (void) player;
+        return;
+#else
+        if (game.isHeadless()) return;
         Uint32 roundTime = SDL_GetTicks() - startTime;
         PersonProfile *profile = player.getPerson().getProfile();
         if (profile != nullptr) {
@@ -81,9 +105,14 @@ namespace Duel6 {
                 script->roundUpdate(roundTime, player, scriptContext);
             }
         }
+#endif
     }
 
     void Round::scriptEnd() {
+#ifdef D6R_HEADLESS_CORE
+        return;
+#else
+        if (game.isHeadless()) return;
         Uint32 roundTime = SDL_GetTicks() - startTime;
         auto &players = world.getPlayers();
         for (auto &player : players) {
@@ -95,9 +124,14 @@ namespace Duel6 {
                 }
             }
         }
+#endif
     }
 
     void Round::setPlayerViews() {
+#ifdef D6R_HEADLESS_CORE
+        return;
+#else
+        if (game.isHeadless()) return;
         const Video &video = game.getAppService().getVideo();
         std::vector<Player> &players = world.getPlayers();
 
@@ -105,6 +139,7 @@ namespace Duel6 {
             player.prepareCam(video, world.getLevel().getWidth(), world.getLevel().getHeight());
             player.setView(PlayerView(0, 0, video.getScreen().getClientWidth(), video.getScreen().getClientHeight()));
         }
+#endif
     }
 
     void Round::checkWinner() {
@@ -121,13 +156,17 @@ namespace Duel6 {
 
         if (!suddenDeathMode && game.getMode().checkForSuddenDeathMode(world, alivePlayers)) {
             suddenDeathMode = true;
+            world.emitGameplayEvent({"sudden-death-started"});
         }
 
         if (game.getMode().checkRoundOver(world, alivePlayers)) {
             winner = true;
+            world.emitGameplayEvent({"round-ended"});
             gameOverWait = D6_GAME_OVER_WAIT;
 
-            game.getResources().getGameOverSound().play();
+#ifndef D6R_HEADLESS_CORE
+            if (!game.isHeadless()) game.getResources().getGameOverSound().play();
+#endif
             onRoundEnd();
         }
     }
@@ -153,7 +192,9 @@ namespace Duel6 {
         }
 
         world.update(elapsedTime);
-        game.getAppService().getVideo().getRenderer().setGlobalTime(world.getTime());
+#ifndef D6R_HEADLESS_CORE
+        if (!game.isHeadless()) game.getAppService().getVideo().getRenderer().setGlobalTime(world.getTime());
+#endif
 
         if (suddenDeathMode) {
             waterFillWait += elapsedTime;
@@ -164,8 +205,14 @@ namespace Duel6 {
         }
 
         showYouAreHere = std::max(showYouAreHere - 3 * elapsedTime, 0.0f);
+        if (Math::isAuthoritative()) {
+            waterFillWait = Math::quantizeAuthoritative(waterFillWait);
+            showYouAreHere = Math::quantizeAuthoritative(showYouAreHere);
+            gameOverWait = Math::quantizeAuthoritative(gameOverWait);
+        }
     }
 
+#ifndef D6R_HEADLESS_CORE
     void Round::keyEvent(const KeyPressEvent &event) {
         // Turn on/off player statistics
         if (event.getCode() == SDLK_F4) {
@@ -179,6 +226,7 @@ namespace Duel6 {
             game.getAppService().getConsole().printLine(Format("Screenshot saved to {0}") << name);
         }
     }
+#endif
 
     bool Round::isOver() const {
         return hasWinner() && gameOverWait <= 0;

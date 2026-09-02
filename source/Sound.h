@@ -30,15 +30,24 @@
 
 #include <string>
 #include <vector>
+#ifndef D6R_HEADLESS_CORE
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_mixer.h>
+#endif
 #include "Type.h"
+#ifndef D6R_HEADLESS_CORE
 #include "console/Console.h"
+#endif
 
 namespace Duel6 {
     class Sound {
     public:
         class Sample {
+#ifdef D6R_HEADLESS_CORE
+        public:
+            Sample() = default;
+            void play() const {}
+#else
         private:
             friend class Sound;
 
@@ -54,8 +63,10 @@ namespace Duel6 {
             ~Sample();
 
             void play() const;
+#endif
         };
 
+#ifndef D6R_HEADLESS_CORE
         class Track {
         private:
             friend class Sound;
@@ -98,6 +109,7 @@ namespace Duel6 {
         void startMusic(Mix_Music *music, bool loop);
 
         void playSample(Mix_Chunk *chunk);
+#endif
     };
 }
 

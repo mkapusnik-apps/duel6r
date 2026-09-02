@@ -33,6 +33,7 @@
 namespace Duel6 {
     class KissOfDeath : public LegacyWeapon {
     public:
+        KissOfDeath();
         KissOfDeath(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;

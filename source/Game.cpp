@@ -25,19 +25,51 @@
 * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include "Game.h"
+#ifndef D6R_HEADLESS_CORE
 #include "Sound.h"
 #include "WorldRenderer.h"
-#include "Game.h"
 #include "Menu.h"
+#endif
 #include "GameMode.h"
+#include <stdexcept>
 
 namespace Duel6 {
+#ifndef D6R_HEADLESS_CORE
     Game::Game(AppService &appService, GameResources &resources, GameSettings &settings)
-            : appService(appService), resources(resources), settings(settings), worldRenderer(appService, *this),
-              playedRounds(0) {}
+            : appService(&appService), resources(resources), settings(settings),
+              randomSource(Math::localRandomSource()), gameMode(nullptr),
+              headless(false), worldRenderer(std::make_unique<WorldRenderer>(appService, *this)), menu(nullptr),
+              currentRound(0), playedRounds(0) {}
+#endif
 
+    Game::Game(GameResources &resources, GameSettings &settings)
+#ifdef D6R_HEADLESS_CORE
+            : Game(resources, settings, Math::localRandomSource()) {}
+#else
+            : Game(resources, settings, Math::localRandomSource()) {}
+#endif
+
+    Game::Game(GameResources &resources, GameSettings &settings, RandomSource &randomSource)
+#ifdef D6R_HEADLESS_CORE
+            : resources(resources), settings(settings), randomSource(randomSource), gameMode(nullptr), headless(true),
+              currentRound(0), playedRounds(0) {}
+#else
+            : appService(nullptr), resources(resources), settings(settings), randomSource(randomSource),
+              gameMode(nullptr), headless(true), menu(nullptr), currentRound(0), playedRounds(0) {}
+#endif
+
+    void Game::log(const std::string &message) const {
+#ifndef D6R_HEADLESS_CORE
+        if (appService) appService->getConsole().printLine(message);
+#else
+        (void) message;
+#endif
+    }
+
+#ifndef D6R_HEADLESS_CORE
     void Game::beforeStart(Context *prevContext) {
-        SDL_ShowCursor(SDL_DISABLE);
+        if (!headless) SDL_ShowCursor(SDL_DISABLE);
     }
 
     void Game::beforeClose(Context *nextContext) {
@@ -45,20 +77,24 @@ namespace Duel6 {
     }
 
     void Game::render() const {
-        worldRenderer.render();
+        if (worldRenderer) worldRenderer->render();
     }
+#endif
 
     void Game::update(Float32 elapsedTime) {
         if (getRound().isOver()) {
+#ifndef D6R_HEADLESS_CORE
             if (!getRound().isLast()) {
                 nextRound();
 
             }
+#endif
         } else {
             getRound().update(elapsedTime);
         }
     }
 
+#ifndef D6R_HEADLESS_CORE
     void Game::keyEvent(const KeyPressEvent &event) {
         if (event.getCode() == SDLK_ESCAPE && (isOver() || event.withShift())) {
             close();
@@ -96,10 +132,10 @@ namespace Duel6 {
 
     void Game::start(const std::vector<PlayerDefinition> &playerDefinitions, const std::vector<std::string> &levels,
                      const std::vector<Size> &backgrounds, GameMode &gameMode) {
-        Console &console = appService.getConsole();
+        Console &console = appService->getConsole();
         console.printLine("\n=== Starting new game ===");
         console.printLine(Format("...Rounds: {0}") << settings.getMaxRounds());
-        TextureManager &textureManager = appService.getTextureManager();
+        TextureManager &textureManager = appService->getTextureManager();
         players.clear();
 
         for (auto &skin : skins) {
@@ -109,17 +145,18 @@ namespace Duel6 {
 
         Size playerIndex = 0;
         players.reserve(playerDefinitions.size());
+        skins.reserve(playerDefinitions.size());
         playerAnimations = std::make_unique<PlayerAnimations>(resources.getPlayerAnimation());
         for (const PlayerDefinition &playerDef : playerDefinitions) {
             console.printLine(Format("...Generating player for person: {0}") << playerDef.getPerson().getName());
             skins.push_back(PlayerSkin(playerDef.getColors(), textureManager, *playerAnimations));
             players.emplace_back(
-                    playerDef.getPerson(), skins.back(), playerDef.getSounds(), playerDef.getControls());
+                    playerDef.getPerson(), skins.back(), playerDef.getSounds(), playerDef.getControls(), playerIndex);
             playerIndex++;
         }
 
         this->levels = levels;
-        std::shuffle(this->levels.begin(), this->levels.end(), Math::randomEngine);
+        Math::shuffle(this->levels, randomSource, "local-level-shuffle");
 
         this->backgrounds = backgrounds;
         this->gameMode = &gameMode;
@@ -127,29 +164,72 @@ namespace Duel6 {
         startRound();
     }
 
+    void Game::startHeadless(const std::vector<std::string> &playerNames,
+                             const std::vector<std::string> &levels, GameMode &gameMode) {
+        std::vector<Size> rosterSlots(playerNames.size());
+        for (Size index = 0; index < rosterSlots.size(); ++index) rosterSlots[index] = index;
+        initializeHeadlessPlayers(playerNames, rosterSlots, gameMode);
+        this->levels = levels;
+        Math::shuffle(this->levels, randomSource, "headless-level-shuffle");
+        startRound();
+    }
+#endif
+
+    void Game::initializeHeadlessPlayers(const std::vector<std::string> &playerNames,
+                                         const std::vector<Size> &rosterSlots, GameMode &gameMode) {
+        if (playerNames.size() != rosterSlots.size()) throw std::invalid_argument("Headless roster mismatch");
+        players.clear();
+        headlessPeople.clear();
+        headlessPeople.reserve(playerNames.size());
+        players.reserve(playerNames.size());
+        for (const auto &name: playerNames) headlessPeople.emplace_back(name, nullptr);
+        for (Size index = 0; index < headlessPeople.size(); ++index)
+            players.emplace_back(headlessPeople[index], rosterSlots[index]);
+#ifndef D6R_HEADLESS_CORE
+        backgrounds.clear();
+#endif
+        this->gameMode = &gameMode;
+        gameMode.initializeGame(*this, players, settings.isQuickLiquid(), settings.isGlobalAssistances());
+    }
+
+    void Game::startHeadlessRound(const std::vector<std::string> &playerNames, const std::string &level,
+                                  const std::vector<Size> &rosterSlots, bool mirror, GameMode &gameMode) {
+        initializeHeadlessPlayers(playerNames, rosterSlots, gameMode);
+        currentRound = playedRounds;
+        round = std::make_unique<Round>(*this, playedRounds, level, mirror, randomSource);
+        round->setOnRoundEnd([this]() { onRoundEnd(); });
+        round->start();
+    }
+
+    void Game::endHeadlessRound() {
+        if (round) endRound();
+    }
+
+#ifndef D6R_HEADLESS_CORE
     void Game::startRound() {
         currentRound = playedRounds;
         displayScoreTab = false;
 
         bool shuffle = settings.getLevelSelectionMode() == LevelSelectionMode::Shuffle;
-        Int32 level = shuffle ? playedRounds % Int32(levels.size()) : Math::random(Int32(levels.size()));
+        Int32 level = shuffle ? playedRounds % Int32(levels.size())
+                               : Math::random(Int32(levels.size()), randomSource, "round-level");
         const std::string levelPath = levels[level];
-        bool mirror = Math::random(2) == 0;
+        bool mirror = Math::random(2, randomSource, "round-orientation") == 0;
 
-        Console &console = appService.getConsole();
-        console.printLine(Format("\n===Loading level {0}===") << levelPath);
-        console.printLine(Format("...Parameters: mirror: {0}") << mirror);
+        log(Format("\n===Loading level {0}===") << levelPath);
+        log(Format("...Parameters: mirror: {0}") << mirror);
 
-        round = std::make_unique<Round>(*this, playedRounds, levelPath, mirror);
+        round = std::make_unique<Round>(*this, playedRounds, levelPath, mirror, randomSource);
         round->setOnRoundEnd([this]() {
             onRoundEnd();
         });
         round->start();
-        worldRenderer.prerender();
+        if (worldRenderer) worldRenderer->prerender();
     }
+#endif
 
     void Game::endRound() {
-        round->end();
+        if (round) round->end();
     }
 
     void Game::onRoundEnd() {
@@ -157,13 +237,17 @@ namespace Duel6 {
         if (round->isLast()) {
             getMode().updateElo(players);
         }
-        menu->savePersonData();
+#ifndef D6R_HEADLESS_CORE
+        if (!headless && menu) menu->savePersonData();
+#endif
     }
 
+#ifndef D6R_HEADLESS_CORE
     void Game::nextRound() {
         endRound();
         startRound();
     }
+#endif
 
     Int32 Game::getCurrentRound() const {
         return currentRound;

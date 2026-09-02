@@ -27,11 +27,44 @@
 
 #include <algorithm>
 #include "TextureManager.h"
+#include "DataException.h"
 #include "File.h"
 #include "Video.h"
 #include "aseprite/animation.h"
 
 namespace Duel6 {
+    namespace {
+        void validateAnimation(const animation::Animation &animation,
+                               const animation::Animation::AnimationView &view) {
+            if (&view.animation != &animation)
+                D6_THROW(DataException, "Animation view does not belong to the supplied animation");
+            if (animation.width == 0 || animation.height == 0 || animation.framesCount == 0
+                || animation.frames.size() != animation.framesCount)
+                D6_THROW(DataException, "Animation dimensions or frame metadata are invalid");
+            if (view.layerViews.size() != animation.layers.size())
+                D6_THROW(DataException, "Animation layer view count is invalid");
+
+            for (const auto &layer: animation.layers) {
+                if (layer.isGroupLayer) {
+                    if (!layer.frames.empty())
+                        D6_THROW(DataException, "Animation group layer contains frame data");
+                    continue;
+                }
+                if (layer.frames.size() != animation.framesCount)
+                    D6_THROW(DataException, "Animation layer frame count is invalid");
+                for (const auto &frame: layer.frames) {
+                    if (frame.opacity == 0) continue;
+                    if (frame.image >= animation.images.size())
+                        D6_THROW(DataException, "Animation cel image is unavailable");
+                    const auto &image = animation.images.at(frame.image);
+                    const std::size_t pixelCount = static_cast<std::size_t>(image.width) * image.height;
+                    if (image.width == 0 || image.height == 0 || image.pixels.size() != pixelCount)
+                        D6_THROW(DataException, "Animation cel image dimensions are invalid");
+                }
+            }
+        }
+    }
+
     TextureManager::TextureManager(Renderer &renderer)
             : renderer(renderer) {}
 
@@ -51,21 +84,23 @@ namespace Duel6 {
                                            const animation::Palette &substitutionTable,
                                            TextureFilter filtering,
                                            bool clamp) const {
+        validateAnimation(animation, animationView);
         Image list;
-        for (uint16_t f = 0; f < animation.framesCount; f++) {
+        for (std::size_t f = 0; f < animation.framesCount; ++f) {
             Image frameImage(animation.width, animation.height);
-            for (uint16_t p = 0; p < animation.width * animation.height; p++) {
+            const std::size_t framePixelCount = static_cast<std::size_t>(animation.width) * animation.height;
+            for (std::size_t p = 0; p < framePixelCount; ++p) {
                 frameImage.at(p).setAlpha(0);
             }
 
-            for (size_t l = 0; l < animation.layers.size(); l++) {
-                const auto &layer = animation.layers[l];
-                const animation::Cel &frame = layer.frames[f];
-                if (!animationView.layerViews[l].visible || layer.isGroupLayer || frame.opacity == 0) {
-                    continue;
-                }
+            for (std::size_t l = 0; l < animation.layers.size(); ++l) {
+                const auto &layer = animation.layers.at(l);
+                const auto &layerView = animationView.layerViews.at(l);
+                if (!layerView.visible || layer.isGroupLayer) continue;
+                const animation::Cel &frame = layer.frames.at(f);
+                if (frame.opacity == 0) continue;
 
-                const animation::Image &image = animation.images[frame.image];
+                const animation::Image &image = animation.images.at(frame.image);
                 const float layerOpacity = layer.opacity / 255.0f;
                 const auto x = frame.x;
                 const auto y = frame.y;
@@ -81,7 +116,7 @@ namespace Duel6 {
                         if (u + x < 0)
                             continue;
                         //TODO LAYER BLEND MODE
-                        const auto &color = pixels[v * width + u];
+                        const auto &color = pixels.at(static_cast<std::size_t>(v) * width + u);
                         auto &dstColor = frameImage.at((y + v) * animation.width + u + x);
                         bool transparent = dstColor.getRed() == 0 &&
                                            dstColor.getGreen() == 0 &&

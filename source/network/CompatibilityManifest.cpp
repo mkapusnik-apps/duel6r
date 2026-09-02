@@ -376,7 +376,8 @@ namespace Duel6::Network {
                 return value > MaxGameplayContentFileBytes ? ManifestStatus::ContentTooLarge : ManifestStatus::Valid;
             }
 
-            ManifestStatus hash(const std::string &logical, std::uintmax_t expected, ContentIdentity &identity) const {
+            ManifestStatus readAndHash(const std::string &logical, std::uintmax_t expected,
+                                       ContentIdentity &identity, std::vector<std::uint8_t> &bytes) const {
                 if (!validatePinnedRoot()) return ManifestStatus::UnsafeFilesystemEntry;
                 Handle file;
                 BY_HANDLE_FILE_INFORMATION before{};
@@ -387,6 +388,8 @@ namespace Duel6::Network {
                                                  | before.nFileSizeLow;
                 if (sizeValue != expected) return ManifestStatus::ReadFailed;
                 Sha256 sha;
+                bytes.clear();
+                bytes.reserve(static_cast<std::size_t>(expected));
                 std::array<std::uint8_t, 64 * 1024> buffer{};
                 std::uintmax_t readBytes = 0;
                 for (;;) {
@@ -398,6 +401,7 @@ namespace Duel6::Network {
                     readBytes += read;
                     if (readBytes > expected) return ManifestStatus::ReadFailed;
                     sha.update(buffer.data(), read);
+                    bytes.insert(bytes.end(), buffer.begin(), buffer.begin() + read);
                 }
                 BY_HANDLE_FILE_INFORMATION after{};
                 if (readBytes != expected || !GetFileInformationByHandle(file.get(), &after)
@@ -680,7 +684,8 @@ namespace Duel6::Network {
                 return value > MaxGameplayContentFileBytes ? ManifestStatus::ContentTooLarge : ManifestStatus::Valid;
             }
 
-            ManifestStatus hash(const std::string &logical, std::uintmax_t expected, ContentIdentity &identity) const {
+            ManifestStatus readAndHash(const std::string &logical, std::uintmax_t expected,
+                                       ContentIdentity &identity, std::vector<std::uint8_t> &bytes) const {
                 FileDescriptor file;
                 struct stat before{};
                 ManifestStatus opened = openFile(logical, file, before);
@@ -689,6 +694,8 @@ namespace Duel6::Network {
                     return opened == ManifestStatus::Valid ? ManifestStatus::ReadFailed : opened;
                 if (!notify(ManifestFilesystemStage::HashStarted, logical)) return ManifestStatus::ReadFailed;
                 Sha256 sha;
+                bytes.clear();
+                bytes.reserve(static_cast<std::size_t>(expected));
                 std::array<std::uint8_t, 64 * 1024> buffer{};
                 std::uintmax_t readBytes = 0;
                 for (;;) {
@@ -699,6 +706,7 @@ namespace Duel6::Network {
                     readBytes += static_cast<std::uintmax_t>(count);
                     if (readBytes > expected) return ManifestStatus::ReadFailed;
                     sha.update(buffer.data(), static_cast<std::size_t>(count));
+                    bytes.insert(bytes.end(), buffer.begin(), buffer.begin() + count);
                 }
                 struct stat after{};
                 if (readBytes != expected || ::fstat(file.get(), &after) != 0 || !unchanged(before, after))
@@ -852,19 +860,27 @@ namespace Duel6::Network {
                 }
 
                 result.manifest.reserve(paths.size());
+                auto content = std::make_shared<FrozenGameplayContent>();
                 for (std::size_t index = 0; index < paths.size(); ++index) {
                     GameplayManifestEntry entry;
                     entry.logicalPath = paths[index];
-                    result.status = filesystem.hash(entry.logicalPath, sizes[index], entry.contentIdentity);
+                    std::vector<std::uint8_t> bytes;
+                    result.status = filesystem.readAndHash(entry.logicalPath, sizes[index], entry.contentIdentity,
+                                                           bytes);
                     if (result.status != ManifestStatus::Valid) {
                         result.manifest.clear();
                         return result;
                     }
+                    content->emplace(entry.logicalPath, std::move(bytes));
                     result.manifest.push_back(std::move(entry));
                 }
                 result.status = validCanonicalManifest(result.manifest) ? ManifestStatus::Valid
                                                                         : ManifestStatus::InvalidLogicalPath;
-                if (!result.valid()) result.manifest.clear();
+                if (!result.valid()) {
+                    result.manifest.clear();
+                } else {
+                    result.content = std::move(content);
+                }
                 return result;
             }
 

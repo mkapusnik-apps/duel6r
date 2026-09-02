@@ -65,6 +65,7 @@ namespace Duel6 {
 
     public:
         LegacyWeapon(Sound &sound, TextureManager &textureManager, const Definition &definition, Size index);
+        explicit LegacyWeapon(const Definition &definition);
 
         virtual Float32 getShotSpeed(Float32 coefficient) const;
 

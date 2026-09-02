@@ -42,13 +42,17 @@ namespace Duel6 {
 
         virtual std::string getName() const = 0;
 
+#ifndef D6R_HEADLESS_CORE
         virtual void initializePlayers(std::vector<Game::PlayerDefinition> &definitions) = 0;
+#endif
 
         virtual void initializeGame(Game &game, std::vector<Player> &players, bool quickLiquid = false, bool globalAssistances = false) = 0;
 
-        virtual void initializeRound(Game &game, std::vector<Player> &players, World &world) = 0;
+        virtual void initializeRound(Game &game, std::vector<Player> &players, World &world,
+                                     RandomSource &randomSource) = 0;
 
-        virtual void initializePlayerPositions(Game &game, std::vector<Player> &players, World &world) const = 0;
+        virtual void initializePlayerPositions(Game &game, std::vector<Player> &players, World &world,
+                                               RandomSource &randomSource) const = 0;
 
         virtual bool checkRoundOver(World &world, const std::vector<Player *> &alivePlayers) = 0;
 

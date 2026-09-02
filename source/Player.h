@@ -31,23 +31,31 @@
 #include <memory>
 #include <string>
 #include <time.h>
+#ifndef D6R_HEADLESS_CORE
 #include "math/Camera.h"
 #include "SpriteList.h"
+#endif
 #include "Person.h"
+#ifndef D6R_HEADLESS_CORE
 #include "PlayerSkin.h"
 #include "input/PlayerControls.h"
 #include "PlayerSounds.h"
+#endif
 #include "Orientation.h"
 #include "Bonus.h"
+#ifndef D6R_HEADLESS_CORE
 #include "Sound.h"
 #include "Video.h"
+#endif
 #include "Water.h"
 #include "Rectangle.h"
 #include "Defines.h"
 #include "Level.h"
 #include "collision/WorldCollision.h"
+#ifndef D6R_HEADLESS_CORE
 #include "PlayerIndicators.h"
 #include "PlayerView.h"
+#endif
 
 namespace Duel6 {
     // Forward declarations
@@ -101,15 +109,17 @@ namespace Duel6 {
 
     private:
         Person &person;
-        PlayerSkin skin;
+#ifndef D6R_HEADLESS_CORE
+        const PlayerSkin *skin;
         Camera camera;
-        const PlayerAnimations &animations;
-        const PlayerSounds &sounds;
-        const PlayerControls &controls;
+        const PlayerAnimations *animations;
+        const PlayerSounds *sounds;
+        const PlayerControls *controls;
         PlayerView view;
-        WaterState water;
         SpriteList::Iterator sprite;
         SpriteList::Iterator gunSprite;
+#endif
+        WaterState water;
         Uint32 flags;
         Orientation orientation;
         Float32 life;
@@ -123,18 +133,28 @@ namespace Duel6 {
         Float32 timeSinceHit;
         Float32 timeStuckInWall;
         Float32 tempSkinDuration;
+        Float32 weaponPickLockRemaining;
         Float32 alpha;
         Weapon weapon;
         PlayerEventListener *eventListener;
         World *world; // TODO: Remove
         Float32 bodyAlpha;
         clock_t roundStartTime;
+#ifndef D6R_HEADLESS_CORE
         PlayerIndicators indicators;
+#endif
         Uint32 controllerState;
         CollidingEntity collider;
+        bool headless;
+        Float32 roundElapsedTime;
+        const Size rosterSlot;
 
     public:
-        Player(Person &person, const PlayerSkin &skin, const PlayerSounds &sounds, const PlayerControls &controls);
+#ifndef D6R_HEADLESS_CORE
+        Player(Person &person, const PlayerSkin &skin, const PlayerSounds &sounds, const PlayerControls &controls,
+               Size rosterSlot);
+#endif
+        explicit Player(Person &person, Size rosterSlot = 0);
 
         ~Player();
 
@@ -148,13 +168,17 @@ namespace Duel6 {
 
         void endRound();
 
+#ifndef D6R_HEADLESS_CORE
         void setView(const PlayerView &view);
+#endif
 
         void updateControllerStatus();
 
         void update(World &world, Float32 elapsedTime);
 
+#ifndef D6R_HEADLESS_CORE
         void prepareCam(const Video &video, Int32 levelSizeX, Int32 levelSizeY);
+#endif
 
         bool hit(Float32 pw); // Returns true if the shot caused the player to die
         bool hitByShot(Float32 pw, Shot &s, bool directHit, const Vector &hitPoint, const Vector &shotVector);
@@ -197,6 +221,7 @@ namespace Duel6 {
             return isKneeling() ? getSpritePosition() - Vector(0.0f, 0.15f) : getSpritePosition();
         }
 
+#ifndef D6R_HEADLESS_CORE
         PlayerIndicators &getIndicators() {
             return indicators;
         }
@@ -208,6 +233,7 @@ namespace Duel6 {
         const PlayerView &getView() const {
             return view;
         }
+#endif
 
         Person &getPerson() {
             return person;
@@ -217,9 +243,15 @@ namespace Duel6 {
             return person;
         }
 
+        Size getRosterSlot() const {
+            return rosterSlot;
+        }
+
+#ifndef D6R_HEADLESS_CORE
         const Camera &getCamera() const {
             return camera;
         }
+#endif
 
         const Weapon &getWeapon() const {
             return weapon;
@@ -279,6 +311,8 @@ namespace Duel6 {
             return bonusDuration;
         }
 
+        Float32 getTemporarySlowdownRemaining() const { return tempSkinDuration; }
+
         Player &addLife(Float32 life, bool showHpBar = true);
 
         Player &setFullLife() {
@@ -288,11 +322,16 @@ namespace Duel6 {
 
         Player &pickAmmo(Int32 ammo) {
             this->ammo += ammo;
+#ifndef D6R_HEADLESS_CORE
             indicators.getBullets().show();
+#endif
             return *this;
         }
 
+#ifndef D6R_HEADLESS_CORE
         void useTemporarySkin(PlayerSkin &tempSkin);
+#endif
+        void applyTemporarySkinEffect();
 
         Player &pickWeapon(Weapon weapon, Int32 bullets, Float32 remainingReloadTime);
 
@@ -373,8 +412,9 @@ namespace Duel6 {
             return collider.isOnElevator();
         }
 
+#ifndef D6R_HEADLESS_CORE
         const PlayerSkin &getSkin() const {
-            return skin;
+            return *skin;
         }
 
         const WaterState &getWaterState() const {
@@ -382,8 +422,9 @@ namespace Duel6 {
         }
 
         void playSound(PlayerSounds::Type type) const {
-            sounds.getRandomSample(type).play();
+            if (sounds) sounds->getRandomSample(type).play();
         }
+#endif
 
         void setBodyAlpha(Float32 alpha) {
             bodyAlpha = alpha;
@@ -398,9 +439,21 @@ namespace Duel6 {
             controllerState |= button;
         }
 
+        void setControllerState(Uint32 state) {
+            controllerState = state;
+        }
+
+        Uint32 getControllerState() const {
+            return controllerState;
+        }
+
         void die();
 
         const CollidingEntity &getCollider() const;
+
+        void setHeadlessPosition(Int32 x, Int32 y);
+
+        void setHeadlessLoadout(const Weapon &weapon, Int32 ammo);
 
     private:
         void makeMove(const Level &level, Float32 elapsedTime);

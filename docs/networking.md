@@ -2,9 +2,9 @@
 
 ## Status
 
-The networking code now includes a production TCP session-transport layer, command-line compatibility admission, and a player-hosted service supervisor under an experimental, incomplete developer scaffold. It does not add playable network support to Duel 6 Reloaded. Normal `duel6r` startup, Play, and every existing local game journey remain independent of this code: the game does not bind or connect a socket, start a transport worker or server, or expose network controls.
+The networking code now includes a production TCP session-transport layer, command-line compatibility admission, a player-hosted service supervisor, and an explicitly invoked authoritative headless match runtime under an experimental, incomplete developer scaffold. It does not add playable network support to Duel 6 Reloaded. Normal `duel6r` startup, Play, and every existing local game journey remain independent of this code: the game does not bind or connect a socket, start a transport worker or server, or expose network controls.
 
-The approved future first-release scope and journeys are defined in [`docs/network-play-first-release.md`](network-play-first-release.md). The authoritative compatibility and admission target is in [`docs/network-compatibility-and-admission.md`](network-compatibility-and-admission.md). The player-hosted service lifecycle target is in [`docs/network-host-service-lifecycle.md`](network-host-service-lifecycle.md). Enforced exposure boundaries and reusable abuse controls are documented in [`docs/network-trust-and-abuse-limits.md`](network-trust-and-abuse-limits.md). Those policies do not change the scaffold's current status and must not be read as implemented or playable network behavior.
+The approved future first-release scope and journeys are defined in [`docs/network-play-first-release.md`](network-play-first-release.md). The authoritative headless match target is in [`docs/network-authoritative-headless-match.md`](network-authoritative-headless-match.md). The authoritative compatibility and admission target is in [`docs/network-compatibility-and-admission.md`](network-compatibility-and-admission.md). The player-hosted service lifecycle target is in [`docs/network-host-service-lifecycle.md`](network-host-service-lifecycle.md). Enforced exposure boundaries and reusable abuse controls are documented in [`docs/network-trust-and-abuse-limits.md`](network-trust-and-abuse-limits.md). Those policies do not change the scaffold's current status and must not be read as implemented or playable network behavior.
 
 The scaffold provides transport-neutral data transfer objects and a prototype text serializer for these message families:
 
@@ -17,6 +17,40 @@ The scaffold provides transport-neutral data transfer objects and a prototype te
 - endpoints and client connection configuration.
 
 It also provides connection-plan and command-construction helpers, an in-process loopback handshake helper, server configuration parsing, the explicitly invoked `duel6r-server` executable, and the explicitly invoked `duel6r-host-supervisor` operational scaffold.
+
+## Authoritative headless match runtime
+
+`duel6r-server --authoritative-match` runs a fixed-step authoritative match path without constructing `Application` or initializing SDL video, a renderer, audio, or local input devices. It validates stable participant/player ownership and supported settings, then reads each accepted gameplay file once into a bounded immutable snapshot before the first round. Manifest identities, configuration parsing, block metadata, level parsing, spawn discovery, block references, and elevator prerequisites all consume those exact accepted bytes; the preflight validates every level in the complete frozen playable set before constructing the first world, and the authoritative simulation does not reopen accepted gameplay paths. Any invalid first- or later-plan level blocks that hosted session's start, clears readiness, and still leaves Host End available. Optional Lua, profile, and gameplay scripts cannot enter this path.
+
+The runtime uses one nonzero supplied or operating-system-generated seed and one match-owned integer PRNG with rejection-sampled bounds. The production adapter passes that non-null `RandomSource&` explicitly through world construction, `Game`, `Round`, game-mode setup, player placement/loadouts, ticks, and teardown. Authoritative random helpers never substitute the Local Play generator; a missing authoritative source fails with the fixed invariant instead of dereferencing a nullable ambient pointer. Local Play receives a process-local source through the same gameplay APIs. Match-owned scopes retain strict floating-point and authoritative-state context across construction, controls, every tick, world removal, teardown, and cleanup. Canonical targets compile with strict floating-point semantics, set round-to-nearest while authoritative code executes, and quantize simulation branch inputs used by players, shots, collisions, elevators, and gameplay timers. The service owns deterministic level planning and orientation, ordered trusted controls, fixed 60 Hz progression, canonical `Game`/`Round`/`World` physics and rules, six-second round-end timing, session-only result accumulation/ranking, bounded state digests and invariants, and terminal cleanup.
+
+The production server installs a canonical runtime adapter that loads only gameplay metadata and headless weapon/water definitions, creates headless players, and runs the existing physics, controls, weapons/projectiles, pickups, bonuses, water, elevators, sudden death, Burnable Trees, game modes, event listeners, and score updates. Participant input can change canonical gameplay only through player controls. The direct-damage and environment action variants remain available only to dependency-injected orchestration tests; the production canonical adapter rejects them.
+
+Normal `--authoritative-match` and `--actions-stdin` runs retain the content-derived level layout, complete frozen playable-level set, enabled weapons, starting weapon decisions, and ammunition range. Fixed plans select one identity from that complete set. Shuffle and Random plans always consume the complete set and reject fixed-level or `--level` subset arguments. The compact layout, fixed pistol, and 30-round loadout used for short process evidence are available only through the explicit `--diagnostic-fixture=compact-combat` option and its frozen resource input, not through runtime level-subset flags. Output identifies the selected fixture as `diagnosticFixture=compact-combat`; normal runs report `diagnosticFixture=none`. A diagnostic fixture cannot be combined with `--actions-stdin`.
+
+For the deterministic compact-combat process scenario:
+
+```sh
+./build/duel6r-server \
+  --authoritative-match \
+  --resources=resources \
+  --seed=424242 \
+  --match-mode=deathmatch \
+  --level-plan=shuffle \
+  --rounds=3 \
+  --scenario=complete \
+  --diagnostic-fixture=compact-combat
+```
+
+The bounded `--actions-stdin` driver accepts trusted lines containing `tick sequence participant-id player-id kind target-player-id amount input-mask`. Structural values, identity, ownership, phase, authority, and the owning participant/player sequence domain are validated before accepted-action accounting or simulation mutation. Rejected malformed, unauthorized, stale, future, and duplicate actions change no canonical state or progression and cannot select the runtime-failure outcome; transport abuse controls remain the caller boundary owned by issue #39. Accepted and rejected totals are exposed only as implementation-owned numeric diagnostics. A dedicated internal host-control sequence keeps Host End and other lifecycle controls independent from every guest sequence, including a guest's maximum unsigned sequence. A round-stable player-ID map binds each accepted state to exactly one canonical `Player`; every fixed tick explicitly clears all canonical controllers and reapplies the retained state for each non-departed player. Zero is a valid state and creates the release edge for held actions. At most one state change per player is accepted at a tick, so charge/release and other gameplay edges are evaluated exactly once. It is an operational/test-driver interface, not remote input or transport.
+
+Local Play continues to release the weapon-pick action lock when the selected profile's actual `Pick` animation finishes. The presentation-independent canonical runtime has no profile animation clock, so its explicitly separate headless path uses the fixed duration of the supported default `Pick` animation. That canonical adaptation is deterministic and does not alter Local Play timing or depend on profile cosmetics.
+
+Frozen-content fixtures use the same generic data controls as normal content: `gun` and `start_ammo_range` in `data/config.script`, block metadata, and level JSON for starts, pickup-valid surfaces, water, elevators, hazards, and burnable trees. A fixture can disable every weapon except one, including Shit Thrower, without injecting a result or event. Normal authoritative actions then exercise the real weapon, pickup, bonus, water, elevator, hazard, and tree implementations. `--quick-liquid` and `--burnable-trees` remain frozen match settings and do not alter the level bytes.
+
+Output contains the fixed terminal identifier and copy plus at most one bounded canonical `session-result=` JSON line. Trusted local evidence output also includes bounded purpose-labelled random decisions, per-second state checkpoints, canonical player values, detailed player reload/charge/air/bonus/temporary-slowdown state, projectile, pickup, elevator, hazard, tree, water, sudden-death, and round snapshots, canonical gameplay events, and a separate bounded state-transition trace for reload, charge, expiry, air, and elevator changes. Combat, pickup, and water events are emitted at their canonical gameplay source; lifecycle transitions and stable entity changes are observed at the canonical runtime boundary. Cleanup confirmation and forbidden global-random and wall-clock access counts are machine-visible. These diagnostics contain only implementation-owned labels and numeric state; they do not accept or expose peer text, paths, endpoints, credentials, profiles, or secrets. No result is written to people, profiles, statistics, Elo, saves, or history.
+
+The runtime also supports bounded `interrupted`, `runtime-failure`, and cleanup evidence scenarios. This explicit CLI does not implement replication, remote input, reconnect, graphical networking, deployment support, or a playable network journey.
 
 ## Player-hosted supervisor scaffold
 
@@ -101,7 +135,7 @@ These safeguards make the parser suitable for prototype development; the TCP bou
 
 ## Build and packaging
 
-CMake builds `duel6r-network-scaffold`, including the transport and supervisor APIs, `duel6r-host-supervisor`, `duel6r-server`, and the internal `duel6r-resolver` helper independently from the normal game executable. The transport uses standard OS sockets (`ws2_32` on Windows and POSIX sockets/threads/processes on Linux) with no new third-party dependency. Existing Linux and Windows runtime bundle scripts place the explicitly invoked supervisor and server scaffolds plus the required resolver helper beside `duel6r` because those are the repository's current coherent binary packaging paths. The helper is an internal transport component with no supported command-line interface. Issue #40 still owns supported release packaging and deployment instructions.
+CMake builds a reusable presentation-independent `duel6r-canonical-gameplay-core`, the Local Play `duel6r-game-engine`, the `duel6r-network-scaffold`, `duel6r-host-supervisor`, `duel6r-server`, and the internal `duel6r-resolver` helper. The canonical core and Local Play engine compile the same gameplay sources, while only the Local Play engine includes SDL, renderer, audio, local-input, profile, and optional-script integration. The server links the canonical core and networking scaffold without configuring or linking presentation platform libraries in `D6R_TRANSPORT_ONLY` builds. The transport uses standard OS sockets (`ws2_32` on Windows and POSIX sockets/threads/processes on Linux) with no new third-party dependency. Existing Linux and Windows runtime bundle scripts place the explicitly invoked supervisor and server scaffolds plus the required resolver helper beside `duel6r` because those are the repository's current coherent binary packaging paths. The helper is an internal transport component with no supported command-line interface. Issue #40 still owns supported release packaging and deployment instructions.
 
 There is no dedicated headless-server package. Existing runtime bundles still include all client resources, and no release-facing documentation advertises network support.
 
@@ -110,7 +144,7 @@ There is no dedicated headless-server package. Existing runtime bundles still in
 The following essential pieces are absent:
 
 - playable remote or local client/server sessions;
-- an authoritative simulation runtime;
+- independent acceptance evidence for authoritative Local Play parity;
 - lobby and session lifecycle handling;
 - complete world, score, round, and entity replication;
 - lobby integration for admitted participants;

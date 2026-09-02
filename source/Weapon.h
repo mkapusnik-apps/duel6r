@@ -34,12 +34,16 @@
 #include "Type.h"
 #include "Sound.h"
 #include "SpriteList.h"
+#ifndef D6R_HEADLESS_CORE
 #include "TextureManager.h"
+#endif
 
 namespace Duel6 {
+    class RandomSource;
     class World;
     class GameSettings;
     class Player;
+    class TextureManager;
 
     class WeaponImpl {
     public:
@@ -107,9 +111,14 @@ namespace Duel6 {
     public:
         static const std::vector<Weapon> &values();
 
+#ifndef D6R_HEADLESS_CORE
         static void initialize(Sound &sound, TextureManager &textureManager);
+#endif
+        static void initializeHeadless();
 
         static const Weapon &getRandomEnabled(const GameSettings &settings);
+
+        static const Weapon &getRandomEnabled(const GameSettings &settings, RandomSource &randomSource);
     };
 }
 

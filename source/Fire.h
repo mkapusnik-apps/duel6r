@@ -30,14 +30,16 @@
 
 #include <vector>
 #include <unordered_map>
+#include <functional>
 #include "Type.h"
-#include "FaceList.h"
-#include "TextureManager.h"
 #include "SpriteList.h"
+#ifndef D6R_HEADLESS_CORE
 #include "GameResources.h"
+#endif
 #include "Level.h"
 
 namespace Duel6 {
+    class GameResources;
     class FireType {
     public:
         static const FireType CONIFEROUS_TREE;
@@ -103,19 +105,27 @@ namespace Duel6 {
 
     class FireList {
     private:
-        SpriteList &spriteList;
+        SpriteList *spriteList;
         Texture burningTexture;
-        const std::unordered_map<Size, Texture> &textures;
+        const std::unordered_map<Size, Texture> *textures;
         std::vector<Fire> fires;
+        std::function<void(Size)> burnedSink;
 
     public:
+#ifndef D6R_HEADLESS_CORE
         FireList(const GameResources &resources, SpriteList &spriteList);
+#endif
+        explicit FireList(SpriteList &spriteList);
 
         void find(const Level &level);
 
         void check(const Vector &explCentre, Float32 d);
 
+        void setBurnedSink(std::function<void(Size)> sink) { burnedSink = std::move(sink); }
+
         static void initialize();
+
+        const std::vector<Fire> &values() const noexcept { return fires; }
     };
 }
 

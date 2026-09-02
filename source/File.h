@@ -55,9 +55,13 @@ namespace Duel6 {
 
     private:
         FILE *handle;
+        const std::vector<Uint8> *memory;
+        Size memoryOffset;
 
     public:
         File(const std::string &path, Mode mode, Access access);
+
+        explicit File(const std::vector<Uint8> &bytes);
 
         ~File() {
             close();

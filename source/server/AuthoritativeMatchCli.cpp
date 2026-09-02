@@ -1,0 +1,590 @@
+#include "AuthoritativeMatchCli.h"
+
+#include <algorithm>
+#include <cerrno>
+#include <cstdint>
+#include <cstdlib>
+#include <limits>
+#include <istream>
+#include <ostream>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
+#ifdef D6R_TRANSPORT_WINDOWS
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <bcrypt.h>
+#else
+#include <sys/random.h>
+#include <unistd.h>
+#endif
+
+#include "AuthoritativeMatch.h"
+#include "AuthoritativeHostedMatchController.h"
+#include "AuthoritativeMatchSerialization.h"
+#include "FrozenGameplayConfig.h"
+#include "../network/CompatibilityManifest.h"
+#include "../math/Math.h"
+
+namespace Duel6::Server::Authoritative {
+    namespace {
+        struct CliOptions {
+            MatchConfig config;
+            std::vector<PlayerDefinition> roster;
+            std::string resources = "resources";
+            std::string scenario = "complete";
+            std::string diagnosticFixture;
+            std::string legacyFixedLevel;
+            bool actionsFromInput = false;
+        };
+
+        bool startsWith(const std::string &value, const char *prefix) {
+            return value.compare(0, std::char_traits<char>::length(prefix), prefix) == 0;
+        }
+
+        std::string after(const std::string &value, const char *prefix) {
+            return value.substr(std::char_traits<char>::length(prefix));
+        }
+
+        std::uint64_t unsignedValue(const std::string &value) {
+            if (value.empty() || value.size() > 20 || value.front() == '+' || value.front() == '-')
+                throw std::invalid_argument("invalid unsigned value");
+            std::uint64_t result = 0;
+            for (const char character: value) {
+                if (character < '0' || character > '9') throw std::invalid_argument("invalid unsigned value");
+                const std::uint64_t digit = static_cast<std::uint64_t>(character - '0');
+                if (result > (std::numeric_limits<std::uint64_t>::max() - digit) / 10u)
+                    throw std::invalid_argument("invalid unsigned value");
+                result = result * 10u + digit;
+            }
+            return result;
+        }
+
+        bool booleanValue(const std::string &value) {
+            if (value == "on") return true;
+            if (value == "off") return false;
+            throw std::invalid_argument("invalid Boolean value");
+        }
+
+        bool secureSeed(std::uint64_t &seed) {
+            for (int attempt = 0; attempt < 4; ++attempt) {
+#ifdef D6R_TRANSPORT_WINDOWS
+                if (BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(&seed), sizeof(seed),
+                                    BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) return false;
+#else
+                std::size_t offset = 0;
+                auto *bytes = reinterpret_cast<unsigned char *>(&seed);
+                while (offset < sizeof(seed)) {
+                    const ssize_t count = getrandom(bytes + offset, sizeof(seed) - offset, 0);
+                    if (count > 0) offset += static_cast<std::size_t>(count);
+                    else if (count < 0 && errno == EINTR) continue;
+                    else return false;
+                }
+#endif
+                if (seed != 0) return true;
+            }
+            return false;
+        }
+
+        CliOptions parse(int argc, char **argv) {
+            CliOptions options;
+            options.config.roundLimit = 1;
+            options.config.hostParticipantId = 1;
+            for (int index = 1; index < argc; ++index) {
+                const std::string argument = argv[index] ? argv[index] : "";
+                if (argument == "--authoritative-match") continue;
+                if (startsWith(argument, "--resources=")) options.resources = after(argument, "--resources=");
+                else if (startsWith(argument, "--match-mode=")) {
+                    const std::string value = after(argument, "--match-mode=");
+                    if (value == "deathmatch") options.config.mode = Mode::Deathmatch;
+                    else if (value == "predator") options.config.mode = Mode::Predator;
+                    else if (value == "team-deathmatch") options.config.mode = Mode::TeamDeathmatch;
+                    else throw std::invalid_argument("invalid mode");
+                } else if (startsWith(argument, "--teams=")) {
+                    const auto value = unsignedValue(after(argument, "--teams="));
+                    if (value > 255) throw std::invalid_argument("invalid teams");
+                    options.config.teamCount = static_cast<std::uint8_t>(value);
+                } else if (startsWith(argument, "--friendly-fire="))
+                    options.config.friendlyFire = booleanValue(after(argument, "--friendly-fire="));
+                else if (startsWith(argument, "--level-plan=")) {
+                    const std::string value = after(argument, "--level-plan=");
+                    if (value == "fixed") options.config.levelPlan = LevelPlan::Fixed;
+                    else if (value == "shuffle") options.config.levelPlan = LevelPlan::ShuffleAll;
+                    else if (value == "random") options.config.levelPlan = LevelPlan::Random;
+                    else throw std::invalid_argument("invalid level plan");
+                } else if (startsWith(argument, "--level=")) {
+                    if (!options.legacyFixedLevel.empty()) throw std::invalid_argument("duplicate level identity");
+                    options.legacyFixedLevel = after(argument, "--level=");
+                }
+                else if (startsWith(argument, "--fixed-level="))
+                    options.config.fixedLevel = after(argument, "--fixed-level=");
+                else if (startsWith(argument, "--rounds=")) {
+                    const auto value = unsignedValue(after(argument, "--rounds="));
+                    if (value > 255) throw std::invalid_argument("invalid rounds");
+                    options.config.roundLimit = static_cast<std::uint8_t>(value);
+                } else if (startsWith(argument, "--assistance="))
+                    options.config.assistance = booleanValue(after(argument, "--assistance="));
+                else if (startsWith(argument, "--quick-liquid="))
+                    options.config.quickLiquid = booleanValue(after(argument, "--quick-liquid="));
+                else if (startsWith(argument, "--burnable-trees="))
+                    options.config.burnableTrees = booleanValue(after(argument, "--burnable-trees="));
+                else if (startsWith(argument, "--seed=")) options.config.seed = unsignedValue(after(argument, "--seed="));
+                else if (startsWith(argument, "--host-participant="))
+                    options.config.hostParticipantId = unsignedValue(after(argument, "--host-participant="));
+                else if (startsWith(argument, "--player=")) {
+                    std::string value = after(argument, "--player=");
+                    const std::size_t first = value.find(',');
+                    const std::size_t second = first == std::string::npos ? first : value.find(',', first + 1);
+                    if (first == std::string::npos || second == std::string::npos)
+                        throw std::invalid_argument("invalid player");
+                    PlayerDefinition player;
+                    player.participantId = unsignedValue(value.substr(0, first));
+                    player.playerId = unsignedValue(value.substr(first + 1, second - first - 1));
+                    player.displayName = value.substr(second + 1);
+                    if (options.roster.size() >= MaxPlayers) throw std::invalid_argument("too many players");
+                    player.rosterOrder = static_cast<std::uint8_t>(options.roster.size());
+                    options.roster.push_back(std::move(player));
+                } else if (startsWith(argument, "--scenario=")) options.scenario = after(argument, "--scenario=");
+                else if (startsWith(argument, "--diagnostic-fixture=")) {
+                    options.diagnosticFixture = after(argument, "--diagnostic-fixture=");
+                    if (options.diagnosticFixture != "compact-combat")
+                        throw std::invalid_argument("invalid diagnostic fixture");
+                }
+                else if (argument == "--actions-stdin") options.actionsFromInput = true;
+                else throw std::invalid_argument("unsupported authoritative match argument");
+            }
+            if (options.roster.empty()) {
+                options.roster = {{1, 101, "Host player", 0}, {2, 201, "Guest player", 1}};
+            }
+            if (options.actionsFromInput && !options.diagnosticFixture.empty())
+                throw std::invalid_argument("diagnostic fixtures cannot consume authoritative stdin actions");
+            if (options.config.levelPlan != LevelPlan::Fixed
+                && (!options.legacyFixedLevel.empty() || !options.config.fixedLevel.empty()))
+                throw std::invalid_argument("non-fixed plans always use the complete frozen level set");
+            if (!options.legacyFixedLevel.empty()) {
+                if (!options.config.fixedLevel.empty() && options.config.fixedLevel != options.legacyFixedLevel)
+                    throw std::invalid_argument("conflicting fixed level identities");
+                options.config.fixedLevel = options.legacyFixedLevel;
+            }
+            return options;
+        }
+
+        void printOutcome(std::ostream &output, const TerminalOutcome &outcome,
+                          const std::optional<SessionResult> &result) {
+            output << outcome.identifier << '\n' << outcome.copy << '\n';
+            if (result) {
+                const auto serialized = serializeSessionResult(*result);
+                if (serialized) output << "session-result=" << *serialized << '\n';
+            }
+            output.flush();
+        }
+
+        void printCanonicalDiagnostics(std::ostream &output, const AuthoritativeMatch &match) {
+            output << "stateDigest=" << match.currentStateDigest() << '\n'
+                   << "randomDecisionCount=" << match.randomDecisionCount() << '\n'
+                   << "randomDigest=" << match.randomDecisionDigest() << '\n'
+                   << "randomTrace=";
+            bool first = true;
+            for (const auto &decision: match.randomDecisionTrace()) {
+                if (!first) output << ',';
+                first = false;
+                output << decision.index << ':' << decision.purpose << ':' << decision.bound << ':' << decision.value;
+            }
+            const CanonicalWorldSnapshot *snapshot = match.canonicalWorldSnapshot();
+            output << '\n' << "canonicalPlayers=";
+            if (snapshot) {
+                first = true;
+                for (const auto &player: snapshot->players) {
+                    if (!first) output << ',';
+                    first = false;
+                    output << player.playerId << ':' << player.life << ':' << player.ammo << ':'
+                           << player.statistics.shots << ':' << player.statistics.hits << ':'
+                           << player.positionX << ':' << player.positionY;
+                }
+            }
+            output << '\n' << "canonicalPlayerStates=";
+            if (snapshot) {
+                first = true;
+                for (const auto &player: snapshot->players) {
+                    if (!first) output << ',';
+                    first = false;
+                    output << player.playerId << ':' << player.weapon << ':' << player.reload << ':'
+                           << player.charge << ':' << player.air << ':' << player.bonusRemaining << ':'
+                           << player.temporarySlowdownRemaining << ':' << (player.underWater ? 1 : 0) << ':'
+                           << (player.drowning ? 1 : 0) << ':' << (player.hasWeapon ? 1 : 0);
+                }
+            }
+            output << '\n' << "stateCheckpoints=";
+            first = true;
+            for (const auto &checkpoint: match.stateCheckpoints()) {
+                if (!first) output << ',';
+                first = false;
+                output << checkpoint.tick << ':' << checkpoint.stateDigest;
+            }
+            output << '\n' << "canonicalEvents=";
+            if (snapshot) {
+                first = true;
+                for (const auto &event: snapshot->events) {
+                    if (!first) output << ',';
+                    first = false;
+                    output << event.sequence << ':' << event.tick << ':' << event.kind << ':' << event.entityId << ':'
+                           << event.playerId << ':' << event.targetPlayerId << ':' << event.valueCategory << ':'
+                           << event.value;
+                }
+            }
+            output << '\n' << "canonicalStateTransitions=";
+            if (snapshot) {
+                first = true;
+                for (const auto &event: snapshot->transitions) {
+                    if (!first) output << ',';
+                    first = false;
+                    output << event.sequence << ':' << event.tick << ':' << event.kind << ':' << event.entityId
+                           << ':' << event.playerId << ':' << event.targetPlayerId << ':' << event.valueCategory
+                           << ':' << event.value;
+                }
+            }
+            output << '\n' << "eventCount=" << (snapshot ? snapshot->events.size() : 0u) << '\n'
+                    << "acceptedActionCount=" << match.acceptedActionCount() << '\n'
+                    << "rejectedActionCount=" << match.rejectedActionCount() << '\n'
+                    << "cleanupConfirmed=" << (match.resourcesReleased() ? "true" : "false") << '\n'
+                    << "forbiddenGlobalRandomAccessCount=" << Math::forbiddenAuthoritativeRandomAccesses() << '\n'
+                    << "forbiddenWallClockAccessCount=0\n";
+            const auto printEntities = [&output](const char *name,
+                                                  const std::vector<CanonicalEntitySnapshot> *entities) {
+                output << name << '=';
+                if (entities) {
+                    bool firstEntity = true;
+                    for (const auto &entity: *entities) {
+                        if (!firstEntity) output << ',';
+                        firstEntity = false;
+                        output << entity.stableId << ':' << entity.kind << ':' << entity.type << ':'
+                               << entity.ownerPlayerId << ':' << entity.positionX << ':' << entity.positionY << ':'
+                               << entity.velocityX << ':' << entity.velocityY << ':' << entity.primaryValue << ':'
+                               << entity.secondaryValue << ':' << (entity.active ? 1 : 0);
+                    }
+                }
+                output << '\n';
+            };
+            printEntities("canonicalProjectiles", snapshot ? &snapshot->projectiles : nullptr);
+            printEntities("canonicalPickups", snapshot ? &snapshot->pickups : nullptr);
+            printEntities("canonicalElevators", snapshot ? &snapshot->elevators : nullptr);
+            printEntities("canonicalHazards", snapshot ? &snapshot->hazards : nullptr);
+            printEntities("canonicalTrees", snapshot ? &snapshot->trees : nullptr);
+            output << "canonicalWorld=" << (snapshot ? snapshot->worldTick : 0) << ':'
+                   << (snapshot ? snapshot->waterLevel : 0) << ':'
+                   << (snapshot && snapshot->waterRaising ? 1 : 0) << ':'
+                   << (snapshot && snapshot->suddenDeath ? 1 : 0) << ':'
+                   << (snapshot && snapshot->roundOver ? 1 : 0) << '\n';
+            output.flush();
+        }
+
+        std::vector<AuthoritativeAction> readActions(std::istream &input) {
+            std::vector<AuthoritativeAction> actions;
+            std::string line;
+            while (std::getline(input, line)) {
+                if (line.empty()) continue;
+                if (line.size() > 512 || actions.size() >= MaxActions) throw std::invalid_argument("action limit");
+                std::istringstream parser(line);
+                std::string kind;
+                AuthoritativeAction action;
+                if (!(parser >> action.tick >> action.sequence >> action.participantId >> action.playerId
+                      >> kind >> action.targetPlayerId >> action.amount >> action.inputMask))
+                    throw std::invalid_argument("invalid action");
+                std::string trailing;
+                if (parser >> trailing) throw std::invalid_argument("invalid action");
+                if (kind == "input") action.kind = ActionKind::PlayerInput;
+                else if (kind == "shot") action.kind = ActionKind::ShotDamage;
+                else if (kind == "environment") action.kind = ActionKind::EnvironmentalDamage;
+                else if (kind == "remove") action.kind = ActionKind::RemovePlayer;
+                else if (kind == "advance") action.kind = ActionKind::AdvanceRound;
+                else if (kind == "end") action.kind = ActionKind::EndSession;
+                else if (kind == "fail") action.kind = ActionKind::RuntimeFailure;
+                else throw std::invalid_argument("invalid action kind");
+                actions.push_back(action);
+            }
+            if (!std::is_sorted(actions.begin(), actions.end(), [](const auto &left, const auto &right) {
+                return left.tick < right.tick;
+            })) throw std::invalid_argument("unordered action ticks");
+            return actions;
+        }
+
+        bool submitChecked(AuthoritativeMatch &match, const AuthoritativeAction &action) {
+            const bool hostControl = action.kind == ActionKind::AdvanceRound || action.kind == ActionKind::EndSession
+                                     || action.kind == ActionKind::RemovePlayer
+                                     || action.kind == ActionKind::RuntimeFailure;
+            const bool validControlShape = action.playerId == 0 && action.amount == 0 && action.inputMask == 0
+                                           && (action.kind == ActionKind::RemovePlayer
+                                               ? action.targetPlayerId != 0 : action.targetPlayerId == 0);
+            if (hostControl && validControlShape)
+                return match.submitHostControl(action.participantId, action.kind,
+                                               action.targetPlayerId) == ActionResult::Accepted;
+            return match.submit(action) == ActionResult::Accepted;
+        }
+
+        void driveCompleteScenario(AuthoritativeMatch &match, const MatchConfig &config,
+                                   const std::vector<PlayerDefinition> &roster,
+                                   const std::function<bool()> &stopped) {
+            std::uint64_t sequence = 1;
+            while (match.outcome().code == OutcomeCode::None) {
+                if (stopped && stopped()) {
+                    match.submitHostControl(config.hostParticipantId, ActionKind::EndSession);
+                    break;
+                }
+                if (match.phase() == MatchPhase::ActiveRound) {
+                    Identity shooterId = roster.front().playerId;
+                    Identity shooterParticipant = roster.front().participantId;
+                    const Identity predator = match.roundDecision().predatorPlayerId;
+                    if (config.mode == Mode::Predator && shooterId == predator && roster.size() > 1) {
+                        shooterId = roster[1].playerId;
+                        shooterParticipant = roster[1].participantId;
+                    }
+                    Team shooterTeam = config.mode == Mode::TeamDeathmatch
+                                       ? static_cast<Team>(roster[shooterId == roster.front().playerId ? 0 : 1].rosterOrder
+                                                           % config.teamCount + 1) : Team::None;
+                    for (const auto &target: roster) {
+                        if (target.playerId == shooterId) continue;
+                        if (config.mode == Mode::Predator && target.playerId != predator) continue;
+                        if (config.mode == Mode::TeamDeathmatch) {
+                            const Team targetTeam = static_cast<Team>(target.rosterOrder % config.teamCount + 1);
+                            if (targetTeam == shooterTeam) continue;
+                        }
+                        const int hits = config.mode == Mode::Predator && target.playerId == predator ? 4 : 1;
+                        for (int hit = 0; hit < hits; ++hit) {
+                            if (!submitChecked(match, {match.currentTick(), sequence++, shooterParticipant, shooterId,
+                                                       ActionKind::ShotDamage, target.playerId, 0, MaximumLife}))
+                                return;
+                        }
+                    }
+                }
+                if (match.outcome().code == OutcomeCode::None) match.advanceOneTick();
+            }
+        }
+
+        void driveCanonicalCompleteScenario(AuthoritativeMatch &match, const MatchConfig &config,
+                                            const std::vector<PlayerDefinition> &roster,
+                                            const std::function<bool()> &stopped) {
+            std::uint64_t sequence = 1;
+            std::vector<std::uint32_t> previousInputs(roster.size(), std::numeric_limits<std::uint32_t>::max());
+            while (match.outcome().code == OutcomeCode::None) {
+                if (stopped && stopped()) {
+                    match.submitHostControl(config.hostParticipantId, ActionKind::EndSession);
+                    break;
+                }
+                if (match.phase() == MatchPhase::ActiveRound && match.currentTick() % 5u == 0) {
+                    const CanonicalWorldSnapshot *world = match.canonicalWorldSnapshot();
+                    if (!world) return;
+                    const Identity designatedShooter = config.mode == Mode::Predator
+                                                          ? match.roundDecision().predatorPlayerId
+                                                          : roster.back().playerId;
+                    const Team designatedTeam = config.mode == Mode::TeamDeathmatch
+                                                    ? static_cast<Team>(roster.back().rosterOrder
+                                                                        % config.teamCount + 1)
+                                                    : Team::None;
+                    for (std::size_t index = 0; index < roster.size(); ++index) {
+                        const auto current = std::find_if(world->players.begin(), world->players.end(),
+                                [&](const auto &player) { return player.playerId == roster[index].playerId; });
+                        if (current == world->players.end() || !current->alive) continue;
+                        const CanonicalPlayerSnapshot *target = nullptr;
+                        std::uint64_t nearest = std::numeric_limits<std::uint64_t>::max();
+                        for (const auto &candidate: world->players) {
+                            if (!candidate.alive || candidate.playerId == current->playerId) continue;
+                            const auto candidateRoster = std::find_if(roster.begin(), roster.end(),
+                                    [&](const auto &player) { return player.playerId == candidate.playerId; });
+                            if (candidateRoster == roster.end()) continue;
+                            if (config.mode == Mode::Predator
+                                && current->playerId != match.roundDecision().predatorPlayerId
+                                && candidate.playerId != match.roundDecision().predatorPlayerId) continue;
+                            if (config.mode == Mode::TeamDeathmatch
+                                && roster[index].rosterOrder % config.teamCount
+                                   == candidateRoster->rosterOrder % config.teamCount) continue;
+                            const std::uint64_t distance = static_cast<std::uint64_t>(
+                                    std::llabs(candidate.positionX - current->positionX)
+                                    + std::llabs(candidate.positionY - current->positionY));
+                            if (distance < nearest) { nearest = distance; target = &candidate; }
+                        }
+                        if (!target) continue;
+                        const bool designated = config.mode == Mode::TeamDeathmatch
+                                                    ? static_cast<Team>(roster[index].rosterOrder
+                                                                        % config.teamCount + 1) == designatedTeam
+                                                     : current->playerId == designatedShooter;
+                        const bool activeCombatant = config.compactSpawnLayout ? designated : true;
+                        std::uint32_t input = 0;
+                        const std::int64_t horizontal = std::llabs(target->positionX - current->positionX);
+                        const std::int64_t vertical = target->positionY - current->positionY;
+                        if (activeCombatant) {
+                            if (match.currentTick() < 5u || horizontal > 3 * 65536)
+                                input = target->positionX < current->positionX ? MoveLeft : MoveRight;
+                            const Tick jumpPhase = (match.currentTick() + index * 17u) % 120u;
+                            if ((vertical > 32768 || (!config.compactSpawnLayout && horizontal > 65536))
+                                && jumpPhase < 10u) input |= Jump;
+                            if (!config.compactSpawnLayout
+                                && ((current->ammo == 0 && jumpPhase >= 60u && jumpPhase < 70u)
+                                    || (jumpPhase >= 90u && jumpPhase < 100u))) {
+                                input &= ~(MoveLeft | MoveRight);
+                                input |= PickOrSwapWeapon;
+                            }
+                        }
+                        if (activeCombatant && horizontal < 4 * 65536
+                            && (match.currentTick() / 30u + index) % 2u == 0) input |= Shoot;
+                        if (input == previousInputs[index]) continue;
+                        previousInputs[index] = input;
+                        submitChecked(match, {match.currentTick(), sequence++, roster[index].participantId,
+                                              roster[index].playerId, ActionKind::PlayerInput, 0, input, 0});
+                    }
+                }
+                if (match.outcome().code == OutcomeCode::None) match.advanceOneTick();
+            }
+        }
+    }
+
+    bool authoritativeMatchRequested(int argc, char **argv) {
+        for (int index = 1; index < argc; ++index)
+            if (argv[index] && std::string(argv[index]) == "--authoritative-match") return true;
+        return false;
+    }
+
+    int runAuthoritativeMatchCli(int argc, char **argv, std::istream &input, std::ostream &output,
+                                 AuthoritativeMatchCliDependencies cliDependencies) {
+        try {
+            CliOptions options = parse(argc, argv);
+            const Network::ManifestBuildResult built = Network::CompatibilityManifestBuilder(options.resources, {}).build();
+            if (!built.valid()) {
+                output << "host-gameplay-content-manifest-invalid\n"
+                       << "Hosted gameplay content is invalid. Restore the supported gameplay content and restart the application.\n";
+                return 2;
+            }
+            options.config.playableLevels.clear();
+            for (const auto &entry: built.manifest)
+                if (startsWith(entry.logicalPath, "levels/")
+                    && entry.logicalPath.size() > 5
+                    && entry.logicalPath.compare(entry.logicalPath.size() - 5, 5, ".json") == 0)
+                    options.config.playableLevels.push_back(entry.logicalPath);
+            if (options.config.levelPlan == LevelPlan::Fixed && options.config.fixedLevel.empty()
+                && !options.config.playableLevels.empty())
+                options.config.fixedLevel = options.config.playableLevels.front();
+            if (options.scenario == "invalid") options.config.roundLimit = 0;
+            const bool compactCombatFixture = options.diagnosticFixture == "compact-combat";
+            options.config.compactSpawnLayout = compactCombatFixture;
+            FrozenGameplayConfig gameplayConfig;
+            const auto configContent = built.content ? built.content->find("data/config.script")
+                                                     : Network::FrozenGameplayContent::const_iterator{};
+            if (!built.content || configContent == built.content->end()
+                || !parseFrozenGameplayConfig(std::string_view(
+                        reinterpret_cast<const char *>(configContent->second.data()), configContent->second.size()),
+                                              gameplayConfig)) {
+                const auto unavailable = terminalOutcome(OutcomeCode::ContentUnavailable);
+                printOutcome(output, unavailable, std::nullopt);
+                return unavailable.exitStatus;
+            }
+            options.config.enabledWeapons = std::move(gameplayConfig.enabledWeapons);
+            options.config.startingAmmoMinimum = gameplayConfig.startingAmmoMinimum;
+            options.config.startingAmmoMaximum = gameplayConfig.startingAmmoMaximum;
+            if (compactCombatFixture) {
+                options.config.fixedStartingWeapon = "pistol";
+                options.config.startingAmmoMinimum = 30;
+                options.config.startingAmmoMaximum = 30;
+            }
+            if (options.config.seed == 0 && !secureSeed(options.config.seed)) {
+                const auto failed = terminalOutcome(OutcomeCode::RuntimeFailed);
+                printOutcome(output, failed, std::nullopt);
+                return failed.exitStatus;
+            }
+
+            MatchRuntimeDependencies runtime;
+            if (cliDependencies.runtimeFactory)
+                runtime = cliDependencies.runtimeFactory(options.config, options.roster, built);
+            if (options.scenario == "cleanup-failure") runtime.cleanup = [] { return false; };
+            Network::GameplayManifest manifest = built.manifest;
+            if ((options.scenario == "content-unavailable" || options.scenario == "blocked-content-end")
+                && !manifest.empty()) manifest.pop_back();
+            if (cliDependencies.reportReady && !cliDependencies.reportReady()) {
+                const auto failed = terminalOutcome(OutcomeCode::RuntimeFailed);
+                printOutcome(output, failed, std::nullopt);
+                return failed.exitStatus;
+            }
+            AuthoritativeHostedMatchController controller(options.config.hostParticipantId, std::move(runtime));
+            if (!controller.markServiceReady()) {
+                const auto failed = terminalOutcome(OutcomeCode::RuntimeFailed);
+                printOutcome(output, failed, std::nullopt);
+                return failed.exitStatus;
+            }
+            const auto readyParticipants = [&] {
+                for (const auto &player: options.roster)
+                    if (!controller.setParticipantReady(player.participantId, true)) return false;
+                return true;
+            };
+            if (!readyParticipants()) {
+                const auto failed = terminalOutcome(OutcomeCode::RuntimeFailed);
+                printOutcome(output, failed, std::nullopt);
+                return failed.exitStatus;
+            }
+            if (options.scenario == "invalid-then-corrected") {
+                MatchConfig invalid = options.config;
+                invalid.roundLimit = 0;
+                const TerminalOutcome rejected = controller.start(invalid, options.roster, manifest);
+                output << "hostedAttempt=" << rejected.identifier << '\n';
+                if (rejected.code != OutcomeCode::SettingsInvalid || !readyParticipants()) {
+                    const auto failed = terminalOutcome(OutcomeCode::RuntimeFailed);
+                    printOutcome(output, failed, std::nullopt);
+                    return failed.exitStatus;
+                }
+            }
+            TerminalOutcome startup = controller.start(options.config, options.roster, manifest);
+            if (options.scenario == "blocked-content-end" && startup.code == OutcomeCode::ContentUnavailable) {
+                output << "hostedAttempt=" << startup.identifier << '\n';
+                const TerminalOutcome ended = controller.end(options.config.hostParticipantId);
+                printOutcome(output, ended, std::nullopt);
+                output << "cleanupConfirmed=true\n";
+                return ended.exitStatus;
+            }
+            if (startup.code != OutcomeCode::None) {
+                printOutcome(output, startup, std::nullopt);
+                return startup.exitStatus;
+            }
+            AuthoritativeMatch &match = *controller.match();
+            if (options.actionsFromInput) {
+                const auto actions = readActions(input);
+                std::size_t next = 0;
+                while (match.outcome().code == OutcomeCode::None && next < actions.size()) {
+                    while (match.currentTick() < actions[next].tick && match.outcome().code == OutcomeCode::None)
+                        match.advanceOneTick();
+                    while (next < actions.size() && actions[next].tick == match.currentTick()) {
+                        if (!submitChecked(match, actions[next++])) break;
+                    }
+                }
+                while (match.outcome().code == OutcomeCode::None) match.advanceOneTick();
+            } else if (options.scenario == "interrupted") {
+                submitChecked(match, {0, 1, options.config.hostParticipantId, 0,
+                                      ActionKind::RemovePlayer, options.roster.back().playerId, 0, 0});
+            } else if (options.scenario == "runtime-failure") {
+                submitChecked(match, {0, 1, options.config.hostParticipantId, 0,
+                                      ActionKind::RuntimeFailure, 0, 0, 0});
+            } else if (options.scenario == "complete" || options.scenario == "cleanup-failure"
+                       || options.scenario == "invalid-then-corrected") {
+                if (cliDependencies.runtimeFactory)
+                    driveCanonicalCompleteScenario(match, options.config, options.roster,
+                                                   cliDependencies.stopRequested);
+                else driveCompleteScenario(match, options.config, options.roster, cliDependencies.stopRequested);
+            } else {
+                const auto invalid = terminalOutcome(OutcomeCode::SettingsInvalid);
+                printOutcome(output, invalid, std::nullopt);
+                return invalid.exitStatus;
+            }
+            TerminalOutcome final = match.shutdown();
+            controller.observeMatchOutcome();
+            if (final.code == OutcomeCode::None) final = terminalOutcome(OutcomeCode::RuntimeFailed);
+            printOutcome(output, final, match.publishedResult());
+            output << "diagnosticFixture="
+                   << (options.diagnosticFixture.empty() ? "none" : options.diagnosticFixture) << '\n';
+            printCanonicalDiagnostics(output, match);
+            return final.exitStatus;
+        } catch (...) {
+            const auto invalid = terminalOutcome(OutcomeCode::SettingsInvalid);
+            printOutcome(output, invalid, std::nullopt);
+            return invalid.exitStatus;
+        }
+    }
+}

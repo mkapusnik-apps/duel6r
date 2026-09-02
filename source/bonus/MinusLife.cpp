@@ -40,9 +40,12 @@ namespace Duel6 {
         }
 
         void MinusLife::onApply(Player &player, World &world, Int32 duration) const {
-            Int32 hit = (Int32(D6_MAX_LIFE) / 7) + Math::random(Int32(D6_MAX_LIFE) / 2);
+            Int32 hit = (Int32(D6_MAX_LIFE) / 7)
+                        + Math::random(Int32(D6_MAX_LIFE) / 2, world.getRandomSource(), "minus-life-amount");
             if (player.hit(Float32(hit))) {
+#ifndef D6R_HEADLESS_CORE
                 player.playSound(PlayerSounds::Type::WasKilled);
+#endif
             }
             world.getMessageQueue().add(player, Format("Life -{0}") << hit);
         }

@@ -30,53 +30,95 @@
 #include "Weapon.h"
 
 namespace Duel6 {
-    World::World(Game &game, const std::string &levelPath, bool mirror)
-            : gameSettings(game.getSettings()), players(game.getPlayers()),
-              level(levelPath, mirror, game.getResources().getBlockMeta()),
-              levelRenderData(level, game.getAppService().getVideo().getRenderer(), D6_ANM_SPEED),
+    World::World(Game &game, const std::string &levelPath, bool mirror, RandomSource &randomSource)
+            : gameSettings(game.getSettings()), players(game.getPlayers()), randomSource(randomSource),
+#ifdef D6R_HEADLESS_CORE
+              level(game.getResources().hasFrozenGameplayContent()
+                    ? Level(game.getResources().getFrozenGameplayContent(levelPath), mirror,
+                            game.getResources().getBlockMeta(), randomSource)
+                    : Level(levelPath, mirror, game.getResources().getBlockMeta(), randomSource)),
+#else
+              level(levelPath, mirror, game.getResources().getBlockMeta(), randomSource),
+#endif
               messageQueue(D6_INFO_DURATION),
-              explosionList(game.getResources(), D6_EXPL_SPEED), fireList(game.getResources(), spriteList),
-              bonusList(game.getSettings(), game.getResources(), *this),
-              elevatorList(game.getResources().getElevatorTextures()), time(0) {
-        Console &console = game.getAppService().getConsole();
-        console.printLine(Format("...Width   : {0}") << level.getWidth());
-        console.printLine(Format("...Height  : {0}") << level.getHeight());
-        console.printLine("...Preparing faces");
-        levelRenderData.generateFaces();
-        console.printLine(Format("...Walls   : {0}") << levelRenderData.getWalls().getFaces().size());
-        console.printLine(Format("...Sprites : {0}") << levelRenderData.getSprites().getFaces().size());
-        console.printLine(Format("...Water   : {0}") << levelRenderData.getWater().getFaces().size());
+#ifndef D6R_HEADLESS_CORE
+              explosionList(game.isHeadless() ? Texture() : game.getResources().getExplosionTextures(),
+                            D6_EXPL_SPEED),
+#endif
+#ifdef D6R_HEADLESS_CORE
+              fireList(spriteList), bonusList(game.getSettings(), *this), elevatorList(Texture()), time(0) {
+#else
+              fireList(game.isHeadless() ? FireList(spriteList) : FireList(game.getResources(), spriteList)),
+              bonusList(game.isHeadless() ? BonusList(game.getSettings(), *this)
+                                          : BonusList(game.getSettings(), game.getResources(), *this)),
+              elevatorList(game.isHeadless() ? Texture() : game.getResources().getElevatorTextures()), time(0) {
+#endif
+        game.log(Format("...Width   : {0}") << level.getWidth());
+        game.log(Format("...Height  : {0}") << level.getHeight());
+#ifndef D6R_HEADLESS_CORE
+        if (!game.isHeadless()) {
+            game.log("...Preparing faces");
+            levelRenderData = std::make_unique<LevelRenderData>(
+                    level, game.getAppService().getVideo().getRenderer(), D6_ANM_SPEED);
+            levelRenderData->generateFaces();
+            game.log(Format("...Walls   : {0}") << levelRenderData->getWalls().getFaces().size());
+            game.log(Format("...Sprites : {0}") << levelRenderData->getSprites().getFaces().size());
+            game.log(Format("...Water   : {0}") << levelRenderData->getWater().getFaces().size());
+        }
+#endif
 
-        console.printLine("...Level initialization");
-        console.printLine("...Loading elevators");
-        elevatorList.load(levelPath, mirror);
+        game.log("...Level initialization");
+        game.log("...Loading elevators");
+#ifdef D6R_HEADLESS_CORE
+        if (game.getResources().hasFrozenGameplayContent())
+            elevatorList.load(game.getResources().getFrozenGameplayContent(levelPath), mirror);
+        else
+#endif
+            elevatorList.load(levelPath, mirror);
         fireList.find(level);
-        background = findBackground(game.getResources().getBcgTextures());
+        fireList.setBurnedSink([this](Size localIdentity) {
+            emitGameplayEvent({"tree-burned", "tree", localIdentity, static_cast<Size>(-1),
+                               static_cast<Size>(-1), "burned", 1});
+        });
+#ifndef D6R_HEADLESS_CORE
+        if (!game.isHeadless()) background = findBackground(game.getResources().getBcgTextures());
+#endif
     }
 
     void World::update(Float32 elapsedTime) {
         time += elapsedTime;
 
         spriteList.update(elapsedTime);
+#ifndef D6R_HEADLESS_CORE
         explosionList.update(elapsedTime);
-        levelRenderData.update(elapsedTime);
+        if (levelRenderData) levelRenderData->update(elapsedTime);
+#endif
         shotList.update(*this, elapsedTime);
         elevatorList.update(elapsedTime);
         messageQueue.update(elapsedTime);
         bonusList.update(elapsedTime);
 
+        if (Math::isAuthoritative()) time = Math::quantizeAuthoritative(time);
+
         // Add new bonuses
         Int32 mod = Int32(3.0f / elapsedTime);
-        if (mod != 0 && Math::random(mod) == 0) {
+        if (mod != 0 && Math::random(mod, randomSource, "bonus-spawn-timing") == 0) {
             bonusList.addRandomBonus();
         }
     }
 
     void World::raiseWater() {
+        const Int32 previousLevel = level.getWaterLevel();
         level.raiseWater();
-        levelRenderData.generateWater();
+        if (previousLevel != level.getWaterLevel())
+            emitGameplayEvent({"water-level-changed", "hazard", 1, static_cast<Size>(-1),
+                               static_cast<Size>(-1), "level", level.getWaterLevel()});
+#ifndef D6R_HEADLESS_CORE
+        if (levelRenderData) levelRenderData->generateWater();
+#endif
     }
 
+#ifndef D6R_HEADLESS_CORE
     std::string World::findBackground(const GameResources::BackgroundList &backgrounds) {
         const std::string &levelBackground = level.getBackground();
         auto &bcgDict = backgrounds.getTextures();
@@ -91,7 +133,8 @@ namespace Duel6 {
             bcgNames.push_back(entry.first);
         }
 
-        Int32 bcgIndex = Math::random(Int32(bcgNames.size()));
+        Int32 bcgIndex = Math::random(Int32(bcgNames.size()), randomSource, "background-selection");
         return bcgNames[bcgIndex];
     }
+#endif
 }

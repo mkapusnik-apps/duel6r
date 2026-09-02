@@ -42,9 +42,14 @@ namespace Duel6 {
     Fire::Fire(const FireType &type, SpriteList::Iterator sprite, const Vector &position)
             : type(type), sprite(sprite), position(position), burned(false) {}
 
+#ifndef D6R_HEADLESS_CORE
     FireList::FireList(const GameResources &resources, SpriteList &spriteList)
-            : spriteList(spriteList), burningTexture(resources.getBurningTexture()),
-              textures(resources.getFireTextures()) {}
+            : spriteList(&spriteList), burningTexture(resources.getBurningTexture()),
+              textures(&resources.getFireTextures()) {}
+#endif
+
+    FireList::FireList(SpriteList &spriteList)
+            : spriteList(&spriteList), textures(nullptr) {}
 
     void FireList::find(const Level &level) {
         for (Int32 y = 0; y < level.getHeight(); y++) {
@@ -56,8 +61,11 @@ namespace Duel6 {
                         if (block.getIndex() == type.getBlock()) {
                             Vector position(x, y);
 
-                            auto sprite = spriteList.add(nonFireAnimation, textures.at(type.getId()));
-                            sprite->setPosition(position, 0.75f).setLooping(AnimationLooping::OnceAndStop);
+                            SpriteList::Iterator sprite;
+                            if (textures) {
+                                sprite = spriteList->add(nonFireAnimation, textures->at(type.getId()));
+                                sprite->setPosition(position, 0.75f).setLooping(AnimationLooping::OnceAndStop);
+                            }
 
                             fires.emplace_back(type, sprite, position);
                         }
@@ -79,8 +87,12 @@ namespace Duel6 {
             }
 
             fire.setBurned(true);
+            if (burnedSink) {
+                try { burnedSink(static_cast<Size>(&fire - fires.data()) + 1); } catch (...) {}
+            }
 
-            auto sprite = spriteList.add(burningAnimation.data(), burningTexture);
+            if (!textures) continue;
+            auto sprite = spriteList->add(burningAnimation.data(), burningTexture);
             sprite->setPosition(fire.getPosition() - Vector(0.3f, 0.2f), 0.78f)
                     .setSize(Vector(1.6f, 1.6f))
                     .setLooping(AnimationLooping::OnceAndRemove)
@@ -92,6 +104,7 @@ namespace Duel6 {
     }
 
     void FireList::initialize() {
+        if (!burningAnimation.empty()) return;
         for (Int32 j = 0; j < 3; j++) {
             for (Int32 i = 0; i < 49; i++) {
                 burningAnimation.push_back(i);

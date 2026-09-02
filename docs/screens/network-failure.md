@@ -7,6 +7,8 @@ Issue #30 defines the compatibility and admission outcomes for this planned scre
 Issue #30 must not implement this graphical screen.
 Issue #31 defines host startup and post-readiness service outcomes for this planned screen in [`docs/network-host-service-lifecycle.md`](../network-host-service-lifecycle.md).
 Issue #31 must not implement this graphical screen.
+Issue #32 defines authoritative match failures for this planned screen in [`docs/network-authoritative-headless-match.md`](../network-authoritative-headless-match.md).
+Issue #32 must not implement this graphical screen.
 Issue #38 owns its graphical controls, focus, disabled reasons, and visual evidence.
 
 Host startup or initial Join failure enters from `NET-02` or `NET-03`; terminal reconnect rejection or deadline expiry also enters here. The host application's local supervisor routes only the host here when its hosted service stops unexpectedly. Retry repeats a retained initial attempt when valid; Edit setup returns to editable `NET-02` or `NET-03`; Return to Network enters `NET-01`. Only an accepted intentional host End notice uses guest `NET-09`.
@@ -36,6 +38,21 @@ Host startup or initial Join failure enters from `NET-02` or `NET-03`; terminal 
 - Compatibility mismatch states use the exact release/content copy in the product specification and do not offer negotiation.
 - Retry is disabled for terminal reconnect outcomes when the original reservation cannot restore. Edit setup may begin a new initial journey but must not be labeled as reconnect Retry.
 - Only an accepted intentional host End notice routes guests to `NET-09`; every unexpected host failure remains guest `NET-07` until terminal rejection or deadline expiry.
+
+## Authoritative match outcome mapping
+
+| Machine identifier | Exact service copy | Future graphical destination and actions |
+|---|---|---|
+| `authoritative-match-settings-invalid` | `Match settings are invalid. Correct the settings and try again.` | Stay in editable `NET-04`; clear readiness; allow the host to correct settings and request Start match later. |
+| `authoritative-match-content-unavailable` | `The match cannot start with the supported gameplay content. Restore the supported gameplay content and restart the application.` | Show a blocking failure state from `NET-04`; clear readiness; disable Start match for this hosted session; keep host-only End session available. |
+| `authoritative-match-runtime-failed` | `The authoritative match stopped unexpectedly.` | Stop match progression; publish no result; map the host application to `NET-08` with `Hosted session stopped unexpectedly.`; keep guests in `NET-07` until a terminal reconnect result or deadline expiry. |
+| `authoritative-match-shutdown-failed` | `Authoritative match cleanup did not complete.` | Issue #32 defines no graphical destination or action. The headless process exits with status `4` and publishes no match result. Issue #38 must not invent a recovery action without an approved lifecycle mapping. |
+
+- The graphical UI must not show the service copy and host-supervisor copy as two failures for one event.
+- Runtime failure, cleanup failure, and host End session must not publish a completed or interrupted result.
+- Runtime failure and cleanup failure must not imply intentional host end.
+- A cleanup failure must replace an earlier process result.
+- Issue #38 must preserve the exact copy when an approved requirement maps these outcomes to graphical states.
 
 ## Exact initial outcome mapping
 

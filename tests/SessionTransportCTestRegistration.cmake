@@ -12,6 +12,83 @@ set_tests_properties(duel6r-session-transport-tests PROPERTIES
         LABELS "application;network;transport"
         TIMEOUT 180)
 
+add_executable(duel6r-authoritative-match-behavior-tests
+        ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+        ${CMAKE_SOURCE_DIR}/tests/AuthoritativeMatchBehaviorTests.cpp)
+target_include_directories(duel6r-authoritative-match-behavior-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(duel6r-authoritative-match-behavior-tests duel6r-network-scaffold)
+if (MINGW)
+    set_property(TARGET duel6r-authoritative-match-behavior-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
+add_test(NAME duel6r-authoritative-match-behavior-tests COMMAND duel6r-authoritative-match-behavior-tests)
+set_tests_properties(duel6r-authoritative-match-behavior-tests PROPERTIES
+        LABELS "application;integration;network;authoritative-match;determinism"
+        TIMEOUT 180)
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT D6R_TRANSPORT_ONLY)
+    add_executable(duel6r-local-play-pick-animation-tests
+            ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+            ${CMAKE_SOURCE_DIR}/tests/LocalPlayPickAnimationTests.cpp
+            ${CMAKE_SOURCE_DIR}/source/Sprite.cpp
+            ${CMAKE_SOURCE_DIR}/source/math/Vector.cpp
+            ${CMAKE_SOURCE_DIR}/source/aseprite/aseprite.cpp
+            ${CMAKE_SOURCE_DIR}/source/aseprite/aseprite_to_animation.cpp
+            ${CMAKE_SOURCE_DIR}/source/aseprite/tinf/tinf.cpp)
+    target_include_directories(duel6r-local-play-pick-animation-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_compile_definitions(duel6r-local-play-pick-animation-tests PRIVATE
+            D6R_HEADLESS_CORE
+            D6R_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    if (MINGW)
+        set_property(TARGET duel6r-local-play-pick-animation-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+    endif ()
+    add_test(NAME duel6r-local-play-pick-animation-tests COMMAND duel6r-local-play-pick-animation-tests)
+    set_tests_properties(duel6r-local-play-pick-animation-tests PROPERTIES
+            LABELS "application;local-play;animation;weapon-pick"
+            TIMEOUT 30)
+endif ()
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT D6R_TRANSPORT_ONLY)
+    string(TOUPPER "${CMAKE_BUILD_TYPE}" D6R_TEST_BUILD_TYPE_UPPER)
+    string(TOLOWER
+            "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${D6R_TEST_BUILD_TYPE_UPPER}}"
+            D6R_TEST_SANITIZER_COMPILE_FLAGS)
+    string(TOLOWER
+            "${CMAKE_EXE_LINKER_FLAGS} ${CMAKE_EXE_LINKER_FLAGS_${D6R_TEST_BUILD_TYPE_UPPER}}"
+            D6R_TEST_SANITIZER_LINK_FLAGS)
+    set(D6R_TEST_SANITIZER_EXPECT "")
+    set(D6R_TEST_SANITIZER_LABELS "")
+    if (D6R_TEST_SANITIZER_COMPILE_FLAGS MATCHES "sanitize=[^ ]*address"
+            AND D6R_TEST_SANITIZER_LINK_FLAGS MATCHES "sanitize=[^ ]*address")
+        set(D6R_TEST_SANITIZER_EXPECT "address")
+        list(APPEND D6R_TEST_SANITIZER_LABELS "asan")
+    endif ()
+    if (D6R_TEST_SANITIZER_COMPILE_FLAGS MATCHES "sanitize=[^ ]*undefined"
+            AND D6R_TEST_SANITIZER_LINK_FLAGS MATCHES "sanitize=[^ ]*undefined")
+        if (D6R_TEST_SANITIZER_EXPECT)
+            string(APPEND D6R_TEST_SANITIZER_EXPECT ",undefined")
+        else ()
+            set(D6R_TEST_SANITIZER_EXPECT "undefined")
+        endif ()
+        list(APPEND D6R_TEST_SANITIZER_LABELS "ubsan")
+    endif ()
+    if (D6R_TEST_SANITIZER_EXPECT)
+        find_program(D6R_TEST_SANITIZER_BASH_EXECUTABLE bash REQUIRED)
+        add_test(
+                NAME duel6r-local-play-shit-thrower-sanitizer-tests
+                COMMAND ${CMAKE_COMMAND} -E env
+                        APP_BINARY=$<TARGET_FILE:duel6r>
+                        BUILD_DIR=${CMAKE_BINARY_DIR}
+                        RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources
+                        TEST_ROOT=${CMAKE_BINARY_DIR}/local-play-shit-thrower-sanitizer
+                        SANITIZER_EXPECT=${D6R_TEST_SANITIZER_EXPECT}
+                        ${D6R_TEST_SANITIZER_BASH_EXECUTABLE}
+                        ${CMAKE_SOURCE_DIR}/tests/LocalPlayShitThrowerSanitizerTests.sh)
+        set_tests_properties(duel6r-local-play-shit-thrower-sanitizer-tests PROPERTIES
+                LABELS "application;local-play;sanitizer;${D6R_TEST_SANITIZER_LABELS};weapon;regression"
+                TIMEOUT 900)
+    endif ()
+endif ()
+
 add_executable(duel6r-network-trust-policy-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
         ${CMAKE_SOURCE_DIR}/tests/NetworkTrustPolicyTests.cpp)
@@ -76,6 +153,17 @@ endif ()
 
 if (UNIX OR WIN32)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(
+            NAME duel6r-authoritative-match-process-tests
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/AuthoritativeMatchProcessTests.py
+                    $<TARGET_FILE:${D6R_SERVER_APP_NAME}>
+    )
+    set_tests_properties(duel6r-authoritative-match-process-tests PROPERTIES
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            LABELS "application;integration;network;authoritative-match;headless;process;native-semantics"
+            TIMEOUT 180)
+
     add_test(
             NAME duel6r-session-transport-process-tests
             COMMAND ${Python3_EXECUTABLE}

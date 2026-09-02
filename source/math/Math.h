@@ -29,19 +29,47 @@
 #define DUEL6_MATH_MATH_H
 
 #include <cmath>
+#include <cfenv>
 #include <algorithm>
 #include <cstdlib>
 #include <random>
+#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 #include "../Type.h"
+#include "RandomSource.h"
 
 namespace Duel6 {
     class Math {
+    private:
+        static thread_local RandomSource *authoritativeRandom;
+        static thread_local bool authoritativeRequired;
+        static thread_local std::uint64_t forbiddenRandomAccessCount;
+        static bool randomEngineSeeded;
+
+        static void ensureRandomEngineSeeded();
+
     public:
         static const Float64 Pi;
         static std::random_device randomDevice;
         static std::default_random_engine randomEngine;
+
+        class RandomScope final {
+        public:
+            explicit RandomScope(RandomSource &source);
+            ~RandomScope();
+
+            RandomScope(const RandomScope &) = delete;
+            RandomScope &operator=(const RandomScope &) = delete;
+
+        private:
+            RandomSource *previous;
+            bool previousRequired;
+            int previousRounding;
+        };
 
     public:
         template<class T>
@@ -109,13 +137,63 @@ namespace Duel6 {
             return std::min(diff, 360.0f - diff);
         }
 
-        static Int32 random(Int32 max);
+        static Int32 random(Int32 max, std::string_view purpose = {});
 
-        static Int32 random(Int32 min, Int32 max);
+        static Int32 random(Int32 max, RandomSource &source, std::string_view purpose);
 
-        static Float32 random(Float32 min, Float32 max);
+        static Int32 random(Int32 min, Int32 max, std::string_view purpose = {});
 
-        static Float64 random(Float64 min, Float64 max);
+        static Int32 random(Int32 min, Int32 max, RandomSource &source, std::string_view purpose);
+
+        static Float32 random(Float32 min, Float32 max, std::string_view purpose = {});
+
+        static Float32 random(Float32 min, Float32 max, RandomSource &source, std::string_view purpose);
+
+        static Float64 random(Float64 min, Float64 max, std::string_view purpose = {});
+
+        static Float64 random(Float64 min, Float64 max, RandomSource &source, std::string_view purpose);
+
+        static RandomSource &localRandomSource();
+
+        template<typename Value>
+        static void shuffle(std::vector<Value> &values, RandomSource &source, std::string_view purpose) {
+            if (purpose.empty()) throw std::logic_error("Random purpose is required");
+            for (Size remaining = values.size(); remaining > 1; --remaining) {
+                const Size selected = static_cast<Size>(source.bounded(remaining, purpose));
+                Value temporary = std::move(values[remaining - 1]);
+                values[remaining - 1] = std::move(values[selected]);
+                values[selected] = std::move(temporary);
+            }
+        }
+
+        template<typename Value>
+        static void shuffle(std::vector<Value> &values, std::string_view purpose = {}) {
+            if (!authoritativeRandom) {
+                if (authoritativeRequired) {
+                    ++forbiddenRandomAccessCount;
+                    throw std::logic_error("Authoritative random source is unavailable");
+                }
+                ensureRandomEngineSeeded();
+                std::shuffle(values.begin(), values.end(), randomEngine);
+                return;
+            }
+            for (Size remaining = values.size(); remaining > 1; --remaining) {
+                if (purpose.empty()) throw std::logic_error("Authoritative random purpose is required");
+                RandomSource *const source = authoritativeRandom;
+                if (!source) {
+                    ++forbiddenRandomAccessCount;
+                    throw std::logic_error("Authoritative random source is unavailable");
+                }
+                const Size selected = static_cast<Size>(source->bounded(remaining, purpose));
+                Value temporary = std::move(values[remaining - 1]);
+                values[remaining - 1] = std::move(values[selected]);
+                values[selected] = std::move(temporary);
+            }
+        }
+
+        static bool isAuthoritative() noexcept;
+        static Float32 quantizeAuthoritative(Float32 value);
+        static std::uint64_t forbiddenAuthoritativeRandomAccesses() noexcept;
     };
 }
 

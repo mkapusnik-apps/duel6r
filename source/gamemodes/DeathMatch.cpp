@@ -28,7 +28,8 @@
 #include "DeathMatch.h"
 
 namespace Duel6 {
-    void DeathMatch::initializeRound(Game &game, std::vector<Player> &players, World &world) {
+    void DeathMatch::initializeRound(Game &game, std::vector<Player> &players, World &world,
+                                     RandomSource &) {
         eventListener = std::make_unique<PlayerEventListener>(world.getMessageQueue(), game.getSettings());
         for (auto &player : players) {
             player.setEventListener(*eventListener);
