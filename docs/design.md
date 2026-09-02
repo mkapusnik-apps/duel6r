@@ -383,9 +383,8 @@ The following values come from renderer and GUI source.
 - `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry.
 - The PR #59 `SS-001` and `SS-024` artifacts are historical because they show the prior person-action arrangement.
 - PR #60 must provide one current implementation screenshot for each existing `MENU-01` wireframe.
-- The supplied Teams artifact visually conforms to the PR #60 alignment, containment, hierarchy, and Add-placement requirements.
-- A fresh `SS-001` non-Team artifact is supplied and remains pending focused UX assessment.
-- `SS-024` has complete provenance and conforms based on the supplied UX assessment.
+- The supplied `SS-001` and `SS-024` artifacts visually conform to the PR #60 alignment, containment, hierarchy, conditional-control, and Add-placement requirements.
+- `SS-001` and `SS-024` have complete provenance and conform based on the focused UX assessment at integrated PR #60 head `380d956932f675c9923b4e3836f15296b6956e52`.
 - Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources

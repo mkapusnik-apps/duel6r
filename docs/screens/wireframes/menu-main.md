@@ -209,8 +209,8 @@ Selection feedback remains a documented state variant.
 Non-Team representative screenshot: [`SS-001`](../../screenshots/README.md#ss-001).
 Teams representative screenshot: [`SS-024`](../../screenshots/README.md#ss-024).
 The PR #59 screenshots are historical because they show the prior person-action arrangement.
-The PR #60 Teams artifact visually conforms to this wireframe at implementation source `d783c2cf2224e5071d17566782ce843f50e5e49f`.
-A fresh non-Team artifact is supplied and remains pending focused UX assessment; the Teams artifact now has complete provenance.
+The PR #60 Teams and non-Team artifacts visually conform to these wireframes at implementation source `d783c2cf2224e5071d17566782ce843f50e5e49f`.
+Both artifacts have complete provenance and passed focused UX assessment at integrated PR #60 head `380d956932f675c9923b4e3836f15296b6956e52`.
 The historical baseline at [`default-1706x938.png`](../../screenshots/MENU-01/default-1706x938.png) is a reference for the unchanged retro controls and footer only.
 The historical baseline is not conformance evidence for the consolidated Persons list.
 Issue #38 must replace these screenshots when it implements the target footer variant.

@@ -58,8 +58,8 @@ The localized PR #60 person-action refinement affects both existing `MENU-01` wi
 The PR #59 `SS-001` and `SS-024` artifacts are historical because they show `Add` in the person-action row.
 The matrix still requires exactly one representative screenshot for each existing wireframe.
 A new wireframe or additional screenshot entry is not necessary.
-The supplied Teams artifact conforms visually and now has complete required provenance.
-A fresh non-Team artifact is supplied and awaits focused UX assessment.
+The supplied Teams and non-Team artifacts conform visually and have complete required provenance.
+The focused UX assessment used integrated PR #60 head `380d956932f675c9923b4e3836f15296b6956e52`.
 
 ## Provenance requirements
 
@@ -378,7 +378,9 @@ The PR #60 person-action alignment artifacts have this provenance:
 - Containment assessment: all affected controls remain inside their panels without clipping or overlap.
 - Evidence boundary: the static artifacts do not prove unchanged action behavior; the tester-owned behavioral coverage supplies the mode-position and interaction checks.
 - Teams evidence status: `SS-024` conforms and has complete required provenance.
-- Deathmatch evidence status: the fresh `SS-001` artifact and complete provenance are supplied; focused UX assessment remains pending.
+- Deathmatch evidence status: `SS-001` conforms and has complete required provenance.
+- Focused UX assessment head: integrated PR #60 head `380d956932f675c9923b4e3836f15296b6956e52`.
+- Visual assessment result: both artifacts conform to `SET-078`–`SET-083`, `AC-065`, `docs/design.md`, the `MENU-01` specification, and their applicable wireframes.
 
 The fresh shared-arena packet has this provenance:
 
@@ -403,7 +405,7 @@ The replacement shared-arena artifacts have this provenance:
 
 | ID | Screen ID | Wireframe | Route or workflow | Representative state and setup data | Viewport | Expected visible behavior | Destination path | Provenance and status |
 |---|---|---|---|---|---:|---|---|---|
-| <a id="ss-001"></a>`SS-001` | `MENU-01` | [Non-Team Game Settings](../screens/wireframes/menu-main.md#menu-01-a--non-team-state) | Start the application with the shared consolidated-person fixture and select all eight persons. | Use Deathmatch with eight selected players. Alice and Bruno are ranked. Cora through Hana are unranked. Keep Rounds `0`. | 1920x1080 | Persons and Players must each use 315 logical px with a 5 px gap. The person-name field and `Add` must share one row. `Add` must be to the right of the field. `Remove`, `<<`, and `>>` must use the unchanged aligned person-action row. Team settings, `Equalize`, and `Shuffle` must be absent without residual frames. Roster rows must use standard colors. | `docs/screenshots/MENU-01/deathmatch-person-action-aligned-1920x1080.png` | PR #60 packet above. The fresh artifact and complete provenance are supplied. `Pending` focused UX assessment. |
+| <a id="ss-001"></a>`SS-001` | `MENU-01` | [Non-Team Game Settings](../screens/wireframes/menu-main.md#menu-01-a--non-team-state) | Start the application with the shared consolidated-person fixture and select all eight persons. | Use Deathmatch with eight selected players. Alice and Bruno are ranked. Cora through Hana are unranked. Keep Rounds `0`. | 1920x1080 | Persons and Players must each use 315 logical px with a 5 px gap. The person-name field and `Add` must share one row. `Add` must be to the right of the field. `Remove`, `<<`, and `>>` must use the unchanged aligned person-action row. Team settings, `Equalize`, and `Shuffle` must be absent without residual frames. Roster rows must use standard colors. | `docs/screenshots/MENU-01/deathmatch-person-action-aligned-1920x1080.png` | PR #60 packet above. The artifact visually conforms and has complete required provenance. `Conforms`. |
 | <a id="ss-002"></a>`SS-002` | `MENU-02` | [Menu message](../screens/wireframes/menu-message.md) | After issue #38 implements the Network footer, select Clear or press F3 from the populated menu. | Use four saved people, two selected players, Deathmatch, persistent score data, and documented default settings; show `Really delete? (Y/N)`. | 1920x1080 | The unchanged scaled target menu behind the strip must visibly include equal-width `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)` footer actions. | `docs/screenshots/MENU-02/network-entry-confirmation-1920x1080.png` | `Planned` for downstream issue #38. The existing three-action-footer capture is not valid for this target wireframe. |
 | <a id="ss-003"></a>`SS-003` | `PLAY-01` | [Shared arena play](../screens/wireframes/play-fullscreen.md) | Start a local Deathmatch and press F2 once during live play. | Use 15 living players, ranking on, a finite round limit, and a state after the start fade. | 1280x900 | One undivided arena must show the whole level and all 15 players. F2 must not change the view. Live ranking, round progress, event messages, and player status must remain available. | `docs/screenshots/PLAY-01/shared-15-player-1280x900.png` | Replacement packet provenance above. Captured from an actual 15-player Deathmatch with ranking enabled and three rounds after pressing F2 once. `Conforms`. |
 | <a id="ss-007"></a>`SS-007` | `MODE-01` | [Predator](../screens/wireframes/mode-predator.md) | Start Predator from the menu. | Use three living players, one predator, ranking on, and a finite round limit. | 1280x900 | One undivided arena must show the faint predator body, visible predator weapon, opaque marines, live ranking, round progress, events, and status cues. | `docs/screenshots/MODE-01/shared-live-1280x900.png` | Fresh shared-arena packet provenance above. `Conforms`. |
@@ -429,13 +431,13 @@ The replacement shared-arena artifacts have this provenance:
 
 - Required wireframes: 21.
 - Required representative screenshot entries: 21.
-- Fully conforming screenshot entries: 9.
+- Fully conforming screenshot entries: 10.
 - Non-conforming screenshots: 0.
 - Planned screenshot entries awaiting downstream issue #38: 11.
-- Pending screenshot assessments: 1.
+- Pending screenshot assessments: 0.
 - Screenshots per wireframe: exactly one.
 - Retired screenshot matrix entries: `SS-004`, `SS-005`, and `SS-006`.
-- Coverage status: nine implementation entries fully conform. One `MENU-01` entry is pending focused UX assessment. Eleven planned entries have no current artifacts.
+- Coverage status: all ten implemented entries fully conform. Eleven planned entries have no current artifacts.
 
 The matrix uses one representative state for each wireframe.
 The screen specifications and wireframes document other player counts, modes, interaction states, and accessibility limits without multiplying screenshot entries.
