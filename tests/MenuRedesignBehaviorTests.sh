@@ -648,6 +648,22 @@ crop_person_action_controls() {
   convert "$normalized" -crop 130x27+12+421 +repage "$2"
 }
 
+assert_roster_rows_unchanged() {
+  local before="$1" after="$2" label="$3" output status pixels
+  set +e
+  output="$(compare -metric AE "$before" "$after" null: 2>&1)"
+  status=$?
+  set -e
+  (( status <= 1 )) || fail "could not compare $label"
+  pixels="${output%%.*}"
+  [[ "$pixels" =~ ^[0-9]+$ ]] || fail "$label returned invalid difference: $output"
+  # Software-rendered text can vary slightly between root-window captures.
+  # Existing row-pair coverage calibrates matching rows below 700 changed
+  # pixels and distinct fixture rows above 1000, so retain that semantic gap.
+  (( pixels < 700 )) || fail "$label changed roster content ($pixels pixels)"
+  echo "$label: render-drift-pixels=$pixels"
+}
+
 # Deathmatch is selected initially. Both roster-order controls must be absent,
 # and clicking their complete former/current hit regions must not reorder rows.
 capture "${scenario_dir}/deathmatch-before-hidden-clicks.png"
@@ -663,7 +679,7 @@ sleep 0.3
 capture "${scenario_dir}/deathmatch-after-hidden-clicks.png"
 crop_player_rows "${scenario_dir}/deathmatch-after-hidden-clicks.png" \
   "${scenario_dir}/deathmatch-rows-after.png"
-assert_same "${scenario_dir}/deathmatch-rows-before.png" \
+assert_roster_rows_unchanged "${scenario_dir}/deathmatch-rows-before.png" \
   "${scenario_dir}/deathmatch-rows-after.png" "Deathmatch hidden roster-order hit regions"
 
 # Mode changes are applied by the mode spinner callback. Predator must retain
@@ -688,7 +704,7 @@ sleep 0.3
 capture "${scenario_dir}/predator-after-hidden-clicks.png"
 crop_player_rows "${scenario_dir}/predator-after-hidden-clicks.png" \
   "${scenario_dir}/predator-rows-after.png"
-assert_same "${scenario_dir}/predator-rows-before.png" \
+assert_roster_rows_unchanged "${scenario_dir}/predator-rows-before.png" \
   "${scenario_dir}/predator-rows-after.png" "Predator hidden roster-order hit regions"
 
 # Teams is the next mode. Its newly visible Equalize and Shuffle controls must
