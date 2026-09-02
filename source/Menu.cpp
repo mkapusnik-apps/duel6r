@@ -224,11 +224,11 @@ namespace Duel6 {
                        menuTranslationX, menuTranslationY, menuScale);
 
         auto personsPanel = new Gui::Panel(gui);
-        personsPanel->setPosition(10, 578, 375, 326);
+        personsPanel->setPosition(10, 578, 315, 326);
         personsPanel->setCaption("PERSONS");
 
         playersPanel = new Gui::Panel(gui);
-        playersPanel->setPosition(390, 578, 255, 326);
+        playersPanel->setPosition(330, 578, 315, 326);
 
         auto gameSettingsPanel = new Gui::Panel(gui);
         gameSettingsPanel->setPosition(650, 578, 190, 326);
@@ -238,18 +238,18 @@ namespace Duel6 {
         scoreListBox->setPosition(10, 222, 101, 8, 16);
 
         auto personListLabel = new Gui::Label(gui);
-        personListLabel->setPosition(14, 553, 352, 18);
-        personListLabel->setCaption(Format("{0,-5}{1,-24}{2,6}{3,7}")
+        personListLabel->setPosition(14, 553, 288, 18);
+        personListLabel->setCaption(Format("{0,-5}{1,-19}{2,6}{3,6}")
                                     << "Rank" << "Name" << "Elo" << "Trend");
 
         personListBox = new Gui::ListBox(gui, true);
-        personListBox->setPosition(14, 535, 44, 11, 18);
+        personListBox->setPosition(14, 535, 36, 11, 18);
         personListBox->onDoubleClick([this](Int32 index, const std::string &item) {
             addPlayer(index);
         });
 
         playerListBox = new Gui::ListBox(gui, false);
-        playerListBox->setPosition(394, 553, 10, D6_MAX_PLAYERS, 18);
+        playerListBox->setPosition(334, 553, 12, D6_MAX_PLAYERS, 18);
         playerListBox->onDoubleClick([this](Int32 index, const std::string &item) {
             removePlayer(index);
         });
@@ -316,14 +316,14 @@ namespace Duel6 {
 
         Gui::Button *shuffleButton = new Gui::Button(gui);
         shuffleButton->setCaption("S");
-        shuffleButton->setPosition(413, 274, 17, 17);
+        shuffleButton->setPosition(353, 274, 17, 17);
         shuffleButton->onClick([this](Gui::Button &) {
             shufflePlayers();
         });
 
         Gui::Button *eloShuffleButton = new Gui::Button(gui);
         eloShuffleButton->setCaption("E");
-        eloShuffleButton->setPosition(394, 274, 17, 17);
+        eloShuffleButton->setPosition(334, 274, 17, 17);
         eloShuffleButton->onClick([this](Gui::Button &) {
             eloShufflePlayers();
         });
@@ -334,7 +334,7 @@ namespace Duel6 {
         // Player controls
         for (Size i = 0; i < D6_MAX_PLAYERS; i++) {
             controlSwitch[i] = new Gui::Spinner(gui);
-            controlSwitch[i]->setPosition(478, 553 - Int32(i) * 18, 142, 0);
+            controlSwitch[i]->setPosition(434, 553 - Int32(i) * 18, 186, 0);
 
             Gui::Button *button = new Gui::Button(gui);
             button->setCaption("D");
@@ -747,8 +747,8 @@ namespace Duel6 {
 
         auto addPersonRow = [this](const Person &person, const std::string &rank,
                                    const std::string &elo, const std::string &trend) {
-            std::string clippedName = person.getName().substr(0, 24);
-            personListBox->addItem(Format("{0,-5}{1,-24}{2,6}{3,7}")
+            std::string clippedName = person.getName().substr(0, 19);
+            personListBox->addItem(Format("{0,-5}{1,-19}{2,6}{3,6}")
                                    << rank << clippedName << elo << trend);
             personListNames.push_back(person.getName());
         };
