@@ -196,7 +196,10 @@ PY
 
     (
         cd "$runtime_dir"
-        timeout --kill-after=5s 35s ./duel6r "screen_mode split" "screen_zoom 6" \
+        # Keep the process-level guard comfortably outside this screenshot-heavy
+        # scenario. The enclosing CTest timeout remains the authoritative hang
+        # guard for the complete harness.
+        timeout --kill-after=5s 60s ./duel6r "screen_mode split" "screen_zoom 6" \
             >"${scenario_dir}/app.stdout" 2>"${scenario_dir}/app.stderr"
     ) &
     app_pid="$!"

@@ -191,12 +191,38 @@ try:
 except (OSError, ValueError):
     print(-1)
 PY
-)"
+        )"
         if [[ "$actual" == "$expected" ]]; then
-            sleep 0.2
-            import -window root "${scenario_dir}/summary-early.png"
-            sleep 0.8
-            import -window root "${scenario_dir}/summary-late.png"
+            # Poll rendered state rather than sleeping from the persistence
+            # update. Under a throttled software renderer, elapsed simulation
+            # time can advance enough for the automatic next round while the
+            # harness is asleep even though the summary rendered correctly.
+            local summary_frames=0
+            for _ in {1..100}; do
+                import -window root "${scenario_dir}/summary-candidate.png"
+                if python3 - "${workspace_dir}/tests/RoundSummaryProgressImageAssertions.py" \
+                        "${scenario_dir}/summary-candidate.png" <<'PY'
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("round_assertions", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+image = module.pixels(sys.argv[2])
+raise SystemExit(0 if module.blue_strip_bands(image) else 1)
+PY
+                then
+                    summary_frames=$((summary_frames + 1))
+                    if (( summary_frames == 1 )); then
+                        cp "${scenario_dir}/summary-candidate.png" "${scenario_dir}/summary-early.png"
+                    else
+                        cp "${scenario_dir}/summary-candidate.png" "${scenario_dir}/summary-late.png"
+                        break
+                    fi
+                fi
+                sleep 0.05
+            done
+            (( summary_frames >= 2 )) || fail "summary panel did not render in two captured frames"
             cp "${scenario_dir}/summary-late.png" "${scenario_dir}/summary.png"
             if [[ "$tab_held" == true ]]; then
                 cp "${scenario_dir}/summary-early.png" \
