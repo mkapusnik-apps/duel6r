@@ -388,8 +388,8 @@ The following values come from renderer and GUI source.
 - The PR #59 `SS-001` and `SS-024` artifacts are historical because they show the prior person-action arrangement.
 - The PR #60 `SS-001` and `SS-024` artifacts are historical because they show the shorter Persons list, the higher person-name row, and the previous batch controller-detection caption.
 - The PR #62 `SS-001` and `SS-024` artifacts are historical because they show `<<` in the Persons panel.
-- PR #65 provides current conforming evidence for the Teams `MENU-01` wireframe at `SS-024`.
-- `SS-001` is pending because the non-Team wireframe needs a current implementation screenshot after the PR #65 alignment change.
+- PR #65 provides one current conforming implementation screenshot for each `MENU-01` wireframe at `SS-001` and `SS-024`.
+- `SS-001` and `SS-024` conform based on the focused UX assessment at final PR #65 head `c2d72fb4d2c2bb27e6e525d88368543d710eb5b9`.
 - Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources
