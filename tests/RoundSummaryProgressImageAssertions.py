@@ -120,15 +120,54 @@ def dice(first, second):
     return 2.0 * overlap / total if total else 0.0
 
 
-def label_scores(image, font_path, left):
-    scores = {}
-    for played in range(10):
-        expected = expected_text_mask(font_path, f"Rounds: {played}|5")
-        score = 0.0
-        for top in range(336, 344):
-            score = max(score, dice(observed_text_mask(image, left, top), expected))
-        scores[played] = score
-    return scores
+def crop_mask(mask, box):
+    left, top, right, bottom = box
+    return [
+        mask[y * LABEL_WIDTH + x]
+        for y in range(top, bottom)
+        for x in range(left, right)
+    ]
+
+
+def played_numeral_region(expected_masks):
+    """Return the tight label-relative box whose pixels distinguish numerals."""
+    changing = [
+        (x, y)
+        for y in range(LABEL_HEIGHT)
+        for x in range(LABEL_WIDTH)
+        if len({mask[y * LABEL_WIDTH + x] for mask in expected_masks.values()}) > 1
+    ]
+    if not changing:
+        fail("rendered round-progress numerals do not have a changing region")
+    return (
+        min(x for x, _ in changing),
+        min(y for _, y in changing),
+        max(x for x, _ in changing) + 1,
+        max(y for _, y in changing) + 1,
+    )
+
+
+def label_evidence(image, font_path, left, total):
+    expected_masks = {
+        played: expected_text_mask(font_path, f"Rounds: {played}|{total}")
+        for played in range(10)
+    }
+    numeral_region = played_numeral_region(expected_masks)
+    numeral_scores = {played: 0.0 for played in expected_masks}
+    full_scores = {played: 0.0 for played in expected_masks}
+    for top in range(336, 344):
+        observed = observed_text_mask(image, left, top)
+        observed_numeral = crop_mask(observed, numeral_region)
+        for played, expected in expected_masks.items():
+            numeral_scores[played] = max(
+                numeral_scores[played],
+                dice(observed_numeral, crop_mask(expected, numeral_region)),
+            )
+            # The full-label score remains an exact-format guard. It no longer
+            # selects the played count because its mostly shared glyphs made
+            # tiny rasterization differences outweigh the changing numeral.
+            full_scores[played] = max(full_scores[played], dice(observed, expected))
+    return numeral_scores, full_scores, numeral_region
 
 
 def has_top_progress(image):
@@ -143,20 +182,63 @@ def has_top_progress(image):
     return dark >= 1700 and glyphs >= 75, dark, glyphs
 
 
-def is_expected_summary_state(image, played, total):
-    """Recognize the winner summary layout expected for this match state."""
+def summary_state_evidence(image, played, total, font_path):
+    """Return whether a frame has the complete expected summary semantics."""
     bands = blue_strip_bands(image)
     non_final_limited = total > 0 and played < total
     expected_strip = (366, 402) if non_final_limited else (350, 386)
     if bands != [expected_strip]:
-        return False
+        return False, f"score-strip bands={bands}, expected={[expected_strip]}"
 
     # A non-final limited summary moves progress into its dedicated panel row.
     # Final summaries retain the live top indicator; unlimited summaries have
     # no round progress in either location.
     top_progress, _, _ = has_top_progress(image)
     expected_top_progress = total > 0 and not non_final_limited
-    return top_progress == expected_top_progress
+    if top_progress != expected_top_progress:
+        return False, (
+            f"top-progress shown={top_progress}, expected={expected_top_progress}"
+        )
+
+    label_diagnostic = "panel progress not applicable"
+    if non_final_limited:
+        strip_bounds = blue_strip_bounds(image, expected_strip)
+        if strip_bounds is None:
+            return False, "SCORE strip horizontal bounds unavailable"
+        panel_right = strip_bounds[1] - SCORE_STRIP_OVERHANG
+        progress_right = panel_right - PANEL_INSET
+        progress_left = progress_right - LABEL_WIDTH
+        numeral_scores, full_scores, region = label_evidence(
+            image, font_path, progress_left, total
+        )
+        winner = max(numeral_scores, key=numeral_scores.get)
+        runner_up = max(
+            (candidate for candidate in numeral_scores if candidate != winner),
+            key=numeral_scores.get,
+        )
+        label_diagnostic = (
+            f"played-numeral winner={winner} score={numeral_scores[winner]:.4f}, "
+            f"runner-up={runner_up} score={numeral_scores[runner_up]:.4f}, "
+            f"expected-full-label score={full_scores[played]:.4f}, "
+            f"label-relative-region={region}, label-x={progress_left}"
+        )
+        if winner != played or numeral_scores[played] < 0.42:
+            return False, (
+                f"played-numeral winner={winner}, expected={played}, "
+                f"scores={numeral_scores}, label-relative-region={region}, "
+                f"label-x={progress_left}"
+            )
+        if full_scores[played] < 0.42:
+            return False, (
+                f"exact Rounds: {played}|{total} full-label score="
+                f"{full_scores[played]:.4f}, scores={full_scores}, label-x={progress_left}"
+            )
+
+    return True, f"complete expected summary semantic state; {label_diagnostic}"
+
+
+def is_expected_summary_state(image, played, total, font_path):
+    return summary_state_evidence(image, played, total, font_path)[0]
 
 
 def assert_included(root, font_path, label, played, frames=("summary-early.png", "summary-late.png")):
@@ -176,13 +258,14 @@ def assert_included(root, font_path, label, played, frames=("summary-early.png",
         panel_right = strip_bounds[1] - SCORE_STRIP_OVERHANG
         progress_right = panel_right - PANEL_INSET
         progress_left = progress_right - LABEL_WIDTH
-        scores = label_scores(image, font_path, progress_left)
-        winner = max(scores, key=scores.get)
-        if winner != played or scores[played] < 0.42:
+        semantic_match, semantic_diagnostic = summary_state_evidence(
+            image, played, 5, font_path
+        )
+        if not semantic_match:
             fail(
                 f"{label}/{frame}: expected exact right-aligned Rounds: {played}|5 label "
                 f"at x={progress_left} (panel right={panel_right}, inset={PANEL_INSET}); "
-                f"OCR scores={scores}"
+                f"semantic evidence: {semantic_diagnostic}"
             )
         if white_count(image, (550, 366, 730, 402)) < 250:
             fail(f"{label}/{frame}: SCORE heading is missing or obstructed")

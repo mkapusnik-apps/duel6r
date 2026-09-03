@@ -25,11 +25,61 @@ cmake -S "${workspace_dir}" -B "${tmp_build_dir}" \
 cmake --build "${tmp_build_dir}" -j"$(nproc)"
 
 if [[ "${run_tests}" == "ON" ]]; then
-  ctest --test-dir "${tmp_build_dir}" --output-on-failure
+  diagnostics_dir="${workspace_dir}/${output_dir}/ci-diagnostics"
+  test_status=0
+  ctest --test-dir "${tmp_build_dir}" --output-on-failure || test_status=$?
+  if [[ "${test_status}" -ne 0 ]]; then
+    diagnostics_ready=true
+    if ! rm -rf "${diagnostics_dir}" || ! mkdir -p "${diagnostics_dir}"; then
+      echo "Warning: unable to prepare CTest diagnostics directory: ${diagnostics_dir}" >&2
+      diagnostics_ready=false
+    fi
+
+    if [[ "${diagnostics_ready}" == true ]]; then
+      if [[ -d "${tmp_build_dir}/Testing" ]] \
+          && ! cp -R "${tmp_build_dir}/Testing" "${diagnostics_dir}/Testing"; then
+        echo "Warning: unable to preserve CTest records." >&2
+      fi
+
+      shopt -s globstar nullglob
+      for test_output_name in \
+        shared-arena-behavior \
+        async-menu-background-behavior \
+        menu-redesign-behavior \
+        round-summary-progress \
+        safe-empty-match-start \
+        safe-empty-test-failure; do
+        test_output_dir="${tmp_build_dir}/${test_output_name}"
+        [[ -d "${test_output_dir}" ]] || continue
+
+        for diagnostic_file in \
+          "${test_output_dir}"/**/*.png \
+          "${test_output_dir}"/**/*.stdout \
+          "${test_output_dir}"/**/*.stderr \
+          "${test_output_dir}"/**/*.log \
+          "${test_output_dir}"/**/*-state.txt \
+          "${test_output_dir}"/**/*classifier*.txt \
+          "${test_output_dir}"/**/*classification*.txt; do
+          relative_file="${diagnostic_file#"${tmp_build_dir}/"}"
+          destination_file="${diagnostics_dir}/${relative_file}"
+          if ! mkdir -p "$(dirname "${destination_file}")" \
+              || ! cp "${diagnostic_file}" "${destination_file}"; then
+            echo "Warning: unable to preserve diagnostic file: ${relative_file}" >&2
+          fi
+        done
+      done
+      shopt -u globstar nullglob
+      echo "Available CTest diagnostics written to ${diagnostics_dir}" >&2
+    fi
+    exit "${test_status}"
+  fi
+
+  rm -rf "${diagnostics_dir}" \
+    || echo "Warning: unable to remove stale CTest diagnostics: ${diagnostics_dir}" >&2
 fi
 
 if [[ "${clean_output_dir}" == "ON" ]]; then
-  rm -rf "${workspace_dir}/${output_dir}"
+  rm -rf "${workspace_dir:?}/${output_dir}"
 fi
 mkdir -p "${workspace_dir}/${output_dir}"
 

@@ -1,20 +1,11 @@
 name: Develop - Build Container Image
 
 on:
-  push:
-    branches: [ develop ]
-    paths:
-      - Dockerfile
-      - Dockerfile.windows-cross
-      - docker/build.sh
-      - docker/main-menu-smoke.sh
-      - docker/build-windows.sh
-      - docker/toolchains/mingw-w64-x86_64.cmake
-      - .github/workflows/develop-build-image.yml
+  workflow_call:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-build-images-${{ github.sha }}
   cancel-in-progress: true
 
 permissions:
@@ -34,7 +25,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
       - name: Extract Docker metadata
         id: meta-linux
@@ -42,8 +33,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}/build
           tags: |
-            type=raw,value=develop
-            type=sha,prefix=sha-
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=sha-${{ github.sha }}
 
       - name: Build and push Linux build image
         uses: docker/build-push-action@v7
@@ -65,7 +56,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
       - name: Extract Docker metadata (Windows cross)
         id: meta-win
@@ -73,8 +64,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}/build-w64
           tags: |
-            type=raw,value=develop
-            type=sha,prefix=sha-
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=sha-${{ github.sha }}
 
       - name: Build and push Windows cross image
         uses: docker/build-push-action@v7
