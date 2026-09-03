@@ -82,19 +82,21 @@
 - GitHub Actions uses a one-day transport artifact between the build and release jobs.
 - The repository provides the stable `nightly` tag.
 - The release job moves the `nightly` tag to the workflow commit.
-- The release job deletes the release that uses the `nightly` tag when that release exists.
-- A missing nightly release does not stop publication.
-- The release job creates a new pre-release and uploads `duel6r-nightly.zip`.
+- The release job creates the `nightly` release when it does not exist.
+- The release job updates the existing `nightly` release in place when it exists.
+- The release is a full release and is explicitly the latest repository release.
+- The release job uploads only `duel6r-nightly.zip`.
+- The release job overwrites an existing asset that has the same file name.
 - Publication is non-transactional.
-- A failure after release deletion can leave the `nightly` tag without a release.
+- A failure during asset replacement can leave the release without the new asset.
 - Operators can rerun the workflow to recover from a partial publication.
 - The release keeps the title `nightly` and does not create a nightly release history.
 - A failed build does not change the prior successful nightly release.
 - A package failure does not change the prior successful nightly release.
 - Nightly runs use `${{ github.workflow }}` as the concurrency group.
 - A newer dispatch cancels an active nightly run.
-- Cancellation after release deletion can leave the `nightly` tag without a release.
-- The release job uses `GITHUB_TOKEN` with `contents: write` to replace the release.
+- Cancellation during asset replacement can leave the release without the new asset.
+- The release job uses `GITHUB_TOKEN` with `contents: write` to update the release.
 - `GITHUB_TOKEN` limits release access to the current repository.
 - The release job uses `PAT_ACTIONS` only to move the `nightly` tag.
 - The tag token can start workflows that listen for the tag update.
