@@ -14,10 +14,14 @@
 ## Develop sanity
 
 - `Develop - Sanity` starts after a push to `develop`.
-- Self-hosted jobs build the checked-out Linux image.
+- The workflow calls `Develop - Build Container Image` before the sanity jobs start.
+- The image workflow publishes Linux and Windows images with `sha-<full-commit-SHA>` tags.
+- The image workflow also updates the `develop` image tags for a `develop` branch invocation.
+- The sanity jobs use the exact Linux image for the pushed commit.
 - The sanity job compiles the game and runs the full configured `ctest` suite.
 - The sanity job verifies output and runs the main-menu smoke check after the tests pass.
 - The sanity job uploads CTest diagnostics only when the container preserves them after a test failure.
+- An artifact upload error does not replace the primary test failure.
 - The lint-equivalent job performs a Debug compilation and verifies output.
 - The tag job moves `sanity` after both build jobs succeed.
 - The tag job needs the `PAT_ACTIONS` secret and `contents: write` permission.
@@ -51,6 +55,9 @@
 - `docker/run-with-daemon-workspace.sh` transfers the checkout through the Docker API with `docker cp`.
 - The helper confirms that the daemon-side container contains `/workspace/CMakeLists.txt` before it starts the build.
 - The helper replaces `GITHUB_WORKSPACE/build` with `/workspace/build` after the container stops.
+- The helper copies output to a new staging directory before it replaces `GITHUB_WORKSPACE/build`.
+- A failed staging copy keeps the prior runner output.
+- The helper returns the build container status when the container fails.
 - The runner must provide the Docker CLI and access to a Docker daemon.
 - The daemon must permit `docker create`, `docker cp`, `docker start`, and `docker rm` operations.
 - The runner needs enough local storage for one checkout copy and returned build output.
@@ -61,10 +68,15 @@
 
 - `Develop - Nightly Scheduler` dispatches `develop-nightly.yml` from the `sanity` tag.
 - The `sanity` tag identifies the exact source commit that passed `Develop - Sanity`.
+- `Develop - Nightly` rejects an invocation when `github.ref` is not `refs/tags/sanity`.
+- The workflow captures `github.sha` before a build job starts.
+- A later movement of the `sanity` tag does not change the captured commit.
 - `Develop - Nightly` builds Linux and Windows files on a self-hosted runner.
 - Both nightly builds use the Docker API workspace transfer helper.
 - The Windows build receives the Linux output and extends the shared bundle.
 - The nightly workflow consumes the exact `sanity` commit and does not rerun application tests.
+- Both nightly builds pull `sha-<captured-sanity-SHA>` images.
+- The workflow stops before compilation when either exact image is unavailable.
 - The workflow packages the shared Linux and Windows files as `duel6r-nightly.zip`.
 - The ZIP root contains the files from `build` without a `build` directory.
 - GitHub Actions uses a one-day transport artifact between the build and release jobs.
@@ -100,4 +112,5 @@
 - Check for the daemon workspace confirmation before you investigate CMake failures.
 - A missing confirmation indicates a checkout transfer or Docker API failure.
 - A missing `build/duel6r` after a successful container run indicates an output transfer or packaging failure.
-- A failed CTest run stores available logs and harness output in `build/ci-diagnostics`.
+- A failed CTest run stores available CTest records, screenshots, and classifier or log diagnostics in `build/ci-diagnostics`.
+- Diagnostic copy errors do not replace the saved CTest exit status.

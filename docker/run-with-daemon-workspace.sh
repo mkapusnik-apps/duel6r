@@ -15,9 +15,13 @@ fi
 
 container_id="$(docker create "$@")"
 validation_dir=""
+copy_dir=""
 cleanup() {
   if [[ -n "${validation_dir}" ]]; then
     rm -rf "${validation_dir}"
+  fi
+  if [[ -n "${copy_dir}" ]]; then
+    rm -rf "${copy_dir}"
   fi
   docker rm -f "${container_id}" >/dev/null 2>&1 || true
 }
@@ -37,16 +41,37 @@ echo "Docker daemon workspace contains /workspace/CMakeLists.txt"
 run_status=0
 docker start --attach "${container_id}" || run_status=$?
 
-rm -rf "${workspace_dir:?}/build"
-mkdir -p "${workspace_dir}/build"
 copy_status=0
-docker cp "${container_id}:/workspace/build/." "${workspace_dir}/build" || copy_status=$?
+if copy_dir="$(mktemp -d "${workspace_dir}/.daemon-build-copy-XXXXXX")"; then
+  docker cp "${container_id}:/workspace/build" "${copy_dir}/" || copy_status=$?
+else
+  copy_status=$?
+  echo "Unable to create a staging directory for returned build output." >&2
+fi
+
+if [[ "${copy_status}" -eq 0 && ! -d "${copy_dir}/build" ]]; then
+  echo "Docker copied /workspace/build without creating the expected staging directory." >&2
+  copy_status=1
+fi
+
+if [[ "${copy_status}" -eq 0 ]]; then
+  rm -rf "${workspace_dir:?}/build" || copy_status=$?
+  if [[ "${copy_status}" -eq 0 ]]; then
+    mv "${copy_dir}/build" "${workspace_dir}/build" || copy_status=$?
+  fi
+  if [[ "${copy_status}" -ne 0 ]]; then
+    echo "Unable to replace the runner build directory with staged container output." >&2
+  fi
+fi
 
 if [[ "${run_status}" -ne 0 ]]; then
+  if [[ "${copy_status}" -ne 0 ]]; then
+    echo "Warning: docker cp could not preserve build output from the failed container." >&2
+  fi
   exit "${run_status}"
 fi
 
 if [[ "${copy_status}" -ne 0 ]]; then
-  echo "Build container did not return /workspace/build" >&2
+  echo "Failed to copy /workspace/build from the successful build container." >&2
   exit "${copy_status}"
 fi

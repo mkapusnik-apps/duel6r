@@ -8,14 +8,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source:
+    name: Capture sanity source
+    runs-on: ubuntu-latest
+    outputs:
+      sanity_sha: ${{ steps.capture.outputs.sanity_sha }}
+    steps:
+      - name: Require the sanity tag invocation
+        id: capture
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" != "refs/tags/sanity" ]]; then
+            echo "::error::Develop - Nightly must be dispatched from refs/tags/sanity; received ${GITHUB_REF}."
+            exit 1
+          fi
+          echo "sanity_sha=${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+
   build:
     name: Nightly Build
+    needs: [source]
     runs-on: self-hosted
     permissions:
       contents: read
       packages: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.source.outputs.sanity_sha }}
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -24,11 +43,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Pull Linux build image
-        run: docker pull ghcr.io/${{ github.repository }}/build:develop
+      - name: Pull exact Linux build image
+        env:
+          BUILD_IMAGE: ghcr.io/${{ github.repository }}/build:sha-${{ needs.source.outputs.sanity_sha }}
+        run: |
+          docker pull "${BUILD_IMAGE}" || {
+            echo "::error::The Linux build image for sanity SHA ${{ needs.source.outputs.sanity_sha }} is unavailable."
+            exit 1
+          }
 
-      - name: Pull Windows cross build image
-        run: docker pull ghcr.io/${{ github.repository }}/build-w64:develop
+      - name: Pull exact Windows cross build image
+        env:
+          BUILD_IMAGE: ghcr.io/${{ github.repository }}/build-w64:sha-${{ needs.source.outputs.sanity_sha }}
+        run: |
+          docker pull "${BUILD_IMAGE}" || {
+            echo "::error::The Windows build image for sanity SHA ${{ needs.source.outputs.sanity_sha }} is unavailable."
+            exit 1
+          }
 
       - name: Build Linux nightly files inside shared bundle
         run: |
@@ -36,7 +67,7 @@ jobs:
             -e BUILD_TESTING=OFF \
             -e RUN_TESTS=OFF \
             -e CLEAN_OUTPUT_DIR=ON \
-            ghcr.io/${{ github.repository }}/build:develop
+            ghcr.io/${{ github.repository }}/build:sha-${{ needs.source.outputs.sanity_sha }}
 
       - name: Build Windows nightly files inside shared bundle
         run: |
@@ -44,7 +75,7 @@ jobs:
             -e BUILD_TESTING=ON \
             -e RUN_TESTS=OFF \
             -e CLEAN_OUTPUT_DIR=OFF \
-            ghcr.io/${{ github.repository }}/build-w64:develop
+            ghcr.io/${{ github.repository }}/build-w64:sha-${{ needs.source.outputs.sanity_sha }}
 
       - name: Package nightly bundle
         working-directory: build
@@ -60,7 +91,7 @@ jobs:
 
   release:
     name: Publish nightly pre-release
-    needs: [build]
+    needs: [source, build]
     runs-on: self-hosted
     permissions:
       contents: write
@@ -75,7 +106,7 @@ jobs:
         uses: mkapusnik-apps/commons/git-ref@v1
         with:
           ref: refs/tags/nightly
-          commit_sha: ${{ github.sha }}
+          commit_sha: ${{ needs.source.outputs.sanity_sha }}
           token: ${{ secrets.PAT_ACTIONS }}
           create_if_missing: 'false'
 
@@ -121,11 +152,14 @@ jobs:
     permissions:
       contents: 'write'
     runs-on: ubuntu-latest
-    needs: [ release ]
+    needs: [source, release]
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.source.outputs.sanity_sha }}
 
       - uses: mkapusnik-apps/commons/tag@v1
         with:
           tag: nightly
+          commit_sha: ${{ needs.source.outputs.sanity_sha }}
           token: ${{ secrets.PAT_ACTIONS }}

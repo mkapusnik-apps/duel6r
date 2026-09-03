@@ -40,6 +40,7 @@ jobs:
 
       - name: Upload CTest diagnostics
         if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: ctest-diagnostics

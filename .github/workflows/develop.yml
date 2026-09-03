@@ -8,24 +8,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build-images:
+    name: Publish exact-SHA build images
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/develop-build-image.yml
+
   sanity:
     name: Sanity Build
+    needs: [build-images]
     runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build checked-out Linux build image
-        run: docker build -t duel6r-build:sanity .
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Pull exact Linux build image
+        run: docker pull ghcr.io/${{ github.repository }}/build:sha-${{ github.sha }}
 
       - name: Build runtime bundle inside container
         run: |
           bash docker/run-with-daemon-workspace.sh \
             -e BUILD_TESTING=ON \
             -e RUN_TESTS=ON \
-            duel6r-build:sanity
+            ghcr.io/${{ github.repository }}/build:sha-${{ github.sha }}
 
       - name: Upload CTest diagnostics
         if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: ctest-diagnostics-sanity
@@ -39,7 +58,7 @@ jobs:
         run: |
           bash docker/run-with-daemon-workspace.sh \
             --entrypoint /usr/local/bin/duel6r-main-menu-smoke \
-            duel6r-build:sanity
+            ghcr.io/${{ github.repository }}/build:sha-${{ github.sha }}
 
       - name: Upload main menu smoke artifacts
         if: always()
@@ -51,18 +70,29 @@ jobs:
 
   lint:
     name: Lint-equivalent Build
+    needs: [build-images]
     runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build checked-out Linux build image
-        run: docker build -t duel6r-build:lint .
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Pull exact Linux build image
+        run: docker pull ghcr.io/${{ github.repository }}/build:sha-${{ github.sha }}
 
       - name: Run lint-equivalent debug build inside container
         run: |
           bash docker/run-with-daemon-workspace.sh \
             -e BUILD_TYPE=Debug \
-            duel6r-build:lint
+            ghcr.io/${{ github.repository }}/build:sha-${{ github.sha }}
 
       - name: Verify lint-equivalent build output
         run: test -x build/duel6r
