@@ -549,7 +549,7 @@ namespace Duel6 {
         }
 
         if (game.getRound().hasWinner()) {
-            if (game.isOver()) {
+            if (game.getRound().isLast()) {
                 gameOverSummary();
             } else {
                 roundOverSummary(showRoundSummaryProgress, true);
