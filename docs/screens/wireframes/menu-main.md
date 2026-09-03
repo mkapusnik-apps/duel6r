@@ -17,6 +17,8 @@ The screen specification defines ranked, unranked, roster-member, and selection 
 The current implementation captures must use the implemented three-action footer.
 The four-action footer remains a target variant for issue #38.
 Both conditional-layout wireframes remain necessary because a mode change changes the visible Players panel controls and the Game Settings layout.
+Both wireframes show the Persons list expanded by one standard list row and the person-name row lowered by the same amount.
+Both wireframes show `Detect All` for batch controller detection and `D` for row-level detection.
 
 ## Canvas zones
 
@@ -54,10 +56,11 @@ Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly F
 │        ││01   │ Alice         │ 1264 │ +18    ││Alice│ K1: Arrows │ D ││☑ Assistance  ││
 │        ││02   │ Bruno         │ 1218 │ -7     ││Bruno│ K1: Arrows │ D ││☑ Quick Liquid ││
 │        ││     │ Cora          │      │        ││                      ││☑ Burnable Trees││
-│        ││     │ Diego         │      │        ││[batch D]             ││Rounds [3___]  ││
+│        ││     │ Diego         │      │        ││                      ││Rounds [3___]  ││
 │        ││     │ Erin … Hana   │      │        ││… 6 more roster rows  ││               ││
+│        ││     │ additional standard list row    ││                      ││               ││
 │        ││[person name________________] [Add]   │                      ││               ││
-│        ││[Remove] [<<] [>>]                  │                      ││               ││
+│        ││[Remove] [<<] [>>]                  │[Detect All]          ││               ││
 │        │└─────────────────────────────────────┘└──────────────────────┘└───────────────┘│
 │        │ Name | Elo | Pts | Win | Kill | Assist | Pen | Death | K/D | Shot | Acc. | GmTm | Dmg│
 │        │┌──────────────── persistent statistics table ───────────────────┐│
@@ -95,8 +98,9 @@ Representative setup: Select `Teams` with six selected players, `Num. of Team` s
 │        ││     │ Cora          │      │        ││                      ││☑ Assistance    ││
 │        ││     │ Diego         │      │        ││                      ││☑ Quick Liquid  ││
 │        ││     │ Erin … Hana   │      │        ││… rows repeat colors  ││☑ Burnable Trees││
+│        ││     │ additional standard list row    ││                      ││               ││
 │        ││[person name________________] [Add]   │                      ││Rounds [value]  ││
-│        ││[Remove] [<<] [>>]                  │[Equalize] [Shuffle] [batch D]│                ││
+│        ││[Remove] [<<] [>>]                  │[Equalize] [Shuffle] [Detect All]│             ││
 │        │└─────────────────────────────────────┘└──────────────────────┘└────────────────┘│
 │        │ Name | Elo | Pts | Win | Kill | Assist | Pen | Death | K/D | Shot | Acc. | GmTm | Dmg│
 │        │┌──────────────── persistent statistics table ───────────────────┐│
@@ -128,6 +132,8 @@ Selection feedback remains a documented state variant.
 - `Remove`, `<<`, and `>>` must use a separate row below the person-name row.
 - The person-action row and the `Equalize` and `Shuffle` row must have the same vertical centerline.
 - The person-action row must not move when the roster-order controls become hidden.
+- The person-name row must move down by one standard list row from the PR #60 position.
+- The Persons list must fill the released space with one additional standard list row.
 - All player names, controller labels, spinner actions, and row actions must remain inside `x=330–644`.
 - No control may draw into either 5-logical-pixel setup-panel gap.
 - The Persons list must show each saved person one time.
@@ -154,8 +160,12 @@ Selection feedback remains a documented state variant.
 - Both roster-order actions must keep each player's assigned control preset.
 - The non-Team state must hide both roster-order controls and their interaction targets.
 - The roster-order control visibility must update immediately when the selected mode changes.
-- The batch `D` action must remain visually separate from the row-level `D` actions.
-- The batch `D` action must keep its existing function and roster-action-row position.
+- The `Detect All` action must remain visually separate from the row-level `D` actions.
+- The batch controller-detection action must use the caption `Detect All`.
+- Each row-level controller-detection action must keep the caption `D`.
+- `Detect All` must keep the existing batch function and roster-action-row position.
+- `Remove`, `<<`, `>>`, `Equalize`, `Shuffle`, and `Detect All` must use one common button height.
+- Each common-height button must keep visible space between its caption and border on all sides.
 - This change must not alter another control or game behavior.
 - The mode spinner must expose Deathmatch, Predator, and exactly one Teams option.
 - The Teams state must show `Num. of Team` and `Friendly Fire` directly below Mode.
@@ -209,8 +219,9 @@ Selection feedback remains a documented state variant.
 Non-Team representative screenshot: [`SS-001`](../../screenshots/README.md#ss-001).
 Teams representative screenshot: [`SS-024`](../../screenshots/README.md#ss-024).
 The PR #59 screenshots are historical because they show the prior person-action arrangement.
-The PR #60 Teams and non-Team artifacts visually conform to these wireframes at implementation source `d783c2cf2224e5071d17566782ce843f50e5e49f`.
-Both artifacts have complete provenance and passed focused UX assessment at integrated PR #60 head `380d956932f675c9923b4e3836f15296b6956e52`.
+The PR #60 Teams and non-Team artifacts are historical because they show the prior list height, person-name position, button geometry, and batch controller-detection caption.
+The PR #62 Teams and non-Team artifacts visually conform to these wireframes at production source `790c8b76f9e1f2c07260b466726db55bf83dc6db`.
+Both current artifacts have complete provenance and passed focused UX assessment at exact pushed PR #62 head `316c43f99e2f0178b8581012393fd7ecd5353776`.
 The historical baseline at [`default-1706x938.png`](../../screenshots/MENU-01/default-1706x938.png) is a reference for the unchanged retro controls and footer only.
 The historical baseline is not conformance evidence for the consolidated Persons list.
 Issue #38 must replace these screenshots when it implements the target footer variant.

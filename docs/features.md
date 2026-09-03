@@ -13,6 +13,7 @@ The consolidated Teams menu requirements define an approved change to the earlie
 The consolidated person list requirements define an approved change to the earlier implementation baseline.
 The Equalize and Shuffle menu requirements define an approved change to the earlier implementation baseline.
 The person-action alignment requirements define an approved change to the earlier implementation baseline.
+The person-list space and menu-button refinement requirements define an approved change to the merged PR #60 baseline at commit `f2de2ac008ac6282a98acd6c44dc7543e5bfd73c`.
 
 The word **person** means a persistent named record. The word **player** means a person in the active match roster.
 
@@ -86,6 +87,8 @@ The **person-action row** contains `Remove`, `<<`, and `>>`.
 
 The **roster-order row** contains `Equalize` and `Shuffle` when those actions are visible.
 
+The **batch controller-detection action** detects a control preset for each player in the roster.
+
 - **SET-048** The main menu must replace the separate `ELO Scoreboard` and `Persons` lists with one person list.
 - **SET-049** The person list must show each saved person one time, including persons in the player roster.
 - **SET-050** For a person with one or more Elo games, the person list must show rank, name, Elo, and Elo trend.
@@ -128,6 +131,17 @@ The **roster-order row** contains `Equalize` and `Shuffle` when those actions ar
 - **SET-081** The person-action row and the roster-order row must have the same vertical centerline.
 - **SET-082** The position of the person-action row must not change when `Equalize` and `Shuffle` become visible or hidden.
 - **SET-083** This layout change must not change person-list behavior, person actions, roster-order actions, or person-name field behavior.
+
+### Person-list space and menu-button refinement
+
+- **SET-084** The Persons panel must move the person-name row down by one standard list row.
+- **SET-085** The person list must use the released space from SET-084 to show one additional standard list row.
+- **SET-086** The person-name row must remain above the person-action row.
+- **SET-087** `Remove`, `<<`, `>>`, `Equalize`, `Shuffle`, and the batch controller-detection action must use one common button height.
+- **SET-088** Each button in SET-087 must have visible space between its caption and its border on all sides.
+- **SET-089** The batch controller-detection action must use the caption `Detect All`.
+- **SET-090** The row-level controller-detection actions must keep the caption `D`.
+- **SET-091** This refinement must not change person-list content, person actions, roster-order actions, or controller-detection behavior.
 
 ## Match and round lifecycle
 
@@ -547,6 +561,10 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-063** Selecting `Teams` shows `Equalize` and `Shuffle`. Selecting `Deathmatch` or `Predator` hides both buttons and removes both interaction targets.
 - **AC-064** In `Teams`, Shuffle applies a random permutation to the roster. A Shuffle result may match the prior roster order. Equalize distributes consecutive Elo-ranked groups across the selected team positions. Both actions keep each player's control assignment.
 - **AC-065** `Remove`, `<<`, and `>>` stay on a row that aligns vertically with the `Equalize` and `Shuffle` row in every game mode. `Add` is to the right of the person-name field in the same row as that field. All affected controls keep their specified behavior.
+- **AC-066** The person-name row is one standard list row lower. The person list shows one additional standard list row in the released space.
+- **AC-067** `Remove`, `<<`, `>>`, `Equalize`, `Shuffle`, and `Detect All` have equal heights. Each caption has visible space from the button border on all sides.
+- **AC-068** The batch controller-detection action shows `Detect All`. Each row-level controller-detection action still shows `D`.
+- **AC-069** The refinement keeps person-list content, person actions, roster-order actions, and controller-detection behavior unchanged.
 
 ## Source traceability
 

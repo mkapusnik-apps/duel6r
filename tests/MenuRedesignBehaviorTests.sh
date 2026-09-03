@@ -220,6 +220,197 @@ with open(sys.argv[1], "w", encoding="utf-8") as f:
 PY
 }
 
+if [[ "${MENU_REDESIGN_SCENARIO:-all}" == "person-list-refinement" ]]; then
+echo "[RUN] person-list row, action-button geometry/captions, and controller detection refinement"
+new_scenario person-list-refinement
+write_overflow_fixture
+python3 - "${scenario_dir}/data/persons.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    data = json.load(source)
+data["playing"] = ["Rank01", "Rank02"]
+with open(sys.argv[1], "w", encoding="utf-8") as destination:
+    json.dump(data, destination, indent=2)
+PY
+
+# A flat background makes rendered control borders and caption ink deterministic
+# without replacing the real menu, GUI toolkit, font, or application binary.
+python3 - "${scenario_dir}/textures/menu-backgrounds" <<'PY'
+import os
+import subprocess
+import sys
+
+directory = sys.argv[1]
+for name in os.listdir(directory):
+    path = os.path.join(directory, name)
+    if os.path.isfile(path):
+        os.remove(path)
+subprocess.run([
+    "convert", "-size", "850x700", "xc:rgb(128,128,128)",
+    os.path.join(directory, "qa-flat.png"),
+], check=True)
+PY
+
+virtual_controller="${test_root}/virtual-controller-preload.so"
+cc -shared -fPIC "${workspace_dir}/tests/VirtualControllerPreload.c" -o "$virtual_controller" -ldl
+start_app "" "$virtual_controller"
+capture "${scenario_dir}/deathmatch.png"
+normalize_menu "${scenario_dir}/deathmatch.png" "${scenario_dir}/deathmatch-normalized.png"
+
+# Teams exposes the two conditional buttons while preserving every common
+# action's geometry and caption.
+xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
+xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
+sleep 0.3
+capture "${scenario_dir}/teams.png"
+normalize_menu "${scenario_dir}/teams.png" "${scenario_dir}/teams-normalized.png"
+
+python3 - "${scenario_dir}/deathmatch-normalized.png" \
+  "${scenario_dir}/teams-normalized.png" <<'PY'
+import subprocess
+import sys
+
+WIDTH, HEIGHT = 850, 700
+
+def load(path):
+    data = subprocess.check_output([
+        "convert", path, "-alpha", "off", "-depth", "8", "rgb:-",
+    ])
+    if len(data) != WIDTH * HEIGHT * 3:
+        raise SystemExit(f"unexpected normalized image size for {path}: {len(data)} bytes")
+    return data
+
+def pixel(image, x, y):
+    offset = (y * WIDTH + x) * 3
+    return tuple(image[offset:offset + 3])
+
+def ratio(image, points, predicate):
+    values = list(points)
+    return sum(predicate(pixel(image, x, y)) for x, y in values) / len(values)
+
+def light(value):
+    return all(225 <= component <= 245 for component in value)
+
+def dark(value):
+    return max(value) <= 35
+
+def assert_frame(image, name, x, gui_y, width, height, pressed=False):
+    # Horizontal one-pixel GL lines can rasterize on either adjacent output
+    # row after viewport normalization. Keep the expected control dimensions
+    # exact while tolerating that subpixel choice.
+    top = HEIGHT - gui_y
+    top_color, bottom_color = (dark, light) if pressed else (light, dark)
+    border_ratios = (
+        max(ratio(image, ((column, row) for column in range(x + 2, x + width - 2)), top_color)
+            for row in range(top - 2, top + 2)),
+        max(ratio(image, ((column, row) for column in range(x + 2, x + width - 2)), bottom_color)
+            for row in range(top + height - 3, top + height + 1)),
+    )
+    if min(border_ratios) < 0.80:
+        raise SystemExit(f"{name}: expected frame is missing; border ratios={border_ratios}")
+
+def assert_caption_padding(image, name, x, gui_y, width, height, minimum_ink_width):
+    top = HEIGHT - gui_y
+    ink = [
+        (column, row)
+        for row in range(top + 3, top + height - 3)
+        for column in range(x + 3, x + width - 3)
+        if dark(pixel(image, column, row))
+    ]
+    if not ink:
+        raise SystemExit(f"{name}: caption has no visible dark pixels")
+    min_x = min(column for column, _ in ink)
+    max_x = max(column for column, _ in ink)
+    min_y = min(row for _, row in ink)
+    max_y = max(row for _, row in ink)
+    margins = (min_x - x, x + width - 1 - max_x, min_y - top, top + height - 1 - max_y)
+    if min(margins) < 3:
+        raise SystemExit(f"{name}: caption-to-border margins are not visible on every side: {margins}")
+    if max_x - min_x + 1 < minimum_ink_width:
+        raise SystemExit(f"{name}: caption is unexpectedly narrow: {max_x - min_x + 1}px")
+
+deathmatch, teams = map(load, sys.argv[1:])
+
+# The list begins at the unchanged top edge but is exactly 12 standard
+# 18-pixel rows high. Its bottom border and the name row therefore move down by
+# one row, with the name row still above the common action row.
+for row in range(12):
+    top = 165 + row * 18
+    ink = sum(
+        dark(pixel(deathmatch, x, y))
+        for y in range(top + 2, top + 17)
+        for x in range(16, 294)
+    )
+    if ink < 12:
+        raise SystemExit(f"Persons list visible row {row + 1} has no rendered content")
+
+assert_frame(deathmatch, "Add", 268, 308, 52, 22)
+name_surface = ((x, y) for y in range(394, 409) for x in range(16, 264))
+if ratio(deathmatch, name_surface, lambda value: min(value) >= 245) < 0.95:
+    raise SystemExit("person-name input surface is missing from the moved row")
+if not (HEIGHT - 308 < HEIGHT - 278):
+    raise SystemExit("person-name row is not above the person-action row")
+
+common = (
+    ("Remove", 14, 60, 32),
+    ("<<", 76, 35, 8),
+    (">>", 113, 35, 8),
+    ("Detect All", 482, 92, 55),
+)
+team_only = (
+    ("Equalize", 334, 76, 42),
+    ("Shuffle", 412, 68, 38),
+)
+for name, x, width, ink_width in common:
+    assert_frame(deathmatch, name, x, 278, width, 25)
+    assert_frame(teams, name, x, 278, width, 25)
+    assert_caption_padding(deathmatch, name, x, 278, width, 25, ink_width)
+for name, x, width, ink_width in team_only:
+    assert_frame(teams, name, x, 278, width, 25)
+    assert_caption_padding(teams, name, x, 278, width, 25, ink_width)
+
+# Non-Team states must not leave an active/visible frame where the conditional
+# buttons appear in Teams.
+for name, x, width, _ in team_only:
+    top = HEIGHT - 278 - 1
+    if ratio(deathmatch, ((column, top) for column in range(x + 2, x + width - 2)), light) > 0.50:
+        raise SystemExit(f"{name}: visible button frame leaked into Deathmatch")
+
+# Every rendered row action remains the compact D control, while the batch
+# caption visibly occupies the multi-word width required by Detect All.
+for row in range(15):
+    assert_frame(deathmatch, f"row {row + 1} D", 623, 552 - row * 18, 17, 17)
+    assert_caption_padding(deathmatch, f"row {row + 1} D", 623, 552 - row * 18, 17, 17, 4)
+PY
+
+# Exercise the moved Detect All target. The virtual controller makes both
+# resulting assignments visible and deterministic: first player -> K2, second
+# player -> K3.
+capture "${scenario_dir}/before-detect-all.png"
+xdotool mousemove 772 558 mousedown 1 sleep 0.08 mouseup 1
+sleep 0.3
+xdotool key --window "$window_id" a
+sleep 0.3
+xdotool key --window "$window_id" j
+sleep 0.4
+capture "${scenario_dir}/after-detect-all.png"
+normalize_menu "${scenario_dir}/before-detect-all.png" "${scenario_dir}/before-detect-all-normalized.png"
+normalize_menu "${scenario_dir}/after-detect-all.png" "${scenario_dir}/after-detect-all-normalized.png"
+for row in 0 1; do
+  convert "${scenario_dir}/before-detect-all-normalized.png" \
+    -crop "146x18+456+$((147 + 18 * row))" +repage "${scenario_dir}/detect-before-${row}.png"
+  convert "${scenario_dir}/after-detect-all-normalized.png" \
+    -crop "146x18+456+$((147 + 18 * row))" +repage "${scenario_dir}/detect-after-${row}.png"
+  assert_changed "${scenario_dir}/detect-before-${row}.png" \
+    "${scenario_dir}/detect-after-${row}.png" "Detect All player $((row + 1)) assignment"
+done
+close_app
+echo "Person-list refinement behavior test passed. Artifacts: $test_root"
+exit 0
+fi
+
 if [[ "${MENU_REDESIGN_SCENARIO:-all}" != "team-roster-order" ]]; then
 
 echo "[RUN] complete consolidated-person rows for names and signed trends"
@@ -273,7 +464,7 @@ write_overflow_fixture
 start_app
 capture "${scenario_dir}/initial.png"
 
-# Persons list (11 visible of 20): wheel, down arrow, track, then thumb drag.
+# Persons list (12 visible of 20): wheel, down arrow, track, then thumb drag.
 xdotool mousemove "$(menu_x 315)" "$(menu_y 400)" click 5
 sleep 0.2
 capture "${scenario_dir}/elo-wheel.png"
@@ -378,7 +569,7 @@ xdotool mousemove "$(menu_x 254)" "$(menu_y 534)" click 1
 
 # A non-modal roster-member Remove leaves the UI interactive. Enter in the
 # focused name field adds exactly one saved person and refreshes the list.
-xdotool mousemove "$(menu_x 315)" "$(menu_y 490)" click 1
+xdotool mousemove "$(menu_x 315)" "$(menu_y 500)" click 1
 xdotool type --window "$window_id" --delay 5 EnterAdded
 xdotool key --window "$window_id" Return
 xdotool type --window "$window_id" --delay 5 EnterAdded
@@ -421,7 +612,7 @@ xdotool key --window "$window_id" y
 xdotool mousemove "$(menu_x 336)" "$(menu_y 534)" click 1
 
 # Enter adds another person; a person-row double-click adds it to Players.
-xdotool mousemove "$(menu_x 315)" "$(menu_y 490)" click 1
+xdotool mousemove "$(menu_x 315)" "$(menu_y 500)" click 1
 xdotool type --window "$window_id" --delay 5 Transfer
 xdotool key --window "$window_id" Return
 xdotool mousemove "$(menu_x 315)" "$(menu_y 364)" click --repeat 2 --delay 80 1
@@ -452,9 +643,9 @@ PY
 
 # The Add button must apply the same focused-name behavior as Enter.
 start_app
-xdotool mousemove "$(menu_x 315)" "$(menu_y 490)" click 1
+xdotool mousemove "$(menu_x 315)" "$(menu_y 500)" click 1
 xdotool type --window "$window_id" --delay 5 ButtonAdd
-xdotool mousemove "$(menu_x 509)" "$(menu_y 485)" click 1
+xdotool mousemove "$(menu_x 509)" "$(menu_y 502)" click 1
 close_app
 python3 - "${scenario_dir}/data/persons.json" <<'PY'
 import json, sys
@@ -479,10 +670,10 @@ xdotool mousemove "$(menu_x 299)" "$(menu_y 534)" click 1
 
 # A click safely inside the person-name field must affect only that field. Add
 # and focused Enter retain their existing behavior after the field is resized.
-xdotool mousemove "$(menu_x 315)" "$(menu_y 490)" click 1
+xdotool mousemove "$(menu_x 315)" "$(menu_y 500)" click 1
 xdotool type --window "$window_id" --delay 5 ButtonFit
-xdotool mousemove "$(menu_x 509)" "$(menu_y 485)" click 1
-xdotool mousemove "$(menu_x 315)" "$(menu_y 490)" click 1
+xdotool mousemove "$(menu_x 509)" "$(menu_y 502)" click 1
+xdotool mousemove "$(menu_x 315)" "$(menu_y 500)" click 1
 xdotool type --window "$window_id" --delay 5 EnterFit
 xdotool key --window "$window_id" Return
 close_app

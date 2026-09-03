@@ -9,8 +9,8 @@ The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a seco
 
 The approved product requirements are the source of truth for visual-impact changes.
 The current native implementation remains the source for unchanged visual details.
-The fixed product baseline is `docs/features.md` at source commit `e75552f` for PR #60.
-This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, the person-action alignment specified in `SET-078`–`SET-083`, and the planned first-release network UI defined for issue #28.
+The fixed product baseline is `docs/features.md` at source commit `88b72a6` for PR #62.
+This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, the person-action alignment specified in `SET-078`–`SET-083`, the person-list and action-button refinement specified in `SET-084`–`SET-091`, and the planned first-release network UI defined for issue #28.
 The network additions are target specifications for downstream issue #38 and are not implemented UI or evidence of playable networking.
 Issue #30 may implement protocol, command-line, or scaffold outcomes, but it must not add graphical network UI.
 Issue #32 defines authoritative headless match states, result data, and fixed outcome copy for the planned network screens.
@@ -203,6 +203,10 @@ The following values come from renderer and GUI source.
 - The Players panel must hide `Equalize` and `Shuffle` when `Deathmatch` or `Predator` is selected.
 - A hidden roster-order control must not have an interaction target.
 - The visibility of both roster-order controls must update immediately when the selected mode changes.
+- `Remove`, `<<`, `>>`, `Equalize`, `Shuffle`, and `Detect All` must use one common button height.
+- Each of these button captions must have visible space from its border on all sides.
+- The batch controller-detection action must use the caption `Detect All`.
+- Each row-level controller-detection action must use the caption `D`.
 - The game mode spinner must show `Teams` one time.
 - The Game Settings panel must show `Num. of Team` and `Friendly Fire` only when `Teams` is selected.
 - Conditional settings must stay inside the existing Game Settings panel bounds.
@@ -382,9 +386,10 @@ The following values come from renderer and GUI source.
 - `SS-001` and `SS-024` must represent the two approved `MENU-01` conditional-layout wireframes.
 - `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry.
 - The PR #59 `SS-001` and `SS-024` artifacts are historical because they show the prior person-action arrangement.
-- PR #60 must provide one current implementation screenshot for each existing `MENU-01` wireframe.
-- The supplied `SS-001` and `SS-024` artifacts visually conform to the PR #60 alignment, containment, hierarchy, conditional-control, and Add-placement requirements.
-- `SS-001` and `SS-024` have complete provenance and conform based on the focused UX assessment at integrated PR #60 head `380d956932f675c9923b4e3836f15296b6956e52`.
+- The PR #60 `SS-001` and `SS-024` artifacts are historical because they show the shorter Persons list, the higher person-name row, and the previous batch controller-detection caption.
+- PR #62 provides one current implementation screenshot for each existing `MENU-01` wireframe.
+- The supplied PR #62 `SS-001` and `SS-024` artifacts visually conform to the list-expansion, row-position, button-height, button-padding, naming, containment, hierarchy, and conditional-visibility requirements.
+- `SS-001` and `SS-024` have complete provenance and conform based on the focused UX assessment at exact pushed PR #62 head `316c43f99e2f0178b8581012393fd7ecd5353776`.
 - Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources
