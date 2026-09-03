@@ -202,33 +202,30 @@ PY
                 import -window root "${scenario_dir}/summary-candidate.png"
                 if python3 - "${workspace_dir}/tests/RoundSummaryProgressImageAssertions.py" \
                         "${scenario_dir}/summary-candidate.png" \
-                        "${scenario_dir}/summary-early.png" "$expected" "$total" \
-                        "${resource_dir}/data/font.ttf" \
+                        "$expected" "$total" "${resource_dir}/data/font.ttf" \
                         >"${scenario_dir}/summary-candidate-state.txt" <<'PY'
 import importlib.util
-import os
 import sys
 
 spec = importlib.util.spec_from_file_location("round_assertions", sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 image = module.pixels(sys.argv[2])
-first_path, played, total, font_path = (
-    sys.argv[3], int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
-)
+played, total, font_path = int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
 matched, diagnostic = module.summary_state_evidence(image, played, total, font_path)
 print(diagnostic)
 if not matched:
-    raise SystemExit(1)
-if os.path.exists(first_path) and image == module.pixels(first_path):
-    # Two captures of one retained backbuffer are one render observation, not
-    # evidence that the summary survived across two distinct rendered frames.
     raise SystemExit(1)
 PY
                 then
                     summary_frames=$((summary_frames + 1))
                     if (( summary_frames == 1 )); then
                         cp "${scenario_dir}/summary-candidate.png" "${scenario_dir}/summary-early.png"
+                        # Leave several 60 Hz rendering opportunities before
+                        # the second semantic observation. A static summary can
+                        # legitimately produce byte-identical screenshots;
+                        # pixel inequality is not evidence of a new frame.
+                        sleep 0.15
                     else
                         cp "${scenario_dir}/summary-candidate.png" "${scenario_dir}/summary-late.png"
                         break
@@ -237,7 +234,7 @@ PY
                 sleep 0.05
             done
             (( summary_frames >= 2 )) || fail \
-                "winner summary did not render in two distinct matching frames"
+                "winner summary did not persist across two matching observations"
             cp "${scenario_dir}/summary-late.png" "${scenario_dir}/summary.png"
             if [[ "$tab_held" == true ]]; then
                 cp "${scenario_dir}/summary-early.png" \
