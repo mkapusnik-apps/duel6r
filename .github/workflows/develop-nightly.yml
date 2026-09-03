@@ -90,7 +90,7 @@ jobs:
           retention-days: 1
 
   release:
-    name: Publish nightly pre-release
+    name: Publish nightly release
     needs: [source, build]
     runs-on: self-hosted
     permissions:
@@ -110,56 +110,13 @@ jobs:
           token: ${{ secrets.PAT_ACTIONS }}
           create_if_missing: 'false'
 
-      - name: Delete existing nightly release
-        uses: actions/github-script@v9
-        with:
-          script: |
-            let release;
-
-            try {
-              release = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag: 'nightly',
-              });
-            } catch (error) {
-              if (error.status === 404) {
-                core.info('No existing nightly release was found.');
-                return;
-              }
-
-              throw error;
-            }
-
-            await github.rest.repos.deleteRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: release.data.id,
-            });
-
-      - name: Create nightly pre-release
+      - name: Create or update nightly release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: nightly
           name: nightly
-          prerelease: true
-          make_latest: false
+          prerelease: false
+          make_latest: true
+          overwrite_files: true
           files: release-assets/duel6r-nightly.zip
           fail_on_unmatched_files: true
-
-  tag:
-    name: Tag - nightly
-    permissions:
-      contents: 'write'
-    runs-on: ubuntu-latest
-    needs: [source, release]
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.source.outputs.sanity_sha }}
-
-      - uses: mkapusnik-apps/commons/tag@v1
-        with:
-          tag: nightly
-          commit_sha: ${{ needs.source.outputs.sanity_sha }}
-          token: ${{ secrets.PAT_ACTIONS }}
