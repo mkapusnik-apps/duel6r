@@ -10,6 +10,8 @@ The authoritative player-hosted service lifecycle target is in [`network-host-se
 
 The authoritative headless match target is in [`network-authoritative-headless-match.md`](network-authoritative-headless-match.md).
 
+The canonical state-replication target is in [`network-state-replication.md`](network-state-replication.md).
+
 ## Terminology and clock
 
 - **Participant:** One admitted game instance. The host is one participant; every other participant is a guest.

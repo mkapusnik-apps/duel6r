@@ -499,7 +499,7 @@ These exceptions must not change Local Play. Local Play must remain independent 
 
 ### Issue #34
 
-Issue #34 owns stable world identities, snapshots, incremental state, recovery, and read-only replicated client state.
+Issue #34 owns stable world identities, snapshots, incremental state, recovery, and read-only replicated client state. Its authoritative target is in [`network-state-replication.md`](network-state-replication.md).
 
 It must replicate the canonical decisions and result data from this specification. It must not redefine them.
 
