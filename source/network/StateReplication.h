@@ -21,6 +21,7 @@ namespace Duel6::Network::Replication {
     constexpr std::size_t MaxReplicatedResultBytes = 1024 * 1024;
     constexpr std::size_t MaxReplicatedStringBytes = 4096;
     constexpr std::size_t MaxReplicatedLevels = 256;
+    constexpr std::size_t MaxReplicatedIdentityHistory = 65536;
 
     enum class IdentityCategory { Session, Match, Round, Participant, Player, WorldEntity, PresentationEvent };
     enum class ConnectionState { Connected, Reconnecting };
@@ -240,8 +241,8 @@ namespace Duel6::Network::Replication {
         StateVersion currentVersion = 0;
         std::optional<CanonicalState> current;
         Identity highestEmittedEvent = 0;
-        Identity highestParticipantIdentity = 0;
-        Identity highestPlayerIdentity = 0;
+        std::set<Identity> issuedParticipantIdentities;
+        std::set<Identity> issuedPlayerIdentities;
         Identity highestEntityIdentity = 0;
     };
 
@@ -259,8 +260,8 @@ namespace Duel6::Network::Replication {
         std::optional<CanonicalState> accepted;
         StateVersion acceptedVersion = 0;
         bool resynchronizing = false;
-        Identity highestParticipantIdentity = 0;
-        Identity highestPlayerIdentity = 0;
+        std::set<Identity> acceptedParticipantIdentities;
+        std::set<Identity> acceptedPlayerIdentities;
         Identity highestEntityIdentity = 0;
         Identity highestPresentedEvent = 0;
         std::vector<PresentationEvent> pendingEvents;

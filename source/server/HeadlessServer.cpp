@@ -1184,8 +1184,20 @@ namespace Duel6::Server {
             }
         }
 
+        int exitStatus = 0;
+        if (runtimeFailed) {
+            Authoritative::TerminalOutcome failure = Authoritative::terminalOutcome(
+                    Authoritative::OutcomeCode::RuntimeFailed);
+            if (hostedMatch && hostedMatch->match()) {
+                const auto stopped = hostedMatch->match()->shutdown();
+                if (stopped.code == Authoritative::OutcomeCode::ShutdownFailed
+                    || stopped.code == Authoritative::OutcomeCode::RuntimeFailed) failure = stopped;
+            }
+            output << failure.identifier << '\n' << failure.copy << '\n';
+            exitStatus = failure.exitStatus;
+        }
         cleanupListener();
         output << "duel6r-server transport stopped.\n";
-        return 0;
+        return exitStatus;
     }
 }

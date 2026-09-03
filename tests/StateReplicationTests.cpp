@@ -84,6 +84,76 @@ namespace {
         return found == state.entities.end() ? nullptr : &*found;
     }
 
+    const R::ScoreRowState *scoreRow(const R::CanonicalState &state, R::Identity identity) {
+        const auto found = std::find_if(state.score.players.begin(), state.score.players.end(),
+                [identity](const auto &value) { return value.playerId == identity; });
+        return found == state.score.players.end() ? nullptr : &*found;
+    }
+
+    R::CanonicalState admittedIdentityLobby() {
+        auto state = lobbyState();
+        state.hostParticipantId = 90;
+        state.participants = {
+                {90, true, R::ConnectionState::Connected, true, {900}},
+                {20, false, R::ConnectionState::Connected, false, {100}}};
+        state.players[0].playerId = 900;
+        state.players[0].ownerParticipantId = 90;
+        state.players[1].playerId = 100;
+        state.players[1].ownerParticipantId = 20;
+        state.score.ranking = {900, 100};
+        return state;
+    }
+
+    R::IncrementalUpdate lobbyCreationUpdate(R::StateVersion baseline, R::StateVersion version,
+                                               const R::CanonicalState &state,
+                                               const R::ParticipantState &participant,
+                                               const R::PlayerState &createdPlayer) {
+        R::IncrementalUpdate update;
+        update.sessionId = state.sessionId;
+        update.matchId = state.matchId;
+        update.baseline = baseline;
+        update.version = version;
+        update.phase = state.phase;
+        update.currentRoundNumber = state.currentRoundNumber;
+        update.completedRounds = state.completedRounds;
+        update.phaseTime = state.phaseTime;
+        update.roundEndCountdown = state.roundEndCountdown;
+        update.participants = {{R::ChangeKind::Create, participant.participantId, participant}};
+        update.settings = state.settings;
+        update.round = state.round;
+        update.players = {{R::ChangeKind::Create, createdPlayer.playerId, createdPlayer}};
+        update.score = state.score;
+        update.messages = state.messages;
+        update.effects = state.effects;
+        update.result = state.result;
+        return update;
+    }
+
+    R::CanonicalState distinctFinalSummary() {
+        auto state = activeState();
+        state.phase = R::Phase::FinalSummary;
+        state.currentRoundNumber = 2;
+        state.completedRounds = 2;
+        state.round->roundId = 41;
+        state.round->roundNumber = 2;
+        state.round->outcome.winnerPlayerIds = {102};
+        state.score.players[0].roundPoints = 0;
+        state.score.players[0].cumulativePoints = 3;
+        state.score.players[1].roundPoints = 2;
+        state.score.players[1].cumulativePoints = 2;
+        state.score.ranking = {101, 102};
+        state.score.winner.winnerPlayerIds = {102};
+        state.entities.clear();
+        state.effects.clear();
+        state.messages.status = "FinalSummary";
+        state.messages.scoreSummaryVisible = true;
+        state.result.available = true;
+        state.result.sessionOnly = true;
+        state.result.state = "Completed";
+        state.result.serialized = "completed-round-1=101;completed-round-2=102;match-outcome=102;cumulative-leader=101";
+        return state;
+    }
+
     void requireCoreStateEqual(const R::CanonicalState &expected, const R::CanonicalState &actual) {
         D6R_REQUIRE_EQ(expected.sessionId, actual.sessionId);
         D6R_REQUIRE_EQ(expected.matchId, actual.matchId);
@@ -162,6 +232,91 @@ D6R_TEST_CASE("REP stable identity source issues nonzero unique non-reused categ
     D6R_REQUIRE(first != second);
     D6R_REQUIRE(source.wasIssued(R::IdentityCategory::WorldEntity, first));
     D6R_REQUIRE(!source.wasIssued(R::IdentityCategory::Player, first));
+}
+
+D6R_TEST_CASE("REP-005..008 admitted identities may arrive non-monotonically but removed identities remain terminal") {
+    const auto initial = admittedIdentityLobby();
+    auto removed = initial;
+    removed.participants.pop_back();
+    removed.players.pop_back();
+    removed.score.ranking = {900};
+
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(initial));
+    const auto removal = publisher.publish(removed);
+    D6R_REQUIRE(removal.has_value());
+
+    auto fresh = removed;
+    const R::ParticipantState freshParticipant{
+            50, false, R::ConnectionState::Connected, false, {500}};
+    auto freshPlayer = initial.players.front();
+    freshPlayer.playerId = 500;
+    freshPlayer.ownerParticipantId = 50;
+    freshPlayer.rosterPosition = 1;
+    freshPlayer.displayName = "Fresh Guest";
+    fresh.participants.push_back(freshParticipant);
+    fresh.players.push_back(freshPlayer);
+    fresh.score.ranking = {900, 500};
+    const auto creation = publisher.publish(fresh);
+    D6R_REQUIRE(creation.has_value());
+
+    auto updated = fresh;
+    updated.participants.back().ready = true;
+    updated.players.back().displayName = "Updated Fresh Guest";
+    const auto update = publisher.publish(updated);
+    D6R_REQUIRE(update.has_value());
+
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.apply(*removal) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.apply(*creation) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.apply(*update) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(std::string("Updated Fresh Guest"), player(*client.state(), 500)->displayName);
+    client.requireResynchronization();
+    D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    D6R_REQUIRE(player(*client.state(), 500) != nullptr);
+    D6R_REQUIRE(player(*client.state(), 100) == nullptr);
+
+    auto reused = updated;
+    reused.participants.push_back(initial.participants.back());
+    reused.players.push_back(initial.players.back());
+    reused.score.ranking.push_back(100);
+    D6R_REQUIRE(!publisher.publish(reused).has_value());
+}
+
+D6R_TEST_CASE("REP-005..008 client accepts fresh lower admitted identities in updates and resync but rejects actual reuse") {
+    const auto initial = admittedIdentityLobby();
+    auto removed = initial;
+    removed.participants.pop_back();
+    removed.players.pop_back();
+    removed.score.ranking = {900};
+    const auto removal = validUpdate(initial, removed);
+
+    auto fresh = removed;
+    const R::ParticipantState freshParticipant{
+            50, false, R::ConnectionState::Connected, false, {500}};
+    auto freshPlayer = initial.players.front();
+    freshPlayer.playerId = 500;
+    freshPlayer.ownerParticipantId = 50;
+    freshPlayer.rosterPosition = 1;
+    freshPlayer.displayName = "Fresh Guest";
+    fresh.participants.push_back(freshParticipant);
+    fresh.players.push_back(freshPlayer);
+    fresh.score.ranking = {900, 500};
+    const auto creation = lobbyCreationUpdate(2, 3, fresh, freshParticipant, freshPlayer);
+
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.apply(removal) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.apply(creation) == R::ApplyResult::Applied);
+    client.requireResynchronization();
+    D6R_REQUIRE(client.apply({4, fresh}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(player(*client.state(), 500) != nullptr);
+    D6R_REQUIRE(player(*client.state(), 100) == nullptr);
+
+    const auto reuse = lobbyCreationUpdate(4, 5, initial, initial.participants.back(), initial.players.back());
+    D6R_REQUIRE(client.apply(reuse) == R::ApplyResult::ResynchronizationRequired);
+    D6R_REQUIRE_EQ(4u, client.version());
 }
 
 D6R_TEST_CASE("REP complete snapshot and lifecycle delta converge atomically to the same state") {
@@ -318,6 +473,207 @@ D6R_TEST_CASE("REP presentation events are delivered once and invalid references
 
     auto badReference = validUpdate(initial, next, {{61, "explosion", 101, 0, 9999, 1}});
     requireRejectedWithoutVersionMutation(badReference);
+}
+
+D6R_TEST_CASE("REP-012 REP-027 REP-030 REP-032 transient entity presentation event applies once without stale state") {
+    const auto initial = activeState();
+    auto afterCapture = initial;
+    afterCapture.phaseTime++;
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(initial));
+    // Entity 777 was canonically created, produced this hit, and was removed between captures.
+    const auto update = publisher.publish(afterCapture, {{600, "hit", 101, 102, 777, 25}});
+    D6R_REQUIRE(update.has_value());
+
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.apply(*update) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.current());
+    D6R_REQUIRE(!client.resynchronizationRequired());
+    D6R_REQUIRE(entity(*client.state(), 777) == nullptr);
+    const auto events = client.takePresentationEvents();
+    D6R_REQUIRE_EQ(1u, events.size());
+    D6R_REQUIRE_EQ(600u, events.front().eventId);
+    D6R_REQUIRE_EQ(777u, events.front().entityId);
+    D6R_REQUIRE(client.takePresentationEvents().empty());
+
+    client.requireResynchronization();
+    D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    D6R_REQUIRE(entity(*client.state(), 777) == nullptr);
+    D6R_REQUIRE(client.takePresentationEvents().empty());
+}
+
+D6R_TEST_CASE("REP-017 REP-018 REP-025 final summary keeps final-round match outcome separate from cumulative ranking") {
+    const auto final = distinctFinalSummary();
+    D6R_REQUIRE(R::validateCanonicalState(final));
+    D6R_REQUIRE_EQ(std::vector<R::Identity>({102}), final.round->outcome.winnerPlayerIds);
+    D6R_REQUIRE_EQ(std::vector<R::Identity>({102}), final.score.winner.winnerPlayerIds);
+    D6R_REQUIRE_EQ(101u, final.score.ranking.front());
+
+    R::ReplicatedState reconnect;
+    D6R_REQUIRE(reconnect.apply({8, final}) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(std::vector<R::Identity>({102}), reconnect.state()->round->outcome.winnerPlayerIds);
+    D6R_REQUIRE_EQ(std::vector<R::Identity>({102}), reconnect.state()->score.winner.winnerPlayerIds);
+    D6R_REQUIRE_EQ(final.result.serialized, reconnect.state()->result.serialized);
+}
+
+D6R_TEST_CASE("REP-017 REP-018 REP-025 final-round outcome and cumulative ranking survive incremental and reconnect") {
+    auto summary = activeState();
+    summary.phase = R::Phase::RoundSummary;
+    summary.currentRoundNumber = 2;
+    summary.completedRounds = 1;
+    summary.round->roundId = 41;
+    summary.round->roundNumber = 2;
+    summary.round->outcome.winnerPlayerIds = {102};
+    summary.score.winner = summary.round->outcome;
+    summary.entities.clear();
+    summary.effects.clear();
+    summary.messages.scoreSummaryVisible = true;
+    const auto final = distinctFinalSummary();
+
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(summary));
+    const auto update = publisher.publish(final, {{601, "result-transition", 0, 0, 0, 0}});
+    D6R_REQUIRE(update.has_value());
+    R::ReplicatedState incremental;
+    D6R_REQUIRE(incremental.apply({1, summary}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(incremental.apply(*update) == R::ApplyResult::Applied);
+    R::ReplicatedState reconnect;
+    D6R_REQUIRE(reconnect.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    requireCoreStateEqual(*reconnect.state(), *incremental.state());
+    D6R_REQUIRE_EQ(std::vector<R::Identity>({102}), incremental.state()->round->outcome.winnerPlayerIds);
+    D6R_REQUIRE_EQ(std::vector<R::Identity>({102}), incremental.state()->score.winner.winnerPlayerIds);
+}
+
+D6R_TEST_CASE("REP-017 REP-018 REP-025 interruption discards incomplete round and retains completed outcome in following lobby") {
+    auto interrupted = distinctFinalSummary();
+    interrupted.phase = R::Phase::Lobby;
+    interrupted.completedRounds = 1;
+    interrupted.currentRoundNumber = 1;
+    interrupted.result.state = "Interrupted";
+    interrupted.result.serialized = "interrupted;completed-round-1=101;match-outcome=no-winner";
+    interrupted.round->roundNumber = 1;
+    interrupted.round->roundId = 40;
+    interrupted.round->outcome.winnerPlayerIds = {101};
+    interrupted.score.winner = {};
+    interrupted.score.winner.noWinner = true;
+    interrupted.participants[0].ready = false;
+    interrupted.participants[1].ready = false;
+    interrupted.messages.status = "Lobby";
+    D6R_REQUIRE(R::validateCanonicalState(interrupted));
+    R::ReplicatedState restored;
+    D6R_REQUIRE(restored.apply({12, interrupted}) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(std::string("Interrupted"), restored.state()->result.state);
+    D6R_REQUIRE(restored.state()->score.winner.noWinner);
+    D6R_REQUIRE_EQ(std::vector<R::Identity>({101}), restored.state()->round->outcome.winnerPlayerIds);
+    D6R_REQUIRE_EQ(1u, restored.state()->completedRounds);
+    D6R_REQUIRE_EQ(101u, restored.state()->score.ranking.front());
+    D6R_REQUIRE_EQ(3, scoreRow(*restored.state(), 101)->cumulativePoints);
+    D6R_REQUIRE_EQ(2, scoreRow(*restored.state(), 102)->cumulativePoints);
+}
+
+D6R_TEST_CASE("REP-017 REP-018 REP-025 completed result survives final summary and following lobby") {
+    const auto finalSummary = distinctFinalSummary();
+    D6R_REQUIRE(R::validateCanonicalState(finalSummary));
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply({8, finalSummary}) == R::ApplyResult::Applied);
+
+    auto followingLobby = finalSummary;
+    followingLobby.phase = R::Phase::Lobby;
+    followingLobby.participants[0].ready = false;
+    followingLobby.participants[1].ready = false;
+    followingLobby.messages.status = "Lobby";
+    D6R_REQUIRE(R::validateCanonicalState(followingLobby));
+    D6R_REQUIRE(client.apply({9, followingLobby}) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(std::string("Completed"), client.state()->result.state);
+    D6R_REQUIRE_EQ(std::vector<R::Identity>({102}), client.state()->round->outcome.winnerPlayerIds);
+    D6R_REQUIRE_EQ(std::vector<R::Identity>({102}), client.state()->score.winner.winnerPlayerIds);
+    D6R_REQUIRE_EQ(101u, client.state()->score.ranking.front());
+}
+
+D6R_TEST_CASE("REP-017 REP-018 REP-025 production interruption after a completed round survives update and reconnect") {
+    A::MatchConfig requested = matchConfig();
+    requested.roundLimit = 3;
+    A::AuthoritativeMatch match;
+    D6R_REQUIRE(match.start(requested, roster(), manifest()).code == A::OutcomeCode::None);
+    A::AuthoritativeReplication replication(900);
+    const std::vector<R::ParticipantState> participants = {
+            {20, true, R::ConnectionState::Connected, true, {101}},
+            {21, false, R::ConnectionState::Connected, true, {102}}};
+    D6R_REQUIRE(replication.setLobby(20, participants, roster(), requested));
+    R::ReplicatedState incremental;
+    D6R_REQUIRE(incremental.apply(*replication.fullSnapshot()) == R::ApplyResult::Applied);
+    const auto begin = replication.beginMatch(match);
+    D6R_REQUIRE(begin.has_value());
+    D6R_REQUIRE(incremental.apply(*begin) == R::ApplyResult::Applied);
+
+    std::uint64_t sequence = 1;
+    D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 20, 101, A::ActionKind::ShotDamage,
+                              102, 0, A::MaximumLife}) == A::ActionResult::Accepted);
+    const auto firstSummary = replication.capture(match);
+    D6R_REQUIRE(firstSummary.has_value());
+    D6R_REQUIRE(incremental.apply(*firstSummary) == R::ApplyResult::Applied);
+    for (std::uint32_t tick = 0; tick < A::RoundEndTotalTicks; ++tick) D6R_REQUIRE(match.advanceOneTick());
+    const auto secondRound = replication.capture(match);
+    D6R_REQUIRE(secondRound.has_value());
+    D6R_REQUIRE(incremental.apply(*secondRound) == R::ApplyResult::Applied);
+
+    D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 20, 0, A::ActionKind::RemovePlayer,
+                              102, 0, 0}) == A::ActionResult::Accepted);
+    D6R_REQUIRE(match.outcome().code == A::OutcomeCode::InterruptedNoWinner);
+    const auto interruption = replication.capture(match);
+    D6R_REQUIRE(interruption.has_value());
+    D6R_REQUIRE(incremental.apply(*interruption) == R::ApplyResult::Applied);
+    R::ReplicatedState reconnect;
+    D6R_REQUIRE(reconnect.apply(*replication.fullSnapshot()) == R::ApplyResult::Applied);
+
+    for (const R::CanonicalState *state: {incremental.state(), reconnect.state()}) {
+        D6R_REQUIRE(state != nullptr);
+        D6R_REQUIRE(state->phase == R::Phase::Lobby);
+        D6R_REQUIRE_EQ(1u, state->completedRounds);
+        D6R_REQUIRE_EQ(std::string("Interrupted"), state->result.state);
+        D6R_REQUIRE(state->score.winner.noWinner);
+        D6R_REQUIRE(state->round.has_value());
+        D6R_REQUIRE_EQ(std::vector<R::Identity>({101}), state->round->outcome.winnerPlayerIds);
+        D6R_REQUIRE_EQ(101u, state->score.ranking.front());
+        D6R_REQUIRE(scoreRow(*state, 101)->cumulativePoints > scoreRow(*state, 102)->cumulativePoints);
+        D6R_REQUIRE(state->result.serialized.find("\"completedRounds\":1") != std::string::npos);
+        D6R_REQUIRE(state->result.serialized.find("\"winnerPlayerIds\":[101]") != std::string::npos);
+    }
+}
+
+D6R_TEST_CASE("REP-017 REP-018 REP-025 production multi-round capture keeps cumulative leader out of match outcome") {
+    A::MatchConfig requested = matchConfig();
+    requested.roundLimit = 2;
+    A::AuthoritativeMatch match;
+    D6R_REQUIRE(match.start(requested, roster(), manifest()).code == A::OutcomeCode::None);
+    A::AuthoritativeReplication replication(900);
+    const std::vector<R::ParticipantState> participants = {
+            {20, true, R::ConnectionState::Connected, true, {101}},
+            {21, false, R::ConnectionState::Connected, true, {102}}};
+    D6R_REQUIRE(replication.setLobby(20, participants, roster(), requested));
+    D6R_REQUIRE(replication.beginMatch(match).has_value());
+
+    std::uint64_t sequence = 1;
+    D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 20, 101, A::ActionKind::ShotDamage,
+                              102, 0, A::MaximumLife}) == A::ActionResult::Accepted);
+    D6R_REQUIRE(replication.capture(match).has_value());
+    for (std::uint32_t tick = 0; tick < A::RoundEndTotalTicks; ++tick) D6R_REQUIRE(match.advanceOneTick());
+    D6R_REQUIRE(replication.capture(match).has_value());
+    D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 21, 102, A::ActionKind::ShotDamage,
+                              101, 0, A::MaximumLife}) == A::ActionResult::Accepted);
+    D6R_REQUIRE(replication.capture(match).has_value());
+    for (std::uint32_t tick = 0; tick < A::RoundEndTotalTicks; ++tick) D6R_REQUIRE(match.advanceOneTick());
+    const auto finalUpdate = replication.capture(match);
+    D6R_REQUIRE(finalUpdate.has_value());
+    const auto final = replication.fullSnapshot();
+    D6R_REQUIRE(final.has_value());
+    D6R_REQUIRE(final->state.phase == R::Phase::FinalSummary);
+    D6R_REQUIRE_EQ(std::vector<R::Identity>({102}), final->state.round->outcome.winnerPlayerIds);
+    D6R_REQUIRE_EQ(101u, final->state.score.ranking.front());
+    D6R_REQUIRE_EQ(std::vector<R::Identity>({102}), final->state.score.winner.winnerPlayerIds);
+    D6R_REQUIRE(scoreRow(final->state, 101)->cumulativePoints >=
+                scoreRow(final->state, 102)->cumulativePoints);
 }
 
 D6R_TEST_CASE("REP canonical validation enforces collection string payload and reference bounds") {

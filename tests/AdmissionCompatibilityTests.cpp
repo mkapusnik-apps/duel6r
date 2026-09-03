@@ -23,6 +23,10 @@
 
 #ifndef _WIN32
 #include <sys/stat.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #endif
 
 namespace {
@@ -285,6 +289,29 @@ namespace {
         try { function(); } catch (...) { return true; }
         return false;
     }
+
+
+#ifndef _WIN32
+    std::uint16_t unusedLoopbackPort() {
+        const int descriptor = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (descriptor < 0) return 0;
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        address.sin_port = 0;
+        if (::bind(descriptor, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0) {
+            ::close(descriptor);
+            return 0;
+        }
+        socklen_t size = sizeof(address);
+        if (::getsockname(descriptor, reinterpret_cast<sockaddr *>(&address), &size) != 0) {
+            ::close(descriptor);
+            return 0;
+        }
+        ::close(descriptor);
+        return ntohs(address.sin_port);
+    }
+#endif
 }
 
 D6R_TEST_CASE("AC-001 AC-002 compatibility constants capabilities and wire format are exact") {
@@ -732,6 +759,62 @@ D6R_TEST_CASE("four-message runtime permits immediate acceptance before offer vi
     D6R_REQUIRE(stageIndex(Server::AdmissionLifecycleStage::TransactionCommitted) <
                 stageIndex(Server::AdmissionLifecycleStage::ConfirmationQueued));
 }
+
+#ifndef _WIN32
+D6R_TEST_CASE("REP-067 injected canonical tick failure terminates production server unsuccessfully without host-end claim") {
+    const auto hostedManifest = manifest({
+            {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+    auto content = std::make_shared<Network::FrozenGameplayContent>();
+    (*content)["data/blocks.json"] = {'{', '}'};
+    (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+    (*content)["levels/a.json"] = {'{', '}'};
+    const Network::ManifestBuildResult built{
+            Network::ManifestStatus::Valid, hostedManifest, content};
+
+    Server::ServerConfig hostConfig = runtimeServerConfig();
+    hostConfig.listenEndpoint.port = unusedLoopbackPort();
+    D6R_REQUIRE(hostConfig.listenEndpoint.port != 0);
+    Server::AdmissionRuntimeDependencies hostDependencies;
+    hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+    std::atomic<bool> ready{false};
+    hostDependencies.hostedServiceStatus = [&](Network::HostServiceStatusCode status) {
+        if (status == Network::HostServiceStatusCode::Ready) ready = true;
+        return true;
+    };
+    hostDependencies.authoritativeRuntimeFactory = [](const auto &, const auto &, const auto &) {
+        Server::Authoritative::MatchRuntimeDependencies failure;
+        failure.contentPreflight = [](const auto &) { return true; };
+        failure.worldTick = [](Server::Authoritative::Tick, bool) { return false; };
+        return failure;
+    };
+
+    std::ostringstream hostOutput;
+    int hostStatus = -1;
+    std::thread host([&] {
+        Server::HeadlessServer server(hostConfig, std::move(hostDependencies));
+        hostStatus = server.run(hostOutput);
+    });
+    for (unsigned attempt = 0; attempt < 200 && !ready; ++attempt) std::this_thread::sleep_for(5ms);
+    D6R_REQUIRE(ready);
+
+    Server::ServerConfig guestConfig = runtimeGuestConfig();
+    guestConfig.listenEndpoint.port = hostConfig.listenEndpoint.port;
+    guestConfig.localPlayers = 1;
+    Server::AdmissionRuntimeDependencies guestDependencies;
+    guestDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+    std::ostringstream guestOutput;
+    Server::HeadlessServer guest(guestConfig, std::move(guestDependencies));
+    D6R_REQUIRE_EQ(2, guest.run(guestOutput));
+    host.join();
+
+    const std::string output = hostOutput.str();
+    const std::string evidence = "status=" + std::to_string(hostStatus)
+            + ";runtime-failed=" + (output.find("authoritative-match-runtime-failed") != std::string::npos ? "true" : "false")
+            + ";cleaned=" + (output.find("transport stopped") != std::string::npos ? "true" : "false")
+            + ";intentional=" + (output.find("authoritative-match-ended-intentionally") != std::string::npos ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string("status=3;runtime-failed=true;cleaned=true;intentional=false"), evidence);
+}
+#endif
 
 D6R_TEST_CASE("lost confirmation after atomic commit never rolls back host and never reports host success") {
     const auto host = manifest({{"levels/a", 1}});

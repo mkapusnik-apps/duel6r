@@ -92,8 +92,19 @@ namespace Duel6::Network::Replication {
         }
 
         template<typename T, typename Id>
+        bool containsReusedCreation(const std::vector<T> &before, const std::vector<T> &after,
+                                    const std::set<Identity> &issued, Id id) {
+            std::set<Identity> existing;
+            for (const auto &value: before) existing.insert(id(value));
+            return std::any_of(after.begin(), after.end(), [&](const auto &value) {
+                const Identity identity = id(value);
+                return !existing.count(identity) && issued.count(identity);
+            });
+        }
+
+        template<typename T, typename Id>
         bool applyChanges(std::vector<T> &values, const std::vector<EntityChange<T>> &updates,
-                          Identity &highestIssued, Id id) {
+                           Identity &highestIssued, Id id) {
             std::map<Identity, T> indexed;
             for (const auto &value: values) if (!indexed.emplace(id(value), value).second) return false;
             std::set<Identity> changed;
@@ -105,6 +116,35 @@ namespace Duel6::Network::Replication {
                         || change.identity <= highestIssued) return false;
                     indexed.emplace(change.identity, *change.value);
                     highestIssued = change.identity;
+                } else if (change.kind == ChangeKind::Update) {
+                    if (!change.value || id(*change.value) != change.identity || existing == indexed.end()) return false;
+                    existing->second = *change.value;
+                } else {
+                    if (change.value || existing == indexed.end()) return false;
+                    indexed.erase(existing);
+                }
+            }
+            values.clear();
+            values.reserve(indexed.size());
+            for (auto &[identity, value]: indexed) values.push_back(std::move(value));
+            return true;
+        }
+
+        template<typename T, typename Id>
+        bool applyChanges(std::vector<T> &values, const std::vector<EntityChange<T>> &updates,
+                          std::set<Identity> &issued, Id id) {
+            std::map<Identity, T> indexed;
+            for (const auto &value: values) if (!indexed.emplace(id(value), value).second) return false;
+            std::set<Identity> changed;
+            for (const auto &change: updates) {
+                if (change.identity == 0 || !changed.insert(change.identity).second) return false;
+                const auto existing = indexed.find(change.identity);
+                if (change.kind == ChangeKind::Create) {
+                    if (!change.value || id(*change.value) != change.identity || existing != indexed.end()
+                        || issued.count(change.identity)
+                        || issued.size() >= MaxReplicatedIdentityHistory) return false;
+                    indexed.emplace(change.identity, *change.value);
+                    issued.insert(change.identity);
                 } else if (change.kind == ChangeKind::Update) {
                     if (!change.value || id(*change.value) != change.identity || existing == indexed.end()) return false;
                     existing->second = *change.value;
@@ -159,15 +199,19 @@ namespace Duel6::Network::Replication {
         }
 
         bool validEventReferences(const CanonicalState &before, const CanonicalState &after,
-                                  const PresentationEvent &event) {
+                                   const PresentationEvent &event) {
             const auto hasPlayer = [&](Identity identity) {
                 if (identity == 0) return true;
                 const auto present = [identity](const auto &player) { return player.playerId == identity; };
                 return std::any_of(before.players.begin(), before.players.end(), present)
                        || std::any_of(after.players.begin(), after.players.end(), present);
             };
+            const bool transientEntityEvent = event.type == "shot" || event.type == "hit"
+                                              || event.type == "damage" || event.type == "death"
+                                              || event.type == "kill" || event.type == "assist";
             return hasPlayer(event.playerId) && hasPlayer(event.targetPlayerId)
-                   && (hasEntity(before, event.entityId) || hasEntity(after, event.entityId));
+                    && (hasEntity(before, event.entityId) || hasEntity(after, event.entityId)
+                        || (event.entityId != 0 && transientEntityEvent));
         }
 
         bool emptyOutcome(const RoundOutcomeState &outcome) {
@@ -254,8 +298,9 @@ namespace Duel6::Network::Replication {
                 || !validText(state.messages.status, 256, true)
                 || !validText(state.result.state, 64, true)) return false;
             if (!withinPayloadLimit(state)) return false;
-            if ((state.phase == Phase::Lobby && state.matchId != 0)
-                || (state.phase != Phase::Lobby && state.matchId == 0)) return false;
+            if (state.phase == Phase::Lobby) {
+                if (state.result.available != (state.matchId != 0)) return false;
+            } else if (state.matchId == 0) return false;
             if (state.settings.teamCount > MaxReplicatedPlayers) return false;
             std::set<Identity> participantIds;
             if (!uniqueNonzero(state.participants, [](const auto &value) { return value.participantId; },
@@ -316,7 +361,7 @@ namespace Duel6::Network::Replication {
                 || state.score.teamTotals.size() > MaxReplicatedPlayers
                 || state.score.teamRanking.size() != state.score.teamTotals.size()) return false;
             if (!state.score.players.empty() && state.score.ranking.size() != state.score.players.size()) return false;
-            if (state.phase != Phase::Lobby) {
+            if (state.phase != Phase::Lobby || state.result.available) {
                 if (state.score.players.size() != state.players.size()
                     || state.score.ranking.size() != state.players.size()) return false;
                 std::set<Identity> scorePlayerIds;
@@ -359,10 +404,17 @@ namespace Duel6::Network::Replication {
             } else if (state.score.teamTotals.size() != state.settings.teamCount
                        || state.score.teamRanking.size() != state.settings.teamCount) return false;
             if (state.phase == Phase::Lobby) {
-                if (state.currentRoundNumber != 0 || state.completedRounds != 0 || state.round
-                    || !state.entities.empty() || !state.effects.empty() || !state.score.players.empty()
-                    || !emptyOutcome(state.score.winner) || state.result.available
-                    || state.roundEndCountdown != 0) return false;
+                if (!state.entities.empty() || !state.effects.empty() || state.roundEndCountdown != 0) return false;
+                if (!state.result.available) {
+                    if (state.currentRoundNumber != 0 || state.completedRounds != 0 || state.round
+                        || !state.score.players.empty() || !emptyOutcome(state.score.winner)) return false;
+                } else if (state.currentRoundNumber != state.completedRounds
+                           || (state.completedRounds != 0) != state.round.has_value()
+                           || !validResolvedOutcome(state.score.winner, state)
+                           || (state.result.state != "Completed" && state.result.state != "Interrupted")
+                           || (state.result.state == "Completed"
+                               && (!state.round || !sameOutcome(state.round->outcome, state.score.winner)))
+                           || (state.result.state == "Interrupted" && !state.score.winner.noWinner)) return false;
             } else {
                 if (state.currentRoundNumber == 0 || state.completedRounds > state.currentRoundNumber) return false;
                 if (state.phase == Phase::ActiveRound) {
@@ -376,7 +428,7 @@ namespace Duel6::Network::Replication {
                         || state.result.available) return false;
                 } else if (state.phase == Phase::FinalSummary) {
                     if (!state.result.available || !validResolvedOutcome(state.score.winner, state)
-                        || (state.result.state != "Completed" && state.result.state != "Interrupted")
+                        || state.result.state != "Completed"
                         || (state.round && !sameOutcome(state.round->outcome, state.score.winner))) return false;
                 }
             }
@@ -394,16 +446,18 @@ namespace Duel6::Network::Replication {
             }
             if (state.result.available != !state.result.serialized.empty()) return false;
             if (state.result.available && !state.result.sessionOnly) return false;
-            if (state.result.available != (state.phase == Phase::FinalSummary)) return false;
+            if ((state.phase == Phase::FinalSummary && !state.result.available)
+                || (state.phase != Phase::FinalSummary && state.phase != Phase::Lobby
+                    && state.result.available)) return false;
             return true;
         } catch (...) { return false; }
     }
 
     bool AuthoritativeStateReplicator::initialize(CanonicalState state) {
         if (current || !validateCanonicalState(state)) return false;
-        highestParticipantIdentity = highestIdentity(
-                state.participants, [](const auto &value) { return value.participantId; });
-        highestPlayerIdentity = highestIdentity(state.players, [](const auto &value) { return value.playerId; });
+        for (const auto &participant: state.participants)
+            issuedParticipantIdentities.insert(participant.participantId);
+        for (const auto &player: state.players) issuedPlayerIdentities.insert(player.playerId);
         highestEntityIdentity = highestIdentity(state.entities, [](const auto &value) { return value.entityId; });
         current = std::move(state);
         currentVersion = 1;
@@ -420,14 +474,25 @@ namespace Duel6::Network::Replication {
         }
         if (!current || currentVersion == std::numeric_limits<StateVersion>::max()
             || !validateCanonicalState(state) || state.sessionId != current->sessionId
-            || containsNonMonotonicCreation(current->participants, state.participants,
-                                             highestParticipantIdentity,
-                                             [](const auto &value) { return value.participantId; })
-            || containsNonMonotonicCreation(current->players, state.players, highestPlayerIdentity,
-                                             [](const auto &value) { return value.playerId; })
+            || containsReusedCreation(current->participants, state.participants,
+                                      issuedParticipantIdentities,
+                                      [](const auto &value) { return value.participantId; })
+            || containsReusedCreation(current->players, state.players, issuedPlayerIdentities,
+                                      [](const auto &value) { return value.playerId; })
             || containsNonMonotonicCreation(current->entities, state.entities, highestEntityIdentity,
                                              [](const auto &value) { return value.entityId; })
             || events.size() > MaxReplicatedEvents) return std::nullopt;
+        const auto newParticipantCount = static_cast<std::size_t>(std::count_if(
+                state.participants.begin(), state.participants.end(), [&](const auto &participant) {
+                    return !issuedParticipantIdentities.count(participant.participantId);
+                }));
+        const auto newPlayerCount = static_cast<std::size_t>(std::count_if(
+                state.players.begin(), state.players.end(), [&](const auto &player) {
+                    return !issuedPlayerIdentities.count(player.playerId);
+                }));
+        if (newParticipantCount > MaxReplicatedIdentityHistory - issuedParticipantIdentities.size()
+            || newPlayerCount > MaxReplicatedIdentityHistory - issuedPlayerIdentities.size())
+            return std::nullopt;
         std::set<Identity> eventIds;
         std::size_t eventTextBytes = 0;
         for (const auto &event: events) {
@@ -452,10 +517,9 @@ namespace Duel6::Network::Replication {
         update.settings = state.settings; update.round = state.round; update.score = state.score;
         update.messages = state.messages; update.effects = state.effects; update.result = state.result;
         update.events = std::move(events);
-        highestParticipantIdentity = std::max(highestParticipantIdentity,
-                highestIdentity(state.participants, [](const auto &value) { return value.participantId; }));
-        highestPlayerIdentity = std::max(highestPlayerIdentity,
-                highestIdentity(state.players, [](const auto &value) { return value.playerId; }));
+        for (const auto &participant: state.participants)
+            issuedParticipantIdentities.insert(participant.participantId);
+        for (const auto &player: state.players) issuedPlayerIdentities.insert(player.playerId);
         highestEntityIdentity = std::max(highestEntityIdentity,
                 highestIdentity(state.entities, [](const auto &value) { return value.entityId; }));
         for (const auto &event: update.events) highestEmittedEvent = std::max(highestEmittedEvent, event.eventId);
@@ -483,29 +547,30 @@ namespace Duel6::Network::Replication {
             for (const auto &entity: snapshot.state.entities)
                 if (priorEntities.count(entity.entityId)) return ApplyResult::Invalid;
         }
-        Identity nextHighestParticipants = highestParticipantIdentity;
-        Identity nextHighestPlayers = highestPlayerIdentity;
+        auto nextAcceptedParticipants = acceptedParticipantIdentities;
+        auto nextAcceptedPlayers = acceptedPlayerIdentities;
         Identity nextHighestEntities = highestEntityIdentity;
         if (accepted
-            && (containsNonMonotonicCreation(accepted->participants, snapshot.state.participants,
-                                             nextHighestParticipants,
-                                             [](const auto &value) { return value.participantId; })
-                || containsNonMonotonicCreation(accepted->players, snapshot.state.players,
-                                                nextHighestPlayers,
-                                                [](const auto &value) { return value.playerId; })
+            && (containsReusedCreation(accepted->participants, snapshot.state.participants,
+                                       nextAcceptedParticipants,
+                                       [](const auto &value) { return value.participantId; })
+                || containsReusedCreation(accepted->players, snapshot.state.players,
+                                          nextAcceptedPlayers,
+                                          [](const auto &value) { return value.playerId; })
                 || containsNonMonotonicCreation(accepted->entities, snapshot.state.entities,
                                                 nextHighestEntities,
                                                 [](const auto &value) { return value.entityId; })))
             return ApplyResult::Invalid;
-        nextHighestParticipants = std::max(nextHighestParticipants, highestIdentity(
-                snapshot.state.participants, [](const auto &value) { return value.participantId; }));
-        nextHighestPlayers = std::max(nextHighestPlayers, highestIdentity(
-                snapshot.state.players, [](const auto &value) { return value.playerId; }));
+        for (const auto &participant: snapshot.state.participants)
+            nextAcceptedParticipants.insert(participant.participantId);
+        for (const auto &player: snapshot.state.players) nextAcceptedPlayers.insert(player.playerId);
+        if (nextAcceptedParticipants.size() > MaxReplicatedIdentityHistory
+            || nextAcceptedPlayers.size() > MaxReplicatedIdentityHistory) return ApplyResult::Invalid;
         nextHighestEntities = std::max(nextHighestEntities, highestIdentity(
                 snapshot.state.entities, [](const auto &value) { return value.entityId; }));
         accepted = snapshot.state; acceptedVersion = snapshot.version;
-        highestParticipantIdentity = nextHighestParticipants;
-        highestPlayerIdentity = nextHighestPlayers;
+        acceptedParticipantIdentities = std::move(nextAcceptedParticipants);
+        acceptedPlayerIdentities = std::move(nextAcceptedPlayers);
         highestEntityIdentity = nextHighestEntities;
         pendingEvents.clear();
         resynchronizing = false;
@@ -529,12 +594,12 @@ namespace Duel6::Network::Replication {
         if (!validChangeKinds(update.participants) || !validChangeKinds(update.players)
             || !validChangeKinds(update.entities)) return rejectIncremental();
         CanonicalState candidate = *accepted;
-        auto nextHighestParticipants = highestParticipantIdentity;
-        auto nextHighestPlayers = highestPlayerIdentity;
+        auto nextAcceptedParticipants = acceptedParticipantIdentities;
+        auto nextAcceptedPlayers = acceptedPlayerIdentities;
         auto nextHighestEntities = highestEntityIdentity;
-        if (!applyChanges(candidate.participants, update.participants, nextHighestParticipants,
-                          [](const auto &value) { return value.participantId; })
-            || !applyChanges(candidate.players, update.players, nextHighestPlayers,
+        if (!applyChanges(candidate.participants, update.participants, nextAcceptedParticipants,
+                           [](const auto &value) { return value.participantId; })
+            || !applyChanges(candidate.players, update.players, nextAcceptedPlayers,
                              [](const auto &value) { return value.playerId; })
             || !applyChanges(candidate.entities, update.entities, nextHighestEntities,
                              [](const auto &value) { return value.entityId; })) return rejectIncremental();
@@ -561,8 +626,8 @@ namespace Duel6::Network::Replication {
         if (!validateCanonicalState(candidate)
             || !withinPayloadLimit(candidate, update.events.size(), eventTextBytes)) return rejectIncremental();
         accepted = std::move(candidate); acceptedVersion = update.version;
-        highestParticipantIdentity = nextHighestParticipants;
-        highestPlayerIdentity = nextHighestPlayers;
+        acceptedParticipantIdentities = std::move(nextAcceptedParticipants);
+        acceptedPlayerIdentities = std::move(nextAcceptedPlayers);
         highestEntityIdentity = nextHighestEntities;
         for (const auto &event: update.events) highestPresentedEvent = std::max(highestPresentedEvent, event.eventId);
         pendingEvents = update.events;

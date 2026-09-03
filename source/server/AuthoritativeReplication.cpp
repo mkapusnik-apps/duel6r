@@ -152,6 +152,9 @@ namespace Duel6::Server::Authoritative {
         const auto cumulativeStatistics = match.playerStatistics();
         const MatchConfig &config = match.frozenConfig();
         state.settings = replicatedSettings(config); state.phase = phase(match.phase());
+        const bool interrupted = match.publishedResult()
+                                 && match.publishedResult()->state == ResultState::Interrupted;
+        if (interrupted) state.phase = R::Phase::Lobby;
         state.phaseTime = match.currentTick();
         state.messages.status = phaseName(match.phase());
         state.messages.currentPlayerIndicators.clear();
@@ -359,7 +362,25 @@ namespace Duel6::Server::Authoritative {
             state.score.winner.winnerPlayerIds = match.publishedResult()->finalWinnerPlayerIds;
             state.score.winner.winningTeam = static_cast<std::uint8_t>(match.publishedResult()->finalWinningTeam);
             state.score.winner.noWinner = match.publishedResult()->finalNoWinner;
-            if (state.round) state.round->outcome = state.score.winner;
+            if (interrupted) {
+                for (auto &participant: state.participants) participant.ready = false;
+                state.currentRoundNumber = state.completedRounds;
+                state.entities.clear(); state.effects.clear();
+                if (match.publishedResult()->rounds.empty()) state.round.reset();
+                else {
+                    const auto &lastRound = match.publishedResult()->rounds.back();
+                    R::RoundState retainedRound;
+                    retainedRound.roundId = identities.issue(R::IdentityCategory::Round);
+                    if (retainedRound.roundId == 0) return false;
+                    retainedRound.roundNumber = lastRound.roundNumber;
+                    retainedRound.level = lastRound.level; retainedRound.mirrored = lastRound.mirrored;
+                    retainedRound.rosterOrder = lastRound.rosterOrder;
+                    retainedRound.outcome.winnerPlayerIds = lastRound.winnerPlayerIds;
+                    retainedRound.outcome.winningTeam = static_cast<std::uint8_t>(lastRound.winningTeam);
+                    retainedRound.outcome.noWinner = lastRound.noWinner;
+                    state.round = std::move(retainedRound);
+                }
+            } else if (state.round) state.round->outcome = state.score.winner;
         }
         state.messages.roundProgress = state.phaseTime;
         state.messages.scoreSummaryVisible = state.phase == R::Phase::RoundSummary
