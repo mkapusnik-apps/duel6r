@@ -260,14 +260,14 @@ namespace Duel6 {
         loadPersonProfiles(D6_FILE_PROFILES);
 
         auto addPlayerButton = new Gui::Button(gui);
-        addPlayerButton->setPosition(113, menuActionY, 35, menuActionHeight);
+        addPlayerButton->setPosition(285, menuActionY, 35, menuActionHeight);
         addPlayerButton->setCaption(">>");
         addPlayerButton->onClick([this](Gui::Button &) {
             addPlayer(personListBox->selectedIndex());
         });
 
         auto removePlayerButton = new Gui::Button(gui);
-        removePlayerButton->setPosition(76, menuActionY, 35, menuActionHeight);
+        removePlayerButton->setPosition(334, menuActionY, 35, menuActionHeight);
         removePlayerButton->setCaption("<<");
         removePlayerButton->onClick([this](Gui::Button &) {
             removePlayer(playerListBox->selectedIndex());
@@ -319,14 +319,14 @@ namespace Duel6 {
 
         shuffleButton = new Gui::Button(gui);
         shuffleButton->setCaption("Shuffle");
-        shuffleButton->setPosition(412, menuActionY, 68, menuActionHeight);
+        shuffleButton->setPosition(463, menuActionY, 68, menuActionHeight);
         shuffleButton->onClick([this](Gui::Button &) {
             shufflePlayers();
         });
 
         equalizeButton = new Gui::Button(gui);
         equalizeButton->setCaption("Equalize");
-        equalizeButton->setPosition(334, menuActionY, 76, menuActionHeight);
+        equalizeButton->setPosition(385, menuActionY, 76, menuActionHeight);
         equalizeButton->onClick([this](Gui::Button &) {
             eloShufflePlayers();
         });
@@ -350,7 +350,7 @@ namespace Duel6 {
         // Button to detect all user's controllers in a batch
         Gui::Button *button = new Gui::Button(gui);
         button->setCaption("Detect All");
-        button->setPosition(482, menuActionY, 92, menuActionHeight);
+        button->setPosition(548, menuActionY, 92, menuActionHeight);
         button->onClick([this](Gui::Button &) {
             joyRescan();
             Size curPlayersCount = playerListBox->size();

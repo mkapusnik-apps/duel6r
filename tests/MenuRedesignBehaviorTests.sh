@@ -355,13 +355,13 @@ if not (HEIGHT - 308 < HEIGHT - 278):
 
 common = (
     ("Remove", 14, 60, 32),
-    ("<<", 76, 35, 8),
-    (">>", 113, 35, 8),
-    ("Detect All", 482, 92, 55),
+    (">>", 285, 35, 8),
+    ("<<", 334, 35, 8),
+    ("Detect All", 548, 92, 55),
 )
 team_only = (
-    ("Equalize", 334, 76, 42),
-    ("Shuffle", 412, 68, 38),
+    ("Equalize", 385, 76, 42),
+    ("Shuffle", 463, 68, 38),
 )
 for name, x, width, ink_width in common:
     assert_frame(deathmatch, name, x, 278, width, 25)
@@ -370,6 +370,32 @@ for name, x, width, ink_width in common:
 for name, x, width, ink_width in team_only:
     assert_frame(teams, name, x, 278, width, 25)
     assert_caption_padding(teams, name, x, 278, width, 25, ink_width)
+
+# The outer actions occupy the bottom corners of their respective cards. The
+# two Teams-only roster-order actions form one centered group in the available
+# horizontal space between the Players card's corner actions.
+persons_left, persons_right = 10, 325
+players_left, players_right = 330, 645
+remove_bounds = (14, 14 + 60)
+add_to_roster_bounds = (285, 285 + 35)
+remove_from_roster_bounds = (334, 334 + 35)
+detect_all_bounds = (548, 548 + 92)
+roster_order_bounds = (385, 463 + 68)
+if remove_bounds[0] - persons_left != 4:
+    raise SystemExit("Remove is not anchored at the Persons card's bottom-left")
+if persons_right - add_to_roster_bounds[1] != 5:
+    raise SystemExit(">> is not anchored at the Persons card's bottom-right")
+if remove_from_roster_bounds[0] - players_left != 4:
+    raise SystemExit("<< is not anchored at the Players card's bottom-left")
+if players_right - detect_all_bounds[1] != 5:
+    raise SystemExit("Detect All is not anchored at the Players card's bottom-right")
+left_space = roster_order_bounds[0] - remove_from_roster_bounds[1]
+right_space = detect_all_bounds[0] - roster_order_bounds[1]
+if abs(left_space - right_space) > 1:
+    raise SystemExit(
+        "Equalize and Shuffle are not horizontally centered as a group "
+        f"between the Players card's corner actions: gaps={left_space},{right_space}"
+    )
 
 # Non-Team states must not leave an active/visible frame where the conditional
 # buttons appear in Teams.
@@ -389,7 +415,7 @@ PY
 # resulting assignments visible and deterministic: first player -> K2, second
 # player -> K3.
 capture "${scenario_dir}/before-detect-all.png"
-xdotool mousemove 772 558 mousedown 1 sleep 0.08 mouseup 1
+xdotool mousemove 856 558 mousedown 1 sleep 0.08 mouseup 1
 sleep 0.3
 xdotool key --window "$window_id" a
 sleep 0.3
@@ -563,7 +589,7 @@ capture "${scenario_dir}/initial.png"
 # retain record order (UnrankedRoster, UnrankedFree). Select RankRoster and
 # exercise no-op add/double-click/remove behavior for an existing roster member.
 xdotool mousemove "$(menu_x 315)" "$(menu_y 292)" click 1
-xdotool mousemove "$(menu_x 336)" "$(menu_y 534)" click 1
+xdotool mousemove "$(menu_x 517)" "$(menu_y 534)" click 1
 xdotool mousemove "$(menu_x 315)" "$(menu_y 292)" click --repeat 2 --delay 80 1
 xdotool mousemove "$(menu_x 254)" "$(menu_y 534)" click 1
 
@@ -580,7 +606,7 @@ xdotool key --window "$window_id" BackSpace BackSpace BackSpace BackSpace BackSp
 # and person-row double-click must not duplicate roster membership.
 xdotool mousemove "$(menu_x 315)" "$(menu_y 346)" click 1
 capture "${scenario_dir}/free-selected.png"
-xdotool mousemove "$(menu_x 336)" "$(menu_y 534)" click 1
+xdotool mousemove "$(menu_x 517)" "$(menu_y 534)" click 1
 capture "${scenario_dir}/free-after-transfer.png"
 normalize_menu "${scenario_dir}/free-selected.png" "${scenario_dir}/free-selected-normalized.png"
 normalize_menu "${scenario_dir}/free-after-transfer.png" "${scenario_dir}/free-after-transfer-normalized.png"
@@ -588,7 +614,7 @@ convert "${scenario_dir}/free-selected-normalized.png" -crop 288x18+16+237 +repa
 convert "${scenario_dir}/free-after-transfer-normalized.png" -crop 288x18+16+237 +repage "${scenario_dir}/free-after-transfer-row.png"
 assert_same "${scenario_dir}/free-selected-row.png" "${scenario_dir}/free-after-transfer-row.png" \
   "Persons selection after roster transfer"
-xdotool mousemove "$(menu_x 336)" "$(menu_y 534)" click 1
+xdotool mousemove "$(menu_x 517)" "$(menu_y 534)" click 1
 xdotool mousemove "$(menu_x 315)" "$(menu_y 346)" click --repeat 2 --delay 80 1
 
 # Remove on a roster member is a no-op. Double-click in Players and << both
@@ -596,9 +622,9 @@ xdotool mousemove "$(menu_x 315)" "$(menu_y 346)" click --repeat 2 --delay 80 1
 xdotool mousemove "$(menu_x 254)" "$(menu_y 534)" click 1
 xdotool mousemove "$(menu_x 595)" "$(menu_y 292)" click --repeat 2 --delay 80 1
 xdotool mousemove "$(menu_x 315)" "$(menu_y 346)" click 1
-xdotool mousemove "$(menu_x 336)" "$(menu_y 534)" click 1
+xdotool mousemove "$(menu_x 517)" "$(menu_y 534)" click 1
 xdotool mousemove "$(menu_x 595)" "$(menu_y 292)" click 1
-xdotool mousemove "$(menu_x 299)" "$(menu_y 534)" click 1
+xdotool mousemove "$(menu_x 566)" "$(menu_y 534)" click 1
 
 # Reject then accept deletion of the selected non-roster person. The refresh
 # clears the deleted selection, so a following >> cannot change the roster.
@@ -609,7 +635,7 @@ xdotool key --window "$window_id" n
 xdotool mousemove "$(menu_x 254)" "$(menu_y 534)" click 1
 sleep 0.2
 xdotool key --window "$window_id" y
-xdotool mousemove "$(menu_x 336)" "$(menu_y 534)" click 1
+xdotool mousemove "$(menu_x 517)" "$(menu_y 534)" click 1
 
 # Enter adds another person; a person-row double-click adds it to Players.
 xdotool mousemove "$(menu_x 315)" "$(menu_y 500)" click 1
@@ -666,7 +692,7 @@ start_app
 xdotool mousemove "$(menu_x 565)" "$(menu_y 490)" click 1
 xdotool type --window "$window_id" --delay 5 NoLeak
 xdotool key --window "$window_id" Return
-xdotool mousemove "$(menu_x 299)" "$(menu_y 534)" click 1
+xdotool mousemove "$(menu_x 566)" "$(menu_y 534)" click 1
 
 # A click safely inside the person-name field must affect only that field. Add
 # and focused Enter retain their existing behavior after the field is resized.
@@ -830,13 +856,13 @@ crop_player_rows() {
 crop_roster_order_controls() {
   local normalized="${2%.png}-normalized.png"
   normalize_menu "$1" "$normalized"
-  convert "$normalized" -crop 150x20+332+425 +repage "$2"
+  convert "$normalized" -crop 150x20+383+425 +repage "$2"
 }
 
 crop_person_action_controls() {
   local normalized="${2%.png}-normalized.png"
   normalize_menu "$1" "$normalized"
-  convert "$normalized" -crop 130x27+12+421 +repage "$2"
+  convert "$normalized" -crop 310x27+12+421 +repage "$2"
 }
 
 assert_roster_rows_unchanged() {
@@ -864,8 +890,8 @@ crop_player_rows "${scenario_dir}/deathmatch-before-hidden-clicks.png" \
   "${scenario_dir}/deathmatch-rows-before.png"
 crop_roster_order_controls "${scenario_dir}/deathmatch-before-hidden-clicks.png" \
   "${scenario_dir}/deathmatch-controls.png"
-xdotool mousemove 570 558 click 1
-xdotool mousemove 665 558 click 1
+xdotool mousemove 637 558 click 1
+xdotool mousemove 732 558 click 1
 sleep 0.3
 capture "${scenario_dir}/deathmatch-after-hidden-clicks.png"
 crop_player_rows "${scenario_dir}/deathmatch-after-hidden-clicks.png" \
@@ -889,8 +915,8 @@ assert_same "${scenario_dir}/deathmatch-controls.png" "${scenario_dir}/predator-
 assert_same "${scenario_dir}/deathmatch-person-actions.png" \
   "${scenario_dir}/predator-person-actions.png" \
   "Deathmatch and Predator person-action row position"
-xdotool mousemove 570 558 click 1
-xdotool mousemove 665 558 click 1
+xdotool mousemove 637 558 click 1
+xdotool mousemove 732 558 click 1
 sleep 0.3
 capture "${scenario_dir}/predator-after-hidden-clicks.png"
 crop_player_rows "${scenario_dir}/predator-after-hidden-clicks.png" \
@@ -916,7 +942,7 @@ assert_same "${scenario_dir}/predator-person-actions.png" \
 # Shuffle may validly select the identity permutation. Regardless of the
 # resulting order, its visible hit target must activate and every player must
 # remain paired with its control preset.
-xdotool mousemove 665 558 mousedown 1
+xdotool mousemove 732 558 mousedown 1
 sleep 0.15
 capture "${scenario_dir}/shuffle-pressed.png"
 crop_roster_order_controls "${scenario_dir}/shuffle-pressed.png" \
@@ -933,7 +959,7 @@ capture "${scenario_dir}/after-random.png"
 # and the grouping invariant rather than requiring a visual roster change.
 crop_roster_order_controls "${scenario_dir}/after-random.png" \
   "${scenario_dir}/before-equalize-controls.png"
-xdotool mousemove 570 558 mousedown 1
+xdotool mousemove 637 558 mousedown 1
 sleep 0.15
 capture "${scenario_dir}/equalize-pressed.png"
 crop_roster_order_controls "${scenario_dir}/equalize-pressed.png" \
