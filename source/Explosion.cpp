@@ -64,7 +64,6 @@ namespace Duel6 {
 
     void ExplosionList::add(const Vector &centre, Float32 startSize, Float32 maxSize, const Color &color) {
         Explosion explosion;
-        explosion.stableId = nextStableId++;
         explosion.centre = centre;
         explosion.now = startSize;
         explosion.max = maxSize;

@@ -187,7 +187,6 @@ namespace Duel6::Server::Authoritative {
         std::vector<CanonicalEntitySnapshot> elevators;
         std::vector<CanonicalEntitySnapshot> hazards;
         std::vector<CanonicalEntitySnapshot> trees;
-        std::vector<CanonicalEntitySnapshot> explosions;
         std::vector<CanonicalEvent> events;
         std::vector<CanonicalEvent> transitions;
         Tick worldTick = 0;

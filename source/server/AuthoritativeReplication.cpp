@@ -193,7 +193,6 @@ namespace Duel6::Server::Authoritative {
             };
             appendEntities(world->projectiles); appendEntities(world->pickups); appendEntities(world->elevators);
             appendEntities(world->hazards); appendEntities(world->trees);
-            appendEntities(world->explosions);
             state.effects.clear();
             for (const auto &player: state.players) if (!player.activeBonus.empty() && player.bonusRemaining > 0) {
                 R::ContinuingEffectState effect;

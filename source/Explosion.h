@@ -29,7 +29,6 @@
 #define DUEL6_EXPLOSION_H
 
 #include <list>
-#include <cstdint>
 #include "Type.h"
 #include "Color.h"
 #include "TextureManager.h"
@@ -38,7 +37,6 @@
 
 namespace Duel6 {
     struct Explosion {
-        std::uint64_t stableId = 0;
         Vector centre;
         Float32 now;
         Float32 max;
@@ -50,7 +48,6 @@ namespace Duel6 {
         Texture textures;
         std::list<Explosion> explosions;
         Float32 speed;
-        std::uint64_t nextStableId = 1;
 
     public:
         ExplosionList(const GameResources &resources, Float32 speed);
@@ -61,8 +58,6 @@ namespace Duel6 {
         void render(Renderer &renderer) const;
 
         void add(const Vector &centre, Float32 startSize, Float32 maxSize, const Color &color);
-
-        const std::list<Explosion> &values() const noexcept { return explosions; }
     };
 }
 
