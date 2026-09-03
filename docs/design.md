@@ -15,6 +15,9 @@ The network additions are target specifications for downstream issue #38 and are
 Issue #30 may implement protocol, command-line, or scaffold outcomes, but it must not add graphical network UI.
 Issue #32 defines authoritative headless match states, result data, and fixed outcome copy for the planned network screens.
 Issue #32 must not add graphical network UI.
+Issue #34 defines stable replicated identities and presentation-independent result-state replication.
+Issue #34 must not add graphical network UI.
+Issue #38 owns the future presentation and visual evidence for the replicated states.
 
 ## Visual principles
 
@@ -262,9 +265,15 @@ The following values come from renderer and GUI source.
 - Host-service lifecycle copy must not include an endpoint, process value, command, credential, filesystem path, payload, or operating-system error text.
 - Trusted diagnostics may identify one differing path only after the application validates that path against every canonical-path rule.
 - Trusted diagnostics must not include an invalid path or raw payload.
-- Final network results must show the exact label `Session only` near the summary heading or result table.
-- Final network results must show result state `Completed` or `Interrupted`.
-- A result without a winner must show the exact value `No winner`.
+- `NET-06` must show the exact label `Session only` near the summary heading or result table.
+- `NET-06` must show result state `Completed`.
+- `NET-06` must show match outcome and last completed-round outcome as separate labeled values.
+- A completed match outcome must equal the configured final-round outcome.
+- A retained `NET-04` result must show result state `Completed` or `Interrupted`.
+- An interrupted match outcome must show the exact value `No winner` in `NET-04`.
+- An interrupted result must preserve the last completed-round outcome when that outcome exists.
+- A cumulative ranking must remain separate from match outcome and last completed-round outcome.
+- A cumulative ranking leader must not receive a champion label or treatment.
 - Final network results must state `Not saved to local statistics or Elo`.
 - Network match setup must expose only mode, level plan, round limit, Assistance, Quick Liquid, and Burnable Trees.
 - Network round limit must accept only integers from 1 through 99.
@@ -274,6 +283,8 @@ The following values come from renderer and GUI source.
 - Guests must not see an enabled round-advance action.
 - Network round-end presentation must distinguish the first-second active phase from the final-five-second frozen phase.
 - The final round must enter the final summary and must not show a next-round action.
+- An interrupted match must enter `NET-04` directly and must not enter `NET-06`.
+- A completed result must appear in `NET-06` and then remain available in the following `NET-04` lobby.
 - Only the host may show the `End session` action.
 - The interface must keep Local Play copy, settings, advancement, scripting, and persistence behavior unchanged.
 - Target network UI must not offer discovery, matchmaking, Internet, NAT traversal, accounts, passwords, dedicated servers, join-in-progress, or host migration.
@@ -356,9 +367,10 @@ The following values come from renderer and GUI source.
 - Starting, cancelling, failure, Retry eligibility, and cleanup status must remain available as persistent text.
 - A disabled Retry control must show a persistent textual reason and must not receive focus.
 - Unsupported actions must be absent rather than represented by ambiguous disabled affordances.
-- Round-end phase, automatic-advance timing, result state, no-winner state, script exclusion, and no-persistence status must remain visible as text.
+- Round-end phase, automatic-advance timing, result state, match outcome, last completed-round outcome, no-winner state, script exclusion, and no-persistence status must remain visible as text.
 - Result tables must use text headings for ranking criteria and values.
 - Result tables must not rely only on row order or color to communicate rank, team, winner, or departed state.
+- Result tables must not use rank or row emphasis to imply a match champion.
 
 ## Responsive behavior
 
