@@ -25,11 +25,38 @@ cmake -S "${workspace_dir}" -B "${tmp_build_dir}" \
 cmake --build "${tmp_build_dir}" -j"$(nproc)"
 
 if [[ "${run_tests}" == "ON" ]]; then
-  ctest --test-dir "${tmp_build_dir}" --output-on-failure
+  diagnostics_dir="${workspace_dir}/${output_dir}/ci-diagnostics"
+  rm -rf "${diagnostics_dir}"
+  mkdir -p "${diagnostics_dir}"
+
+  test_status=0
+  ctest --test-dir "${tmp_build_dir}" --output-on-failure || test_status=$?
+  if [[ "${test_status}" -ne 0 ]]; then
+    if [[ -d "${tmp_build_dir}/Testing" ]]; then
+      cp -R "${tmp_build_dir}/Testing" "${diagnostics_dir}/Testing"
+    fi
+
+    for test_output_name in \
+      shared-arena-behavior \
+      async-menu-background-behavior \
+      menu-redesign-behavior \
+      round-summary-progress \
+      safe-empty-match-start; do
+      test_output_dir="${tmp_build_dir}/${test_output_name}"
+      if [[ -d "${test_output_dir}" ]]; then
+        cp -R "${test_output_dir}" "${diagnostics_dir}/${test_output_name}"
+      fi
+    done
+
+    echo "CTest diagnostics written to ${diagnostics_dir}" >&2
+    exit "${test_status}"
+  fi
+
+  rm -rf "${diagnostics_dir}"
 fi
 
 if [[ "${clean_output_dir}" == "ON" ]]; then
-  rm -rf "${workspace_dir}/${output_dir}"
+  rm -rf "${workspace_dir:?}/${output_dir}"
 fi
 mkdir -p "${workspace_dir}/${output_dir}"
 

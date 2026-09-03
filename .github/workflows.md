@@ -5,16 +5,19 @@
 - `Feature - Sanity check` starts for a pull request that targets `develop`.
 - The workflow checks out the pull request head commit on a self-hosted runner, with the event commit as a safe fallback outside pull request events.
 - The workflow pulls the `develop` Linux build image from GHCR.
-- The build compiles the game, runs configured `ctest` tests, and verifies `build/duel6r`.
+- The build compiles the game and runs the full configured `ctest` suite.
+- The workflow verifies `build/duel6r` after the tests pass.
 - The job needs `contents: read` and `packages: read` permissions.
-- The job does not create an artifact.
+- The job uploads CTest diagnostics only when the container preserves them after a test failure.
 - GitHub cancels an older run for the same pull request when a new run starts.
 
 ## Develop sanity
 
 - `Develop - Sanity` starts after a push to `develop`.
 - Self-hosted jobs build the checked-out Linux image.
-- The sanity job compiles the game, runs configured `ctest` tests, verifies output, and runs the main-menu smoke check.
+- The sanity job compiles the game and runs the full configured `ctest` suite.
+- The sanity job verifies output and runs the main-menu smoke check after the tests pass.
+- The sanity job uploads CTest diagnostics only when the container preserves them after a test failure.
 - The lint-equivalent job performs a Debug compilation and verifies output.
 - The tag job moves `sanity` after both build jobs succeed.
 - The tag job needs the `PAT_ACTIONS` secret and `contents: write` permission.
@@ -47,7 +50,7 @@
 - Self-hosted build steps must not bind mount `$PWD` or `GITHUB_WORKSPACE` into a build container.
 - `docker/run-with-daemon-workspace.sh` transfers the checkout through the Docker API with `docker cp`.
 - The helper confirms that the daemon-side container contains `/workspace/CMakeLists.txt` before it starts the build.
-- The helper copies `/workspace/build` back to `GITHUB_WORKSPACE/build` after the container stops.
+- The helper replaces `GITHUB_WORKSPACE/build` with `/workspace/build` after the container stops.
 - The runner must provide the Docker CLI and access to a Docker daemon.
 - The daemon must permit `docker create`, `docker cp`, `docker start`, and `docker rm` operations.
 - The runner needs enough local storage for one checkout copy and returned build output.
@@ -57,10 +60,11 @@
 ## Nightly and release paths
 
 - `Develop - Nightly Scheduler` dispatches `develop-nightly.yml` from the `sanity` tag.
+- The `sanity` tag identifies the exact source commit that passed `Develop - Sanity`.
 - `Develop - Nightly` builds Linux and Windows files on a self-hosted runner.
 - Both nightly builds use the Docker API workspace transfer helper.
 - The Windows build receives the Linux output and extends the shared bundle.
-- The nightly workflow runs configured Linux `ctest` tests.
+- The nightly workflow consumes the exact `sanity` commit and does not rerun application tests.
 - The workflow packages the shared Linux and Windows files as `duel6r-nightly.zip`.
 - The ZIP root contains the files from `build` without a `build` directory.
 - GitHub Actions uses a one-day transport artifact between the build and release jobs.
@@ -96,3 +100,4 @@
 - Check for the daemon workspace confirmation before you investigate CMake failures.
 - A missing confirmation indicates a checkout transfer or Docker API failure.
 - A missing `build/duel6r` after a successful container run indicates an output transfer or packaging failure.
+- A failed CTest run stores available logs and harness output in `build/ci-diagnostics`.

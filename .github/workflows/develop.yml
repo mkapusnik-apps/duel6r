@@ -24,6 +24,14 @@ jobs:
             -e RUN_TESTS=ON \
             duel6r-build:sanity
 
+      - name: Upload CTest diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ctest-diagnostics-sanity
+          path: build/ci-diagnostics/
+          if-no-files-found: ignore
+
       - name: Verify build output
         run: test -x build/duel6r
 

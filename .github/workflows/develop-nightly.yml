@@ -33,8 +33,8 @@ jobs:
       - name: Build Linux nightly files inside shared bundle
         run: |
           bash docker/run-with-daemon-workspace.sh \
-            -e BUILD_TESTING=ON \
-            -e RUN_TESTS=ON \
+            -e BUILD_TESTING=OFF \
+            -e RUN_TESTS=OFF \
             -e CLEAN_OUTPUT_DIR=ON \
             ghcr.io/${{ github.repository }}/build:develop
 

@@ -37,6 +37,7 @@ echo "Docker daemon workspace contains /workspace/CMakeLists.txt"
 run_status=0
 docker start --attach "${container_id}" || run_status=$?
 
+rm -rf "${workspace_dir:?}/build"
 mkdir -p "${workspace_dir}/build"
 copy_status=0
 docker cp "${container_id}:/workspace/build/." "${workspace_dir}/build" || copy_status=$?
