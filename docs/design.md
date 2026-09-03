@@ -387,9 +387,9 @@ The following values come from renderer and GUI source.
 - `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry.
 - The PR #59 `SS-001` and `SS-024` artifacts are historical because they show the prior person-action arrangement.
 - The PR #60 `SS-001` and `SS-024` artifacts are historical because they show the shorter Persons list, the higher person-name row, and the previous batch controller-detection caption.
-- PR #62 provides one current implementation screenshot for each existing `MENU-01` wireframe.
-- The supplied PR #62 `SS-001` and `SS-024` artifacts visually conform to the list-expansion, row-position, button-height, button-padding, naming, containment, hierarchy, and conditional-visibility requirements.
-- `SS-001` and `SS-024` have complete provenance and conform based on the focused UX assessment at exact pushed PR #62 head `316c43f99e2f0178b8581012393fd7ecd5353776`.
+- The PR #62 `SS-001` and `SS-024` artifacts are historical because they show `<<` in the Persons panel.
+- PR #65 provides current conforming evidence for the Teams `MENU-01` wireframe at `SS-024`.
+- `SS-001` is pending because the non-Team wireframe needs a current implementation screenshot after the PR #65 alignment change.
 - Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources

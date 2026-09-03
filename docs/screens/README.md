@@ -56,6 +56,10 @@ It expands the Persons list by one standard list row.
 It gives the person actions, roster-order actions, and batch controller-detection action one common button height with visible caption padding.
 It renames the batch controller-detection action to `Detect All` and keeps `D` for each row action.
 The refinement affects both `MENU-01` wireframes and does not add a screen or wireframe.
+The localized PR #65 refinement puts `Remove` at the bottom-left and `>>` at the bottom-right of Persons.
+It puts `<<` at the bottom-left and `Detect All` at the bottom-right of Players.
+It centers `Equalize` and `Shuffle` as one group in the available span between the Players edge controls.
+The refinement affects both `MENU-01` wireframes and does not add a screen or wireframe.
 
 | Screen ID | Screen or state | Specification | Wireframe | Functional requirements | Primary source |
 |---|---|---|---|---|---|

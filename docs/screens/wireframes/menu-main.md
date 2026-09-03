@@ -60,7 +60,7 @@ Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly F
 │        ││     │ Erin … Hana   │      │        ││… 6 more roster rows  ││               ││
 │        ││     │ additional standard list row    ││                      ││               ││
 │        ││[person name________________] [Add]   │                      ││               ││
-│        ││[Remove] [<<] [>>]                  │[Detect All]          ││               ││
+│        ││[Remove]                       [>>] │[<<]              [Detect All]││               ││
 │        │└─────────────────────────────────────┘└──────────────────────┘└───────────────┘│
 │        │ Name | Elo | Pts | Win | Kill | Assist | Pen | Death | K/D | Shot | Acc. | GmTm | Dmg│
 │        │┌──────────────── persistent statistics table ───────────────────┐│
@@ -76,7 +76,7 @@ Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly F
 `Equalize` and `Shuffle` must not appear in `MENU-01-A`.
 The hidden roster-order controls must not leave empty button frames or interaction targets.
 The layout must not reserve empty rows for the hidden controls.
-The person-action row must keep the same vertical position as it uses in `MENU-01-B`.
+The Persons and Players action rows must keep the same vertical positions as they use in `MENU-01-B`.
 Every roster row must use the standard non-Team list colors.
 The hidden values remain `4` and on for the current application session.
 The Cora row must show the standard selected-row treatment.
@@ -100,7 +100,7 @@ Representative setup: Select `Teams` with six selected players, `Num. of Team` s
 │        ││     │ Erin … Hana   │      │        ││… rows repeat colors  ││☑ Burnable Trees││
 │        ││     │ additional standard list row    ││                      ││               ││
 │        ││[person name________________] [Add]   │                      ││Rounds [value]  ││
-│        ││[Remove] [<<] [>>]                  │[Equalize] [Shuffle] [Detect All]│             ││
+│        ││[Remove]                       [>>] │[<<] [Equalize] [Shuffle] [Detect All]│             ││
 │        │└─────────────────────────────────────┘└──────────────────────┘└────────────────┘│
 │        │ Name | Elo | Pts | Win | Kill | Assist | Pen | Death | K/D | Shot | Acc. | GmTm | Dmg│
 │        │┌──────────────── persistent statistics table ───────────────────┐│
@@ -129,9 +129,16 @@ Selection feedback remains a documented state variant.
 - All Persons controls must remain inside `x=10–324`.
 - The person-name field and `Add` must use one row.
 - `Add` must be to the right of the person-name field.
-- `Remove`, `<<`, and `>>` must use a separate row below the person-name row.
-- The person-action row and the `Equalize` and `Shuffle` row must have the same vertical centerline.
-- The person-action row must not move when the roster-order controls become hidden.
+- `Remove` and `>>` must use a separate Persons action row below the person-name row.
+- `Remove` must align to the bottom-left of Persons.
+- `>>` must align to the bottom-right of Persons.
+- `<<` and `Detect All` must use the Players action row.
+- `<<` must align to the bottom-left of Players.
+- `Detect All` must align to the bottom-right of Players.
+- The Teams state must place `Equalize` and `Shuffle` as one horizontal group between `<<` and `Detect All`.
+- The roster-order group must have equal available space on its left and right, within normal integer-pixel rounding.
+- The Persons action row and the Players action row must have the same vertical centerline.
+- Neither action row must move when the roster-order controls become hidden.
 - The person-name row must move down by one standard list row from the PR #60 position.
 - The Persons list must fill the released space with one additional standard list row.
 - All player names, controller labels, spinner actions, and row actions must remain inside `x=330–644`.
@@ -199,7 +206,8 @@ Selection feedback remains a documented state variant.
 - The version must use the current runtime value and must not use the Stitch sample value.
 - Sample names and statistics must not become hard-coded UI content.
 - The empty-person variant must keep the `PERSONS` title and the `Rank`, `Name`, `Elo`, and `Trend` headings above an empty white list surface.
-- The empty-person variant must keep the person-name field and all four person actions.
+- The empty-person variant must keep the person-name field, `Add`, `Remove`, and `>>` in Persons.
+- The empty-person variant must keep `<<` and `Detect All` in Players.
 - The empty-person variant must not show placeholder copy.
 - A dataset with only unranked persons must show every person after the headings with empty Rank, Elo, and Trend cells.
 - An unlimited Deathmatch, Predator match, Team deathmatch, or early match exit must not move an unranked person into the ranked group.
@@ -220,8 +228,9 @@ Non-Team representative screenshot: [`SS-001`](../../screenshots/README.md#ss-00
 Teams representative screenshot: [`SS-024`](../../screenshots/README.md#ss-024).
 The PR #59 screenshots are historical because they show the prior person-action arrangement.
 The PR #60 Teams and non-Team artifacts are historical because they show the prior list height, person-name position, button geometry, and batch controller-detection caption.
-The PR #62 Teams and non-Team artifacts visually conform to these wireframes at production source `790c8b76f9e1f2c07260b466726db55bf83dc6db`.
-Both current artifacts have complete provenance and passed focused UX assessment at exact pushed PR #62 head `316c43f99e2f0178b8581012393fd7ecd5353776`.
+The PR #62 Teams and non-Team artifacts are historical because they show `<<` in Persons.
+The PR #65 Teams artifact conforms at unchanged production source `8eeb60061c32d4ecf1088e5bbf710b691bb76fb1`.
+The non-Team wireframe needs a replacement implementation screenshot for the PR #65 placement refinement.
 The historical baseline at [`default-1706x938.png`](../../screenshots/MENU-01/default-1706x938.png) is a reference for the unchanged retro controls and footer only.
 The historical baseline is not conformance evidence for the consolidated Persons list.
 Issue #38 must replace these screenshots when it implements the target footer variant.

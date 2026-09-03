@@ -37,13 +37,22 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The Players panel must use `x=330–644` and a width of 315 logical px.
 - The Game Settings panel must remain at `x=650–839` and a width of 190 logical px.
 - The layout must keep a 5-logical-pixel gap between each adjacent setup panel.
-- The Persons panel must contain one person list, the person-name field, `Add`, and a person-action row.
+- The Persons panel must contain one person list, the person-name field, `Add`, and a Persons action row.
 - The person-name field and `Add` must use one row below the person list.
 - `Add` must be to the right of the person-name field.
-- The person-action row must contain `Remove`, `<<`, and `>>`.
-- The person-action row must be below the person-name row.
-- The person-action row must align vertically with `Equalize` and `Shuffle` when those controls are visible.
-- The person-action row must keep the same position when `Equalize` and `Shuffle` are hidden.
+- The Persons action row must contain `Remove` and `>>`.
+- The Persons action row must be below the person-name row.
+- `Remove` must align to the bottom-left of the Persons panel.
+- `>>` must align to the bottom-right of the Persons panel.
+- The Players action row must contain `<<` and `Detect All` in every mode.
+- `<<` must align to the bottom-left of the Players panel.
+- `Detect All` must align to the bottom-right of the Players panel.
+- The Players action row must show `Equalize` and `Shuffle` between `<<` and `Detect All` when Teams is selected.
+- `Equalize` and `Shuffle` must form one horizontal group.
+- The roster-order group must be horizontally centered in the available span between `<<` and `Detect All`.
+- The edge controls and the roster-order group must not overlap.
+- The Persons and Players action rows must use one vertical centerline.
+- The action rows must keep the same position when `Equalize` and `Shuffle` are hidden.
 - Each Persons control must remain inside the Persons panel bounds.
 - A Persons control must not draw into a setup-panel gap or the Players region.
 - The person list must use the visible columns `Rank`, `Name`, `Elo`, and `Trend` in that order.
@@ -56,7 +65,7 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The person list must be the first and largest interactive element in the Persons panel.
 - The person list must show one additional standard list row compared with the PR #60 layout.
 - The person-name row must be one standard list row lower than in the PR #60 layout.
-- The person-name field, `Add`, and person-action row must remain below the person list.
+- The person-name field, `Add`, and Persons action row must remain below the person list.
 - The Players panel must contain the selected-player list, each player's control spinner, each player's `D` action, and the `Detect All` action in every mode.
 - The Players panel must show buttons labeled `Equalize` and `Shuffle` when `Teams` is selected.
 - The Players panel must hide `Equalize` and `Shuffle` when `Deathmatch` or `Predator` is selected.
@@ -177,7 +186,8 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - `Remove` must make no visible change when the selected person is in Players.
 - `Add` and Enter in the focused person-name field must retain the existing add behavior.
 - `Add` must remain in the person-name row.
-- `Remove`, `<<`, and `>>` must remain in the aligned person-action row in every mode.
+- `Remove` and `>>` must remain in the Persons action row in every mode.
+- `<<` must remain in the Players action row in every mode.
 - Enter must add a person when the person-name field has focus.
 - Enter must apply Rounds when the rounds field has focus.
 - Focus must clear the Rounds field immediately when the field shows exactly `0`.
@@ -210,6 +220,7 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - Rank and signed Trend text must reinforce the ordered position and score change without color.
 - A roster member must remain operable as a selected person row even when `>>` and `Remove` make no change.
 - The Players panel must provide the visible roster-membership cue.
+- The panel placement of `<<` must provide a spatial cue that it removes the selected roster entry from Players.
 - The current menu does not provide an inline reason when `>>` or `Remove` makes no change for a roster member.
 - The Burnable Trees control must use a visible text label and must not rely only on its checked state.
 - The `Num. of Team` and `Friendly Fire` labels must remain visible next to their controls in the Teams state.
@@ -234,8 +245,10 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 Required representative evidence: [`SS-001`](../screenshots/README.md#ss-001) for the non-Team wireframe and [`SS-024`](../screenshots/README.md#ss-024) for the Teams wireframe.
 Each capture must show the expanded person list and the person-name row one standard list row lower than in the PR #60 layout.
 Each capture must show the common action-button height, visible caption padding, `Detect All`, and row-level `D` captions.
-The non-Team capture must show no `Equalize` or `Shuffle` control and must keep the person-action row at the documented position.
-The Teams capture must show the full `Equalize` and `Shuffle` labels aligned with the person-action row.
+Each capture must show `Remove` and `>>` at the left and right edges of the Persons action row.
+Each capture must show `<<` and `Detect All` at the left and right edges of the Players action row.
+The non-Team capture must show no `Equalize` or `Shuffle` control and must keep both action rows at the documented position.
+The Teams capture must show the full `Equalize` and `Shuffle` labels as a centered group between the Players edge controls.
 The screen specification documents list-content, retention, and behavior variants without requiring another screenshot entry.
 Both current implementation captures must show the implemented three-action footer.
 Issue #38 must replace this evidence when it implements the target Network action.
