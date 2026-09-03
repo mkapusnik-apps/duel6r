@@ -424,6 +424,10 @@ namespace Duel6::Server::Authoritative {
             player.drowning = players[index].getAir() <= 0.0f;
             player.crouching = players[index].isKneeling();
             player.hasWeapon = players[index].hasGun();
+            player.facingLeft = players[index].getOrientation() == Orientation::Left;
+            player.invulnerable = players[index].isInvulnerable();
+            player.visible = players[index].getBonus() != BonusType::INVISIBILITY;
+            player.actionMask = heldInputsByPlayerId[definition.playerId];
             if (players[index].getBonus()) player.timedBonus = players[index].getBonus()->getName();
             player.statistics = statistics(players[index].getPerson());
             result.players.push_back(player);
@@ -571,6 +575,16 @@ namespace Duel6::Server::Authoritative {
                 || !fixedValue(fire.getPosition().y, entity.positionY)) return {};
             result.trees.push_back(entity); currentEntities.insert(entity.stableId);
         }
+        for (const Explosion &explosion: world.getExplosionList().values()) {
+            CanonicalEntitySnapshot entity;
+            entity.stableId = entityIdentity(7, explosion.stableId); entity.kind = "explosion";
+            entity.type = "explosion"; entity.active = true;
+            if (!fixedValue(explosion.centre.x, entity.positionX)
+                || !fixedValue(explosion.centre.y, entity.positionY)
+                || !fixedValue(explosion.now, entity.primaryValue)
+                || !fixedValue(explosion.max, entity.secondaryValue)) return {};
+            result.explosions.push_back(entity); currentEntities.insert(entity.stableId);
+        }
         CanonicalEntitySnapshot water;
         water.stableId = entityIdentity(6, 1); water.kind = "hazard"; water.type = "water";
         water.primaryValue = result.waterLevel; water.active = result.waterRaising;
@@ -593,7 +607,7 @@ namespace Duel6::Server::Authoritative {
         result.events = eventTrace;
         result.transitions = transitionTrace;
         for (const auto &collection: {&result.projectiles, &result.pickups, &result.elevators,
-                                     &result.hazards, &result.trees}) {
+                                     &result.hazards, &result.trees, &result.explosions}) {
             for (const auto &entity: *collection) {
                 digestValue(digest, entity.stableId); digestText(digest, entity.kind); digestText(digest, entity.type);
                 digestValue(digest, static_cast<std::uint64_t>(entity.positionX));
@@ -605,12 +619,13 @@ namespace Duel6::Server::Authoritative {
             }
         }
         const std::size_t entityCount = players.size() + result.projectiles.size() + result.pickups.size()
-                                        + result.elevators.size() + result.hazards.size() + result.trees.size();
-        if (entityCount > MaxCanonicalEntities || result.events.size() > MaxCanonicalEvents
+                                         + result.elevators.size() + result.hazards.size() + result.trees.size();
+        const std::size_t completeEntityCount = entityCount + result.explosions.size();
+        if (completeEntityCount > MaxCanonicalEntities || result.events.size() > MaxCanonicalEvents
             || result.transitions.size() > MaxCanonicalEvents) return {};
         result.valid = true;
         result.stateDigest = digest == 0 ? 1 : digest;
-        result.dynamicEntityCount = entityCount;
+        result.dynamicEntityCount = completeEntityCount;
         return result;
     }
 

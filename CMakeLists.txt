@@ -620,6 +620,8 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/network/NetworkTrustPolicy.h
         source/network/SessionTransport.cpp
         source/network/SessionTransport.h
+        source/network/StateReplication.cpp
+        source/network/StateReplication.h
         source/server/HeadlessServer.cpp
         source/server/HeadlessServer.h
         source/server/AuthoritativeMatch.cpp
@@ -633,6 +635,8 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/server/AuthoritativeMatchValidation.h
         source/server/AuthoritativeHostedMatchController.cpp
         source/server/AuthoritativeHostedMatchController.h
+        source/server/AuthoritativeReplication.cpp
+        source/server/AuthoritativeReplication.h
         source/server/FrozenGameplayConfig.cpp
         source/server/FrozenGameplayConfig.h
         source/server/DeterministicRandom.cpp

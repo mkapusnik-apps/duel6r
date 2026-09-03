@@ -1,0 +1,41 @@
+#ifndef DUEL6_SERVER_AUTHORITATIVEREPLICATION_H
+#define DUEL6_SERVER_AUTHORITATIVEREPLICATION_H
+
+#include <map>
+#include <optional>
+#include <set>
+#include <tuple>
+
+#include "AuthoritativeMatch.h"
+#include "../network/StateReplication.h"
+
+namespace Duel6::Server::Authoritative {
+    class AuthoritativeReplication final {
+    public:
+        explicit AuthoritativeReplication(Identity sessionId = 0);
+
+        bool setLobby(Identity hostParticipantId,
+                      std::vector<Network::Replication::ParticipantState> participants,
+                      std::vector<PlayerDefinition> roster, MatchConfig settings);
+        bool beginMatch(const AuthoritativeMatch &match);
+        std::optional<Network::Replication::IncrementalUpdate> capture(const AuthoritativeMatch &match);
+        std::optional<Network::Replication::FullSnapshot> fullSnapshot() const;
+        const Network::Replication::AuthoritativeStateReplicator &replicator() const noexcept;
+
+    private:
+        Network::Replication::StableIdentitySource identities;
+        Network::Replication::AuthoritativeStateReplicator publisher;
+        Network::Replication::CanonicalState state;
+        std::map<std::pair<Identity, std::uint64_t>, Identity> worldIdentities;
+        std::map<std::tuple<Identity, bool, std::uint64_t>, Identity> eventIdentities;
+        std::set<std::pair<Identity, std::uint64_t>> observedEvents;
+        std::set<std::pair<Identity, std::uint64_t>> observedTransitions;
+        std::uint8_t observedRound = 0;
+
+        bool updateFromMatch(const AuthoritativeMatch &match,
+                             std::vector<Network::Replication::PresentationEvent> &events);
+        Identity worldIdentity(Identity roundId, std::uint64_t canonicalIdentity);
+    };
+}
+
+#endif

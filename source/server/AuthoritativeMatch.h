@@ -67,6 +67,10 @@ namespace Duel6::Server::Authoritative {
         MatchPhase phase() const noexcept;
         Tick currentTick() const noexcept;
         const MatchConfig &frozenConfig() const noexcept;
+        std::vector<PlayerDefinition> rosterDefinitions() const;
+        std::uint32_t roundEndTicksRemaining() const noexcept;
+        std::map<Identity, PlayerStatistics> playerStatistics() const;
+        RoundResult currentRoundResult() const;
         const std::optional<SessionResult> &publishedResult() const noexcept;
         const TerminalOutcome &outcome() const noexcept;
         const RoundStartDecision &roundDecision() const noexcept;

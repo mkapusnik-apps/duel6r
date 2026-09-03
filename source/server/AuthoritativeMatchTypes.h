@@ -143,6 +143,10 @@ namespace Duel6::Server::Authoritative {
         std::string timedBonus;
         std::int64_t bonusRemaining = 0;
         std::int64_t temporarySlowdownRemaining = 0;
+        bool facingLeft = false;
+        bool invulnerable = false;
+        bool visible = true;
+        std::uint32_t actionMask = 0;
         PlayerStatistics statistics;
     };
 
@@ -183,6 +187,7 @@ namespace Duel6::Server::Authoritative {
         std::vector<CanonicalEntitySnapshot> elevators;
         std::vector<CanonicalEntitySnapshot> hazards;
         std::vector<CanonicalEntitySnapshot> trees;
+        std::vector<CanonicalEntitySnapshot> explosions;
         std::vector<CanonicalEvent> events;
         std::vector<CanonicalEvent> transitions;
         Tick worldTick = 0;
