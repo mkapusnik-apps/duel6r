@@ -229,8 +229,7 @@ Teams representative screenshot: [`SS-024`](../../screenshots/README.md#ss-024).
 The PR #59 screenshots are historical because they show the prior person-action arrangement.
 The PR #60 Teams and non-Team artifacts are historical because they show the prior list height, person-name position, button geometry, and batch controller-detection caption.
 The PR #62 Teams and non-Team artifacts are historical because they show `<<` in Persons.
-The PR #65 Teams artifact conforms at unchanged production source `8eeb60061c32d4ecf1088e5bbf710b691bb76fb1`.
-The non-Team wireframe needs a replacement implementation screenshot for the PR #65 placement refinement.
+The current PR #69 Teams and non-Team artifacts conform at assessment head `f4708d337bb82be55c553c64608bd75ccd64121f`.
 The historical baseline at [`default-1706x938.png`](../../screenshots/MENU-01/default-1706x938.png) is a reference for the unchanged retro controls and footer only.
 The historical baseline is not conformance evidence for the consolidated Persons list.
 Issue #38 must replace these screenshots when it implements the target footer variant.
