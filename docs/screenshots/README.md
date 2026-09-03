@@ -149,13 +149,15 @@ The corrected PR #55 round-summary progress artifact has this provenance:
 - Artifact path: `OVER-02/resumed-round-3-of-5-1280x900.png` under this directory.
 - Assessment status: UX confirmed visual conformance for corrected `UI-RND-010` and `AC-044` at exact pull request head `4e5c9e6945b33a4d5911fdb7ea944d544f31a9f8` on 2026-08-31. Temporal restoration of top-center progress in the next active round remains tester evidence and does not require another screenshot.
 
-The PR #57 Team score-overview packet has this provenance:
+The historical PR #57 Team score-overview packet has this provenance:
+
+This packet is superseded by the PR #69 replacement packet. Its `SS-010` and `SS-011` hashes and conformance assessment apply only to the historical PR #57 artifacts and are not current evidence.
 
 - Pull request: `#57`.
 - Branch: `feature/scoreboard-visual-improvement`.
 - Rendering source SHA: `98b8f80aca8d15a66011a8f62cdf4862898e9df0`.
 - Final screenshot packet and documentation head: `05a678bf36816979ae95bcc5e4b809afb23fb28d`.
-- Freshness note: the final documentation commit does not change the renderer from the rendering source SHA.
+- Historical freshness note: the final PR #57 documentation commit did not change the renderer from the rendering source SHA.
 - Worktree state: tracked files were clean at the rendering source SHA before capture; ignored Docker build output and the local capture harness were present.
 - Environment: Release, GL4, Lua enabled, Ubuntu 24.04 Docker image `duel6r-build:local`, Mesa software rendering, Xvfb at 1280 by 900 by 24, and dummy SDL audio.
 - Shared runtime setup: eight saved people `P01` through `P08` with non-zero persistent K, A, D, K/D, and PTS inputs; all eight selected; four-team Team deathmatch; two nested players in each of Alpha, Bravo, Charlie, and Delta; Quick Liquid off; configured five-round match resumed with two completed rounds; deterministic isolated-platform level and profile scripts that leave Alpha alive while the other teams enter the water.
@@ -168,8 +170,8 @@ The PR #57 Team score-overview packet has this provenance:
 - Automated capture assertions: both artifacts contain four distinct Team group rows and three separator rules with the documented table-width coverage and centered 2 px geometry.
 - Assessment source: the two raw artifacts at final screenshot packet and documentation head `05a678bf36816979ae95bcc5e4b809afb23fb28d`.
 - Visual assessment: both artifacts conform to `docs/design.md`, the applicable screen specifications, and the `OVER-01` and `OVER-02` wireframes. Each artifact shows three full-table-width 2 px white rules at 70% opacity, centered in separate 8 px bands with 3 px clear space above and below. Each artifact keeps every team row adjacent to its two player rows and omits a trailing separator. Score content remains readable and aligned. `SS-010` keeps active arena progress and has no winner curtain. `SS-011` keeps the dedicated right-aligned `Rounds: 3|5` row, hides arena progress, and keeps the winner curtain.
-- Evidence status: both artifacts conform and have complete required provenance.
-- Visual gate: `Satisfied`.
+- Historical evidence status: both artifacts conformed and had complete required provenance at packet head `05a678bf36816979ae95bcc5e4b809afb23fb28d`.
+- Historical visual gate: `Satisfied` at the PR #57 packet head. This status does not apply to the current matrix artifacts.
 
 The PR #54 consolidated Teams evidence was assessed with this setup:
 
@@ -406,6 +408,7 @@ The PR #69 canonical refresh uses these two provenance packets:
 - Pull request: `#69`.
 - Implementation branch: `docs/refresh-canonical-screenshots`.
 - Final assessment head: `f4708d337bb82be55c553c64608bd75ccd64121f`.
+- Current hash-verification head: `dee7e05660f448fc6a558c9f9c8b6009805c1e9f`.
 - First screenshot artifact commit: `4517a3c`.
 - First packet capture source SHA: `15606304305a7b43b2032f2d5c6c98f1c4245a7d`.
 - First packet entries: `SS-001`, `SS-024`, `SS-003`, `SS-007`, `SS-008`, and `SS-014`.
@@ -416,6 +419,12 @@ The PR #69 canonical refresh uses these two provenance packets:
 - Selected menu background: `forest-foundry.png`.
 - Runtime asset Git tree: `399c8a8bdddd86e526e8811ae2da2461d9229866`.
 - `SS-007` state: Bravo is the predator.
+- `SS-001` SHA-256: `b8e27a9390294aeb1bb6c31d40843e680a0ac4a45ed9fa96fb4af5b48f0a604b`.
+- `SS-024` SHA-256: `eca1697b5ea69f7d7034e0df1b8c25c48215f4434c90a5ea384bfd2ad454f182`.
+- `SS-003` SHA-256: `4142e5432d29b78413a2febdc207f2b08f9c2f9d4b23cb43e89d3116cf1c39b2`.
+- `SS-007` SHA-256: `cee68ed2c71fc5144c25f26eeb8d9192cde507ac3692e9c3f6d114241d965b5f`.
+- `SS-008` SHA-256: `898e538e2c73aba9ec4758d69f0d0508149b0f6943b3f6d4ddcfcc7a842963b3`.
+- `SS-014` SHA-256: `2aad38e15b0ed0057768320938e9ee7cdd4848d45dff7d4a36b7710a126849e5`.
 - Final replacement artifact commit: `e8fd7a8`.
 - Final replacement capture source SHA: `2475af83246a98ef2334f6d6fc90a9e943374eff`.
 - Final replacement entries: `SS-009`, `SS-010`, `SS-011`, and `SS-012`.
@@ -425,6 +434,7 @@ The PR #69 canonical refresh uses these two provenance packets:
 - `SS-010` SHA-256: `f916ef240e4ac39dff93abc7a2e742aa070ec7414f7e13f218f00f61bd2cc4bc`.
 - `SS-011` SHA-256: `33847eebcc00b1e23ab0d7bb2a1eeff879a2575ee13e46401ec18a8292f8158e`.
 - `SS-012` SHA-256: `e8981233c251b337f7ef53e2f4486b4c5e49d48b6c32cd83172c6cff928e9098`.
+- Exact-byte verification: all ten recorded SHA-256 values match their matrix destination artifacts at current hash-verification head `dee7e05660f448fc6a558c9f9c8b6009805c1e9f`.
 - Source correction `2475af83246a98ef2334f6d6fc90a9e943374eff` restores the separator-free final-summary behavior.
 - Tester behavior coverage is integrated at final assessment head `f4708d337bb82be55c553c64608bd75ccd64121f`.
 - Assessment status: all ten implemented artifacts conform to the canonical design system, screen specifications, and wireframes.
