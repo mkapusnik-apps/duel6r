@@ -3,12 +3,13 @@
 Representative viewport: 1280 by 900 debug client.
 This representative state is a non-final Team deathmatch result after the next round of a resumed match.
 The match resumes with two completed rounds and shows the result after round 3 of 5.
-The result retains the undivided shared arena and adds the winner curtain and score panel.
+The result retains the undivided shared arena and adds the animated winner-curtain sequence and score panel.
+The current representative screenshot shows the opening phase of the curtain fade.
 The panel is the only visible round-count location in this state.
 The screen has no mobile layout, so this single desktop wireframe covers the target overlay.
 
 ```text
-┌───────────────── undivided shared arena under dark red curtain ────────────────┐
+┌──────────── undivided shared arena under animated dark red curtain ────────────┐
 │ winner event text                                      [no arena round count]   │
 │                                                                                │
 │              ┌────────────────────────────────────────────┐                    │
@@ -43,6 +44,7 @@ The outer panel uses 16 px horizontal padding and 32 px vertical padding around 
 The representative panel adds one 32 px progress row without changing score-table row spacing.
 The top-center arena progress is hidden from the first summary frame through the last summary frame.
 The top-center arena progress returns in the first visible frame of the next active round.
+The curtain must continue to fade toward the documented dark red treatment after the opening phase.
 The representative state uses four teams and two nested players per team.
 Each team row touches its nested player rows without an internal gap.
 Each adjacent group boundary uses an 8 px band.

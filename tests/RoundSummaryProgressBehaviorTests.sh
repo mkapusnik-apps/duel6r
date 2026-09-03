@@ -135,7 +135,10 @@ start_scenario() {
         export HOME="${scenario_dir}/home"
         export XDG_CACHE_HOME="$HOME/.cache" XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share"
         cd "$runtime_dir"
-        timeout --kill-after=3s 45s ./duel6r "rounds $rounds" "start_ammo_range 0 0" \
+        # A software-rendered container can need nearly 45 seconds to reach
+        # the deterministic winner. Keep the process guard outside that valid
+        # path so it cannot replace the second summary observation with black.
+        timeout --kill-after=3s 75s ./duel6r "rounds $rounds" "start_ammo_range 0 0" \
             >"${scenario_dir}/app.stdout" 2>"${scenario_dir}/app.stderr"
     ) &
     app_pid="$!"

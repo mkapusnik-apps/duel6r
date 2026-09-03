@@ -11,7 +11,7 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 ## Layout and hierarchy
 
 - The overlay must match [`overlay-round-over.md`](wireframes/overlay-round-over.md).
-- The arena must remain visible behind a dark red curtain.
+- The arena must remain visible behind an animated dark red curtain.
 - The arena must remain one undivided shared view.
 - The centered score panel must use the same structure as the score-tab overlay.
 - The score panel must align its horizontal and vertical center to the client center.

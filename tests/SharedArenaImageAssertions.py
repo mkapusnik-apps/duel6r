@@ -152,13 +152,13 @@ def assert_live_ranking(data, without_ranking, label, players, teams):
     return groups
 
 
-def score_geometry(players, teams):
+def score_geometry(players, teams, team_separators=True):
     rows = players + teams
     longest = 3
     if teams:
         longest = max(longest, len(("Alpha", "Bravo", "Charlie", "Delta")[teams - 1]))
     width = (longest + 6 + 20) * 16
-    separator_height = 8 if teams else 0
+    separator_height = 8 if teams and team_separators else 0
     height = 96 + 32 * rows + separator_height * max(0, teams - 1)
     first_y = 530 - height // 2
     if not teams:
@@ -186,8 +186,24 @@ def assert_team_separators(data, label, left, width, separators):
             )
 
 
-def assert_score_overlay(data, label, players, teams):
-    geometry = score_geometry(players, teams)
+def assert_no_team_separators(data, label, left, width, parent_rows):
+    for index in range(1, len(parent_rows)):
+        # With separator treatment, the rule is five pixels above the next
+        # parent row. Final Team summaries retain directly adjacent 32 px rows
+        # and must not contain that full-table-width rule or its 8 px band.
+        separator_y = parent_rows[index][0] - 5
+        values = region_pixels(data, left, separator_y, left + width, separator_y + 2)
+        coverage = fraction(
+            values, lambda rgb: min(rgb) >= 165 and max(rgb) - min(rgb) <= 85)
+        if coverage >= 0.85:
+            fail(
+                f"{label}: final Team summary retained separator {index}: "
+                f"coverage={coverage:.3f}"
+            )
+
+
+def assert_score_overlay(data, label, players, teams, team_separators=True):
+    geometry = score_geometry(players, teams, team_separators)
     left, width = geometry[:2]
     rows = players + teams
     groups = []
@@ -218,10 +234,13 @@ def assert_score_overlay(data, label, players, teams):
         groups = [band[2] for band in parent_rows]
         if len(groups) != teams or len(set(groups)) != teams:
             fail(f"{label}: expected {teams} score group headers, got {groups}")
-        separators = [parent_rows[index][0] - 5 for index in range(1, len(parent_rows))]
-        if len(separators) != teams - 1:
-            fail(f"{label}: expected {teams - 1} separator positions, got {separators}")
-        assert_team_separators(data, label, left, width, separators)
+        if team_separators:
+            separators = [parent_rows[index][0] - 5 for index in range(1, len(parent_rows))]
+            if len(separators) != teams - 1:
+                fail(f"{label}: expected {teams - 1} separator positions, got {separators}")
+            assert_team_separators(data, label, left, width, separators)
+        else:
+            assert_no_team_separators(data, label, left, width, parent_rows)
         header_y = (parent_rows[0][0] + parent_rows[0][1]) // 2 - 64
 
     header = region_median(data, WIDTH // 2 - 80, header_y - 8,
@@ -238,6 +257,7 @@ def main():
     parser.add_argument("players", type=int)
     parser.add_argument("teams", type=int)
     parser.add_argument("--score", action="store_true")
+    parser.add_argument("--final-score", action="store_true")
     parser.add_argument("--viewport-only", action="store_true")
     parser.add_argument("--without-ranking")
     args = parser.parse_args()
@@ -247,9 +267,10 @@ def main():
     if args.viewport_only:
         print(f"{args.label}: viewport dividers={horizontal}/{vertical} "
               f"edge={edge_count}/{edge_total}")
-    elif args.score:
+    elif args.score or args.final_score:
         groups, header = assert_score_overlay(
-            data, args.label, args.players, args.teams)
+            data, args.label, args.players, args.teams,
+            team_separators=not args.final_score)
         print(f"{args.label}: score-rows={args.players + args.teams} groups={groups} "
               f"header={header} dividers={horizontal}/{vertical} edge={edge_count}/{edge_total}")
     else:
