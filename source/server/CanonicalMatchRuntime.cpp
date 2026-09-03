@@ -12,6 +12,7 @@
 #include "../GameResources.h"
 #include "../GameSettings.h"
 #include "../ElevatorList.h"
+#include "../Explosion.h"
 #include "../Level.h"
 #include "../Player.h"
 #include "../Weapon.h"
