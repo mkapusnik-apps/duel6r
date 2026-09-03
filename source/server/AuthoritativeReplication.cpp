@@ -71,13 +71,31 @@ namespace Duel6::Server::Authoritative {
         return publisher.initialize(state);
     }
 
-    bool AuthoritativeReplication::beginMatch(const AuthoritativeMatch &match) {
-        if (publisher.version() == 0 || state.matchId != 0 || match.phase() == MatchPhase::Lobby) return false;
+    std::optional<R::IncrementalUpdate> AuthoritativeReplication::updateLobby(
+            std::vector<R::ParticipantState> participants, std::vector<PlayerDefinition> roster,
+            MatchConfig settings) {
+        if (publisher.version() == 0 || state.phase != R::Phase::Lobby || state.matchId != 0)
+            return std::nullopt;
+        state.participants = std::move(participants); state.settings = replicatedSettings(settings);
+        state.players.clear(); state.score.players.clear(); state.score.ranking.clear();
+        for (const auto &entry: roster) {
+            R::PlayerState player;
+            player.playerId = entry.playerId; player.ownerParticipantId = entry.participantId;
+            player.rosterPosition = entry.rosterOrder; player.displayName = entry.displayName;
+            player.life = MaximumLife; player.lifeState = R::LifeState::Alive;
+            state.players.push_back(std::move(player)); state.score.ranking.push_back(entry.playerId);
+        }
+        return publisher.publish(state);
+    }
+
+    std::optional<R::IncrementalUpdate> AuthoritativeReplication::beginMatch(const AuthoritativeMatch &match) {
+        if (publisher.version() == 0 || state.matchId != 0 || match.phase() == MatchPhase::Lobby)
+            return std::nullopt;
         state.matchId = identities.issue(R::IdentityCategory::Match);
-        if (state.matchId == 0) return false;
+        if (state.matchId == 0) return std::nullopt;
         std::vector<R::PresentationEvent> events;
-        if (!updateFromMatch(match, events)) return false;
-        return publisher.publish(state, std::move(events)).has_value();
+        if (!updateFromMatch(match, events)) return std::nullopt;
+        return publisher.publish(state, std::move(events));
     }
 
     Identity AuthoritativeReplication::worldIdentity(Identity roundId, std::uint64_t canonicalIdentity) {
