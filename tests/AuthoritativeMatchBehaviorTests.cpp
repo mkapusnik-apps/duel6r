@@ -8,10 +8,12 @@
 #include "source/server/AuthoritativeHostedMatchController.h"
 #include "source/server/AuthoritativeMatchSerialization.h"
 #include "source/server/AuthoritativeMatchValidation.h"
+#include "source/network/StateReplicationProtocol.h"
 #include "tests/TestHarness.h"
 
 namespace {
 using namespace Duel6::Server::Authoritative;
+namespace R = Duel6::Network::Replication;
 
 std::vector<PlayerDefinition> roster(std::size_t count = 4) {
     std::vector<PlayerDefinition> result;
@@ -54,6 +56,30 @@ void eliminate(AuthoritativeMatch &match, std::uint64_t &sequence, const PlayerD
 
 void finishDelay(AuthoritativeMatch &match) {
     for (std::uint32_t i = 0; i < RoundEndTotalTicks; ++i) match.advanceOneTick();
+}
+
+std::vector<R::CanonicalState> deliveredStates(const std::vector<std::vector<std::uint8_t>> &payloads) {
+    R::ReplicatedState client;
+    std::vector<R::CanonicalState> result;
+    for (const auto &payload: payloads) {
+        const auto frame = R::deserializeReplicationFrame(payload);
+        D6R_REQUIRE(frame.has_value());
+        R::ApplyResult applied = R::ApplyResult::Invalid;
+        if (frame->snapshot) applied = client.apply(*frame->snapshot);
+        else if (frame->update) applied = client.apply(*frame->update);
+        else continue;
+        D6R_REQUIRE(applied == R::ApplyResult::Applied);
+        D6R_REQUIRE(client.state() != nullptr);
+        result.push_back(*client.state());
+    }
+    return result;
+}
+
+const R::CanonicalState *lastPhase(const std::vector<R::CanonicalState> &states, R::Phase phase) {
+    const auto found = std::find_if(states.rbegin(), states.rend(), [phase](const auto &state) {
+        return state.phase == phase;
+    });
+    return found == states.rend() ? nullptr : &*found;
 }
 
 D6R_TEST_CASE("AHM mode matrix completes with documented winner and team assignment") {
@@ -423,6 +449,99 @@ D6R_TEST_CASE("AHM terminal results are atomic and cleanup controls exit meaning
     D6R_REQUIRE_EQ(ActionResult::RuntimeFailed, failed.submit({0, 1, 1, 0, ActionKind::RuntimeFailure, 0, 0, 0}));
     D6R_REQUIRE_EQ(3, failed.outcome().exitStatus);
     D6R_REQUIRE(!failed.publishedResult());
+}
+
+D6R_TEST_CASE("REP-017 NET-AC-018 completed hosted match publishes final summary then cleared-readiness lobby and clears result on new match") {
+    auto requested = config();
+    const auto players = roster(2);
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}}};
+    AuthoritativeHostedMatchController controller(1);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> payloads;
+    D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+        payloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+    eliminate(*controller.match(), sequence, players[0], players[1]);
+    finishDelay(*controller.match());
+    D6R_REQUIRE(controller.observeMatchOutcome());
+
+    const auto resultStates = deliveredStates(payloads);
+    const auto *finalSummary = lastPhase(resultStates, R::Phase::FinalSummary);
+    const auto *followingLobby = lastPhase(resultStates, R::Phase::Lobby);
+    const bool finalRetained = finalSummary && finalSummary->result.available
+                               && finalSummary->result.state == "Completed"
+                               && finalSummary->score.winner.winnerPlayerIds == std::vector<R::Identity>{101};
+    const bool lobbyRetained = followingLobby && followingLobby->result.available
+                               && followingLobby->result.state == "Completed"
+                               && followingLobby->score.winner.winnerPlayerIds == std::vector<R::Identity>{101};
+    const std::string lifecycle = "final=" + std::string(finalRetained ? "true" : "false")
+            + ";lobby=" + (lobbyRetained ? "true" : "false")
+            + ";stage-lobby=" + (controller.stage() == HostedMatchStage::Lobby ? "true" : "false")
+            + ";ready-cleared=" + (!controller.participantReady(1) && !controller.participantReady(2)
+                                      ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string("final=true;lobby=true;stage-lobby=true;ready-cleared=true"), lifecycle);
+
+    D6R_REQUIRE(controller.setParticipantReady(1, true));
+    D6R_REQUIRE(controller.setParticipantReady(2, true));
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    const auto newMatchStates = deliveredStates(payloads);
+    const auto *newMatch = lastPhase(newMatchStates, R::Phase::ActiveRound);
+    D6R_REQUIRE(newMatch != nullptr);
+    D6R_REQUIRE(!newMatch->result.available);
+    D6R_REQUIRE(newMatch->result.serialized.empty());
+    D6R_REQUIRE(newMatch->matchId != finalSummary->matchId);
+}
+
+D6R_TEST_CASE("REP-017 NET-AC-018 interrupted hosted match goes directly to cleared-readiness lobby with completed result retained") {
+    auto requested = config();
+    requested.roundLimit = 3;
+    const auto players = roster(2);
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}}};
+    AuthoritativeHostedMatchController controller(1);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> payloads;
+    D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+        payloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+    eliminate(*controller.match(), sequence, players[0], players[1]);
+    finishDelay(*controller.match());
+    D6R_REQUIRE_EQ(ActionResult::Accepted,
+            controller.match()->submit(action(*controller.match(), sequence++, 1, 0,
+                                               ActionKind::RemovePlayer, 102)));
+    D6R_REQUIRE_EQ(OutcomeCode::InterruptedNoWinner, controller.match()->outcome().code);
+    D6R_REQUIRE(controller.observeMatchOutcome());
+
+    const auto states = deliveredStates(payloads);
+    const auto *followingLobby = lastPhase(states, R::Phase::Lobby);
+    D6R_REQUIRE(followingLobby != nullptr);
+    const bool retained = followingLobby->result.available
+                          && followingLobby->result.state == "Interrupted"
+                          && followingLobby->score.winner.noWinner
+                          && followingLobby->completedRounds == 1
+                          && followingLobby->round
+                          && followingLobby->round->outcome.winnerPlayerIds == std::vector<R::Identity>{101};
+    const bool replicatedReadinessCleared = std::all_of(
+            followingLobby->participants.begin(), followingLobby->participants.end(),
+            [](const auto &participant) { return !participant.ready; });
+    const std::string lifecycle = "retained=" + std::string(retained ? "true" : "false")
+            + ";stage-lobby=" + (controller.stage() == HostedMatchStage::Lobby ? "true" : "false")
+            + ";controller-ready-cleared="
+            + (!controller.participantReady(1) && !controller.participantReady(2) ? "true" : "false")
+            + ";replicated-ready-cleared=" + (replicatedReadinessCleared ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string(
+            "retained=true;stage-lobby=true;controller-ready-cleared=true;replicated-ready-cleared=true"), lifecycle);
 }
 
 D6R_TEST_CASE("AHM hosted End authorization is bound only to the frozen host identity") {

@@ -262,6 +262,8 @@ namespace Duel6::Network::Replication {
         bool resynchronizing = false;
         std::set<Identity> acceptedParticipantIdentities;
         std::set<Identity> acceptedPlayerIdentities;
+        std::set<Identity> acceptedMatchIdentities;
+        std::set<Identity> acceptedRoundIdentities;
         Identity highestEntityIdentity = 0;
         Identity highestPresentedEvent = 0;
         std::vector<PresentationEvent> pendingEvents;

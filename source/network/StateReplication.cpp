@@ -192,6 +192,19 @@ namespace Duel6::Network::Replication {
             return (!left && !right) || (left && right && left->roundId == right->roundId);
         }
 
+        bool validMatchTransition(const CanonicalState &before, const CanonicalState &after,
+                                  const std::set<Identity> &issued) {
+            if (before.matchId == after.matchId) return true;
+            return before.phase == Phase::Lobby && after.phase == Phase::ActiveRound
+                   && after.matchId != 0 && !issued.count(after.matchId);
+        }
+
+        bool validRoundTransition(const CanonicalState &before, const CanonicalState &after,
+                                  const std::set<Identity> &issued) {
+            if (sameRound(before.round, after.round)) return true;
+            return !after.round || !issued.count(after.round->roundId);
+        }
+
         bool hasEntity(const CanonicalState &state, Identity identity) {
             return identity == 0 || std::any_of(state.entities.begin(), state.entities.end(), [identity](const auto &entity) {
                 return entity.entityId == identity;
@@ -206,9 +219,10 @@ namespace Duel6::Network::Replication {
                 return std::any_of(before.players.begin(), before.players.end(), present)
                        || std::any_of(after.players.begin(), after.players.end(), present);
             };
-            const bool transientEntityEvent = event.type == "shot" || event.type == "hit"
-                                              || event.type == "damage" || event.type == "death"
-                                              || event.type == "kill" || event.type == "assist";
+            const bool transientEntityEvent = event.type == "shot-fired" || event.type == "shot-hit"
+                                               || event.type == "player-life-changed"
+                                               || event.type == "player-died"
+                                               || event.type == "player-killed";
             return hasPlayer(event.playerId) && hasPlayer(event.targetPlayerId)
                     && (hasEntity(before, event.entityId) || hasEntity(after, event.entityId)
                         || (event.entityId != 0 && transientEntityEvent));
@@ -564,13 +578,24 @@ namespace Duel6::Network::Replication {
         for (const auto &participant: snapshot.state.participants)
             nextAcceptedParticipants.insert(participant.participantId);
         for (const auto &player: snapshot.state.players) nextAcceptedPlayers.insert(player.playerId);
+        auto nextAcceptedMatches = acceptedMatchIdentities;
+        auto nextAcceptedRounds = acceptedRoundIdentities;
+        if (accepted && (!validMatchTransition(*accepted, snapshot.state, nextAcceptedMatches)
+                         || !validRoundTransition(*accepted, snapshot.state, nextAcceptedRounds)))
+            return ApplyResult::Invalid;
+        if (snapshot.state.matchId) nextAcceptedMatches.insert(snapshot.state.matchId);
+        if (snapshot.state.round) nextAcceptedRounds.insert(snapshot.state.round->roundId);
         if (nextAcceptedParticipants.size() > MaxReplicatedIdentityHistory
-            || nextAcceptedPlayers.size() > MaxReplicatedIdentityHistory) return ApplyResult::Invalid;
+            || nextAcceptedPlayers.size() > MaxReplicatedIdentityHistory
+            || nextAcceptedMatches.size() > MaxReplicatedIdentityHistory
+            || nextAcceptedRounds.size() > MaxReplicatedIdentityHistory) return ApplyResult::Invalid;
         nextHighestEntities = std::max(nextHighestEntities, highestIdentity(
                 snapshot.state.entities, [](const auto &value) { return value.entityId; }));
         accepted = snapshot.state; acceptedVersion = snapshot.version;
         acceptedParticipantIdentities = std::move(nextAcceptedParticipants);
         acceptedPlayerIdentities = std::move(nextAcceptedPlayers);
+        acceptedMatchIdentities = std::move(nextAcceptedMatches);
+        acceptedRoundIdentities = std::move(nextAcceptedRounds);
         highestEntityIdentity = nextHighestEntities;
         pendingEvents.clear();
         resynchronizing = false;
@@ -596,6 +621,8 @@ namespace Duel6::Network::Replication {
         CanonicalState candidate = *accepted;
         auto nextAcceptedParticipants = acceptedParticipantIdentities;
         auto nextAcceptedPlayers = acceptedPlayerIdentities;
+        auto nextAcceptedMatches = acceptedMatchIdentities;
+        auto nextAcceptedRounds = acceptedRoundIdentities;
         auto nextHighestEntities = highestEntityIdentity;
         if (!applyChanges(candidate.participants, update.participants, nextAcceptedParticipants,
                            [](const auto &value) { return value.participantId; })
@@ -608,6 +635,12 @@ namespace Duel6::Network::Replication {
         candidate.phaseTime = update.phaseTime; candidate.roundEndCountdown = update.roundEndCountdown;
         candidate.settings = update.settings; candidate.round = update.round; candidate.score = update.score;
         candidate.messages = update.messages; candidate.effects = update.effects; candidate.result = update.result;
+        if (!validMatchTransition(*accepted, candidate, nextAcceptedMatches)
+            || !validRoundTransition(*accepted, candidate, nextAcceptedRounds)) return rejectIncremental();
+        if (candidate.matchId) nextAcceptedMatches.insert(candidate.matchId);
+        if (candidate.round) nextAcceptedRounds.insert(candidate.round->roundId);
+        if (nextAcceptedMatches.size() > MaxReplicatedIdentityHistory
+            || nextAcceptedRounds.size() > MaxReplicatedIdentityHistory) return rejectIncremental();
         const bool roundChanged = !sameRound(accepted->round, candidate.round);
         if (roundChanged) {
             std::set<Identity> priorEntities;
@@ -628,6 +661,8 @@ namespace Duel6::Network::Replication {
         accepted = std::move(candidate); acceptedVersion = update.version;
         acceptedParticipantIdentities = std::move(nextAcceptedParticipants);
         acceptedPlayerIdentities = std::move(nextAcceptedPlayers);
+        acceptedMatchIdentities = std::move(nextAcceptedMatches);
+        acceptedRoundIdentities = std::move(nextAcceptedRounds);
         highestEntityIdentity = nextHighestEntities;
         for (const auto &event: update.events) highestPresentedEvent = std::max(highestPresentedEvent, event.eventId);
         pendingEvents = update.events;

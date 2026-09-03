@@ -25,6 +25,7 @@ namespace Duel6::Server::Authoritative {
                 Identity participantId, Network::Replication::ConnectionState connection);
         std::optional<Network::Replication::IncrementalUpdate> beginMatch(const AuthoritativeMatch &match);
         std::optional<Network::Replication::IncrementalUpdate> capture(const AuthoritativeMatch &match);
+        std::optional<Network::Replication::IncrementalUpdate> enterFollowingLobby();
         std::optional<Network::Replication::FullSnapshot> fullSnapshot() const;
         const Network::Replication::AuthoritativeStateReplicator &replicator() const noexcept;
 

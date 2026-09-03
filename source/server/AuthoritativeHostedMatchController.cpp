@@ -192,8 +192,20 @@ namespace Duel6::Server::Authoritative {
             currentStage = HostedMatchStage::UnexpectedStop;
         } else if (activeMatch->outcome().code != OutcomeCode::None) {
             const TerminalOutcome stopped = activeMatch->shutdown();
-            currentStage = stopped.code == OutcomeCode::ShutdownFailed
-                           ? HostedMatchStage::UnexpectedStop : HostedMatchStage::Ended;
+            if (stopped.code == OutcomeCode::ShutdownFailed) currentStage = HostedMatchStage::UnexpectedStop;
+            else {
+                if (activeMatch->outcome().code == OutcomeCode::Completed) {
+                    const auto lobby = replication.enterFollowingLobby();
+                    if (!lobby) {
+                        currentStage = HostedMatchStage::UnexpectedStop;
+                        return false;
+                    }
+                    (void) replicationConnections.broadcast(*lobby);
+                }
+                clearReadiness();
+                activeMatch.reset();
+                currentStage = HostedMatchStage::Lobby;
+            }
         }
         return true;
     }

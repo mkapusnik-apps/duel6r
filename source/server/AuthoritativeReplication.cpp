@@ -122,11 +122,18 @@ namespace Duel6::Server::Authoritative {
     }
 
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::beginMatch(const AuthoritativeMatch &match) {
-        if (publisher.version() == 0 || state.matchId != 0 || match.phase() == MatchPhase::Lobby)
+        if (publisher.version() == 0 || state.phase != R::Phase::Lobby || match.phase() == MatchPhase::Lobby)
             return std::nullopt;
         const AuthoritativeReplication before = *this;
         state.matchId = identities.issue(R::IdentityCategory::Match);
         if (state.matchId == 0) { *this = before; return std::nullopt; }
+        state.result = {};
+        state.round.reset();
+        state.score = {};
+        observedRound = 0;
+        worldIdentities.clear();
+        highestObservedEventSequence = 0;
+        highestObservedTransitionSequence = 0;
         std::vector<R::PresentationEvent> events;
         if (!updateFromMatch(match, events)) { *this = before; return std::nullopt; }
         auto update = publisher.publish(state, std::move(events));
@@ -406,6 +413,22 @@ namespace Duel6::Server::Authoritative {
         std::vector<R::PresentationEvent> events;
         if (!updateFromMatch(match, events)) { *this = before; return std::nullopt; }
         auto update = publisher.publish(state, std::move(events));
+        if (!update) *this = before;
+        return update;
+    }
+
+    std::optional<R::IncrementalUpdate> AuthoritativeReplication::enterFollowingLobby() {
+        if (publisher.version() == 0 || state.phase != R::Phase::FinalSummary || !state.result.available)
+            return std::nullopt;
+        const AuthoritativeReplication before = *this;
+        state.phase = R::Phase::Lobby;
+        state.messages.status = "lobby";
+        state.messages.scoreSummaryVisible = false;
+        state.entities.clear();
+        state.effects.clear();
+        state.roundEndCountdown = 0;
+        for (auto &participant: state.participants) participant.ready = false;
+        auto update = publisher.publish(state);
         if (!update) *this = before;
         return update;
     }

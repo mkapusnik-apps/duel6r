@@ -392,6 +392,75 @@ D6R_TEST_CASE("REP round transition rejects retained old round-bound identities"
     D6R_REQUIRE(!publisher.publish(nextRound).has_value());
 }
 
+D6R_TEST_CASE("REP-005 REP-006 REP-048 mid-match match identity replacement update is rejected without mutation") {
+    const auto initial = activeState();
+    auto replaced = initial;
+    replaced.matchId = 31;
+    replaced.phaseTime++;
+    const auto replacement = validUpdate(initial, replaced);
+
+    R::ReplicatedState incremental;
+    D6R_REQUIRE(incremental.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(incremental.apply(replacement) == R::ApplyResult::ResynchronizationRequired);
+    D6R_REQUIRE_EQ(1u, incremental.version());
+    D6R_REQUIRE(!incremental.current());
+    incremental.requireResynchronization();
+    auto current = initial;
+    current.phaseTime += 2;
+    D6R_REQUIRE(incremental.apply({2, current}) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(30u, incremental.state()->matchId);
+}
+
+D6R_TEST_CASE("REP-005 REP-006 REP-048 mid-match match identity replacement resync snapshot is rejected without mutation") {
+    const auto initial = activeState();
+    auto replaced = initial;
+    replaced.matchId = 31;
+    replaced.phaseTime++;
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply({1, initial}) == R::ApplyResult::Applied);
+    client.requireResynchronization();
+    D6R_REQUIRE(client.apply({2, replaced}) == R::ApplyResult::Invalid);
+    D6R_REQUIRE_EQ(1u, client.version());
+    D6R_REQUIRE(!client.current());
+    auto current = initial;
+    current.phaseTime += 2;
+    D6R_REQUIRE(client.apply({2, current}) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(30u, client.state()->matchId);
+}
+
+D6R_TEST_CASE("REP-005 REP-007 REP-010 REP-048 removed round identity cannot return in update or resync snapshot") {
+    const auto initial = activeState();
+    auto secondRound = initial;
+    secondRound.currentRoundNumber = 2;
+    secondRound.completedRounds = 1;
+    secondRound.phaseTime++;
+    secondRound.round->roundId = 41;
+    secondRound.round->roundNumber = 2;
+    secondRound.entities.clear();
+    const auto transition = validUpdate(initial, secondRound);
+
+    auto reused = secondRound;
+    reused.phaseTime++;
+    reused.round->roundId = 40;
+    const auto reuse = validUpdate(secondRound, reused);
+
+    R::ReplicatedState incremental;
+    D6R_REQUIRE(incremental.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(incremental.apply(transition) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(41u, incremental.state()->round->roundId);
+    D6R_REQUIRE(incremental.apply(reuse) == R::ApplyResult::ResynchronizationRequired);
+    D6R_REQUIRE_EQ(2u, incremental.version());
+    D6R_REQUIRE(incremental.apply({3, secondRound}) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(41u, incremental.state()->round->roundId);
+
+    R::ReplicatedState snapshot;
+    D6R_REQUIRE(snapshot.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(snapshot.apply({2, secondRound}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(snapshot.apply({3, reused}) == R::ApplyResult::Invalid);
+    D6R_REQUIRE_EQ(2u, snapshot.version());
+    D6R_REQUIRE_EQ(41u, snapshot.state()->round->roundId);
+}
+
 D6R_TEST_CASE("REP invalid stale duplicate out-of-order malformed and inconsistent deltas do not mutate") {
     auto next = activeState();
     next.players[0].positionX++;
@@ -475,14 +544,21 @@ D6R_TEST_CASE("REP presentation events are delivered once and invalid references
     requireRejectedWithoutVersionMutation(badReference);
 }
 
-D6R_TEST_CASE("REP-012 REP-027 REP-030 REP-032 transient entity presentation event applies once without stale state") {
+D6R_TEST_CASE("REP-012 REP-027 REP-030 REP-032 production combat events survive transient projectile removal exactly once") {
     const auto initial = activeState();
     auto afterCapture = initial;
     afterCapture.phaseTime++;
     R::AuthoritativeStateReplicator publisher;
     D6R_REQUIRE(publisher.initialize(initial));
-    // Entity 777 was canonically created, produced this hit, and was removed between captures.
-    const auto update = publisher.publish(afterCapture, {{600, "hit", 101, 102, 777, 25}});
+    // Projectile 777 was created, generated this real production event sequence, and was removed
+    // between captures, so no entity create/remove delta can accompany these occurrences.
+    const std::vector<R::PresentationEvent> expectedEvents = {
+            {600, "shot-fired", 101, 0, 777, 1},
+            {601, "shot-hit", 101, 102, 777, 1},
+            {602, "player-life-changed", 102, 101, 777, -100},
+            {603, "player-died", 102, 101, 777, 0},
+            {604, "player-killed", 101, 102, 777, 1}};
+    const auto update = publisher.publish(afterCapture, expectedEvents);
     D6R_REQUIRE(update.has_value());
 
     R::ReplicatedState client;
@@ -492,9 +568,12 @@ D6R_TEST_CASE("REP-012 REP-027 REP-030 REP-032 transient entity presentation eve
     D6R_REQUIRE(!client.resynchronizationRequired());
     D6R_REQUIRE(entity(*client.state(), 777) == nullptr);
     const auto events = client.takePresentationEvents();
-    D6R_REQUIRE_EQ(1u, events.size());
-    D6R_REQUIRE_EQ(600u, events.front().eventId);
-    D6R_REQUIRE_EQ(777u, events.front().entityId);
+    D6R_REQUIRE_EQ(expectedEvents.size(), events.size());
+    for (std::size_t index = 0; index < expectedEvents.size(); ++index) {
+        D6R_REQUIRE_EQ(expectedEvents[index].eventId, events[index].eventId);
+        D6R_REQUIRE_EQ(expectedEvents[index].type, events[index].type);
+        D6R_REQUIRE_EQ(777u, events[index].entityId);
+    }
     D6R_REQUIRE(client.takePresentationEvents().empty());
 
     client.requireResynchronization();

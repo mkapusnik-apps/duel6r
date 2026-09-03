@@ -1157,17 +1157,19 @@ namespace Duel6::Server {
                 }
             }
             if (runtimeFailed) break;
-            if (hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive
-                && runtimeNow(runtimeDependencies) >= nextMatchTick) {
-                auto *match = hostedMatch->match();
-                if (!match || !match->advanceOneTick() || !hostedMatch->observeMatchOutcome()) {
-                    runtimeFailed = true;
-                    break;
+            try {
+                if (hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive
+                    && runtimeNow(runtimeDependencies) >= nextMatchTick) {
+                    auto *match = hostedMatch->match();
+                    if (!match || !match->advanceOneTick() || !hostedMatch->observeMatchOutcome()) {
+                        runtimeFailed = true;
+                        break;
+                    }
+                    nextMatchTick += matchTickDuration;
                 }
-                nextMatchTick += matchTickDuration;
-            }
+            } catch (...) { runtimeFailed = true; break; }
             try { runtimeDependencies.wait(std::chrono::milliseconds(5)); }
-            catch (...) { break; }
+            catch (...) { runtimeFailed = true; break; }
         }
 
         if (admissionPolicy) {

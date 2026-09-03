@@ -814,6 +814,68 @@ D6R_TEST_CASE("REP-067 injected canonical tick failure terminates production ser
             + ";intentional=" + (output.find("authoritative-match-ended-intentionally") != std::string::npos ? "true" : "false");
     D6R_REQUIRE_EQ(std::string("status=3;runtime-failed=true;cleaned=true;intentional=false"), evidence);
 }
+
+
+D6R_TEST_CASE("REP-048 NET-AC-018 throwing runtime wait after match start fails truthfully and cleans production transport") {
+    const auto hostedManifest = manifest({
+            {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+    auto content = std::make_shared<Network::FrozenGameplayContent>();
+    (*content)["data/blocks.json"] = {'{', '}'};
+    (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+    (*content)["levels/a.json"] = {'{', '}'};
+    const Network::ManifestBuildResult built{
+            Network::ManifestStatus::Valid, hostedManifest, content};
+
+    Server::ServerConfig hostConfig = runtimeServerConfig();
+    hostConfig.listenEndpoint.port = unusedLoopbackPort();
+    D6R_REQUIRE(hostConfig.listenEndpoint.port != 0);
+    Server::AdmissionRuntimeDependencies hostDependencies;
+    hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+    std::atomic<bool> ready{false};
+    std::atomic<bool> matchStarted{false};
+    hostDependencies.hostedServiceStatus = [&](Network::HostServiceStatusCode status) {
+        if (status == Network::HostServiceStatusCode::Ready) ready = true;
+        return true;
+    };
+    hostDependencies.wait = [&](std::chrono::milliseconds duration) {
+        if (matchStarted) throw std::runtime_error("injected runtime wait failure");
+        std::this_thread::sleep_for(duration);
+    };
+    hostDependencies.authoritativeRuntimeFactory = [&](const auto &, const auto &, const auto &) {
+        matchStarted = true;
+        Server::Authoritative::MatchRuntimeDependencies runtime;
+        runtime.contentPreflight = [](const auto &) { return true; };
+        return runtime;
+    };
+
+    std::ostringstream hostOutput;
+    int hostStatus = -1;
+    std::thread host([&] {
+        Server::HeadlessServer server(hostConfig, std::move(hostDependencies));
+        hostStatus = server.run(hostOutput);
+    });
+    for (unsigned attempt = 0; attempt < 200 && !ready; ++attempt) std::this_thread::sleep_for(5ms);
+    D6R_REQUIRE(ready);
+
+    Server::ServerConfig guestConfig = runtimeGuestConfig();
+    guestConfig.listenEndpoint.port = hostConfig.listenEndpoint.port;
+    guestConfig.localPlayers = 1;
+    Server::AdmissionRuntimeDependencies guestDependencies;
+    guestDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+    std::ostringstream guestOutput;
+    Server::HeadlessServer guest(guestConfig, std::move(guestDependencies));
+    const int guestStatus = guest.run(guestOutput);
+    host.join();
+
+    const std::string output = hostOutput.str();
+    const std::string evidence = "host-status=" + std::to_string(hostStatus)
+            + ";guest-status=" + std::to_string(guestStatus)
+            + ";runtime-failed=" + (output.find("authoritative-match-runtime-failed") != std::string::npos ? "true" : "false")
+            + ";listener-cleaned=" + (output.find("transport stopped") != std::string::npos ? "true" : "false")
+            + ";intentional=" + (output.find("authoritative-match-ended-intentionally") != std::string::npos ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string(
+            "host-status=3;guest-status=2;runtime-failed=true;listener-cleaned=true;intentional=false"), evidence);
+}
 #endif
 
 D6R_TEST_CASE("lost confirmation after atomic commit never rolls back host and never reports host success") {
