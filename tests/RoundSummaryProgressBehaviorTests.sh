@@ -202,7 +202,9 @@ PY
                 import -window root "${scenario_dir}/summary-candidate.png"
                 if python3 - "${workspace_dir}/tests/RoundSummaryProgressImageAssertions.py" \
                         "${scenario_dir}/summary-candidate.png" \
-                        "${scenario_dir}/summary-early.png" "$expected" "$total" <<'PY'
+                        "${scenario_dir}/summary-early.png" "$expected" "$total" \
+                        "${resource_dir}/data/font.ttf" \
+                        >"${scenario_dir}/summary-candidate-state.txt" <<'PY'
 import importlib.util
 import os
 import sys
@@ -211,8 +213,12 @@ spec = importlib.util.spec_from_file_location("round_assertions", sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 image = module.pixels(sys.argv[2])
-first_path, played, total = sys.argv[3], int(sys.argv[4]), int(sys.argv[5])
-if not module.is_expected_summary_state(image, played, total):
+first_path, played, total, font_path = (
+    sys.argv[3], int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
+)
+matched, diagnostic = module.summary_state_evidence(image, played, total, font_path)
+print(diagnostic)
+if not matched:
     raise SystemExit(1)
 if os.path.exists(first_path) and image == module.pixels(first_path):
     # Two captures of one retained backbuffer are one render observation, not
