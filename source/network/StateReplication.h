@@ -19,6 +19,8 @@ namespace Duel6::Network::Replication {
     constexpr std::size_t MaxReplicatedEvents = 4096;
     constexpr std::size_t MaxReplicatedMessages = 256;
     constexpr std::size_t MaxReplicatedResultBytes = 1024 * 1024;
+    constexpr std::size_t MaxReplicatedStringBytes = 4096;
+    constexpr std::size_t MaxReplicatedLevels = 256;
 
     enum class IdentityCategory { Session, Match, Round, Participant, Player, WorldEntity, PresentationEvent };
     enum class ConnectionState { Connected, Reconnecting };
@@ -33,7 +35,6 @@ namespace Duel6::Network::Replication {
         bool wasIssued(IdentityCategory category, Identity identity) const noexcept;
     private:
         std::map<IdentityCategory, Identity> next;
-        std::map<IdentityCategory, std::set<Identity>> issued;
     };
 
     struct ParticipantState {
@@ -49,6 +50,7 @@ namespace Duel6::Network::Replication {
         std::uint8_t teamCount = 0;
         bool friendlyFire = false;
         std::string levelPlan;
+        std::string fixedLevel;
         std::vector<std::string> levels;
         std::uint8_t roundLimit = 0;
         bool assistance = false;
@@ -237,10 +239,10 @@ namespace Duel6::Network::Replication {
     private:
         StateVersion currentVersion = 0;
         std::optional<CanonicalState> current;
-        std::set<Identity> emittedEvents;
-        std::set<Identity> removedParticipants;
-        std::set<Identity> removedPlayers;
-        std::set<Identity> removedEntities;
+        Identity highestEmittedEvent = 0;
+        Identity removedParticipantHighWatermark = 0;
+        Identity removedPlayerHighWatermark = 0;
+        Identity removedEntityHighWatermark = 0;
     };
 
     class ReplicatedState final {
@@ -257,10 +259,10 @@ namespace Duel6::Network::Replication {
         std::optional<CanonicalState> accepted;
         StateVersion acceptedVersion = 0;
         bool resynchronizing = false;
-        std::set<Identity> removedParticipants;
-        std::set<Identity> removedPlayers;
-        std::set<Identity> removedEntities;
-        std::set<Identity> presentedEvents;
+        Identity removedParticipantHighWatermark = 0;
+        Identity removedPlayerHighWatermark = 0;
+        Identity removedEntityHighWatermark = 0;
+        Identity highestPresentedEvent = 0;
         std::vector<PresentationEvent> pendingEvents;
         ApplyResult rejectIncremental() noexcept;
     };

@@ -13,6 +13,7 @@ namespace Duel6::Server::Authoritative {
             R::MatchSettingsState result;
             result.mode = modeName(config.mode); result.teamCount = config.teamCount;
             result.friendlyFire = config.friendlyFire; result.levelPlan = levelPlanName(config.levelPlan);
+            result.fixedLevel = config.fixedLevel;
             result.levels = config.playableLevels; result.roundLimit = config.roundLimit;
             result.assistance = config.assistance; result.quickLiquid = config.quickLiquid;
             result.burnableTrees = config.burnableTrees;
@@ -55,6 +56,7 @@ namespace Duel6::Server::Authoritative {
     bool AuthoritativeReplication::setLobby(Identity hostParticipantId,
             std::vector<R::ParticipantState> participants, std::vector<PlayerDefinition> roster,
             MatchConfig settings) {
+        const AuthoritativeReplication before = *this;
         if (publisher.version() != 0 || hostParticipantId == 0) return false;
         state.hostParticipantId = hostParticipantId; state.participants = std::move(participants);
         state.settings = replicatedSettings(settings); state.phase = R::Phase::Lobby;
@@ -68,7 +70,9 @@ namespace Duel6::Server::Authoritative {
         }
         state.score.ranking.clear();
         for (const auto &player: state.players) state.score.ranking.push_back(player.playerId);
-        return publisher.initialize(state);
+        if (publisher.initialize(state)) return true;
+        *this = before;
+        return false;
     }
 
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::updateLobby(
@@ -76,6 +80,7 @@ namespace Duel6::Server::Authoritative {
             MatchConfig settings) {
         if (publisher.version() == 0 || state.phase != R::Phase::Lobby || state.matchId != 0)
             return std::nullopt;
+        const AuthoritativeReplication before = *this;
         state.participants = std::move(participants); state.settings = replicatedSettings(settings);
         state.players.clear(); state.score.players.clear(); state.score.ranking.clear();
         for (const auto &entry: roster) {
@@ -85,17 +90,35 @@ namespace Duel6::Server::Authoritative {
             player.life = MaximumLife; player.lifeState = R::LifeState::Alive;
             state.players.push_back(std::move(player)); state.score.ranking.push_back(entry.playerId);
         }
-        return publisher.publish(state);
+        auto update = publisher.publish(state);
+        if (!update) *this = before;
+        return update;
+    }
+
+    std::optional<R::IncrementalUpdate> AuthoritativeReplication::setParticipantReady(
+            Identity participantId, bool ready) {
+        if (publisher.version() == 0 || state.phase != R::Phase::Lobby) return std::nullopt;
+        const AuthoritativeReplication before = *this;
+        const auto found = std::find_if(state.participants.begin(), state.participants.end(),
+                [participantId](const auto &participant) { return participant.participantId == participantId; });
+        if (found == state.participants.end()) return std::nullopt;
+        found->ready = ready;
+        auto update = publisher.publish(state);
+        if (!update) *this = before;
+        return update;
     }
 
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::beginMatch(const AuthoritativeMatch &match) {
         if (publisher.version() == 0 || state.matchId != 0 || match.phase() == MatchPhase::Lobby)
             return std::nullopt;
+        const AuthoritativeReplication before = *this;
         state.matchId = identities.issue(R::IdentityCategory::Match);
-        if (state.matchId == 0) return std::nullopt;
+        if (state.matchId == 0) { *this = before; return std::nullopt; }
         std::vector<R::PresentationEvent> events;
-        if (!updateFromMatch(match, events)) return std::nullopt;
-        return publisher.publish(state, std::move(events));
+        if (!updateFromMatch(match, events)) { *this = before; return std::nullopt; }
+        auto update = publisher.publish(state, std::move(events));
+        if (!update) *this = before;
+        return update;
     }
 
     Identity AuthoritativeReplication::worldIdentity(Identity roundId, std::uint64_t canonicalIdentity) {
@@ -110,11 +133,16 @@ namespace Duel6::Server::Authoritative {
     bool AuthoritativeReplication::updateFromMatch(const AuthoritativeMatch &match,
                                                     std::vector<R::PresentationEvent> &events) {
         if (state.matchId == 0) return false;
+        const R::Phase priorPhase = state.phase;
+        const bool resultWasAvailable = state.result.available;
         const auto roster = match.rosterDefinitions();
         const auto cumulativeStatistics = match.playerStatistics();
         const MatchConfig &config = match.frozenConfig();
         state.settings = replicatedSettings(config); state.phase = phase(match.phase());
         state.phaseTime = match.currentTick();
+        state.messages.status = phaseName(match.phase());
+        state.messages.currentPlayerIndicators.clear();
+        state.messages.events.clear();
         state.currentRoundNumber = match.roundDecision().roundNumber;
         state.completedRounds = match.publishedResult() ? match.publishedResult()->completedRounds
                                                        : static_cast<std::uint8_t>(state.currentRoundNumber > 0
@@ -124,6 +152,8 @@ namespace Duel6::Server::Authoritative {
         else state.roundEndCountdown = 0;
         if (observedRound != state.currentRoundNumber) {
             state.entities.clear(); state.effects.clear();
+            worldIdentities.clear(); eventIdentities.clear();
+            observedEvents.clear(); observedTransitions.clear();
             observedRound = state.currentRoundNumber;
             if (observedRound) {
                 R::RoundState round;
@@ -132,13 +162,23 @@ namespace Duel6::Server::Authoritative {
                 round.roundNumber = observedRound; round.level = match.roundDecision().level;
                 round.mirrored = match.roundDecision().mirrored; round.rosterOrder = match.roundDecision().rosterOrder;
                 state.round = std::move(round);
+                R::PresentationEvent event;
+                event.eventId = identities.issue(R::IdentityCategory::PresentationEvent);
+                event.type = "round-start";
+                if (event.eventId == 0) return false;
+                events.push_back(std::move(event));
             }
+        }
+        if (state.round) {
+            const RoundResult outcome = match.currentRoundResult();
+            state.score.winner.winnerPlayerIds = outcome.winnerPlayerIds;
+            state.score.winner.winningTeam = static_cast<std::uint8_t>(outcome.winningTeam);
+            state.score.winner.noWinner = outcome.noWinner;
+            state.round->outcome = state.score.winner;
         }
         const CanonicalWorldSnapshot *world = match.canonicalWorldSnapshot();
         if (world && state.round) {
             state.players.clear(); state.score.players.clear(); state.score.ranking.clear();
-            state.messages.status = phaseName(match.phase());
-            state.messages.currentPlayerIndicators.clear();
             for (const auto &source: world->players) {
                 const PlayerDefinition *owner = definition(roster, source.playerId);
                 if (!owner) return false;
@@ -146,7 +186,8 @@ namespace Duel6::Server::Authoritative {
                 player.playerId = source.playerId; player.ownerParticipantId = owner->participantId;
                 player.rosterPosition = owner->rosterOrder; player.displayName = owner->displayName;
                 player.team = static_cast<std::uint8_t>(source.team);
-                player.lifeState = source.alive ? R::LifeState::Alive : R::LifeState::Dead;
+                player.lifeState = source.departed ? R::LifeState::Departed
+                                                   : (source.alive ? R::LifeState::Alive : R::LifeState::Dead);
                 player.positionX = source.positionX; player.positionY = source.positionY;
                 player.velocityX = source.velocityX; player.velocityY = source.velocityY;
                 player.facingLeft = source.facingLeft; player.crouching = source.crouching;
@@ -211,11 +252,38 @@ namespace Duel6::Server::Authoritative {
             };
             appendEntities(world->projectiles); appendEntities(world->pickups); appendEntities(world->elevators);
             appendEntities(world->hazards); appendEntities(world->trees);
+            for (const auto &source: world->events) {
+                if (source.tick != world->worldTick || (source.kind != "explosion" && source.kind != "tree-burned"))
+                    continue;
+                R::WorldEntityState entity;
+                const std::uint64_t canonical = (UINT64_C(0xfe) << 48u) | source.sequence;
+                entity.entityId = worldIdentity(state.round->roundId, canonical);
+                entity.kind = source.kind == "explosion" ? R::EntityKind::Explosion : R::EntityKind::Fire;
+                entity.type = source.kind == "explosion" ? "explosion" : "fire";
+                entity.ownerPlayerId = source.playerId; entity.primaryValue = source.value;
+                entity.lifecycle = "active";
+                const auto location = std::find_if(state.players.begin(), state.players.end(), [&](const auto &player) {
+                    return player.playerId == (source.targetPlayerId ? source.targetPlayerId : source.playerId);
+                });
+                if (location != state.players.end()) {
+                    entity.positionX = location->positionX; entity.positionY = location->positionY;
+                }
+                state.entities.push_back(entity);
+            }
             state.effects.clear();
             for (const auto &player: state.players) if (!player.activeBonus.empty() && player.bonusRemaining > 0) {
                 R::ContinuingEffectState effect;
                 effect.effectId = worldIdentity(state.round->roundId, (UINT64_C(0xff) << 48u) | player.playerId);
                 effect.type = player.activeBonus; effect.playerId = player.playerId; effect.remaining = player.bonusRemaining;
+                state.effects.push_back(std::move(effect));
+            }
+            for (const auto &entity: state.entities) if (entity.kind == R::EntityKind::Explosion
+                                                         || entity.kind == R::EntityKind::Fire) {
+                R::ContinuingEffectState effect;
+                effect.effectId = worldIdentity(state.round->roundId,
+                        (UINT64_C(0xfd) << 48u) | (entity.entityId & UINT64_C(0x0000ffffffffffff)));
+                effect.type = entity.kind == R::EntityKind::Explosion ? "explosion" : "fire";
+                effect.entityId = entity.entityId; effect.remaining = 1;
                 state.effects.push_back(std::move(effect));
             }
             const auto appendEvents = [&](const std::vector<CanonicalEvent> &sources, bool transition) {
@@ -236,6 +304,18 @@ namespace Duel6::Server::Authoritative {
                 return true;
             };
             if (!appendEvents(world->events, false) || !appendEvents(world->transitions, true)) return false;
+            const auto appendMessages = [&](const std::vector<CanonicalEvent> &sources) {
+                const std::size_t first = sources.size() > R::MaxReplicatedMessages
+                                          ? sources.size() - R::MaxReplicatedMessages : 0;
+                for (std::size_t index = first; index < sources.size()
+                     && state.messages.events.size() < R::MaxReplicatedMessages; ++index)
+                    state.messages.events.push_back(sources[index].kind);
+            };
+            appendMessages(world->events);
+            appendMessages(world->transitions);
+        } else {
+            state.entities.clear();
+            state.effects.clear();
         }
         if (match.publishedResult()) {
             const auto serialized = serializeSessionResult(*match.publishedResult());
@@ -243,15 +323,36 @@ namespace Duel6::Server::Authoritative {
             state.result.available = true; state.result.sessionOnly = true;
             state.result.state = match.publishedResult()->state == ResultState::Completed ? "Completed" : "Interrupted";
             state.result.serialized = *serialized;
+            state.score.winner.winnerPlayerIds = match.publishedResult()->finalWinnerPlayerIds;
+            state.score.winner.winningTeam = static_cast<std::uint8_t>(match.publishedResult()->finalWinningTeam);
+            state.score.winner.noWinner = match.publishedResult()->finalNoWinner;
+        }
+        state.messages.roundProgress = state.phaseTime;
+        state.messages.scoreSummaryVisible = state.phase == R::Phase::RoundSummary
+                                             || state.phase == R::Phase::FinalSummary;
+        if (priorPhase != state.phase && state.phase == R::Phase::RoundSummary) {
+            R::PresentationEvent event;
+            event.eventId = identities.issue(R::IdentityCategory::PresentationEvent); event.type = "round-outcome";
+            if (event.eventId == 0) return false;
+            events.push_back(std::move(event));
+        }
+        if (!resultWasAvailable && state.result.available) {
+            R::PresentationEvent event;
+            event.eventId = identities.issue(R::IdentityCategory::PresentationEvent); event.type = "result-transition";
+            if (event.eventId == 0) return false;
+            events.push_back(std::move(event));
         }
         return R::validateCanonicalState(state);
     }
 
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::capture(const AuthoritativeMatch &match) {
         if (publisher.version() == 0 || state.matchId == 0) return std::nullopt;
+        const AuthoritativeReplication before = *this;
         std::vector<R::PresentationEvent> events;
-        if (!updateFromMatch(match, events)) return std::nullopt;
-        return publisher.publish(state, std::move(events));
+        if (!updateFromMatch(match, events)) { *this = before; return std::nullopt; }
+        auto update = publisher.publish(state, std::move(events));
+        if (!update) *this = before;
+        return update;
     }
 
     std::optional<R::FullSnapshot> AuthoritativeReplication::fullSnapshot() const { return publisher.fullSnapshot(); }

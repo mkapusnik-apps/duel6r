@@ -667,7 +667,9 @@ namespace Duel6::Server::Authoritative {
                     failRuntime();
             }
         }
-        return terminal.code == OutcomeCode::None;
+        // The tick that atomically publishes a successful terminal result was advanced successfully.
+        // A later call is still rejected by the guard above.
+        return terminal.code != OutcomeCode::RuntimeFailed && terminal.code != OutcomeCode::ShutdownFailed;
     }
 
     bool AuthoritativeMatch::synchronizeCanonicalWorld() {

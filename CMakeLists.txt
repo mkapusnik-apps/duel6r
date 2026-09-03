@@ -622,6 +622,8 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/network/SessionTransport.h
         source/network/StateReplication.cpp
         source/network/StateReplication.h
+        source/network/StateReplicationProtocol.cpp
+        source/network/StateReplicationProtocol.h
         source/server/HeadlessServer.cpp
         source/server/HeadlessServer.h
         source/server/AuthoritativeMatch.cpp

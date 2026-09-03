@@ -8,7 +8,34 @@
 namespace Duel6::Server::Authoritative {
     AuthoritativeHostedMatchController::AuthoritativeHostedMatchController(
             Identity hostParticipantId, MatchRuntimeDependencies dependencies)
-            : dependencies(std::move(dependencies)), hostParticipantId(hostParticipantId) {}
+            : dependencies(std::move(dependencies)), hostParticipantId(hostParticipantId),
+              replication(), replicationConnections(replication.replicator()) {}
+
+    bool AuthoritativeHostedMatchController::initializeReplication(
+            std::vector<Network::Replication::ParticipantState> participants,
+            std::vector<PlayerDefinition> roster, MatchConfig settings) {
+        return currentStage == HostedMatchStage::ServiceStarting
+               && replication.setLobby(hostParticipantId, std::move(participants),
+                                       std::move(roster), std::move(settings));
+    }
+
+    bool AuthoritativeHostedMatchController::restoreReplication(
+            Identity participantId, Network::Replication::ReplicationSender sender) {
+        return replicationConnections.restore(participantId, std::move(sender));
+    }
+
+    Network::Replication::HostReplicationResult AuthoritativeHostedMatchController::receiveReplication(
+            Identity participantId, const std::vector<std::uint8_t> &payload) {
+        return replicationConnections.receive(participantId, payload);
+    }
+
+    bool AuthoritativeHostedMatchController::captureReplication() {
+        if (!activeMatch || currentStage != HostedMatchStage::MatchActive) return false;
+        const auto update = replication.capture(*activeMatch);
+        if (!update) return false;
+        (void) replicationConnections.broadcast(*update);
+        return true;
+    }
 
     bool AuthoritativeHostedMatchController::markServiceReady() {
         if (currentStage != HostedMatchStage::ServiceStarting) return false;
@@ -18,7 +45,19 @@ namespace Duel6::Server::Authoritative {
 
     bool AuthoritativeHostedMatchController::setParticipantReady(Identity participantId, bool ready) {
         if (currentStage != HostedMatchStage::Lobby || participantId == 0) return false;
+        const auto previous = readiness.find(participantId);
+        const bool hadPrevious = previous != readiness.end();
+        const bool previousValue = hadPrevious && previous->second;
         readiness[participantId] = ready;
+        if (replication.replicator().version() != 0) {
+            const auto update = replication.setParticipantReady(participantId, ready);
+            if (!update) {
+                if (hadPrevious) readiness[participantId] = previousValue;
+                else readiness.erase(participantId);
+                return false;
+            }
+            (void) replicationConnections.broadcast(*update);
+        }
         return true;
     }
 
@@ -59,7 +98,10 @@ namespace Duel6::Server::Authoritative {
         }
         activeMatch = std::make_unique<AuthoritativeMatch>(dependencies);
         const TerminalOutcome started = activeMatch->start(config, roster, manifest);
-        if (started.code == OutcomeCode::None) currentStage = HostedMatchStage::MatchActive;
+        if (started.code == OutcomeCode::None) {
+            currentStage = HostedMatchStage::MatchActive;
+            if (auto update = replication.beginMatch(*activeMatch)) replicationConnections.broadcast(*update);
+        }
         else if (started.code == OutcomeCode::RuntimeFailed) currentStage = HostedMatchStage::UnexpectedStop;
         else if (started.code == OutcomeCode::ContentUnavailable) {
             clearReadiness();
@@ -90,6 +132,7 @@ namespace Duel6::Server::Authoritative {
 
     void AuthoritativeHostedMatchController::observeMatchOutcome() {
         if (!activeMatch || currentStage != HostedMatchStage::MatchActive) return;
+        if (auto update = replication.capture(*activeMatch)) replicationConnections.broadcast(*update);
         if (activeMatch->outcome().code == OutcomeCode::RuntimeFailed
             || activeMatch->outcome().code == OutcomeCode::ShutdownFailed) {
             activeMatch->shutdown();

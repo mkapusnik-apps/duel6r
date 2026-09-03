@@ -20,6 +20,8 @@ namespace Duel6::Server::Authoritative {
         std::optional<Network::Replication::IncrementalUpdate> updateLobby(
                 std::vector<Network::Replication::ParticipantState> participants,
                 std::vector<PlayerDefinition> roster, MatchConfig settings);
+        std::optional<Network::Replication::IncrementalUpdate> setParticipantReady(Identity participantId,
+                                                                                   bool ready);
         std::optional<Network::Replication::IncrementalUpdate> beginMatch(const AuthoritativeMatch &match);
         std::optional<Network::Replication::IncrementalUpdate> capture(const AuthoritativeMatch &match);
         std::optional<Network::Replication::FullSnapshot> fullSnapshot() const;

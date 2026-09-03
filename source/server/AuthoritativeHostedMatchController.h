@@ -5,6 +5,8 @@
 #include <memory>
 
 #include "AuthoritativeMatch.h"
+#include "AuthoritativeReplication.h"
+#include "../network/StateReplicationProtocol.h"
 
 namespace Duel6::Server::Authoritative {
     enum class HostedMatchStage {
@@ -27,6 +29,12 @@ namespace Duel6::Server::Authoritative {
                               const Network::GameplayManifest &manifest);
         TerminalOutcome end(Identity participantId);
         void observeMatchOutcome();
+        bool initializeReplication(std::vector<Network::Replication::ParticipantState> participants,
+                                   std::vector<PlayerDefinition> roster, MatchConfig settings);
+        bool restoreReplication(Identity participantId, Network::Replication::ReplicationSender sender);
+        Network::Replication::HostReplicationResult receiveReplication(
+                Identity participantId, const std::vector<std::uint8_t> &payload);
+        bool captureReplication();
 
         HostedMatchStage stage() const noexcept;
         bool contentStartBlocked() const noexcept;
@@ -40,6 +48,8 @@ namespace Duel6::Server::Authoritative {
         std::map<Identity, bool> readiness;
         const Identity hostParticipantId;
         std::unique_ptr<AuthoritativeMatch> activeMatch;
+        AuthoritativeReplication replication;
+        Network::Replication::AuthoritativeReplicationConnections replicationConnections;
 
         void clearReadiness() noexcept;
         bool allParticipantsReady(const std::vector<PlayerDefinition> &roster) const noexcept;

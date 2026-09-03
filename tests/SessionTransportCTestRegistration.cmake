@@ -25,6 +25,19 @@ set_tests_properties(duel6r-authoritative-match-behavior-tests PROPERTIES
         LABELS "application;integration;network;authoritative-match;determinism"
         TIMEOUT 180)
 
+add_executable(duel6r-state-replication-tests
+        ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+        ${CMAKE_SOURCE_DIR}/tests/StateReplicationTests.cpp)
+target_include_directories(duel6r-state-replication-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(duel6r-state-replication-tests duel6r-network-scaffold)
+if (MINGW)
+    set_property(TARGET duel6r-state-replication-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
+add_test(NAME duel6r-state-replication-tests COMMAND duel6r-state-replication-tests)
+set_tests_properties(duel6r-state-replication-tests PROPERTIES
+        LABELS "application;integration;network;state-replication;regression"
+        TIMEOUT 60)
+
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT D6R_TRANSPORT_ONLY)
     add_executable(duel6r-local-play-pick-animation-tests
             ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp

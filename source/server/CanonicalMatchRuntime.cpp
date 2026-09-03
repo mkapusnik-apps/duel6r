@@ -405,6 +405,7 @@ namespace Duel6::Server::Authoritative {
             if (active == activeRoster.end()) {
                 CanonicalPlayerSnapshot player;
                 player.playerId = definition.playerId;
+                player.departed = true;
                 result.players.push_back(player);
                 digestValue(digest, definition.playerId);
                 continue;
@@ -412,6 +413,7 @@ namespace Duel6::Server::Authoritative {
             const std::size_t index = static_cast<std::size_t>(std::distance(activeRoster.begin(), active));
             CanonicalPlayerSnapshot player;
             player.playerId = definition.playerId;
+            player.departed = departedPlayerIds.count(definition.playerId) != 0;
             player.rosterSlot = definition.rosterOrder;
             player.team = config.mode == Mode::TeamDeathmatch
                           ? static_cast<Team>(definition.rosterOrder % config.teamCount + 1) : Team::None;
@@ -494,6 +496,11 @@ namespace Duel6::Server::Authoritative {
                                 "kill-count",
                                 static_cast<std::int64_t>(after.kills - before.kills));
             }
+            if (previousStats != previousStatistics.end()
+                && result.players.back().statistics.assists > previousStats->second.assists)
+                appendEvent("player-assisted", 0, definition.playerId, 0, "assist-count",
+                            static_cast<std::int64_t>(result.players.back().statistics.assists
+                                                      - previousStats->second.assists));
             previousStatistics[definition.playerId] = result.players.back().statistics;
         }
         std::set<std::uint64_t> currentEntities;

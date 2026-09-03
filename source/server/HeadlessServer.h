@@ -137,6 +137,7 @@ namespace Duel6::Server {
         IdentitySource identitySource;
         std::shared_ptr<Network::Trust::ConcurrentWorkLimiter> validationWorkLimiter;
         ValidationWorkGate validationWorkGate;
+        bool productionReplicationProtocol = false;
     };
 
     class HeadlessServer {

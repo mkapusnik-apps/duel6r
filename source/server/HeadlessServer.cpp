@@ -6,6 +6,7 @@
 #include <csignal>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -16,6 +17,8 @@
 #include "../network/AdmissionProtocol.h"
 #include "../network/CompatibilityManifest.h"
 #include "AdmissionSession.h"
+#include "AuthoritativeReplication.h"
+#include "../network/StateReplicationProtocol.h"
 
 namespace {
     volatile std::sig_atomic_t stopRequested = 0;
@@ -138,6 +141,39 @@ namespace {
         output.flush();
     }
 
+    struct ReplicationLobbyState {
+        std::vector<Duel6::Network::Replication::ParticipantState> participants;
+        std::vector<Duel6::Server::Authoritative::PlayerDefinition> players;
+        Duel6::Server::Authoritative::MatchConfig settings;
+    };
+
+    ReplicationLobbyState replicationLobbyState(const Duel6::Server::SessionAllocation &allocation,
+                                                 const std::set<std::uint64_t> &connected) {
+        ReplicationLobbyState result;
+        const auto admitted = allocation.admittedParticipants();
+        std::uint8_t roster = 0;
+        for (const auto &source: admitted) {
+            Duel6::Network::Replication::ParticipantState participant;
+            participant.participantId = source.participantId; participant.host = source.localHost;
+            participant.connection = connected.count(source.participantId)
+                                     ? Duel6::Network::Replication::ConnectionState::Connected
+                                     : Duel6::Network::Replication::ConnectionState::Reconnecting;
+            participant.ready = source.localHost; participant.ownedPlayerIds = source.playerIds;
+            result.participants.push_back(std::move(participant));
+            for (const auto playerId: source.playerIds) {
+                Duel6::Server::Authoritative::PlayerDefinition player;
+                player.participantId = source.participantId; player.playerId = playerId;
+                player.rosterOrder = roster++;
+                player.displayName = "Player " + std::to_string(static_cast<unsigned int>(player.rosterOrder) + 1u);
+                result.players.push_back(std::move(player));
+            }
+        }
+        result.settings.hostParticipantId = allocation.hostParticipant().participantId;
+        result.settings.fixedLevel = "unconfigured";
+        result.settings.playableLevels = {result.settings.fixedLevel};
+        return result;
+    }
+
     int runAdmissionClient(const Duel6::Server::ServerConfig &config, std::ostream &output,
                            Duel6::Network::GameplayManifest manifest,
                            std::chrono::steady_clock::time_point deadline,
@@ -248,6 +284,7 @@ namespace {
             Duel6::Network::AdmissionResult result;
         };
         std::optional<Duel6::Network::AdmissionOfferPayload> acceptedOffer;
+        Duel6::Network::Replication::ReplicatedState initialReplicatedState;
         const auto processFrame = [&](const Duel6::Network::TransportFrame &frame) -> GuestFrameDecision {
             if (cancelled()) return GuestFrameDecision(GuestDecision::Cancelled);
             const bool beforeDeadline = frame.receivedAt < deadline;
@@ -282,10 +319,26 @@ namespace {
                     }
                 }
 
+                if (const auto replication = Duel6::Network::Replication::deserializeReplicationFrame(frame.payload)) {
+                    if (replication->kind != Duel6::Network::Replication::ReplicationFrameKind::FullSnapshot
+                        || !replication->snapshot
+                        || initialReplicatedState.apply(*replication->snapshot)
+                           != Duel6::Network::Replication::ApplyResult::Applied)
+                        throw std::invalid_argument("Invalid initial replication snapshot");
+                    return GuestFrameDecision();
+                }
                 const Duel6::Network::AdmissionConfirmation confirmation =
                         Duel6::Network::deserializeAdmissionConfirmation(frame.payload);
                 if (!Duel6::Network::sameAdmissionIdentitySet(*acceptedOffer, confirmation))
                     throw std::invalid_argument("Admission confirmation does not match the offer");
+                const auto *initial = initialReplicatedState.state();
+                if (runtimeDependencies.productionReplicationProtocol
+                    && (!initial || std::none_of(initial->participants.begin(), initial->participants.end(),
+                        [&](const auto &participant) {
+                            return participant.participantId == confirmation.participantId
+                                   && participant.connection
+                                      == Duel6::Network::Replication::ConnectionState::Connected;
+                        }))) throw std::invalid_argument("Admission confirmation preceded its replication snapshot");
                 if (!beforeDeadline) return GuestFrameDecision();
                 Duel6::Network::AdmissionResult result;
                 result.code = Duel6::Network::AdmissionResultCode::Admitted;
@@ -421,6 +474,9 @@ namespace Duel6::Server {
             try { return clock(); }
             catch (...) { return Network::Trust::TimePoint::max(); }
         };
+        const bool productionClient = !this->runtimeDependencies.clientFactory;
+        const bool productionListener = !this->runtimeDependencies.listenerFactory;
+        this->runtimeDependencies.productionReplicationProtocol = productionClient && productionListener;
         if (!this->runtimeDependencies.clientFactory) {
             this->runtimeDependencies.clientFactory = [safeClock] {
                 Network::SessionTransportDependencies dependencies;
@@ -600,6 +656,9 @@ namespace Duel6::Server {
         std::signal(SIGTERM, requestStop);
 
         std::unique_ptr<AdmissionPolicy> admissionPolicy;
+        std::unique_ptr<Authoritative::AuthoritativeReplication> replication;
+        std::unique_ptr<Network::Replication::AuthoritativeReplicationConnections> replicationConnections;
+        std::set<std::uint64_t> connectedParticipants;
         if (!config.transportEcho) {
             try {
                 admissionPolicy = std::make_unique<AdmissionPolicy>(
@@ -612,6 +671,19 @@ namespace Duel6::Server {
             if (!observe(AdmissionLifecycleStage::HostInitialized)) {
                 reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
                 return 2;
+            }
+            if (runtimeDependencies.productionReplicationProtocol) {
+                const auto &host = admissionPolicy->allocation().hostParticipant();
+                connectedParticipants.insert(host.participantId);
+                replication = std::make_unique<Authoritative::AuthoritativeReplication>();
+                auto lobby = replicationLobbyState(admissionPolicy->allocation(), connectedParticipants);
+                if (!replication->setLobby(host.participantId, std::move(lobby.participants),
+                                           std::move(lobby.players), std::move(lobby.settings))) {
+                    reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
+                    return 2;
+                }
+                replicationConnections = std::make_unique<Network::Replication::AuthoritativeReplicationConnections>(
+                        replication->replicator());
             }
         }
 
@@ -698,8 +770,8 @@ namespace Duel6::Server {
                    << "diagnostic echo is active; received opaque application frames are returned only "
                    << "to their originating connection.\n";
         } else {
-            output << "scaffold warning: transport and compatibility admission are active, but no lobby, "
-                   << "simulation, or playable network session is implemented.\n";
+            output << "scaffold warning: transport and compatibility admission are active, canonical lobby replication is active, "
+                   << "but no lobby UI or playable network session is implemented.\n";
         }
         output.flush();
 
@@ -823,7 +895,32 @@ namespace Duel6::Server {
                             connection->markAdmissionSucceeded();
                             const bool observed = observe(AdmissionLifecycleStage::TransactionCommitted,
                                                           runtime.connectionId, committedTransaction);
-                            const bool confirmationObserved = observed
+                            bool replicationReady = observed;
+                            if (replicationReady && replication && replicationConnections) {
+                                connectedParticipants.insert(runtime.offer.participantId);
+                                auto lobby = replicationLobbyState(admissionPolicy->allocation(), connectedParticipants);
+                                auto update = replication->updateLobby(std::move(lobby.participants),
+                                        std::move(lobby.players), std::move(lobby.settings));
+                                replicationReady = update.has_value();
+                                if (replicationReady) replicationConnections->broadcast(*update);
+                                if (replicationReady) {
+                                    replicationReady = replicationConnections->restore(runtime.offer.participantId,
+                                            [connection, &write](std::vector<std::uint8_t> payload) {
+                                                return write(*connection, std::move(payload));
+                                            }, [connection] {
+                                                connection->requestClose();
+                                            });
+                                }
+                                if (!replicationReady) {
+                                    connectedParticipants.erase(runtime.offer.participantId);
+                                    replicationConnections->disconnect(runtime.offer.participantId);
+                                    auto isolated = replicationLobbyState(admissionPolicy->allocation(), connectedParticipants);
+                                    if (auto update = replication->updateLobby(std::move(isolated.participants),
+                                            std::move(isolated.players), std::move(isolated.settings)))
+                                        replicationConnections->broadcast(*update);
+                                }
+                            }
+                            const bool confirmationObserved = replicationReady
                                     && observe(AdmissionLifecycleStage::ConfirmationQueued, runtime.connectionId,
                                                committedTransaction);
                             const Network::SendResult confirmed = confirmationObserved
@@ -856,7 +953,21 @@ namespace Duel6::Server {
                     }
                 } else if (runtime.admitted) {
                     Network::TransportFrame unexpected;
-                    if (connection->receive(unexpected)) connection->requestClose();
+                    if (connection->receive(unexpected)) {
+                        if (!replicationConnections) connection->requestClose();
+                        else {
+                            const auto result = replicationConnections->receive(
+                                    runtime.offer.participantId, unexpected.payload);
+                            if (result == Network::Replication::HostReplicationResult::SessionPolicyViolation) {
+                                // Route canonical-state mutation attempts through the established authority policy.
+                                const auto decision = admissionPolicy->authorizationDecision(runtime.connectionId,
+                                        Network::Trust::AuthorityAction::ReplicatedStateMutation);
+                                if (!decision.allowed && decision.closeConnection) connection->requestClose();
+                            }
+                            if (result != Network::Replication::HostReplicationResult::Accepted)
+                                connection->requestClose();
+                        }
+                    }
                 }
                 Network::ClientState state = connection->state();
                 if (state == Network::ClientState::Closed || state == Network::ClientState::Failed
@@ -864,6 +975,14 @@ namespace Duel6::Server {
                     rollback();
                     if (runtime.admitted && !config.transportEcho)
                         admissionPolicy->disconnect(runtime.connectionId);
+                    if (runtime.admitted && replication && replicationConnections) {
+                        connectedParticipants.erase(runtime.offer.participantId);
+                        replicationConnections->disconnect(runtime.offer.participantId);
+                        auto lobby = replicationLobbyState(admissionPolicy->allocation(), connectedParticipants);
+                        if (auto update = replication->updateLobby(std::move(lobby.participants),
+                                std::move(lobby.players), std::move(lobby.settings)))
+                            replicationConnections->broadcast(*update);
+                    }
                     observe(AdmissionLifecycleStage::ConnectionClosed, runtime.connectionId);
                     iterator = connections.erase(iterator);
                 } else {
@@ -874,6 +993,16 @@ namespace Duel6::Server {
                     try { connection->requestClose(); } catch (...) {}
                     if (runtime.admitted && !config.transportEcho) {
                         try { admissionPolicy->disconnect(runtime.connectionId); } catch (...) {}
+                    }
+                    if (runtime.admitted && replication && replicationConnections) {
+                        connectedParticipants.erase(runtime.offer.participantId);
+                        replicationConnections->disconnect(runtime.offer.participantId);
+                        try {
+                            auto lobby = replicationLobbyState(admissionPolicy->allocation(), connectedParticipants);
+                            if (auto update = replication->updateLobby(std::move(lobby.participants),
+                                    std::move(lobby.players), std::move(lobby.settings)))
+                                replicationConnections->broadcast(*update);
+                        } catch (...) {}
                     }
                     observe(AdmissionLifecycleStage::ConnectionClosed, runtime.connectionId);
                     iterator = connections.erase(iterator);
