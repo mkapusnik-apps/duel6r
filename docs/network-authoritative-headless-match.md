@@ -21,6 +21,9 @@ The player-hosted service lifecycle is in [`network-host-service-lifecycle.md`](
 - **Semantic determinism:** Equal gameplay decisions, state, progression, and results without a requirement for equal process memory or binary representation.
 - **Completed result:** A result from a match that finishes its configured final round.
 - **Interrupted result:** A valid no-winner result caused by an approved roster reduction below two players.
+- **Match outcome:** The authoritative winner, winning team, or `No winner` for the complete match result.
+- **Last completed-round outcome:** The winner, winning team, or `No winner` from the most recent completed round.
+- **Cumulative ranking:** The ordered player or team totals from all completed rounds in the result.
 
 ## Product goal
 
@@ -246,9 +249,20 @@ The result must contain:
 - configured round limit;
 - authoritative nonzero match seed;
 - completed-round count;
-- final-round winner identity, winning team, or `No winner`.
+- match outcome as a winner identity, winning team, or `No winner`;
+- last completed-round number and outcome when one or more rounds are complete.
 
-The final winner field records the final round outcome. It does not create a separate match-champion rule.
+The result state, match outcome, last completed-round outcome, and cumulative rankings are distinct result values.
+
+For a `Completed` result, the match outcome must equal the configured final round outcome.
+
+For an `Interrupted` result, the match outcome must be `No winner`.
+
+An interrupted result must keep the last completed-round outcome when one or more rounds are complete.
+
+An interrupted result with no completed round must have no last completed-round number or outcome.
+
+The cumulative ranking leader is not a match champion. The service must not derive the match outcome from cumulative ranking.
 
 ### Round fields
 
@@ -285,6 +299,8 @@ Each player row must contain:
 Total points must equal kills plus wins plus assists minus penalties.
 
 The result must contain per-round player values and cumulative match values.
+
+Cumulative values must include only completed rounds in the result.
 
 ### Player ranking
 
@@ -327,6 +343,12 @@ If fewer than two roster players remain, the service must end the match without 
 
 It must preserve completed rounds. It must discard an incomplete active round.
 
+It must set the match outcome to `No winner`.
+
+It must keep the last completed-round outcome when one exists.
+
+It must calculate cumulative values and rankings only from the preserved completed rounds.
+
 It must create a result with exactly:
 
 `Session only • Interrupted • No winner`
@@ -340,6 +362,8 @@ An approved interruption is not a runtime failure.
 ## Match completion
 
 After the configured final round, the service must create the completed session-only result.
+
+The match outcome must equal the configured final round outcome. The cumulative ranking must not replace that outcome.
 
 It must use machine identifier `authoritative-match-completed` with exactly:
 
@@ -556,16 +580,16 @@ It must document the process exit meanings without claiming playable networking 
 - **AHM-AC-017 — Random scope:** The seed and authoritative actions must determine every listed gameplay-affecting random choice.
 - **AHM-AC-018 — Cross-platform determinism:** Equal approved inputs on Linux and Windows must produce semantically equal authoritative decisions, progression, and results.
 - **AHM-AC-019 — Script exclusion:** A network match must not load or execute an optional Lua, profile, or gameplay script.
-- **AHM-AC-020 — Completed result:** A completed match must produce the complete session-only match, round, player, and team data in this specification.
-- **AHM-AC-021 — Player ranking:** Player rows must follow points, wins, damage, and roster-order precedence.
-- **AHM-AC-022 — Team ranking:** Team rows must follow team points and fixed team-order precedence.
+- **AHM-AC-020 — Completed result:** A completed match must keep distinct result state, match outcome, last completed-round outcome, and cumulative rankings. Its match outcome must equal its final round outcome.
+- **AHM-AC-021 — Player ranking:** Player rows must follow points, wins, damage, and roster-order precedence. The leading player must not become a match champion.
+- **AHM-AC-022 — Team ranking:** Team rows must follow team points and fixed team-order precedence. The leading team must not become a match champion.
 - **AHM-AC-023 — No persistence:** A network result must not change local statistics, Elo, people, profiles, saves, or history.
-- **AHM-AC-024 — Approved interruption:** A roster reduction below two players must preserve completed rounds and produce the exact interrupted no-winner outcome.
+- **AHM-AC-024 — Approved interruption:** A roster reduction below two players must preserve completed rounds and their last outcome. It must discard the incomplete round and produce the interrupted `No winner` match outcome.
 - **AHM-AC-025 — Settings failure:** Invalid settings must use the exact identifier, copy, readiness behavior, and retry boundary in this specification.
 - **AHM-AC-026 — Content failure:** Unavailable gameplay prerequisites must use the exact identifier, copy, readiness behavior, and restart boundary in this specification.
 - **AHM-AC-027 — Runtime failure:** An authoritative runtime failure must stop progression, discard all results, and use the exact failure identifier and copy.
 - **AHM-AC-028 — Outcome precedence:** Competing start and match outcomes must follow the applicable precedence order.
-- **AHM-AC-029 — Result integrity:** Invalid setup, runtime failure, Host End session, and cleanup failure must not publish a partial result.
+- **AHM-AC-029 — Result integrity:** Each result must keep result state, match outcome, last completed-round outcome, and cumulative rankings semantically consistent. Invalid setup, runtime failure, Host End session, and cleanup failure must not publish a partial result.
 - **AHM-AC-030 — Cleanup:** The process must report successful cleanup only after it releases all owned match resources.
 - **AHM-AC-031 — Exit status:** Exit statuses `0`, `2`, `3`, and `4` must have only the meanings and identifiers in this specification.
 - **AHM-AC-032 — Local independence:** The network exceptions must not change Local Play behavior or require a network service for Local Play.

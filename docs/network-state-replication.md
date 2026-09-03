@@ -49,18 +49,18 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 - **REP-014** Replicated match state must include the selected mode, applicable team settings, level plan, round limit, Assistance, Quick Liquid, and Burnable Trees.
 - **REP-015** Replicated match state must identify the current phase as lobby, active round, round summary, final summary, or ended.
 - **REP-016** Replicated progression must include the current round number, completed-round count, phase timing, and applicable round-end countdown.
-- **REP-017** Replicated state must include the session-only result data required by [`network-authoritative-headless-match.md`](network-authoritative-headless-match.md).
+- **REP-017** Replicated result state must keep result state, match outcome, last completed-round outcome, and cumulative rankings as distinct values. It must include all session-only result data required by [`network-authoritative-headless-match.md`](network-authoritative-headless-match.md).
 
 ### Round and world state
 
-- **REP-018** Replicated round state must include the round identity, level logical identity, orientation, authoritative roster order, and round outcome.
+- **REP-018** Replicated round state must include the round identity, level logical identity, orientation, authoritative roster order, and that round's outcome. A round outcome must not become a cumulative-ranking champion.
 - **REP-019** The replicated world must include each current player, shot, projectile, weapon pickup, bonus pickup, elevator, hazard, water state, applicable tree state, fire, and explosion.
 - **REP-020** A replicated player must include identity, owner, roster position, display name, team, life state, position, movement state, facing, life, air, held weapon, ammunition, and applicable action state.
 - **REP-021** A replicated player must include active bonus state, applicable remaining durations, invulnerability, visibility, reload, charge, and temporary movement effects.
 - **REP-022** Each replicated shot or projectile must include its identity, owner, weapon type, position, movement, and current lifecycle state.
 - **REP-023** Each replicated pickup must include its identity, category, applicable type, position, availability, and authoritative contents.
 - **REP-024** Each replicated elevator, hazard, water state, tree, fire, and explosion must include the current state needed to present its authoritative gameplay effect.
-- **REP-025** Replicated score state must include current-round and cumulative values, ranking order, team totals when applicable, and winner or no-winner state.
+- **REP-025** Replicated score state must include current-round values, cumulative values, ranking order, and applicable team totals. It must replicate match outcome separately. A cumulative ranking leader must not become a match champion.
 - **REP-026** Replicated state must include current player indicators, live ranking state, round progress, score-summary state, status messages, and event messages.
 
 ### Presentation events
@@ -85,7 +85,7 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 - **REP-038** The authoritative service must provide a full snapshot after initial admission and before the participant enters the lobby as connected.
 - **REP-039** The authoritative service must provide a full snapshot after a successful reconnect and before restoration completes.
 - **REP-040** The authoritative service must provide a full snapshot when a connected client requires resynchronization.
-- **REP-041** A full snapshot must contain all applicable state in REP-013 through REP-030 at one state version.
+- **REP-041** A full snapshot must contain all applicable state in REP-013 through REP-030 at one state version. Its result values must follow the completed or interrupted semantics in REP-017.
 - **REP-042** A client must validate a complete full snapshot before it replaces the prior replicated state.
 - **REP-043** A client must not present a partial snapshot as current authoritative state.
 - **REP-044** A successfully restored client must present the current authoritative state. It must not rewind the match or make an older snapshot current.
@@ -97,7 +97,7 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 - **REP-047** A client must not apply an incremental update when its baseline does not equal the client's current accepted state version.
 - **REP-048** A duplicate, stale, out-of-order, incomplete, malformed, or internally inconsistent incremental update must not change replicated state.
 - **REP-049** The client must apply one valid incremental update as one complete state change. It must not present a mixture of its old and new versions.
-- **REP-050** Incremental state must produce the same current replicated state as a full snapshot of the same authoritative state version.
+- **REP-050** Incremental state must produce the same current replicated state as a full snapshot of the same authoritative state version. This equality includes each distinct result value in REP-017.
 
 ## Baseline loss and resynchronization
 
@@ -147,17 +147,17 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 ## Acceptance criteria
 
 - **REP-AC-001 — Stable identities:** Every replicated match, round, player, world entity, and event follows REP-005 through REP-012.
-- **REP-AC-002 — Complete state:** A full snapshot contains all applicable session, lobby, match, round, world, score, message, effect, and result state in REP-013 through REP-030.
+- **REP-AC-002 — Complete state:** A full snapshot contains all applicable session, lobby, match, round, world, score, message, effect, and result state. It keeps the result values in REP-017 distinct.
 - **REP-AC-003 — Initial construction:** After admission, a client constructs one complete lobby state before it is shown as connected.
 - **REP-AC-004 — Reconnect restoration:** A reconnected client receives the current complete lobby, match, round-summary, or final-summary state without rewind.
 - **REP-AC-005 — Lifecycle:** Entity creation, update, removal, round transition, and full-snapshot replacement follow REP-031 through REP-037.
-- **REP-AC-006 — Ordered updates:** Valid incremental updates apply atomically in baseline order and equal the corresponding full-snapshot state.
+- **REP-AC-006 — Ordered updates:** Valid incremental updates apply atomically in baseline order. Each update equals the corresponding full snapshot, including all distinct result values.
 - **REP-AC-007 — Invalid updates:** Duplicate, stale, out-of-order, incomplete, malformed, or inconsistent updates do not change replicated state.
 - **REP-AC-008 — Recovery:** Baseline loss starts one bounded full resynchronization that converges without stale entities or repeated expired events.
 - **REP-AC-009 — Recovery failure:** A failed resynchronization affects only that client and follows the existing reconnect journey without pausing the match.
 - **REP-AC-010 — Read-only authority:** A client cannot change canonical score, hit, pickup, death, winner, random, or progression state through replication.
 - **REP-AC-011 — Transport truth:** Replication uses the approved reliable ordered transport and makes no unsupported loss, duplication, or reordering claim.
-- **REP-AC-012 — Presentation continuity:** Replicated state can present the shared arena, live status, score overlays, round transitions, and session-only summary without inventing canonical outcomes.
+- **REP-AC-012 — Presentation continuity:** Replicated state can present the shared arena, live status, score overlays, round transitions, final summary, and retained lobby result. It must not invent a cumulative-ranking champion.
 - **REP-AC-013 — Safety:** Replication respects existing payload, queue, bandwidth, progress, redaction, and connection-isolation limits.
 - **REP-AC-014 — Local independence:** Local Play remains unchanged and does not start or require replication.
 - **REP-AC-015 — Scope truth:** Completion of issue #34 alone must not support a playable-network or release-readiness claim.
