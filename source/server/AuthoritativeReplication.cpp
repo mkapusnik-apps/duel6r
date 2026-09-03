@@ -108,6 +108,19 @@ namespace Duel6::Server::Authoritative {
         return update;
     }
 
+    std::optional<R::IncrementalUpdate> AuthoritativeReplication::setParticipantConnection(
+            Identity participantId, R::ConnectionState connection) {
+        if (publisher.version() == 0) return std::nullopt;
+        const AuthoritativeReplication before = *this;
+        const auto found = std::find_if(state.participants.begin(), state.participants.end(),
+                [participantId](const auto &participant) { return participant.participantId == participantId; });
+        if (found == state.participants.end()) return std::nullopt;
+        found->connection = connection;
+        auto update = publisher.publish(state);
+        if (!update) *this = before;
+        return update;
+    }
+
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::beginMatch(const AuthoritativeMatch &match) {
         if (publisher.version() == 0 || state.matchId != 0 || match.phase() == MatchPhase::Lobby)
             return std::nullopt;
@@ -152,8 +165,8 @@ namespace Duel6::Server::Authoritative {
         else state.roundEndCountdown = 0;
         if (observedRound != state.currentRoundNumber) {
             state.entities.clear(); state.effects.clear();
-            worldIdentities.clear(); eventIdentities.clear();
-            observedEvents.clear(); observedTransitions.clear();
+            worldIdentities.clear();
+            highestObservedEventSequence = 0; highestObservedTransitionSequence = 0;
             observedRound = state.currentRoundNumber;
             if (observedRound) {
                 R::RoundState round;
@@ -252,22 +265,14 @@ namespace Duel6::Server::Authoritative {
             };
             appendEntities(world->projectiles); appendEntities(world->pickups); appendEntities(world->elevators);
             appendEntities(world->hazards); appendEntities(world->trees);
-            for (const auto &source: world->events) {
-                if (source.tick != world->worldTick || (source.kind != "explosion" && source.kind != "tree-burned"))
-                    continue;
+            for (const auto &source: world->effects) {
                 R::WorldEntityState entity;
-                const std::uint64_t canonical = (UINT64_C(0xfe) << 48u) | source.sequence;
-                entity.entityId = worldIdentity(state.round->roundId, canonical);
-                entity.kind = source.kind == "explosion" ? R::EntityKind::Explosion : R::EntityKind::Fire;
-                entity.type = source.kind == "explosion" ? "explosion" : "fire";
-                entity.ownerPlayerId = source.playerId; entity.primaryValue = source.value;
+                entity.entityId = worldIdentity(state.round->roundId, source.stableId);
+                entity.kind = source.type == "explosion" ? R::EntityKind::Explosion : R::EntityKind::Fire;
+                entity.type = source.type; entity.ownerPlayerId = source.ownerPlayerId;
+                entity.positionX = source.positionX; entity.positionY = source.positionY;
+                entity.primaryValue = static_cast<std::int64_t>(source.remainingTicks);
                 entity.lifecycle = "active";
-                const auto location = std::find_if(state.players.begin(), state.players.end(), [&](const auto &player) {
-                    return player.playerId == (source.targetPlayerId ? source.targetPlayerId : source.playerId);
-                });
-                if (location != state.players.end()) {
-                    entity.positionX = location->positionX; entity.positionY = location->positionY;
-                }
                 state.entities.push_back(entity);
             }
             state.effects.clear();
@@ -277,29 +282,28 @@ namespace Duel6::Server::Authoritative {
                 effect.type = player.activeBonus; effect.playerId = player.playerId; effect.remaining = player.bonusRemaining;
                 state.effects.push_back(std::move(effect));
             }
-            for (const auto &entity: state.entities) if (entity.kind == R::EntityKind::Explosion
-                                                         || entity.kind == R::EntityKind::Fire) {
+            for (const auto &source: world->effects) {
                 R::ContinuingEffectState effect;
                 effect.effectId = worldIdentity(state.round->roundId,
-                        (UINT64_C(0xfd) << 48u) | (entity.entityId & UINT64_C(0x0000ffffffffffff)));
-                effect.type = entity.kind == R::EntityKind::Explosion ? "explosion" : "fire";
-                effect.entityId = entity.entityId; effect.remaining = 1;
+                        (UINT64_C(0xfd) << 48u) | (source.stableId & UINT64_C(0x0000ffffffffffff)));
+                effect.type = source.type; effect.playerId = source.ownerPlayerId;
+                effect.entityId = worldIdentity(state.round->roundId, source.stableId);
+                effect.remaining = static_cast<std::int64_t>(source.remainingTicks);
                 state.effects.push_back(std::move(effect));
             }
             const auto appendEvents = [&](const std::vector<CanonicalEvent> &sources, bool transition) {
-                auto &observed = transition ? observedTransitions : observedEvents;
+                auto &highestObserved = transition ? highestObservedTransitionSequence
+                                                   : highestObservedEventSequence;
                 for (const auto &source: sources) {
-                    const auto observedKey = std::make_pair(state.round->roundId, source.sequence);
-                    if (!observed.insert(observedKey).second) continue;
-                    const auto identityKey = std::make_tuple(state.round->roundId, transition, source.sequence);
+                    if (source.sequence <= highestObserved) continue;
                     Identity eventId = identities.issue(R::IdentityCategory::PresentationEvent);
                     if (eventId == 0) return false;
-                    eventIdentities.emplace(identityKey, eventId);
                     R::PresentationEvent event;
                     event.eventId = eventId; event.type = source.kind; event.playerId = source.playerId;
                     event.targetPlayerId = source.targetPlayerId; event.entityId = source.entityId
                             ? worldIdentity(state.round->roundId, source.entityId) : 0;
                     event.value = source.value; events.push_back(std::move(event));
+                    highestObserved = source.sequence;
                 }
                 return true;
             };
@@ -313,9 +317,38 @@ namespace Duel6::Server::Authoritative {
             };
             appendMessages(world->events);
             appendMessages(world->transitions);
+            std::set<Identity> retainedWorldIdentities;
+            for (const auto &entity: state.entities) retainedWorldIdentities.insert(entity.entityId);
+            for (const auto &effect: state.effects) retainedWorldIdentities.insert(effect.effectId);
+            for (auto iterator = worldIdentities.begin(); iterator != worldIdentities.end();) {
+                if (retainedWorldIdentities.count(iterator->second)) ++iterator;
+                else iterator = worldIdentities.erase(iterator);
+            }
         } else {
             state.entities.clear();
             state.effects.clear();
+            state.score.players.clear(); state.score.ranking.clear();
+            for (const auto &player: state.players) {
+                const auto cumulative = cumulativeStatistics.find(player.playerId);
+                if (cumulative == cumulativeStatistics.end()) return false;
+                R::ScoreRowState score;
+                score.playerId = player.playerId; score.cumulativePoints = cumulative->second.totalPoints();
+                score.shots = cumulative->second.shots; score.hits = cumulative->second.hits;
+                score.kills = cumulative->second.kills; score.deaths = cumulative->second.deaths;
+                score.assists = cumulative->second.assists; score.wins = cumulative->second.wins;
+                score.penalties = cumulative->second.penalties;
+                score.survivalTicks = cumulative->second.survivalTicks;
+                score.damage = cumulative->second.damage; score.assistedDamage = cumulative->second.assistedDamage;
+                state.score.players.push_back(std::move(score));
+            }
+            std::sort(state.score.players.begin(), state.score.players.end(), [&](const auto &left, const auto &right) {
+                if (left.cumulativePoints != right.cumulativePoints) return left.cumulativePoints > right.cumulativePoints;
+                const auto *leftDefinition = definition(roster, left.playerId);
+                const auto *rightDefinition = definition(roster, right.playerId);
+                return leftDefinition && rightDefinition
+                       && leftDefinition->rosterOrder < rightDefinition->rosterOrder;
+            });
+            for (const auto &row: state.score.players) state.score.ranking.push_back(row.playerId);
         }
         if (match.publishedResult()) {
             const auto serialized = serializeSessionResult(*match.publishedResult());
@@ -326,6 +359,7 @@ namespace Duel6::Server::Authoritative {
             state.score.winner.winnerPlayerIds = match.publishedResult()->finalWinnerPlayerIds;
             state.score.winner.winningTeam = static_cast<std::uint8_t>(match.publishedResult()->finalWinningTeam);
             state.score.winner.noWinner = match.publishedResult()->finalNoWinner;
+            if (state.round) state.round->outcome = state.score.winner;
         }
         state.messages.roundProgress = state.phaseTime;
         state.messages.scoreSummaryVisible = state.phase == R::Phase::RoundSummary

@@ -6,6 +6,13 @@
 #include "AuthoritativeMatchValidation.h"
 
 namespace Duel6::Server::Authoritative {
+    std::map<Identity, bool> AuthoritativeHostedMatchController::replicatedReadiness(
+            const std::vector<Network::Replication::ParticipantState> &participants) {
+        std::map<Identity, bool> result;
+        for (const auto &participant: participants) result.emplace(participant.participantId, participant.ready);
+        return result;
+    }
+
     AuthoritativeHostedMatchController::AuthoritativeHostedMatchController(
             Identity hostParticipantId, MatchRuntimeDependencies dependencies)
             : dependencies(std::move(dependencies)), hostParticipantId(hostParticipantId),
@@ -14,14 +21,43 @@ namespace Duel6::Server::Authoritative {
     bool AuthoritativeHostedMatchController::initializeReplication(
             std::vector<Network::Replication::ParticipantState> participants,
             std::vector<PlayerDefinition> roster, MatchConfig settings) {
-        return currentStage == HostedMatchStage::ServiceStarting
-               && replication.setLobby(hostParticipantId, std::move(participants),
-                                       std::move(roster), std::move(settings));
+        if (currentStage != HostedMatchStage::ServiceStarting) return false;
+        auto nextReadiness = replicatedReadiness(participants);
+        if (!replication.setLobby(hostParticipantId, std::move(participants),
+                                  std::move(roster), std::move(settings))) return false;
+        readiness = std::move(nextReadiness);
+        return true;
     }
 
     bool AuthoritativeHostedMatchController::restoreReplication(
-            Identity participantId, Network::Replication::ReplicationSender sender) {
-        return replicationConnections.restore(participantId, std::move(sender));
+            Identity participantId, Network::Replication::ReplicationSender sender,
+            std::function<void()> close) {
+        return replicationConnections.restore(participantId, std::move(sender), std::move(close));
+    }
+
+    bool AuthoritativeHostedMatchController::updateReplicationLobby(
+            std::vector<Network::Replication::ParticipantState> participants,
+            std::vector<PlayerDefinition> roster, MatchConfig settings) {
+        if (currentStage != HostedMatchStage::Lobby) return false;
+        auto nextReadiness = replicatedReadiness(participants);
+        const auto update = replication.updateLobby(
+                std::move(participants), std::move(roster), std::move(settings));
+        if (!update) return false;
+        readiness = std::move(nextReadiness);
+        (void) replicationConnections.broadcast(*update);
+        return true;
+    }
+
+    void AuthoritativeHostedMatchController::disconnectReplication(Identity participantId) noexcept {
+        replicationConnections.disconnect(participantId);
+    }
+
+    bool AuthoritativeHostedMatchController::updateReplicationConnection(
+            Identity participantId, Network::Replication::ConnectionState connection) {
+        const auto update = replication.setParticipantConnection(participantId, connection);
+        if (!update) return false;
+        (void) replicationConnections.broadcast(*update);
+        return true;
     }
 
     Network::Replication::HostReplicationResult AuthoritativeHostedMatchController::receiveReplication(
@@ -79,6 +115,12 @@ namespace Duel6::Server::Authoritative {
 
     TerminalOutcome AuthoritativeHostedMatchController::start(const MatchConfig &config,
             const std::vector<PlayerDefinition> &roster, const Network::GameplayManifest &manifest) {
+        return start(config, roster, manifest, dependencies);
+    }
+
+    TerminalOutcome AuthoritativeHostedMatchController::start(const MatchConfig &config,
+            const std::vector<PlayerDefinition> &roster, const Network::GameplayManifest &manifest,
+            MatchRuntimeDependencies matchDependencies) {
         if (currentStage == HostedMatchStage::ContentBlocked)
             return terminalOutcome(OutcomeCode::ContentUnavailable);
         if (currentStage != HostedMatchStage::Lobby || activeMatch)
@@ -96,11 +138,20 @@ namespace Duel6::Server::Authoritative {
             currentStage = HostedMatchStage::ContentBlocked;
             return terminalOutcome(OutcomeCode::ContentUnavailable);
         }
-        activeMatch = std::make_unique<AuthoritativeMatch>(dependencies);
+        activeMatch = std::make_unique<AuthoritativeMatch>(std::move(matchDependencies));
         const TerminalOutcome started = activeMatch->start(config, roster, manifest);
         if (started.code == OutcomeCode::None) {
+            if (replication.fullSnapshot()) {
+                const auto update = replication.beginMatch(*activeMatch);
+                if (!update) {
+                    activeMatch->shutdown();
+                    activeMatch.reset();
+                    currentStage = HostedMatchStage::UnexpectedStop;
+                    return terminalOutcome(OutcomeCode::RuntimeFailed);
+                }
+                (void) replicationConnections.broadcast(*update);
+            }
             currentStage = HostedMatchStage::MatchActive;
-            if (auto update = replication.beginMatch(*activeMatch)) replicationConnections.broadcast(*update);
         }
         else if (started.code == OutcomeCode::RuntimeFailed) currentStage = HostedMatchStage::UnexpectedStop;
         else if (started.code == OutcomeCode::ContentUnavailable) {
@@ -130,9 +181,11 @@ namespace Duel6::Server::Authoritative {
         return activeMatch ? activeMatch->outcome() : terminalOutcome(OutcomeCode::RuntimeFailed);
     }
 
-    void AuthoritativeHostedMatchController::observeMatchOutcome() {
-        if (!activeMatch || currentStage != HostedMatchStage::MatchActive) return;
-        if (auto update = replication.capture(*activeMatch)) replicationConnections.broadcast(*update);
+    bool AuthoritativeHostedMatchController::observeMatchOutcome() {
+        if (!activeMatch || currentStage != HostedMatchStage::MatchActive) return false;
+        const auto update = replication.capture(*activeMatch);
+        if (!update) return false;
+        (void) replicationConnections.broadcast(*update);
         if (activeMatch->outcome().code == OutcomeCode::RuntimeFailed
             || activeMatch->outcome().code == OutcomeCode::ShutdownFailed) {
             activeMatch->shutdown();
@@ -142,6 +195,7 @@ namespace Duel6::Server::Authoritative {
             currentStage = stopped.code == OutcomeCode::ShutdownFailed
                            ? HostedMatchStage::UnexpectedStop : HostedMatchStage::Ended;
         }
+        return true;
     }
 
     HostedMatchStage AuthoritativeHostedMatchController::stage() const noexcept { return currentStage; }

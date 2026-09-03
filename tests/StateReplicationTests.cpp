@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "source/network/StateReplication.h"
+#include "source/network/StateReplicationProtocol.h"
 #include "source/server/AuthoritativeMatch.h"
 #include "source/server/AuthoritativeReplication.h"
 #include "tests/TestHarness.h"
@@ -264,7 +265,24 @@ D6R_TEST_CASE("REP one active resynchronization blocks deltas and restores every
                             R::Phase::FinalSummary, R::Phase::Ended}) {
         auto state = phase == R::Phase::Lobby ? lobbyState() : activeState();
         state.phase = phase;
-        if (phase == R::Phase::FinalSummary || phase == R::Phase::Ended) state.round.reset();
+        if (phase == R::Phase::RoundSummary) {
+            state.round->outcome.winnerPlayerIds = {101};
+            state.score.winner = state.round->outcome;
+        } else if (phase == R::Phase::FinalSummary) {
+            state.completedRounds = 1;
+            state.round->outcome.winnerPlayerIds = {101};
+            state.score.winner = state.round->outcome;
+            state.result.available = true;
+            state.result.sessionOnly = true;
+            state.result.state = "Completed";
+            state.result.serialized = "canonical-session-result";
+            state.entities.clear();
+            state.effects.clear();
+        } else if (phase == R::Phase::Ended) {
+            state.round.reset();
+            state.entities.clear();
+            state.effects.clear();
+        }
         R::ReplicatedState client;
         D6R_REQUIRE(client.apply(R::FullSnapshot{1, state}) == R::ApplyResult::Applied);
         auto invalid = validUpdate(state, state);
@@ -376,4 +394,267 @@ D6R_TEST_CASE("REP authoritative headless match constructs lobby and convergent 
     D6R_REQUIRE(!finalSummary->result.serialized.empty());
     D6R_REQUIRE(client.apply(*finalSummary) == R::ApplyResult::Applied);
     requireCoreStateEqual(replication.fullSnapshot()->state, *client.state());
+}
+
+D6R_TEST_CASE("REP binary codec round trips complete snapshot and delta schemas deterministically") {
+    auto state = activeState();
+    state.settings.fixedLevel = "levels/a.json";
+    state.settings.assistance = true;
+    state.settings.quickLiquid = true;
+    state.settings.burnableTrees = false;
+    state.roundEndCountdown = 300;
+    state.round->mirrored = true;
+    state.players[0].velocityX = -12;
+    state.players[0].velocityY = 34;
+    state.players[0].facingLeft = true;
+    state.players[0].crouching = true;
+    state.players[0].air = 77;
+    state.players[0].actionMask = 5;
+    state.players[0].activeBonus = "shield";
+    state.players[0].bonusRemaining = 44;
+    state.players[0].invulnerable = true;
+    state.players[0].visible = false;
+    state.players[0].reloadRemaining = 3;
+    state.players[0].charge = 2;
+    state.players[0].temporaryMovementRemaining = 1;
+    state.entities[0].positionX = -50;
+    state.entities[0].positionY = 60;
+    state.entities[0].velocityX = 7;
+    state.entities[0].velocityY = -8;
+    state.entities[0].primaryValue = 9;
+    state.entities[0].secondaryValue = 10;
+    state.score.players[0].roundPoints = 11;
+    state.score.players[0].cumulativePoints = 12;
+    state.score.players[0].shots = 13;
+    state.score.players[0].hits = 14;
+    state.score.players[0].kills = 1;
+    state.score.players[0].assists = 2;
+    state.score.players[0].damage = 99;
+    state.messages.events = {"hit", "pickup"};
+    state.messages.scoreSummaryVisible = false;
+    state.effects = {{70, "shield", 101, 0, 44}};
+
+    const R::FullSnapshot snapshot{17, state};
+    const auto payload = R::serializeReplicationSnapshot(snapshot);
+    D6R_REQUIRE(payload.size() <= Duel6::Network::MaxPayloadBytes);
+    const auto decoded = R::deserializeReplicationFrame(payload);
+    D6R_REQUIRE(decoded.has_value());
+    D6R_REQUIRE(decoded->kind == R::ReplicationFrameKind::FullSnapshot);
+    D6R_REQUIRE(decoded->snapshot.has_value());
+    D6R_REQUIRE_EQ(payload, R::serializeReplicationSnapshot(*decoded->snapshot));
+    D6R_REQUIRE_EQ(state.settings.fixedLevel, decoded->snapshot->state.settings.fixedLevel);
+    D6R_REQUIRE_EQ(state.roundEndCountdown, decoded->snapshot->state.roundEndCountdown);
+    D6R_REQUIRE_EQ(state.players[0].temporaryMovementRemaining,
+                   decoded->snapshot->state.players[0].temporaryMovementRemaining);
+    D6R_REQUIRE_EQ(state.score.players[0].damage, decoded->snapshot->state.score.players[0].damage);
+    D6R_REQUIRE_EQ(state.effects[0].remaining, decoded->snapshot->state.effects[0].remaining);
+
+    auto next = state;
+    next.phaseTime++;
+    next.players[0].positionX++;
+    const auto update = validUpdate(state, next, {{80, "hit", 101, 102, 50, 3}});
+    const auto updatePayload = R::serializeReplicationUpdate(update);
+    const auto decodedUpdate = R::deserializeReplicationFrame(updatePayload);
+    D6R_REQUIRE(decodedUpdate && decodedUpdate->update);
+    D6R_REQUIRE_EQ(updatePayload, R::serializeReplicationUpdate(*decodedUpdate->update));
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply(snapshot) == R::ApplyResult::Applied);
+    auto versionAdjusted = *decodedUpdate->update;
+    versionAdjusted.baseline = 17;
+    versionAdjusted.version = 18;
+    D6R_REQUIRE(client.apply(versionAdjusted) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(next.players[0].positionX, client.state()->players[0].positionX);
+}
+
+D6R_TEST_CASE("REP codec rejects truncated trailing oversized and invalid schema payloads") {
+    auto payload = R::serializeReplicationSnapshot({1, activeState()});
+    payload.pop_back();
+    D6R_REQUIRE(!R::deserializeReplicationFrame(payload));
+    payload = R::serializeReplicationSnapshot({1, activeState()});
+    payload.push_back(0);
+    D6R_REQUIRE(!R::deserializeReplicationFrame(payload));
+    D6R_REQUIRE(!R::deserializeReplicationFrame({}));
+    D6R_REQUIRE(!R::deserializeReplicationFrame(
+            std::vector<std::uint8_t>(Duel6::Network::MaxPayloadBytes + 1, 0)));
+
+    auto invalidBoolean = R::serializeReplicationSnapshot({1, activeState()});
+    // Header (8), version (8), session/match/host (24), phase/round counts (3),
+    // phase time/countdown (16), participant count (4), participant id (8): host Boolean.
+    invalidBoolean[71] = 2;
+    D6R_REQUIRE(!R::deserializeReplicationFrame(invalidBoolean));
+}
+
+D6R_TEST_CASE("REP production connection broadcast isolates failures and mutation policy isolates offender") {
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(activeState()));
+    R::AuthoritativeReplicationConnections connections(publisher);
+    std::vector<std::vector<std::uint8_t>> firstPayloads;
+    std::vector<std::vector<std::uint8_t>> secondPayloads;
+    int firstClosed = 0;
+    int secondClosed = 0;
+    D6R_REQUIRE(connections.restore(20, [&](auto payload) {
+        firstPayloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, [&] { ++firstClosed; }));
+    D6R_REQUIRE(connections.restore(21, [&](auto payload) {
+        secondPayloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, [&] { ++secondClosed; }));
+    D6R_REQUIRE_EQ(2u, connections.size());
+    D6R_REQUIRE(firstPayloads.front() == secondPayloads.front());
+
+    auto next = activeState();
+    next.phaseTime++;
+    const auto update = publisher.publish(next);
+    D6R_REQUIRE(update.has_value());
+    D6R_REQUIRE(connections.restore(20, [&](auto payload) {
+        firstPayloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::NotConnected;
+    }, [&] { ++firstClosed; }) == false);
+    // A failed replacement must leave the previously established connection usable.
+    D6R_REQUIRE(connections.broadcast(*update));
+    D6R_REQUIRE_EQ(0, firstClosed);
+    D6R_REQUIRE_EQ(0, secondClosed);
+
+    auto mutation = R::serializeResynchronizationRequest();
+    mutation[6] = static_cast<std::uint8_t>(R::ReplicationFrameKind::CanonicalStateMutation);
+    D6R_REQUIRE(connections.receive(20, mutation) == R::HostReplicationResult::SessionPolicyViolation);
+    D6R_REQUIRE_EQ(1, firstClosed);
+    D6R_REQUIRE_EQ(1u, connections.size());
+    D6R_REQUIRE(connections.receive(21, R::serializeResynchronizationRequest())
+                == R::HostReplicationResult::Accepted);
+    D6R_REQUIRE_EQ(0, secondClosed);
+}
+
+D6R_TEST_CASE("REP client requests one resynchronization and restores current snapshot") {
+    std::vector<std::vector<std::uint8_t>> requests;
+    R::ClientReplicationConnection client([&](auto payload) {
+        requests.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    });
+    D6R_REQUIRE(client.receive(R::serializeReplicationSnapshot({1, activeState()}))
+                == R::ClientReplicationResult::Applied);
+    auto next = activeState();
+    next.phaseTime++;
+    auto invalid = validUpdate(activeState(), next);
+    invalid.baseline = 99;
+    invalid.version = 100;
+    D6R_REQUIRE(client.receive(R::serializeReplicationUpdate(invalid))
+                == R::ClientReplicationResult::WaitingForSnapshot);
+    D6R_REQUIRE_EQ(1u, requests.size());
+    const auto request = R::deserializeReplicationFrame(requests.front());
+    D6R_REQUIRE(request && request->kind == R::ReplicationFrameKind::ResynchronizationRequest);
+    D6R_REQUIRE(client.receive(R::serializeReplicationUpdate(invalid))
+                == R::ClientReplicationResult::WaitingForSnapshot);
+    D6R_REQUIRE_EQ(1u, requests.size());
+    next.phaseTime = 200;
+    D6R_REQUIRE(client.receive(R::serializeReplicationSnapshot({2, next}))
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE(client.replicatedState().current());
+    D6R_REQUIRE_EQ(200u, client.replicatedState().state()->phaseTime);
+}
+
+D6R_TEST_CASE("REP failed authoritative lobby mutation is transactional and retryable") {
+    A::AuthoritativeReplication replication(900);
+    const std::vector<R::ParticipantState> participants = {
+            {20, true, R::ConnectionState::Connected, true, {101}},
+            {21, false, R::ConnectionState::Connected, false, {102}}};
+    D6R_REQUIRE(replication.setLobby(20, participants, roster(), matchConfig()));
+    auto invalidRoster = roster();
+    invalidRoster[1].displayName.assign(65, 'x');
+    D6R_REQUIRE(!replication.updateLobby(participants, invalidRoster, matchConfig()));
+    D6R_REQUIRE_EQ(1u, replication.replicator().version());
+    auto retryRoster = roster();
+    retryRoster[1].displayName = "Retried Guest";
+    const auto retry = replication.updateLobby(participants, retryRoster, matchConfig());
+    D6R_REQUIRE(retry.has_value());
+    D6R_REQUIRE_EQ(1u, retry->baseline);
+    D6R_REQUIRE_EQ(2u, retry->version);
+    D6R_REQUIRE_EQ("Retried Guest", replication.fullSnapshot()->state.players[1].displayName);
+}
+
+D6R_TEST_CASE("REP monotonic tombstone and event watermarks remain bounded over long sessions") {
+    auto state = activeState();
+    state.entities[0].entityId = 1000;
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(state));
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply({1, state}) == R::ApplyResult::Applied);
+    for (R::Identity sequence = 1; sequence <= 5000; ++sequence) {
+        auto next = state;
+        next.phaseTime = sequence;
+        next.entities[0].entityId = 1000 + sequence;
+        const auto update = publisher.publish(next, {{10000 + sequence, "shot", 101, 0,
+                                                       1000 + sequence, 1}});
+        D6R_REQUIRE(update.has_value());
+        D6R_REQUIRE(client.apply(*update) == R::ApplyResult::Applied);
+        D6R_REQUIRE_EQ(1u, client.takePresentationEvents().size());
+        state = std::move(next);
+    }
+    D6R_REQUIRE_EQ(5001u, publisher.version());
+    D6R_REQUIRE_EQ(5001u, client.version());
+    D6R_REQUIRE_EQ(6000u, client.state()->entities.front().entityId);
+}
+
+D6R_TEST_CASE("REP bounded tombstones preserve older live identities when a newer entity is removed") {
+    auto initial = activeState();
+    initial.entities[0].entityId = 10;
+    auto newer = initial.entities[0];
+    newer.entityId = 100;
+    initial.entities.push_back(newer);
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(initial));
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply({1, initial}) == R::ApplyResult::Applied);
+
+    auto removedNewer = initial;
+    removedNewer.entities.pop_back();
+    const auto removal = publisher.publish(removedNewer);
+    D6R_REQUIRE(removal.has_value());
+    D6R_REQUIRE(client.apply(*removal) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(10u, client.state()->entities.front().entityId);
+
+    auto later = removedNewer;
+    later.phaseTime++;
+    const auto next = publisher.publish(later);
+    D6R_REQUIRE(next.has_value());
+    D6R_REQUIRE(client.apply(*next) == R::ApplyResult::Applied);
+    client.requireResynchronization();
+    D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(10u, client.state()->entities.front().entityId);
+}
+
+D6R_TEST_CASE("REP recovery snapshot retains a live identity older than an unrelated tombstone") {
+    auto initial = activeState();
+    initial.entities[0].entityId = 10;
+    auto newer = initial.entities[0];
+    newer.entityId = 100;
+    initial.entities.push_back(newer);
+    auto removedNewer = initial;
+    removedNewer.entities.pop_back();
+    const auto removal = validUpdate(initial, removedNewer);
+
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.apply(removal) == R::ApplyResult::Applied);
+    client.requireResynchronization();
+    D6R_REQUIRE(client.apply({3, removedNewer}) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(10u, client.state()->entities.front().entityId);
+}
+
+D6R_TEST_CASE("REP failed resynchronization enters reconnecting without changing accepted version") {
+    R::ClientReplicationConnection client([](auto) { return Duel6::Network::SendResult::NotConnected; });
+    D6R_REQUIRE(client.receive(R::serializeReplicationSnapshot({1, activeState()}))
+                == R::ClientReplicationResult::Applied);
+    auto next = activeState();
+    next.phaseTime++;
+    auto invalid = validUpdate(activeState(), next);
+    invalid.baseline = 99;
+    invalid.version = 100;
+    D6R_REQUIRE(client.receive(R::serializeReplicationUpdate(invalid))
+                == R::ClientReplicationResult::SendFailed);
+    D6R_REQUIRE_EQ(1u, client.replicatedState().version());
+    D6R_REQUIRE(!client.replicatedState().current());
+    D6R_REQUIRE(client.receive(R::serializeReplicationSnapshot({2, next}))
+                == R::ClientReplicationResult::Reconnecting);
 }

@@ -177,9 +177,13 @@ namespace Duel6::Server::Authoritative {
             previousStatistics.clear();
             previousEntities.clear();
             previousElevatorVelocities.clear();
+            eventTrace.clear();
+            transitionTrace.clear();
             previousWaterLevel = 0;
             previousSuddenDeath = false;
             previousRoundOver = false;
+            activeEffects.clear();
+            effectsOverflowed = false;
             sourceEventsEnabled = false;
             if (!initialized) {
                 resources = std::make_unique<GameResources>();
@@ -252,11 +256,28 @@ namespace Duel6::Server::Authoritative {
                           | (category << 40u) | event.localEntityId;
                 const Identity player = playerId(event.playerRosterSlot);
                 const Identity target = playerId(event.targetRosterSlot);
+                const std::uint64_t sequence = nextEventSequence;
                 if (event.kind == "reload-completed" || event.kind == "weapon-charge-ready"
                     || event.kind == "weapon-charge-released" || event.kind == "bonus-expired"
                     || event.kind == "temporary-slowdown-expired" || event.kind == "air-level-changed")
                     appendTransition(event.kind, entity, player, target, event.valueCategory, event.value);
                 else appendEvent(event.kind, entity, player, target, event.valueCategory, event.value);
+                if (nextEventSequence != sequence + 1u) return;
+                if (event.kind == "explosion") {
+                    const auto location = canonicalPlayersById.find(target ? target : player);
+                    std::int64_t x = 0, y = 0;
+                    if (location != canonicalPlayersById.end()
+                        && fixedValue(location->second->getCentre().x, x)
+                        && fixedValue(location->second->getCentre().y, y))
+                        appendContinuingEffect("explosion", sequence, player, x, y, 69);
+                } else if (event.kind == "tree-burned" && event.localEntityId != 0) {
+                    const auto &fires = game->getRound().getWorld().getFireList().values();
+                    const std::size_t index = static_cast<std::size_t>(event.localEntityId - 1u);
+                    std::int64_t x = 0, y = 0;
+                    if (index < fires.size() && fixedValue(fires[index].getCentre().x, x)
+                        && fixedValue(fires[index].getCentre().y, y))
+                        appendContinuingEffect("fire", sequence, player, x, y, 147);
+                }
             });
             sourceEventsEnabled = true;
 
@@ -380,9 +401,25 @@ namespace Duel6::Server::Authoritative {
                                    playerId, targetPlayerId, std::move(valueCategory), value});
     }
 
+    void CanonicalMatchRuntime::appendContinuingEffect(std::string type, std::uint64_t sequence,
+            Identity ownerPlayerId, std::int64_t positionX, std::int64_t positionY, Tick duration) {
+        if (type.empty() || sequence == 0 || duration == 0 || worldTick > MaxMatchTicks
+            || duration > MaxMatchTicks - worldTick) return;
+        if (activeEffects.size() >= MaxCanonicalEvents) {
+            effectsOverflowed = true;
+            return;
+        }
+        CanonicalContinuingEffectSnapshot effect;
+        effect.stableId = (static_cast<std::uint64_t>(authoritativeRound) << 48u)
+                          | (UINT64_C(7) << 40u) | sequence;
+        effect.type = std::move(type); effect.ownerPlayerId = ownerPlayerId;
+        effect.positionX = positionX; effect.positionY = positionY; effect.remainingTicks = duration;
+        activeEffects.push_back({std::move(effect), worldTick + duration});
+    }
+
     CanonicalWorldSnapshot CanonicalMatchRuntime::snapshot() {
         CanonicalWorldSnapshot result;
-        if (!game) return result;
+        if (!game || effectsOverflowed) return result;
         const auto &players = game->getPlayers();
         const World &world = game->getRound().getWorld();
         const std::uint64_t roundIdentity = static_cast<std::uint64_t>(authoritativeRound) << 48u;
@@ -397,6 +434,15 @@ namespace Duel6::Server::Authoritative {
         result.waterLevel = world.getLevel().getWaterLevel();
         result.waterRaising = world.getLevel().isRaisingWater();
         result.suddenDeath = game->getRound().isSuddenDeath();
+        activeEffects.erase(std::remove_if(activeEffects.begin(), activeEffects.end(), [&](const auto &effect) {
+            return effect.expiresAt <= worldTick;
+        }), activeEffects.end());
+        result.effects.reserve(activeEffects.size());
+        for (const auto &active: activeEffects) {
+            auto effect = active.snapshot;
+            effect.remainingTicks = active.expiresAt - worldTick;
+            result.effects.push_back(std::move(effect));
+        }
         result.players.reserve(roster.size());
         for (const auto &definition: roster) {
             const auto active = std::find_if(activeRoster.begin(), activeRoster.end(), [&](const auto &entry) {
@@ -618,7 +664,7 @@ namespace Duel6::Server::Authoritative {
         const std::size_t entityCount = players.size() + result.projectiles.size() + result.pickups.size()
                                          + result.elevators.size() + result.hazards.size() + result.trees.size();
         if (entityCount > MaxCanonicalEntities || result.events.size() > MaxCanonicalEvents
-            || result.transitions.size() > MaxCanonicalEvents) return {};
+            || result.transitions.size() > MaxCanonicalEvents || result.effects.size() > MaxCanonicalEvents) return {};
         result.valid = true;
         result.stateDigest = digest == 0 ? 1 : digest;
         result.dynamicEntityCount = entityCount;
@@ -632,6 +678,8 @@ namespace Duel6::Server::Authoritative {
         canonicalPlayersById.clear();
         heldInputsByPlayerId.clear();
         departedPlayerIds.clear();
+        activeEffects.clear();
+        effectsOverflowed = false;
         mode.reset();
         settings.reset();
     }

@@ -240,9 +240,9 @@ namespace Duel6::Network::Replication {
         StateVersion currentVersion = 0;
         std::optional<CanonicalState> current;
         Identity highestEmittedEvent = 0;
-        Identity removedParticipantHighWatermark = 0;
-        Identity removedPlayerHighWatermark = 0;
-        Identity removedEntityHighWatermark = 0;
+        Identity highestParticipantIdentity = 0;
+        Identity highestPlayerIdentity = 0;
+        Identity highestEntityIdentity = 0;
     };
 
     class ReplicatedState final {
@@ -259,9 +259,9 @@ namespace Duel6::Network::Replication {
         std::optional<CanonicalState> accepted;
         StateVersion acceptedVersion = 0;
         bool resynchronizing = false;
-        Identity removedParticipantHighWatermark = 0;
-        Identity removedPlayerHighWatermark = 0;
-        Identity removedEntityHighWatermark = 0;
+        Identity highestParticipantIdentity = 0;
+        Identity highestPlayerIdentity = 0;
+        Identity highestEntityIdentity = 0;
         Identity highestPresentedEvent = 0;
         std::vector<PresentationEvent> pendingEvents;
         ApplyResult rejectIncremental() noexcept;

@@ -26,12 +26,21 @@ namespace Duel6::Server::Authoritative {
         bool markServiceReady();
         bool setParticipantReady(Identity participantId, bool ready);
         TerminalOutcome start(const MatchConfig &config, const std::vector<PlayerDefinition> &roster,
-                              const Network::GameplayManifest &manifest);
+                               const Network::GameplayManifest &manifest);
+        TerminalOutcome start(const MatchConfig &config, const std::vector<PlayerDefinition> &roster,
+                              const Network::GameplayManifest &manifest,
+                              MatchRuntimeDependencies matchDependencies);
         TerminalOutcome end(Identity participantId);
-        void observeMatchOutcome();
+        bool observeMatchOutcome();
         bool initializeReplication(std::vector<Network::Replication::ParticipantState> participants,
                                    std::vector<PlayerDefinition> roster, MatchConfig settings);
-        bool restoreReplication(Identity participantId, Network::Replication::ReplicationSender sender);
+        bool updateReplicationLobby(std::vector<Network::Replication::ParticipantState> participants,
+                                    std::vector<PlayerDefinition> roster, MatchConfig settings);
+        bool restoreReplication(Identity participantId, Network::Replication::ReplicationSender sender,
+                                std::function<void()> close = {});
+        void disconnectReplication(Identity participantId) noexcept;
+        bool updateReplicationConnection(Identity participantId,
+                Network::Replication::ConnectionState connection);
         Network::Replication::HostReplicationResult receiveReplication(
                 Identity participantId, const std::vector<std::uint8_t> &payload);
         bool captureReplication();
@@ -53,6 +62,8 @@ namespace Duel6::Server::Authoritative {
 
         void clearReadiness() noexcept;
         bool allParticipantsReady(const std::vector<PlayerDefinition> &roster) const noexcept;
+        static std::map<Identity, bool> replicatedReadiness(
+                const std::vector<Network::Replication::ParticipantState> &participants);
     };
 }
 

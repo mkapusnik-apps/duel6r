@@ -12,6 +12,7 @@
 
 #include "ServerConfig.h"
 #include "AdmissionSession.h"
+#include "AuthoritativeMatch.h"
 #include "../network/CompatibilityManifest.h"
 #include "../network/HostServiceControlProtocol.h"
 #include "../network/Protocol.h"
@@ -137,6 +138,9 @@ namespace Duel6::Server {
         IdentitySource identitySource;
         std::shared_ptr<Network::Trust::ConcurrentWorkLimiter> validationWorkLimiter;
         ValidationWorkGate validationWorkGate;
+        std::function<Authoritative::MatchRuntimeDependencies(
+                const Authoritative::MatchConfig &, const std::vector<Authoritative::PlayerDefinition> &,
+                const Network::ManifestBuildResult &)> authoritativeRuntimeFactory;
         bool productionReplicationProtocol = false;
     };
 

@@ -29,6 +29,11 @@ int main(int argc, char **argv) {
         Duel6::Server::ServerConfig config = Duel6::Server::parseServerConfig(argc, argv);
         if (config.hostedServiceIpc && (!hostedChannel || !hostedChannel->active())) return 1;
         Duel6::Server::AdmissionRuntimeDependencies dependencies;
+        dependencies.authoritativeRuntimeFactory = [](const auto &config, const auto &roster,
+                                                       const auto &content) {
+            return Duel6::Server::Authoritative::CanonicalMatchRuntime::createDependencies(
+                    config, roster, content);
+        };
         if (hostedChannel) {
             dependencies.cancelled = [hostedChannel] { return hostedChannel->stopRequested(); };
             dependencies.hostedServiceStatus = [hostedChannel](Duel6::Network::HostServiceStatusCode status) {

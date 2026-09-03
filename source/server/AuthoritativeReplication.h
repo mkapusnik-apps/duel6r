@@ -4,7 +4,6 @@
 #include <map>
 #include <optional>
 #include <set>
-#include <tuple>
 
 #include "AuthoritativeMatch.h"
 #include "../network/StateReplication.h"
@@ -21,7 +20,9 @@ namespace Duel6::Server::Authoritative {
                 std::vector<Network::Replication::ParticipantState> participants,
                 std::vector<PlayerDefinition> roster, MatchConfig settings);
         std::optional<Network::Replication::IncrementalUpdate> setParticipantReady(Identity participantId,
-                                                                                   bool ready);
+                                                                                    bool ready);
+        std::optional<Network::Replication::IncrementalUpdate> setParticipantConnection(
+                Identity participantId, Network::Replication::ConnectionState connection);
         std::optional<Network::Replication::IncrementalUpdate> beginMatch(const AuthoritativeMatch &match);
         std::optional<Network::Replication::IncrementalUpdate> capture(const AuthoritativeMatch &match);
         std::optional<Network::Replication::FullSnapshot> fullSnapshot() const;
@@ -32,9 +33,8 @@ namespace Duel6::Server::Authoritative {
         Network::Replication::AuthoritativeStateReplicator publisher;
         Network::Replication::CanonicalState state;
         std::map<std::pair<Identity, std::uint64_t>, Identity> worldIdentities;
-        std::map<std::tuple<Identity, bool, std::uint64_t>, Identity> eventIdentities;
-        std::set<std::pair<Identity, std::uint64_t>> observedEvents;
-        std::set<std::pair<Identity, std::uint64_t>> observedTransitions;
+        std::uint64_t highestObservedEventSequence = 0;
+        std::uint64_t highestObservedTransitionSequence = 0;
         std::uint8_t observedRound = 0;
 
         bool updateFromMatch(const AuthoritativeMatch &match,
