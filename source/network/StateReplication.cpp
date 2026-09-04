@@ -94,6 +94,30 @@ namespace Duel6::Network::Replication {
             return result;
         }
 
+        std::set<Identity> resultPlayerIdentities(const CanonicalState &state) {
+            std::set<Identity> result;
+            for (const auto &row: state.score.players) result.insert(row.playerId);
+            result.insert(state.score.ranking.begin(), state.score.ranking.end());
+            result.insert(state.score.winner.winnerPlayerIds.begin(), state.score.winner.winnerPlayerIds.end());
+            if (state.round) {
+                result.insert(state.round->rosterOrder.begin(), state.round->rosterOrder.end());
+                result.insert(state.round->outcome.winnerPlayerIds.begin(),
+                              state.round->outcome.winnerPlayerIds.end());
+            }
+            return result;
+        }
+
+        bool introducesUnseenRetainedResultIdentity(const CanonicalState &before,
+                                                     const CanonicalState &after,
+                                                     const std::set<Identity> &issued) {
+            if (!before.result.available
+                || (before.result.state != "Completed" && before.result.state != "Interrupted")) return false;
+            const auto resultIdentities = resultPlayerIdentities(after);
+            return std::any_of(resultIdentities.begin(), resultIdentities.end(), [&](Identity identity) {
+                return !issued.count(identity);
+            });
+        }
+
         template<typename T, typename Id>
         bool containsNonMonotonicCreation(const std::vector<T> &before, const std::vector<T> &after,
                                            Identity watermark, Id id) {
@@ -559,6 +583,7 @@ namespace Duel6::Network::Replication {
                                       [](const auto &value) { return value.participantId; })
             || containsReusedCreation(current->players, state.players, issuedPlayerIdentities,
                                       [](const auto &value) { return value.playerId; })
+            || introducesUnseenRetainedResultIdentity(*current, state, issuedPlayerIdentities)
             || containsNonMonotonicCreation(current->entities, state.entities, highestEntityIdentity,
                                              [](const auto &value) { return value.entityId; })
             || events.size() > MaxReplicatedEvents) return std::nullopt;
@@ -717,6 +742,8 @@ namespace Duel6::Network::Replication {
         candidate.phaseTime = update.phaseTime; candidate.roundEndCountdown = update.roundEndCountdown;
         candidate.settings = update.settings; candidate.round = update.round; candidate.score = update.score;
         candidate.messages = update.messages; candidate.effects = update.effects; candidate.result = update.result;
+        if (introducesUnseenRetainedResultIdentity(*accepted, candidate, acceptedPlayerIdentities))
+            return rejectIncremental();
         const auto referencedPlayers = referencedPlayerIdentities(candidate);
         nextAcceptedPlayers.insert(referencedPlayers.begin(), referencedPlayers.end());
         if (!validMatchTransition(*accepted, candidate, nextAcceptedMatches)

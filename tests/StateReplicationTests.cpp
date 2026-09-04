@@ -1008,7 +1008,7 @@ D6R_TEST_CASE("REP-005 REP-017 reconnect snapshot reserves player identities ret
     D6R_REQUIRE_EQ(std::string("rejected=true;restored=true"), evidence);
 }
 
-D6R_TEST_CASE("REP-006 REP-007 REP-042 authoritative retained-lobby result identity cannot later become live") {
+D6R_TEST_CASE("REP-006 REP-007 REP-042 authoritative retained result rejects a new result-only identity transactionally") {
     auto initial = distinctFinalSummary();
     initial.phase = R::Phase::Lobby;
     initial.participants[0].ready = false;
@@ -1032,53 +1032,39 @@ D6R_TEST_CASE("REP-006 REP-007 REP-042 authoritative retained-lobby result ident
 
     R::AuthoritativeStateReplicator publisher;
     D6R_REQUIRE(publisher.initialize(initial));
-    const auto introduction = publisher.publish(resultOnly);
-    bool protectedLifecycle = false;
-    if (!introduction) {
-        const auto retained = publisher.fullSnapshot();
-        const bool introductionWasTransactional = publisher.version() == 1 && retained && retained->version == 1
-                && retained->state.result.serialized == initial.result.serialized
-                && scoreRow(retained->state, resultOnlyIdentity) == nullptr;
-        R::ParticipantState newcomer{22, false, R::ConnectionState::Connected, false, {resultOnlyIdentity}};
-        R::PlayerState freshPlayer;
-        freshPlayer.playerId = resultOnlyIdentity;
-        freshPlayer.ownerParticipantId = newcomer.participantId;
-        freshPlayer.rosterPosition = 2;
-        freshPlayer.displayName = "Fresh after rejected result";
-        freshPlayer.life = 100;
-        auto freshLive = initial;
-        freshLive.participants.push_back(newcomer);
-        freshLive.players.push_back(freshPlayer);
-        D6R_REQUIRE(R::validateCanonicalState(freshLive));
-        const auto creation = publisher.publish(freshLive);
-        protectedLifecycle = introductionWasTransactional && creation
-                && publisher.version() == 2 && publisher.fullSnapshot()
-                && player(publisher.fullSnapshot()->state, resultOnlyIdentity) != nullptr;
-    } else {
-        R::ParticipantState newcomer{22, false, R::ConnectionState::Connected, false, {resultOnlyIdentity}};
-        R::PlayerState reusedPlayer;
-        reusedPlayer.playerId = resultOnlyIdentity;
-        reusedPlayer.ownerParticipantId = newcomer.participantId;
-        reusedPlayer.rosterPosition = 2;
-        reusedPlayer.displayName = "Reused result identity";
-        reusedPlayer.life = 100;
-        auto liveReuse = resultOnly;
-        liveReuse.participants.push_back(newcomer);
-        liveReuse.players.push_back(reusedPlayer);
-        D6R_REQUIRE(R::validateCanonicalState(liveReuse));
+    const auto before = publisher.fullSnapshot();
+    D6R_REQUIRE(before.has_value());
+    const R::PresentationEvent attemptedEvent{970, "result-transition", 0, 0, 0, 0};
+    D6R_REQUIRE(!publisher.publish(resultOnly, {attemptedEvent}).has_value());
+    const auto afterRejection = publisher.fullSnapshot();
+    D6R_REQUIRE(afterRejection.has_value());
+    D6R_REQUIRE_EQ(1u, publisher.version());
+    D6R_REQUIRE_EQ(R::serializeReplicationSnapshot(*before),
+                   R::serializeReplicationSnapshot(*afterRejection));
 
-        const auto reuse = publisher.publish(liveReuse);
-        const auto retained = publisher.fullSnapshot();
-        protectedLifecycle = !reuse && publisher.version() == introduction->version && retained
-                && retained->version == introduction->version
-                && retained->state.result.serialized == resultOnly.result.serialized
-                && player(retained->state, resultOnlyIdentity) == nullptr
-                && scoreRow(retained->state, resultOnlyIdentity) != nullptr;
-    }
-    D6R_REQUIRE(protectedLifecycle);
+    R::ParticipantState newcomer{22, false, R::ConnectionState::Connected, false, {resultOnlyIdentity}};
+    R::PlayerState freshPlayer;
+    freshPlayer.playerId = resultOnlyIdentity;
+    freshPlayer.ownerParticipantId = newcomer.participantId;
+    freshPlayer.rosterPosition = 2;
+    freshPlayer.displayName = "Fresh after rejected result";
+    freshPlayer.life = 100;
+    auto freshLive = initial;
+    freshLive.participants.push_back(newcomer);
+    freshLive.players.push_back(freshPlayer);
+    D6R_REQUIRE(R::validateCanonicalState(freshLive));
+    const auto creation = publisher.publish(freshLive, {attemptedEvent});
+    D6R_REQUIRE(creation.has_value());
+    D6R_REQUIRE_EQ(1u, creation->baseline);
+    D6R_REQUIRE_EQ(2u, creation->version);
+    D6R_REQUIRE_EQ(1u, creation->events.size());
+    D6R_REQUIRE_EQ(attemptedEvent.eventId, creation->events.front().eventId);
+    D6R_REQUIRE_EQ(resultOnlyIdentity, creation->players.front().identity);
+    D6R_REQUIRE_EQ(2u, publisher.version());
+    D6R_REQUIRE(player(publisher.fullSnapshot()->state, resultOnlyIdentity) != nullptr);
 }
 
-D6R_TEST_CASE("REP-006 REP-007 REP-048 REP-AC-001/006/007 incremental retained-lobby result identity cannot later become live") {
+D6R_TEST_CASE("REP-006 REP-007 REP-048 REP-AC-001/006/007 client rejects a new retained result-only identity transactionally") {
     auto initial = distinctFinalSummary();
     initial.phase = R::Phase::Lobby;
     initial.participants[0].ready = false;
@@ -1100,55 +1086,45 @@ D6R_TEST_CASE("REP-006 REP-007 REP-048 REP-AC-001/006/007 incremental retained-l
     D6R_REQUIRE(R::validateCanonicalState(resultOnly));
     D6R_REQUIRE(player(resultOnly, resultOnlyIdentity) == nullptr);
 
-    const auto introduction = validUpdate(initial, resultOnly);
+    auto introduction = validUpdate(initial, initial);
+    introduction.round = resultOnly.round;
+    introduction.score = resultOnly.score;
+    introduction.result = resultOnly.result;
+    const R::PresentationEvent attemptedEvent{971, "result-transition", 0, 0, 0, 0};
+    introduction.events = {attemptedEvent};
     R::ReplicatedState client;
     D6R_REQUIRE(client.apply({1, initial}) == R::ApplyResult::Applied);
-    const auto introductionResult = client.apply(introduction);
-    bool protectedLifecycle = false;
-    if (introductionResult == R::ApplyResult::ResynchronizationRequired) {
-        const bool introductionWasTransactional = client.version() == 1 && !client.current() && client.state() == nullptr
-                && client.takePresentationEvents().empty();
-        R::ParticipantState newcomer{22, false, R::ConnectionState::Connected, false, {resultOnlyIdentity}};
-        R::PlayerState freshPlayer;
-        freshPlayer.playerId = resultOnlyIdentity;
-        freshPlayer.ownerParticipantId = newcomer.participantId;
-        freshPlayer.rosterPosition = 2;
-        freshPlayer.displayName = "Fresh after rejected result";
-        freshPlayer.life = 100;
-        auto freshLive = initial;
-        freshLive.participants.push_back(newcomer);
-        freshLive.players.push_back(freshPlayer);
-        D6R_REQUIRE(R::validateCanonicalState(freshLive));
-        const auto creation = lobbyCreationUpdate(1, 2, freshLive, newcomer, freshPlayer);
-        protectedLifecycle = introductionWasTransactional
-                && client.apply({1, initial}) == R::ApplyResult::Applied
-                && client.apply(creation) == R::ApplyResult::Applied
-                && client.version() == 2 && client.state()
-                && player(*client.state(), resultOnlyIdentity) != nullptr;
-    } else if (introductionResult == R::ApplyResult::Applied) {
-        R::ParticipantState newcomer{22, false, R::ConnectionState::Connected, false, {resultOnlyIdentity}};
-        R::PlayerState reusedPlayer;
-        reusedPlayer.playerId = resultOnlyIdentity;
-        reusedPlayer.ownerParticipantId = newcomer.participantId;
-        reusedPlayer.rosterPosition = 2;
-        reusedPlayer.displayName = "Reused result identity";
-        reusedPlayer.life = 100;
-        auto liveReuse = resultOnly;
-        liveReuse.participants.push_back(newcomer);
-        liveReuse.players.push_back(reusedPlayer);
-        D6R_REQUIRE(R::validateCanonicalState(liveReuse));
+    D6R_REQUIRE(client.apply(introduction) == R::ApplyResult::ResynchronizationRequired);
+    D6R_REQUIRE_EQ(1u, client.version());
+    D6R_REQUIRE(!client.current());
+    D6R_REQUIRE(client.state() == nullptr);
+    D6R_REQUIRE(client.takePresentationEvents().empty());
 
-        const auto reuse = lobbyCreationUpdate(
-                introduction.version, introduction.version + 1, liveReuse, newcomer, reusedPlayer);
-        protectedLifecycle = client.apply(reuse) == R::ApplyResult::ResynchronizationRequired
-                && client.version() == introduction.version && !client.current() && client.state() == nullptr
-                && client.takePresentationEvents().empty()
-                && client.apply({introduction.version, resultOnly}) == R::ApplyResult::Applied
-                && client.version() == introduction.version && client.state()
-                && player(*client.state(), resultOnlyIdentity) == nullptr
-                && scoreRow(*client.state(), resultOnlyIdentity) != nullptr;
-    }
-    D6R_REQUIRE(protectedLifecycle);
+    D6R_REQUIRE(client.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.state() != nullptr);
+    D6R_REQUIRE_EQ(R::serializeReplicationSnapshot({1, initial}),
+                   R::serializeReplicationSnapshot({client.version(), *client.state()}));
+
+    R::ParticipantState newcomer{22, false, R::ConnectionState::Connected, false, {resultOnlyIdentity}};
+    R::PlayerState freshPlayer;
+    freshPlayer.playerId = resultOnlyIdentity;
+    freshPlayer.ownerParticipantId = newcomer.participantId;
+    freshPlayer.rosterPosition = 2;
+    freshPlayer.displayName = "Fresh after rejected result";
+    freshPlayer.life = 100;
+    auto freshLive = initial;
+    freshLive.participants.push_back(newcomer);
+    freshLive.players.push_back(freshPlayer);
+    D6R_REQUIRE(R::validateCanonicalState(freshLive));
+    auto creation = lobbyCreationUpdate(1, 2, freshLive, newcomer, freshPlayer);
+    creation.events = {attemptedEvent};
+    D6R_REQUIRE(client.apply(creation) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(2u, client.version());
+    D6R_REQUIRE(client.state() != nullptr);
+    D6R_REQUIRE(player(*client.state(), resultOnlyIdentity) != nullptr);
+    const auto deliveredEvents = client.takePresentationEvents();
+    D6R_REQUIRE_EQ(1u, deliveredEvents.size());
+    D6R_REQUIRE_EQ(attemptedEvent.eventId, deliveredEvents.front().eventId);
 }
 
 D6R_TEST_CASE("REP-017 REP-018 REP-025 production interruption after a completed round survives update and reconnect") {
