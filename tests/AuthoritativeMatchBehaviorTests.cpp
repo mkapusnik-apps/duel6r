@@ -157,6 +157,100 @@ std::string followingLobbyMembershipEvidence(bool interrupted) {
             + ";explicit-reset=" + (explicitStartReset ? "true" : "false");
 }
 
+std::string followingLobbySettingsEvidence(bool interrupted) {
+    auto requested = config();
+    if (interrupted) requested.roundLimit = 3;
+    const auto players = roster(2);
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}}};
+    AuthoritativeHostedMatchController controller(1);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> payloads;
+    D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+        payloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+    eliminate(*controller.match(), sequence, players[0], players[1]);
+    finishDelay(*controller.match());
+    if (interrupted) {
+        D6R_REQUIRE_EQ(ActionResult::Accepted, controller.match()->submit(action(
+                *controller.match(), sequence++, 1, 0, ActionKind::RemovePlayer, 102)));
+    }
+    D6R_REQUIRE(controller.observeMatchOutcome());
+
+    const auto outcomeStates = deliveredStates(payloads);
+    const auto *prior = lastPhase(outcomeStates, R::Phase::Lobby);
+    D6R_REQUIRE(prior != nullptr && prior->result.available);
+    const std::string priorSerialized = prior->result.serialized;
+    const std::string priorState = prior->result.state;
+    const auto priorRanking = prior->score.ranking;
+    const auto priorWinner = prior->score.winner;
+    const auto priorRound = prior->round;
+
+    bool everyUpdatePublished = true;
+    bool everySettingReplicated = true;
+    bool resultAlwaysRetained = true;
+    const std::vector<std::pair<Mode, std::uint8_t>> changes = {
+            {Mode::TeamDeathmatch, 2},
+            {Mode::TeamDeathmatch, 3},
+            {Mode::Deathmatch, 0}};
+    for (const auto &[mode, teamCount]: changes) {
+        requested.mode = mode;
+        requested.teamCount = teamCount;
+        requested.friendlyFire = false;
+        const std::size_t payloadCount = payloads.size();
+        const bool published = controller.updateReplicationLobby(participants, players, requested);
+        everyUpdatePublished = everyUpdatePublished && published && payloads.size() > payloadCount;
+        if (!published || payloads.size() == payloadCount) {
+            everySettingReplicated = false;
+            resultAlwaysRetained = false;
+            continue;
+        }
+        const auto states = deliveredStates(payloads);
+        const auto &updated = states.back();
+        everySettingReplicated = everySettingReplicated
+                && updated.phase == R::Phase::Lobby
+                && updated.settings.mode == modeName(mode)
+                && updated.settings.teamCount == teamCount;
+        const bool sameRound = updated.round.has_value() == priorRound.has_value()
+                && (!priorRound || (updated.round->roundId == priorRound->roundId
+                        && updated.round->rosterOrder == priorRound->rosterOrder
+                        && updated.round->outcome.winnerPlayerIds == priorRound->outcome.winnerPlayerIds
+                        && updated.round->outcome.winningTeam == priorRound->outcome.winningTeam
+                        && updated.round->outcome.noWinner == priorRound->outcome.noWinner));
+        resultAlwaysRetained = resultAlwaysRetained
+                && updated.result.available
+                && updated.result.state == priorState
+                && updated.result.serialized == priorSerialized
+                && updated.score.ranking == priorRanking
+                && updated.score.winner.winnerPlayerIds == priorWinner.winnerPlayerIds
+                && updated.score.winner.winningTeam == priorWinner.winningTeam
+                && updated.score.winner.noWinner == priorWinner.noWinner
+                && sameRound;
+    }
+
+    const auto beforeStartStates = deliveredStates(payloads);
+    const bool retainedUntilStart = !beforeStartStates.empty() && beforeStartStates.back().result.available
+            && beforeStartStates.back().result.serialized == priorSerialized;
+    D6R_REQUIRE(controller.setParticipantReady(1, true));
+    D6R_REQUIRE(controller.setParticipantReady(2, true));
+    const bool started = controller.start(requested, players, manifest()).code == OutcomeCode::None;
+    const auto afterStartStates = deliveredStates(payloads);
+    const auto *nextMatch = lastPhase(afterStartStates, R::Phase::ActiveRound);
+    const bool onlyStartClears = retainedUntilStart && started && nextMatch
+            && !nextMatch->result.available && nextMatch->result.serialized.empty()
+            && nextMatch->matchId != prior->matchId;
+
+    return "published=" + std::string(everyUpdatePublished ? "true" : "false")
+            + ";settings=" + (everySettingReplicated ? "true" : "false")
+            + ";retained=" + (resultAlwaysRetained ? "true" : "false")
+            + ";start-only-clear=" + (onlyStartClears ? "true" : "false");
+}
+
 D6R_TEST_CASE("AHM mode matrix completes with documented winner and team assignment") {
     struct Variant { Mode mode; std::uint8_t teams; bool friendlyFire; };
     const std::vector<Variant> variants = {
@@ -748,6 +842,16 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 interrupted following lobby keeps conn
             "reconnect-false=true;connection-false=true;readiness-false=true;no-autostart=true;"
             "result-retained=true;newcomer-excluded=true;explicit-reset=true"),
             followingLobbyMembershipEvidence(true));
+}
+
+D6R_TEST_CASE("REP-017 completed following lobby publishes mode and team-count changes without clearing prior result") {
+    D6R_REQUIRE_EQ(std::string("published=true;settings=true;retained=true;start-only-clear=true"),
+            followingLobbySettingsEvidence(false));
+}
+
+D6R_TEST_CASE("REP-017 interrupted following lobby publishes mode and team-count changes without clearing prior result") {
+    D6R_REQUIRE_EQ(std::string("published=true;settings=true;retained=true;start-only-clear=true"),
+            followingLobbySettingsEvidence(true));
 }
 
 D6R_TEST_CASE("AHM-AC-020 REP-017 REP-025 cumulative tie-break order survives final lobby incrementals and reconnect") {

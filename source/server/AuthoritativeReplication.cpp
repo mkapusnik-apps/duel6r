@@ -93,17 +93,12 @@ namespace Duel6::Server::Authoritative {
         if (publisher.version() == 0 || state.phase != R::Phase::Lobby) return std::nullopt;
         const AuthoritativeReplication before = *this;
         state.participants = std::move(participants); state.settings = replicatedSettings(settings);
-        const auto priorPlayers = state.players;
         state.players.clear();
         for (const auto &entry: roster) {
             R::PlayerState player;
             player.playerId = entry.playerId; player.ownerParticipantId = entry.participantId;
             player.rosterPosition = entry.rosterOrder; player.displayName = entry.displayName;
             player.life = MaximumLife; player.lifeState = R::LifeState::Alive;
-            const auto priorPlayer = std::find_if(priorPlayers.begin(), priorPlayers.end(), [&](const auto &value) {
-                return value.playerId == entry.playerId;
-            });
-            if (state.result.available && priorPlayer != priorPlayers.end()) player = *priorPlayer;
             state.players.push_back(std::move(player));
         }
         if (!state.result.available) {

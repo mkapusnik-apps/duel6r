@@ -605,7 +605,8 @@ D6R_TEST_CASE("REP presentation events are delivered once and invalid references
     replay.version = 3;
     D6R_REQUIRE(client.apply(replay) == R::ApplyResult::ResynchronizationRequired);
 
-    auto badReference = validUpdate(initial, next, {{61, "explosion", 101, 0, 9999, 1}});
+    auto badReference = validUpdate(initial, next);
+    badReference.events = {{61, "explosion", 101, 0, 9999, 1}};
     requireRejectedWithoutVersionMutation(badReference);
 }
 
@@ -737,7 +738,8 @@ D6R_TEST_CASE("REP-012 REP-027 malformed transient event references fail closed 
             R::PresentationEvent{731, "player-life-changed", 102, 101, 889, -1},
             R::PresentationEvent{732, "player-died", 102, 101, 890, 0},
             R::PresentationEvent{733, "player-killed", 101, 102, 891, 1}}) {
-        const auto malformed = validUpdate(initial, afterEvent, {event});
+        auto malformed = validUpdate(initial, afterEvent);
+        malformed.events = {event};
         R::ReplicatedState client;
         D6R_REQUIRE(client.apply({1, initial}) == R::ApplyResult::Applied);
         rejected.push_back(client.apply(malformed) == R::ApplyResult::ResynchronizationRequired
@@ -830,6 +832,48 @@ D6R_TEST_CASE("REP-005 REP-007 REP-012 removed live identities cannot return as 
     D6R_REQUIRE_EQ(std::string("publisher=true;incremental=true"), evidence);
 }
 
+D6R_TEST_CASE("REP-012 authoritative publisher rejects client-invalid event references without version mutation") {
+    const auto initial = activeState();
+    const auto rejectedAtInitialVersion = [&](const R::PresentationEvent &event) {
+        auto afterEvent = initial;
+        afterEvent.phaseTime++;
+        R::AuthoritativeStateReplicator publisher;
+        D6R_REQUIRE(publisher.initialize(initial));
+        const auto before = publisher.fullSnapshot();
+        const bool rejected = !publisher.publish(afterEvent, {event}).has_value();
+        const auto after = publisher.fullSnapshot();
+        return rejected && publisher.version() == 1 && before && after
+                && after->version == before->version
+                && after->state.phaseTime == before->state.phaseTime;
+    };
+
+    const bool absentSource = rejectedAtInitialVersion({900, "shot-fired", 999, 0, 777, 1});
+    const bool absentTarget = rejectedAtInitialVersion({900, "shot-fired", 101, 999, 777, 1});
+    const bool firstSeenNonCreation = rejectedAtInitialVersion({900, "shot-hit", 101, 102, 777, 1});
+
+    auto afterShot = initial;
+    afterShot.phaseTime++;
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(initial));
+    D6R_REQUIRE(publisher.publish(afterShot, {{900, "shot-fired", 101, 0, 777, 1}}).has_value());
+    const auto beforeReuse = publisher.fullSnapshot();
+    auto afterReuse = afterShot;
+    afterReuse.phaseTime++;
+    const bool incompatibleKindReuse = !publisher.publish(
+            afterReuse, {{901, "bonus-picked", 101, 0, 777, 1}}).has_value()
+            && publisher.version() == 2 && beforeReuse && publisher.fullSnapshot()
+            && publisher.fullSnapshot()->version == beforeReuse->version
+            && publisher.fullSnapshot()->state.phaseTime == beforeReuse->state.phaseTime;
+
+    const std::string evidence = "absent-source=" + std::string(absentSource ? "true" : "false")
+            + ";absent-target=" + (absentTarget ? "true" : "false")
+            + ";first-seen-non-creation=" + (firstSeenNonCreation ? "true" : "false")
+            + ";incompatible-kind-reuse=" + (incompatibleKindReuse ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string(
+            "absent-source=true;absent-target=true;first-seen-non-creation=true;incompatible-kind-reuse=true"),
+            evidence);
+}
+
 D6R_TEST_CASE("REP-017 REP-018 REP-025 final summary keeps final-round match outcome separate from cumulative ranking") {
     const auto final = distinctFinalSummary();
     D6R_REQUIRE(R::validateCanonicalState(final));
@@ -916,6 +960,52 @@ D6R_TEST_CASE("REP-017 REP-018 REP-025 completed result survives final summary a
     D6R_REQUIRE_EQ(std::vector<R::Identity>({102}), client.state()->round->outcome.winnerPlayerIds);
     D6R_REQUIRE_EQ(std::vector<R::Identity>({102}), client.state()->score.winner.winnerPlayerIds);
     D6R_REQUIRE_EQ(101u, client.state()->score.ranking.front());
+}
+
+D6R_TEST_CASE("REP-005 REP-017 reconnect snapshot reserves player identities retained only in prior result rows") {
+    auto followingLobby = distinctFinalSummary();
+    followingLobby.phase = R::Phase::Lobby;
+    followingLobby.participants.erase(followingLobby.participants.begin() + 1);
+    followingLobby.participants.front().ownedPlayerIds = {101};
+    followingLobby.players.erase(followingLobby.players.begin() + 1);
+    followingLobby.messages.status = "Lobby";
+    followingLobby.messages.scoreSummaryVisible = false;
+    D6R_REQUIRE(R::validateCanonicalState(followingLobby));
+    D6R_REQUIRE(std::none_of(followingLobby.players.begin(), followingLobby.players.end(),
+            [](const auto &value) { return value.playerId == 102; }));
+    D6R_REQUIRE(scoreRow(followingLobby, 102) != nullptr);
+    D6R_REQUIRE(std::find(followingLobby.round->rosterOrder.begin(), followingLobby.round->rosterOrder.end(), 102)
+                != followingLobby.round->rosterOrder.end());
+
+    R::ReplicatedState reconnect;
+    D6R_REQUIRE(reconnect.apply({9, followingLobby}) == R::ApplyResult::Applied);
+
+    R::ParticipantState newcomer{22, false, R::ConnectionState::Connected, false, {102}};
+    R::PlayerState reusedPlayer;
+    reusedPlayer.playerId = 102;
+    reusedPlayer.ownerParticipantId = 22;
+    reusedPlayer.rosterPosition = 1;
+    reusedPlayer.displayName = "Reused identity";
+    reusedPlayer.life = 100;
+    auto invalidCandidate = followingLobby;
+    invalidCandidate.participants.push_back(newcomer);
+    invalidCandidate.players.push_back(reusedPlayer);
+    D6R_REQUIRE(R::validateCanonicalState(invalidCandidate));
+    const auto reuse = lobbyCreationUpdate(9, 10, invalidCandidate, newcomer, reusedPlayer);
+    const auto applied = reconnect.apply(reuse);
+    const bool rejectedWithoutMutation = applied == R::ApplyResult::ResynchronizationRequired
+            && reconnect.version() == 9 && !reconnect.current() && reconnect.state() == nullptr
+            && reconnect.takePresentationEvents().empty();
+    bool originalSnapshotRestored = false;
+    if (applied == R::ApplyResult::ResynchronizationRequired) {
+        originalSnapshotRestored = reconnect.apply({9, followingLobby}) == R::ApplyResult::Applied
+                && reconnect.state() && reconnect.state()->players.size() == 1
+                && reconnect.state()->score.ranking == std::vector<R::Identity>({101, 102})
+                && scoreRow(*reconnect.state(), 102) != nullptr;
+    }
+    const std::string evidence = "rejected=" + std::string(rejectedWithoutMutation ? "true" : "false")
+            + ";restored=" + (originalSnapshotRestored ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string("rejected=true;restored=true"), evidence);
 }
 
 D6R_TEST_CASE("REP-017 REP-018 REP-025 production interruption after a completed round survives update and reconnect") {
