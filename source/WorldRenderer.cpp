@@ -118,7 +118,8 @@ namespace Duel6 {
         return posY - charHeight;
     }
 
-    void WorldRenderer::roundOverSummary(bool showRoundProgress, bool separateTeamGroups) const {
+    void WorldRenderer::roundOverSummary(bool showRoundProgress, bool separateTeamGroups,
+                                         Int32 minimumPanelBottom) const {
         Float32 fontSize = 32;
         Float32 fontWidth = fontSize / 2;
         Ranking ranking = game.getMode().getRanking(game.getPlayers());
@@ -151,6 +152,10 @@ namespace Duel6 {
 
         int x = video.getScreen().getClientWidth() / 2 - width / 2;
         int y = video.getScreen().getClientHeight() / 2 - height / 2;
+        const Int32 panelBottom = y - Int32(fontSize);
+        if (panelBottom < minimumPanelBottom) {
+            y += minimumPanelBottom - panelBottom;
+        }
 
         renderer.setBlendFunc(BlendFunc::SrcAlpha);
         renderer.quadXY(Vector(x - fontWidth, y - fontSize), Vector(width + 2 * fontWidth, height + 2 * fontSize),
@@ -189,7 +194,29 @@ namespace Duel6 {
     }
 
     void WorldRenderer::gameOverSummary() const {
-        roundOverSummary(false, false);
+        if (dynamic_cast<const TeamDeathMatch *>(&game.getMode()) == nullptr) {
+            roundOverSummary(false, false);
+            return;
+        }
+
+        const std::string notice = "End of Game";
+        const Int32 fontSize = 32;
+        const Int32 horizontalPadding = 16;
+        const Int32 verticalPadding = 8;
+        const Int32 bottomInset = 16;
+        const Int32 panelGap = 16;
+        const Int32 noticeHeight = fontSize + 2 * verticalPadding;
+        const Float32 noticeTextWidth = font.getTextWidth(notice, fontSize);
+        const Float32 noticeWidth = noticeTextWidth + 2 * horizontalPadding;
+        const Float32 noticeX = video.getScreen().getClientWidth() / 2.0f - noticeWidth / 2.0f;
+
+        roundOverSummary(false, true, bottomInset + noticeHeight + panelGap);
+
+        renderer.setBlendFunc(BlendFunc::SrcAlpha);
+        renderer.quadXY(Vector(noticeX, Float32(bottomInset)), Vector(noticeWidth, Float32(noticeHeight)),
+                        Color(0, 0, 255, 255));
+        renderer.setBlendFunc(BlendFunc::None);
+        font.print(noticeX + horizontalPadding, bottomInset + verticalPadding, 0.0f, Color::WHITE, notice, fontSize);
     }
 
     void WorldRenderer::roundsPlayed() const {

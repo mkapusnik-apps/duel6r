@@ -9,8 +9,8 @@ The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a seco
 
 The approved product requirements are the source of truth for visual-impact changes.
 The current native implementation remains the source for unchanged visual details.
-The fixed product baseline is `docs/features.md` at source commit `88b72a6` for PR #62.
-This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, the person-action alignment specified in `SET-078`–`SET-083`, the person-list and action-button refinement specified in `SET-084`–`SET-091`, and the planned first-release network UI defined for issue #28.
+The fixed product baseline is the current product-owned `docs/features.md` content.
+This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, the person-action alignment specified in `SET-078`–`SET-083`, the person-list and action-button refinement specified in `SET-084`–`SET-091`, the final Team game summary specified in `UI-GAME-001`–`UI-GAME-004`, and the planned first-release network UI defined for issue #28.
 The network additions are target specifications for downstream issue #38 and are not implemented UI or evidence of playable networking.
 Issue #30 may implement protocol, command-line, or scaffold outcomes, but it must not add graphical network UI.
 Issue #32 defines authoritative headless match states, result data, and fixed outcome copy for the planned network screens.
@@ -137,10 +137,17 @@ The following values come from renderer and GUI source.
 - The separator rule must span the score-table width.
 - The separator band must use 3 px of clear inner-panel space above and below the rule.
 - A Team score overview must not add a separator band after the last team group.
-- The separator treatment must apply only to the active-round Tab scoreboard and the non-final post-round interim scoreboard.
+- The separator treatment must apply to the active-round Tab scoreboard, the non-final post-round Team summary, and the final limited Team summary.
 - The separator treatment must support two through four teams.
 - The separator treatment must not change team colors, team names, row colors, score columns, ranking order, row alignment, controls, or round-progress behavior.
-- A non-Team score overview and the final game summary must remain unchanged.
+- A non-Team score overview must remain unchanged.
+- A final Team summary must show `End of Game` in a dedicated notice region at the bottom of the client.
+- The final-state notice must use white 32 px score-summary text on a solid `summary-header` surface.
+- The final-state notice must use at least 16 px of horizontal text padding and 8 px of vertical text padding.
+- The final-state notice must align to the horizontal center of the client.
+- The bottom edge of the final-state notice must be 16 px from the bottom client edge.
+- The final-state notice must keep at least 16 px of clear space from the final score panel.
+- The final-state notice must not overlap, clip, cover, replace, or reduce the final score content.
 - New documentation must not specify rounded corners, shadows, or gradients that the implementation does not provide. Blur is reserved for the approved full-client menu background.
 
 ## Imagery and assets
@@ -292,6 +299,8 @@ The following values come from renderer and GUI source.
 - Round kills must use blue point marks.
 - Team ranking must group named team rows and nested player rows.
 - Team score-overview groups must use the defined separator treatment in `OVER-01` and non-final `OVER-02`.
+- A final limited Team score overview must use the same separator treatment in `OVER-03`.
+- A final limited Team score overview must show the literal `End of Game` in the defined bottom notice region.
 - Team identity must also change headband, trousers, and hair-top colors.
 - Predator identity must use a body alpha of 0.1 while the weapon remains visible.
 - Live ranking must remain available for every supported player count.
@@ -388,9 +397,10 @@ The following values come from renderer and GUI source.
 - The PR #59 `SS-001` and `SS-024` artifacts are historical because they show the prior person-action arrangement.
 - The PR #60 `SS-001` and `SS-024` artifacts are historical because they show the shorter Persons list, the higher person-name row, and the previous batch controller-detection caption.
 - The PR #62 `SS-001` and `SS-024` artifacts are historical because they show `<<` in the Persons panel.
-- PR #69 provides current conforming implementation screenshots for all ten implemented wireframes.
+- PR #69 provides the latest captured implementation screenshots for all ten implemented wireframes.
 - `SS-001` and `SS-024` represent the current three-action `MENU-01` implementation and conform at PR #69 assessment head `f4708d337bb82be55c553c64608bd75ccd64121f`.
-- `SS-003`, `SS-007`–`SS-012`, and `SS-014` represent the current implemented gameplay and overlay wireframes and conform at the same assessment head.
+- `SS-003`, `SS-007`–`SS-011`, and `SS-014` represent the current implemented gameplay and overlay wireframes and conform at the same assessment head.
+- `SS-012` is stale for `OVER-03` because it predates `UI-GAME-001`–`UI-GAME-004` and does not show Team separators or `End of Game`.
 - Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources
