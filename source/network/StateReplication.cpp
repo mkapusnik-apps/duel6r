@@ -305,6 +305,34 @@ namespace Duel6::Network::Replication {
                    && left.noWinner == right.noWinner;
         }
 
+        bool sameScoreRow(const ScoreRowState &left, const ScoreRowState &right) {
+            return left.playerId == right.playerId && left.roundPoints == right.roundPoints
+                   && left.cumulativePoints == right.cumulativePoints && left.shots == right.shots
+                   && left.hits == right.hits && left.kills == right.kills && left.deaths == right.deaths
+                   && left.assists == right.assists && left.wins == right.wins
+                   && left.penalties == right.penalties && left.survivalTicks == right.survivalTicks
+                   && left.damage == right.damage && left.assistedDamage == right.assistedDamage;
+        }
+
+        bool sameScore(const ScoreState &left, const ScoreState &right) {
+            return left.players.size() == right.players.size()
+                   && std::equal(left.players.begin(), left.players.end(), right.players.begin(), sameScoreRow)
+                   && left.ranking == right.ranking && left.teamTotals == right.teamTotals
+                   && left.teamRanking == right.teamRanking && sameOutcome(left.winner, right.winner);
+        }
+
+        bool altersRetainedResult(const CanonicalState &before, const CanonicalState &after) {
+            if (before.phase != Phase::Lobby || after.phase != Phase::Lobby || !before.result.available
+                || (before.result.state != "Completed" && before.result.state != "Interrupted")) return false;
+            const bool sameCompletedRoundOutcome = before.round.has_value() == after.round.has_value()
+                    && (!before.round || sameOutcome(before.round->outcome, after.round->outcome));
+            return !sameScore(before.score, after.score) || !sameCompletedRoundOutcome
+                   || before.result.available != after.result.available
+                   || before.result.sessionOnly != after.result.sessionOnly
+                   || before.result.state != after.result.state
+                   || before.result.serialized != after.result.serialized;
+        }
+
         bool validResolvedOutcome(const RoundOutcomeState &outcome, const CanonicalState &state) {
             if (!resolvedOutcome(outcome)) return false;
             if (outcome.noWinner) return true;
@@ -584,6 +612,7 @@ namespace Duel6::Network::Replication {
             || containsReusedCreation(current->players, state.players, issuedPlayerIdentities,
                                       [](const auto &value) { return value.playerId; })
             || introducesUnseenRetainedResultIdentity(*current, state, issuedPlayerIdentities)
+            || altersRetainedResult(*current, state)
             || containsNonMonotonicCreation(current->entities, state.entities, highestEntityIdentity,
                                              [](const auto &value) { return value.entityId; })
             || events.size() > MaxReplicatedEvents) return std::nullopt;
@@ -742,7 +771,8 @@ namespace Duel6::Network::Replication {
         candidate.phaseTime = update.phaseTime; candidate.roundEndCountdown = update.roundEndCountdown;
         candidate.settings = update.settings; candidate.round = update.round; candidate.score = update.score;
         candidate.messages = update.messages; candidate.effects = update.effects; candidate.result = update.result;
-        if (introducesUnseenRetainedResultIdentity(*accepted, candidate, acceptedPlayerIdentities))
+        if (introducesUnseenRetainedResultIdentity(*accepted, candidate, acceptedPlayerIdentities)
+            || altersRetainedResult(*accepted, candidate))
             return rejectIncremental();
         const auto referencedPlayers = referencedPlayerIdentities(candidate);
         nextAcceptedPlayers.insert(referencedPlayers.begin(), referencedPlayers.end());
