@@ -397,10 +397,11 @@ The following values come from renderer and GUI source.
 - The PR #59 `SS-001` and `SS-024` artifacts are historical because they show the prior person-action arrangement.
 - The PR #60 `SS-001` and `SS-024` artifacts are historical because they show the shorter Persons list, the higher person-name row, and the previous batch controller-detection caption.
 - The PR #62 `SS-001` and `SS-024` artifacts are historical because they show `<<` in the Persons panel.
-- PR #69 provides the latest captured implementation screenshots for all ten implemented wireframes.
+- PR #69 provides the latest captured implementation screenshots for nine implemented wireframes.
+- PR #70 provides the latest captured implementation screenshot for `OVER-03`.
 - `SS-001` and `SS-024` represent the current three-action `MENU-01` implementation and conform at PR #69 assessment head `f4708d337bb82be55c553c64608bd75ccd64121f`.
 - `SS-003`, `SS-007`–`SS-011`, and `SS-014` represent the current implemented gameplay and overlay wireframes and conform at the same assessment head.
-- `SS-012` is stale for `OVER-03` because it predates `UI-GAME-001`–`UI-GAME-004` and does not show Team separators or `End of Game`.
+- `SS-012` represents the current final Team game summary and conforms at PR #70 exact head `212c5242afecb4298d5b33d9c0ee2225cc067d0b`.
 - Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources
