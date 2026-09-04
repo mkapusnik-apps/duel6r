@@ -566,9 +566,10 @@ namespace Duel6::Network::Replication {
                 state.participants.begin(), state.participants.end(), [&](const auto &participant) {
                     return !issuedParticipantIdentities.count(participant.participantId);
                 }));
+        const auto referencedPlayers = referencedPlayerIdentities(state);
         const auto newPlayerCount = static_cast<std::size_t>(std::count_if(
-                state.players.begin(), state.players.end(), [&](const auto &player) {
-                    return !issuedPlayerIdentities.count(player.playerId);
+                referencedPlayers.begin(), referencedPlayers.end(), [&](Identity identity) {
+                    return !issuedPlayerIdentities.count(identity);
                 }));
         if (newParticipantCount > MaxReplicatedIdentityHistory - issuedParticipantIdentities.size()
             || newPlayerCount > MaxReplicatedIdentityHistory - issuedPlayerIdentities.size())
@@ -604,7 +605,7 @@ namespace Duel6::Network::Replication {
         update.events = std::move(events);
         for (const auto &participant: state.participants)
             issuedParticipantIdentities.insert(participant.participantId);
-        for (const auto &player: state.players) issuedPlayerIdentities.insert(player.playerId);
+        issuedPlayerIdentities.insert(referencedPlayers.begin(), referencedPlayers.end());
         highestEntityIdentity = std::max(highestEntityIdentity,
                 highestIdentity(state.entities, [](const auto &value) { return value.entityId; }));
         transientEntityIdentities = std::move(nextTransientIdentities);
@@ -716,11 +717,14 @@ namespace Duel6::Network::Replication {
         candidate.phaseTime = update.phaseTime; candidate.roundEndCountdown = update.roundEndCountdown;
         candidate.settings = update.settings; candidate.round = update.round; candidate.score = update.score;
         candidate.messages = update.messages; candidate.effects = update.effects; candidate.result = update.result;
+        const auto referencedPlayers = referencedPlayerIdentities(candidate);
+        nextAcceptedPlayers.insert(referencedPlayers.begin(), referencedPlayers.end());
         if (!validMatchTransition(*accepted, candidate, nextAcceptedMatches)
             || !validRoundTransition(*accepted, candidate, nextAcceptedRounds)) return rejectIncremental();
         if (candidate.matchId) nextAcceptedMatches.insert(candidate.matchId);
         if (candidate.round) nextAcceptedRounds.insert(candidate.round->roundId);
-        if (nextAcceptedMatches.size() > MaxReplicatedIdentityHistory
+        if (nextAcceptedPlayers.size() > MaxReplicatedIdentityHistory
+            || nextAcceptedMatches.size() > MaxReplicatedIdentityHistory
             || nextAcceptedRounds.size() > MaxReplicatedIdentityHistory) return rejectIncremental();
         const bool roundChanged = !sameRound(accepted->round, candidate.round);
         if (roundChanged) {
