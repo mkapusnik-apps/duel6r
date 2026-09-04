@@ -804,20 +804,24 @@ namespace Duel6::Server {
         }
         const auto cleanupListener = [&] {
             observe(AdmissionLifecycleStage::ListenerCleanupStarted);
-            try { listener->shutdown(); } catch (...) {}
+            try { listener->shutdown(); }
+            catch (...) {
+                const auto failure = Authoritative::terminalOutcome(Authoritative::OutcomeCode::ShutdownFailed);
+                output << failure.identifier << '\n' << failure.copy << '\n';
+                return false;
+            }
             observe(AdmissionLifecycleStage::ListenerCleanupCompleted);
+            return true;
         };
         if (!observe(AdmissionLifecycleStage::ListenerStarting)) {
             reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
-            cleanupListener();
-            return 2;
+            return cleanupListener() ? 2 : 4;
         }
         const auto startupRemaining = std::chrono::duration_cast<std::chrono::milliseconds>(
                 startupDeadline - runtimeNow(runtimeDependencies));
         if (startupRemaining <= std::chrono::milliseconds::zero()) {
             output << "duel6r-server transport startup failed (deadline expired).\n";
-            cleanupListener();
-            return 2;
+            return cleanupListener() ? 2 : 4;
         }
         bool listenerReady = false;
         bool listenerStarted = false;
@@ -857,22 +861,18 @@ namespace Duel6::Server {
             output << "duel6r-server transport startup failed (state="
                    << static_cast<int>(listenerState) << ", reason="
                    << static_cast<int>(listenerFailure) << ").\n";
-            cleanupListener();
-            return 2;
+            return cleanupListener() ? 2 : 4;
         }
         if (!observe(AdmissionLifecycleStage::ListenerReady)) {
             reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
-            cleanupListener();
-            return 2;
+            return cleanupListener() ? 2 : 4;
         }
         if (hostedMatch && !hostedMatch->markServiceReady()) {
             reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
-            cleanupListener();
-            return 2;
+            return cleanupListener() ? 2 : 4;
         }
         if (!reportHostedStatus(Network::HostServiceStatusCode::Ready)) {
-            cleanupListener();
-            return 2;
+            return cleanupListener() ? 2 : 4;
         }
 
         output << "duel6r-server transport ready on " << config.listenEndpoint.host << ':'
@@ -1165,6 +1165,8 @@ namespace Duel6::Server {
                         runtimeFailed = true;
                         break;
                     }
+                    if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby)
+                        admissionPolicy->setMatchStarted(false);
                     nextMatchTick += matchTickDuration;
                 }
             } catch (...) { runtimeFailed = true; break; }
@@ -1198,7 +1200,8 @@ namespace Duel6::Server {
             output << failure.identifier << '\n' << failure.copy << '\n';
             exitStatus = failure.exitStatus;
         }
-        cleanupListener();
+        const bool listenerCleaned = cleanupListener();
+        if (!listenerCleaned) return 4;
         output << "duel6r-server transport stopped.\n";
         return exitStatus;
     }

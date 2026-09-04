@@ -392,6 +392,71 @@ D6R_TEST_CASE("REP round transition rejects retained old round-bound identities"
     D6R_REQUIRE(!publisher.publish(nextRound).has_value());
 }
 
+D6R_TEST_CASE("REP-005 REP-007 REP-048 unchanged logical round rejects a fresh round identity in updates and resync") {
+    auto initial = activeState();
+    // Keep entity lifecycle checks orthogonal: this case isolates only logical round identity.
+    initial.entities.clear();
+    auto replaced = initial;
+    replaced.phaseTime++;
+    replaced.round->roundId = 41;
+    auto replacement = validUpdate(initial, [&] {
+        auto next = initial;
+        next.phaseTime++;
+        return next;
+    }());
+    replacement.round = replaced.round;
+
+    R::ReplicatedState incremental;
+    D6R_REQUIRE(incremental.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(incremental.apply(replacement) == R::ApplyResult::ResynchronizationRequired);
+    D6R_REQUIRE_EQ(1u, incremental.version());
+    D6R_REQUIRE(!incremental.current());
+
+    R::ReplicatedState snapshot;
+    D6R_REQUIRE(snapshot.apply({1, initial}) == R::ApplyResult::Applied);
+    snapshot.requireResynchronization();
+    D6R_REQUIRE(snapshot.apply({2, replaced}) == R::ApplyResult::Invalid);
+    D6R_REQUIRE_EQ(1u, snapshot.version());
+    D6R_REQUIRE(!snapshot.current());
+}
+
+D6R_TEST_CASE("REP-005 REP-007 REP-048 genuine next-round and next-match identities remain valid") {
+    const auto initial = activeState();
+    auto nextRound = initial;
+    nextRound.phaseTime++;
+    nextRound.currentRoundNumber = 2;
+    nextRound.completedRounds = 1;
+    nextRound.round->roundId = 41;
+    nextRound.round->roundNumber = 2;
+    nextRound.entities.clear();
+
+    R::ReplicatedState rounds;
+    D6R_REQUIRE(rounds.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(rounds.apply(validUpdate(initial, nextRound)) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(41u, rounds.state()->round->roundId);
+
+    auto followingLobby = distinctFinalSummary();
+    followingLobby.phase = R::Phase::Lobby;
+    followingLobby.participants[0].ready = false;
+    followingLobby.participants[1].ready = false;
+    followingLobby.messages.status = "Lobby";
+    followingLobby.messages.scoreSummaryVisible = false;
+    auto nextMatch = activeState();
+    nextMatch.matchId = 31;
+    nextMatch.round->roundId = 42;
+    nextMatch.result = {};
+
+    R::ReplicatedState matches;
+    D6R_REQUIRE(matches.apply({1, distinctFinalSummary()}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(matches.apply({2, followingLobby}) == R::ApplyResult::Applied);
+    auto nextMatchUpdate = validUpdate(followingLobby, nextMatch);
+    nextMatchUpdate.baseline = 2;
+    nextMatchUpdate.version = 3;
+    D6R_REQUIRE(matches.apply(nextMatchUpdate) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(31u, matches.state()->matchId);
+    D6R_REQUIRE_EQ(42u, matches.state()->round->roundId);
+}
+
 D6R_TEST_CASE("REP-005 REP-006 REP-048 mid-match match identity replacement update is rejected without mutation") {
     const auto initial = activeState();
     auto replaced = initial;
@@ -580,6 +645,132 @@ D6R_TEST_CASE("REP-012 REP-027 REP-030 REP-032 production combat events survive 
     D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
     D6R_REQUIRE(entity(*client.state(), 777) == nullptr);
     D6R_REQUIRE(client.takePresentationEvents().empty());
+}
+
+D6R_TEST_CASE("REP-005 REP-012 REP-027 transient-only projectile identity is delivered once and cannot later become live") {
+    const auto initial = activeState();
+    auto afterEvent = initial;
+    afterEvent.phaseTime++;
+    const auto transient = validUpdate(initial, afterEvent, {
+            {700, "shot-fired", 101, 0, 777, 1},
+            {701, "shot-hit", 101, 102, 777, 1}});
+
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.apply(transient) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(2u, client.takePresentationEvents().size());
+    D6R_REQUIRE(client.takePresentationEvents().empty());
+
+    auto reused = afterEvent;
+    reused.phaseTime++;
+    auto projectile = initial.entities.front();
+    projectile.entityId = 777;
+    reused.entities.push_back(projectile);
+    auto creation = validUpdate(afterEvent, reused);
+    creation.baseline = 2;
+    creation.version = 3;
+    D6R_REQUIRE(client.apply(creation) == R::ApplyResult::ResynchronizationRequired);
+    D6R_REQUIRE_EQ(2u, client.version());
+}
+
+D6R_TEST_CASE("REP-005 REP-012 REP-027 transient bonus-picked identity is delivered once and cannot later become live") {
+    const auto initial = activeState();
+    auto afterEvent = initial;
+    afterEvent.phaseTime++;
+    const auto transient = validUpdate(initial, afterEvent, {{710, "bonus-picked", 101, 0, 778, 1}});
+
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.apply(transient) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(1u, client.takePresentationEvents().size());
+    D6R_REQUIRE(client.takePresentationEvents().empty());
+
+    auto reused = afterEvent;
+    reused.phaseTime++;
+    R::WorldEntityState bonus;
+    bonus.entityId = 778;
+    bonus.kind = R::EntityKind::BonusPickup;
+    bonus.type = "shield";
+    bonus.lifecycle = "available";
+    reused.entities.push_back(bonus);
+    auto creation = validUpdate(afterEvent, reused);
+    creation.baseline = 2;
+    creation.version = 3;
+    D6R_REQUIRE(client.apply(creation) == R::ApplyResult::ResynchronizationRequired);
+    D6R_REQUIRE_EQ(2u, client.version());
+}
+
+D6R_TEST_CASE("REP-005 REP-012 REP-027 transient weapon-picked identity is delivered once and cannot later become live") {
+    const auto initial = activeState();
+    auto afterEvent = initial;
+    afterEvent.phaseTime++;
+    const auto transient = validUpdate(initial, afterEvent, {{720, "weapon-picked", 101, 0, 779, 1}});
+
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.apply(transient) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(1u, client.takePresentationEvents().size());
+    D6R_REQUIRE(client.takePresentationEvents().empty());
+
+    auto reused = afterEvent;
+    reused.phaseTime++;
+    R::WorldEntityState weapon;
+    weapon.entityId = 779;
+    weapon.kind = R::EntityKind::WeaponPickup;
+    weapon.type = "bazooka";
+    weapon.lifecycle = "available";
+    reused.entities.push_back(weapon);
+    auto creation = validUpdate(afterEvent, reused);
+    creation.baseline = 2;
+    creation.version = 3;
+    D6R_REQUIRE(client.apply(creation) == R::ApplyResult::ResynchronizationRequired);
+    D6R_REQUIRE_EQ(2u, client.version());
+}
+
+D6R_TEST_CASE("REP-012 REP-027 malformed transient event references fail closed without mutation") {
+    const auto initial = activeState();
+    auto afterEvent = initial;
+    afterEvent.phaseTime++;
+    std::vector<bool> rejected;
+    for (const R::PresentationEvent &event: {
+            R::PresentationEvent{730, "shot-hit", 101, 102, 888, 1},
+            R::PresentationEvent{731, "player-life-changed", 102, 101, 889, -1},
+            R::PresentationEvent{732, "player-died", 102, 101, 890, 0},
+            R::PresentationEvent{733, "player-killed", 101, 102, 891, 1}}) {
+        const auto malformed = validUpdate(initial, afterEvent, {event});
+        R::ReplicatedState client;
+        D6R_REQUIRE(client.apply({1, initial}) == R::ApplyResult::Applied);
+        rejected.push_back(client.apply(malformed) == R::ApplyResult::ResynchronizationRequired
+                           && client.version() == 1 && !client.current()
+                           && client.takePresentationEvents().empty());
+    }
+    D6R_REQUIRE(rejected == std::vector<bool>({true, true, true, true}));
+}
+
+D6R_TEST_CASE("REP-005 REP-012 authoritative transient-only identities cannot later be published as live") {
+    const auto initial = activeState();
+    const std::vector<std::pair<R::PresentationEvent, R::EntityKind>> scenarios = {
+            {{740, "shot-fired", 101, 0, 777, 1}, R::EntityKind::Projectile},
+            {{741, "bonus-picked", 101, 0, 778, 1}, R::EntityKind::BonusPickup},
+            {{742, "weapon-picked", 101, 0, 779, 1}, R::EntityKind::WeaponPickup}};
+    std::vector<bool> rejected;
+    for (const auto &scenario: scenarios) {
+        auto afterEvent = initial;
+        afterEvent.phaseTime++;
+        R::AuthoritativeStateReplicator publisher;
+        D6R_REQUIRE(publisher.initialize(initial));
+        D6R_REQUIRE(publisher.publish(afterEvent, {scenario.first}).has_value());
+        auto reused = afterEvent;
+        reused.phaseTime++;
+        R::WorldEntityState entity;
+        entity.entityId = scenario.first.entityId;
+        entity.kind = scenario.second;
+        entity.type = "transient-reuse";
+        entity.lifecycle = "active";
+        reused.entities.push_back(entity);
+        rejected.push_back(!publisher.publish(reused).has_value());
+    }
+    D6R_REQUIRE(rejected == std::vector<bool>({true, true, true}));
 }
 
 D6R_TEST_CASE("REP-017 REP-018 REP-025 final summary keeps final-round match outcome separate from cumulative ranking") {

@@ -183,29 +183,38 @@ namespace Duel6::Server::Authoritative {
 
     bool AuthoritativeHostedMatchController::observeMatchOutcome() {
         if (!activeMatch || currentStage != HostedMatchStage::MatchActive) return false;
-        const auto update = replication.capture(*activeMatch);
-        if (!update) return false;
-        (void) replicationConnections.broadcast(*update);
         if (activeMatch->outcome().code == OutcomeCode::RuntimeFailed
             || activeMatch->outcome().code == OutcomeCode::ShutdownFailed) {
             activeMatch->shutdown();
             currentStage = HostedMatchStage::UnexpectedStop;
+            return false;
         } else if (activeMatch->outcome().code != OutcomeCode::None) {
             const TerminalOutcome stopped = activeMatch->shutdown();
-            if (stopped.code == OutcomeCode::ShutdownFailed) currentStage = HostedMatchStage::UnexpectedStop;
+            if (stopped.code == OutcomeCode::ShutdownFailed) {
+                currentStage = HostedMatchStage::UnexpectedStop;
+                return false;
+            }
             else {
-                if (activeMatch->outcome().code == OutcomeCode::Completed) {
-                    const auto lobby = replication.enterFollowingLobby();
-                    if (!lobby) {
-                        currentStage = HostedMatchStage::UnexpectedStop;
-                        return false;
-                    }
-                    (void) replicationConnections.broadcast(*lobby);
+                const auto result = replication.capture(*activeMatch);
+                if (!result) {
+                    currentStage = HostedMatchStage::UnexpectedStop;
+                    return false;
                 }
+                (void) replicationConnections.broadcast(*result);
+                const auto lobby = replication.enterFollowingLobby();
+                if (!lobby) {
+                    currentStage = HostedMatchStage::UnexpectedStop;
+                    return false;
+                }
+                (void) replicationConnections.broadcast(*lobby);
                 clearReadiness();
                 activeMatch.reset();
                 currentStage = HostedMatchStage::Lobby;
             }
+        } else {
+            const auto update = replication.capture(*activeMatch);
+            if (!update) return false;
+            (void) replicationConnections.broadcast(*update);
         }
         return true;
     }

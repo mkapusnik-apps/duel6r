@@ -78,18 +78,38 @@ namespace Duel6::Server::Authoritative {
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::updateLobby(
             std::vector<R::ParticipantState> participants, std::vector<PlayerDefinition> roster,
             MatchConfig settings) {
-        if (publisher.version() == 0 || state.phase != R::Phase::Lobby || state.matchId != 0)
-            return std::nullopt;
+        if (publisher.version() == 0 || state.phase != R::Phase::Lobby) return std::nullopt;
         const AuthoritativeReplication before = *this;
         state.participants = std::move(participants); state.settings = replicatedSettings(settings);
+        const auto priorPlayers = state.players;
+        const auto priorScores = state.score.players;
         state.players.clear(); state.score.players.clear(); state.score.ranking.clear();
         for (const auto &entry: roster) {
             R::PlayerState player;
             player.playerId = entry.playerId; player.ownerParticipantId = entry.participantId;
             player.rosterPosition = entry.rosterOrder; player.displayName = entry.displayName;
             player.life = MaximumLife; player.lifeState = R::LifeState::Alive;
-            state.players.push_back(std::move(player)); state.score.ranking.push_back(entry.playerId);
+            const auto priorPlayer = std::find_if(priorPlayers.begin(), priorPlayers.end(), [&](const auto &value) {
+                return value.playerId == entry.playerId;
+            });
+            if (state.result.available && priorPlayer != priorPlayers.end()) player = *priorPlayer;
+            state.players.push_back(std::move(player));
+            if (state.result.available) {
+                const auto priorScore = std::find_if(priorScores.begin(), priorScores.end(), [&](const auto &value) {
+                    return value.playerId == entry.playerId;
+                });
+                R::ScoreRowState score;
+                if (priorScore != priorScores.end()) score = *priorScore;
+                else score.playerId = entry.playerId;
+                state.score.players.push_back(std::move(score));
+            }
         }
+        if (state.result.available) {
+            std::stable_sort(state.score.players.begin(), state.score.players.end(), [](const auto &left, const auto &right) {
+                return left.cumulativePoints > right.cumulativePoints;
+            });
+            for (const auto &score: state.score.players) state.score.ranking.push_back(score.playerId);
+        } else for (const auto &player: state.players) state.score.ranking.push_back(player.playerId);
         auto update = publisher.publish(state);
         if (!update) *this = before;
         return update;
@@ -173,7 +193,7 @@ namespace Duel6::Server::Authoritative {
         if (match.phase() == MatchPhase::RoundEndActive || match.phase() == MatchPhase::RoundEndFrozen)
             state.roundEndCountdown = match.roundEndTicksRemaining();
         else state.roundEndCountdown = 0;
-        if (observedRound != state.currentRoundNumber) {
+        if (!interrupted && observedRound != state.currentRoundNumber) {
             state.entities.clear(); state.effects.clear();
             worldIdentities.clear();
             highestObservedEventSequence = 0; highestObservedTransitionSequence = 0;
@@ -377,7 +397,9 @@ namespace Duel6::Server::Authoritative {
                 else {
                     const auto &lastRound = match.publishedResult()->rounds.back();
                     R::RoundState retainedRound;
-                    retainedRound.roundId = identities.issue(R::IdentityCategory::Round);
+                    retainedRound.roundId = state.round && state.round->roundNumber == lastRound.roundNumber
+                                            ? state.round->roundId
+                                            : identities.issue(R::IdentityCategory::Round);
                     if (retainedRound.roundId == 0) return false;
                     retainedRound.roundNumber = lastRound.roundNumber;
                     retainedRound.level = lastRound.level; retainedRound.mirrored = lastRound.mirrored;
@@ -418,7 +440,8 @@ namespace Duel6::Server::Authoritative {
     }
 
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::enterFollowingLobby() {
-        if (publisher.version() == 0 || state.phase != R::Phase::FinalSummary || !state.result.available)
+        if (publisher.version() == 0 || (state.phase != R::Phase::FinalSummary && state.phase != R::Phase::Lobby)
+            || !state.result.available)
             return std::nullopt;
         const AuthoritativeReplication before = *this;
         state.phase = R::Phase::Lobby;

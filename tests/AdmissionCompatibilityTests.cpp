@@ -105,6 +105,8 @@ namespace {
         std::shared_ptr<class FakeAdmissionConnection> connection;
         bool accepted = false;
         bool cancelled = false;
+        bool shutdownAttempted = false;
+        bool shutdownThrows = false;
         bool shutdown = false;
         std::vector<Server::AdmissionLifecycleEvent> events;
         std::vector<Network::HostServiceStatusCode> hostedStatuses;
@@ -191,7 +193,11 @@ namespace {
             if (fixture->accepted || !fixture->connection) return {};
             fixture->accepted = true; return fixture->connection;
         }
-        void shutdown() override { fixture->shutdown = true; }
+        void shutdown() override {
+            fixture->shutdownAttempted = true;
+            if (fixture->shutdownThrows) throw std::runtime_error("injected listener shutdown failure");
+            fixture->shutdown = true;
+        }
         bool startResult = true;
         bool readyResult = true;
     private:
@@ -1004,6 +1010,41 @@ D6R_TEST_CASE("host initializes before readiness and listener startup failure pe
     D6R_REQUIRE(position(Server::AdmissionLifecycleStage::ListenerCleanupStarted) <
                 position(Server::AdmissionLifecycleStage::ListenerCleanupCompleted));
     D6R_REQUIRE(output.str().find("transport startup failed") != std::string::npos);
+}
+
+D6R_TEST_CASE("NET-AC-018 listener shutdown failure exits status 4 without a false cleanup or intentional-end claim") {
+    const auto host = manifest({{"levels/a", 1}});
+    auto fixture = std::make_shared<RuntimeFixture>();
+    fixture->shutdownThrows = true;
+    auto dependencies = runtimeDependencies(fixture, host);
+    dependencies.lifecycleObserver = [fixture](const Server::AdmissionLifecycleEvent &event) {
+        fixture->events.push_back(event);
+        if (event.stage == Server::AdmissionLifecycleStage::ListenerReady) fixture->cancelled = true;
+        return true;
+    };
+    std::ostringstream output;
+    Server::HeadlessServer server(runtimeServerConfig(), std::move(dependencies));
+    const int status = server.run(output);
+
+    const bool cleanupStarted = std::any_of(fixture->events.begin(), fixture->events.end(), [](const auto &event) {
+        return event.stage == Server::AdmissionLifecycleStage::ListenerCleanupStarted;
+    });
+    const bool cleanupCompleted = std::any_of(fixture->events.begin(), fixture->events.end(), [](const auto &event) {
+        return event.stage == Server::AdmissionLifecycleStage::ListenerCleanupCompleted;
+    });
+    const std::string evidence = "status=" + std::to_string(status)
+            + ";attempted=" + (fixture->shutdownAttempted ? "true" : "false")
+            + ";shutdown=" + (fixture->shutdown ? "true" : "false")
+            + ";started=" + (cleanupStarted ? "true" : "false")
+            + ";completed=" + (cleanupCompleted ? "true" : "false")
+            + ";shutdown-failed="
+            + (output.str().find("authoritative-match-shutdown-failed") != std::string::npos ? "true" : "false")
+            + ";intentional="
+            + (output.str().find("authoritative-match-ended-intentionally") != std::string::npos ? "true" : "false")
+            + ";stopped=" + (output.str().find("transport stopped") != std::string::npos ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string(
+            "status=4;attempted=true;shutdown=false;started=true;completed=false;shutdown-failed=true;intentional=false;stopped=false"),
+            evidence);
 }
 
 D6R_TEST_CASE("request deadline uses transport accept and frame timestamps under delayed polling") {
