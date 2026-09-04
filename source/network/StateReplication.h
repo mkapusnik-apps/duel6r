@@ -243,6 +243,8 @@ namespace Duel6::Network::Replication {
         Identity highestEmittedEvent = 0;
         std::set<Identity> issuedParticipantIdentities;
         std::set<Identity> issuedPlayerIdentities;
+        std::set<Identity> issuedMatchIdentities;
+        std::set<Identity> issuedRoundIdentities;
         std::map<Identity, EntityKind> transientEntityIdentities;
         Identity highestEntityIdentity = 0;
     };

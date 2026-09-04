@@ -321,6 +321,39 @@ namespace {
         return state;
     }
 
+    struct FollowingLobbyLifecycleAttack {
+        std::string name;
+        R::CanonicalState state;
+    };
+
+    std::vector<FollowingLobbyLifecycleAttack> followingLobbyLifecycleAttacks() {
+        const auto retained = retainedCompletedLobby();
+
+        auto activePriorMatch = retained;
+        activePriorMatch.phase = R::Phase::ActiveRound;
+        activePriorMatch.currentRoundNumber = 3;
+        activePriorMatch.round->roundId = 42;
+        activePriorMatch.round->roundNumber = 3;
+        activePriorMatch.round->outcome = {};
+        activePriorMatch.score.winner = {};
+        activePriorMatch.result = {};
+        activePriorMatch.messages.status = "ActiveRound";
+
+        auto summaryPriorMatch = activePriorMatch;
+        summaryPriorMatch.phase = R::Phase::RoundSummary;
+        summaryPriorMatch.round->outcome.winnerPlayerIds = {101};
+        summaryPriorMatch.score.winner = summaryPriorMatch.round->outcome;
+        summaryPriorMatch.messages.status = "RoundSummary";
+        summaryPriorMatch.messages.scoreSummaryVisible = true;
+
+        auto finalAlteredMatch = distinctFinalSummary();
+        finalAlteredMatch.matchId = 31;
+
+        return {{"ActiveRound-prior-match", std::move(activePriorMatch)},
+                {"RoundSummary-prior-match", std::move(summaryPriorMatch)},
+                {"FinalSummary-altered-match", std::move(finalAlteredMatch)}};
+    }
+
     R::IncrementalUpdate stateOnlyUpdate(R::StateVersion baseline, R::StateVersion version,
                                           const R::CanonicalState &state,
                                           std::vector<R::PresentationEvent> events = {}) {
@@ -1477,6 +1510,119 @@ D6R_TEST_CASE("REP-041 REP-042 REP-044 REP-050 REP-066 REP-AC-007 NET-AC-018 ful
     D6R_REQUIRE(client.apply({3, freshMatch}) == R::ApplyResult::Applied);
     D6R_REQUIRE_EQ(31u, client.state()->matchId);
     D6R_REQUIRE(!client.state()->result.available);
+}
+
+D6R_TEST_CASE("REP-044 REP-066 NET-AC-018 publisher rejects following Lobby lifecycle rewinds transactionally") {
+    const auto retained = retainedCompletedLobby();
+    const auto freshMatch = freshMatchAfterRetainedResult();
+    D6R_REQUIRE(R::validateCanonicalState(retained));
+    D6R_REQUIRE(R::validateCanonicalState(freshMatch));
+
+    std::string failures;
+    for (const auto &scenario: followingLobbyLifecycleAttacks()) {
+        D6R_REQUIRE(R::validateCanonicalState(scenario.state));
+        R::AuthoritativeStateReplicator publisher;
+        D6R_REQUIRE(publisher.initialize(retained));
+        const auto before = publisher.fullSnapshot();
+        const R::PresentationEvent event{982, "match-started", 0, 0, 0, 0};
+
+        const bool rejected = !publisher.publish(scenario.state, {event}).has_value();
+        const auto after = publisher.fullSnapshot();
+        const bool stateAndVersionUnchanged = rejected && before && after && publisher.version() == 1
+                && R::serializeReplicationSnapshot(*before) == R::serializeReplicationSnapshot(*after);
+
+        const auto legitimate = stateAndVersionUnchanged
+                ? publisher.publish(freshMatch, {event}) : std::nullopt;
+        const bool rejectedIdentityReused = legitimate && scenario.state.round && legitimate->round
+                && ((scenario.state.matchId == freshMatch.matchId
+                     && legitimate->matchId == scenario.state.matchId)
+                    || (scenario.state.round->roundId == freshMatch.round->roundId
+                        && legitimate->round->roundId == scenario.state.round->roundId));
+        const bool historyUnchanged = legitimate && publisher.version() == 2
+                && legitimate->baseline == 1 && legitimate->version == 2
+                && rejectedIdentityReused
+                && legitimate->events.size() == 1 && legitimate->events.front().eventId == event.eventId;
+        const bool newMatchApplied = historyUnchanged && publisher.fullSnapshot()
+                && publisher.fullSnapshot()->state.phase == R::Phase::ActiveRound
+                && publisher.fullSnapshot()->state.matchId == 31
+                && publisher.fullSnapshot()->state.round
+                && publisher.fullSnapshot()->state.round->roundId == 42
+                && !publisher.fullSnapshot()->state.result.available;
+        if (!(stateAndVersionUnchanged && historyUnchanged && newMatchApplied)) {
+            if (!failures.empty()) failures += ';';
+            failures += scenario.name;
+        }
+    }
+    D6R_REQUIRE_EQ(std::string(), failures);
+}
+
+D6R_TEST_CASE("REP-044 REP-066 NET-AC-018 incremental rejects following Lobby lifecycle rewinds transactionally") {
+    const auto retained = retainedCompletedLobby();
+    const auto freshMatch = freshMatchAfterRetainedResult();
+    std::string failures;
+    for (const auto &scenario: followingLobbyLifecycleAttacks()) {
+        const R::PresentationEvent event{983, "match-started", 0, 0, 0, 0};
+        auto attack = stateOnlyUpdate(1, 2, scenario.state, {event});
+        R::ReplicatedState client;
+        D6R_REQUIRE(client.apply({1, retained}) == R::ApplyResult::Applied);
+        const auto acceptedBefore = R::serializeReplicationSnapshot({1, *client.state()});
+
+        const bool rejected = client.apply(attack) == R::ApplyResult::ResynchronizationRequired
+                && client.version() == 1 && !client.current() && client.state() == nullptr
+                && client.takePresentationEvents().empty();
+        const bool restored = rejected && client.apply({1, retained}) == R::ApplyResult::Applied
+                && client.current() && client.version() == 1 && client.state()
+                && acceptedBefore == R::serializeReplicationSnapshot({client.version(), *client.state()});
+
+        auto legitimate = validUpdate(retained, freshMatch, {event});
+        const bool rejectedIdentityReused = scenario.state.round && legitimate.round
+                && ((scenario.state.matchId == freshMatch.matchId
+                     && legitimate.matchId == scenario.state.matchId)
+                    || (scenario.state.round->roundId == freshMatch.round->roundId
+                        && legitimate.round->roundId == scenario.state.round->roundId));
+        const bool historyUnchanged = restored && client.apply(legitimate) == R::ApplyResult::Applied
+                && client.version() == 2 && client.state()
+                && rejectedIdentityReused;
+        const auto events = client.takePresentationEvents();
+        const bool newMatchApplied = historyUnchanged && client.state()->phase == R::Phase::ActiveRound
+                && !client.state()->result.available && events.size() == 1
+                && events.front().eventId == event.eventId;
+        if (!(rejected && restored && historyUnchanged && newMatchApplied)) {
+            if (!failures.empty()) failures += ';';
+            failures += scenario.name;
+        }
+    }
+    D6R_REQUIRE_EQ(std::string(), failures);
+}
+
+D6R_TEST_CASE("REP-042 REP-044 REP-066 NET-AC-018 full snapshot rejects following Lobby lifecycle rewinds transactionally") {
+    const auto retained = retainedCompletedLobby();
+    const auto freshMatch = freshMatchAfterRetainedResult();
+    std::string failures;
+    for (const auto &scenario: followingLobbyLifecycleAttacks()) {
+        R::ReplicatedState client;
+        D6R_REQUIRE(client.apply({1, retained}) == R::ApplyResult::Applied);
+        const auto acceptedBefore = R::serializeReplicationSnapshot({1, *client.state()});
+
+        const bool rejected = client.apply({2, scenario.state}) == R::ApplyResult::Invalid;
+        const bool stateAndVersionUnchanged = rejected && client.current() && client.version() == 1
+                && client.state()
+                && acceptedBefore == R::serializeReplicationSnapshot({client.version(), *client.state()});
+        const bool rejectedIdentityWillBeReused = scenario.state.round && freshMatch.round
+                && (scenario.state.matchId == freshMatch.matchId
+                    || scenario.state.round->roundId == freshMatch.round->roundId);
+        const bool historyUnchanged = stateAndVersionUnchanged
+                && client.apply({2, freshMatch}) == R::ApplyResult::Applied
+                && client.current() && client.version() == 2 && client.state()
+                && rejectedIdentityWillBeReused;
+        const bool newMatchApplied = historyUnchanged && client.state()->phase == R::Phase::ActiveRound
+                && !client.state()->result.available;
+        if (!(stateAndVersionUnchanged && historyUnchanged && newMatchApplied)) {
+            if (!failures.empty()) failures += ';';
+            failures += scenario.name;
+        }
+    }
+    D6R_REQUIRE_EQ(std::string(), failures);
 }
 
 D6R_TEST_CASE("REP-041 REP-044 REP-054 REP-066 REP-AC-008 resync accepts only identical same-version snapshot then recovers at higher version") {
