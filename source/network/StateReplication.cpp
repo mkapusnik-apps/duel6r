@@ -230,8 +230,9 @@ namespace Duel6::Network::Replication {
         }
 
         bool validEventReferences(const CanonicalState &before, const CanonicalState &after,
-                                  const PresentationEvent &event,
-                                  std::map<Identity, EntityKind> &transientIdentities) {
+                                   const PresentationEvent &event,
+                                   std::map<Identity, EntityKind> &transientIdentities,
+                                   Identity highestLiveIdentity) {
             const auto hasPlayer = [&](Identity identity) {
                 if (identity == 0) return true;
                 const auto present = [identity](const auto &player) { return player.playerId == identity; };
@@ -243,7 +244,8 @@ namespace Duel6::Network::Replication {
             const auto known = transientIdentities.find(event.entityId);
             if (known != transientIdentities.end()) return validEventForTransient(known->second, event.type);
             const auto kind = transientKind(event.type);
-            if (!kind || event.entityId == 0 || transientIdentities.size() >= MaxReplicatedIdentityHistory)
+            if (!kind || event.entityId == 0 || event.entityId <= highestLiveIdentity
+                || transientIdentities.size() >= MaxReplicatedIdentityHistory)
                 return false;
             transientIdentities.emplace(event.entityId, *kind);
             return true;
@@ -271,7 +273,13 @@ namespace Duel6::Network::Replication {
             if (outcome.winnerPlayerIds.empty()) return false;
             if (state.settings.teamCount == 0) return outcome.winningTeam == 0;
             if (outcome.winningTeam == 0) return false;
+            const bool retainedLobbyResult = state.phase == Phase::Lobby && state.result.available;
             for (Identity identity: outcome.winnerPlayerIds) {
+                if (retainedLobbyResult) {
+                    if (std::none_of(state.score.players.begin(), state.score.players.end(),
+                            [identity](const auto &value) { return value.playerId == identity; })) return false;
+                    continue;
+                }
                 const auto player = std::find_if(state.players.begin(), state.players.end(), [&](const auto &value) {
                     return value.playerId == identity;
                 });
@@ -381,31 +389,49 @@ namespace Duel6::Network::Replication {
                     || !uniqueNonzero(state.round->rosterOrder, [](Identity value) { return value; })
                     || !uniqueNonzero(state.round->outcome.winnerPlayerIds,
                                       [](Identity value) { return value; })) return false;
-                for (Identity player: state.round->rosterOrder) if (!playerIds.count(player)) return false;
-                for (Identity player: state.round->outcome.winnerPlayerIds) if (!playerIds.count(player)) return false;
+                if (!(state.phase == Phase::Lobby && state.result.available)) {
+                    for (Identity player: state.round->rosterOrder) if (!playerIds.count(player)) return false;
+                    for (Identity player: state.round->outcome.winnerPlayerIds)
+                        if (!playerIds.count(player)) return false;
+                }
             } else if (state.phase == Phase::ActiveRound || state.phase == Phase::RoundSummary) return false;
             if (!validText(state.settings.mode) || !validText(state.settings.levelPlan)
                 || !validText(state.settings.fixedLevel, 240, true)
                 || state.settings.levels.size() > 256) return false;
             for (const auto &level: state.settings.levels) if (!validText(level, 240)) return false;
             if (!uniqueNonzero(state.score.players, [](const auto &value) { return value.playerId; })) return false;
-            for (const auto &row: state.score.players) if (!playerIds.count(row.playerId)) return false;
+            const bool retainedLobbyResult = state.phase == Phase::Lobby && state.result.available;
+            for (const auto &row: state.score.players)
+                if (!retainedLobbyResult && !playerIds.count(row.playerId)) return false;
             if (!uniqueNonzero(state.score.ranking, [](Identity value) { return value; })) return false;
-            for (Identity player: state.score.ranking) if (!playerIds.count(player)) return false;
+            for (Identity player: state.score.ranking)
+                if (!retainedLobbyResult && !playerIds.count(player)) return false;
             if (state.score.players.size() > MaxReplicatedPlayers
                 || state.score.teamTotals.size() > MaxReplicatedPlayers
                 || state.score.teamRanking.size() != state.score.teamTotals.size()) return false;
             if (!state.score.players.empty() && state.score.ranking.size() != state.score.players.size()) return false;
-            if (state.phase != Phase::Lobby || state.result.available) {
+            std::set<Identity> scorePlayerIds;
+            for (const auto &row: state.score.players) scorePlayerIds.insert(row.playerId);
+            if (state.phase != Phase::Lobby) {
                 if (state.score.players.size() != state.players.size()
                     || state.score.ranking.size() != state.players.size()) return false;
-                std::set<Identity> scorePlayerIds;
-                for (const auto &row: state.score.players) scorePlayerIds.insert(row.playerId);
                 if (scorePlayerIds != playerIds) return false;
                 std::set<Identity> rankedPlayerIds(state.score.ranking.begin(), state.score.ranking.end());
                 if (rankedPlayerIds != playerIds) return false;
                 for (std::size_t index = 0; index < state.score.players.size(); ++index)
                     if (state.score.players[index].playerId != state.score.ranking[index]) return false;
+            } else if (retainedLobbyResult) {
+                if (state.score.players.empty() || state.score.ranking.size() != state.score.players.size())
+                    return false;
+                const std::set<Identity> rankedPlayerIds(state.score.ranking.begin(), state.score.ranking.end());
+                if (rankedPlayerIds != scorePlayerIds) return false;
+                for (std::size_t index = 0; index < state.score.players.size(); ++index)
+                    if (state.score.players[index].playerId != state.score.ranking[index]) return false;
+                if (state.round) {
+                    for (Identity player: state.round->rosterOrder) if (!scorePlayerIds.count(player)) return false;
+                    for (Identity player: state.round->outcome.winnerPlayerIds)
+                        if (!scorePlayerIds.count(player)) return false;
+                }
             }
             if (state.round && state.phase != Phase::Lobby) {
                 std::set<Identity> roundPlayers(state.round->rosterOrder.begin(), state.round->rosterOrder.end());
@@ -425,7 +451,8 @@ namespace Duel6::Network::Replication {
             for (std::uint8_t team: state.score.teamRanking)
                 if (team == 0 || team > state.score.teamTotals.size() || !rankedTeams.insert(team).second) return false;
             if (!uniqueNonzero(state.score.winner.winnerPlayerIds, [](Identity value) { return value; })) return false;
-            for (Identity player: state.score.winner.winnerPlayerIds) if (!playerIds.count(player)) return false;
+            for (Identity player: state.score.winner.winnerPlayerIds)
+                if (!(retainedLobbyResult ? scorePlayerIds : playerIds).count(player)) return false;
             if (state.score.winner.winningTeam > state.settings.teamCount
                 || (state.score.winner.noWinner && (!state.score.winner.winnerPlayerIds.empty()
                                                     || state.score.winner.winningTeam != 0))) return false;
@@ -538,7 +565,8 @@ namespace Duel6::Network::Replication {
             if (!hasEntity(*current, event.entityId) && !hasEntity(state, event.entityId)) {
                 const auto kind = transientKind(event.type);
                 if (kind && !nextTransientIdentities.count(event.entityId)) {
-                    if (event.entityId == 0 || nextTransientIdentities.size() >= MaxReplicatedIdentityHistory)
+                    if (event.entityId == 0 || event.entityId <= highestEntityIdentity
+                        || nextTransientIdentities.size() >= MaxReplicatedIdentityHistory)
                         return std::nullopt;
                     nextTransientIdentities.emplace(event.entityId, *kind);
                 }
@@ -693,7 +721,7 @@ namespace Duel6::Network::Replication {
         for (const auto &event: update.events) {
             if (!validEvent(event)
                 || !validEventReferences(roundChanged ? candidate : *accepted, candidate, event,
-                                          nextAcceptedTransientEntities)
+                                           nextAcceptedTransientEntities, highestEntityIdentity)
                 || !eventIds.insert(event.eventId).second || event.eventId <= highestPresentedEvent)
                 return rejectIncremental();
             eventTextBytes += event.type.size();

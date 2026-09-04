@@ -39,6 +39,12 @@ namespace Duel6::Server::Authoritative {
             std::vector<Network::Replication::ParticipantState> participants,
             std::vector<PlayerDefinition> roster, MatchConfig settings) {
         if (currentStage != HostedMatchStage::Lobby) return false;
+        if (explicitReadinessRequired) {
+            for (auto &participant: participants) {
+                const auto found = readiness.find(participant.participantId);
+                participant.ready = found != readiness.end() && found->second;
+            }
+        }
         auto nextReadiness = replicatedReadiness(participants);
         const auto update = replication.updateLobby(
                 std::move(participants), std::move(roster), std::move(settings));
@@ -152,6 +158,7 @@ namespace Duel6::Server::Authoritative {
                 (void) replicationConnections.broadcast(*update);
             }
             currentStage = HostedMatchStage::MatchActive;
+            explicitReadinessRequired = false;
         }
         else if (started.code == OutcomeCode::RuntimeFailed) currentStage = HostedMatchStage::UnexpectedStop;
         else if (started.code == OutcomeCode::ContentUnavailable) {
@@ -208,6 +215,7 @@ namespace Duel6::Server::Authoritative {
                 }
                 (void) replicationConnections.broadcast(*lobby);
                 clearReadiness();
+                explicitReadinessRequired = true;
                 activeMatch.reset();
                 currentStage = HostedMatchStage::Lobby;
             }

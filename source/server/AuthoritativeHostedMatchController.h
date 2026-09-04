@@ -55,6 +55,7 @@ namespace Duel6::Server::Authoritative {
         MatchRuntimeDependencies dependencies;
         HostedMatchStage currentStage = HostedMatchStage::ServiceStarting;
         std::map<Identity, bool> readiness;
+        bool explicitReadinessRequired = false;
         const Identity hostParticipantId;
         std::unique_ptr<AuthoritativeMatch> activeMatch;
         AuthoritativeReplication replication;

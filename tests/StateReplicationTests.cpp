@@ -773,6 +773,63 @@ D6R_TEST_CASE("REP-005 REP-012 authoritative transient-only identities cannot la
     D6R_REQUIRE(rejected == std::vector<bool>({true, true, true}));
 }
 
+D6R_TEST_CASE("REP-005 REP-007 REP-012 removed live identities cannot return as transient-only events") {
+    const std::vector<std::pair<R::WorldEntityState, std::string>> scenarios = [] {
+        std::vector<std::pair<R::WorldEntityState, std::string>> values;
+        R::WorldEntityState projectile;
+        projectile.entityId = 60; projectile.kind = R::EntityKind::Projectile;
+        projectile.ownerPlayerId = 101; projectile.type = "rocket"; projectile.lifecycle = "active";
+        values.push_back({projectile, "shot-fired"});
+        R::WorldEntityState bonus;
+        bonus.entityId = 61; bonus.kind = R::EntityKind::BonusPickup;
+        bonus.type = "shield"; bonus.lifecycle = "available";
+        values.push_back({bonus, "bonus-picked"});
+        R::WorldEntityState weapon;
+        weapon.entityId = 62; weapon.kind = R::EntityKind::WeaponPickup;
+        weapon.type = "bazooka"; weapon.lifecycle = "available";
+        values.push_back({weapon, "weapon-picked"});
+        return values;
+    }();
+
+    std::vector<bool> publisherRejected;
+    std::vector<bool> clientRejectedWithoutMutation;
+    for (std::size_t index = 0; index < scenarios.size(); ++index) {
+        auto live = activeState();
+        live.entities = {scenarios[index].first};
+        auto removed = live;
+        removed.phaseTime++;
+        removed.entities.clear();
+        auto afterEvent = removed;
+        afterEvent.phaseTime++;
+        const R::PresentationEvent event{
+                static_cast<R::Identity>(800 + index), scenarios[index].second, 101, 0,
+                scenarios[index].first.entityId, 1};
+
+        R::AuthoritativeStateReplicator publisher;
+        D6R_REQUIRE(publisher.initialize(live));
+        const auto removal = publisher.publish(removed);
+        D6R_REQUIRE(removal.has_value());
+        publisherRejected.push_back(!publisher.publish(afterEvent, {event}).has_value()
+                                    && publisher.version() == 2);
+
+        R::ReplicatedState client;
+        D6R_REQUIRE(client.apply({1, live}) == R::ApplyResult::Applied);
+        D6R_REQUIRE(client.apply(*removal) == R::ApplyResult::Applied);
+        auto transient = validUpdate(removed, afterEvent, {event});
+        transient.baseline = 2;
+        transient.version = 3;
+        clientRejectedWithoutMutation.push_back(
+                client.apply(transient) == R::ApplyResult::ResynchronizationRequired
+                && client.version() == 2 && !client.current()
+                && client.takePresentationEvents().empty());
+    }
+    const bool publisherAllRejected = publisherRejected == std::vector<bool>({true, true, true});
+    const bool clientAllRejected = clientRejectedWithoutMutation == std::vector<bool>({true, true, true});
+    const std::string evidence = "publisher=" + std::string(publisherAllRejected ? "true" : "false")
+            + ";incremental=" + (clientAllRejected ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string("publisher=true;incremental=true"), evidence);
+}
+
 D6R_TEST_CASE("REP-017 REP-018 REP-025 final summary keeps final-round match outcome separate from cumulative ranking") {
     const auto final = distinctFinalSummary();
     D6R_REQUIRE(R::validateCanonicalState(final));

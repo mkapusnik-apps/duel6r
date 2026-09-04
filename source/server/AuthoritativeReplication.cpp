@@ -47,6 +47,18 @@ namespace Duel6::Server::Authoritative {
             });
             return found == roster.end() ? nullptr : &*found;
         }
+
+        bool rankedAhead(const R::ScoreRowState &left, const R::ScoreRowState &right,
+                         const std::vector<PlayerDefinition> &roster) {
+            if (left.cumulativePoints != right.cumulativePoints)
+                return left.cumulativePoints > right.cumulativePoints;
+            if (left.wins != right.wins) return left.wins > right.wins;
+            if (left.damage != right.damage) return left.damage > right.damage;
+            const auto *leftDefinition = definition(roster, left.playerId);
+            const auto *rightDefinition = definition(roster, right.playerId);
+            return leftDefinition && rightDefinition
+                   && leftDefinition->rosterOrder < rightDefinition->rosterOrder;
+        }
     }
 
     AuthoritativeReplication::AuthoritativeReplication(Identity sessionId) {
@@ -82,8 +94,7 @@ namespace Duel6::Server::Authoritative {
         const AuthoritativeReplication before = *this;
         state.participants = std::move(participants); state.settings = replicatedSettings(settings);
         const auto priorPlayers = state.players;
-        const auto priorScores = state.score.players;
-        state.players.clear(); state.score.players.clear(); state.score.ranking.clear();
+        state.players.clear();
         for (const auto &entry: roster) {
             R::PlayerState player;
             player.playerId = entry.playerId; player.ownerParticipantId = entry.participantId;
@@ -94,22 +105,11 @@ namespace Duel6::Server::Authoritative {
             });
             if (state.result.available && priorPlayer != priorPlayers.end()) player = *priorPlayer;
             state.players.push_back(std::move(player));
-            if (state.result.available) {
-                const auto priorScore = std::find_if(priorScores.begin(), priorScores.end(), [&](const auto &value) {
-                    return value.playerId == entry.playerId;
-                });
-                R::ScoreRowState score;
-                if (priorScore != priorScores.end()) score = *priorScore;
-                else score.playerId = entry.playerId;
-                state.score.players.push_back(std::move(score));
-            }
         }
-        if (state.result.available) {
-            std::stable_sort(state.score.players.begin(), state.score.players.end(), [](const auto &left, const auto &right) {
-                return left.cumulativePoints > right.cumulativePoints;
-            });
-            for (const auto &score: state.score.players) state.score.ranking.push_back(score.playerId);
-        } else for (const auto &player: state.players) state.score.ranking.push_back(player.playerId);
+        if (!state.result.available) {
+            state.score.players.clear(); state.score.ranking.clear();
+            for (const auto &player: state.players) state.score.ranking.push_back(player.playerId);
+        }
         auto update = publisher.publish(state);
         if (!update) *this = before;
         return update;
@@ -256,10 +256,7 @@ namespace Duel6::Server::Authoritative {
                 state.score.players.push_back(score);
             }
             std::sort(state.score.players.begin(), state.score.players.end(), [&](const auto &left, const auto &right) {
-                if (left.cumulativePoints != right.cumulativePoints) return left.cumulativePoints > right.cumulativePoints;
-                const auto *leftDefinition = definition(roster, left.playerId);
-                const auto *rightDefinition = definition(roster, right.playerId);
-                return leftDefinition && rightDefinition && leftDefinition->rosterOrder < rightDefinition->rosterOrder;
+                return rankedAhead(left, right, roster);
             });
             for (const auto &row: state.score.players) state.score.ranking.push_back(row.playerId);
             state.score.teamTotals.assign(config.teamCount, 0);
@@ -372,11 +369,7 @@ namespace Duel6::Server::Authoritative {
                 state.score.players.push_back(std::move(score));
             }
             std::sort(state.score.players.begin(), state.score.players.end(), [&](const auto &left, const auto &right) {
-                if (left.cumulativePoints != right.cumulativePoints) return left.cumulativePoints > right.cumulativePoints;
-                const auto *leftDefinition = definition(roster, left.playerId);
-                const auto *rightDefinition = definition(roster, right.playerId);
-                return leftDefinition && rightDefinition
-                       && leftDefinition->rosterOrder < rightDefinition->rosterOrder;
+                return rankedAhead(left, right, roster);
             });
             for (const auto &row: state.score.players) state.score.ranking.push_back(row.playerId);
         }

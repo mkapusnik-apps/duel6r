@@ -802,12 +802,14 @@ namespace Duel6::Server {
             reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
             return 2;
         }
-        const auto cleanupListener = [&] {
+        const auto cleanupListener = [&](bool reportFailure = true) {
             observe(AdmissionLifecycleStage::ListenerCleanupStarted);
             try { listener->shutdown(); }
             catch (...) {
-                const auto failure = Authoritative::terminalOutcome(Authoritative::OutcomeCode::ShutdownFailed);
-                output << failure.identifier << '\n' << failure.copy << '\n';
+                if (reportFailure) {
+                    const auto failure = Authoritative::terminalOutcome(Authoritative::OutcomeCode::ShutdownFailed);
+                    output << failure.identifier << '\n' << failure.copy << '\n';
+                }
                 return false;
             }
             observe(AdmissionLifecycleStage::ListenerCleanupCompleted);
@@ -1050,7 +1052,11 @@ namespace Duel6::Server {
                                 if (hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                                     auto current = replicationLobbyState(
                                             admissionPolicy->allocation(), connectedParticipants, *hostedSettings);
-                                    if (current.players.size() >= 2) {
+                                    const bool explicitlyReady = std::all_of(
+                                            current.players.begin(), current.players.end(), [&](const auto &player) {
+                                                return hostedMatch->participantReady(player.participantId);
+                                            });
+                                    if (current.players.size() >= 2 && explicitlyReady) {
                                         if (!runtimeDependencies.authoritativeRuntimeFactory) {
                                             runtimeFailed = true;
                                             connection->requestClose();
@@ -1189,6 +1195,7 @@ namespace Duel6::Server {
         }
 
         int exitStatus = 0;
+        std::optional<Authoritative::TerminalOutcome> runtimeFailure;
         if (runtimeFailed) {
             Authoritative::TerminalOutcome failure = Authoritative::terminalOutcome(
                     Authoritative::OutcomeCode::RuntimeFailed);
@@ -1197,11 +1204,17 @@ namespace Duel6::Server {
                 if (stopped.code == Authoritative::OutcomeCode::ShutdownFailed
                     || stopped.code == Authoritative::OutcomeCode::RuntimeFailed) failure = stopped;
             }
-            output << failure.identifier << '\n' << failure.copy << '\n';
             exitStatus = failure.exitStatus;
+            runtimeFailure = failure;
         }
-        const bool listenerCleaned = cleanupListener();
-        if (!listenerCleaned) return 4;
+        const bool listenerCleaned = cleanupListener(false);
+        if (!listenerCleaned) {
+            const auto failure = Authoritative::terminalOutcome(Authoritative::OutcomeCode::ShutdownFailed);
+            output << failure.identifier << '\n' << failure.copy << '\n';
+            return 4;
+        }
+        if (runtimeFailure)
+            output << runtimeFailure->identifier << '\n' << runtimeFailure->copy << '\n';
         output << "duel6r-server transport stopped.\n";
         return exitStatus;
     }
