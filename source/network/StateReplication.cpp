@@ -55,6 +55,18 @@ namespace Duel6::Network::Replication {
         }
 
         template<typename T, typename Id, typename Equal>
+        bool identifiedValuesEqual(const std::vector<T> &left, const std::vector<T> &right,
+                                   Id id, Equal equal) {
+            if (left.size() != right.size()) return false;
+            std::map<Identity, const T *> indexed;
+            for (const auto &value: right) indexed.emplace(id(value), &value);
+            return std::all_of(left.begin(), left.end(), [&](const auto &value) {
+                const auto found = indexed.find(id(value));
+                return found != indexed.end() && equal(value, *found->second);
+            });
+        }
+
+        template<typename T, typename Id, typename Equal>
         std::vector<EntityChange<T>> changes(const std::vector<T> &before, const std::vector<T> &after,
                                               Id id, Equal equal) {
             std::map<Identity, T> oldValues;
@@ -332,7 +344,55 @@ namespace Duel6::Network::Replication {
                    && left.teamRanking == right.teamRanking && sameOutcome(left.winner, right.winner);
         }
 
+        bool sameCanonicalState(const CanonicalState &left, const CanonicalState &right) {
+            const auto sameSettings = [](const MatchSettingsState &a, const MatchSettingsState &b) {
+                return a.mode == b.mode && a.teamCount == b.teamCount && a.friendlyFire == b.friendlyFire
+                       && a.levelPlan == b.levelPlan && a.fixedLevel == b.fixedLevel && a.levels == b.levels
+                       && a.roundLimit == b.roundLimit && a.assistance == b.assistance
+                       && a.quickLiquid == b.quickLiquid && a.burnableTrees == b.burnableTrees;
+            };
+            const auto sameRoundState = [](const std::optional<RoundState> &a,
+                                           const std::optional<RoundState> &b) {
+                return a.has_value() == b.has_value()
+                       && (!a || (a->roundId == b->roundId && a->roundNumber == b->roundNumber
+                                  && a->level == b->level && a->mirrored == b->mirrored
+                                  && a->rosterOrder == b->rosterOrder
+                                  && sameOutcome(a->outcome, b->outcome)));
+            };
+            const auto sameEffect = [](const ContinuingEffectState &a, const ContinuingEffectState &b) {
+                return a.effectId == b.effectId && a.type == b.type && a.playerId == b.playerId
+                       && a.entityId == b.entityId && a.remaining == b.remaining;
+            };
+            return left.sessionId == right.sessionId && left.matchId == right.matchId
+                   && left.hostParticipantId == right.hostParticipantId && left.phase == right.phase
+                   && left.currentRoundNumber == right.currentRoundNumber
+                   && left.completedRounds == right.completedRounds && left.phaseTime == right.phaseTime
+                   && left.roundEndCountdown == right.roundEndCountdown
+                   && identifiedValuesEqual(left.participants, right.participants,
+                                            [](const auto &value) { return value.participantId; },
+                                            participantEqual)
+                   && sameSettings(left.settings, right.settings) && sameRoundState(left.round, right.round)
+                   && identifiedValuesEqual(left.players, right.players,
+                                            [](const auto &value) { return value.playerId; }, playerEqual)
+                   && identifiedValuesEqual(left.entities, right.entities,
+                                            [](const auto &value) { return value.entityId; }, entityEqual)
+                   && sameScore(left.score, right.score)
+                   && left.messages.status == right.messages.status
+                   && left.messages.events == right.messages.events
+                   && left.messages.currentPlayerIndicators == right.messages.currentPlayerIndicators
+                   && left.messages.roundProgress == right.messages.roundProgress
+                   && left.messages.scoreSummaryVisible == right.messages.scoreSummaryVisible
+                   && identifiedValuesEqual(left.effects, right.effects,
+                                            [](const auto &value) { return value.effectId; }, sameEffect)
+                   && left.result.available == right.result.available
+                   && left.result.sessionOnly == right.result.sessionOnly
+                   && left.result.state == right.result.state
+                   && left.result.serialized == right.result.serialized;
+        }
+
         bool altersEstablishedResult(const CanonicalState &before, const CanonicalState &after) {
+            if (before.phase == Phase::Lobby && before.result.available
+                && after.phase == Phase::FinalSummary && before.matchId == after.matchId) return true;
             const bool remainsPresented = (before.phase == Phase::FinalSummary || before.phase == Phase::Lobby)
                     && (after.phase == Phase::FinalSummary || after.phase == Phase::Lobby);
             if (!remainsPresented || !before.result.available
@@ -694,7 +754,9 @@ namespace Duel6::Network::Replication {
         if (snapshot.version == 0 || !validateCanonicalState(snapshot.state)
             || (accepted && snapshot.state.sessionId != accepted->sessionId)
             || (acceptedVersion && (snapshot.version < acceptedVersion
-                || (snapshot.version == acceptedVersion && !resynchronizing)))) return ApplyResult::Invalid;
+                || (snapshot.version == acceptedVersion
+                    && (!resynchronizing || !sameCanonicalState(*accepted, snapshot.state))))))
+            return ApplyResult::Invalid;
         const bool roundChanged = accepted && !sameRound(accepted->round, snapshot.state.round);
         if (roundChanged) {
             std::set<Identity> priorEntities;

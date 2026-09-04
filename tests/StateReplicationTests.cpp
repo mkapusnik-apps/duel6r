@@ -313,6 +313,37 @@ namespace {
         return state;
     }
 
+    R::CanonicalState freshMatchAfterRetainedResult() {
+        auto state = activeState();
+        state.matchId = 31;
+        state.round->roundId = 42;
+        state.result = {};
+        return state;
+    }
+
+    R::IncrementalUpdate stateOnlyUpdate(R::StateVersion baseline, R::StateVersion version,
+                                          const R::CanonicalState &state,
+                                          std::vector<R::PresentationEvent> events = {}) {
+        R::IncrementalUpdate update;
+        update.sessionId = state.sessionId;
+        update.matchId = state.matchId;
+        update.baseline = baseline;
+        update.version = version;
+        update.phase = state.phase;
+        update.currentRoundNumber = state.currentRoundNumber;
+        update.completedRounds = state.completedRounds;
+        update.phaseTime = state.phaseTime;
+        update.roundEndCountdown = state.roundEndCountdown;
+        update.settings = state.settings;
+        update.round = state.round;
+        update.score = state.score;
+        update.messages = state.messages;
+        update.effects = state.effects;
+        update.result = state.result;
+        update.events = std::move(events);
+        return update;
+    }
+
     void requireRetainedResultEqual(const R::CanonicalState &expected, R::CanonicalState actual) {
         actual.sessionId = expected.sessionId;
         actual.matchId = expected.matchId;
@@ -1354,6 +1385,157 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 REP-066 client freezes Final Summary resu
         }
     }
     D6R_REQUIRE_EQ(std::string(), failures);
+}
+
+D6R_TEST_CASE("REP-041 REP-044 REP-050 NET-AC-018 publisher rejects following Lobby to Final Summary reversal atomically") {
+    const auto followingLobby = retainedCompletedLobby();
+    const auto reversedSummary = distinctFinalSummary();
+    D6R_REQUIRE(R::validateCanonicalState(followingLobby));
+    D6R_REQUIRE(R::validateCanonicalState(reversedSummary));
+    D6R_REQUIRE_EQ(followingLobby.matchId, reversedSummary.matchId);
+    D6R_REQUIRE_EQ(followingLobby.result.serialized, reversedSummary.result.serialized);
+
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(followingLobby));
+    const auto before = publisher.fullSnapshot();
+    const R::PresentationEvent attemptedEvent{980, "result-transition", 0, 0, 0, 0};
+    D6R_REQUIRE(!publisher.publish(reversedSummary, {attemptedEvent}).has_value());
+    D6R_REQUIRE_EQ(1u, publisher.version());
+    D6R_REQUIRE(before.has_value());
+    D6R_REQUIRE(publisher.fullSnapshot().has_value());
+    D6R_REQUIRE_EQ(R::serializeReplicationSnapshot(*before),
+                   R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+
+    const auto legitimateLobby = legitimateFollowingLobbyChange(followingLobby);
+    const auto legitimateUpdate = publisher.publish(legitimateLobby, {attemptedEvent});
+    D6R_REQUIRE(legitimateUpdate.has_value());
+    D6R_REQUIRE_EQ(2u, publisher.version());
+    D6R_REQUIRE_EQ(1u, legitimateUpdate->events.size());
+    D6R_REQUIRE_EQ(attemptedEvent.eventId, legitimateUpdate->events.front().eventId);
+    requireRetainedResultEqual(followingLobby, publisher.fullSnapshot()->state);
+
+    const auto freshMatch = freshMatchAfterRetainedResult();
+    D6R_REQUIRE(R::validateCanonicalState(freshMatch));
+    const auto matchStart = publisher.publish(freshMatch);
+    D6R_REQUIRE(matchStart.has_value());
+    D6R_REQUIRE_EQ(3u, publisher.version());
+    D6R_REQUIRE_EQ(31u, publisher.fullSnapshot()->state.matchId);
+    D6R_REQUIRE(!publisher.fullSnapshot()->state.result.available);
+}
+
+D6R_TEST_CASE("REP-045..050 REP-066 REP-AC-006 REP-AC-007 NET-AC-018 client rejects following Lobby to Final Summary reversal atomically") {
+    const auto followingLobby = retainedCompletedLobby();
+    const auto reversedSummary = distinctFinalSummary();
+    const R::PresentationEvent attemptedEvent{981, "result-transition", 0, 0, 0, 0};
+    const auto reversal = stateOnlyUpdate(1, 2, reversedSummary, {attemptedEvent});
+
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply({1, followingLobby}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.apply(reversal) == R::ApplyResult::ResynchronizationRequired);
+    D6R_REQUIRE_EQ(1u, client.version());
+    D6R_REQUIRE(!client.current());
+    D6R_REQUIRE(client.state() == nullptr);
+    D6R_REQUIRE(client.takePresentationEvents().empty());
+
+    D6R_REQUIRE(client.apply({1, followingLobby}) == R::ApplyResult::Applied);
+    const auto legitimateLobby = legitimateFollowingLobbyChange(followingLobby);
+    const auto legitimateUpdate = validUpdate(followingLobby, legitimateLobby, {attemptedEvent});
+    D6R_REQUIRE(client.apply(legitimateUpdate) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(2u, client.version());
+    const auto events = client.takePresentationEvents();
+    D6R_REQUIRE_EQ(1u, events.size());
+    D6R_REQUIRE_EQ(attemptedEvent.eventId, events.front().eventId);
+    requireRetainedResultEqual(followingLobby, *client.state());
+
+    const auto freshMatch = freshMatchAfterRetainedResult();
+    auto matchStart = validUpdate(legitimateLobby, freshMatch);
+    matchStart.baseline = 2;
+    matchStart.version = 3;
+    D6R_REQUIRE(client.apply(matchStart) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(31u, client.state()->matchId);
+    D6R_REQUIRE(!client.state()->result.available);
+}
+
+D6R_TEST_CASE("REP-041 REP-042 REP-044 REP-050 REP-066 REP-AC-007 NET-AC-018 full snapshot rejects following Lobby to Final Summary reversal atomically") {
+    const auto followingLobby = retainedCompletedLobby();
+    const auto reversedSummary = distinctFinalSummary();
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply({1, followingLobby}) == R::ApplyResult::Applied);
+    const auto accepted = R::serializeReplicationSnapshot({1, *client.state()});
+
+    D6R_REQUIRE(client.apply({2, reversedSummary}) == R::ApplyResult::Invalid);
+    D6R_REQUIRE_EQ(1u, client.version());
+    D6R_REQUIRE(client.current());
+    D6R_REQUIRE(client.state() != nullptr);
+    D6R_REQUIRE_EQ(accepted, R::serializeReplicationSnapshot({client.version(), *client.state()}));
+
+    const auto legitimateLobby = legitimateFollowingLobbyChange(followingLobby);
+    D6R_REQUIRE(client.apply({2, legitimateLobby}) == R::ApplyResult::Applied);
+    requireRetainedResultEqual(followingLobby, *client.state());
+
+    const auto freshMatch = freshMatchAfterRetainedResult();
+    D6R_REQUIRE(client.apply({3, freshMatch}) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(31u, client.state()->matchId);
+    D6R_REQUIRE(!client.state()->result.available);
+}
+
+D6R_TEST_CASE("REP-041 REP-044 REP-054 REP-066 REP-AC-008 resync accepts only identical same-version snapshot then recovers at higher version") {
+    const auto accepted = retainedCompletedLobby();
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply({7, accepted}) == R::ApplyResult::Applied);
+
+    client.requireResynchronization();
+    D6R_REQUIRE(client.apply({7, accepted}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.current());
+    D6R_REQUIRE_EQ(7u, client.version());
+    D6R_REQUIRE_EQ(R::serializeReplicationSnapshot({7, accepted}),
+                   R::serializeReplicationSnapshot({client.version(), *client.state()}));
+
+    R::ParticipantState attemptedParticipant{77, false, R::ConnectionState::Connected, false, {777}};
+    R::PlayerState attemptedPlayer;
+    attemptedPlayer.playerId = 777;
+    attemptedPlayer.ownerParticipantId = attemptedParticipant.participantId;
+    attemptedPlayer.rosterPosition = 2;
+    attemptedPlayer.displayName = "Same-version guest";
+    attemptedPlayer.life = 100;
+    auto differentSameVersion = accepted;
+    differentSameVersion.phaseTime++;
+    differentSameVersion.settings.assistance = !differentSameVersion.settings.assistance;
+    differentSameVersion.participants.push_back(attemptedParticipant);
+    differentSameVersion.players.push_back(attemptedPlayer);
+    D6R_REQUIRE(R::validateCanonicalState(differentSameVersion));
+    D6R_REQUIRE(R::serializeReplicationSnapshot({7, accepted})
+                != R::serializeReplicationSnapshot({7, differentSameVersion}));
+
+    client.requireResynchronization();
+    const auto sameVersionResult = client.apply({7, differentSameVersion});
+    const bool rejectedWithoutMutation = sameVersionResult == R::ApplyResult::Invalid
+            && client.version() == 7 && !client.current() && client.state() == nullptr
+            && client.takePresentationEvents().empty();
+    if (!client.resynchronizationRequired()) client.requireResynchronization();
+
+    auto current = accepted;
+    current.phaseTime += 2;
+    const bool recoveredAtHigherVersion = client.apply({8, current}) == R::ApplyResult::Applied
+            && client.version() == 8 && client.current() && client.state()
+            && R::serializeReplicationSnapshot({8, current})
+               == R::serializeReplicationSnapshot({client.version(), *client.state()});
+
+    auto admitted = current;
+    admitted.participants.push_back(attemptedParticipant);
+    admitted.players.push_back(attemptedPlayer);
+    D6R_REQUIRE(R::validateCanonicalState(admitted));
+    const auto admission = lobbyCreationUpdate(8, 9, admitted, attemptedParticipant, attemptedPlayer);
+    const bool rejectedSnapshotDidNotConsumeIdentity = recoveredAtHigherVersion
+            && client.apply(admission) == R::ApplyResult::Applied
+            && player(*client.state(), attemptedPlayer.playerId) != nullptr;
+
+    const std::string evidence = "same-version-rejected="
+            + std::string(rejectedWithoutMutation ? "true" : "false")
+            + ";higher-version-recovered=" + (recoveredAtHigherVersion ? "true" : "false")
+            + ";history-unchanged=" + (rejectedSnapshotDidNotConsumeIdentity ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string("same-version-rejected=true;higher-version-recovered=true;history-unchanged=true"),
+                   evidence);
 }
 
 D6R_TEST_CASE("REP-013 REP-014 REP-017 legitimate following Lobby mutations preserve retained results") {
