@@ -3,12 +3,14 @@
 ## Assessment status
 
 This manifest requires exactly one representative screenshot entry for each wireframe. An entry is `Planned` when downstream implementation does not exist. An entry is `Pending` when implementation evidence is required but unavailable. Planned and pending paths are not implementation evidence.
-PR #69 refreshes every implemented representative destination from the current application without changing a stable screen, wireframe, or screenshot ID.
+PR #69 refreshed every implemented representative destination without changing a stable screen, wireframe, or screenshot ID.
+PR #70 replaced the `SS-012` destination without changing its stable screen, wireframe, or screenshot ID.
 The ten implemented entries are `SS-001`, `SS-003`, `SS-007`–`SS-012`, `SS-014`, and `SS-024`.
-All ten implemented entries conform at PR #69 head `f4708d337bb82be55c553c64608bd75ccd64121f`.
+Nine implemented entries remain current and conform at PR #69 head `f4708d337bb82be55c553c64608bd75ccd64121f`.
+`SS-012` is current and conforms at PR #70 exact head `212c5242afecb4298d5b33d9c0ee2225cc067d0b`.
 The eleven entries `SS-002`, `SS-013`, and `SS-015`–`SS-023` remain `Planned` because their network-related graphical states are not implemented.
 The planned entries are non-blocking and must not use fabricated or substitute artifacts.
-The 29 PNG files that are not matrix destinations are historical or superseded and are not current conformance evidence.
+The PNG files that are not matrix destinations are historical or superseded and are not current conformance evidence.
 The matrix contains exactly one representative entry for each of its 21 wireframes.
 No screenshot entry was added or removed by this refresh.
 
@@ -435,9 +437,27 @@ The PR #69 canonical refresh uses these two provenance packets:
 - `SS-011` SHA-256: `33847eebcc00b1e23ab0d7bb2a1eeff879a2575ee13e46401ec18a8292f8158e`.
 - `SS-012` SHA-256: `e8981233c251b337f7ef53e2f4486b4c5e49d48b6c32cd83172c6cff928e9098`.
 - Exact-byte verification: all ten recorded SHA-256 values match their matrix destination artifacts at current hash-verification head `dee7e05660f448fc6a558c9f9c8b6009805c1e9f`.
-- Source correction `2475af83246a98ef2334f6d6fc90a9e943374eff` restores the separator-free final-summary behavior.
+- Source correction `2475af83246a98ef2334f6d6fc90a9e943374eff` restored the then-required separator-free final-summary behavior.
 - Tester behavior coverage is integrated at final assessment head `f4708d337bb82be55c553c64608bd75ccd64121f`.
-- Assessment status: all ten implemented artifacts conform to the canonical design system, screen specifications, and wireframes.
+- Historical assessment status: all ten implemented artifacts conformed to the canonical design system, screen specifications, and wireframes at the PR #69 assessment head.
+- Supersession status: the PR #69 `SS-012` became stale because it had no Team separator bands and no `End of Game` notice. The PR #70 artifact below replaces it.
+
+The PR #70 final Team game-summary replacement has this provenance:
+
+- Pull request: `#70`.
+- Implementation branch: `feature/final-team-game-summary`.
+- Implementation source SHA and exact pull request head: `212c5242afecb4298d5b33d9c0ee2225cc067d0b`.
+- Fixed product baseline: `5aff53efaf49cee518ecd28d29ecb648b8deaac5`.
+- Capture time: `2026-09-04T17:04:21Z`.
+- Environment: Release, GL4, Ubuntu 24.04 Docker, Mesa software rendering, and Xvfb.
+- Viewport: 1280 by 900 px.
+- Workflow and state: complete a one-round local four-team Team deathmatch with eight ranked players, two players per team, non-zero score values, and one winning team; capture the visible final summary and curtain.
+- Artifact: `OVER-03/shared-game-over-1280x900.png`.
+- SHA-256: `a3c6ca38752a3f5e6251555ab249513de4b6a63f1bd3ebca9be53e739e5d16a7`.
+- Visual assessment: the artifact shows four contiguous Team groups and three separator bands that match the non-final Team geometry. Each band contains a centered 2 px rule across the score-table width with clear space above and below. The centered bottom notice uses exact white 32 px text `End of Game` on a solid blue surface with a 16 px bottom inset. More than 16 px of clear space separates the notice from the complete score panel. No score heading, row, value, or panel content is clipped, covered, replaced, or reduced.
+- Hierarchy and usability assessment: the score heading and aligned values remain primary. The separate bottom notice gives the final state a clear completion cue without competing with or obscuring the result table.
+- Accessibility assessment: team names accompany team colors, visible separator spacing and rules identify group boundaries without color, and the high-contrast literal notice identifies the final state without reliance on the curtain.
+- Evidence status: `SS-012` conforms to `UI-GAME-001`–`UI-GAME-004`, `AC-070`–`AC-071`, `docs/design.md`, the `OVER-03` specification, and its wireframe.
 
 ## Screenshot matrix
 
@@ -451,7 +471,7 @@ The PR #69 canonical refresh uses these two provenance packets:
 | <a id="ss-009"></a>`SS-009` | `PLAY-05` | [Sudden death](../screens/wireframes/play-sudden-death.md) | Start Deathmatch with Quick Liquid on and reach rising water. | Use two living players, ranking on, raised water in the safe arena, and one submerged player. | 1280x900 | One undivided arena must show both players, raised water, the air indicator, live ranking, status cues, events, and round progress. | `docs/screenshots/PLAY-05/shared-rising-water-1280x900.png` | PR #69 final replacement packet. P02 is submerged with a visible blue air bar. Raised water, both players, ranking, and round progress conform. `Conforms`. |
 | <a id="ss-010"></a>`SS-010` | `OVER-01` | [Score tab](../screens/wireframes/overlay-score-tab.md) | Start a local four-team Team deathmatch and press Tab during an active round before a winner exists. | Use eight ranked players with two players in each of Alpha, Bravo, Charlie, and Delta. Use non-zero K, A, D, K/D, and PTS values. Keep the finite-round arena progress visible. | 1280x900 | The centered score panel must show four ranked team groups over one undivided live arena. Each team row must touch its two nested player rows. Each of the three adjacent group boundaries must use an 8 px band with a centered 2 px rule across the table width. Team names, colors, headings, values, ranking, columns, Tab behavior, and arena progress must remain unchanged. The winner curtain must not appear. | `docs/screenshots/OVER-01/shared-score-tab-1280x900.png` | PR #69 final replacement packet. Active round 3, persisted rounds 2, non-zero values, four contiguous groups, three separator rules, arena progress, and no curtain conform. `Conforms`. |
 | <a id="ss-011"></a>`SS-011` | `OVER-02` | [Round over](../screens/wireframes/overlay-round-over.md) | Resume a five-round local four-team Team deathmatch with two completed rounds, then finish round 3 as a non-final round. | Use eight ranked players with two players in each of Alpha, Bravo, Charlie, and Delta. Use non-zero values and one winning team. Capture after the completed count becomes `3`. | 1280x900 | The winner-curtain sequence and centered score panel must appear over one undivided arena. The dedicated progress row must show exact `Rounds: 3|5` at its documented right alignment. The centered `---SCORE---` strip, values, ranking, columns, controls, and hidden arena progress must remain unchanged. Each team row must touch its two nested player rows. Each of the three adjacent group boundaries must use an 8 px band with a centered 2 px rule across the table width. | `docs/screenshots/OVER-02/team-interim-round-3-of-5-1280x900.png` | PR #69 final replacement packet. Persisted round 3, Alpha win, six opponent deaths, `Rounds: 3|5`, hidden arena progress, four contiguous groups, and three interim separator rules conform. The capture represents the opening phase of the animated curtain sequence. `Conforms`. |
-| <a id="ss-012"></a>`SS-012` | `OVER-03` | [Game over](../screens/wireframes/overlay-game-over.md) | Finish the only round of a one-round Team deathmatch. | Use two teams, four ranked players, and one winning team. | 1280x900 | The Team outcome, final score panel, dark red curtain, and final round progress must appear over one undivided arena. The final summary must not add team-group separator bands or an exit label. | `docs/screenshots/OVER-03/shared-game-over-1280x900.png` | PR #69 final replacement packet. Bravo wins, `Rounds: 1|1` remains at the arena top, the curtain is dark red, and the final summary has no separator, return, or exit affordance. `Conforms`. |
+| <a id="ss-012"></a>`SS-012` | `OVER-03` | [Game over](../screens/wireframes/overlay-game-over.md) | Start a one-round local four-team Team deathmatch and finish its only round. | Use eight ranked players with two players in each of Alpha, Bravo, Charlie, and Delta. Use non-zero K, A, D, K/D, and PTS values. Use one winning team. Capture while the final summary and curtain are visible. | 1280x900 | The final Team outcome, score panel, dark red curtain, and final round progress must appear over one undivided arena. Each team row must touch its nested player rows. Each of the three adjacent Team boundaries must match the 8 px band and centered 2 px rule used in non-final `OVER-02`. A horizontally centered blue notice at the bottom must show exact white text `End of Game`. The notice must keep its 16 px bottom inset, remain separate from the panel by at least 16 px, and must not obscure any score content. | `docs/screenshots/OVER-03/shared-game-over-1280x900.png` | PR #70 replacement at exact head `212c5242afecb4298d5b33d9c0ee2225cc067d0b`. Four contiguous Team groups, three matching separator bands, complete score content, and the separate centered bottom notice conform. `Conforms`. |
 | <a id="ss-013"></a>`SS-013` | `CONS-01` | [Console over menu](../screens/wireframes/console-menu.md) | After issue #38 implements the Network footer, open the console over the populated local menu. | Use the planned four-action footer, recent startup output, and an empty input line. | 1920x1080 | The console spans the client width while the visible scaled menu below includes equal-width `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)` actions. | `docs/screenshots/CONS-01/network-entry-open-1920x1080.png` | `Planned` for downstream issue #38. The existing three-action-footer capture is not valid for this target wireframe. |
 | <a id="ss-014"></a>`SS-014` | `CONS-02` | [Console over play](../screens/wireframes/console-gameplay.md) | Open the console during active Deathmatch and enter or inspect any command that previously affected the gameplay view. | Use four living players, ranking on, a finite round limit, and recent game output. | 1280x900 | The console must overlay one undivided arena. The command must not create player-specific views. The simulation, ranking, round progress, events, and status state must remain present behind the console where visible. | `docs/screenshots/CONS-02/shared-open-1280x900.png` | PR #69 first packet. The full-width console overlays one shared arena, and the visible gameplay context remains undivided. `Conforms`. |
 | <a id="ss-015"></a>`SS-015` | `NET-01` | [Network entry](../screens/wireframes/network-entry.md) | From `MENU-01`, activate `Network (F2)`. | Default target state with Host focused and direct same-machine/LAN scope visible. | 1920x1080 | The scaled retro canvas shows Host, Join, Back, supported platforms, direct endpoint scope, host-alone lobby 1–15, match 2–15, and no unsupported affordances. | `docs/screenshots/NET-01/default-1920x1080.png` | `Planned` for downstream issue #38; no current network UI exists. |
@@ -472,10 +492,10 @@ The PR #69 canonical refresh uses these two provenance packets:
 - Fully conforming screenshot entries: 10.
 - Non-conforming screenshots: 0.
 - Planned screenshot entries awaiting downstream issue #38: 11.
-- Pending screenshot assessments: 0.
+- Pending screenshot entries: 0.
 - Screenshots per wireframe: exactly one.
 - Retired screenshot matrix entries: `SS-004`, `SS-005`, and `SS-006`.
-- Coverage status: all ten implemented entries conform. Eleven planned entries have no current artifacts.
+- Coverage status: all ten implemented entries conform, and eleven planned entries have no current artifacts.
 
 The matrix uses one representative state for each wireframe.
 The screen specifications and wireframes document other player counts, modes, interaction states, and accessibility limits without multiplying screenshot entries.

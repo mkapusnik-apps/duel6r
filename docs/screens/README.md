@@ -60,6 +60,10 @@ The localized PR #65 refinement puts `Remove` at the bottom-left and `>>` at the
 It puts `<<` at the bottom-left and `Detect All` at the bottom-right of Players.
 It centers `Equalize` and `Shuffle` as one group in the available span between the Players edge controls.
 The refinement affects both `MENU-01` wireframes and does not add a screen or wireframe.
+The final Team game-summary update affects the Team variant of `OVER-03`.
+The update gives each Team boundary the separator treatment already used in non-final `OVER-02`.
+The update adds a separate bottom `End of Game` notice.
+The update does not change `OVER-01`, `OVER-02`, non-Team final summaries, or the stable `OVER-03` wireframe count.
 
 | Screen ID | Screen or state | Specification | Wireframe | Functional requirements | Primary source |
 |---|---|---|---|---|---|
@@ -71,7 +75,7 @@ The refinement affects both `MENU-01` wireframes and does not add a screen or wi
 | `PLAY-05` | Sudden-death rising water | [Specification](play-sudden-death.md) | [Wireframe](wireframes/play-sudden-death.md) | `ENV-002`–`ENV-007`, `ENV-009`–`ENV-013`, `UI-001`–`UI-020` | `source/Round.cpp:146-200` |
 | `OVER-01` | Score-tab overlay | [Specification](overlay-score-tab.md) | [Wireframe](wireframes/overlay-score-tab.md) | `SCO-018`, `MOD-TM-010`–`MOD-TM-011`, `UI-011` | `source/Game.cpp:62-83` |
 | `OVER-02` | Round-over summary | [Specification](overlay-round-over.md) | [Wireframe](wireframes/overlay-round-over.md) | `LIF-011`–`LIF-017`, `MOD-DM-001`–`MOD-DM-003`, `MOD-PR-005`–`MOD-PR-008`, `MOD-TM-005`–`MOD-TM-011`, `UI-012`, `UI-RND-001`–`UI-RND-010`, `AC-052` | Target: `docs/features.md`; context: `source/Game.cpp:130-169`, `source/WorldRenderer.cpp:120-178,514-547` |
-| `OVER-03` | Game-over summary | [Specification](overlay-game-over.md) | [Wireframe](wireframes/overlay-game-over.md) | `LIF-018`, `SCO-022`–`SCO-023`, `UI-013`–`UI-014` | `source/Game.cpp:51-79,158-164` |
+| `OVER-03` | Game-over summary; final Team grouping and bottom completion notice | [Specification](overlay-game-over.md) | [Wireframe](wireframes/overlay-game-over.md) | `LIF-018`, `SCO-022`–`SCO-023`, `UI-013`–`UI-014`, `UI-GAME-001`–`UI-GAME-004`, `AC-070`–`AC-071` | Target: `docs/features.md`; context: `source/Game.cpp:51-79,158-164` |
 | `CONS-01` | Console over menu with planned Network footer | [Specification](console-menu.md) | [Wireframe](wireframes/console-menu.md) | Existing console requirements plus target `NET-AC-015`, `NET-AC-017` | Current: `source/console/ConsoleRenderer.cpp`; target footer: `docs/network-play-first-release.md` |
 | `CONS-02` | Console over gameplay | [Specification](console-gameplay.md) | [Wireframe](wireframes/console-gameplay.md) | `CFG-001`–`CFG-002`, `CFG-008`–`CFG-020` | `source/console/ConsoleRenderer.cpp` |
 | `NET-01` | Target network entry | [Specification](network-entry.md) | [Wireframe](wireframes/network-entry.md) | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-015`, `NET-AC-017`, `NET-AC-019` | Target: `docs/network-play-first-release.md` |
