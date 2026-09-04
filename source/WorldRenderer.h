@@ -84,7 +84,7 @@ namespace Duel6 {
         renderRankingEntry(const Ranking::Entry &entry, Int32 posX, Int32 posY, Int32 maxLength, Float32 charHeight,
                            bool extended) const;
 
-        void roundOverSummary(bool showRoundProgress, bool separateTeamGroups,
+        void roundOverSummary(bool showRoundProgress, bool separateTeamGroups, bool clampPanelBottom = false,
                               Int32 minimumPanelBottom = 0) const;
 
         void gameOverSummary() const;

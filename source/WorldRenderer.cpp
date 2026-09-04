@@ -118,7 +118,7 @@ namespace Duel6 {
         return posY - charHeight;
     }
 
-    void WorldRenderer::roundOverSummary(bool showRoundProgress, bool separateTeamGroups,
+    void WorldRenderer::roundOverSummary(bool showRoundProgress, bool separateTeamGroups, bool clampPanelBottom,
                                          Int32 minimumPanelBottom) const {
         Float32 fontSize = 32;
         Float32 fontWidth = fontSize / 2;
@@ -153,7 +153,7 @@ namespace Duel6 {
         int x = video.getScreen().getClientWidth() / 2 - width / 2;
         int y = video.getScreen().getClientHeight() / 2 - height / 2;
         const Int32 panelBottom = y - Int32(fontSize);
-        if (panelBottom < minimumPanelBottom) {
+        if (clampPanelBottom && panelBottom < minimumPanelBottom) {
             y += minimumPanelBottom - panelBottom;
         }
 
@@ -210,7 +210,7 @@ namespace Duel6 {
         const Float32 noticeWidth = noticeTextWidth + 2 * horizontalPadding;
         const Float32 noticeX = video.getScreen().getClientWidth() / 2.0f - noticeWidth / 2.0f;
 
-        roundOverSummary(false, true, bottomInset + noticeHeight + panelGap);
+        roundOverSummary(false, true, true, bottomInset + noticeHeight + panelGap);
 
         renderer.setBlendFunc(BlendFunc::SrcAlpha);
         renderer.quadXY(Vector(noticeX, Float32(bottomInset)), Vector(noticeWidth, Float32(noticeHeight)),

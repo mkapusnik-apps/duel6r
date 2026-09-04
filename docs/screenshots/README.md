@@ -471,13 +471,13 @@ The PR #69 canonical refresh uses these two provenance packets:
 
 - Required wireframes: 21.
 - Required representative screenshot entries: 21.
-- Fully conforming screenshot entries: 10.
+- Fully conforming screenshot entries: 9.
 - Non-conforming screenshots: 0.
 - Planned screenshot entries awaiting downstream issue #38: 11.
-- Pending screenshot assessments: 0.
+- Pending screenshot entries: 1 (`SS-012`).
 - Screenshots per wireframe: exactly one.
 - Retired screenshot matrix entries: `SS-004`, `SS-005`, and `SS-006`.
-- Coverage status: all ten implemented entries conform. Eleven planned entries have no current artifacts.
+- Coverage status: nine entries conform, `SS-012` is pending replacement evidence, and eleven planned entries have no current artifacts.
 
 The matrix uses one representative state for each wireframe.
 The screen specifications and wireframes document other player counts, modes, interaction states, and accessibility limits without multiplying screenshot entries.
