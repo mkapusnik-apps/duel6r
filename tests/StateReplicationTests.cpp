@@ -321,6 +321,55 @@ namespace {
         return state;
     }
 
+    R::CanonicalState retainedTeamCompletedLobby() {
+        auto state = retainedCompletedLobby();
+        state.settings.teamCount = 2;
+        state.players[0].team = 1;
+        state.players[1].team = 2;
+        state.score.players[1].cumulativePoints = 4;
+        std::swap(state.score.players[0], state.score.players[1]);
+        state.score.ranking = {102, 101};
+        state.score.teamTotals = {3, 4};
+        state.score.teamRanking = {2, 1};
+        state.score.winner.winningTeam = 2;
+        state.round->outcome.winningTeam = 2;
+        return state;
+    }
+
+    R::CanonicalState resetTeamFirstRound() {
+        auto state = freshMatchAfterRetainedResult();
+        state.settings.teamCount = 2;
+        state.players[0].team = 1;
+        state.players[1].team = 2;
+        state.score.teamTotals = {0, 0};
+        state.score.teamRanking = {1, 2};
+        return state;
+    }
+
+    struct StaleNewMatchMutation {
+        std::string name;
+        std::function<void(R::CanonicalState &)> alter;
+    };
+
+    std::vector<StaleNewMatchMutation> staleNewMatchMutations() {
+        return {
+                {"cumulative-scores", [](auto &state) {
+                    state.score.players[0].cumulativePoints = 3;
+                }},
+                {"ranking", [](auto &state) {
+                    std::swap(state.score.players[0], state.score.players[1]);
+                    std::swap(state.score.ranking[0], state.score.ranking[1]);
+                }},
+                {"team-totals", [](auto &state) {
+                    state.score.teamTotals = {3, 4};
+                }},
+                {"round-counters", [](auto &state) {
+                    state.currentRoundNumber = 2;
+                    state.completedRounds = 1;
+                    state.round->roundNumber = 2;
+                }}};
+    }
+
     struct FollowingLobbyLifecycleAttack {
         std::string name;
         R::CanonicalState state;
@@ -1623,6 +1672,134 @@ D6R_TEST_CASE("REP-042 REP-044 REP-066 NET-AC-018 full snapshot rejects followin
         }
     }
     D6R_REQUIRE_EQ(std::string(), failures);
+}
+
+D6R_TEST_CASE("REP-005 REP-066 NET-AC-018 publisher rejects stale retained values in a fresh first round atomically") {
+    const auto retained = retainedTeamCompletedLobby();
+    const auto fresh = resetTeamFirstRound();
+    D6R_REQUIRE(R::validateCanonicalState(retained));
+    D6R_REQUIRE(R::validateCanonicalState(fresh));
+
+    std::string failures;
+    for (const auto &scenario: staleNewMatchMutations()) {
+        auto stale = fresh;
+        scenario.alter(stale);
+        D6R_REQUIRE(R::validateCanonicalState(stale));
+        D6R_REQUIRE_EQ(31u, stale.matchId);
+        D6R_REQUIRE_EQ(42u, stale.round->roundId);
+
+        R::AuthoritativeStateReplicator publisher;
+        D6R_REQUIRE(publisher.initialize(retained));
+        const auto before = publisher.fullSnapshot();
+        const bool rejected = !publisher.publish(stale).has_value();
+        const auto after = publisher.fullSnapshot();
+        const bool atomic = rejected && before && after && publisher.version() == 1
+                && R::serializeReplicationSnapshot(*before) == R::serializeReplicationSnapshot(*after);
+        const auto accepted = atomic ? publisher.publish(fresh) : std::nullopt;
+        const bool resetApplied = accepted && publisher.version() == 2
+                && accepted->baseline == 1 && accepted->version == 2
+                && publisher.fullSnapshot()->state.matchId == 31
+                && publisher.fullSnapshot()->state.round->roundId == 42
+                && publisher.fullSnapshot()->state.currentRoundNumber == 1
+                && publisher.fullSnapshot()->state.completedRounds == 0
+                && publisher.fullSnapshot()->state.score.players[0].cumulativePoints == 0
+                && publisher.fullSnapshot()->state.score.ranking == std::vector<R::Identity>({101, 102})
+                && publisher.fullSnapshot()->state.score.teamTotals == std::vector<std::int64_t>({0, 0});
+        if (!(atomic && resetApplied)) {
+            if (!failures.empty()) failures += ';';
+            failures += scenario.name;
+        }
+    }
+    D6R_REQUIRE_EQ(std::string(), failures);
+}
+
+D6R_TEST_CASE("REP-005 REP-066 NET-AC-018 incremental rejects stale retained values in a fresh first round atomically") {
+    const auto retained = retainedTeamCompletedLobby();
+    const auto fresh = resetTeamFirstRound();
+    std::string failures;
+    for (const auto &scenario: staleNewMatchMutations()) {
+        auto stale = fresh;
+        scenario.alter(stale);
+        auto attack = stateOnlyUpdate(1, 2, stale);
+        for (const auto &value: stale.entities)
+            attack.entities.push_back({R::ChangeKind::Create, value.entityId, value});
+
+        R::ReplicatedState client;
+        D6R_REQUIRE(client.apply({1, retained}) == R::ApplyResult::Applied);
+        const bool rejected = client.apply(attack) == R::ApplyResult::ResynchronizationRequired
+                && client.version() == 1 && !client.current() && client.state() == nullptr
+                && client.takePresentationEvents().empty();
+        const bool restored = rejected && client.apply({1, retained}) == R::ApplyResult::Applied;
+        const auto reset = validUpdate(retained, fresh);
+        const bool resetApplied = restored && client.apply(reset) == R::ApplyResult::Applied
+                && client.version() == 2 && client.current() && client.state()
+                && client.state()->matchId == 31 && client.state()->round->roundId == 42
+                && client.state()->currentRoundNumber == 1 && client.state()->completedRounds == 0
+                && client.state()->score.players[0].cumulativePoints == 0
+                && client.state()->score.ranking == std::vector<R::Identity>({101, 102})
+                && client.state()->score.teamTotals == std::vector<std::int64_t>({0, 0});
+        if (!(rejected && restored && resetApplied)) {
+            if (!failures.empty()) failures += ';';
+            failures += scenario.name;
+        }
+    }
+    D6R_REQUIRE_EQ(std::string(), failures);
+}
+
+D6R_TEST_CASE("REP-005 REP-042 REP-066 NET-AC-018 full snapshot rejects stale retained values in a fresh first round atomically") {
+    const auto retained = retainedTeamCompletedLobby();
+    const auto fresh = resetTeamFirstRound();
+    std::string failures;
+    for (const auto &scenario: staleNewMatchMutations()) {
+        auto stale = fresh;
+        scenario.alter(stale);
+        R::ReplicatedState client;
+        D6R_REQUIRE(client.apply({1, retained}) == R::ApplyResult::Applied);
+        const auto before = R::serializeReplicationSnapshot({1, *client.state()});
+
+        const bool rejected = client.apply({2, stale}) == R::ApplyResult::Invalid;
+        const bool atomic = rejected && client.version() == 1 && client.current() && client.state()
+                && before == R::serializeReplicationSnapshot({client.version(), *client.state()});
+        const bool resetApplied = atomic && client.apply({2, fresh}) == R::ApplyResult::Applied
+                && client.version() == 2 && client.current() && client.state()
+                && client.state()->matchId == 31 && client.state()->round->roundId == 42
+                && client.state()->currentRoundNumber == 1 && client.state()->completedRounds == 0
+                && client.state()->score.players[0].cumulativePoints == 0
+                && client.state()->score.ranking == std::vector<R::Identity>({101, 102})
+                && client.state()->score.teamTotals == std::vector<std::int64_t>({0, 0});
+        if (!(atomic && resetApplied)) {
+            if (!failures.empty()) failures += ';';
+            failures += scenario.name;
+        }
+    }
+    D6R_REQUIRE_EQ(std::string(), failures);
+}
+
+D6R_TEST_CASE("REP-005 REP-042 REP-066 NET-AC-018 publisher rejects retained Lobby match replacement transactionally") {
+    const auto retained = retainedTeamCompletedLobby();
+    auto replacement = retained;
+    replacement.matchId = 31;
+    const auto fresh = resetTeamFirstRound();
+    D6R_REQUIRE(R::validateCanonicalState(replacement));
+    D6R_REQUIRE_EQ(retained.result.serialized, replacement.result.serialized);
+
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(retained));
+    const auto before = publisher.fullSnapshot();
+    D6R_REQUIRE(!publisher.publish(replacement).has_value());
+    D6R_REQUIRE_EQ(1u, publisher.version());
+    D6R_REQUIRE(before.has_value());
+    D6R_REQUIRE(publisher.fullSnapshot().has_value());
+    D6R_REQUIRE_EQ(R::serializeReplicationSnapshot(*before),
+                   R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+
+    const auto accepted = publisher.publish(fresh);
+    D6R_REQUIRE(accepted.has_value());
+    D6R_REQUIRE_EQ(1u, accepted->baseline);
+    D6R_REQUIRE_EQ(2u, accepted->version);
+    D6R_REQUIRE_EQ(31u, publisher.fullSnapshot()->state.matchId);
+    D6R_REQUIRE_EQ(42u, publisher.fullSnapshot()->state.round->roundId);
+    D6R_REQUIRE(!publisher.fullSnapshot()->state.result.available);
 }
 
 D6R_TEST_CASE("REP-041 REP-044 REP-054 REP-066 REP-AC-008 resync accepts only identical same-version snapshot then recovers at higher version") {

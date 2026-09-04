@@ -242,6 +242,8 @@ namespace Duel6::Network::Replication {
             return (!left && !right) || (left && right && left->roundId == right->roundId);
         }
 
+        bool emptyOutcome(const RoundOutcomeState &outcome);
+
         bool validMatchTransition(const CanonicalState &before, const CanonicalState &after,
                                   const std::set<Identity> &issued) {
             if (before.matchId == after.matchId) return true;
@@ -258,16 +260,29 @@ namespace Duel6::Network::Replication {
         }
 
         bool validFollowingLobbyTransition(const CanonicalState &before,
-                                           const CanonicalState &after,
-                                           const std::set<Identity> &issuedMatches,
-                                           const std::set<Identity> &issuedRounds) {
+                                            const CanonicalState &after,
+                                            const std::set<Identity> &issuedMatches,
+                                            const std::set<Identity> &issuedRounds) {
             if (before.phase != Phase::Lobby || !before.result.available
-                || (before.result.state != "Completed" && before.result.state != "Interrupted")
-                || after.phase == Phase::Lobby) return true;
+                || (before.result.state != "Completed" && before.result.state != "Interrupted")) return true;
+            if (after.phase == Phase::Lobby) return after.matchId == before.matchId;
+            const bool resetPlayerScores = std::all_of(after.score.players.begin(), after.score.players.end(),
+                    [](const auto &score) { return score.cumulativePoints == 0; });
+            const bool resetTeamScores = std::all_of(after.score.teamTotals.begin(), after.score.teamTotals.end(),
+                    [](std::int64_t score) { return score == 0; });
+            bool resetTeamRanking = after.score.teamRanking.size() == after.score.teamTotals.size();
+            for (std::size_t index = 0; resetTeamRanking && index < after.score.teamRanking.size(); ++index)
+                resetTeamRanking = after.score.teamRanking[index] == static_cast<std::uint8_t>(index + 1);
             return after.phase == Phase::ActiveRound && !after.result.available
+                    && after.result.sessionOnly && after.result.state.empty() && after.result.serialized.empty()
                     && after.matchId != before.matchId && !issuedMatches.count(after.matchId)
                     && after.round && !sameRound(before.round, after.round)
-                    && !issuedRounds.count(after.round->roundId);
+                    && !issuedRounds.count(after.round->roundId)
+                    && after.currentRoundNumber == 1 && after.completedRounds == 0
+                    && after.round->roundNumber == 1
+                    && after.score.ranking == after.round->rosterOrder
+                    && resetPlayerScores && resetTeamScores && resetTeamRanking
+                    && emptyOutcome(after.score.winner) && emptyOutcome(after.round->outcome);
         }
 
         bool hasEntity(const CanonicalState &state, Identity identity) {
