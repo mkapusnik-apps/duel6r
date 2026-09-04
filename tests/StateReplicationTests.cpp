@@ -208,7 +208,96 @@ namespace {
                 }},
                 {"serialized-result", retainedInterruptedLobby(), [](auto &state) {
                     state.result.serialized += ";altered=true";
+                }},
+                {"round-counters-and-number", retainedCompletedLobby(), [](auto &state) {
+                    state.currentRoundNumber = 1;
+                    state.completedRounds = 1;
+                    state.round->roundNumber = 1;
+                }},
+                {"round-id", retainedCompletedLobby(), [](auto &state) {
+                    state.round->roundId = 42;
+                }},
+                {"round-level", retainedCompletedLobby(), [](auto &state) {
+                    state.round->level = "levels/altered.json";
+                }},
+                {"round-orientation", retainedCompletedLobby(), [](auto &state) {
+                    state.round->mirrored = !state.round->mirrored;
+                }},
+                {"round-roster-order", retainedCompletedLobby(), [](auto &state) {
+                    std::swap(state.round->rosterOrder[0], state.round->rosterOrder[1]);
                 }}};
+    }
+
+    struct RetainedPhaseMutation {
+        std::string name;
+        R::CanonicalState before;
+        R::CanonicalState benign;
+        R::CanonicalState altered;
+    };
+
+    R::IncrementalUpdate validUpdate(const R::CanonicalState &before, R::CanonicalState after,
+                                     std::vector<R::PresentationEvent> events);
+
+    std::vector<RetainedPhaseMutation> finalSummaryPhaseMutations() {
+        const auto final = distinctFinalSummary();
+        auto followingLobby = retainedCompletedLobby();
+        std::vector<RetainedPhaseMutation> result;
+        const auto add = [&](const std::string &name, const R::CanonicalState &benign,
+                             const std::function<void(R::CanonicalState &)> &alter) {
+            auto altered = benign;
+            alter(altered);
+            result.push_back({name, final, benign, std::move(altered)});
+        };
+        const std::vector<std::pair<std::string, std::function<void(R::CanonicalState &)>>> mutations = {
+                {"score-values", [](auto &state) { state.score.players[0].cumulativePoints++; }},
+                {"ranking-order", [](auto &state) {
+                    std::swap(state.score.players[0], state.score.players[1]);
+                    std::swap(state.score.ranking[0], state.score.ranking[1]);
+                }},
+                {"match-outcome", [](auto &state) {
+                    state.score.winner.winnerPlayerIds = {101};
+                    state.round->outcome = state.score.winner;
+                }},
+                {"serialized-result", [](auto &state) { state.result.serialized += ";altered=true"; }},
+                {"round-counters-and-number", [](auto &state) {
+                    state.currentRoundNumber = 1;
+                    state.completedRounds = 1;
+                    state.round->roundNumber = 1;
+                }},
+                {"round-id", [](auto &state) { state.round->roundId = 42; }},
+                {"round-level", [](auto &state) { state.round->level = "levels/altered.json"; }},
+                {"round-orientation", [](auto &state) { state.round->mirrored = !state.round->mirrored; }},
+                {"round-roster-order", [](auto &state) {
+                    std::swap(state.round->rosterOrder[0], state.round->rosterOrder[1]);
+                    std::swap(state.players[0].rosterPosition, state.players[1].rosterPosition);
+                }}};
+        for (const auto &[name, alter]: mutations) {
+            auto samePhase = final;
+            samePhase.phaseTime++;
+            add("FinalSummary-to-FinalSummary/" + name, samePhase, alter);
+            add("FinalSummary-to-Lobby/" + name, followingLobby, alter);
+        }
+        auto interrupted = followingLobby;
+        interrupted.result.state = "Interrupted";
+        interrupted.result.serialized = "interrupted;completed-rounds=2;match-outcome=no-winner";
+        interrupted.score.winner = {};
+        interrupted.score.winner.noWinner = true;
+        result.push_back({"FinalSummary-to-Lobby/result-state", final, followingLobby, interrupted});
+        return result;
+    }
+
+    R::IncrementalUpdate retainedAttackUpdate(const RetainedPhaseMutation &scenario,
+                                               const R::PresentationEvent &event) {
+        auto update = validUpdate(scenario.before, scenario.benign, {event});
+        update.currentRoundNumber = scenario.altered.currentRoundNumber;
+        update.completedRounds = scenario.altered.completedRounds;
+        update.round = scenario.altered.round;
+        update.score = scenario.altered.score;
+        update.result = scenario.altered.result;
+        update.players.clear();
+        for (const auto &value: scenario.altered.players)
+            update.players.push_back({R::ChangeKind::Update, value.playerId, value});
+        return update;
     }
 
     R::CanonicalState legitimateFollowingLobbyChange(R::CanonicalState state) {
@@ -1103,7 +1192,9 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 publisher freezes retained result while f
                 && identityAndEventHistoryPreserved ? "true" : "false");
     }
     D6R_REQUIRE_EQ(std::string("score-values=true;ranking-order=true;result-state=true;match-outcome=true;"
-                               "completed-round-outcome=true;serialized-result=true"), evidence);
+                               "completed-round-outcome=true;serialized-result=true;"
+                               "round-counters-and-number=true;round-id=true;round-level=true;"
+                               "round-orientation=true;round-roster-order=true"), evidence);
 }
 
 D6R_TEST_CASE("REP-017 REP-025 REP-048 REP-066 client rejects retained result alteration atomically") {
@@ -1118,6 +1209,8 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 REP-066 client rejects retained result al
         benign.phaseTime++;
         const R::PresentationEvent attemptedEvent{971, "result-transition", 0, 0, 0, 0};
         auto attack = validUpdate(scenario.before, benign, {attemptedEvent});
+        attack.currentRoundNumber = altered.currentRoundNumber;
+        attack.completedRounds = altered.completedRounds;
         attack.round = altered.round;
         attack.score = altered.score;
         attack.result = altered.result;
@@ -1170,7 +1263,97 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 REP-066 client rejects retained result al
                 && identityAndEventHistoryPreserved ? "true" : "false");
     }
     D6R_REQUIRE_EQ(std::string("score-values=true;ranking-order=true;result-state=true;match-outcome=true;"
-                               "completed-round-outcome=true;serialized-result=true"), evidence);
+                               "completed-round-outcome=true;serialized-result=true;"
+                               "round-counters-and-number=true;round-id=true;round-level=true;"
+                               "round-orientation=true;round-roster-order=true"), evidence);
+}
+
+D6R_TEST_CASE("REP-017 REP-025 REP-048 publisher freezes Final Summary result through Final Summary and Lobby") {
+    std::string failures;
+    for (const auto &scenario: finalSummaryPhaseMutations()) {
+        D6R_REQUIRE(R::validateCanonicalState(scenario.before));
+        D6R_REQUIRE(R::validateCanonicalState(scenario.benign));
+        D6R_REQUIRE(R::validateCanonicalState(scenario.altered));
+        R::AuthoritativeStateReplicator publisher;
+        D6R_REQUIRE(publisher.initialize(scenario.before));
+        const auto before = publisher.fullSnapshot();
+        const R::PresentationEvent event{972, "result-transition", 0, 0, 0, 0};
+        const bool rejected = !publisher.publish(scenario.altered, {event});
+        const auto after = publisher.fullSnapshot();
+        const bool stateAndVersionUnchanged = rejected && before && after && publisher.version() == 1
+                && R::serializeReplicationSnapshot(*before) == R::serializeReplicationSnapshot(*after);
+
+        const auto legitimate = legitimateFollowingLobbyChange(retainedCompletedLobby());
+        const auto accepted = stateAndVersionUnchanged ? publisher.publish(legitimate, {event}) : std::nullopt;
+        const bool eventHistoryUnchanged = accepted && accepted->events.size() == 1
+                && accepted->events.front().eventId == event.eventId;
+        bool identityHistoryUnchanged = false;
+        if (eventHistoryUnchanged) {
+            auto removed = legitimate;
+            removed.participants.pop_back();
+            removed.players.pop_back();
+            const auto removal = publisher.publish(removed);
+            const auto beforeReuse = publisher.fullSnapshot();
+            identityHistoryUnchanged = removal && publisher.version() == 3
+                    && !publisher.publish(legitimate).has_value() && publisher.version() == 3
+                    && beforeReuse && publisher.fullSnapshot()
+                    && R::serializeReplicationSnapshot(*beforeReuse)
+                       == R::serializeReplicationSnapshot(*publisher.fullSnapshot());
+        }
+        if (!(stateAndVersionUnchanged && eventHistoryUnchanged && identityHistoryUnchanged)) {
+            if (!failures.empty()) failures += ';';
+            failures += scenario.name;
+        }
+    }
+    D6R_REQUIRE_EQ(std::string(), failures);
+}
+
+D6R_TEST_CASE("REP-017 REP-025 REP-048 REP-066 client freezes Final Summary result through Final Summary and Lobby") {
+    std::string failures;
+    for (const auto &scenario: finalSummaryPhaseMutations()) {
+        D6R_REQUIRE(R::validateCanonicalState(scenario.before));
+        D6R_REQUIRE(R::validateCanonicalState(scenario.benign));
+        D6R_REQUIRE(R::validateCanonicalState(scenario.altered));
+        const R::PresentationEvent event{973, "result-transition", 0, 0, 0, 0};
+        const auto attack = retainedAttackUpdate(scenario, event);
+        R::ReplicatedState client;
+        D6R_REQUIRE(client.apply({1, scenario.before}) == R::ApplyResult::Applied);
+        const bool rejected = client.apply(attack) == R::ApplyResult::ResynchronizationRequired
+                && client.version() == 1 && !client.current() && client.state() == nullptr
+                && client.takePresentationEvents().empty();
+        const bool restored = rejected && client.apply({1, scenario.before}) == R::ApplyResult::Applied
+                && client.state()
+                && R::serializeReplicationSnapshot({1, scenario.before})
+                   == R::serializeReplicationSnapshot({client.version(), *client.state()});
+
+        const auto legitimate = legitimateFollowingLobbyChange(retainedCompletedLobby());
+        const auto acceptedUpdate = validUpdate(scenario.before, legitimate, {event});
+        const bool legitimateApplied = restored && client.apply(acceptedUpdate) == R::ApplyResult::Applied
+                && client.version() == 2 && client.state()
+                && client.state()->settings.assistance == legitimate.settings.assistance;
+        const auto delivered = client.takePresentationEvents();
+        bool identityHistoryUnchanged = false;
+        if (legitimateApplied && delivered.size() == 1 && delivered.front().eventId == event.eventId) {
+            auto removed = legitimate;
+            removed.participants.pop_back();
+            removed.players.pop_back();
+            auto removal = validUpdate(legitimate, removed);
+            removal.baseline = 2;
+            removal.version = 3;
+            const bool removedApplied = client.apply(removal) == R::ApplyResult::Applied;
+            const auto reuse = lobbyCreationUpdate(3, 4, legitimate,
+                    legitimate.participants.back(), legitimate.players.back());
+            identityHistoryUnchanged = removedApplied
+                    && client.apply(reuse) == R::ApplyResult::ResynchronizationRequired
+                    && client.version() == 3 && client.takePresentationEvents().empty();
+        }
+        if (!(rejected && restored && legitimateApplied && delivered.size() == 1
+              && delivered.front().eventId == event.eventId && identityHistoryUnchanged)) {
+            if (!failures.empty()) failures += ';';
+            failures += scenario.name;
+        }
+    }
+    D6R_REQUIRE_EQ(std::string(), failures);
 }
 
 D6R_TEST_CASE("REP-013 REP-014 REP-017 legitimate following Lobby mutations preserve retained results") {

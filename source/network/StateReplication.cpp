@@ -305,6 +305,17 @@ namespace Duel6::Network::Replication {
                    && left.noWinner == right.noWinner;
         }
 
+        bool sameCompletedRound(const std::optional<RoundState> &left,
+                                const std::optional<RoundState> &right) {
+            return left.has_value() == right.has_value()
+                   && (!left || (left->roundId == right->roundId
+                                 && left->roundNumber == right->roundNumber
+                                 && left->level == right->level
+                                 && left->mirrored == right->mirrored
+                                 && left->rosterOrder == right->rosterOrder
+                                 && sameOutcome(left->outcome, right->outcome)));
+        }
+
         bool sameScoreRow(const ScoreRowState &left, const ScoreRowState &right) {
             return left.playerId == right.playerId && left.roundPoints == right.roundPoints
                    && left.cumulativePoints == right.cumulativePoints && left.shots == right.shots
@@ -321,15 +332,18 @@ namespace Duel6::Network::Replication {
                    && left.teamRanking == right.teamRanking && sameOutcome(left.winner, right.winner);
         }
 
-        bool altersRetainedResult(const CanonicalState &before, const CanonicalState &after) {
-            if (before.phase != Phase::Lobby || after.phase != Phase::Lobby || !before.result.available
+        bool altersEstablishedResult(const CanonicalState &before, const CanonicalState &after) {
+            const bool remainsPresented = (before.phase == Phase::FinalSummary || before.phase == Phase::Lobby)
+                    && (after.phase == Phase::FinalSummary || after.phase == Phase::Lobby);
+            if (!remainsPresented || !before.result.available
                 || (before.result.state != "Completed" && before.result.state != "Interrupted")) return false;
-            const bool sameCompletedRoundOutcome = before.round.has_value() == after.round.has_value()
-                    && (!before.round || sameOutcome(before.round->outcome, after.round->outcome));
-            return !sameScore(before.score, after.score) || !sameCompletedRoundOutcome
-                   || before.result.available != after.result.available
-                   || before.result.sessionOnly != after.result.sessionOnly
-                   || before.result.state != after.result.state
+            return before.currentRoundNumber != after.currentRoundNumber
+                    || before.completedRounds != after.completedRounds
+                    || !sameCompletedRound(before.round, after.round)
+                    || !sameScore(before.score, after.score)
+                    || before.result.available != after.result.available
+                    || before.result.sessionOnly != after.result.sessionOnly
+                    || before.result.state != after.result.state
                    || before.result.serialized != after.result.serialized;
         }
 
@@ -612,7 +626,7 @@ namespace Duel6::Network::Replication {
             || containsReusedCreation(current->players, state.players, issuedPlayerIdentities,
                                       [](const auto &value) { return value.playerId; })
             || introducesUnseenRetainedResultIdentity(*current, state, issuedPlayerIdentities)
-            || altersRetainedResult(*current, state)
+            || altersEstablishedResult(*current, state)
             || containsNonMonotonicCreation(current->entities, state.entities, highestEntityIdentity,
                                              [](const auto &value) { return value.entityId; })
             || events.size() > MaxReplicatedEvents) return std::nullopt;
@@ -700,7 +714,8 @@ namespace Duel6::Network::Replication {
                                           [](const auto &value) { return value.playerId; })
                 || containsNonMonotonicCreation(accepted->entities, snapshot.state.entities,
                                                 nextHighestEntities,
-                                                [](const auto &value) { return value.entityId; })))
+                                                [](const auto &value) { return value.entityId; })
+                || altersEstablishedResult(*accepted, snapshot.state)))
             return ApplyResult::Invalid;
         for (const auto &participant: snapshot.state.participants)
             nextAcceptedParticipants.insert(participant.participantId);
@@ -772,7 +787,7 @@ namespace Duel6::Network::Replication {
         candidate.settings = update.settings; candidate.round = update.round; candidate.score = update.score;
         candidate.messages = update.messages; candidate.effects = update.effects; candidate.result = update.result;
         if (introducesUnseenRetainedResultIdentity(*accepted, candidate, acceptedPlayerIdentities)
-            || altersRetainedResult(*accepted, candidate))
+            || altersEstablishedResult(*accepted, candidate))
             return rejectIncremental();
         const auto referencedPlayers = referencedPlayerIdentities(candidate);
         nextAcceptedPlayers.insert(referencedPlayers.begin(), referencedPlayers.end());
