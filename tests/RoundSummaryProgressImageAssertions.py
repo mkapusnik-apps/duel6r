@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Pixel-level assertions for the real round-summary SDL/OpenGL harness."""
 
+import functools
 import os
 import subprocess
 import sys
@@ -95,6 +96,7 @@ def blue_strip_bounds(image, strip):
     return best
 
 
+@functools.lru_cache(maxsize=None)
 def expected_text_mask(font_path, text):
     raw = subprocess.check_output([
         "convert", "-background", "black", "-fill", "white", "-font", font_path,
@@ -104,6 +106,56 @@ def expected_text_mask(font_path, text):
     if len(raw) != LABEL_WIDTH * LABEL_HEIGHT:
         fail(f"could not render expected label {text!r}")
     return [value >= 64 for value in raw]
+
+
+def menu_message_evidence(image, message):
+    """Identify the exact centered modal message panel rendered by Menu."""
+    logical_width, logical_height = 850, 700
+    panel_width = min(790, len(message) * 8 + 60)
+    panel_height = 20
+    panel_x = (logical_width - panel_width) // 2
+    panel_y = (logical_height - panel_height) // 2
+    scale = min(WIDTH / logical_width, HEIGHT / logical_height)
+    offset_x = (WIDTH - logical_width * scale) / 2
+
+    def screen_x(value):
+        return round(offset_x + value * scale)
+
+    def screen_y(value):
+        return round(value * scale)
+
+    left, right = screen_x(panel_x), screen_x(panel_x + panel_width)
+    top, bottom = screen_y(panel_y), screen_y(panel_y + panel_height)
+
+    def pink(x, y):
+        red, green, blue = pixel(image, x, y)
+        return red >= 220 and 165 <= green <= 230 and 165 <= blue <= 230
+
+    # Text only occupies the middle of the panel, so the inset ends provide
+    # stable fill evidence. The black frame and exact width distinguish the
+    # expected prompt from the surrounding menu controls.
+    center_y = (top + bottom) // 2
+    fill_points = [
+        (x, y)
+        for y in range(top + 4, bottom - 4)
+        for x in list(range(left + 5, left + 25)) + list(range(right - 25, right - 5))
+    ]
+    pink_fill = sum(pink(x, y) for x, y in fill_points)
+    black_frame = 0
+    frame_points = []
+    for y in range(top, bottom + 1):
+        frame_points.extend(((left, y), (right, y)))
+    for x in range(left, right + 1):
+        frame_points.extend(((x, top), (x, bottom)))
+    for x, y in frame_points:
+        red, green, blue = pixel(image, x, y)
+        black_frame += max(red, green, blue) <= 30
+
+    matched = pink_fill >= int(len(fill_points) * 0.75) and black_frame >= int(len(frame_points) * 0.45)
+    return matched, (
+        f"message-panel={message!r} bounds=({left},{top})..({right},{bottom}) "
+        f"pink-fill={pink_fill}/{len(fill_points)} black-frame={black_frame}/{len(frame_points)}"
+    )
 
 
 def observed_text_mask(image, left, top):
