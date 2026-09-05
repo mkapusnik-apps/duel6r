@@ -12,6 +12,8 @@ The authoritative headless match target is in [`network-authoritative-headless-m
 
 The canonical state-replication target is in [`network-state-replication.md`](network-state-replication.md).
 
+The authoritative player-input target is in [`network-authoritative-player-input.md`](network-authoritative-player-input.md).
+
 ## Terminology and clock
 
 - **Participant:** One admitted game instance. The host is one participant; every other participant is a guest.
