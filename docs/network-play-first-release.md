@@ -10,6 +10,8 @@ The authoritative player-hosted service lifecycle target is in [`network-host-se
 
 The authoritative headless match target is in [`network-authoritative-headless-match.md`](network-authoritative-headless-match.md).
 
+The canonical state-replication target is in [`network-state-replication.md`](network-state-replication.md).
+
 ## Terminology and clock
 
 - **Participant:** One admitted game instance. The host is one participant; every other participant is a guest.
@@ -211,6 +213,7 @@ The host application's local supervisor may detect that its own hosted service s
 3. Start closes admission and enters authoritative shared-arena `NET-05`.
 4. Normal completion enters `NET-06`; host Return to lobby moves connected participants to `NET-04` with readiness cleared.
 5. Session-only result rows remain visible in summary and lobby until a new match starts and clears them or the session ends.
+6. An approved interruption returns connected participants directly to `NET-04`. It does not enter `NET-06`.
 
 ### Explicit cancel, leave, and end actions
 
@@ -248,7 +251,15 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 ## Session-only result lifecycle
 
 - Authoritative network results are labeled `Session only` and never write local statistics, Elo, people, profiles, or saves.
+- Result state, match outcome, last completed-round outcome, and cumulative rankings are distinct values.
+- For a completed result, the match outcome equals the configured final round outcome.
+- For an interrupted result, the match outcome is `No winner`.
+- An interrupted result keeps its last completed-round outcome when one exists.
+- An interrupted result with no completed round has no last completed-round outcome.
+- Cumulative rankings include only completed rounds. A ranking leader is not a match champion.
 - Completed-match result rows remain available in `NET-06` and the following `NET-04` lobby.
+- An interrupted result appears in the following `NET-04` lobby and does not appear in `NET-06`.
+- The following lobby must retain each result value without deriving a champion from cumulative ranking.
 - A participant or player that leaves after results exist remains in those rows and is labeled `Departed`.
 - Starting a new match clears the prior retained result before the new match begins; results are not accumulated as persistent history.
 - Intentional host End session, host-local supervised service failure, or application shutdown discards the host's session result set. An isolated guest does not infer that discard from transport failure.
@@ -286,12 +297,12 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 - **NET-AC-010 — Authority:** Participants control only owned local players while the host owns canonical simulation, rounds, scoring, winner evaluation, and current state in one shared arena.
 - **NET-AC-011 — Reconnect:** A reservation begins at host-declared disconnect, expires at `D + 30s`, accepts only strictly-before-deadline restoration, shows positive ceiling seconds without active zero, retains one deadline across attempts, and restores only current state; silence, refusal, unreachable, reset, timeout, host crash, host-machine/listener loss, temporary failure, and no response remain ambiguous in `NET-07`; only a valid host End notice accepted through the established session, accepted restore, terminal rejection, retryable failure, and expiry follow the fixed precedence.
 - **NET-AC-012 — Active disconnect:** Active simulation, timers, hazards, connected input, combat, scoring, winner rules, and round progression continue while reserved players receive no input, remain targets, and count for winner conditions.
-- **NET-AC-013 — Lifecycle-specific server-side removal:** A running host batches same-clock confirmed leaves and authoritative expiries without removal combat statistics; lobby batches clear readiness without winner evaluation, active-round batches evaluate once and may create `Session only • Interrupted • No winner`, non-final summaries preserve completed rounds before continuing or interrupting, and final summaries retain completed outcomes with departed labels; an isolated guest deadline enters truthful `NET-08` without claiming that server-side removal occurred.
+- **NET-AC-013 — Lifecycle-specific server-side removal:** A running host batches same-clock confirmed leaves and authoritative expiries without removal combat statistics. Lobby removal clears readiness without winner evaluation. Active-round removal performs one winner evaluation. An interruption preserves completed rounds and their last outcome. It discards the incomplete round and creates a `No winner` match outcome. It returns connected participants to `NET-04`, not `NET-06`. Non-final-summary removal preserves the completed round before continuation or interruption. Final-summary removal retains the completed match outcome and adds departed labels. An isolated guest deadline does not claim server-side removal.
 - **NET-AC-014 — Intentional host end:** Only a valid intentional host End session notice accepted through the current established session returns the host to `NET-01` and sends guests to host-ended `NET-09`; first release has no guest-observable unexpected termination signal, and host crash, machine/listener loss, silence, reset, refusal, or timeout remains `NET-07` until terminal rejection or expiry.
 - **NET-AC-015 — Local independence:** `Play (F1)` starts and completes unchanged without starting or requiring any network service, while `Network (F2)` remains separate.
 - **NET-AC-016 — Cancellation and leave:** Host startup Cancel, guest connection Cancel, guest lobby/match/summary Leave, reconnect Leave session, host End session, and their confirmations retain or discard data and reach exactly the specified destinations.
 - **NET-AC-017 — Truthful and non-disclosing UX:** Role, Connected/Reconnecting, readiness, pending, retryable ambiguity, terminal rejection, disabled Retry, expiry, host-local service failure, consequence, and host-ended states use fixed visible copy, disclose no untrusted peer value, and never claim guest-observed host end, player removal, or unexpected termination from isolation alone.
-- **NET-AC-018 — Session-only results:** Results are labeled `Session only`; lifecycle-specific server-side interruption uses `Session only • Interrupted • No winner`; completed or interrupted results remain through the following lobby with departed rows labeled, are cleared when a new match starts, and are discarded by intentional host end, host-local supervised service failure, or application shutdown; an isolated guest expiry does not claim a server-side result transition, and results never persist locally or to Elo.
+- **NET-AC-018 — Session-only results:** Result state, match outcome, last completed-round outcome, and cumulative rankings are distinct. Completed match outcome equals the final round outcome. Interrupted match outcome is `No winner`. Cumulative rankings include only completed rounds and define no champion. Completed results appear in `NET-06`. Completed and interrupted results remain through the following lobby with departed labels. A new match clears the retained result. Intentional host end, host-local service failure, or application shutdown discards it. An isolated guest expiry does not claim a server-side result transition. Results never persist locally or to Elo.
 - **NET-AC-019 — Explicit boundaries:** UI, packaging, and release claims omit every non-goal and exclude presentation/cosmetic/local persistence/control/documentation material from gameplay compatibility.
 
 ## Exact downstream issue mapping

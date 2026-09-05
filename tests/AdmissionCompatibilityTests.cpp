@@ -18,11 +18,16 @@
 #include "source/network/AdmissionProtocol.h"
 #include "source/network/CompatibilityManifest.h"
 #include "source/network/NetworkTrustPolicy.h"
+#include "source/network/StateReplicationProtocol.h"
 #include "source/server/AdmissionSession.h"
 #include "source/server/HeadlessServer.h"
 
 #ifndef _WIN32
 #include <sys/stat.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #endif
 
 namespace {
@@ -101,6 +106,8 @@ namespace {
         std::shared_ptr<class FakeAdmissionConnection> connection;
         bool accepted = false;
         bool cancelled = false;
+        bool shutdownAttempted = false;
+        bool shutdownThrows = false;
         bool shutdown = false;
         std::vector<Server::AdmissionLifecycleEvent> events;
         std::vector<Network::HostServiceStatusCode> hostedStatuses;
@@ -187,7 +194,11 @@ namespace {
             if (fixture->accepted || !fixture->connection) return {};
             fixture->accepted = true; return fixture->connection;
         }
-        void shutdown() override { fixture->shutdown = true; }
+        void shutdown() override {
+            fixture->shutdownAttempted = true;
+            if (fixture->shutdownThrows) throw std::runtime_error("injected listener shutdown failure");
+            fixture->shutdown = true;
+        }
         bool startResult = true;
         bool readyResult = true;
     private:
@@ -285,6 +296,95 @@ namespace {
         try { function(); } catch (...) { return true; }
         return false;
     }
+
+    struct ProductionAdmissionPeer {
+        std::unique_ptr<Network::TcpClient> client;
+        std::shared_ptr<Network::TcpConnection> connection;
+        std::optional<Network::AdmissionOfferPayload> offer;
+        Network::AdmissionAttemptGate attempt;
+        Network::Replication::ReplicatedState replicated;
+        std::vector<Network::Replication::CanonicalState> states;
+        bool admitted = false;
+    };
+
+    std::unique_ptr<ProductionAdmissionPeer> connectProductionPeer(
+            const Network::Endpoint &endpoint, const Network::GameplayManifest &host) {
+        auto peer = std::make_unique<ProductionAdmissionPeer>();
+        Network::SessionTransportDependencies transport;
+        transport.enforceNetworkSessionPolicy = true;
+        peer->client = std::make_unique<Network::TcpClient>(std::move(transport));
+        D6R_REQUIRE(peer->client->start(endpoint));
+        D6R_REQUIRE(peer->client->waitForConnected(2s));
+        peer->connection = peer->client->connection();
+        D6R_REQUIRE(peer->connection != nullptr);
+        D6R_REQUIRE(peer->connection->send(Network::serializeAdmissionRequest(requestFor(host)))
+                    == Network::SendResult::Accepted);
+        return peer;
+    }
+
+    void pumpProductionPeer(ProductionAdmissionPeer &peer) {
+        Network::TransportFrame frame;
+        while (peer.connection->receive(frame)) {
+            if (const auto replication = Network::Replication::deserializeReplicationFrame(frame.payload)) {
+                Network::Replication::ApplyResult applied = Network::Replication::ApplyResult::Invalid;
+                if (replication->snapshot) applied = peer.replicated.apply(*replication->snapshot);
+                else if (replication->update) applied = peer.replicated.apply(*replication->update);
+                D6R_REQUIRE(applied == Network::Replication::ApplyResult::Applied);
+                D6R_REQUIRE(peer.replicated.state() != nullptr);
+                peer.states.push_back(*peer.replicated.state());
+                continue;
+            }
+            if (!peer.offer) {
+                peer.offer = Network::deserializeAdmissionOffer(frame.payload);
+                D6R_REQUIRE(peer.connection->permitAdmissionAcceptance());
+                const auto deadline = std::chrono::steady_clock::now() + 2s;
+                D6R_REQUIRE(peer.connection->enqueueAdmissionAcceptance(
+                        Network::serializeAdmissionAcceptance(*peer.offer), peer.attempt,
+                        [] { return false; }, [] { return std::chrono::steady_clock::now(); }, deadline)
+                            == Network::AdmissionAcceptanceEnqueueResult::Accepted);
+                continue;
+            }
+            const auto confirmation = Network::deserializeAdmissionConfirmation(frame.payload);
+            D6R_REQUIRE(Network::sameAdmissionIdentitySet(*peer.offer, confirmation));
+            peer.connection->markAdmissionSucceeded();
+            peer.admitted = true;
+        }
+    }
+
+    template<typename Predicate>
+    bool pumpUntil(ProductionAdmissionPeer &peer, Predicate predicate, std::chrono::milliseconds timeout) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        do {
+            pumpProductionPeer(peer);
+            if (predicate()) return true;
+            std::this_thread::sleep_for(5ms);
+        } while (std::chrono::steady_clock::now() < deadline);
+        pumpProductionPeer(peer);
+        return predicate();
+    }
+
+
+#ifndef _WIN32
+    std::uint16_t unusedLoopbackPort() {
+        const int descriptor = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (descriptor < 0) return 0;
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        address.sin_port = 0;
+        if (::bind(descriptor, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0) {
+            ::close(descriptor);
+            return 0;
+        }
+        socklen_t size = sizeof(address);
+        if (::getsockname(descriptor, reinterpret_cast<sockaddr *>(&address), &size) != 0) {
+            ::close(descriptor);
+            return 0;
+        }
+        ::close(descriptor);
+        return ntohs(address.sin_port);
+    }
+#endif
 }
 
 D6R_TEST_CASE("AC-001 AC-002 compatibility constants capabilities and wire format are exact") {
@@ -733,6 +833,244 @@ D6R_TEST_CASE("four-message runtime permits immediate acceptance before offer vi
                 stageIndex(Server::AdmissionLifecycleStage::ConfirmationQueued));
 }
 
+#ifndef _WIN32
+D6R_TEST_CASE("REP-067 injected canonical tick failure terminates production server unsuccessfully without host-end claim") {
+    const auto hostedManifest = manifest({
+            {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+    auto content = std::make_shared<Network::FrozenGameplayContent>();
+    (*content)["data/blocks.json"] = {'{', '}'};
+    (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+    (*content)["levels/a.json"] = {'{', '}'};
+    const Network::ManifestBuildResult built{
+            Network::ManifestStatus::Valid, hostedManifest, content};
+
+    Server::ServerConfig hostConfig = runtimeServerConfig();
+    hostConfig.listenEndpoint.port = unusedLoopbackPort();
+    D6R_REQUIRE(hostConfig.listenEndpoint.port != 0);
+    Server::AdmissionRuntimeDependencies hostDependencies;
+    hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+    std::atomic<bool> ready{false};
+    hostDependencies.hostedServiceStatus = [&](Network::HostServiceStatusCode status) {
+        if (status == Network::HostServiceStatusCode::Ready) ready = true;
+        return true;
+    };
+    hostDependencies.authoritativeRuntimeFactory = [](const auto &, const auto &, const auto &) {
+        Server::Authoritative::MatchRuntimeDependencies failure;
+        failure.contentPreflight = [](const auto &) { return true; };
+        failure.worldTick = [](Server::Authoritative::Tick, bool) { return false; };
+        return failure;
+    };
+
+    std::ostringstream hostOutput;
+    int hostStatus = -1;
+    std::thread host([&] {
+        Server::HeadlessServer server(hostConfig, std::move(hostDependencies));
+        hostStatus = server.run(hostOutput);
+    });
+    for (unsigned attempt = 0; attempt < 200 && !ready; ++attempt) std::this_thread::sleep_for(5ms);
+    D6R_REQUIRE(ready);
+
+    Server::ServerConfig guestConfig = runtimeGuestConfig();
+    guestConfig.listenEndpoint.port = hostConfig.listenEndpoint.port;
+    guestConfig.localPlayers = 1;
+    Server::AdmissionRuntimeDependencies guestDependencies;
+    guestDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+    std::ostringstream guestOutput;
+    Server::HeadlessServer guest(guestConfig, std::move(guestDependencies));
+    D6R_REQUIRE_EQ(2, guest.run(guestOutput));
+    host.join();
+
+    const std::string output = hostOutput.str();
+    const std::string evidence = "status=" + std::to_string(hostStatus)
+            + ";runtime-failed=" + (output.find("authoritative-match-runtime-failed") != std::string::npos ? "true" : "false")
+            + ";cleaned=" + (output.find("transport stopped") != std::string::npos ? "true" : "false")
+            + ";intentional=" + (output.find("authoritative-match-ended-intentionally") != std::string::npos ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string("status=3;runtime-failed=true;cleaned=true;intentional=false"), evidence);
+}
+
+
+D6R_TEST_CASE("REP-048 NET-AC-018 throwing runtime wait after match start fails truthfully and cleans production transport") {
+    const auto hostedManifest = manifest({
+            {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+    auto content = std::make_shared<Network::FrozenGameplayContent>();
+    (*content)["data/blocks.json"] = {'{', '}'};
+    (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+    (*content)["levels/a.json"] = {'{', '}'};
+    const Network::ManifestBuildResult built{
+            Network::ManifestStatus::Valid, hostedManifest, content};
+
+    Server::ServerConfig hostConfig = runtimeServerConfig();
+    hostConfig.listenEndpoint.port = unusedLoopbackPort();
+    D6R_REQUIRE(hostConfig.listenEndpoint.port != 0);
+    Server::AdmissionRuntimeDependencies hostDependencies;
+    hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+    std::atomic<bool> ready{false};
+    std::atomic<bool> matchStarted{false};
+    hostDependencies.hostedServiceStatus = [&](Network::HostServiceStatusCode status) {
+        if (status == Network::HostServiceStatusCode::Ready) ready = true;
+        return true;
+    };
+    hostDependencies.wait = [&](std::chrono::milliseconds duration) {
+        if (matchStarted) throw std::runtime_error("injected runtime wait failure");
+        std::this_thread::sleep_for(duration);
+    };
+    hostDependencies.authoritativeRuntimeFactory = [&](const auto &, const auto &, const auto &) {
+        matchStarted = true;
+        Server::Authoritative::MatchRuntimeDependencies runtime;
+        runtime.contentPreflight = [](const auto &) { return true; };
+        return runtime;
+    };
+
+    std::ostringstream hostOutput;
+    int hostStatus = -1;
+    std::thread host([&] {
+        Server::HeadlessServer server(hostConfig, std::move(hostDependencies));
+        hostStatus = server.run(hostOutput);
+    });
+    for (unsigned attempt = 0; attempt < 200 && !ready; ++attempt) std::this_thread::sleep_for(5ms);
+    D6R_REQUIRE(ready);
+
+    Server::ServerConfig guestConfig = runtimeGuestConfig();
+    guestConfig.listenEndpoint.port = hostConfig.listenEndpoint.port;
+    guestConfig.localPlayers = 1;
+    Server::AdmissionRuntimeDependencies guestDependencies;
+    guestDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+    std::ostringstream guestOutput;
+    Server::HeadlessServer guest(guestConfig, std::move(guestDependencies));
+    const int guestStatus = guest.run(guestOutput);
+    host.join();
+
+    const std::string output = hostOutput.str();
+    const std::string evidence = "host-status=" + std::to_string(hostStatus)
+            + ";guest-status=" + std::to_string(guestStatus)
+            + ";runtime-failed=" + (output.find("authoritative-match-runtime-failed") != std::string::npos ? "true" : "false")
+            + ";listener-cleaned=" + (output.find("transport stopped") != std::string::npos ? "true" : "false")
+            + ";intentional=" + (output.find("authoritative-match-ended-intentionally") != std::string::npos ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string(
+            "host-status=3;guest-status=2;runtime-failed=true;listener-cleaned=true;intentional=false"), evidence);
+}
+
+D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby disconnect and admission preserve explicit readiness and result ranking") {
+    const auto hostedManifest = manifest({
+            {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+    auto content = std::make_shared<Network::FrozenGameplayContent>();
+    (*content)["data/blocks.json"] = {'{', '}'};
+    (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+    (*content)["levels/a.json"] = {'{', '}'};
+    const Network::ManifestBuildResult built{
+            Network::ManifestStatus::Valid, hostedManifest, content};
+
+    Server::ServerConfig hostConfig = runtimeServerConfig();
+    hostConfig.listenEndpoint.port = unusedLoopbackPort();
+    D6R_REQUIRE(hostConfig.listenEndpoint.port != 0);
+    Server::AdmissionRuntimeDependencies hostDependencies;
+    hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+    std::atomic<bool> ready{false};
+    std::atomic<bool> cancelled{false};
+    std::atomic<unsigned> matchStarts{0};
+    hostDependencies.cancelled = [&] { return cancelled.load(); };
+    hostDependencies.hostedServiceStatus = [&](Network::HostServiceStatusCode status) {
+        if (status == Network::HostServiceStatusCode::Ready) ready = true;
+        return true;
+    };
+    hostDependencies.authoritativeRuntimeFactory = [&](const auto &, const auto &players, const auto &) {
+        ++matchStarts;
+        auto snapshot = std::make_shared<Server::Authoritative::CanonicalWorldSnapshot>();
+        snapshot->valid = true;
+        snapshot->stateDigest = 1;
+        for (const auto &definition: players) {
+            Server::Authoritative::CanonicalPlayerSnapshot player;
+            player.playerId = definition.playerId;
+            player.rosterSlot = definition.rosterOrder;
+            player.alive = true;
+            player.life = Server::Authoritative::MaximumLife;
+            snapshot->players.push_back(player);
+        }
+        Server::Authoritative::MatchRuntimeDependencies runtime;
+        runtime.contentPreflight = [](const auto &) { return true; };
+        runtime.worldSnapshot = [snapshot] { return *snapshot; };
+        runtime.worldTick = [snapshot](Server::Authoritative::Tick, bool) {
+            for (std::size_t index = 1; index < snapshot->players.size(); ++index) {
+                snapshot->players[index].alive = false;
+                snapshot->players[index].life = 0;
+            }
+            snapshot->roundOver = true;
+            ++snapshot->worldTick;
+            ++snapshot->stateDigest;
+            return true;
+        };
+        return runtime;
+    };
+
+    std::ostringstream hostOutput;
+    int hostStatus = -1;
+    std::thread host([&] {
+        Server::HeadlessServer server(hostConfig, std::move(hostDependencies));
+        hostStatus = server.run(hostOutput);
+    });
+    for (unsigned attempt = 0; attempt < 400 && !ready; ++attempt) std::this_thread::sleep_for(5ms);
+    D6R_REQUIRE(ready);
+
+    auto first = connectProductionPeer(hostConfig.listenEndpoint, hostedManifest);
+    D6R_REQUIRE(pumpUntil(*first, [&] { return first->admitted; }, 2s));
+    D6R_REQUIRE(pumpUntil(*first, [&] {
+        return std::any_of(first->states.begin(), first->states.end(), [](const auto &state) {
+            return state.phase == Network::Replication::Phase::Lobby
+                    && state.result.available && state.result.state == "Completed";
+        });
+    }, 8s));
+    first->client->close();
+    std::this_thread::sleep_for(100ms);
+
+    auto newcomer = connectProductionPeer(hostConfig.listenEndpoint, hostedManifest);
+    D6R_REQUIRE(pumpUntil(*newcomer, [&] { return newcomer->admitted; }, 2s));
+    D6R_REQUIRE(pumpUntil(*newcomer, [&] {
+        return std::any_of(newcomer->states.begin(), newcomer->states.end(), [](const auto &state) {
+            return state.phase == Network::Replication::Phase::Lobby && state.result.available;
+        });
+    }, 2s));
+    const auto retained = std::find_if(newcomer->states.rbegin(), newcomer->states.rend(), [](const auto &state) {
+        return state.phase == Network::Replication::Phase::Lobby && state.result.available;
+    });
+    D6R_REQUIRE(retained != newcomer->states.rend());
+    const auto newcomerId = newcomer->offer->participantId;
+    const bool reconnectingPresent = std::any_of(retained->participants.begin(), retained->participants.end(),
+            [](const auto &participant) {
+                return participant.connection == Network::Replication::ConnectionState::Reconnecting;
+            });
+    const bool readinessFalse = std::all_of(retained->participants.begin(), retained->participants.end(),
+            [](const auto &participant) { return !participant.ready; });
+    const bool newcomerPresent = std::any_of(retained->participants.begin(), retained->participants.end(),
+            [newcomerId](const auto &participant) { return participant.participantId == newcomerId; });
+    bool newcomerInPriorRanking = false;
+    for (const auto playerId: newcomer->offer->playerIds) {
+        newcomerInPriorRanking = newcomerInPriorRanking
+                || std::find(retained->score.ranking.begin(), retained->score.ranking.end(), playerId)
+                   != retained->score.ranking.end()
+                || std::any_of(retained->score.players.begin(), retained->score.players.end(),
+                        [playerId](const auto &row) { return row.playerId == playerId; });
+    }
+    const bool noAutoStart = matchStarts.load() == 1
+            && std::none_of(newcomer->states.begin(), newcomer->states.end(), [&](const auto &state) {
+                return state.phase == Network::Replication::Phase::ActiveRound
+                       && state.matchId != retained->matchId;
+            });
+
+    newcomer->client->close();
+    cancelled = true;
+    host.join();
+    const std::string evidence = "reconnecting=" + std::string(reconnectingPresent ? "true" : "false")
+            + ";newcomer=" + (newcomerPresent ? "true" : "false")
+            + ";readiness-false=" + (readinessFalse ? "true" : "false")
+            + ";prior-ranking-excludes=" + (!newcomerInPriorRanking ? "true" : "false")
+            + ";no-autostart=" + (noAutoStart ? "true" : "false")
+            + ";host-status=" + std::to_string(hostStatus);
+    D6R_REQUIRE_EQ(std::string(
+            "reconnecting=true;newcomer=true;readiness-false=true;prior-ranking-excludes=true;"
+            "no-autostart=true;host-status=0"), evidence);
+}
+#endif
+
 D6R_TEST_CASE("lost confirmation after atomic commit never rolls back host and never reports host success") {
     const auto host = manifest({{"levels/a", 1}});
     auto fixture = std::make_shared<RuntimeFixture>();
@@ -859,6 +1197,71 @@ D6R_TEST_CASE("host initializes before readiness and listener startup failure pe
     D6R_REQUIRE(position(Server::AdmissionLifecycleStage::ListenerCleanupStarted) <
                 position(Server::AdmissionLifecycleStage::ListenerCleanupCompleted));
     D6R_REQUIRE(output.str().find("transport startup failed") != std::string::npos);
+}
+
+D6R_TEST_CASE("NET-AC-018 listener shutdown failure exits status 4 without a false cleanup or intentional-end claim") {
+    const auto host = manifest({{"levels/a", 1}});
+    auto fixture = std::make_shared<RuntimeFixture>();
+    fixture->shutdownThrows = true;
+    auto dependencies = runtimeDependencies(fixture, host);
+    dependencies.lifecycleObserver = [fixture](const Server::AdmissionLifecycleEvent &event) {
+        fixture->events.push_back(event);
+        if (event.stage == Server::AdmissionLifecycleStage::ListenerReady) fixture->cancelled = true;
+        return true;
+    };
+    std::ostringstream output;
+    Server::HeadlessServer server(runtimeServerConfig(), std::move(dependencies));
+    const int status = server.run(output);
+
+    const bool cleanupStarted = std::any_of(fixture->events.begin(), fixture->events.end(), [](const auto &event) {
+        return event.stage == Server::AdmissionLifecycleStage::ListenerCleanupStarted;
+    });
+    const bool cleanupCompleted = std::any_of(fixture->events.begin(), fixture->events.end(), [](const auto &event) {
+        return event.stage == Server::AdmissionLifecycleStage::ListenerCleanupCompleted;
+    });
+    const std::string evidence = "status=" + std::to_string(status)
+            + ";attempted=" + (fixture->shutdownAttempted ? "true" : "false")
+            + ";shutdown=" + (fixture->shutdown ? "true" : "false")
+            + ";started=" + (cleanupStarted ? "true" : "false")
+            + ";completed=" + (cleanupCompleted ? "true" : "false")
+            + ";shutdown-failed="
+            + (output.str().find("authoritative-match-shutdown-failed") != std::string::npos ? "true" : "false")
+            + ";intentional="
+            + (output.str().find("authoritative-match-ended-intentionally") != std::string::npos ? "true" : "false")
+            + ";stopped=" + (output.str().find("transport stopped") != std::string::npos ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string(
+            "status=4;attempted=true;shutdown=false;started=true;completed=false;shutdown-failed=true;intentional=false;stopped=false"),
+            evidence);
+}
+
+D6R_TEST_CASE("AHM-AC-027 AHM-AC-029..031 combined runtime and listener cleanup failure publishes only shutdown failure") {
+    const auto host = manifest({{"levels/a", 1}});
+    auto fixture = std::make_shared<RuntimeFixture>();
+    fixture->shutdownThrows = true;
+    auto dependencies = runtimeDependencies(fixture, host);
+    dependencies.wait = [](std::chrono::milliseconds) {
+        throw std::runtime_error("injected runtime failure before listener cleanup");
+    };
+    std::ostringstream output;
+    Server::HeadlessServer server(runtimeServerConfig(), std::move(dependencies));
+    const int status = server.run(output);
+    const std::string text = output.str();
+    const auto occurrences = [&](const std::string &needle) {
+        std::size_t count = 0;
+        for (std::size_t position = 0; (position = text.find(needle, position)) != std::string::npos;
+             position += needle.size()) ++count;
+        return count;
+    };
+    const std::string evidence = "status=" + std::to_string(status)
+            + ";shutdown-count=" + std::to_string(occurrences("authoritative-match-shutdown-failed"))
+            + ";runtime-count=" + std::to_string(occurrences("authoritative-match-runtime-failed"))
+            + ";completed-count=" + std::to_string(occurrences("authoritative-match-completed"))
+            + ";interrupted-count=" + std::to_string(occurrences("authoritative-match-interrupted-no-winner"))
+            + ";intentional-count=" + std::to_string(occurrences("authoritative-match-ended-intentionally"))
+            + ";stopped-count=" + std::to_string(occurrences("transport stopped"));
+    D6R_REQUIRE_EQ(std::string(
+            "status=4;shutdown-count=1;runtime-count=0;completed-count=0;interrupted-count=0;"
+            "intentional-count=0;stopped-count=0"), evidence);
 }
 
 D6R_TEST_CASE("request deadline uses transport accept and frame timestamps under delayed polling") {

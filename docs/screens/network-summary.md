@@ -2,19 +2,21 @@
 
 ## Status, purpose, and requirements
 
-This is a target screen for downstream issue #38; it is not implemented. It presents final authoritative match results without implying local persistence. It implements `NET-AC-010`, `NET-AC-011`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+This is a target screen for downstream issue #38; it is not implemented. It presents a completed authoritative match result without implying local persistence. It implements `NET-AC-010`, `NET-AC-011`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 
-Normal match completion enters from `NET-05`. Host Return to lobby sends all connected participants to `NET-04` with readiness cleared; guest Leave returns to `NET-01`; unexpected host contact failure enters guest `NET-07`. Only a valid End session notice accepted through the current established session enters guest `NET-09`.
+Normal match completion enters from `NET-05`. An interrupted match enters `NET-04` directly and never enters this screen. Host Return to lobby sends all connected participants to `NET-04` with readiness cleared; guest Leave returns to `NET-01`; unexpected host contact failure enters guest `NET-07`. Only a valid End session notice accepted through the current established session enters guest `NET-09`.
 
 ## Representative layout
 
 - Use the final arena frame or retro summary context consistently with the existing score-summary visual language.
-- Show result state `Completed` or `Interrupted`.
-- Show final-round winner identity, winning team, or `No winner`.
+- Show result state `Completed`.
+- Show the labeled match outcome as the configured final-round winner identity, winning team, or `No winner`.
+- Show the labeled last completed-round number and outcome separately from match outcome.
 - Show mode, applicable team count and Friendly fire, Assistance, Quick Liquid, Burnable Trees, level plan, round limit, nonzero match seed, and completed-round count.
 - Show one row for each completed round with round number, level identity, orientation, winner or `No winner`, and authoritative roster order.
 - Show each player identity, owner participant, display name, applicable team, applicable `Departed` state, rounds played, shots, hits, kills, deaths, assists, wins, penalties, survival time, damage, assisted damage, and total points.
 - Show per-round player values and cumulative match values.
+- Show cumulative ranking separately from match outcome and last completed-round outcome.
 - Show team totals when the mode uses teams.
 - Place the exact label `Session only` beside the heading or result table and show `Not saved to local statistics or Elo` as supporting copy.
 - Show host-only `Return to lobby` and `End session`; guests see a waiting status and `Leave`.
@@ -32,17 +34,17 @@ Normal match completion enters from `NET-05`. Host Return to lobby sends all con
 - Player rows must rank by total points, wins, damage, and authoritative roster order in descending precedence.
 - Team rows must rank by team point total and then Alpha, Bravo, Charlie, and Delta.
 - Player rows inside a team must use the player ranking rules.
+- A ranking leader must not receive a champion label or treatment.
 - Total points must equal kills plus wins plus assists minus penalties.
-- An interrupted result must show exactly `Session only • Interrupted • No winner`.
-- An interrupted result must include only completed rounds.
 - The result must not show Elo, Elo trend, Elo game count, local person records, saved profile state, endpoints, credentials, or persistent history.
 
 ## Truthful copy, disabled reasons, and input
 
 - `Session only` must remain visible without relying on tooltip or color.
-- `Completed`, `Interrupted`, `No winner`, `Departed`, rank, and team must remain visible as text.
+- `Completed`, `No winner`, `Departed`, rank, team, match outcome, and last completed-round outcome must remain visible as text.
 - Column headings must identify every displayed result value.
 - The table must not use color or row position as the only rank, winner, team, or departure cue.
+- The table must not imply that the highest cumulative rank is the match outcome.
 - Result content must not disclose an endpoint, credential, raw filesystem value, or peer-supplied diagnostic value.
 - Guests see `Waiting for host to return to lobby or end session`; disabled host actions must not appear enabled.
 - Focus order is Return to lobby → End session for host, or Leave for guest. Confirmation dialogs have Confirm then Cancel and retain visible focus.

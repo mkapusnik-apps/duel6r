@@ -143,7 +143,12 @@ namespace Duel6::Server::Authoritative {
         std::string timedBonus;
         std::int64_t bonusRemaining = 0;
         std::int64_t temporarySlowdownRemaining = 0;
+        bool facingLeft = false;
+        bool invulnerable = false;
+        bool visible = true;
+        std::uint32_t actionMask = 0;
         PlayerStatistics statistics;
+        bool departed = false;
     };
 
     struct CanonicalEntitySnapshot {
@@ -171,6 +176,15 @@ namespace Duel6::Server::Authoritative {
         std::int64_t value = 0;
     };
 
+    struct CanonicalContinuingEffectSnapshot {
+        std::uint64_t stableId = 0;
+        std::string type;
+        Identity ownerPlayerId = 0;
+        std::int64_t positionX = 0;
+        std::int64_t positionY = 0;
+        Tick remainingTicks = 0;
+    };
+
     struct CanonicalStateCheckpoint {
         Tick tick = 0;
         std::uint64_t stateDigest = 0;
@@ -183,6 +197,7 @@ namespace Duel6::Server::Authoritative {
         std::vector<CanonicalEntitySnapshot> elevators;
         std::vector<CanonicalEntitySnapshot> hazards;
         std::vector<CanonicalEntitySnapshot> trees;
+        std::vector<CanonicalContinuingEffectSnapshot> effects;
         std::vector<CanonicalEvent> events;
         std::vector<CanonicalEvent> transitions;
         Tick worldTick = 0;

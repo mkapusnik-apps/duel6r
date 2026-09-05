@@ -667,7 +667,9 @@ namespace Duel6::Server::Authoritative {
                     failRuntime();
             }
         }
-        return terminal.code == OutcomeCode::None;
+        // The tick that atomically publishes a successful terminal result was advanced successfully.
+        // A later call is still rejected by the guard above.
+        return terminal.code != OutcomeCode::RuntimeFailed && terminal.code != OutcomeCode::ShutdownFailed;
     }
 
     bool AuthoritativeMatch::synchronizeCanonicalWorld() {
@@ -878,6 +880,31 @@ namespace Duel6::Server::Authoritative {
     MatchPhase AuthoritativeMatch::phase() const noexcept { return currentPhase; }
     Tick AuthoritativeMatch::currentTick() const noexcept { return tick; }
     const MatchConfig &AuthoritativeMatch::frozenConfig() const noexcept { return config; }
+    std::vector<PlayerDefinition> AuthoritativeMatch::rosterDefinitions() const {
+        std::vector<PlayerDefinition> result;
+        result.reserve(players.size());
+        for (const auto &player: players) result.push_back(player.definition);
+        return result;
+    }
+    std::uint32_t AuthoritativeMatch::roundEndTicksRemaining() const noexcept {
+        return roundEndTicks >= RoundEndTotalTicks ? 0 : RoundEndTotalTicks - roundEndTicks;
+    }
+    std::map<Identity, PlayerStatistics> AuthoritativeMatch::playerStatistics() const {
+        std::map<Identity, PlayerStatistics> result;
+        for (const auto &player: players) result.emplace(player.definition.playerId, player.total);
+        return result;
+    }
+    RoundResult AuthoritativeMatch::currentRoundResult() const {
+        RoundResult result;
+        result.roundNumber = currentRoundDecision.roundNumber;
+        result.level = currentRoundDecision.level;
+        result.mirrored = currentRoundDecision.mirrored;
+        result.winnerPlayerIds = currentRoundWinners;
+        result.winningTeam = currentRoundWinningTeam;
+        result.noWinner = currentRoundNoWinner;
+        result.rosterOrder = currentRoundDecision.rosterOrder;
+        return result;
+    }
     const std::optional<SessionResult> &AuthoritativeMatch::publishedResult() const noexcept { return result; }
     const TerminalOutcome &AuthoritativeMatch::outcome() const noexcept { return terminal; }
     const RoundStartDecision &AuthoritativeMatch::roundDecision() const noexcept { return currentRoundDecision; }

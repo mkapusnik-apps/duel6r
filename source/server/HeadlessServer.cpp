@@ -2,20 +2,34 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <chrono>
 #include <csignal>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <thread>
 #include <utility>
 #include <vector>
+
+#ifdef D6R_TRANSPORT_WINDOWS
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <bcrypt.h>
+#else
+#include <sys/random.h>
+#include <unistd.h>
+#endif
 
 #include "../network/SessionTransport.h"
 #include "../network/NetworkTrustPolicy.h"
 #include "../network/AdmissionProtocol.h"
 #include "../network/CompatibilityManifest.h"
 #include "AdmissionSession.h"
+#include "AuthoritativeHostedMatchController.h"
+#include "FrozenGameplayConfig.h"
+#include "../network/StateReplicationProtocol.h"
 
 namespace {
     volatile std::sig_atomic_t stopRequested = 0;
@@ -25,6 +39,26 @@ namespace {
     }
 
     constexpr auto AdmissionAttemptDeadline = std::chrono::seconds(10);
+
+    bool secureSeed(std::uint64_t &seed) {
+        for (int attempt = 0; attempt < 4; ++attempt) {
+#ifdef D6R_TRANSPORT_WINDOWS
+            if (BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(&seed), sizeof(seed),
+                                BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) return false;
+#else
+            std::size_t offset = 0;
+            auto *bytes = reinterpret_cast<unsigned char *>(&seed);
+            while (offset < sizeof(seed)) {
+                const ssize_t count = getrandom(bytes + offset, sizeof(seed) - offset, 0);
+                if (count > 0) offset += static_cast<std::size_t>(count);
+                else if (count < 0 && errno == EINTR) continue;
+                else return false;
+            }
+#endif
+            if (seed != 0) return true;
+        }
+        return false;
+    }
 
     Duel6::Network::Trust::TimePoint realNow() { return std::chrono::steady_clock::now(); }
 
@@ -138,6 +172,68 @@ namespace {
         output.flush();
     }
 
+    struct ReplicationLobbyState {
+        std::vector<Duel6::Network::Replication::ParticipantState> participants;
+        std::vector<Duel6::Server::Authoritative::PlayerDefinition> players;
+        Duel6::Server::Authoritative::MatchConfig settings;
+    };
+
+    ReplicationLobbyState replicationLobbyState(const Duel6::Server::SessionAllocation &allocation,
+                                                 const std::set<std::uint64_t> &connected,
+                                                 Duel6::Server::Authoritative::MatchConfig settings) {
+        ReplicationLobbyState result;
+        const auto admitted = allocation.admittedParticipants();
+        std::uint8_t roster = 0;
+        for (const auto &source: admitted) {
+            Duel6::Network::Replication::ParticipantState participant;
+            participant.participantId = source.participantId; participant.host = source.localHost;
+            participant.connection = connected.count(source.participantId)
+                                     ? Duel6::Network::Replication::ConnectionState::Connected
+                                     : Duel6::Network::Replication::ConnectionState::Reconnecting;
+            participant.ready = connected.count(source.participantId) != 0;
+            participant.ownedPlayerIds = source.playerIds;
+            result.participants.push_back(std::move(participant));
+            for (const auto playerId: source.playerIds) {
+                Duel6::Server::Authoritative::PlayerDefinition player;
+                player.participantId = source.participantId; player.playerId = playerId;
+                player.rosterOrder = roster++;
+                player.displayName = "Player " + std::to_string(static_cast<unsigned int>(player.rosterOrder) + 1u);
+                result.players.push_back(std::move(player));
+            }
+        }
+        settings.hostParticipantId = allocation.hostParticipant().participantId;
+        result.settings = std::move(settings);
+        return result;
+    }
+
+    std::optional<Duel6::Server::Authoritative::MatchConfig> productionMatchConfig(
+            const Duel6::Network::ManifestBuildResult &content,
+            Duel6::Server::Authoritative::Identity hostParticipantId) {
+        if (!content.valid() || !content.content || hostParticipantId == 0) return std::nullopt;
+        Duel6::Server::Authoritative::MatchConfig result;
+        result.hostParticipantId = hostParticipantId;
+        for (const auto &entry: content.manifest) {
+            const auto &path = entry.logicalPath;
+            if (path.size() > 12 && path.compare(0, 7, "levels/") == 0
+                && path.compare(path.size() - 5, 5, ".json") == 0)
+                result.playableLevels.push_back(path);
+        }
+        if (result.playableLevels.empty()) return std::nullopt;
+        result.fixedLevel = result.playableLevels.front();
+        const auto config = content.content->find("data/config.script");
+        if (config == content.content->end()) return std::nullopt;
+        const std::string source(config->second.begin(), config->second.end());
+        Duel6::Server::Authoritative::FrozenGameplayConfig parsed;
+        if (!Duel6::Server::Authoritative::parseFrozenGameplayConfig(source, parsed)) {
+            parsed.enabledWeapons = Duel6::Server::Authoritative::canonicalWeaponKeys();
+        }
+        if (!secureSeed(result.seed)) return std::nullopt;
+        result.enabledWeapons = std::move(parsed.enabledWeapons);
+        result.startingAmmoMinimum = parsed.startingAmmoMinimum;
+        result.startingAmmoMaximum = parsed.startingAmmoMaximum;
+        return result;
+    }
+
     int runAdmissionClient(const Duel6::Server::ServerConfig &config, std::ostream &output,
                            Duel6::Network::GameplayManifest manifest,
                            std::chrono::steady_clock::time_point deadline,
@@ -248,6 +344,12 @@ namespace {
             Duel6::Network::AdmissionResult result;
         };
         std::optional<Duel6::Network::AdmissionOfferPayload> acceptedOffer;
+        Duel6::Network::Replication::ClientReplicationConnection replicatedConnection(
+                [connection](std::vector<std::uint8_t> payload) {
+                    try { return connection->send(std::move(payload)); }
+                    catch (...) { return Duel6::Network::SendResult::NotConnected; }
+                });
+        bool sessionAdmitted = false;
         const auto processFrame = [&](const Duel6::Network::TransportFrame &frame) -> GuestFrameDecision {
             if (cancelled()) return GuestFrameDecision(GuestDecision::Cancelled);
             const bool beforeDeadline = frame.receivedAt < deadline;
@@ -282,10 +384,26 @@ namespace {
                     }
                 }
 
+                if (const auto replication = Duel6::Network::Replication::deserializeReplicationFrame(frame.payload)) {
+                    if (replication->kind != Duel6::Network::Replication::ReplicationFrameKind::FullSnapshot
+                        || !replication->snapshot
+                        || replicatedConnection.receive(frame.payload)
+                           != Duel6::Network::Replication::ClientReplicationResult::Applied)
+                        throw std::invalid_argument("Invalid initial replication snapshot");
+                    return GuestFrameDecision();
+                }
                 const Duel6::Network::AdmissionConfirmation confirmation =
                         Duel6::Network::deserializeAdmissionConfirmation(frame.payload);
                 if (!Duel6::Network::sameAdmissionIdentitySet(*acceptedOffer, confirmation))
                     throw std::invalid_argument("Admission confirmation does not match the offer");
+                const auto *initial = replicatedConnection.replicatedState().state();
+                if (runtimeDependencies.productionReplicationProtocol
+                    && (!initial || std::none_of(initial->participants.begin(), initial->participants.end(),
+                        [&](const auto &participant) {
+                            return participant.participantId == confirmation.participantId
+                                   && participant.connection
+                                      == Duel6::Network::Replication::ConnectionState::Connected;
+                        }))) throw std::invalid_argument("Admission confirmation preceded its replication snapshot");
                 if (!beforeDeadline) return GuestFrameDecision();
                 Duel6::Network::AdmissionResult result;
                 result.code = Duel6::Network::AdmissionResultCode::Admitted;
@@ -314,10 +432,17 @@ namespace {
             if (!attempt.finish()) return std::nullopt;
             switch (decision.decision) {
                 case GuestDecision::Rejected:
-                case GuestDecision::Admitted:
                     printAdmissionResult(output, decision.result);
                     closeClient();
-                    return decision.decision == GuestDecision::Admitted ? 0 : 2;
+                    return 2;
+                case GuestDecision::Admitted:
+                    printAdmissionResult(output, decision.result);
+                    if (!runtimeDependencies.productionReplicationProtocol) {
+                        closeClient();
+                        return 0;
+                    }
+                    sessionAdmitted = true;
+                    return std::nullopt;
                 case GuestDecision::InvalidHost:
                     printInvalidHostAdmissionMessage(output);
                     closeClient();
@@ -350,6 +475,11 @@ namespace {
             if (cancelAttempt()) return 2;
             for (const auto &queued: snapshot.frames) {
                 if (const auto finished = publish(processFrame(queued))) return *finished;
+                if (sessionAdmitted) {
+                    replicatedConnection.transportClosed();
+                    closeClient();
+                    return 2;
+                }
             }
             if (cancelAttempt()) return 2;
             attempt.finish();
@@ -380,6 +510,7 @@ namespace {
             }
             if (received) {
                 if (const auto finished = publish(processFrame(frame))) return *finished;
+                if (sessionAdmitted) break;
                 if (runtimeNow(runtimeDependencies) >= deadline) return sealAndFinish();
                 continue;
             }
@@ -394,6 +525,30 @@ namespace {
                 return 2;
             }
         }
+
+        while (!cancelled()) {
+            Duel6::Network::TransportFrame frame;
+            bool received = false;
+            try { received = connection->receive(frame); }
+            catch (...) { break; }
+            if (received) {
+                const auto result = replicatedConnection.receive(frame.payload);
+                if (result == Duel6::Network::Replication::ClientReplicationResult::Reconnecting
+                    || result == Duel6::Network::Replication::ClientReplicationResult::SendFailed) {
+                    try { connection->requestClose(); } catch (...) {}
+                    break;
+                }
+                continue;
+            }
+            Duel6::Network::ClientState state = Duel6::Network::ClientState::Failed;
+            try { state = connection->state(); } catch (...) {}
+            if (isTerminal(state)) break;
+            try { runtimeDependencies.wait(std::chrono::milliseconds(5)); }
+            catch (...) { break; }
+        }
+        replicatedConnection.transportClosed();
+        closeClient();
+        return 2;
     }
 }
 
@@ -421,6 +576,9 @@ namespace Duel6::Server {
             try { return clock(); }
             catch (...) { return Network::Trust::TimePoint::max(); }
         };
+        const bool productionClient = !this->runtimeDependencies.clientFactory;
+        const bool productionListener = !this->runtimeDependencies.listenerFactory;
+        this->runtimeDependencies.productionReplicationProtocol = productionClient && productionListener;
         if (!this->runtimeDependencies.clientFactory) {
             this->runtimeDependencies.clientFactory = [safeClock] {
                 Network::SessionTransportDependencies dependencies;
@@ -600,7 +758,12 @@ namespace Duel6::Server {
         std::signal(SIGTERM, requestStop);
 
         std::unique_ptr<AdmissionPolicy> admissionPolicy;
+        std::unique_ptr<Authoritative::AuthoritativeHostedMatchController> hostedMatch;
+        Network::ManifestBuildResult hostedContent;
+        std::optional<Authoritative::MatchConfig> hostedSettings;
+        std::set<std::uint64_t> connectedParticipants;
         if (!config.transportEcho) {
+            if (runtimeDependencies.productionReplicationProtocol) hostedContent = manifest;
             try {
                 admissionPolicy = std::make_unique<AdmissionPolicy>(
                         std::move(manifest.manifest), config.localPlayers, runtimeDependencies.identitySource,
@@ -613,6 +776,23 @@ namespace Duel6::Server {
                 reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
                 return 2;
             }
+            if (runtimeDependencies.productionReplicationProtocol) {
+                const auto &host = admissionPolicy->allocation().hostParticipant();
+                hostedSettings = productionMatchConfig(hostedContent, host.participantId);
+                if (!hostedSettings) {
+                    reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
+                    return 2;
+                }
+                connectedParticipants.insert(host.participantId);
+                hostedMatch = std::make_unique<Authoritative::AuthoritativeHostedMatchController>(host.participantId);
+                auto lobby = replicationLobbyState(
+                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings);
+                if (!hostedMatch->initializeReplication(std::move(lobby.participants),
+                                                        std::move(lobby.players), std::move(lobby.settings))) {
+                    reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
+                    return 2;
+                }
+            }
         }
 
         std::unique_ptr<AdmissionRuntimeListener> listener;
@@ -622,22 +802,28 @@ namespace Duel6::Server {
             reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
             return 2;
         }
-        const auto cleanupListener = [&] {
+        const auto cleanupListener = [&](bool reportFailure = true) {
             observe(AdmissionLifecycleStage::ListenerCleanupStarted);
-            try { listener->shutdown(); } catch (...) {}
+            try { listener->shutdown(); }
+            catch (...) {
+                if (reportFailure) {
+                    const auto failure = Authoritative::terminalOutcome(Authoritative::OutcomeCode::ShutdownFailed);
+                    output << failure.identifier << '\n' << failure.copy << '\n';
+                }
+                return false;
+            }
             observe(AdmissionLifecycleStage::ListenerCleanupCompleted);
+            return true;
         };
         if (!observe(AdmissionLifecycleStage::ListenerStarting)) {
             reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
-            cleanupListener();
-            return 2;
+            return cleanupListener() ? 2 : 4;
         }
         const auto startupRemaining = std::chrono::duration_cast<std::chrono::milliseconds>(
                 startupDeadline - runtimeNow(runtimeDependencies));
         if (startupRemaining <= std::chrono::milliseconds::zero()) {
             output << "duel6r-server transport startup failed (deadline expired).\n";
-            cleanupListener();
-            return 2;
+            return cleanupListener() ? 2 : 4;
         }
         bool listenerReady = false;
         bool listenerStarted = false;
@@ -677,17 +863,18 @@ namespace Duel6::Server {
             output << "duel6r-server transport startup failed (state="
                    << static_cast<int>(listenerState) << ", reason="
                    << static_cast<int>(listenerFailure) << ").\n";
-            cleanupListener();
-            return 2;
+            return cleanupListener() ? 2 : 4;
         }
         if (!observe(AdmissionLifecycleStage::ListenerReady)) {
             reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
-            cleanupListener();
-            return 2;
+            return cleanupListener() ? 2 : 4;
+        }
+        if (hostedMatch && !hostedMatch->markServiceReady()) {
+            reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
+            return cleanupListener() ? 2 : 4;
         }
         if (!reportHostedStatus(Network::HostServiceStatusCode::Ready)) {
-            cleanupListener();
-            return 2;
+            return cleanupListener() ? 2 : 4;
         }
 
         output << "duel6r-server transport ready on " << config.listenEndpoint.host << ':'
@@ -698,8 +885,8 @@ namespace Duel6::Server {
                    << "diagnostic echo is active; received opaque application frames are returned only "
                    << "to their originating connection.\n";
         } else {
-            output << "scaffold warning: transport and compatibility admission are active, but no lobby, "
-                   << "simulation, or playable network session is implemented.\n";
+            output << "scaffold warning: transport and compatibility admission are active, canonical lobby replication is active, "
+                   << "but no lobby UI or playable network session is implemented.\n";
         }
         output.flush();
 
@@ -723,6 +910,9 @@ namespace Duel6::Server {
         std::vector<RuntimeConnection> connections;
         Network::Trust::ConnectionId nextConnectionId = 1;
         bool runtimeFailed = false;
+        Network::TransportTimePoint nextMatchTick{};
+        const auto matchTickDuration = std::chrono::duration_cast<Network::TransportTimePoint::duration>(
+                std::chrono::duration<double>(1.0 / static_cast<double>(Authoritative::FixedTickRate)));
         const auto cancelled = [this] {
             try { return runtimeDependencies.cancelled(); } catch (...) { return true; }
         };
@@ -823,7 +1013,31 @@ namespace Duel6::Server {
                             connection->markAdmissionSucceeded();
                             const bool observed = observe(AdmissionLifecycleStage::TransactionCommitted,
                                                           runtime.connectionId, committedTransaction);
-                            const bool confirmationObserved = observed
+                            bool replicationReady = observed;
+                            if (replicationReady && hostedMatch) {
+                                connectedParticipants.insert(runtime.offer.participantId);
+                                auto lobby = replicationLobbyState(
+                                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings);
+                                replicationReady = hostedMatch->updateReplicationLobby(std::move(lobby.participants),
+                                        std::move(lobby.players), std::move(lobby.settings));
+                                if (replicationReady) {
+                                    replicationReady = hostedMatch->restoreReplication(runtime.offer.participantId,
+                                            [connection, &write](std::vector<std::uint8_t> payload) {
+                                                return write(*connection, std::move(payload));
+                                            }, [connection] {
+                                                connection->requestClose();
+                                            });
+                                }
+                                if (!replicationReady) {
+                                    connectedParticipants.erase(runtime.offer.participantId);
+                                    hostedMatch->disconnectReplication(runtime.offer.participantId);
+                                    auto isolated = replicationLobbyState(
+                                            admissionPolicy->allocation(), connectedParticipants, *hostedSettings);
+                                    (void) hostedMatch->updateReplicationLobby(std::move(isolated.participants),
+                                            std::move(isolated.players), std::move(isolated.settings));
+                                }
+                            }
+                            const bool confirmationObserved = replicationReady
                                     && observe(AdmissionLifecycleStage::ConfirmationQueued, runtime.connectionId,
                                                committedTransaction);
                             const Network::SendResult confirmed = confirmationObserved
@@ -835,6 +1049,33 @@ namespace Duel6::Server {
                                 result.participantId = runtime.offer.participantId;
                                 result.playerIds = runtime.offer.playerIds;
                                 printAdmissionResult(output, result);
+                                if (hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
+                                    auto current = replicationLobbyState(
+                                            admissionPolicy->allocation(), connectedParticipants, *hostedSettings);
+                                    const bool explicitlyReady = std::all_of(
+                                            current.players.begin(), current.players.end(), [&](const auto &player) {
+                                                return hostedMatch->participantReady(player.participantId);
+                                            });
+                                    if (current.players.size() >= 2 && explicitlyReady) {
+                                        if (!runtimeDependencies.authoritativeRuntimeFactory) {
+                                            runtimeFailed = true;
+                                            connection->requestClose();
+                                            throw std::runtime_error("Canonical runtime factory is unavailable");
+                                        }
+                                        auto matchDependencies = runtimeDependencies.authoritativeRuntimeFactory(
+                                                *hostedSettings, current.players, hostedContent);
+                                        const auto started = hostedMatch->start(
+                                                *hostedSettings, current.players, hostedContent.manifest,
+                                                std::move(matchDependencies));
+                                        if (started.code != Authoritative::OutcomeCode::None) {
+                                            runtimeFailed = true;
+                                            connection->requestClose();
+                                        } else {
+                                            admissionPolicy->setMatchStarted(true);
+                                            nextMatchTick = runtimeNow(runtimeDependencies) + matchTickDuration;
+                                        }
+                                    }
+                                }
                             } else {
                                 connection->requestClose();
                             }
@@ -856,7 +1097,21 @@ namespace Duel6::Server {
                     }
                 } else if (runtime.admitted) {
                     Network::TransportFrame unexpected;
-                    if (connection->receive(unexpected)) connection->requestClose();
+                    if (connection->receive(unexpected)) {
+                        if (!hostedMatch) connection->requestClose();
+                        else {
+                            const auto result = hostedMatch->receiveReplication(
+                                    runtime.offer.participantId, unexpected.payload);
+                            if (result == Network::Replication::HostReplicationResult::SessionPolicyViolation) {
+                                // Route canonical-state mutation attempts through the established authority policy.
+                                const auto decision = admissionPolicy->authorizationDecision(runtime.connectionId,
+                                        Network::Trust::AuthorityAction::ReplicatedStateMutation);
+                                if (!decision.allowed && decision.closeConnection) connection->requestClose();
+                            }
+                            if (result != Network::Replication::HostReplicationResult::Accepted)
+                                connection->requestClose();
+                        }
+                    }
                 }
                 Network::ClientState state = connection->state();
                 if (state == Network::ClientState::Closed || state == Network::ClientState::Failed
@@ -864,6 +1119,19 @@ namespace Duel6::Server {
                     rollback();
                     if (runtime.admitted && !config.transportEcho)
                         admissionPolicy->disconnect(runtime.connectionId);
+                    if (runtime.admitted && hostedMatch) {
+                        connectedParticipants.erase(runtime.offer.participantId);
+                        hostedMatch->disconnectReplication(runtime.offer.participantId);
+                        if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
+                            auto lobby = replicationLobbyState(
+                                    admissionPolicy->allocation(), connectedParticipants, *hostedSettings);
+                            (void) hostedMatch->updateReplicationLobby(std::move(lobby.participants),
+                                    std::move(lobby.players), std::move(lobby.settings));
+                        } else {
+                            (void) hostedMatch->updateReplicationConnection(runtime.offer.participantId,
+                                    Network::Replication::ConnectionState::Reconnecting);
+                        }
+                    }
                     observe(AdmissionLifecycleStage::ConnectionClosed, runtime.connectionId);
                     iterator = connections.erase(iterator);
                 } else {
@@ -875,12 +1143,41 @@ namespace Duel6::Server {
                     if (runtime.admitted && !config.transportEcho) {
                         try { admissionPolicy->disconnect(runtime.connectionId); } catch (...) {}
                     }
+                    if (runtime.admitted && hostedMatch) {
+                        connectedParticipants.erase(runtime.offer.participantId);
+                        hostedMatch->disconnectReplication(runtime.offer.participantId);
+                        try {
+                            if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
+                                auto lobby = replicationLobbyState(
+                                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings);
+                                (void) hostedMatch->updateReplicationLobby(std::move(lobby.participants),
+                                        std::move(lobby.players), std::move(lobby.settings));
+                            } else {
+                                (void) hostedMatch->updateReplicationConnection(runtime.offer.participantId,
+                                        Network::Replication::ConnectionState::Reconnecting);
+                            }
+                        } catch (...) {}
+                    }
                     observe(AdmissionLifecycleStage::ConnectionClosed, runtime.connectionId);
                     iterator = connections.erase(iterator);
                 }
             }
+            if (runtimeFailed) break;
+            try {
+                if (hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive
+                    && runtimeNow(runtimeDependencies) >= nextMatchTick) {
+                    auto *match = hostedMatch->match();
+                    if (!match || !match->advanceOneTick() || !hostedMatch->observeMatchOutcome()) {
+                        runtimeFailed = true;
+                        break;
+                    }
+                    if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby)
+                        admissionPolicy->setMatchStarted(false);
+                    nextMatchTick += matchTickDuration;
+                }
+            } catch (...) { runtimeFailed = true; break; }
             try { runtimeDependencies.wait(std::chrono::milliseconds(5)); }
-            catch (...) { break; }
+            catch (...) { runtimeFailed = true; break; }
         }
 
         if (admissionPolicy) {
@@ -897,8 +1194,28 @@ namespace Duel6::Server {
             }
         }
 
-        cleanupListener();
+        int exitStatus = 0;
+        std::optional<Authoritative::TerminalOutcome> runtimeFailure;
+        if (runtimeFailed) {
+            Authoritative::TerminalOutcome failure = Authoritative::terminalOutcome(
+                    Authoritative::OutcomeCode::RuntimeFailed);
+            if (hostedMatch && hostedMatch->match()) {
+                const auto stopped = hostedMatch->match()->shutdown();
+                if (stopped.code == Authoritative::OutcomeCode::ShutdownFailed
+                    || stopped.code == Authoritative::OutcomeCode::RuntimeFailed) failure = stopped;
+            }
+            exitStatus = failure.exitStatus;
+            runtimeFailure = failure;
+        }
+        const bool listenerCleaned = cleanupListener(false);
+        if (!listenerCleaned) {
+            const auto failure = Authoritative::terminalOutcome(Authoritative::OutcomeCode::ShutdownFailed);
+            output << failure.identifier << '\n' << failure.copy << '\n';
+            return 4;
+        }
+        if (runtimeFailure)
+            output << runtimeFailure->identifier << '\n' << runtimeFailure->copy << '\n';
         output << "duel6r-server transport stopped.\n";
-        return 0;
+        return exitStatus;
     }
 }

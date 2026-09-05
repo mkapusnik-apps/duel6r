@@ -56,6 +56,8 @@ namespace Duel6::Server {
     }
 
     std::uint64_t SessionAllocation::takeIdentityLocked() {
+        if (issuedIdentities.size() >= MaxSessionIssuedIdentities)
+            throw std::overflow_error("Session identity history exhausted");
         for (std::size_t attempt = 0; attempt < Network::Trust::MaxParticipants * 2 + 2; ++attempt) {
             const std::optional<std::uint64_t> candidate = identities ? identities() : std::nullopt;
             if (!candidate) throw std::overflow_error("Session identity space exhausted");
@@ -154,6 +156,14 @@ namespace Duel6::Server {
     }
 
     const AdmittedParticipant &SessionAllocation::hostParticipant() const { return participants.at(hostId); }
+
+    std::vector<AdmittedParticipant> SessionAllocation::admittedParticipants() const {
+        std::lock_guard<std::mutex> lock(mutex);
+        std::vector<AdmittedParticipant> result;
+        result.reserve(participants.size());
+        for (const auto &entry: participants) result.push_back(entry.second);
+        return result;
+    }
 
     bool SessionAllocation::participantOwnsPlayer(std::uint64_t participantId, std::uint64_t playerId) const {
         std::lock_guard<std::mutex> lock(mutex);
@@ -262,6 +272,13 @@ namespace Duel6::Server {
                                     std::optional<Network::Trust::PlayerSlotId> player) const {
         std::lock_guard<std::mutex> lock(policyMutex);
         return authorization.authorize(connection, action, player);
+    }
+
+    Network::Trust::AuthorizationDecision AdmissionPolicy::authorizationDecision(
+            Network::Trust::ConnectionId connection, Network::Trust::AuthorityAction action,
+            std::optional<Network::Trust::PlayerSlotId> player) const {
+        std::lock_guard<std::mutex> lock(policyMutex);
+        return authorization.decide(connection, action, player);
     }
 
     void AdmissionPolicy::setMatchStarted(bool started) {
