@@ -469,6 +469,71 @@ D6R_TEST_CASE("NIN target tick boundaries effective ticks and post-processing ac
     D6R_REQUIRE_EQ(Tick{4}, sinks[3].outcomes.back().effectiveTick);
 }
 
+D6R_TEST_CASE("NIN higher sequence for the current tick supersedes a lower sequence for the next tick") {
+    Fixture fixture(makeRoster(2));
+    OutcomeSink sink;
+    D6R_REQUIRE(fixture.input.restore(1, [&](auto payload) { return sink.send(std::move(payload)); }));
+
+    D6R_REQUIRE(fixture.input.receive(1, command(1, 101, 1, 1, Input::MoveLeft)).category
+                == Input::OutcomeCategory::Pending);
+    D6R_REQUIRE_EQ(Tick{1}, sink.outcomes.back().effectiveTick);
+    D6R_REQUIRE(fixture.input.receive(1, command(1, 101, 2, 0, Input::Jump)).category
+                == Input::OutcomeCategory::Pending);
+    D6R_REQUIRE_EQ(std::size_t{2}, sink.count(Input::OutcomeCategory::Pending));
+    D6R_REQUIRE_EQ(UINT64_C(2), sink.outcomes.back().sequence);
+    D6R_REQUIRE_EQ(Tick{0}, sink.outcomes.back().effectiveTick);
+    D6R_REQUIRE_EQ(std::size_t{1}, sink.count(Input::OutcomeCategory::Superseded));
+    const auto superseded = std::find_if(sink.outcomes.begin(), sink.outcomes.end(), [](const auto &outcome) {
+        return outcome.category == Input::OutcomeCategory::Superseded;
+    });
+    D6R_REQUIRE(superseded != sink.outcomes.end());
+    D6R_REQUIRE_EQ(UINT64_C(1), superseded->sequence);
+    D6R_REQUIRE_EQ(Tick{1}, superseded->effectiveTick);
+    D6R_REQUIRE(fixture.inputCalls.empty());
+
+    D6R_REQUIRE(fixture.input.processTick());
+    D6R_REQUIRE_EQ(std::size_t{1}, fixture.inputCalls.size());
+    D6R_REQUIRE_EQ(Input::Jump, fixture.held[101]);
+    D6R_REQUIRE_EQ(std::size_t{1}, sink.count(Input::OutcomeCategory::Applied));
+    const auto applied = std::find_if(sink.outcomes.begin(), sink.outcomes.end(), [](const auto &outcome) {
+        return outcome.category == Input::OutcomeCategory::Applied;
+    });
+    D6R_REQUIRE(applied != sink.outcomes.end());
+    D6R_REQUIRE_EQ(UINT64_C(2), applied->sequence);
+    D6R_REQUIRE_EQ(Tick{0}, applied->effectiveTick);
+
+    D6R_REQUIRE(fixture.input.processTick());
+    D6R_REQUIRE_EQ(std::size_t{1}, fixture.inputCalls.size());
+    D6R_REQUIRE_EQ(Input::Jump, fixture.held[101]);
+    D6R_REQUIRE_EQ(std::size_t{1}, sink.count(Input::OutcomeCategory::Applied));
+}
+
+D6R_TEST_CASE("NIN later-effective input preserves an earlier-effective pending command") {
+    Fixture fixture(makeRoster(2));
+    OutcomeSink sink;
+    D6R_REQUIRE(fixture.input.restore(1, [&](auto payload) { return sink.send(std::move(payload)); }));
+
+    D6R_REQUIRE(fixture.input.receive(1, command(1, 101, 1, 0, Input::MoveLeft)).category
+                == Input::OutcomeCategory::Pending);
+    D6R_REQUIRE(fixture.input.receive(1, command(1, 101, 2, 1, Input::Jump)).category
+                == Input::OutcomeCategory::Pending);
+    D6R_REQUIRE_EQ(std::size_t{0}, sink.count(Input::OutcomeCategory::Superseded));
+
+    D6R_REQUIRE(fixture.input.processTick());
+    D6R_REQUIRE_EQ(std::size_t{1}, fixture.inputCalls.size());
+    D6R_REQUIRE_EQ(Input::MoveLeft, fixture.held[101]);
+    D6R_REQUIRE_EQ(std::size_t{1}, sink.count(Input::OutcomeCategory::Applied));
+    D6R_REQUIRE_EQ(UINT64_C(1), sink.outcomes.back().sequence);
+    D6R_REQUIRE_EQ(Tick{0}, sink.outcomes.back().effectiveTick);
+
+    D6R_REQUIRE(fixture.input.processTick());
+    D6R_REQUIRE_EQ(std::size_t{2}, fixture.inputCalls.size());
+    D6R_REQUIRE_EQ(Input::Jump, fixture.held[101]);
+    D6R_REQUIRE_EQ(std::size_t{2}, sink.count(Input::OutcomeCategory::Applied));
+    D6R_REQUIRE_EQ(UINT64_C(2), sink.outcomes.back().sequence);
+    D6R_REQUIRE_EQ(Tick{1}, sink.outcomes.back().effectiveTick);
+}
+
 D6R_TEST_CASE("NIN supersession sequence rejection retention and zero-state release are deterministic") {
     Fixture fixture(makeRoster(2));
     OutcomeSink sink;
