@@ -21,6 +21,8 @@ Transport, admission, and trust limits are in [`networking.md`](networking.md), 
 - **Next unprocessed tick:** The earliest authoritative match tick that the service has not processed. This document calls it `N`.
 - **Effective tick:** The tick when an accepted input can first affect canonical state.
 - **Applied acknowledgment:** The authoritative confirmation that an input affected its effective tick.
+- **Network input client:** The participant-side capability that creates input commands for owned players and receives authoritative input outcomes.
+- **Graphical network-session composition:** The graphical application journey that connects local controls, network input, transport, replicated state, and presentation.
 
 ## Product goal
 
@@ -31,13 +33,20 @@ Transport, admission, and trust limits are in [`networking.md`](networking.md), 
 
 ## Local devices and player ownership
 
-- **NIN-OWN-001** Each participant must map its local keyboard and controller assignments only to its owned players.
+- **NIN-OWN-001** Each network input client must create commands only for players that its participant owns.
 - **NIN-OWN-002** A participant may own and control more than one roster player.
 - **NIN-OWN-003** The same local control preset may control multiple players owned by one participant, as permitted by `INP-007`.
 - **NIN-OWN-004** Each owned player must have an independent input command and input sequence.
-- **NIN-OWN-005** Host-player input must follow the same player-input validation and authoritative tick rules as guest-player input.
-- **NIN-OWN-006** Network input must preserve the actions and local device behavior in `INP-001` through `INP-016`.
+- **NIN-OWN-005** Host-player commands must follow the same validation and authoritative tick rules as guest-player commands.
+- **NIN-OWN-006** Graphical network-session composition must preserve the actions and local device behavior in `INP-001` through `INP-016`.
 - **NIN-OWN-007** Network input must not add a player action or change an existing action meaning.
+
+## Runtime boundary
+
+- **NIN-BOUND-001** Host and guest participants must use the common network input client behavior.
+- **NIN-BOUND-002** The authoritative service must receive, validate, apply, and acknowledge input commands.
+- **NIN-BOUND-003** Graphical network-session composition must connect each participant's selected local controls to its network input client.
+- **NIN-BOUND-004** The authoritative service must not initialize local input devices.
 
 ## Input state and sequence
 
@@ -124,9 +133,9 @@ Transport, admission, and trust limits are in [`networking.md`](networking.md), 
 
 ## Acceptance criteria
 
-- **NIN-AC-001 — Ownership:** Each local device action controls only its participant's owned player or players. No action controls an unowned player.
-- **NIN-AC-002 — Existing controls:** All seven actions keep their documented meanings across supported keyboard and controller assignments.
-- **NIN-AC-003 — Mixed participation:** Supported sessions with multiple local players and remote participants keep correct player ownership for a complete authoritative round.
+- **NIN-AC-001 — Ownership:** Each network input client submits commands only for its participant's owned players. No command controls an unowned player.
+- **NIN-AC-002 — Existing actions:** Input commands represent all seven documented actions without changing an action meaning.
+- **NIN-AC-003 — Mixed participation:** Host and guest network input clients support multiple owned players through a complete authoritative round without ownership crossover.
 - **NIN-AC-004 — Complete state:** A zero input releases held actions. The last applied complete state remains effective until replacement or an input-clear rule.
 - **NIN-AC-005 — Sequence:** Positive increasing per-player sequences are accepted. Duplicate, lower, invalid, or wrapped sequences do not change input or canonical state.
 - **NIN-AC-006 — Tick window:** Relative to `N`, target ticks `N - 2` through `N + 1` are eligible. Earlier and later target ticks are rejected.
@@ -142,22 +151,31 @@ Transport, admission, and trust limits are in [`networking.md`](networking.md), 
 - **NIN-AC-016 — Local independence:** Local Play remains unchanged and does not require network input processing.
 - **NIN-AC-017 — Scope truth:** Completion of issue #33 alone must not support a playable-network or release-readiness claim.
 
+## Graphical network-session composition acceptance
+
+- **NIN-COMP-AC-001 — Local controls:** Each supported keyboard or controller action must control only an owned player through the graphical network session.
+- **NIN-COMP-AC-002 — Control parity:** The graphical network session must preserve `INP-001` through `INP-016` for host and guest participants.
+- **NIN-COMP-AC-003 — Mixed journey:** A supported mixed local and remote roster must complete an authoritative round through graphical host and guest sessions without ownership crossover.
+- **NIN-COMP-AC-004 — Headless boundary:** Graphical network-session composition must not require the authoritative service to initialize a renderer, audio, or local input devices.
+
 ## Downstream boundaries
 
 - Issue #35 owns responsiveness, interpolation, prediction, reconciliation, and network-condition budgets.
 - Issue #36 owns disconnect detection, reservation lifecycle, reconnect authorization, and restored connection authority.
-- Issue #38 owns graphical presentation and visual evidence for network controls and states.
+- Issue #33 owns `NIN-BOUND-001` and `NIN-BOUND-002`. It does not own the graphical connection of local devices.
+- Issue #38 owns `NIN-OWN-006`, `NIN-BOUND-003`, `NIN-COMP-AC-001` through `NIN-COMP-AC-004`, graphical presentation, and visual evidence.
 - Issue #41 owns complete network-play release validation.
 
 ## Possible evidence
 
-- Tester results can cover each action through keyboard and controller assignments for host and guest players.
-- Tester results can cover participants that own one player and multiple players in mixed sessions.
+- Tester results can cover each input-command action for host and guest network input clients.
+- Tester results can cover network input clients that own one player or multiple players in mixed sessions.
 - Tester results can cover eligible boundary ticks, stale input, future input, and pending-input replacement.
 - Tester results can cover zero-state release, round-start clear, disconnect clear, reconnect, and permanent revocation.
 - Tester results can cover duplicate, lower, invalid, unavailable, unauthorized, and over-limit input.
 - Tester results can verify applied acknowledgments against authoritative ticks and resulting replicated state.
 - Reviewer analysis can assess ownership isolation, sequence ordering, authority, rate limits, and Local Play independence.
-- DevOps evidence can cover supported Linux and Windows input paths when hosted evidence is applicable.
+- DevOps evidence can cover supported Linux and Windows network input client and authoritative service paths when hosted evidence is applicable.
+- Issue #38 evidence must cover actual keyboard and controller sampling through graphical host and guest sessions.
 
 Issue #41 remains the complete network-play release gate.
