@@ -5,7 +5,6 @@
 #include <functional>
 #include <map>
 #include <optional>
-#include <set>
 #include <vector>
 
 #include "AuthoritativeMatch.h"
@@ -32,7 +31,7 @@ namespace Duel6::Server::Authoritative {
         bool processTick();
         void clear() noexcept;
     private:
-        struct RateWindow { TimePoint start{}; std::size_t used = 0; };
+        struct RateWindow { std::optional<std::int64_t> index; std::size_t used = 0; };
         struct ParticipantConnection { Sender sender; std::function<void()> close; bool remote = true; };
         struct Pending { Network::Input::Command command; Tick effectiveTick = 0; };
 
@@ -45,12 +44,14 @@ namespace Duel6::Server::Authoritative {
         std::map<Identity, RateWindow> playerRates;
         RateWindow globalRate;
         std::map<Identity, ParticipantConnection> connections;
+        std::map<Identity, std::int64_t> participantObservedWindow;
         std::map<Identity, std::int64_t> participantOverLimitWindow;
-        std::set<std::pair<Identity, std::int64_t>> overLimitWindows;
 
         static std::int64_t windowIndex(TimePoint value) noexcept;
-        static bool consume(RateWindow &window, TimePoint now, std::size_t limit);
+        static bool consume(RateWindow &window, std::int64_t index, std::size_t limit);
         bool send(Identity participantId, const Network::Input::Outcome &outcome) noexcept;
+        bool sendPolicyViolation(Identity participantId) noexcept;
+        void observeParticipantWindow(Identity participantId, std::int64_t index) noexcept;
         void clearParticipantInput(Identity participantId) noexcept;
         ReceiveResult reject(Identity participantId, const Network::Input::Command &command,
                              Network::Input::OutcomeCategory category, bool closeConnection = false);

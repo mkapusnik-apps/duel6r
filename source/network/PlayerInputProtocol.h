@@ -2,6 +2,7 @@
 #define DUEL6_NETWORK_PLAYERINPUTPROTOCOL_H
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <vector>
@@ -36,7 +37,12 @@ namespace Duel6::Network::Input {
         std::uint32_t mask() const noexcept;
     };
 
-    enum class FrameKind : std::uint16_t { Command = 1, Outcome = 2, AppliedAcknowledgment = 3 };
+    enum class FrameKind : std::uint16_t {
+        Command = 1,
+        Outcome = 2,
+        AppliedAcknowledgment = 3,
+        SessionPolicyViolation = 4
+    };
     enum class OutcomeCategory : std::uint8_t {
         Pending,
         Applied,
@@ -74,6 +80,7 @@ namespace Duel6::Network::Input {
     bool isPlayerInputFrame(const std::vector<std::uint8_t> &payload) noexcept;
     std::vector<std::uint8_t> serializeCommand(const Command &command);
     std::vector<std::uint8_t> serializeOutcome(const Outcome &outcome);
+    std::vector<std::uint8_t> serializeSessionPolicyViolation();
     std::optional<Frame> deserializeFrame(const std::vector<std::uint8_t> &payload) noexcept;
 
     // Converts complete seven-action local control states into independently sequenced commands
@@ -87,6 +94,31 @@ namespace Duel6::Network::Input {
     private:
         Identity participantId;
         std::map<Identity, std::uint64_t> sequences;
+    };
+
+    enum class ClientCommandState { Submitted, Pending, Superseded, Applied, Rejected };
+
+    // Production command path shared by host and admitted guests. Callers provide the
+    // transport dispatch used by their session and sample their existing local controls.
+    class ClientCommandSession final {
+    public:
+        using Sender = std::function<SendResult(std::vector<std::uint8_t>)>;
+
+        ClientCommandSession(Identity participantId, std::vector<Identity> ownedPlayerIds, Sender sender);
+        std::optional<Command> submit(Identity playerId, Tick targetTick, std::uint32_t actions);
+        std::optional<Command> submit(Identity playerId, Tick targetTick, const PlayerActionState &actions);
+        bool receive(const std::vector<std::uint8_t> &payload);
+        std::optional<ClientCommandState> state(Identity playerId, std::uint64_t sequence) const noexcept;
+        std::optional<Outcome> lastOutcome() const noexcept;
+        bool policyViolation() const noexcept;
+        void reset() noexcept;
+
+    private:
+        OwnedPlayerCommandSource source;
+        Sender sender;
+        std::map<std::pair<Identity, std::uint64_t>, ClientCommandState> states;
+        std::optional<Outcome> latestOutcome;
+        bool endedForPolicyViolation = false;
     };
 }
 

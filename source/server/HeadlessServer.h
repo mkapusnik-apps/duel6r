@@ -138,6 +138,10 @@ namespace Duel6::Server {
         IdentitySource identitySource;
         std::shared_ptr<Network::Trust::ConcurrentWorkLimiter> validationWorkLimiter;
         ValidationWorkGate validationWorkGate;
+        // The graphical host/guest application supplies its existing keyboard/controller
+        // sample for each admitted player identity. An empty callback keeps non-interactive
+        // headless invocations from manufacturing input.
+        std::function<std::uint32_t(std::uint64_t)> localPlayerActions;
         std::function<Authoritative::MatchRuntimeDependencies(
                 const Authoritative::MatchConfig &, const std::vector<Authoritative::PlayerDefinition> &,
                 const Network::ManifestBuildResult &)> authoritativeRuntimeFactory;

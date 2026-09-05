@@ -66,9 +66,9 @@ namespace Duel6::Server::Authoritative {
         return std::chrono::duration_cast<std::chrono::seconds>(value.time_since_epoch()).count();
     }
 
-    bool AuthoritativePlayerInput::consume(RateWindow &window, TimePoint now, std::size_t limit) {
-        if (window.start == TimePoint{} || now < window.start || now - window.start >= std::chrono::seconds(1)) {
-            window.start = now;
+    bool AuthoritativePlayerInput::consume(RateWindow &window, std::int64_t index, std::size_t limit) {
+        if (!window.index || *window.index != index) {
+            window.index = index;
             window.used = 0;
         }
         if (window.used >= limit) return false;
@@ -84,10 +84,33 @@ namespace Duel6::Server::Authoritative {
         catch (...) { return false; }
     }
 
+    bool AuthoritativePlayerInput::sendPolicyViolation(Identity participantId) noexcept {
+        const auto found = connections.find(participantId);
+        if (found == connections.end()) return participantId == hostParticipantId;
+        try {
+            return found->second.sender(Network::Input::serializeSessionPolicyViolation())
+                   == Network::SendResult::Accepted;
+        } catch (...) { return false; }
+    }
+
+    void AuthoritativePlayerInput::observeParticipantWindow(
+            Identity participantId, std::int64_t index) noexcept {
+        const auto previous = participantObservedWindow.find(participantId);
+        if (previous == participantObservedWindow.end()) {
+            participantOverLimitWindow.erase(participantId);
+            participantObservedWindow[participantId] = index;
+        } else if (previous->second != index) {
+            if (previous->second + 1 != index) participantOverLimitWindow.erase(participantId);
+            previous->second = index;
+        }
+    }
+
     AuthoritativePlayerInput::ReceiveResult AuthoritativePlayerInput::reject(
             Identity participantId, const Network::Input::Command &command,
             Network::Input::OutcomeCategory category, bool closeConnection) {
-        if (category != Network::Input::OutcomeCategory::Unauthorized)
+        if (category == Network::Input::OutcomeCategory::Unauthorized)
+            (void) sendPolicyViolation(participantId);
+        else
             (void) send(participantId, {category, command.playerId, command.sequence, 0});
         if (closeConnection) {
             const auto found = connections.find(participantId);
@@ -98,10 +121,26 @@ namespace Duel6::Server::Authoritative {
 
     AuthoritativePlayerInput::ReceiveResult AuthoritativePlayerInput::receive(
             Identity connectionParticipantId, const Network::Input::Command &command, bool remote) {
+        if (connectionParticipantId == 0 || command.participantId == 0 || command.playerId == 0)
+            return reject(connectionParticipantId, command, Network::Input::OutcomeCategory::Invalid);
         const auto owner = owners.find(command.playerId);
-        if (connectionParticipantId == 0 || command.participantId != connectionParticipantId
+        if (command.participantId != connectionParticipantId
             || owner == owners.end() || owner->second != connectionParticipantId)
             return reject(connectionParticipantId, command, Network::Input::OutcomeCategory::Unauthorized, true);
+        if (connections.find(connectionParticipantId) == connections.end())
+            return reject(connectionParticipantId, command, Network::Input::OutcomeCategory::Unavailable);
+        const TimePoint now = clock();
+        const std::int64_t window = windowIndex(now);
+        observeParticipantWindow(connectionParticipantId, window);
+        if (!consume(playerRates[command.playerId], window, Network::Trust::InputsPerOwnedSlotPerSecond)) {
+            bool close = false;
+            if (remote) {
+                const auto previous = participantOverLimitWindow.find(connectionParticipantId);
+                close = previous != participantOverLimitWindow.end() && previous->second + 1 == window;
+                participantOverLimitWindow[connectionParticipantId] = window;
+            }
+            return reject(connectionParticipantId, command, Network::Input::OutcomeCategory::OverLimit, close);
+        }
         if (!match || command.sequence == 0 || (command.actions & ~Network::Input::AllActions) != 0)
             return reject(connectionParticipantId, command, Network::Input::OutcomeCategory::Invalid);
         if (!match->canAcceptPlayerInput(connectionParticipantId, command.playerId))
@@ -117,19 +156,12 @@ namespace Duel6::Server::Authoritative {
         if (sequence == highestSequences.end() || command.sequence <= sequence->second)
             return reject(connectionParticipantId, command, Network::Input::OutcomeCategory::Duplicate);
 
-        const TimePoint now = clock();
-        const bool playerWithinLimit = consume(playerRates[command.playerId], now,
-                Network::Trust::InputsPerOwnedSlotPerSecond);
-        const bool globalWithinLimit = playerWithinLimit && consume(globalRate, now,
-                Network::Trust::GlobalAcceptedInputsPerSecond);
-        if (!playerWithinLimit || !globalWithinLimit) {
-            const std::int64_t window = windowIndex(now);
+        if (!consume(globalRate, window, Network::Trust::GlobalAcceptedInputsPerSecond)) {
             if (remote) {
                 const auto previous = participantOverLimitWindow.find(connectionParticipantId);
                 const bool consecutive = previous != participantOverLimitWindow.end()
                                          && previous->second + 1 == window;
                 participantOverLimitWindow[connectionParticipantId] = window;
-                overLimitWindows.emplace(connectionParticipantId, window);
                 return reject(connectionParticipantId, command, Network::Input::OutcomeCategory::OverLimit,
                               consecutive);
             }
@@ -196,7 +228,7 @@ namespace Duel6::Server::Authoritative {
         pending.clear();
         playerRates.clear();
         globalRate = {};
+        participantObservedWindow.clear();
         participantOverLimitWindow.clear();
-        overLimitWindows.clear();
     }
 }

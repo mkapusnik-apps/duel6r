@@ -80,7 +80,8 @@ namespace Duel6::Network::Input {
     }
 
     std::vector<std::uint8_t> serializeOutcome(const Outcome &outcome) {
-        if (outcome.playerId == 0 || outcome.sequence == 0
+        if ((outcome.category != OutcomeCategory::Invalid
+             && (outcome.playerId == 0 || outcome.sequence == 0))
             || outcome.category > OutcomeCategory::OverLimit)
             throw std::invalid_argument("Invalid player input outcome");
         const FrameKind kind = outcome.category == OutcomeCategory::Applied
@@ -91,6 +92,12 @@ namespace Duel6::Network::Input {
         writer.integer(outcome.playerId);
         writer.integer(outcome.sequence);
         writer.integer(outcome.effectiveTick);
+        return writer.finish();
+    }
+
+    std::vector<std::uint8_t> serializeSessionPolicyViolation() {
+        Writer writer;
+        header(writer, FrameKind::SessionPolicyViolation);
         return writer.finish();
     }
 
@@ -116,10 +123,12 @@ namespace Duel6::Network::Input {
                 outcome.sequence = reader.integer<std::uint64_t>();
                 outcome.effectiveTick = reader.integer<Tick>();
                 if (outcome.category > OutcomeCategory::OverLimit
+                    || (outcome.category != OutcomeCategory::Invalid
+                        && (outcome.playerId == 0 || outcome.sequence == 0))
                     || (frame.kind == FrameKind::AppliedAcknowledgment
                         && outcome.category != OutcomeCategory::Applied)) return std::nullopt;
                 frame.outcome = outcome;
-            } else return std::nullopt;
+            } else if (frame.kind != FrameKind::SessionPolicyViolation) return std::nullopt;
             if (!reader.complete()) return std::nullopt;
             return frame;
         } catch (...) { return std::nullopt; }
@@ -150,5 +159,72 @@ namespace Duel6::Network::Input {
 
     void OwnedPlayerCommandSource::reset() noexcept {
         for (auto &entry: sequences) entry.second = 0;
+    }
+
+    ClientCommandSession::ClientCommandSession(
+            Identity participantId, std::vector<Identity> ownedPlayerIds, Sender sender)
+            : source(participantId, std::move(ownedPlayerIds)), sender(std::move(sender)) {
+        if (!this->sender) throw std::invalid_argument("Player input transport dispatch is required");
+    }
+
+    std::optional<Command> ClientCommandSession::submit(
+            Identity playerId, Tick targetTick, std::uint32_t actions) {
+        auto command = source.sample(playerId, targetTick, actions);
+        if (!command) return std::nullopt;
+        const auto key = std::make_pair(playerId, command->sequence);
+        states[key] = ClientCommandState::Submitted;
+        if (sender(serializeCommand(*command)) != SendResult::Accepted) {
+            states.erase(key);
+            return std::nullopt;
+        }
+        return command;
+    }
+
+    std::optional<Command> ClientCommandSession::submit(
+            Identity playerId, Tick targetTick, const PlayerActionState &actions) {
+        return submit(playerId, targetTick, actions.mask());
+    }
+
+    bool ClientCommandSession::receive(const std::vector<std::uint8_t> &payload) {
+        const auto frame = deserializeFrame(payload);
+        if (!frame) return false;
+        if (frame->kind == FrameKind::SessionPolicyViolation) {
+            endedForPolicyViolation = true;
+            return true;
+        }
+        if (!frame->outcome) return false;
+        const Outcome &outcome = *frame->outcome;
+        const auto key = std::make_pair(outcome.playerId, outcome.sequence);
+        auto found = states.find(key);
+        if (found == states.end()) return false;
+        switch (outcome.category) {
+            case OutcomeCategory::Pending: found->second = ClientCommandState::Pending; break;
+            case OutcomeCategory::Superseded: found->second = ClientCommandState::Superseded; break;
+            case OutcomeCategory::Applied:
+                if (found->second != ClientCommandState::Pending) return false;
+                found->second = ClientCommandState::Applied;
+                break;
+            case OutcomeCategory::Unauthorized:
+                return false;
+            default: found->second = ClientCommandState::Rejected; break;
+        }
+        latestOutcome = outcome;
+        return true;
+    }
+
+    std::optional<ClientCommandState> ClientCommandSession::state(
+            Identity playerId, std::uint64_t sequence) const noexcept {
+        const auto found = states.find({playerId, sequence});
+        return found == states.end() ? std::nullopt : std::optional<ClientCommandState>(found->second);
+    }
+
+    std::optional<Outcome> ClientCommandSession::lastOutcome() const noexcept { return latestOutcome; }
+    bool ClientCommandSession::policyViolation() const noexcept { return endedForPolicyViolation; }
+
+    void ClientCommandSession::reset() noexcept {
+        source.reset();
+        states.clear();
+        latestOutcome.reset();
+        endedForPolicyViolation = false;
     }
 }
