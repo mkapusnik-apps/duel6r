@@ -400,8 +400,9 @@ The following values come from renderer and GUI source.
 - The PR #59 `SS-001` and `SS-024` artifacts are historical because they show the prior person-action arrangement.
 - The PR #60 `SS-001` and `SS-024` artifacts are historical because they show the shorter Persons list, the higher person-name row, and the previous batch controller-detection caption.
 - The PR #62 `SS-001` and `SS-024` artifacts are historical because they show `<<` in the Persons panel.
-- PR #65 provides one current conforming implementation screenshot for each `MENU-01` wireframe at `SS-001` and `SS-024`.
-- `SS-001` and `SS-024` conform based on the focused UX assessment at final PR #65 head `c2d72fb4d2c2bb27e6e525d88368543d710eb5b9`.
+- PR #69 provides current conforming implementation screenshots for all ten implemented wireframes.
+- `SS-001` and `SS-024` represent the current three-action `MENU-01` implementation and conform at PR #69 assessment head `f4708d337bb82be55c553c64608bd75ccd64121f`.
+- `SS-003`, `SS-007`–`SS-012`, and `SS-014` represent the current implemented gameplay and overlay wireframes and conform at the same assessment head.
 - Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources
