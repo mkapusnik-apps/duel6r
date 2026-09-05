@@ -1,7 +1,9 @@
 #ifndef DUEL6_NETWORK_PLAYERINPUTPROTOCOL_H
 #define DUEL6_NETWORK_PLAYERINPUTPROTOCOL_H
 
+#include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <map>
 #include <optional>
@@ -97,6 +99,7 @@ namespace Duel6::Network::Input {
     };
 
     enum class ClientCommandState { Submitted, Pending, Superseded, Applied, Rejected };
+    constexpr std::size_t MaxClientCommandHistory = MaxQueuedTransportFrames;
 
     // Production command path shared by host and admitted guests. Callers provide the
     // transport dispatch used by their session and sample their existing local controls.
@@ -114,9 +117,15 @@ namespace Duel6::Network::Input {
         void reset() noexcept;
 
     private:
+        using CommandKey = std::pair<Identity, std::uint64_t>;
+
+        bool makeHistoryCapacity() noexcept;
+        void removeFromHistory(const CommandKey &key) noexcept;
+
         OwnedPlayerCommandSource source;
         Sender sender;
-        std::map<std::pair<Identity, std::uint64_t>, ClientCommandState> states;
+        std::map<CommandKey, ClientCommandState> states;
+        std::deque<CommandKey> history;
         std::optional<Outcome> latestOutcome;
         bool endedForPolicyViolation = false;
     };

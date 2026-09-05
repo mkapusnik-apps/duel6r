@@ -18,6 +18,7 @@
 #include "source/network/AdmissionProtocol.h"
 #include "source/network/CompatibilityManifest.h"
 #include "source/network/NetworkTrustPolicy.h"
+#include "source/network/PlayerInputProtocol.h"
 #include "source/network/StateReplicationProtocol.h"
 #include "source/server/AdmissionSession.h"
 #include "source/server/HeadlessServer.h"
@@ -834,6 +835,89 @@ D6R_TEST_CASE("four-message runtime permits immediate acceptance before offer vi
 }
 
 #ifndef _WIN32
+D6R_TEST_CASE("NIN host and guest production sessions dispatch owned local actions through authoritative input") {
+    const auto hostedManifest = manifest({
+            {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+    auto content = std::make_shared<Network::FrozenGameplayContent>();
+    (*content)["data/blocks.json"] = {'{', '}'};
+    (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+    (*content)["levels/a.json"] = {'{', '}'};
+    const Network::ManifestBuildResult built{Network::ManifestStatus::Valid, hostedManifest, content};
+
+    Server::ServerConfig hostConfig = runtimeServerConfig();
+    hostConfig.listenEndpoint.port = unusedLoopbackPort();
+    D6R_REQUIRE(hostConfig.listenEndpoint.port != 0);
+    std::atomic<bool> ready{false};
+    std::atomic<bool> stopHost{false};
+    std::atomic<Server::Authoritative::Identity> hostPlayer{0};
+    std::atomic<Server::Authoritative::Identity> guestPlayer{0};
+    std::atomic<std::uint32_t> hostApplied{0};
+    std::atomic<std::uint32_t> guestApplied{0};
+    std::atomic<unsigned> hostSamples{0};
+    std::atomic<unsigned> guestSamples{0};
+
+    Server::AdmissionRuntimeDependencies hostDependencies;
+    hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+    hostDependencies.cancelled = [&] { return stopHost.load(); };
+    hostDependencies.hostedServiceStatus = [&](Network::HostServiceStatusCode status) {
+        if (status == Network::HostServiceStatusCode::Ready) ready = true;
+        return true;
+    };
+    hostDependencies.localPlayerActions = [&](std::uint64_t playerId) {
+        D6R_REQUIRE_EQ(hostPlayer.load(), playerId);
+        ++hostSamples;
+        return Network::Input::MoveLeft | Network::Input::Shoot;
+    };
+    hostDependencies.authoritativeRuntimeFactory = [&](const auto &config, const auto &players, const auto &) {
+        D6R_REQUIRE_EQ(std::size_t{2}, players.size());
+        for (const auto &player: players) {
+            if (player.participantId == config.hostParticipantId) hostPlayer = player.playerId;
+            else guestPlayer = player.playerId;
+        }
+        D6R_REQUIRE(hostPlayer != 0 && guestPlayer != 0 && hostPlayer != guestPlayer);
+        Server::Authoritative::MatchRuntimeDependencies runtime;
+        runtime.contentPreflight = [](const auto &) { return true; };
+        runtime.worldInput = [&](Server::Authoritative::Identity playerId, std::uint32_t actions) {
+            if (playerId == hostPlayer.load()) hostApplied = actions;
+            if (playerId == guestPlayer.load()) guestApplied = actions;
+            if (hostApplied.load() != 0 && guestApplied.load() != 0) stopHost = true;
+            return true;
+        };
+        return runtime;
+    };
+
+    std::ostringstream hostOutput;
+    int hostStatus = -1;
+    std::thread host([&] {
+        Server::HeadlessServer server(hostConfig, std::move(hostDependencies));
+        hostStatus = server.run(hostOutput);
+    });
+    for (unsigned attempt = 0; attempt < 400 && !ready; ++attempt) std::this_thread::sleep_for(5ms);
+    D6R_REQUIRE(ready);
+
+    Server::ServerConfig guestConfig = runtimeGuestConfig();
+    guestConfig.listenEndpoint.port = hostConfig.listenEndpoint.port;
+    guestConfig.localPlayers = 1;
+    Server::AdmissionRuntimeDependencies guestDependencies;
+    guestDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+    guestDependencies.localPlayerActions = [&](std::uint64_t playerId) {
+        D6R_REQUIRE_EQ(guestPlayer.load(), playerId);
+        ++guestSamples;
+        return Network::Input::MoveRight | Network::Input::Jump | Network::Input::PickOrSwapWeapon;
+    };
+    std::ostringstream guestOutput;
+    Server::HeadlessServer guest(guestConfig, std::move(guestDependencies));
+    const int guestStatus = guest.run(guestOutput);
+    host.join();
+
+    D6R_REQUIRE_EQ(0, hostStatus);
+    D6R_REQUIRE_EQ(2, guestStatus);
+    D6R_REQUIRE(hostSamples > 0 && guestSamples > 0);
+    D6R_REQUIRE_EQ(Network::Input::MoveLeft | Network::Input::Shoot, hostApplied.load());
+    D6R_REQUIRE_EQ(Network::Input::MoveRight | Network::Input::Jump | Network::Input::PickOrSwapWeapon,
+                   guestApplied.load());
+}
+
 D6R_TEST_CASE("REP-067 injected canonical tick failure terminates production server unsuccessfully without host-end claim") {
     const auto hostedManifest = manifest({
             {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});

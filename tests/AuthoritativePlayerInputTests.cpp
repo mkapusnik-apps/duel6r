@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "source/network/PlayerInputProtocol.h"
+#include "source/network/NetworkTrustPolicy.h"
 #include "source/server/AuthoritativePlayerInput.h"
 #include "tests/TestHarness.h"
 
@@ -104,6 +105,23 @@ struct OutcomeSink {
     }
 };
 
+struct FrameSink {
+    std::vector<Input::Frame> frames;
+
+    Duel6::Network::SendResult send(std::vector<std::uint8_t> payload) {
+        const auto frame = Input::deserializeFrame(payload);
+        D6R_REQUIRE(frame.has_value());
+        frames.push_back(*frame);
+        return Duel6::Network::SendResult::Accepted;
+    }
+
+    std::size_t count(Input::FrameKind kind) const {
+        return static_cast<std::size_t>(std::count_if(frames.begin(), frames.end(), [kind](const auto &value) {
+            return value.kind == kind;
+        }));
+    }
+};
+
 Input::Command command(Identity participant, Identity player, std::uint64_t sequence,
                        Tick target, std::uint32_t actions) {
     return {participant, player, sequence, target, actions};
@@ -152,6 +170,79 @@ D6R_TEST_CASE("NIN complete seven-action commands serialize and owned-player seq
     D6R_REQUIRE(!Input::deserializeFrame(trailing));
 }
 
+D6R_TEST_CASE("NIN host and guest command sessions dispatch independent local input and handle outcomes") {
+    std::vector<Input::Command> hostDispatches;
+    std::vector<Input::Command> guestDispatches;
+    Input::ClientCommandSession host(1, {101, 102}, [&](std::vector<std::uint8_t> payload) {
+        const auto frame = Input::deserializeFrame(payload);
+        D6R_REQUIRE(frame && frame->kind == Input::FrameKind::Command && frame->command);
+        hostDispatches.push_back(*frame->command);
+        return Duel6::Network::SendResult::Accepted;
+    });
+    Input::ClientCommandSession guest(2, {201}, [&](std::vector<std::uint8_t> payload) {
+        const auto frame = Input::deserializeFrame(payload);
+        D6R_REQUIRE(frame && frame->kind == Input::FrameKind::Command && frame->command);
+        guestDispatches.push_back(*frame->command);
+        return Duel6::Network::SendResult::Accepted;
+    });
+
+    const auto hostA = host.submit(101, 8, Input::MoveLeft | Input::Shoot);
+    const auto hostB = host.submit(102, 8, Input::Jump | Input::ShowStatus);
+    const auto guestA = guest.submit(201, 8, Input::MoveRight | Input::PickOrSwapWeapon);
+    D6R_REQUIRE(hostA && hostB && guestA);
+    D6R_REQUIRE_EQ(std::size_t{2}, hostDispatches.size());
+    D6R_REQUIRE_EQ(std::size_t{1}, guestDispatches.size());
+    D6R_REQUIRE_EQ(Identity{1}, hostDispatches[0].participantId);
+    D6R_REQUIRE_EQ(Identity{2}, guestDispatches[0].participantId);
+    D6R_REQUIRE_EQ(UINT64_C(1), hostDispatches[0].sequence);
+    D6R_REQUIRE_EQ(UINT64_C(1), hostDispatches[1].sequence);
+    D6R_REQUIRE_EQ(UINT64_C(1), guestDispatches[0].sequence);
+    D6R_REQUIRE(!host.submit(201, 8, Input::Crouch));
+    D6R_REQUIRE(!guest.submit(101, 8, Input::Crouch));
+
+    D6R_REQUIRE(host.receive(Input::serializeOutcome(
+            {Input::OutcomeCategory::Pending, 101, hostA->sequence, 8})));
+    D6R_REQUIRE(host.state(101, hostA->sequence) == Input::ClientCommandState::Pending);
+    D6R_REQUIRE(host.receive(Input::serializeOutcome(
+            {Input::OutcomeCategory::Applied, 101, hostA->sequence, 8})));
+    D6R_REQUIRE(host.state(101, hostA->sequence) == Input::ClientCommandState::Applied);
+    D6R_REQUIRE(guest.receive(Input::serializeOutcome(
+            {Input::OutcomeCategory::Pending, 201, guestA->sequence, 8})));
+    D6R_REQUIRE(guest.receive(Input::serializeOutcome(
+            {Input::OutcomeCategory::OverLimit, 201, guestA->sequence, 0})));
+    D6R_REQUIRE(guest.state(201, guestA->sequence) == Input::ClientCommandState::Rejected);
+    D6R_REQUIRE(guest.receive(Input::serializeSessionPolicyViolation()));
+    D6R_REQUIRE(guest.policyViolation());
+    D6R_REQUIRE(!host.policyViolation());
+}
+
+D6R_TEST_CASE("NIN protocol rejects malformed wrong-kind and invalid identity sequence or action commands") {
+    const auto valid = Input::serializeCommand(command(2, 201, 1, 7, Input::MoveLeft));
+    for (std::size_t size = 0; size < valid.size(); ++size) {
+        const std::vector<std::uint8_t> truncated(valid.begin(), valid.begin() + size);
+        D6R_REQUIRE(!Input::deserializeFrame(truncated));
+    }
+    auto wrongKind = valid;
+    wrongKind[6] = 99;
+    wrongKind[7] = 0;
+    D6R_REQUIRE(Input::isPlayerInputFrame(wrongKind));
+    D6R_REQUIRE(!Input::deserializeFrame(wrongKind));
+
+    for (const auto invalid: {
+            command(0, 201, 1, 7, Input::MoveLeft),
+            command(2, 0, 1, 7, Input::MoveLeft),
+            command(2, 201, 0, 7, Input::MoveLeft),
+            command(2, 201, 1, 7, Input::AllActions | (1u << 7u))}) {
+        bool rejected = false;
+        try { (void) Input::serializeCommand(invalid); }
+        catch (const std::invalid_argument &) { rejected = true; }
+        D6R_REQUIRE(rejected);
+    }
+    const auto zeroActions = Input::serializeCommand(command(2, 201, 1, 7, 0));
+    const auto decoded = Input::deserializeFrame(zeroActions);
+    D6R_REQUIRE(decoded && decoded->command && decoded->command->actions == 0);
+}
+
 D6R_TEST_CASE("NIN host guest and multi-player ownership remain isolated") {
     const std::vector<PlayerDefinition> roster = {
             {1, 101, "Host A", 0}, {1, 102, "Host B", 1},
@@ -197,6 +288,35 @@ D6R_TEST_CASE("NIN host guest and multi-player ownership remain isolated") {
     for (std::uint32_t tick = 0; tick < RoundEndTotalTicks; ++tick) D6R_REQUIRE(fixture.input.processTick());
     D6R_REQUIRE(fixture.match.phase() == MatchPhase::Completed);
     D6R_REQUIRE_EQ(std::size_t{4}, fixture.inputCalls.size());
+}
+
+D6R_TEST_CASE("NIN unauthorized input sends exact policy outcome and closes only its offender") {
+    Fixture fixture(makeRoster(3));
+    FrameSink owner, offender, peer;
+    bool ownerClosed = false;
+    bool offenderClosed = false;
+    bool peerClosed = false;
+    D6R_REQUIRE(fixture.input.restore(1, [&](auto payload) { return owner.send(std::move(payload)); },
+                                      [&] { ownerClosed = true; }));
+    D6R_REQUIRE(fixture.input.restore(2, [&](auto payload) { return offender.send(std::move(payload)); },
+                                      [&] { offenderClosed = true; }));
+    D6R_REQUIRE(fixture.input.restore(3, [&](auto payload) { return peer.send(std::move(payload)); },
+                                      [&] { peerClosed = true; }));
+    D6R_REQUIRE(fixture.input.receive(1, command(1, 101, 1, 0, Input::MoveLeft)).category
+                == Input::OutcomeCategory::Pending);
+
+    const auto denied = fixture.input.receive(2, command(2, 101, 1, 0, Input::Shoot));
+    D6R_REQUIRE(denied.category == Input::OutcomeCategory::Unauthorized && denied.closeConnection);
+    D6R_REQUIRE(offenderClosed);
+    D6R_REQUIRE(!ownerClosed && !peerClosed);
+    D6R_REQUIRE_EQ(std::size_t{1}, offender.count(Input::FrameKind::SessionPolicyViolation));
+    D6R_REQUIRE_EQ(std::string("session-policy-violation"), Duel6::Network::Trust::outcomeCode(
+            Duel6::Network::Trust::AdmissionOutcome::SessionPolicyViolation));
+    D6R_REQUIRE_EQ(std::string("Connection ended."), Duel6::Network::Trust::outcomeUserCopy(
+            Duel6::Network::Trust::AdmissionOutcome::SessionPolicyViolation));
+    D6R_REQUIRE(fixture.input.processTick());
+    D6R_REQUIRE_EQ(Input::MoveLeft, fixture.held[101]);
+    D6R_REQUIRE_EQ(std::size_t{1}, owner.count(Input::FrameKind::AppliedAcknowledgment));
 }
 
 D6R_TEST_CASE("NIN target tick boundaries effective ticks and post-processing acknowledgments are exact") {
@@ -422,6 +542,98 @@ D6R_TEST_CASE("NIN per-player rate rejection preserves sequence and consecutive 
     D6R_REQUIRE(consecutive.category == Input::OutcomeCategory::OverLimit && consecutive.closeConnection);
     D6R_REQUIRE(guestClosed);
     D6R_REQUIRE(!hostClosed);
+}
+
+D6R_TEST_CASE("NIN mixed invalid and valid submissions share the per-player quota without advancing sequence") {
+    Fixture fixture(makeRoster(2));
+    OutcomeSink guest;
+    bool guestClosed = false;
+    D6R_REQUIRE(fixture.input.restore(2, [&](auto payload) { return guest.send(std::move(payload)); },
+                                      [&] { guestClosed = true; }));
+    for (std::uint64_t attempt = 0; attempt < 60; ++attempt)
+        D6R_REQUIRE(fixture.input.receive(2, command(2, 102, 0, 0, Input::MoveLeft)).category
+                    == Input::OutcomeCategory::Invalid);
+    for (std::uint64_t sequence = 1; sequence <= 60; ++sequence)
+        D6R_REQUIRE(fixture.input.receive(2, command(2, 102, sequence, 0, Input::MoveRight)).category
+                    == Input::OutcomeCategory::Pending);
+    D6R_REQUIRE(fixture.input.receive(2, command(2, 102, 61, 0, Input::Jump)).category
+                == Input::OutcomeCategory::OverLimit);
+    D6R_REQUIRE(!guestClosed);
+
+    fixture.now += std::chrono::seconds(1);
+    D6R_REQUIRE(fixture.input.receive(2, command(2, 102, 61, 0, Input::Jump)).category
+                == Input::OutcomeCategory::Pending);
+}
+
+D6R_TEST_CASE("NIN consecutive quota windows work across epoch and skipped windows reset them") {
+    Fixture fixture(makeRoster(2));
+    OutcomeSink guest;
+    bool guestClosed = false;
+    D6R_REQUIRE(fixture.input.restore(2, [&](auto payload) { return guest.send(std::move(payload)); },
+                                      [&] { guestClosed = true; }));
+    fixture.now = AuthoritativePlayerInput::TimePoint{} - std::chrono::seconds(1);
+    for (std::uint64_t sequence = 1; sequence <= 120; ++sequence)
+        D6R_REQUIRE(fixture.input.receive(2, command(2, 102, sequence, 0, Input::MoveLeft)).category
+                    == Input::OutcomeCategory::Pending);
+    D6R_REQUIRE(fixture.input.receive(2, command(2, 102, 121, 0, Input::MoveLeft)).category
+                == Input::OutcomeCategory::OverLimit);
+    D6R_REQUIRE(!guestClosed);
+
+    fixture.now = AuthoritativePlayerInput::TimePoint{};
+    for (std::uint64_t sequence = 121; sequence <= 240; ++sequence)
+        D6R_REQUIRE(fixture.input.receive(2, command(2, 102, sequence, 0, Input::MoveRight)).category
+                    == Input::OutcomeCategory::Pending);
+    const auto epochConsecutive = fixture.input.receive(2, command(2, 102, 241, 0, Input::MoveRight));
+    D6R_REQUIRE(epochConsecutive.category == Input::OutcomeCategory::OverLimit
+                && epochConsecutive.closeConnection);
+    D6R_REQUIRE(guestClosed);
+
+    Fixture skipped(makeRoster(2));
+    OutcomeSink skippedSink;
+    bool skippedClosed = false;
+    D6R_REQUIRE(skipped.input.restore(2, [&](auto payload) { return skippedSink.send(std::move(payload)); },
+                                      [&] { skippedClosed = true; }));
+    for (std::uint64_t sequence = 1; sequence <= 120; ++sequence)
+        D6R_REQUIRE(skipped.input.receive(2, command(2, 102, sequence, 0, Input::Jump)).category
+                    == Input::OutcomeCategory::Pending);
+    D6R_REQUIRE(skipped.input.receive(2, command(2, 102, 121, 0, Input::Jump)).category
+                == Input::OutcomeCategory::OverLimit);
+    skipped.now += std::chrono::seconds(2);
+    for (std::uint64_t sequence = 121; sequence <= 240; ++sequence)
+        D6R_REQUIRE(skipped.input.receive(2, command(2, 102, sequence, 0, Input::Crouch)).category
+                    == Input::OutcomeCategory::Pending);
+    D6R_REQUIRE(skipped.input.receive(2, command(2, 102, 241, 0, Input::Crouch)).category
+                == Input::OutcomeCategory::OverLimit);
+    D6R_REQUIRE(!skippedClosed);
+}
+
+D6R_TEST_CASE("NIN backward quota clock resets before a new consecutive pair") {
+    Fixture fixture(makeRoster(2));
+    OutcomeSink guest;
+    bool guestClosed = false;
+    D6R_REQUIRE(fixture.input.restore(2, [&](auto payload) { return guest.send(std::move(payload)); },
+                                      [&] { guestClosed = true; }));
+    for (std::uint64_t sequence = 1; sequence <= 120; ++sequence)
+        D6R_REQUIRE(fixture.input.receive(2, command(2, 102, sequence, 0, Input::MoveLeft)).category
+                    == Input::OutcomeCategory::Pending);
+    D6R_REQUIRE(fixture.input.receive(2, command(2, 102, 121, 0, Input::MoveLeft)).category
+                == Input::OutcomeCategory::OverLimit);
+
+    fixture.now -= std::chrono::seconds(1);
+    for (std::uint64_t sequence = 121; sequence <= 240; ++sequence)
+        D6R_REQUIRE(fixture.input.receive(2, command(2, 102, sequence, 0, Input::MoveRight)).category
+                    == Input::OutcomeCategory::Pending);
+    D6R_REQUIRE(fixture.input.receive(2, command(2, 102, 241, 0, Input::MoveRight)).category
+                == Input::OutcomeCategory::OverLimit);
+    D6R_REQUIRE(!guestClosed);
+
+    fixture.now += std::chrono::seconds(1);
+    for (std::uint64_t sequence = 241; sequence <= 360; ++sequence)
+        D6R_REQUIRE(fixture.input.receive(2, command(2, 102, sequence, 0, Input::Jump)).category
+                    == Input::OutcomeCategory::Pending);
+    const auto consecutive = fixture.input.receive(2, command(2, 102, 361, 0, Input::Jump));
+    D6R_REQUIRE(consecutive.category == Input::OutcomeCategory::OverLimit && consecutive.closeConnection);
+    D6R_REQUIRE(guestClosed);
 }
 
 D6R_TEST_CASE("NIN host-wide input ceiling accepts at most 1800 commands per window") {

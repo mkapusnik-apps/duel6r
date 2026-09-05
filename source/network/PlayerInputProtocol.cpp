@@ -1,5 +1,6 @@
 #include "PlayerInputProtocol.h"
 
+#include <algorithm>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -169,12 +170,15 @@ namespace Duel6::Network::Input {
 
     std::optional<Command> ClientCommandSession::submit(
             Identity playerId, Tick targetTick, std::uint32_t actions) {
+        if (!makeHistoryCapacity()) return std::nullopt;
         auto command = source.sample(playerId, targetTick, actions);
         if (!command) return std::nullopt;
         const auto key = std::make_pair(playerId, command->sequence);
         states[key] = ClientCommandState::Submitted;
+        history.push_back(key);
         if (sender(serializeCommand(*command)) != SendResult::Accepted) {
             states.erase(key);
+            removeFromHistory(key);
             return std::nullopt;
         }
         return command;
@@ -221,9 +225,32 @@ namespace Duel6::Network::Input {
     std::optional<Outcome> ClientCommandSession::lastOutcome() const noexcept { return latestOutcome; }
     bool ClientCommandSession::policyViolation() const noexcept { return endedForPolicyViolation; }
 
+    bool ClientCommandSession::makeHistoryCapacity() noexcept {
+        if (states.size() < MaxClientCommandHistory) return true;
+        for (auto iterator = history.begin(); iterator != history.end(); ++iterator) {
+            const auto found = states.find(*iterator);
+            if (found == states.end()) {
+                history.erase(iterator);
+                return true;
+            }
+            if (found->second == ClientCommandState::Submitted
+                || found->second == ClientCommandState::Pending) continue;
+            states.erase(found);
+            history.erase(iterator);
+            return true;
+        }
+        return false;
+    }
+
+    void ClientCommandSession::removeFromHistory(const CommandKey &key) noexcept {
+        const auto found = std::find(history.begin(), history.end(), key);
+        if (found != history.end()) history.erase(found);
+    }
+
     void ClientCommandSession::reset() noexcept {
         source.reset();
         states.clear();
+        history.clear();
         latestOutcome.reset();
         endedForPolicyViolation = false;
     }

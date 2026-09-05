@@ -353,6 +353,7 @@ namespace {
         bool sessionAdmitted = false;
         std::unique_ptr<Duel6::Network::Input::ClientCommandSession> playerInput;
         std::optional<std::uint64_t> submittedInputTick;
+        bool inputMatchStarted = false;
         const auto processFrame = [&](const Duel6::Network::TransportFrame &frame) -> GuestFrameDecision {
             if (cancelled()) return GuestFrameDecision(GuestDecision::Cancelled);
             const bool beforeDeadline = frame.receivedAt < deadline;
@@ -537,6 +538,20 @@ namespace {
 
         while (!cancelled()) {
             const auto *canonical = replicatedConnection.replicatedState().state();
+            if (playerInput && canonical) {
+                if (!inputMatchStarted
+                    && canonical->phase == Duel6::Network::Replication::Phase::ActiveRound) {
+                    playerInput->reset();
+                    submittedInputTick.reset();
+                    inputMatchStarted = true;
+                } else if (inputMatchStarted
+                           && (canonical->phase == Duel6::Network::Replication::Phase::Lobby
+                               || canonical->phase == Duel6::Network::Replication::Phase::Ended)) {
+                    playerInput->reset();
+                    submittedInputTick.reset();
+                    inputMatchStarted = false;
+                }
+            }
             if (playerInput && canonical && runtimeDependencies.localPlayerActions
                 && canonical->phase == Duel6::Network::Replication::Phase::ActiveRound
                 && (!submittedInputTick || *submittedInputTick != canonical->phaseTime)) {
@@ -1134,6 +1149,7 @@ namespace Duel6::Server {
                                             connection->requestClose();
                                             throw std::runtime_error("Canonical runtime factory is unavailable");
                                         }
+                                        hostPlayerInput->reset();
                                         auto matchDependencies = runtimeDependencies.authoritativeRuntimeFactory(
                                                 *hostedSettings, current.players, hostedContent);
                                         const auto started = hostedMatch->start(
@@ -1168,8 +1184,10 @@ namespace Duel6::Server {
                         }
                     }
                 } else if (runtime.admitted) {
-                    Network::TransportFrame unexpected;
-                    if (connection->receive(unexpected)) {
+                    constexpr std::size_t MaxAdmittedFramesPerIteration = Network::MaxNetworkPlayers;
+                    for (std::size_t drained = 0; drained < MaxAdmittedFramesPerIteration; ++drained) {
+                        Network::TransportFrame unexpected;
+                        if (!connection->receive(unexpected)) break;
                         if (!hostedMatch) connection->requestClose();
                         else {
                             if (Network::Input::isPlayerInputFrame(unexpected.payload)) {
@@ -1209,6 +1227,7 @@ namespace Duel6::Server {
                                     connection->requestClose();
                             }
                         }
+                        if (connection->state() != Network::ClientState::Connected) break;
                     }
                 }
                 Network::ClientState state = connection->state();
@@ -1284,8 +1303,10 @@ namespace Duel6::Server {
                         runtimeFailed = true;
                         break;
                     }
-                    if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby)
+                    if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
+                        hostPlayerInput->reset();
                         admissionPolicy->setMatchStarted(false);
+                    }
                     nextMatchTick += matchTickDuration;
                 }
             } catch (...) { runtimeFailed = true; break; }
