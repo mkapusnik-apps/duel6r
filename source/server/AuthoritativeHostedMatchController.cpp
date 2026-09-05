@@ -16,7 +16,7 @@ namespace Duel6::Server::Authoritative {
     AuthoritativeHostedMatchController::AuthoritativeHostedMatchController(
             Identity hostParticipantId, MatchRuntimeDependencies dependencies)
             : dependencies(std::move(dependencies)), hostParticipantId(hostParticipantId),
-              replication(), replicationConnections(replication.replicator()) {}
+              replication(), replicationConnections(replication.replicator()), playerInput(hostParticipantId) {}
 
     bool AuthoritativeHostedMatchController::initializeReplication(
             std::vector<Network::Replication::ParticipantState> participants,
@@ -56,6 +56,24 @@ namespace Duel6::Server::Authoritative {
 
     void AuthoritativeHostedMatchController::disconnectReplication(Identity participantId) noexcept {
         replicationConnections.disconnect(participantId);
+    }
+
+    bool AuthoritativeHostedMatchController::restorePlayerInput(
+            Identity participantId, AuthoritativePlayerInput::Sender sender, std::function<void()> close) {
+        return playerInput.restore(participantId, std::move(sender), std::move(close));
+    }
+
+    void AuthoritativeHostedMatchController::disconnectPlayerInput(Identity participantId) noexcept {
+        playerInput.disconnect(participantId);
+    }
+
+    void AuthoritativeHostedMatchController::revokePlayerInput(Identity playerId) noexcept {
+        playerInput.revokePlayer(playerId);
+    }
+
+    AuthoritativePlayerInput::ReceiveResult AuthoritativeHostedMatchController::receivePlayerInput(
+            Identity participantId, const Network::Input::Command &command, bool remote) {
+        return playerInput.receive(participantId, command, remote);
     }
 
     bool AuthoritativeHostedMatchController::updateReplicationConnection(
@@ -147,10 +165,17 @@ namespace Duel6::Server::Authoritative {
         activeMatch = std::make_unique<AuthoritativeMatch>(std::move(matchDependencies));
         const TerminalOutcome started = activeMatch->start(config, roster, manifest);
         if (started.code == OutcomeCode::None) {
+            if (!playerInput.beginMatch(*activeMatch, roster)) {
+                activeMatch->shutdown();
+                activeMatch.reset();
+                currentStage = HostedMatchStage::UnexpectedStop;
+                return terminalOutcome(OutcomeCode::RuntimeFailed);
+            }
             if (replication.fullSnapshot()) {
                 const auto update = replication.beginMatch(*activeMatch);
                 if (!update) {
                     activeMatch->shutdown();
+                    playerInput.clear();
                     activeMatch.reset();
                     currentStage = HostedMatchStage::UnexpectedStop;
                     return terminalOutcome(OutcomeCode::RuntimeFailed);
@@ -177,6 +202,7 @@ namespace Duel6::Server::Authoritative {
             const ActionResult accepted = activeMatch->submitHostControl(participantId, ActionKind::EndSession);
             if (accepted != ActionResult::Accepted) return activeMatch->outcome();
             const TerminalOutcome stopped = activeMatch->shutdown();
+            playerInput.clear();
             currentStage = stopped.code == OutcomeCode::ShutdownFailed
                            ? HostedMatchStage::UnexpectedStop : HostedMatchStage::Ended;
             return stopped;
@@ -193,10 +219,12 @@ namespace Duel6::Server::Authoritative {
         if (activeMatch->outcome().code == OutcomeCode::RuntimeFailed
             || activeMatch->outcome().code == OutcomeCode::ShutdownFailed) {
             activeMatch->shutdown();
+            playerInput.clear();
             currentStage = HostedMatchStage::UnexpectedStop;
             return false;
         } else if (activeMatch->outcome().code != OutcomeCode::None) {
             const TerminalOutcome stopped = activeMatch->shutdown();
+            playerInput.clear();
             if (stopped.code == OutcomeCode::ShutdownFailed) {
                 currentStage = HostedMatchStage::UnexpectedStop;
                 return false;
@@ -225,6 +253,10 @@ namespace Duel6::Server::Authoritative {
             (void) replicationConnections.broadcast(*update);
         }
         return true;
+    }
+
+    bool AuthoritativeHostedMatchController::advanceOneTick() {
+        return activeMatch && currentStage == HostedMatchStage::MatchActive && playerInput.processTick();
     }
 
     HostedMatchStage AuthoritativeHostedMatchController::stage() const noexcept { return currentStage; }

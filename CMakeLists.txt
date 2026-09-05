@@ -624,10 +624,14 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/network/StateReplication.h
         source/network/StateReplicationProtocol.cpp
         source/network/StateReplicationProtocol.h
+        source/network/PlayerInputProtocol.cpp
+        source/network/PlayerInputProtocol.h
         source/server/HeadlessServer.cpp
         source/server/HeadlessServer.h
         source/server/AuthoritativeMatch.cpp
         source/server/AuthoritativeMatch.h
+        source/server/AuthoritativePlayerInput.cpp
+        source/server/AuthoritativePlayerInput.h
         source/server/AuthoritativeMatchCli.cpp
         source/server/AuthoritativeMatchCli.h
         source/server/AuthoritativeMatchSerialization.cpp

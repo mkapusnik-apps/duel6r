@@ -296,6 +296,13 @@ namespace Duel6::Server::Authoritative {
         }
         catch (...) { worldActive = false; }
         if (!worldActive) return false;
+        if (dependencies.worldInput) {
+            for (auto &player: players) if (!player.departed) {
+                try {
+                    if (!dependencies.worldInput(player.definition.playerId, 0)) return false;
+                } catch (...) { return false; }
+            }
+        }
         if (config.mode == Mode::Predator) predatorPlayer = currentRoundDecision.predatorPlayerId;
         currentPhase = MatchPhase::ActiveRound;
         if (dependencies.worldSnapshot && !synchronizeCanonicalWorld()) {
@@ -929,4 +936,21 @@ namespace Duel6::Server::Authoritative {
     }
     std::uint64_t AuthoritativeMatch::acceptedActionCount() const noexcept { return totalActions; }
     std::uint64_t AuthoritativeMatch::rejectedActionCount() const noexcept { return rejectedActions; }
+    bool AuthoritativeMatch::canAcceptPlayerInput(Identity participantId, Identity playerId) const noexcept {
+        const PlayerState *player = findPlayer(playerId);
+        return player && player->definition.participantId == participantId && player->alive && !player->departed
+               && (currentPhase == MatchPhase::ActiveRound || currentPhase == MatchPhase::RoundEndActive)
+               && terminal.code == OutcomeCode::None;
+    }
+    bool AuthoritativeMatch::clearPlayerInput(Identity playerId) noexcept {
+        PlayerState *player = findPlayer(playerId);
+        if (!player || player->departed) return false;
+        player->inputMask = 0;
+        player->lastInputTick = static_cast<Tick>(-1);
+        if (dependencies.worldInput) {
+            try { if (!dependencies.worldInput(playerId, 0)) return false; }
+            catch (...) { return false; }
+        }
+        return true;
+    }
 }

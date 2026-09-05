@@ -83,6 +83,8 @@ namespace Duel6::Server::Authoritative {
         const std::vector<DeterministicRandom::Decision> &randomDecisionTrace() const noexcept;
         std::uint64_t acceptedActionCount() const noexcept;
         std::uint64_t rejectedActionCount() const noexcept;
+        bool canAcceptPlayerInput(Identity participantId, Identity playerId) const noexcept;
+        bool clearPlayerInput(Identity playerId) noexcept;
 
     private:
         struct AttackerRecord {

@@ -30,6 +30,7 @@
 #include "AuthoritativeHostedMatchController.h"
 #include "FrozenGameplayConfig.h"
 #include "../network/StateReplicationProtocol.h"
+#include "../network/PlayerInputProtocol.h"
 
 namespace {
     volatile std::sig_atomic_t stopRequested = 0;
@@ -1028,9 +1029,18 @@ namespace Duel6::Server {
                                                 connection->requestClose();
                                             });
                                 }
+                                if (replicationReady) {
+                                    replicationReady = hostedMatch->restorePlayerInput(runtime.offer.participantId,
+                                            [connection, &write](std::vector<std::uint8_t> payload) {
+                                                return write(*connection, std::move(payload));
+                                            }, [connection] {
+                                                connection->requestClose();
+                                            });
+                                }
                                 if (!replicationReady) {
                                     connectedParticipants.erase(runtime.offer.participantId);
                                     hostedMatch->disconnectReplication(runtime.offer.participantId);
+                                    hostedMatch->disconnectPlayerInput(runtime.offer.participantId);
                                     auto isolated = replicationLobbyState(
                                             admissionPolicy->allocation(), connectedParticipants, *hostedSettings);
                                     (void) hostedMatch->updateReplicationLobby(std::move(isolated.participants),
@@ -1100,16 +1110,33 @@ namespace Duel6::Server {
                     if (connection->receive(unexpected)) {
                         if (!hostedMatch) connection->requestClose();
                         else {
-                            const auto result = hostedMatch->receiveReplication(
-                                    runtime.offer.participantId, unexpected.payload);
-                            if (result == Network::Replication::HostReplicationResult::SessionPolicyViolation) {
-                                // Route canonical-state mutation attempts through the established authority policy.
-                                const auto decision = admissionPolicy->authorizationDecision(runtime.connectionId,
-                                        Network::Trust::AuthorityAction::ReplicatedStateMutation);
-                                if (!decision.allowed && decision.closeConnection) connection->requestClose();
+                            if (Network::Input::isPlayerInputFrame(unexpected.payload)) {
+                                const auto frame = Network::Input::deserializeFrame(unexpected.payload);
+                                if (!frame || frame->kind != Network::Input::FrameKind::Command || !frame->command) {
+                                    connection->requestClose();
+                                } else {
+                                    const auto decision = admissionPolicy->authorizationDecision(runtime.connectionId,
+                                            Network::Trust::AuthorityAction::PlayerInput, frame->command->playerId);
+                                    if (!decision.allowed) {
+                                        if (decision.closeConnection) connection->requestClose();
+                                    } else {
+                                        const auto result = hostedMatch->receivePlayerInput(
+                                                runtime.offer.participantId, *frame->command);
+                                        if (result.closeConnection) connection->requestClose();
+                                    }
+                                }
+                            } else {
+                                const auto result = hostedMatch->receiveReplication(
+                                        runtime.offer.participantId, unexpected.payload);
+                                if (result == Network::Replication::HostReplicationResult::SessionPolicyViolation) {
+                                    // Route canonical-state mutation attempts through the established authority policy.
+                                    const auto decision = admissionPolicy->authorizationDecision(runtime.connectionId,
+                                            Network::Trust::AuthorityAction::ReplicatedStateMutation);
+                                    if (!decision.allowed && decision.closeConnection) connection->requestClose();
+                                }
+                                if (result != Network::Replication::HostReplicationResult::Accepted)
+                                    connection->requestClose();
                             }
-                            if (result != Network::Replication::HostReplicationResult::Accepted)
-                                connection->requestClose();
                         }
                     }
                 }
@@ -1122,6 +1149,7 @@ namespace Duel6::Server {
                     if (runtime.admitted && hostedMatch) {
                         connectedParticipants.erase(runtime.offer.participantId);
                         hostedMatch->disconnectReplication(runtime.offer.participantId);
+                        hostedMatch->disconnectPlayerInput(runtime.offer.participantId);
                         if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                             auto lobby = replicationLobbyState(
                                     admissionPolicy->allocation(), connectedParticipants, *hostedSettings);
@@ -1146,6 +1174,7 @@ namespace Duel6::Server {
                     if (runtime.admitted && hostedMatch) {
                         connectedParticipants.erase(runtime.offer.participantId);
                         hostedMatch->disconnectReplication(runtime.offer.participantId);
+                        hostedMatch->disconnectPlayerInput(runtime.offer.participantId);
                         try {
                             if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                                 auto lobby = replicationLobbyState(
@@ -1167,7 +1196,7 @@ namespace Duel6::Server {
                 if (hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive
                     && runtimeNow(runtimeDependencies) >= nextMatchTick) {
                     auto *match = hostedMatch->match();
-                    if (!match || !match->advanceOneTick() || !hostedMatch->observeMatchOutcome()) {
+                    if (!match || !hostedMatch->advanceOneTick() || !hostedMatch->observeMatchOutcome()) {
                         runtimeFailed = true;
                         break;
                     }
