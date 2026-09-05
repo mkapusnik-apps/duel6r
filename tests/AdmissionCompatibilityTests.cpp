@@ -7,6 +7,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -835,7 +836,7 @@ D6R_TEST_CASE("four-message runtime permits immediate acceptance before offer vi
 }
 
 #ifndef _WIN32
-D6R_TEST_CASE("NIN host and guest production sessions dispatch owned local actions through authoritative input") {
+D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest input at 60 Hz") {
     const auto hostedManifest = manifest({
             {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
     auto content = std::make_shared<Network::FrozenGameplayContent>();
@@ -849,12 +850,13 @@ D6R_TEST_CASE("NIN host and guest production sessions dispatch owned local actio
     D6R_REQUIRE(hostConfig.listenEndpoint.port != 0);
     std::atomic<bool> ready{false};
     std::atomic<bool> stopHost{false};
-    std::atomic<Server::Authoritative::Identity> hostPlayer{0};
-    std::atomic<Server::Authoritative::Identity> guestPlayer{0};
-    std::atomic<std::uint32_t> hostApplied{0};
-    std::atomic<std::uint32_t> guestApplied{0};
-    std::atomic<unsigned> hostSamples{0};
-    std::atomic<unsigned> guestSamples{0};
+    std::mutex evidenceMutex;
+    std::vector<Server::Authoritative::Identity> hostPlayers;
+    std::vector<Server::Authoritative::Identity> guestPlayers;
+    std::map<Server::Authoritative::Identity, unsigned> samples;
+    std::map<Server::Authoritative::Identity, unsigned> applications;
+    constexpr unsigned SustainedTicks = 180;
+    hostConfig.localPlayers = 4;
 
     Server::AdmissionRuntimeDependencies hostDependencies;
     hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
@@ -864,23 +866,34 @@ D6R_TEST_CASE("NIN host and guest production sessions dispatch owned local actio
         return true;
     };
     hostDependencies.localPlayerActions = [&](std::uint64_t playerId) {
-        D6R_REQUIRE_EQ(hostPlayer.load(), playerId);
-        ++hostSamples;
+        std::lock_guard<std::mutex> lock(evidenceMutex);
+        D6R_REQUIRE(std::find(hostPlayers.begin(), hostPlayers.end(), playerId) != hostPlayers.end());
+        ++samples[playerId];
         return Network::Input::MoveLeft | Network::Input::Shoot;
     };
     hostDependencies.authoritativeRuntimeFactory = [&](const auto &config, const auto &players, const auto &) {
-        D6R_REQUIRE_EQ(std::size_t{2}, players.size());
-        for (const auto &player: players) {
-            if (player.participantId == config.hostParticipantId) hostPlayer = player.playerId;
-            else guestPlayer = player.playerId;
+        D6R_REQUIRE_EQ(std::size_t{8}, players.size());
+        {
+            std::lock_guard<std::mutex> lock(evidenceMutex);
+            for (const auto &player: players) {
+                if (player.participantId == config.hostParticipantId) hostPlayers.push_back(player.playerId);
+                else guestPlayers.push_back(player.playerId);
+            }
         }
-        D6R_REQUIRE(hostPlayer != 0 && guestPlayer != 0 && hostPlayer != guestPlayer);
+        D6R_REQUIRE_EQ(std::size_t{4}, hostPlayers.size());
+        D6R_REQUIRE_EQ(std::size_t{4}, guestPlayers.size());
         Server::Authoritative::MatchRuntimeDependencies runtime;
         runtime.contentPreflight = [](const auto &) { return true; };
         runtime.worldInput = [&](Server::Authoritative::Identity playerId, std::uint32_t actions) {
-            if (playerId == hostPlayer.load()) hostApplied = actions;
-            if (playerId == guestPlayer.load()) guestApplied = actions;
-            if (hostApplied.load() != 0 && guestApplied.load() != 0) stopHost = true;
+            if (actions == 0) return true;
+            std::lock_guard<std::mutex> lock(evidenceMutex);
+            D6R_REQUIRE(std::find(hostPlayers.begin(), hostPlayers.end(), playerId) != hostPlayers.end()
+                        || std::find(guestPlayers.begin(), guestPlayers.end(), playerId) != guestPlayers.end());
+            ++applications[playerId];
+            if (applications.size() == 8
+                && std::all_of(applications.begin(), applications.end(), [](const auto &entry) {
+                    return entry.second >= SustainedTicks;
+                })) stopHost = true;
             return true;
         };
         return runtime;
@@ -897,12 +910,13 @@ D6R_TEST_CASE("NIN host and guest production sessions dispatch owned local actio
 
     Server::ServerConfig guestConfig = runtimeGuestConfig();
     guestConfig.listenEndpoint.port = hostConfig.listenEndpoint.port;
-    guestConfig.localPlayers = 1;
+    guestConfig.localPlayers = 4;
     Server::AdmissionRuntimeDependencies guestDependencies;
     guestDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
     guestDependencies.localPlayerActions = [&](std::uint64_t playerId) {
-        D6R_REQUIRE_EQ(guestPlayer.load(), playerId);
-        ++guestSamples;
+        std::lock_guard<std::mutex> lock(evidenceMutex);
+        D6R_REQUIRE(std::find(guestPlayers.begin(), guestPlayers.end(), playerId) != guestPlayers.end());
+        ++samples[playerId];
         return Network::Input::MoveRight | Network::Input::Jump | Network::Input::PickOrSwapWeapon;
     };
     std::ostringstream guestOutput;
@@ -912,10 +926,17 @@ D6R_TEST_CASE("NIN host and guest production sessions dispatch owned local actio
 
     D6R_REQUIRE_EQ(0, hostStatus);
     D6R_REQUIRE_EQ(2, guestStatus);
-    D6R_REQUIRE(hostSamples > 0 && guestSamples > 0);
-    D6R_REQUIRE_EQ(Network::Input::MoveLeft | Network::Input::Shoot, hostApplied.load());
-    D6R_REQUIRE_EQ(Network::Input::MoveRight | Network::Input::Jump | Network::Input::PickOrSwapWeapon,
-                   guestApplied.load());
+    std::lock_guard<std::mutex> lock(evidenceMutex);
+    D6R_REQUIRE_EQ(std::size_t{8}, samples.size());
+    D6R_REQUIRE_EQ(std::size_t{8}, applications.size());
+    for (const auto playerId: hostPlayers) {
+        D6R_REQUIRE(samples[playerId] >= SustainedTicks);
+        D6R_REQUIRE(applications[playerId] >= SustainedTicks);
+    }
+    for (const auto playerId: guestPlayers) {
+        D6R_REQUIRE(samples[playerId] >= SustainedTicks);
+        D6R_REQUIRE(applications[playerId] >= SustainedTicks);
+    }
 }
 
 D6R_TEST_CASE("REP-067 injected canonical tick failure terminates production server unsuccessfully without host-end claim") {

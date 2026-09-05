@@ -169,13 +169,17 @@ namespace Duel6::Server::Authoritative {
         }
 
         const Tick effective = command.targetTick <= next ? next : next + 1;
-        auto key = std::make_pair(effective, command.playerId);
-        auto existing = pending.find(key);
-        if (existing != pending.end()) {
-            (void) send(connectionParticipantId, {Network::Input::OutcomeCategory::Superseded,
-                    existing->second.command.playerId, existing->second.command.sequence, effective});
-            existing->second = {command, effective};
-        } else pending.emplace(key, Pending{command, effective});
+        for (auto iterator = pending.begin(); iterator != pending.end();) {
+            const Pending &existing = iterator->second;
+            if (existing.command.playerId != command.playerId || existing.effectiveTick < effective) {
+                ++iterator;
+                continue;
+            }
+            (void) send(existing.command.participantId, {Network::Input::OutcomeCategory::Superseded,
+                    existing.command.playerId, existing.command.sequence, existing.effectiveTick});
+            iterator = pending.erase(iterator);
+        }
+        pending.emplace(std::make_pair(effective, command.playerId), Pending{command, effective});
         sequence->second = command.sequence;
         (void) send(connectionParticipantId,
                     {Network::Input::OutcomeCategory::Pending, command.playerId, command.sequence, effective});

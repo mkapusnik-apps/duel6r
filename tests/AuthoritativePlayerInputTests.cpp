@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -214,6 +215,114 @@ D6R_TEST_CASE("NIN host and guest command sessions dispatch independent local in
     D6R_REQUIRE(guest.receive(Input::serializeSessionPolicyViolation()));
     D6R_REQUIRE(guest.policyViolation());
     D6R_REQUIRE(!host.policyViolation());
+}
+
+D6R_TEST_CASE("NIN client command history is bounded and reset starts a clean match lifecycle") {
+    std::vector<Input::Command> dispatches;
+    Input::ClientCommandSession session(1, {101}, [&](std::vector<std::uint8_t> payload) {
+        const auto frame = Input::deserializeFrame(payload);
+        D6R_REQUIRE(frame && frame->command);
+        dispatches.push_back(*frame->command);
+        return Duel6::Network::SendResult::Accepted;
+    });
+
+    for (std::size_t index = 0; index < Input::MaxClientCommandHistory; ++index)
+        D6R_REQUIRE(session.submit(101, index, Input::MoveLeft));
+    D6R_REQUIRE_EQ(Input::MaxClientCommandHistory, dispatches.size());
+    D6R_REQUIRE(!session.submit(101, Input::MaxClientCommandHistory, Input::MoveRight));
+
+    for (const auto &submitted: dispatches)
+        D6R_REQUIRE(session.receive(Input::serializeOutcome(
+                {Input::OutcomeCategory::Pending, 101, submitted.sequence, submitted.targetTick})));
+    D6R_REQUIRE(!session.submit(101, Input::MaxClientCommandHistory, Input::MoveRight));
+    D6R_REQUIRE(session.receive(Input::serializeOutcome(
+            {Input::OutcomeCategory::Applied, 101, dispatches.front().sequence,
+             dispatches.front().targetTick})));
+
+    const auto replacement = session.submit(101, Input::MaxClientCommandHistory, Input::MoveRight);
+    D6R_REQUIRE(replacement);
+    D6R_REQUIRE_EQ(UINT64_C(257), replacement->sequence);
+    D6R_REQUIRE(!session.state(101, 1));
+    D6R_REQUIRE(session.state(101, 2) == Input::ClientCommandState::Pending);
+    D6R_REQUIRE(session.state(101, replacement->sequence) == Input::ClientCommandState::Submitted);
+
+    D6R_REQUIRE(session.receive(Input::serializeSessionPolicyViolation()));
+    D6R_REQUIRE(session.policyViolation());
+    session.reset();
+    D6R_REQUIRE(!session.policyViolation());
+    D6R_REQUIRE(!session.lastOutcome());
+    D6R_REQUIRE(!session.state(101, replacement->sequence));
+    const auto nextMatch = session.submit(101, 0, Input::Jump);
+    D6R_REQUIRE(nextMatch);
+    D6R_REQUIRE_EQ(UINT64_C(1), nextMatch->sequence);
+}
+
+D6R_TEST_CASE("NIN host and guest clients sustain four owned players at 60 Hz through an authoritative round") {
+    const std::vector<PlayerDefinition> roster = {
+            {1, 101, "Host A", 0}, {1, 102, "Host B", 1},
+            {1, 103, "Host C", 2}, {1, 104, "Host D", 3},
+            {2, 201, "Guest A", 4}, {2, 202, "Guest B", 5},
+            {2, 203, "Guest C", 6}, {2, 204, "Guest D", 7}};
+    Fixture fixture(roster);
+    std::vector<Input::OutcomeCategory> receiveResults;
+    std::unique_ptr<Input::ClientCommandSession> host;
+    std::unique_ptr<Input::ClientCommandSession> guest;
+    host = std::make_unique<Input::ClientCommandSession>(1, std::vector<Identity>{101, 102, 103, 104},
+            [&](std::vector<std::uint8_t> payload) {
+                const auto frame = Input::deserializeFrame(payload);
+                D6R_REQUIRE(frame && frame->command);
+                const auto result = fixture.input.receive(1, *frame->command, false);
+                receiveResults.push_back(result.category);
+                return Duel6::Network::SendResult::Accepted;
+            });
+    guest = std::make_unique<Input::ClientCommandSession>(2, std::vector<Identity>{201, 202, 203, 204},
+            [&](std::vector<std::uint8_t> payload) {
+                const auto frame = Input::deserializeFrame(payload);
+                D6R_REQUIRE(frame && frame->command);
+                const auto result = fixture.input.receive(2, *frame->command);
+                receiveResults.push_back(result.category);
+                return Duel6::Network::SendResult::Accepted;
+            });
+    D6R_REQUIRE(fixture.input.restore(1, [&](auto payload) { return host->receive(payload)
+            ? Duel6::Network::SendResult::Accepted : Duel6::Network::SendResult::NotConnected; }));
+    D6R_REQUIRE(fixture.input.restore(2, [&](auto payload) { return guest->receive(payload)
+            ? Duel6::Network::SendResult::Accepted : Duel6::Network::SendResult::NotConnected; }));
+
+    constexpr std::size_t SustainedTicks = 180;
+    const std::vector<Identity> hostPlayers = {101, 102, 103, 104};
+    const std::vector<Identity> guestPlayers = {201, 202, 203, 204};
+    for (std::size_t tick = 0; tick < SustainedTicks; ++tick) {
+        for (std::size_t index = 0; index < hostPlayers.size(); ++index)
+            D6R_REQUIRE(host->submit(hostPlayers[index], fixture.match.currentTick(),
+                    1u << ((tick + index) % 7u)));
+        for (std::size_t index = 0; index < guestPlayers.size(); ++index)
+            D6R_REQUIRE(guest->submit(guestPlayers[index], fixture.match.currentTick(),
+                    1u << ((tick + index + 3u) % 7u)));
+        D6R_REQUIRE(fixture.input.processTick());
+        fixture.now += std::chrono::nanoseconds(1000000000 / FixedTickRate);
+    }
+
+    D6R_REQUIRE_EQ(SustainedTicks * roster.size(), fixture.inputCalls.size());
+    D6R_REQUIRE_EQ(SustainedTicks * roster.size(), receiveResults.size());
+    D6R_REQUIRE(std::all_of(receiveResults.begin(), receiveResults.end(), [](const auto category) {
+        return category == Input::OutcomeCategory::Pending;
+    }));
+    for (Identity player: hostPlayers)
+        D6R_REQUIRE(host->state(player, SustainedTicks) == Input::ClientCommandState::Applied);
+    for (Identity player: guestPlayers)
+        D6R_REQUIRE(guest->state(player, SustainedTicks) == Input::ClientCommandState::Applied);
+    D6R_REQUIRE(!host->state(101, 1));
+    D6R_REQUIRE(!guest->state(201, 1));
+
+    std::uint64_t sequence = SustainedTicks + 1;
+    for (Identity target: {Identity{102}, Identity{103}, Identity{104}, Identity{201},
+                           Identity{202}, Identity{203}, Identity{204}})
+        D6R_REQUIRE_EQ(ActionResult::Accepted, fixture.match.submit(matchAction(
+                fixture.match, sequence++, 1, 101, ActionKind::ShotDamage, target, MaximumLife)));
+    D6R_REQUIRE(fixture.match.phase() == MatchPhase::RoundEndActive);
+    for (std::uint32_t tick = 0; tick < RoundEndTotalTicks; ++tick)
+        D6R_REQUIRE(fixture.input.processTick());
+    D6R_REQUIRE(fixture.match.phase() == MatchPhase::Completed);
 }
 
 D6R_TEST_CASE("NIN protocol rejects malformed wrong-kind and invalid identity sequence or action commands") {
