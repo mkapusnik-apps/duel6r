@@ -25,6 +25,19 @@ set_tests_properties(duel6r-authoritative-match-behavior-tests PROPERTIES
         LABELS "application;integration;network;authoritative-match;determinism"
         TIMEOUT 180)
 
+add_executable(duel6r-authoritative-player-input-tests
+        ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+        ${CMAKE_SOURCE_DIR}/tests/AuthoritativePlayerInputTests.cpp)
+target_include_directories(duel6r-authoritative-player-input-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(duel6r-authoritative-player-input-tests duel6r-network-scaffold)
+if (MINGW)
+    set_property(TARGET duel6r-authoritative-player-input-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
+add_test(NAME duel6r-authoritative-player-input-tests COMMAND duel6r-authoritative-player-input-tests)
+set_tests_properties(duel6r-authoritative-player-input-tests PROPERTIES
+        LABELS "application;integration;network;authoritative-player-input;regression"
+        TIMEOUT 180)
+
 add_executable(duel6r-state-replication-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
         ${CMAKE_SOURCE_DIR}/tests/StateReplicationTests.cpp)

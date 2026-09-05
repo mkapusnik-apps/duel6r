@@ -6,6 +6,7 @@
 
 #include "AuthoritativeMatch.h"
 #include "AuthoritativeReplication.h"
+#include "AuthoritativePlayerInput.h"
 #include "../network/StateReplicationProtocol.h"
 
 namespace Duel6::Server::Authoritative {
@@ -44,6 +45,13 @@ namespace Duel6::Server::Authoritative {
         Network::Replication::HostReplicationResult receiveReplication(
                 Identity participantId, const std::vector<std::uint8_t> &payload);
         bool captureReplication();
+        bool restorePlayerInput(Identity participantId, AuthoritativePlayerInput::Sender sender,
+                                std::function<void()> close = {});
+        void disconnectPlayerInput(Identity participantId) noexcept;
+        void revokePlayerInput(Identity playerId) noexcept;
+        AuthoritativePlayerInput::ReceiveResult receivePlayerInput(
+                Identity participantId, const Network::Input::Command &command, bool remote = true);
+        bool advanceOneTick();
 
         HostedMatchStage stage() const noexcept;
         bool contentStartBlocked() const noexcept;
@@ -60,6 +68,7 @@ namespace Duel6::Server::Authoritative {
         std::unique_ptr<AuthoritativeMatch> activeMatch;
         AuthoritativeReplication replication;
         Network::Replication::AuthoritativeReplicationConnections replicationConnections;
+        AuthoritativePlayerInput playerInput;
 
         void clearReadiness() noexcept;
         bool allParticipantsReady(const std::vector<PlayerDefinition> &roster) const noexcept;

@@ -99,6 +99,8 @@ set(D6R_SOURCES
         source/BonusList.h
         source/Color.cpp
         source/Color.h
+        source/client/LocalPlayerInputSession.cpp
+        source/client/LocalPlayerInputSession.h
         source/ConsoleCommands.cpp
         source/ConsoleCommands.h
         source/Context.cpp
@@ -624,10 +626,14 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/network/StateReplication.h
         source/network/StateReplicationProtocol.cpp
         source/network/StateReplicationProtocol.h
+        source/network/PlayerInputProtocol.cpp
+        source/network/PlayerInputProtocol.h
         source/server/HeadlessServer.cpp
         source/server/HeadlessServer.h
         source/server/AuthoritativeMatch.cpp
         source/server/AuthoritativeMatch.h
+        source/server/AuthoritativePlayerInput.cpp
+        source/server/AuthoritativePlayerInput.h
         source/server/AuthoritativeMatchCli.cpp
         source/server/AuthoritativeMatchCli.h
         source/server/AuthoritativeMatchSerialization.cpp
@@ -779,7 +785,7 @@ endif (WIN32)
 set(D6R_APP_NAME "duel6r" CACHE STRING "Filename of the application.")
 set(D6R_APP_DEBUG_NAME "duel6rd" CACHE STRING "Filename of the debug version of the application.")
 add_executable(${D6R_APP_NAME} source/Main.cpp ${D6R_APP_PLATFORM_SOURCES})
-target_link_libraries(${D6R_APP_NAME} duel6r-game-engine)
+target_link_libraries(${D6R_APP_NAME} duel6r-game-engine duel6r-network-scaffold)
 set_target_properties(${D6R_APP_NAME} PROPERTIES VERSION 6.0.0 DEBUG_OUTPUT_NAME ${D6R_APP_DEBUG_NAME})
 
 #########################################################################

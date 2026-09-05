@@ -12,6 +12,8 @@ The authoritative headless match target is in [`network-authoritative-headless-m
 
 The canonical state-replication target is in [`network-state-replication.md`](network-state-replication.md).
 
+The authoritative player-input target is in [`network-authoritative-player-input.md`](network-authoritative-player-input.md).
+
 ## Terminology and clock
 
 - **Participant:** One admitted game instance. The host is one participant; every other participant is a guest.
@@ -315,12 +317,12 @@ Each issue owns the listed criteria without changing their normative boundaries.
 | [#30](https://github.com/mkapusnik-apps/duel6r/issues/30) | Protocol, release, capability, and content compatibility | `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-019` |
 | [#31](https://github.com/mkapusnik-apps/duel6r/issues/31) | [Player-hosted service supervision and host-local failure](network-host-service-lifecycle.md) | `NET-AC-003`, `NET-AC-009`, `NET-AC-014`, `NET-AC-016` |
 | [#32](https://github.com/mkapusnik-apps/duel6r/issues/32) | Authoritative headless match simulation | `NET-AC-004`, `NET-AC-010`, `NET-AC-012`, `NET-AC-013`, `NET-AC-018` |
-| [#33](https://github.com/mkapusnik-apps/duel6r/issues/33) | Local devices and authoritative remote input | `NET-AC-005`, `NET-AC-010`, `NET-AC-012` |
+| [#33](https://github.com/mkapusnik-apps/duel6r/issues/33) | Network input client behavior and authoritative input processing | `NET-AC-005`, `NET-AC-010`, `NET-AC-012` |
 | [#34](https://github.com/mkapusnik-apps/duel6r/issues/34) | Canonical state replication and identities | `NET-AC-010`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-018` |
 | [#35](https://github.com/mkapusnik-apps/duel6r/issues/35) | Responsiveness and recovery budgets | `NET-AC-009`, `NET-AC-010`, `NET-AC-011`, `NET-AC-012` |
 | [#36](https://github.com/mkapusnik-apps/duel6r/issues/36) | Disconnect, reconnect, shutdown, and intentional host end | `NET-AC-004`, `NET-AC-006`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-016` |
 | [#37](https://github.com/mkapusnik-apps/duel6r/issues/37) | Network result and persistence enforcement | `NET-AC-013`, `NET-AC-014`, `NET-AC-018` |
-| [#38](https://github.com/mkapusnik-apps/duel6r/issues/38) | Host, join, lobby, status, recovery, and error UX | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-006`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-010`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018`, `NET-AC-019` |
+| [#38](https://github.com/mkapusnik-apps/duel6r/issues/38) | Graphical network-session composition and host, join, lobby, status, recovery, and error UX | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-006`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-010`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018`, `NET-AC-019` |
 | [#39](https://github.com/mkapusnik-apps/duel6r/issues/39) | Trust boundaries and abuse limits | `NET-AC-002`, `NET-AC-005`, `NET-AC-007`, `NET-AC-008`, `NET-AC-010`, `NET-AC-011`, `NET-AC-019` |
 | [#40](https://github.com/mkapusnik-apps/duel6r/issues/40) | Supported network packaging and deployment documentation | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-008`, `NET-AC-015`, `NET-AC-019` |
 | [#41](https://github.com/mkapusnik-apps/duel6r/issues/41) | Complete release-candidate validation | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-006`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-010`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018`, `NET-AC-019` |
