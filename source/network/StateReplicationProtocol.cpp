@@ -59,9 +59,21 @@ namespace Duel6::Network::Replication {
             return Responsiveness::TimePoint{Clock::duration{fromCount + delta}};
         }
 
-        std::uint64_t saturatingAdd(std::uint64_t left, std::uint64_t right) noexcept {
-            return right > std::numeric_limits<std::uint64_t>::max() - left
-                   ? std::numeric_limits<std::uint64_t>::max() : left + right;
+        std::optional<std::uint64_t> extrapolateAuthoritativeTime(
+                std::uint64_t authoritativeTime,
+                Responsiveness::TimePoint synchronizedAt,
+                Responsiveness::TimePoint localTime) noexcept {
+            if (localTime >= synchronizedAt) {
+                const auto elapsed = elapsedMilliseconds(synchronizedAt, localTime);
+                if (!elapsed || static_cast<std::uint64_t>(elapsed->count())
+                    > MaximumAuthoritativeTimestamp - authoritativeTime)
+                    return std::nullopt;
+                return authoritativeTime + static_cast<std::uint64_t>(elapsed->count());
+            }
+            const auto elapsed = elapsedMilliseconds(localTime, synchronizedAt);
+            if (!elapsed || static_cast<std::uint64_t>(elapsed->count()) > authoritativeTime)
+                return std::nullopt;
+            return authoritativeTime - static_cast<std::uint64_t>(elapsed->count());
         }
 
         class Writer {
@@ -550,37 +562,53 @@ namespace Duel6::Network::Replication {
                 return ClientReplicationResult::NetworkSampled;
             }
             if (frame->authoritativeResponseAt && *frame->authoritativeResponseAt != 0) {
-                const auto halfRoundTrip = (static_cast<std::uint64_t>(elapsed.count()) + 1u) / 2u;
-                if (*frame->authoritativeResponseAt > MaximumAuthoritativeTimestamp - halfRoundTrip) {
+                const auto roundTrip = static_cast<std::uint64_t>(elapsed.count());
+                const auto halfRoundTrip = (roundTrip + 1u) / 2u;
+                if (*frame->authoritativeResponseAt
+                    > MaximumAuthoritativeTimestamp - halfRoundTrip) {
                     transportClosed();
                     return ClientReplicationResult::Reconnecting;
                 }
-                std::uint64_t synchronizedTime = *frame->authoritativeResponseAt + halfRoundTrip;
-                std::uint64_t synchronizedUncertainty = halfRoundTrip;
-                if (localClockSynchronizedAt && authoritativeClockAtSynchronization) {
-                    const auto priorTime = authoritativeTimeAt(acceptedAt);
-                    if (!priorTime) {
-                        transportClosed();
-                        return ClientReplicationResult::Reconnecting;
+                {
+                    std::uint64_t lowerBound = *frame->authoritativeResponseAt;
+                    std::uint64_t upperBound = lowerBound
+                            > MaximumAuthoritativeTimestamp - roundTrip
+                            ? MaximumAuthoritativeTimestamp : lowerBound + roundTrip;
+                    bool intervalConsistent = true;
+                    if (localClockSynchronizedAt
+                        && authoritativeClockLowerBoundAtSynchronization
+                        && authoritativeClockAtSynchronization
+                        && authoritativeClockUpperBoundAtSynchronization) {
+                        const auto priorLowerBound = extrapolateAuthoritativeTime(
+                                *authoritativeClockLowerBoundAtSynchronization,
+                                *localClockSynchronizedAt, acceptedAt);
+                        const auto priorUpperBound = extrapolateAuthoritativeTime(
+                                *authoritativeClockUpperBoundAtSynchronization,
+                                *localClockSynchronizedAt, acceptedAt);
+                        if (!priorLowerBound || !priorUpperBound) {
+                            intervalConsistent = false;
+                        } else {
+                            lowerBound = std::max(lowerBound, *priorLowerBound);
+                            upperBound = std::min(upperBound, *priorUpperBound);
+                            intervalConsistent = lowerBound <= upperBound;
+                        }
                     }
-                    if (*priorTime > synchronizedTime) {
-                        synchronizedUncertainty = std::max(
-                                authoritativeClockUncertainty,
-                                saturatingAdd(*priorTime - synchronizedTime, halfRoundTrip));
-                        synchronizedTime = *priorTime;
+                    if (intervalConsistent) {
+                        authoritativeClockLowerBoundAtSynchronization = lowerBound;
+                        authoritativeClockAtSynchronization = lowerBound + (upperBound - lowerBound) / 2u;
+                        authoritativeClockUpperBoundAtSynchronization = upperBound;
+                        localClockSynchronizedAt = acceptedAt;
                     }
                 }
-                authoritativeClockAtSynchronization = synchronizedTime;
-                localClockSynchronizedAt = acceptedAt;
-                // A supported RTT makes ceil(RTT/2) both measurement-bounded and no
-                // greater than the environment's admitted uncertainty. If monotonicity
-                // retains a later prior estimate, preserve an interval that contains both
-                // that prior uncertainty and the complete newest measurement interval.
-                // Never clamp an unsupported measurement into a seemingly precise calibration.
-                authoritativeClockUncertainty = synchronizedUncertainty;
+                // At receipt, the response timestamp plus an unknown return-path delay lies
+                // within [response, response + RTT]. Retain only the intersection with the
+                // prior interval extrapolated to this receipt. A disjoint sample cannot widen the
+                // future bound or invalidate an already bounded calibration.
             }
             qualityProbeSentAt.reset();
             if (!missedQualityDeadline) recordQualityOutcome(false, elapsed, acceptedAt);
+            if (!localClockSynchronizedAt || !authoritativeClockAtSynchronization)
+                return ClientReplicationResult::NetworkSampled;
             if (pendingAuthoritativeProducedAt && pendingCanonicalAcceptedAt) {
                 const auto age = authoritativeStateAge(
                         *pendingAuthoritativeProducedAt, *pendingCanonicalAcceptedAt);
@@ -711,7 +739,11 @@ namespace Duel6::Network::Replication {
             && localClockSynchronizedAt && authoritativeClockAtSynchronization) {
             const auto plausibleProductionTime = authoritativeProductionTimeIsPlausible(
                     authoritativeProducedAt, acceptedAt);
-            if (plausibleProductionTime && !*plausibleProductionTime) {
+            if (!plausibleProductionTime) {
+                transportClosed();
+                return ClientReplicationResult::Reconnecting;
+            }
+            if (!*plausibleProductionTime) {
                 if (frame->snapshot) {
                     if (allowOutboundExchange) signalFullSnapshotRequest();
                     return ClientReplicationResult::WaitingForSnapshot;
@@ -858,29 +890,24 @@ namespace Duel6::Network::Replication {
 
     std::optional<bool> ClientReplicationConnection::authoritativeProductionTimeIsPlausible(
             std::uint64_t producedAt, Responsiveness::TimePoint acceptedAt) const noexcept {
-        const auto authoritativeAcceptedAt = authoritativeTimeAt(acceptedAt);
-        if (!authoritativeAcceptedAt) return std::nullopt;
-        if (producedAt <= *authoritativeAcceptedAt) return true;
-        return producedAt - *authoritativeAcceptedAt <= authoritativeClockUncertainty;
+        const auto upperBound = authoritativeUpperBoundAt(acceptedAt);
+        if (!upperBound) return std::nullopt;
+        return producedAt <= *upperBound;
     }
 
     std::optional<std::uint64_t> ClientReplicationConnection::authoritativeTimeAt(
             Responsiveness::TimePoint localTime) const noexcept {
         if (!localClockSynchronizedAt || !authoritativeClockAtSynchronization) return std::nullopt;
-        std::uint64_t authoritativeTime = *authoritativeClockAtSynchronization;
-        if (localTime >= *localClockSynchronizedAt) {
-            const auto elapsed = elapsedMilliseconds(*localClockSynchronizedAt, localTime);
-            if (!elapsed || static_cast<std::uint64_t>(elapsed->count())
-                > MaximumAuthoritativeTimestamp - authoritativeTime)
-                return std::nullopt;
-            authoritativeTime += static_cast<std::uint64_t>(elapsed->count());
-        } else {
-            const auto elapsed = elapsedMilliseconds(localTime, *localClockSynchronizedAt);
-            if (!elapsed || static_cast<std::uint64_t>(elapsed->count()) > authoritativeTime)
-                return std::nullopt;
-            authoritativeTime -= static_cast<std::uint64_t>(elapsed->count());
-        }
-        return authoritativeTime;
+        return extrapolateAuthoritativeTime(
+                *authoritativeClockAtSynchronization, *localClockSynchronizedAt, localTime);
+    }
+
+    std::optional<std::uint64_t> ClientReplicationConnection::authoritativeUpperBoundAt(
+            Responsiveness::TimePoint localTime) const noexcept {
+        if (!localClockSynchronizedAt || !authoritativeClockUpperBoundAtSynchronization)
+            return std::nullopt;
+        return extrapolateAuthoritativeTime(
+                *authoritativeClockUpperBoundAtSynchronization, *localClockSynchronizedAt, localTime);
     }
 
     void ClientReplicationConnection::setLocallyControlledPlayers(std::set<Identity> playerIds) {

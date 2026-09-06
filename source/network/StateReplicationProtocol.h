@@ -106,7 +106,9 @@ namespace Duel6::Network::Replication {
         std::optional<Responsiveness::TimePoint> qualityProbeSentAt;
         std::optional<Responsiveness::TimePoint> lastQualityProbeAt;
         std::optional<Responsiveness::TimePoint> localClockSynchronizedAt;
+        std::optional<std::uint64_t> authoritativeClockLowerBoundAtSynchronization;
         std::optional<std::uint64_t> authoritativeClockAtSynchronization;
+        std::optional<std::uint64_t> authoritativeClockUpperBoundAtSynchronization;
         std::optional<FullSnapshot> pendingInitialSnapshot;
         std::optional<Responsiveness::TimePoint> pendingInitialSnapshotAcceptedAt;
         struct PendingInitialFrame {
@@ -126,7 +128,6 @@ namespace Duel6::Network::Replication {
         std::uint64_t qualityProbeSequence = 0;
         std::uint64_t unansweredQualityProbeCount = 0;
         std::uint64_t latestAuthoritativeProducedAt = 0;
-        std::uint64_t authoritativeClockUncertainty = 0;
         bool requireAuthoritativeTime = false;
         bool requestPending = false;
         bool deferredFullSnapshotRequest = false;
@@ -145,6 +146,8 @@ namespace Duel6::Network::Replication {
         void recordQualityOutcome(bool lost, std::chrono::milliseconds roundTripLatency,
                                   Responsiveness::TimePoint observedAt) noexcept;
         std::optional<std::uint64_t> authoritativeTimeAt(
+                Responsiveness::TimePoint localTime) const noexcept;
+        std::optional<std::uint64_t> authoritativeUpperBoundAt(
                 Responsiveness::TimePoint localTime) const noexcept;
         std::optional<bool> authoritativeProductionTimeIsPlausible(
                 std::uint64_t producedAt, Responsiveness::TimePoint acceptedAt) const noexcept;
