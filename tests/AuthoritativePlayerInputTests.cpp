@@ -307,10 +307,18 @@ D6R_TEST_CASE("NIN host and guest clients sustain four owned players at 60 Hz th
     D6R_REQUIRE(std::all_of(receiveResults.begin(), receiveResults.end(), [](const auto category) {
         return category == Input::OutcomeCategory::Pending;
     }));
-    for (Identity player: hostPlayers)
+    for (Identity player: hostPlayers) {
+        D6R_REQUIRE_EQ(SustainedTicks, static_cast<std::size_t>(std::count_if(
+                fixture.inputCalls.begin(), fixture.inputCalls.end(),
+                [player](const auto &call) { return call.player == player; })));
         D6R_REQUIRE(host->state(player, SustainedTicks) == Input::ClientCommandState::Applied);
-    for (Identity player: guestPlayers)
+    }
+    for (Identity player: guestPlayers) {
+        D6R_REQUIRE_EQ(SustainedTicks, static_cast<std::size_t>(std::count_if(
+                fixture.inputCalls.begin(), fixture.inputCalls.end(),
+                [player](const auto &call) { return call.player == player; })));
         D6R_REQUIRE(guest->state(player, SustainedTicks) == Input::ClientCommandState::Applied);
+    }
     D6R_REQUIRE(!host->state(101, 1));
     D6R_REQUIRE(!guest->state(201, 1));
 

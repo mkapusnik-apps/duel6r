@@ -2439,7 +2439,7 @@ D6R_TEST_CASE("REP monotonic tombstone and event watermarks remain bounded over 
     D6R_REQUIRE(client.apply({1, state}) == R::ApplyResult::Applied);
     for (R::Identity sequence = 1; sequence <= 5000; ++sequence) {
         auto next = state;
-        next.phaseTime = sequence;
+        next.phaseTime = state.phaseTime + 1;
         next.entities[0].entityId = 1000 + sequence;
         const auto update = publisher.publish(next, {{10000 + sequence, "shot", 101, 0,
                                                        1000 + sequence, 1}});
@@ -3794,6 +3794,185 @@ D6R_TEST_CASE("NRP calibrated clients reject bounded-future timestamps without c
 
     verifyEnvironment(N::Environment::SameMachine, 20ms, 10);
     verifyEnvironment(N::Environment::PrivateLan, 100ms, 50);
+}
+
+D6R_TEST_CASE("NRP positive sub-millisecond RTT across a host millisecond boundary admits initial and established state") {
+    const auto at = [](std::chrono::nanoseconds elapsed) { return N::TimePoint{} + elapsed; };
+    const auto exercise = [&](bool initialAdmission) {
+        std::vector<std::vector<std::uint8_t>> sent;
+        R::ClientReplicationConnection client([&](auto payload) {
+            sent.push_back(std::move(payload));
+            return Duel6::Network::SendResult::Accepted;
+        }, N::Environment::SameMachine, true);
+
+        D6R_REQUIRE(client.sampleNetwork(at(750us)));
+        const auto probe = R::deserializeReplicationFrame(sent.back());
+        D6R_REQUIRE(probe && probe->qualitySequence);
+
+        auto state = activeState();
+        R::FullSnapshot snapshot{1, state};
+        // The positive 500 us path crosses host millisecond 2001. Its conservative one-
+        // millisecond interval admits 2002 at the upper bound; truncating the RTT to zero does not.
+        snapshot.authoritativeProducedAt = 2002;
+        const auto snapshotPayload = R::serializeReplicationSnapshot(snapshot);
+        const auto snapshotAt = at(1100us);
+        const auto staged = initialAdmission
+                            ? client.receiveInitialAdmissionFrame(snapshotPayload, snapshotAt)
+                            : client.receive(snapshotPayload, snapshotAt);
+        D6R_REQUIRE_EQ(R::ClientReplicationResult::Applied, staged);
+        D6R_REQUIRE_EQ(R::StateVersion{0}, client.replicatedState().version());
+
+        const auto response = R::serializeQualityResponse(*probe->qualitySequence, 2001);
+        const auto sampled = initialAdmission
+                             ? client.receiveInitialAdmissionFrame(response, at(1250us))
+                             : client.receive(response, at(1250us));
+        D6R_REQUIRE_EQ(R::ClientReplicationResult::NetworkSampled, sampled);
+        D6R_REQUIRE_EQ(R::StateVersion{1}, client.replicatedState().version());
+        D6R_REQUIRE(client.replicatedState().current());
+
+        state.phaseTime++;
+        state.players[0].positionX = 1300;
+        auto update = validUpdate(activeState(), state);
+        update.baseline = 1;
+        update.version = 2;
+        update.authoritativeProducedAt = 2003;
+        D6R_REQUIRE(client.receive(R::serializeReplicationUpdate(update), at(1300us))
+                    == R::ClientReplicationResult::Applied);
+        D6R_REQUIRE_EQ(R::StateVersion{2}, client.replicatedState().version());
+        D6R_REQUIRE_EQ(std::int64_t{1300}, client.replicatedState().state()->players[0].positionX);
+    };
+
+    exercise(true);
+    exercise(false);
+}
+
+D6R_TEST_CASE("REP-048 REP-054 NRP same-round phase regressions retain every accepted client surface") {
+    const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
+    const auto samePresentation = [](const N::ConnectionPresentationState &left,
+                                     const N::ConnectionPresentationState &right) {
+        return left.canonicalStateCurrent == right.canonicalStateCurrent
+               && left.degraded == right.degraded
+               && left.resynchronizing == right.resynchronizing
+               && left.reconnecting == right.reconnecting
+               && left.retainingLastConfirmedState == right.retainingLastConfirmedState
+               && left.degradedText == right.degradedText
+               && left.retainedStateText == right.retainedStateText
+               && left.synchronizationText == right.synchronizationText
+               && left.reconnectingText == right.reconnectingText;
+    };
+    const auto samePose = [](const N::PresentedPlayerPose &left,
+                             const N::PresentedPlayerPose &right) {
+        return left.playerId == right.playerId && left.positionX == right.positionX
+               && left.positionY == right.positionY && left.facingLeft == right.facingLeft
+               && left.crouching == right.crouching;
+    };
+
+    std::vector<std::vector<std::uint8_t>> sent;
+    R::ClientReplicationConnection client([&](auto payload) {
+        sent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+    client.setLocallyControlledPlayers({101});
+    D6R_REQUIRE(client.sampleNetwork(at(0ms)));
+    const auto probe = R::deserializeReplicationFrame(sent.back());
+    D6R_REQUIRE(probe && probe->qualitySequence);
+    D6R_REQUIRE(client.receive(R::serializeQualityResponse(*probe->qualitySequence, 1000), at(20ms))
+                == R::ClientReplicationResult::NetworkSampled);
+
+    auto baselineState = activeState();
+    baselineState.phaseTime = 50;
+    baselineState.players[0].positionX = 1200;
+    R::FullSnapshot baseline{1, baselineState};
+    baseline.authoritativeProducedAt = 1020;
+    D6R_REQUIRE(client.receive(R::serializeReplicationSnapshot(baseline), at(20ms))
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE(client.predictLocalMovement({101, 1700, 25, true, true}, at(21ms)));
+    D6R_REQUIRE(client.takePresentationEvents().empty());
+    const auto acceptedBytes = R::serializeReplicationSnapshot({1, baselineState});
+    const auto predictedBefore = presented(client.presentedPlayers(at(30ms)), 101);
+
+    auto regressedState = baselineState;
+    regressedState.phaseTime--;
+    regressedState.players[0].positionX = 9000;
+    auto regressedUpdate = stateOnlyUpdate(
+            1, 2, regressedState, {{800, "shot", 101, 102, 50, 1}});
+    regressedUpdate.authoritativeProducedAt = 1030;
+    D6R_REQUIRE(client.receive(R::serializeReplicationUpdate(regressedUpdate), at(30ms))
+                == R::ClientReplicationResult::WaitingForSnapshot);
+    D6R_REQUIRE_EQ(R::StateVersion{1}, client.replicatedState().version());
+    D6R_REQUIRE(!client.replicatedState().current());
+    D6R_REQUIRE(client.replicatedState().state() == nullptr);
+    D6R_REQUIRE_EQ(acceptedBytes, R::serializeReplicationSnapshot(
+            {1, *client.replicatedState().retainedState()}));
+    D6R_REQUIRE(samePose(predictedBefore, presented(client.presentedPlayers(at(30ms)), 101)));
+    D6R_REQUIRE(client.takePresentationEvents().empty());
+    D6R_REQUIRE_EQ(std::size_t{2}, sent.size());
+
+    const auto presentationBeforeReplacement = client.presentationState(at(30ms));
+    const auto retainedBeforeReplacement = R::serializeReplicationSnapshot(
+            {1, *client.replicatedState().retainedState()});
+    const auto movementBeforeReplacement = presented(client.presentedPlayers(at(30ms)), 101);
+    R::FullSnapshot regressedReplacement{2, regressedState};
+    regressedReplacement.authoritativeProducedAt = 1031;
+    D6R_REQUIRE(client.receive(R::serializeReplicationSnapshot(regressedReplacement), at(31ms))
+                == R::ClientReplicationResult::WaitingForSnapshot);
+
+    D6R_REQUIRE_EQ(R::StateVersion{1}, client.replicatedState().version());
+    D6R_REQUIRE(!client.replicatedState().current());
+    D6R_REQUIRE(client.replicatedState().state() == nullptr);
+    D6R_REQUIRE_EQ(retainedBeforeReplacement, R::serializeReplicationSnapshot(
+            {1, *client.replicatedState().retainedState()}));
+    D6R_REQUIRE(samePose(movementBeforeReplacement,
+                         presented(client.presentedPlayers(at(30ms)), 101)));
+    D6R_REQUIRE(client.takePresentationEvents().empty());
+    D6R_REQUIRE(samePresentation(presentationBeforeReplacement,
+                                 client.presentationState(at(30ms))));
+    D6R_REQUIRE_EQ(std::size_t{2}, sent.size());
+
+    // A valid version with lower production time than the rejected replacement proves that its
+    // version and timing watermarks, quality age, movement correction, and prediction were atomic.
+    auto recoveredState = baselineState;
+    recoveredState.phaseTime++;
+    recoveredState.players[0].positionX = 1400;
+    R::FullSnapshot recovered{2, recoveredState};
+    recovered.authoritativeProducedAt = 1030;
+    D6R_REQUIRE(client.receive(R::serializeReplicationSnapshot(recovered), at(31ms))
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE_EQ(R::StateVersion{2}, client.replicatedState().version());
+    D6R_REQUIRE(client.replicatedState().current());
+    D6R_REQUIRE_EQ(std::uint64_t{51}, client.replicatedState().state()->phaseTime);
+    D6R_REQUIRE_EQ(std::int64_t{1400}, client.replicatedState().state()->players[0].positionX);
+    D6R_REQUIRE(client.takePresentationEvents().empty());
+}
+
+D6R_TEST_CASE("REP-048 production no-callback event drain stays bounded while canonical state advances") {
+    auto state = activeState();
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(state));
+    R::ClientReplicationConnection client({});
+    D6R_REQUIRE(client.receive(R::serializeReplicationSnapshot({1, state}))
+                == R::ClientReplicationResult::Applied);
+
+    constexpr R::StateVersion SustainedVersions = R::MaxReplicatedEvents + 257;
+    for (R::StateVersion version = 2; version <= SustainedVersions; ++version) {
+        state.phaseTime++;
+        state.players[1].positionX++;
+        auto update = publisher.publish(
+                state, {{10000 + version, "shot", 101, 102, 50, 1}});
+        D6R_REQUIRE(update.has_value());
+        D6R_REQUIRE(client.receive(R::serializeReplicationUpdate(*update))
+                    == R::ClientReplicationResult::Applied);
+        // This is the production HeadlessServer no-guestPresentation branch: outcomes are
+        // deliberately consumed rather than accumulated when no presentation callback exists.
+        (void) client.takePresentationEvents();
+        D6R_REQUIRE(client.takePresentationEvents().empty());
+        D6R_REQUIRE_EQ(version, client.replicatedState().version());
+        D6R_REQUIRE_EQ(state.phaseTime, client.replicatedState().state()->phaseTime);
+        D6R_REQUIRE_EQ(state.players[1].positionX,
+                       client.replicatedState().state()->players[1].positionX);
+    }
+    D6R_REQUIRE_EQ(SustainedVersions, publisher.version());
+    D6R_REQUIRE(client.replicatedState().current());
 }
 
 D6R_TEST_CASE("NRP local presentation bounds int64 extremes without changing canonical state or outcomes") {

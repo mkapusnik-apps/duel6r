@@ -1036,6 +1036,8 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
 }
 
 D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest input at 60 Hz") {
+    auto &transportBudget = Network::Trust::processQueueBudget();
+    const auto transportBudgetBaseline = transportBudget.used();
     const auto hostedManifest = manifest({
             {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
     auto content = std::make_shared<Network::FrozenGameplayContent>();
@@ -1169,6 +1171,7 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
         D6R_REQUIRE(samples[playerId] >= SustainedTicks);
         D6R_REQUIRE(applications[playerId] >= SustainedTicks);
     }
+    D6R_REQUIRE_EQ(transportBudgetBaseline, transportBudget.used());
 }
 
 D6R_TEST_CASE("REP-067 injected canonical tick failure terminates production server unsuccessfully without host-end claim") {
