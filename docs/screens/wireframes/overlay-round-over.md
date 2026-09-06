@@ -54,7 +54,8 @@ The three separator bands add 24 px to the representative panel height.
 Two-team and three-team states use the same treatment with one and two separator bands.
 Deathmatch and Predator outcomes use the unchanged overlay geometry without these separators.
 An unlimited-match variant omits the panel label and its 32 px row.
-The final summary remains unchanged.
+The final Team summary uses the same separator treatment and adds its separate bottom completion notice.
+The final non-Team summary remains unchanged.
 The active-round Team Tab overlay uses the same separator treatment without the progress row or curtain.
 
 Representative screenshot: [`SS-011`](../../screenshots/README.md#ss-011).

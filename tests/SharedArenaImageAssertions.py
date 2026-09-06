@@ -2,6 +2,7 @@
 """Deterministic pixel assertions for the shared-arena runtime harness."""
 
 import argparse
+import os
 import subprocess
 import sys
 
@@ -186,20 +187,66 @@ def assert_team_separators(data, label, left, width, separators):
             )
 
 
-def assert_no_team_separators(data, label, left, width, parent_rows):
-    for index in range(1, len(parent_rows)):
-        # With separator treatment, the rule is five pixels above the next
-        # parent row. Final Team summaries retain directly adjacent 32 px rows
-        # and must not contain that full-table-width rule or its 8 px band.
-        separator_y = parent_rows[index][0] - 5
-        values = region_pixels(data, left, separator_y, left + width, separator_y + 2)
+def assert_end_of_game_notice(data, label, font_path):
+    if not font_path or not os.path.isfile(font_path):
+        fail(f"{label}: --font must name the shipped font for final-score assertions")
+
+    text = "End of Game"
+    text_width = len(text) * 16
+    text_height = 32
+    surface_left = WIDTH // 2 - (text_width + 32) // 2
+    surface_top = HEIGHT - 16 - (text_height + 16)
+    surface_right = surface_left + text_width + 32
+    surface_bottom = HEIGHT - 16
+    text_left = surface_left + 16
+    text_top = surface_top + 8
+
+    # The fixed opaque surface makes the notice legible independently of the
+    # arena and curtain. Check all padding strips, which are not interrupted by
+    # glyphs, and the exact 16 px bottom inset.
+    padding = (
+        (surface_left, surface_top, surface_right, text_top),
+        (surface_left, text_top + text_height, surface_right, surface_bottom),
+        (surface_left, text_top, text_left, text_top + text_height),
+        (text_left + text_width, text_top, surface_right, text_top + text_height),
+    )
+    for index, box in enumerate(padding, 1):
         coverage = fraction(
-            values, lambda rgb: min(rgb) >= 165 and max(rgb) - min(rgb) <= 85)
-        if coverage >= 0.85:
-            fail(
-                f"{label}: final Team summary retained separator {index}: "
-                f"coverage={coverage:.3f}"
-            )
+            region_pixels(data, *box),
+            lambda rgb: rgb[2] >= 245 and rgb[0] <= 20 and rgb[1] <= 20,
+        )
+        if coverage < 0.98:
+            fail(f"{label}: End of Game surface padding {index} is not opaque blue: {coverage:.3f}")
+
+    expected = subprocess.check_output([
+        "convert", "-background", "black", "-fill", "white", "-font", font_path,
+        "-pointsize", "32", f"label:{text}", "-resize", f"{text_width}x{text_height}!",
+        "-depth", "8", "gray:-",
+    ])
+    expected_mask = [value >= 64 for value in expected]
+    observed_mask = [
+        min(pixel(data, text_left + x, text_top + y)) >= 205
+        for y in range(text_height)
+        for x in range(text_width)
+    ]
+    overlap = sum(a and b for a, b in zip(expected_mask, observed_mask))
+    total = sum(expected_mask) + sum(observed_mask)
+    similarity = 2.0 * overlap / total if total else 0.0
+    if similarity < 0.42:
+        fail(f"{label}: exact End of Game text is missing or illegible: similarity={similarity:.3f}")
+
+    # At the largest supported final Team table the production layout moves the
+    # panel just enough to leave this entire 16 px band clear. Reject score text
+    # or either blue UI surface bleeding into that dedicated gap.
+    gap_values = region_pixels(data, surface_left, surface_top - 16, surface_right, surface_top)
+    gap_blue = fraction(gap_values, lambda rgb: rgb[2] >= 175 and rgb[0] <= 82 and rgb[1] <= 82)
+    gap_white = fraction(gap_values, lambda rgb: min(rgb) >= 165 and max(rgb) - min(rgb) <= 85)
+    if gap_blue >= 0.85 or gap_white >= 0.20:
+        fail(
+            f"{label}: final score and End of Game notice are not visibly separate: "
+            f"gap-blue={gap_blue:.3f} gap-white={gap_white:.3f}"
+        )
+    return similarity, (surface_left, surface_top, surface_right, surface_bottom)
 
 
 def assert_score_overlay(data, label, players, teams, team_separators=True):
@@ -239,8 +286,6 @@ def assert_score_overlay(data, label, players, teams, team_separators=True):
             if len(separators) != teams - 1:
                 fail(f"{label}: expected {teams - 1} separator positions, got {separators}")
             assert_team_separators(data, label, left, width, separators)
-        else:
-            assert_no_team_separators(data, label, left, width, parent_rows)
         header_y = (parent_rows[0][0] + parent_rows[0][1]) // 2 - 64
 
     header = region_median(data, WIDTH // 2 - 80, header_y - 8,
@@ -260,6 +305,7 @@ def main():
     parser.add_argument("--final-score", action="store_true")
     parser.add_argument("--viewport-only", action="store_true")
     parser.add_argument("--without-ranking")
+    parser.add_argument("--font")
     args = parser.parse_args()
 
     data = load_rgb(args.image)
@@ -270,9 +316,14 @@ def main():
     elif args.score or args.final_score:
         groups, header = assert_score_overlay(
             data, args.label, args.players, args.teams,
-            team_separators=not args.final_score)
+            team_separators=True)
+        notice = ""
+        if args.final_score:
+            similarity, bounds = assert_end_of_game_notice(data, args.label, args.font)
+            notice = f" notice={bounds} text-similarity={similarity:.3f}"
         print(f"{args.label}: score-rows={args.players + args.teams} groups={groups} "
-              f"header={header} dividers={horizontal}/{vertical} edge={edge_count}/{edge_total}")
+              f"header={header}{notice} dividers={horizontal}/{vertical} "
+              f"edge={edge_count}/{edge_total}")
     else:
         if not args.without_ranking:
             fail("live ranking assertions require --without-ranking")

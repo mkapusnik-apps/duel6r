@@ -14,6 +14,7 @@ The consolidated person list requirements define an approved change to the earli
 The Equalize and Shuffle menu requirements define an approved change to the earlier implementation baseline.
 The person-action alignment requirements define an approved change to the earlier implementation baseline.
 The person-list space and menu-button refinement requirements define an approved change to the merged PR #60 baseline at commit `f2de2ac008ac6282a98acd6c44dc7543e5bfd73c`.
+The final Team game-summary requirements define an approved change to the earlier implementation baseline.
 
 The word **person** means a persistent named record. The word **player** means a person in the active match roster.
 
@@ -374,6 +375,13 @@ The **shared arena view** is one gameplay view that shows the whole level to all
 - **UI-RND-009** The final game summary and the active-round Tab score summary must not show the round-progress row from UI-RND-001.
 - **UI-RND-010** The round summary panel must right-align the round-progress label in the panel's top-right corner.
 
+### Final Team game summary
+
+- **UI-GAME-001** After the last round of a limited Team match, the final game summary must use the same team-group spacing as the non-final round summary.
+- **UI-GAME-002** While the final Team game summary is visible, the bottom of the window must show the exact text `End of Game`.
+- **UI-GAME-003** The `End of Game` notification must be clearly legible and visually separate from the final score table.
+- **UI-GAME-004** The `End of Game` notification must not obscure or replace final score content.
+
 ### Split-screen removal scope
 
 - **UI-016** The product must not describe split-screen as an available feature in user-visible text or maintained product documentation.
@@ -547,7 +555,7 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-049** After gameplay returns to the menu, the selected game mode and both Team setting values remain unchanged.
 - **AC-050** A change to `Num. of Team` updates roster team colors according to SET-020 and SET-021.
 - **AC-051** Each Team setting combination starts Team deathmatch with its selected team count and Friendly Fire value.
-- **AC-052** After each non-final round in a limited match, the round summary panel shows `Rounds: <played>|<total>`. The label is in a separate top row above the `SCORE` heading strip. The panel right-aligns the label in the panel's top-right corner. The label does not overlap or replace the heading strip. `<played>` includes the completed round. `<total>` equals the configured round limit. While the panel is visible, the top edge of the arena does not show duplicate round progress. The top-edge progress returns when the next round starts. An unlimited-match summary does not show the panel label. The final game summary and the active-round Tab score summary remain unchanged.
+- **AC-052** After each non-final round in a limited match, the round summary panel shows `Rounds: <played>|<total>`. The label is in a separate top row above the `SCORE` heading strip. The panel right-aligns the label in the panel's top-right corner. The label does not overlap or replace the heading strip. `<played>` includes the completed round. `<total>` equals the configured round limit. While the panel is visible, the top edge of the arena does not show duplicate round progress. The top-edge progress returns when the next round starts. An unlimited-match summary does not show the panel label. The final game summary and the active-round Tab score summary do not show this panel label.
 - **AC-053** The main menu has one person list instead of separate `ELO Scoreboard` and `Persons` lists.
 - **AC-054** The person list shows each saved person once. It includes roster members and persons with zero Elo games.
 - **AC-055** Ranked rows show rank, name, Elo, and Elo trend in descending Elo order. Unranked rows follow them without an Elo rank.
@@ -565,6 +573,8 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-067** `Remove`, `<<`, `>>`, `Equalize`, `Shuffle`, and `Detect All` have equal heights. Each caption has visible space from the button border on all sides.
 - **AC-068** The batch controller-detection action shows `Detect All`. Each row-level controller-detection action still shows `D`.
 - **AC-069** The refinement keeps person-list content, person actions, roster-order actions, and controller-detection behavior unchanged.
+- **AC-070** After the last round of a limited Team match, each team boundary has the same spacing as the non-final round summary.
+- **AC-071** While the final Team game summary is visible, `End of Game` is clearly legible at the bottom of the window. It is separate from the score table and does not obscure score content.
 
 ## Source traceability
 
