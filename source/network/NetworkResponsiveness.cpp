@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <type_traits>
 #include <utility>
 
 namespace Duel6::Network::Responsiveness {
@@ -11,6 +12,63 @@ namespace Duel6::Network::Responsiveness {
         constexpr const char *RetainedStateText = "Last confirmed state";
         constexpr const char *SynchronizationText = "Synchronizing current state\xE2\x80\xA6";
         constexpr const char *ReconnectingText = "Reconnecting\xE2\x80\xA6";
+
+        bool subtractMilliseconds(TimePoint from, std::chrono::milliseconds amount,
+                                  TimePoint &result) noexcept {
+            if (amount < std::chrono::milliseconds::zero()
+                || amount > std::chrono::duration_cast<std::chrono::milliseconds>(
+                        Clock::duration::max())) return false;
+            const auto delta = std::chrono::duration_cast<Clock::duration>(amount).count();
+            const auto fromCount = from.time_since_epoch().count();
+            const auto minimum = Clock::duration::min().count();
+            if (fromCount < minimum + delta) return false;
+            result = TimePoint{Clock::duration{fromCount - delta}};
+            return true;
+        }
+
+        bool addMilliseconds(TimePoint from, std::chrono::milliseconds amount,
+                             TimePoint &result) noexcept {
+            if (amount < std::chrono::milliseconds::zero()
+                || amount > std::chrono::duration_cast<std::chrono::milliseconds>(
+                        Clock::duration::max())) return false;
+            const auto delta = std::chrono::duration_cast<Clock::duration>(amount).count();
+            const auto fromCount = from.time_since_epoch().count();
+            const auto maximum = Clock::duration::max().count();
+            if (fromCount > maximum - delta) return false;
+            result = TimePoint{Clock::duration{fromCount + delta}};
+            return true;
+        }
+
+        bool deadlineReached(TimePoint startedAt, std::chrono::milliseconds delay,
+                             TimePoint now) noexcept {
+            TimePoint deadline;
+            return addMilliseconds(startedAt, delay, deadline) && now >= deadline;
+        }
+
+        std::optional<std::chrono::milliseconds> elapsedMilliseconds(
+                TimePoint startedAt, TimePoint now) noexcept {
+            if (now < startedAt) return std::nullopt;
+            using Rep = Clock::duration::rep;
+            using Unsigned = std::make_unsigned_t<Rep>;
+            static_assert(std::numeric_limits<Rep>::is_signed,
+                          "The responsiveness clock must use a signed duration");
+            const Rep started = startedAt.time_since_epoch().count();
+            const Rep finished = now.time_since_epoch().count();
+            Unsigned ticks;
+            if (started < 0 && finished >= 0) {
+                const Unsigned beforeEpoch = static_cast<Unsigned>(-(started + 1)) + 1;
+                const Unsigned afterEpoch = static_cast<Unsigned>(finished);
+                const Unsigned maximum = static_cast<Unsigned>(
+                        std::numeric_limits<Rep>::max());
+                if (beforeEpoch > maximum - afterEpoch) return std::nullopt;
+                ticks = beforeEpoch + afterEpoch;
+            } else {
+                ticks = static_cast<Unsigned>(finished - started);
+            }
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    Clock::duration{static_cast<Rep>(ticks)});
+            return elapsed;
+        }
 
         std::int64_t interpolateValue(std::int64_t from, std::int64_t to, long double progress) noexcept {
             const long double value = static_cast<long double>(from)
@@ -77,7 +135,8 @@ namespace Duel6::Network::Responsiveness {
     bool ConnectionQualityMonitor::observeCanonicalState(
             Replication::StateVersion version, std::chrono::milliseconds stateAgeAtAcceptance,
             TimePoint acceptedAt) noexcept {
-        const TimePoint producedAt = acceptedAt - stateAgeAtAcceptance;
+        TimePoint producedAt;
+        if (!subtractMilliseconds(acceptedAt, stateAgeAtAcceptance, producedAt)) return false;
         if (version == 0 || version < latestVersion
             || (version == latestVersion && !resynchronizing && latestCanonicalStateAt)
             || stateAgeAtAcceptance < std::chrono::milliseconds::zero()
@@ -87,7 +146,13 @@ namespace Duel6::Network::Responsiveness {
         latestCanonicalStateAt = producedAt;
         latestCanonicalAcceptanceAt = acceptedAt;
         if (stateAgeAtAcceptance <= MaximumCurrentStateAge) stateAgeExceededSince.reset();
-        else if (!stateAgeExceededSince) stateAgeExceededSince = acceptedAt;
+        else if (!stateAgeExceededSince) {
+            TimePoint thresholdCrossedAt;
+            if (!subtractMilliseconds(acceptedAt,
+                    stateAgeAtAcceptance - MaximumCurrentStateAge,
+                    thresholdCrossedAt)) return false;
+            stateAgeExceededSince = thresholdCrossedAt;
+        }
         resynchronizing = false;
         reconnecting = false;
         return true;
@@ -116,24 +181,27 @@ namespace Duel6::Network::Responsiveness {
     ConnectionPresentationState ConnectionQualityMonitor::update(TimePoint now) noexcept {
         bool stateInsideBudget = false;
         if (latestCanonicalStateAt && now >= *latestCanonicalStateAt) {
-            const auto age = now - *latestCanonicalStateAt;
-            stateInsideBudget = age <= MaximumCurrentStateAge;
-            if (!stateInsideBudget && !stateAgeExceededSince)
-                stateAgeExceededSince = *latestCanonicalStateAt + MaximumCurrentStateAge;
+            TimePoint threshold;
+            stateInsideBudget = !addMilliseconds(
+                    *latestCanonicalStateAt, MaximumCurrentStateAge, threshold)
+                                || now <= threshold;
+            if (!stateInsideBudget && !stateAgeExceededSince) stateAgeExceededSince = threshold;
             else if (stateInsideBudget) stateAgeExceededSince.reset();
         }
 
         const bool staleLongEnough = stateAgeExceededSince
-                                     && now - *stateAgeExceededSince >= StateAgeDegradedDelay;
+                                     && deadlineReached(*stateAgeExceededSince,
+                                             StateAgeDegradedDelay, now);
         const bool networkExceededLongEnough = networkExceededSince
-                                               && now - *networkExceededSince >= NetworkBudgetDegradedDelay;
+                                                && deadlineReached(*networkExceededSince,
+                                                        NetworkBudgetDegradedDelay, now);
         if (!reconnecting && (staleLongEnough || networkExceededLongEnough)) degraded = true;
 
         const bool fullySupported = !reconnecting && !resynchronizing
                                     && stateInsideBudget && networkInsideBudget();
         if (degraded && fullySupported) {
             if (!supportedSince) supportedSince = now;
-            else if (now - *supportedSince >= SupportedRecoveryDelay) degraded = false;
+            else if (deadlineReached(*supportedSince, SupportedRecoveryDelay, now)) degraded = false;
         } else supportedSince.reset();
 
         ConnectionPresentationState result;
@@ -154,7 +222,7 @@ namespace Duel6::Network::Responsiveness {
     std::optional<std::chrono::milliseconds> ConnectionQualityMonitor::currentStateAge(
             TimePoint now) const noexcept {
         if (!latestCanonicalStateAt || now < *latestCanonicalStateAt) return std::nullopt;
-        return std::chrono::duration_cast<std::chrono::milliseconds>(now - *latestCanonicalStateAt);
+        return elapsedMilliseconds(*latestCanonicalStateAt, now);
     }
 
     std::optional<std::chrono::milliseconds> ConnectionQualityMonitor::currentJitter() const noexcept {
