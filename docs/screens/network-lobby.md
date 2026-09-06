@@ -4,7 +4,9 @@
 
 This is a target screen for downstream issue #38; it is not implemented. It exposes participant ownership, local-player configuration, host-owned match settings, authoritative roster order, readiness, and retained session results. Issue #32 defines its authoritative setup and result states in [`docs/network-authoritative-headless-match.md`](../network-authoritative-headless-match.md).
 
-Host or guest admission enters from `NET-02` or `NET-03`. Host Start match enters `NET-05`; final-summary Return to lobby enters here with readiness cleared. Confirmed guest Leave sends that guest to `NET-01`. Confirmed host End session sends the host to `NET-01` and guests to `NET-09`. Any unexpected host contact failure enters guest `NET-07`; only a valid End session notice accepted through the current established session enters guest `NET-09`.
+Host admission enters from `NET-02`. A guest enters from `NET-03` only after complete validated production admission. Host Start match enters `NET-05`; final-summary Return to lobby enters here with readiness cleared. Confirmed guest Leave sends that guest to `NET-01`. Confirmed host End session sends the host to `NET-01` and guests to `NET-09`. Any unexpected host contact failure enters guest `NET-07`; only a valid End session notice accepted through the current established session enters guest `NET-09`.
+
+A complete validated production admission must contain an exact final confirmation, valid host-clock calibration, and one complete valid initial lobby snapshot. The guest must receive all three inputs strictly before the single total connection deadline. The initial snapshot must match the confirmed participant identity and ordered owned-player identities. The snapshot production time must be valid under the calibration result.
 
 ## Representative layout
 

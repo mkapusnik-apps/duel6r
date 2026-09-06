@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-This is a target screen for downstream issue #38; it is not implemented. It presents the authoritative network match in the existing undivided shared arena. It implements `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-010`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md) alongside unchanged local gameplay presentation requirements.
+This is a target screen for downstream issue #38; it is not implemented. It presents the authoritative network match in the existing undivided shared arena. It implements `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-009` through `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md) alongside unchanged local gameplay presentation requirements. Its degraded-network, visible-correction, and recovery variants implement `NRP-BUD-001` through `NRP-BUD-007`, `NRP-PRS-001` through `NRP-PRS-011`, `NRP-REC-001` through `NRP-REC-012`, `NRP-AUT-001` through `NRP-AUT-006`, and `NRP-AC-001` through `NRP-AC-014` in [`docs/network-responsiveness-and-recovery.md`](../network-responsiveness-and-recovery.md).
 
 The host starts this screen from `NET-04` after all participants are ready and clears any prior retained result. Match completion enters `NET-06`; unexpected host contact failure enters guest `NET-07`. Only a valid End session notice accepted through the current established session enters guest `NET-09`.
 
@@ -10,9 +10,86 @@ The host starts this screen from `NET-04` after all participants are ready and c
 
 - Fill the client with one undivided arena that shows the complete level and all 2–15 players.
 - Preserve existing world, ranking, round progress, event, and player-status presentation.
-- Add only compact textual session status that does not obscure required play: endpoint/session role and exceptional connection state where applicable.
-- The representative state is a six-player LAN Deathmatch at 1280 by 900 with all connected participants active.
+- Add only compact textual session status that does not obscure required play: session role, LAN scope, connection state, result scope, and script policy.
+- The representative state is a six-player LAN Deathmatch at 1280 by 900 during a sustained degraded-network condition while complete canonical updates continue.
 - Network status must state `Optional scripts disabled` without obscuring play.
+
+## Status hierarchy and allocation
+
+- The arena must remain the primary visual region.
+- The existing ranking, round progress, event text, and player status must remain above world imagery.
+- A compact network status region must align to the bottom edge of the client.
+- The network status region must keep a 16 px inset from the left, right, and bottom client edges.
+- The network status region must use standard 16 px gameplay text.
+- The network status region must use a flat translucent `info-surface` behind `info-text`.
+- The network status region must keep 4 px of clear inner space around its text.
+- The status region must use one left content group and one right content group.
+- The left group must align to the left inset.
+- The right group must align to the right inset.
+- The groups must keep at least 16 px of clear horizontal space between them.
+- The left group must show role, `LAN session`, and `Connected` on its first row.
+- The degraded variant must show `Network connection degraded.` on the next row.
+- The right group must show `Session only scores` and `Optional scripts disabled`.
+- The degraded indication must have priority over the other status text when width is constrained.
+- The degraded indication must not truncate, clip, scroll, or use an ellipsis.
+- Other status phrases may wrap only at word boundaries.
+- A wrapped status region must grow upward in 16 px rows.
+- A wrapped status region must not exceed three rows.
+- The status region must not make ranking, round progress, event text, player status, or session actions unreadable.
+- A blocking confirmation panel must render above the network status region.
+
+## Responsive behavior
+
+- The gameplay renderer must fill each supported desktop client.
+- The arena must remain one undivided view at each supported desktop viewport.
+- The status groups must remain edge-aligned when the client width changes.
+- The status groups must wrap before they overlap each other.
+- A wrapped right group must move above the left group when two horizontal groups do not fit.
+- The complete degraded indication must remain visible at the 1280 by 720 evaluation minimum.
+- The status region must not change world scale, camera bounds, or player-specific allocation.
+
+## Degraded, correction, and recovery states
+
+- The supported state must show `Connected` without the degraded indication.
+- The client must add `Network connection degraded.` after the sustained breach in `NRP-REC-001` or `NRP-REC-002`.
+- The degraded indication must remain persistent while the degraded state applies.
+- The degraded indication must not say that the participant disconnected.
+- The degraded indication must not say that the host ended the session.
+- The degraded state must keep presenting the latest complete accepted canonical state while updates continue.
+- The degraded state must not dim, freeze, divide, or replace the arena.
+- The degraded state must not add a modal panel or capture player input.
+- A predicted local-player correction must keep one visible local-player sprite.
+- The correction must move that sprite toward one latest accepted canonical position.
+- The correction must finish within 150 ms after acceptance of that canonical state.
+- The correction must not alternate between an older and a newer accepted position.
+- The correction must not create a ghost, trail, flash, duplicate sprite, camera shift, or outcome effect.
+- The correction must not change another player's visible state.
+- The correction must not predict a shot, hit, pickup, bonus, damage, death, score, winner, or progression outcome.
+- Authoritative outcomes must use their unchanged gameplay presentation.
+- Full resynchronization may keep the last complete accepted frame as context.
+- Retained resynchronization context must show `Last confirmed state`.
+- Retained resynchronization context must show `Synchronizing current state…`.
+- Retained resynchronization context must not show a percentage, partial-state count, or another recovery-progress value.
+- Full resynchronization must replace retained context only with the latest complete valid full state.
+- Recovery must not visibly rewind match time.
+- Recovery must not repeat an event.
+- Recovery must not restore a removed entity.
+- The client must remove the degraded indication after all applicable budgets remain satisfied for three continuous seconds.
+- The client must present current canonical state without the degraded indication within five seconds after supported conditions return.
+- A closed guest transport must replace `NET-05` with `NET-07`.
+
+## Interaction, focus, and accessibility
+
+- The network status region must be non-interactive.
+- The network status region must not receive keyboard, controller, or pointer focus.
+- The network status region must not add a pointer or touch target.
+- The network status region must not capture gameplay input.
+- The exact degraded text must provide the primary degraded-state cue.
+- Color or motion may reinforce the degraded state but must not replace the text.
+- The degraded text must remain continuously available and must not use a transient toast.
+- The degraded text must keep the contrast of `info-text` on `info-surface` over every arena background.
+- A movement correction must not use flashing feedback.
+- Existing session-action focus and confirmation containment must remain unchanged.
 
 ## Navigation and significant variants
 
@@ -46,5 +123,21 @@ The host starts this screen from `NET-04` after all participants are ready and c
 - Phase and countdown text must remain visible without reliance on curtain motion or color.
 - Only the host may receive focus on `Advance round` or `End session`.
 - Local Play advancement, scripting, presentation, and persistence behavior must remain unchanged.
+
+## Observable acceptance and evidence
+
+- A static artifact must show one complete 1280 by 900 client without external window chrome.
+- The artifact must show six living players in one complete LAN Deathmatch arena.
+- The artifact must show ranking, round progress, event text, and player status without status overlap.
+- The artifact must show `Host`, `LAN session`, `Connected`, `Session only scores`, and `Optional scripts disabled`.
+- The artifact must show the exact text `Network connection degraded.` during a sustained budget breach.
+- The artifact must not show reconnect, disconnect, pause, or host-end copy.
+- The artifact must keep the degraded indication fully readable without clipping or truncation.
+- The canonical screenshot matrix must keep exactly one representative artifact for this wireframe.
+- A supplementary recording should show supported remote motion, one visible local correction, degraded entry, and recovery clearance.
+- The recording should show that correction converges within 150 ms.
+- The recording should show that degraded text clears only after three continuous supported seconds.
+- The recording should show current canonical presentation without the degraded indication within five seconds of restored supported conditions.
+- Functional evidence must measure all non-static timing, authority, state-integrity, player-count, and Local Play requirements.
 
 Planned representative screenshot: [`SS-019`](../screenshots/README.md#ss-019).

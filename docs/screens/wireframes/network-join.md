@@ -19,7 +19,10 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 ```
 
 - The endpoint and two local players remain visible while the attempt is pending.
-- The screen does not claim connection or lobby admission before the exact final `admitted` confirmation.
+- The screen must not claim connection or lobby admission before the guest validates the exact final `admitted` confirmation, valid host-clock calibration, and one complete valid initial full snapshot.
+- The guest must receive all three success inputs strictly before the single total deadline.
+- The initial snapshot must match the confirmed participant identity and ordered owned-player identities.
+- The snapshot production time must be valid under the host-clock calibration result.
 - Inline validation remains on editable `NET-03`. Cancel returns there with endpoint and players retained.
 - Complete host rejections use the exact identifier order in the screen specification; malformed or inconsistent complete host messages use the fixed invalid-host-message outcome.
 - Without a complete response, name-resolution failure, unreachable or refusal, incomplete admission, and timeout use the exact order and copy in the screen specification.

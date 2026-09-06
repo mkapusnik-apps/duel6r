@@ -51,6 +51,19 @@ set_tests_properties(duel6r-state-replication-tests PROPERTIES
         LABELS "application;integration;network;state-replication;regression"
         TIMEOUT 60)
 
+add_executable(duel6r-network-responsiveness-tests
+        ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+        ${CMAKE_SOURCE_DIR}/tests/NetworkResponsivenessTests.cpp)
+target_include_directories(duel6r-network-responsiveness-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(duel6r-network-responsiveness-tests duel6r-network-scaffold)
+if (MINGW)
+    set_property(TARGET duel6r-network-responsiveness-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
+add_test(NAME duel6r-network-responsiveness-tests COMMAND duel6r-network-responsiveness-tests)
+set_tests_properties(duel6r-network-responsiveness-tests PROPERTIES
+        LABELS "application;network;responsiveness;recovery;regression"
+        TIMEOUT 60)
+
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT D6R_TRANSPORT_ONLY)
     add_executable(duel6r-local-play-pick-animation-tests
             ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp

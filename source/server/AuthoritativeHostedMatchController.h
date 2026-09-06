@@ -7,6 +7,7 @@
 #include "AuthoritativeMatch.h"
 #include "AuthoritativeReplication.h"
 #include "AuthoritativePlayerInput.h"
+#include "../network/NetworkResponsiveness.h"
 #include "../network/StateReplicationProtocol.h"
 
 namespace Duel6::Server::Authoritative {
@@ -69,6 +70,8 @@ namespace Duel6::Server::Authoritative {
         AuthoritativeReplication replication;
         Network::Replication::AuthoritativeReplicationConnections replicationConnections;
         AuthoritativePlayerInput playerInput;
+        Network::Responsiveness::CanonicalUpdatePacer replicationPacer;
+        MatchPhase lastReplicatedPhase = MatchPhase::Lobby;
 
         void clearReadiness() noexcept;
         bool allParticipantsReady(const std::vector<PlayerDefinition> &roster) const noexcept;

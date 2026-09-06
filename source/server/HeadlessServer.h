@@ -15,8 +15,10 @@
 #include "AuthoritativeMatch.h"
 #include "../network/CompatibilityManifest.h"
 #include "../network/HostServiceControlProtocol.h"
+#include "../network/NetworkResponsiveness.h"
 #include "../network/Protocol.h"
 #include "../network/SessionTransport.h"
+#include "../network/StateReplication.h"
 
 namespace Duel6::Server {
     struct HandshakeResult {
@@ -142,6 +144,13 @@ namespace Duel6::Server {
         // sample for each admitted player identity. An empty callback keeps non-interactive
         // headless invocations from manufacturing input.
         std::function<std::uint32_t(std::uint64_t)> localPlayerActions;
+        // Supplies canonical outcomes together with movement-only presentation and network status
+        // to the existing guest journey. Graphical NET-05 composition remains downstream.
+        std::function<void(const Network::Replication::CanonicalState &,
+                           const Network::Responsiveness::ConnectionPresentationState &,
+                           const std::vector<Network::Responsiveness::PresentedPlayerPose> &,
+                           const std::vector<Network::Replication::PresentationEvent> &)>
+                guestPresentation;
         std::function<Authoritative::MatchRuntimeDependencies(
                 const Authoritative::MatchConfig &, const std::vector<Authoritative::PlayerDefinition> &,
                 const Network::ManifestBuildResult &)> authoritativeRuntimeFactory;

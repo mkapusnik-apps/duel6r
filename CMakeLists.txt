@@ -620,6 +620,8 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/network/HostServiceControlProtocol.h
         source/network/NetworkTrustPolicy.cpp
         source/network/NetworkTrustPolicy.h
+        source/network/NetworkResponsiveness.cpp
+        source/network/NetworkResponsiveness.h
         source/network/SessionTransport.cpp
         source/network/SessionTransport.h
         source/network/StateReplication.cpp

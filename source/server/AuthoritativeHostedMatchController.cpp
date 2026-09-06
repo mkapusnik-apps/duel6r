@@ -181,6 +181,8 @@ namespace Duel6::Server::Authoritative {
                     return terminalOutcome(OutcomeCode::RuntimeFailed);
                 }
                 (void) replicationConnections.broadcast(*update);
+                replicationPacer.reset(activeMatch->currentTick());
+                lastReplicatedPhase = activeMatch->phase();
             }
             currentStage = HostedMatchStage::MatchActive;
             explicitReadinessRequired = false;
@@ -248,9 +250,13 @@ namespace Duel6::Server::Authoritative {
                 currentStage = HostedMatchStage::Lobby;
             }
         } else {
-            const auto update = replication.capture(*activeMatch);
-            if (!update) return false;
-            (void) replicationConnections.broadcast(*update);
+            const bool lifecycleTransition = activeMatch->phase() != lastReplicatedPhase;
+            if (replicationPacer.shouldPublish(activeMatch->currentTick(), lifecycleTransition)) {
+                const auto update = replication.capture(*activeMatch);
+                if (!update) return false;
+                (void) replicationConnections.broadcast(*update);
+                lastReplicatedPhase = activeMatch->phase();
+            }
         }
         return true;
     }

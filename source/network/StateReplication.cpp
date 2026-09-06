@@ -710,6 +710,8 @@ namespace Duel6::Network::Replication {
         }
         if (!current || currentVersion == std::numeric_limits<StateVersion>::max()
             || !validateCanonicalState(state) || state.sessionId != current->sessionId
+            || (current->matchId != 0 && state.matchId == current->matchId
+                && sameRound(current->round, state.round) && state.phaseTime < current->phaseTime)
             || containsReusedCreation(current->participants, state.participants,
                                       issuedParticipantIdentities,
                                       [](const auto &value) { return value.participantId; })
@@ -791,6 +793,9 @@ namespace Duel6::Network::Replication {
     ApplyResult ReplicatedState::apply(const FullSnapshot &snapshot) {
         if (snapshot.version == 0 || !validateCanonicalState(snapshot.state)
             || (accepted && snapshot.state.sessionId != accepted->sessionId)
+            || (accepted && accepted->matchId != 0 && snapshot.state.matchId == accepted->matchId
+                && sameRound(accepted->round, snapshot.state.round)
+                && snapshot.state.phaseTime < accepted->phaseTime)
             || (acceptedVersion && (snapshot.version < acceptedVersion
                 || (snapshot.version == acceptedVersion
                     && (!resynchronizing || !sameCanonicalState(*accepted, snapshot.state))))))
@@ -847,14 +852,12 @@ namespace Duel6::Network::Replication {
         acceptedRoundIdentities = std::move(nextAcceptedRounds);
         acceptedTransientEntityIdentities = std::move(nextAcceptedTransientEntities);
         highestEntityIdentity = nextHighestEntities;
-        pendingEvents.clear();
         resynchronizing = false;
         return ApplyResult::Applied;
     }
 
     ApplyResult ReplicatedState::rejectIncremental() noexcept {
         resynchronizing = true;
-        pendingEvents.clear();
         return ApplyResult::ResynchronizationRequired;
     }
 
@@ -889,6 +892,9 @@ namespace Duel6::Network::Replication {
         candidate.phaseTime = update.phaseTime; candidate.roundEndCountdown = update.roundEndCountdown;
         candidate.settings = update.settings; candidate.round = update.round; candidate.score = update.score;
         candidate.messages = update.messages; candidate.effects = update.effects; candidate.result = update.result;
+        if (accepted->matchId != 0 && candidate.matchId == accepted->matchId
+            && sameRound(accepted->round, candidate.round)
+            && candidate.phaseTime < accepted->phaseTime) return rejectIncremental();
         if (introducesUnseenRetainedResultIdentity(*accepted, candidate, acceptedPlayerIdentities)
             || altersEstablishedResult(*accepted, candidate)
             || !validFollowingLobbyTransition(*accepted, candidate, acceptedMatchIdentities,
@@ -929,15 +935,18 @@ namespace Duel6::Network::Replication {
         acceptedTransientEntityIdentities = std::move(nextAcceptedTransientEntities);
         highestEntityIdentity = nextHighestEntities;
         for (const auto &event: update.events) highestPresentedEvent = std::max(highestPresentedEvent, event.eventId);
-        pendingEvents = update.events;
+        pendingEvents.insert(pendingEvents.end(), update.events.begin(), update.events.end());
         return ApplyResult::Applied;
     }
 
-    void ReplicatedState::requireResynchronization() noexcept { resynchronizing = true; pendingEvents.clear(); }
+    void ReplicatedState::requireResynchronization() noexcept { resynchronizing = true; }
     bool ReplicatedState::resynchronizationRequired() const noexcept { return resynchronizing; }
     bool ReplicatedState::current() const noexcept { return accepted.has_value() && !resynchronizing; }
     StateVersion ReplicatedState::version() const noexcept { return acceptedVersion; }
     const CanonicalState *ReplicatedState::state() const noexcept { return current() ? &*accepted : nullptr; }
+    const CanonicalState *ReplicatedState::retainedState() const noexcept {
+        return accepted ? &*accepted : nullptr;
+    }
     std::vector<PresentationEvent> ReplicatedState::takePresentationEvents() {
         std::vector<PresentationEvent> result;
         result.swap(pendingEvents);

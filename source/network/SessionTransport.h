@@ -192,8 +192,9 @@ namespace Duel6::Network {
                 const std::function<TransportTimePoint()> &now,
                 TransportTimePoint deadline);
         bool receive(TransportFrame &frame);
-        // Atomically prevents later inbound application delivery and drains every frame
-        // queued before the seal together with terminal state at that linearization point.
+        // Atomically pauses later inbound application delivery and drains every frame queued
+        // before the seal together with terminal state at that linearization point. A successful
+        // admission resumes delivery; every other outcome closes the connection.
         TransportInputSnapshot sealAndDrainInput();
         ClientState state() const;
         TransportFailure failure() const;
@@ -202,7 +203,7 @@ namespace Duel6::Network {
         TransportTimePoint terminalAt() const;
         // Releases only the pre-admission accounting reservation. Session policy owns identity/authority.
         void markAdmissionSucceeded();
-        // Allows exactly one bounded admission-acceptance frame after the initial request.
+        // Allows the bounded admission acceptance and initial clock-calibration probe after the request.
         bool permitAdmissionAcceptance();
         void revokeAdmissionAcceptance();
 

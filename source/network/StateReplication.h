@@ -195,6 +195,7 @@ namespace Duel6::Network::Replication {
     struct FullSnapshot {
         StateVersion version = 0;
         CanonicalState state;
+        std::uint64_t authoritativeProducedAt = 0;
     };
 
     template<typename T>
@@ -224,6 +225,7 @@ namespace Duel6::Network::Replication {
         std::vector<ContinuingEffectState> effects;
         ResultState result;
         std::vector<PresentationEvent> events;
+        std::uint64_t authoritativeProducedAt = 0;
     };
 
     enum class ApplyResult { Applied, Invalid, ResynchronizationRequired, WaitingForSnapshot };
@@ -258,6 +260,7 @@ namespace Duel6::Network::Replication {
         bool current() const noexcept;
         StateVersion version() const noexcept;
         const CanonicalState *state() const noexcept;
+        const CanonicalState *retainedState() const noexcept;
         std::vector<PresentationEvent> takePresentationEvents();
     private:
         std::optional<CanonicalState> accepted;

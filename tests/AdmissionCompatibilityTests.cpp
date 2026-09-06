@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <deque>
@@ -385,6 +386,64 @@ namespace {
         }
         ::close(descriptor);
         return ntohs(address.sin_port);
+    }
+
+    Network::Replication::CanonicalState admissionLobby(
+            std::vector<Network::Replication::Identity> guestOwned,
+            bool secondConfirmedPlayerForeignOwned = false) {
+        namespace R = Network::Replication;
+        R::CanonicalState state;
+        state.sessionId = 100;
+        state.hostParticipantId = 1;
+        state.phase = R::Phase::Lobby;
+        state.participants.push_back({1, true, R::ConnectionState::Connected, false, {2}});
+        state.participants.push_back({10, false, R::ConnectionState::Connected, false,
+                                      std::move(guestOwned)});
+        if (secondConfirmedPlayerForeignOwned)
+            state.participants.push_back({30, false, R::ConnectionState::Connected, false, {12}});
+        state.settings.mode = "Deathmatch";
+        state.settings.levelPlan = "Fixed";
+        state.settings.levels = {"levels/a.json"};
+
+        const auto appendPlayer = [&](R::Identity playerId, R::Identity owner,
+                                      std::uint8_t rosterPosition) {
+            R::PlayerState player;
+            player.playerId = playerId;
+            player.ownerParticipantId = owner;
+            player.rosterPosition = rosterPosition;
+            player.displayName = "Player " + std::to_string(playerId);
+            player.life = 100;
+            state.players.push_back(std::move(player));
+        };
+        appendPlayer(2, 1, 0);
+        std::uint8_t rosterPosition = 1;
+        for (const auto playerId: state.participants[1].ownedPlayerIds)
+            appendPlayer(playerId, 10, rosterPosition++);
+        if (secondConfirmedPlayerForeignOwned) appendPlayer(12, 30, rosterPosition);
+        return state;
+    }
+
+    Network::Replication::CanonicalState admissionActiveRound(
+            const Network::Replication::CanonicalState &lobby) {
+        namespace R = Network::Replication;
+        auto state = lobby;
+        state.matchId = 200;
+        state.phase = R::Phase::ActiveRound;
+        state.currentRoundNumber = 1;
+        state.phaseTime = 1;
+        for (auto &participant: state.participants) participant.ready = true;
+        state.round = R::RoundState{300, 1, "levels/a.json", false, {2, 11, 12}, {}};
+        state.messages.status = "ActiveRound";
+        state.score.ranking = {2, 11, 12};
+        for (const auto &player: state.players) state.score.players.push_back({player.playerId});
+        R::WorldEntityState projectile;
+        projectile.entityId = 400;
+        projectile.kind = R::EntityKind::Projectile;
+        projectile.ownerPlayerId = 11;
+        projectile.type = "pistol";
+        projectile.lifecycle = "active";
+        state.entities = {projectile};
+        return state;
     }
 #endif
 }
@@ -836,7 +895,149 @@ D6R_TEST_CASE("four-message runtime permits immediate acceptance before offer vi
 }
 
 #ifndef _WIN32
+D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and validates exact confirmed snapshot ownership") {
+    namespace R = Network::Replication;
+    const auto hostedManifest = manifest({
+            {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+    const Network::AdmissionIdentitySet confirmed{10, {11, 12}};
+    struct Scenario {
+        const char *name;
+        R::CanonicalState state;
+        bool valid;
+    };
+    std::vector<Scenario> scenarios;
+    scenarios.push_back({"valid", admissionLobby({11, 12}), true});
+    scenarios.push_back({"missing", admissionLobby({11}), false});
+    scenarios.push_back({"extra", admissionLobby({11, 12, 13}), false});
+    scenarios.push_back({"substituted", admissionLobby({11, 13}), false});
+    scenarios.push_back({"reordered-canonical", admissionLobby({12, 11}), false});
+    scenarios.push_back({"foreign-owned", admissionLobby({11}, true), false});
+
+    for (const auto &scenario: scenarios) {
+        D6R_REQUIRE(R::validateCanonicalState(scenario.state));
+        const auto port = unusedLoopbackPort();
+        D6R_REQUIRE(port != 0);
+        Network::TcpListener listener;
+        D6R_REQUIRE(listener.start({"127.0.0.1", port}));
+        D6R_REQUIRE(listener.waitForReady(2s));
+
+        std::atomic<unsigned> presentations{0};
+        std::atomic<unsigned> localActions{0};
+        std::atomic<bool> cancelGuest{false};
+        std::atomic<bool> snapshotWasUnavailableBeforeConfirmation{false};
+        std::exception_ptr hostFailure;
+        std::thread host([&] {
+            try {
+                const auto waitForConnection = [&]() {
+                    const auto deadline = std::chrono::steady_clock::now() + 2s;
+                    std::shared_ptr<Network::TcpConnection> connection;
+                    do {
+                        connection = listener.acceptConnection();
+                        if (!connection) std::this_thread::sleep_for(1ms);
+                    } while (!connection && std::chrono::steady_clock::now() < deadline);
+                    if (!connection) throw std::runtime_error("fake host did not accept guest");
+                    return connection;
+                };
+                const auto connection = waitForConnection();
+                const auto receive = [&](Network::TransportFrame &frame) {
+                    const auto deadline = std::chrono::steady_clock::now() + 2s;
+                    while (std::chrono::steady_clock::now() < deadline) {
+                        if (connection->receive(frame)) return;
+                        std::this_thread::sleep_for(1ms);
+                    }
+                    throw std::runtime_error("fake host timed out waiting for frame");
+                };
+
+                Network::TransportFrame frame;
+                receive(frame);
+                (void) Network::deserializeAdmissionRequest(frame.payload);
+                if (connection->send(Network::serializeAdmissionOffer(confirmed))
+                    != Network::SendResult::Accepted)
+                    throw std::runtime_error("fake host could not send offer");
+                receive(frame);
+                const auto acceptance = Network::deserializeAdmissionAcceptance(frame.payload);
+                if (!Network::sameAdmissionIdentitySet(confirmed, acceptance))
+                    throw std::runtime_error("guest acceptance differed from offer");
+
+                R::FullSnapshot snapshot{1, scenario.state};
+                snapshot.authoritativeProducedAt = static_cast<std::uint64_t>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now().time_since_epoch()).count());
+                if (connection->send(R::serializeReplicationSnapshot(snapshot))
+                    != Network::SendResult::Accepted)
+                    throw std::runtime_error("fake host could not send initial snapshot");
+                std::this_thread::sleep_for(5ms);
+                snapshotWasUnavailableBeforeConfirmation = presentations.load() == 0
+                        && localActions.load() == 0;
+                if (connection->send(Network::serializeAdmissionConfirmation(confirmed))
+                    != Network::SendResult::Accepted)
+                    throw std::runtime_error("fake host could not send confirmation");
+
+                receive(frame);
+                const auto probe = R::deserializeReplicationFrame(frame.payload);
+                if (!probe || !probe->qualitySequence)
+                    throw std::runtime_error("guest did not request clock calibration");
+                const auto hostNow = static_cast<std::uint64_t>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now().time_since_epoch()).count());
+                if (connection->send(R::serializeQualityResponse(*probe->qualitySequence, hostNow))
+                    != Network::SendResult::Accepted)
+                    throw std::runtime_error("fake host could not send calibration");
+                const auto deadline = std::chrono::steady_clock::now() + 2s;
+                while (connection->state() == Network::ClientState::Connected
+                       && std::chrono::steady_clock::now() < deadline)
+                    std::this_thread::sleep_for(1ms);
+                connection->close();
+            } catch (...) {
+                hostFailure = std::current_exception();
+            }
+        });
+
+        auto config = runtimeGuestConfig();
+        config.listenEndpoint.port = port;
+        Server::AdmissionRuntimeDependencies dependencies;
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(
+                Network::ManifestBuildResult{Network::ManifestStatus::Valid, hostedManifest});
+        dependencies.cancelled = [&] { return cancelGuest.load(); };
+        dependencies.localPlayerActions = [&](std::uint64_t) {
+            ++localActions;
+            return std::uint32_t{0};
+        };
+        dependencies.guestPresentation = [&](const R::CanonicalState &state,
+                                             const auto &presentation,
+                                             const auto &, const auto &events) {
+            if (!presentation.canonicalStateCurrent) return;
+            ++presentations;
+            D6R_REQUIRE(events.empty());
+            D6R_REQUIRE_EQ(std::size_t{2}, state.participants[1].ownedPlayerIds.size());
+            D6R_REQUIRE(state.participants[1].ownedPlayerIds == confirmed.playerIds);
+            cancelGuest = true;
+        };
+        std::ostringstream output;
+        Server::HeadlessServer guest(config, std::move(dependencies));
+        const auto status = guest.run(output);
+        host.join();
+        listener.shutdown();
+        if (hostFailure) std::rethrow_exception(hostFailure);
+
+        D6R_REQUIRE(snapshotWasUnavailableBeforeConfirmation);
+        D6R_REQUIRE_EQ(0u, localActions.load());
+        if (scenario.valid) {
+            D6R_REQUIRE_EQ(2, status); // tester cancellation after observing the admitted lobby
+            D6R_REQUIRE(output.str().find("admitted\nparticipant-id=10 player-ids=11,12\n") == 0);
+            D6R_REQUIRE(presentations.load() >= 1);
+        } else {
+            D6R_REQUIRE_EQ(2, status);
+            D6R_REQUIRE_EQ(std::string(Network::InvalidHostAdmissionMessageIdentifier) + "\n"
+                           + std::string(Network::InvalidHostAdmissionMessageCopy) + "\n", output.str());
+            D6R_REQUIRE_EQ(0u, presentations.load());
+        }
+    }
+}
+
 D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest input at 60 Hz") {
+    auto &transportBudget = Network::Trust::processQueueBudget();
+    const auto transportBudgetBaseline = transportBudget.used();
     const auto hostedManifest = manifest({
             {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
     auto content = std::make_shared<Network::FrozenGameplayContent>();
@@ -850,6 +1051,7 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
     D6R_REQUIRE(hostConfig.listenEndpoint.port != 0);
     std::atomic<bool> ready{false};
     std::atomic<bool> stopHost{false};
+    const auto fixtureDeadline = std::chrono::steady_clock::now() + 15s;
     std::mutex evidenceMutex;
     std::vector<Server::Authoritative::Identity> hostPlayers;
     std::vector<Server::Authoritative::Identity> guestPlayers;
@@ -860,7 +1062,11 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
 
     Server::AdmissionRuntimeDependencies hostDependencies;
     hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
-    hostDependencies.cancelled = [&] { return stopHost.load(); };
+    // Bound the fixture itself so a guest admission/drain failure is reported by the behavioral
+    // assertions below instead of stranding host.join() until the outer CTest timeout.
+    hostDependencies.cancelled = [&] {
+        return stopHost.load() || std::chrono::steady_clock::now() >= fixtureDeadline;
+    };
     hostDependencies.hostedServiceStatus = [&](Network::HostServiceStatusCode status) {
         if (status == Network::HostServiceStatusCode::Ready) ready = true;
         return true;
@@ -911,21 +1117,49 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
     Server::ServerConfig guestConfig = runtimeGuestConfig();
     guestConfig.listenEndpoint.port = hostConfig.listenEndpoint.port;
     guestConfig.localPlayers = 4;
+    std::ostringstream guestOutput;
+    bool completeConfirmedSnapshotPresented = false;
     Server::AdmissionRuntimeDependencies guestDependencies;
     guestDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
     guestDependencies.localPlayerActions = [&](std::uint64_t playerId) {
+        // The production guest must not sample or submit local control before the final
+        // confirmation and complete calibrated canonical snapshot have published success.
+        D6R_REQUIRE(guestOutput.str().find("admitted\n") != std::string::npos);
         std::lock_guard<std::mutex> lock(evidenceMutex);
         D6R_REQUIRE(std::find(guestPlayers.begin(), guestPlayers.end(), playerId) != guestPlayers.end());
         ++samples[playerId];
         return Network::Input::MoveRight | Network::Input::Jump | Network::Input::PickOrSwapWeapon;
     };
-    std::ostringstream guestOutput;
+    guestDependencies.guestPresentation = [&](const Network::Replication::CanonicalState &state,
+                                               const auto &presentation,
+                                               const auto &presentedPlayers,
+                                               const auto &events) {
+        D6R_REQUIRE(guestOutput.str().find("admitted\n") != std::string::npos);
+        D6R_REQUIRE(presentation.canonicalStateCurrent || presentation.reconnecting);
+        if (!presentation.canonicalStateCurrent) return;
+        D6R_REQUIRE(!presentation.resynchronizing);
+        D6R_REQUIRE(events.empty());
+        std::lock_guard<std::mutex> lock(evidenceMutex);
+        const auto participant = std::find_if(state.participants.begin(), state.participants.end(),
+                [&](const auto &value) { return value.ownedPlayerIds == guestPlayers; });
+        D6R_REQUIRE(participant != state.participants.end());
+        D6R_REQUIRE(participant->connection == Network::Replication::ConnectionState::Connected);
+        D6R_REQUIRE_EQ(guestPlayers.size(), presentedPlayers.size() - hostPlayers.size());
+        for (const auto playerId: guestPlayers) {
+            const auto player = std::find_if(state.players.begin(), state.players.end(),
+                    [playerId](const auto &value) { return value.playerId == playerId; });
+            D6R_REQUIRE(player != state.players.end());
+            D6R_REQUIRE_EQ(participant->participantId, player->ownerParticipantId);
+        }
+        completeConfirmedSnapshotPresented = true;
+    };
     Server::HeadlessServer guest(guestConfig, std::move(guestDependencies));
     const int guestStatus = guest.run(guestOutput);
     host.join();
 
     D6R_REQUIRE_EQ(0, hostStatus);
     D6R_REQUIRE_EQ(2, guestStatus);
+    D6R_REQUIRE(completeConfirmedSnapshotPresented);
     std::lock_guard<std::mutex> lock(evidenceMutex);
     D6R_REQUIRE_EQ(std::size_t{8}, samples.size());
     D6R_REQUIRE_EQ(std::size_t{8}, applications.size());
@@ -937,6 +1171,7 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
         D6R_REQUIRE(samples[playerId] >= SustainedTicks);
         D6R_REQUIRE(applications[playerId] >= SustainedTicks);
     }
+    D6R_REQUIRE_EQ(transportBudgetBaseline, transportBudget.used());
 }
 
 D6R_TEST_CASE("REP-067 injected canonical tick failure terminates production server unsuccessfully without host-end claim") {
@@ -1632,6 +1867,693 @@ D6R_TEST_CASE("guest confirmation at or after total deadline never becomes succe
         D6R_REQUIRE(output.str() == "Connection timed out.\n");
     }
 }
+
+D6R_TEST_CASE("AC-002 AC-020 AC-021 late admission and replication payloads are ignored before semantic validation") {
+    namespace R = Network::Replication;
+    const auto host = manifest({{"levels/a", 1}});
+    const Network::AdmissionIdentitySet identities{10, {11, 12}};
+    const auto invalidOffer = Network::serializeAdmissionOffer({10, {11}});
+    const auto mismatchedConfirmation = Network::serializeAdmissionConfirmation({10, {11, 13}});
+    const auto disallowedReplication = R::serializeQualityProbe(77);
+    R::FullSnapshot initialSnapshot{1, admissionLobby({11, 12})};
+    initialSnapshot.authoritativeProducedAt = 1;
+    const auto snapshot = R::serializeReplicationSnapshot(initialSnapshot);
+    const auto qualityResponse = R::serializeQualityResponse(77, 1);
+
+    struct Scenario {
+        const char *name;
+        bool validOfferFirst;
+        std::vector<std::uint8_t> payload;
+    };
+    const std::vector<Scenario> scenarios{
+            {"malformed", false, {0xFF}},
+            {"invalid-offer", false, invalidOffer},
+            {"mismatched-confirmation", true, mismatchedConfirmation},
+            {"disallowed-replication-kind", true, disallowedReplication},
+            {"snapshot", true, snapshot},
+            {"quality-response", true, qualityResponse}};
+
+    for (const auto &scenario: scenarios) {
+        for (const auto receivedAt: {10000ms, 10001ms}) {
+            auto fixture = std::make_shared<RuntimeFixture>();
+            auto client = std::make_shared<FakeClientState>();
+            client->connection = std::make_shared<FakeAdmissionConnection>(fixture->now);
+            if (scenario.validOfferFirst)
+                client->connection->queue(Network::serializeAdmissionOffer(identities),
+                                          fixture->now + 1ms);
+            client->connection->queue(scenario.payload,
+                                      Network::Trust::TimePoint{} + receivedAt);
+
+            unsigned localActions = 0;
+            unsigned presentations = 0;
+            auto dependencies = guestRuntimeDependencies(fixture, client, host);
+            dependencies.localPlayerActions = [&](std::uint64_t) {
+                ++localActions;
+                return Network::Input::MoveRight;
+            };
+            dependencies.guestPresentation = [&](const R::CanonicalState &, const auto &,
+                                                  const auto &, const auto &) {
+                ++presentations;
+            };
+
+            std::ostringstream output;
+            Server::HeadlessServer guest(runtimeGuestConfig(), std::move(dependencies));
+            D6R_REQUIRE_EQ(2, guest.run(output));
+            D6R_REQUIRE_EQ(std::string("Connection timed out.\n"), output.str());
+            D6R_REQUIRE_EQ(0u, localActions);
+            D6R_REQUIRE_EQ(0u, presentations);
+            D6R_REQUIRE(client->closed && !client->cancelled);
+            D6R_REQUIRE(!client->connection->succeeded);
+            D6R_REQUIRE(!client->connection->closeRequested);
+            D6R_REQUIRE_EQ(0u, client->connection->incoming.size());
+            D6R_REQUIRE_EQ(scenario.validOfferFirst ? 2u : 1u,
+                           client->connection->sent.size());
+        }
+    }
+}
+
+#ifndef _WIN32
+D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys the admission deadline on receive and sealed drain") {
+    namespace R = Network::Replication;
+    enum class DeliveryPath { NormalReceive, SealedDrain };
+    enum class CompletionFrame { Snapshot, QualityResponse, CompleteBeforeDeadline };
+    enum class OrderedFrame { Confirmation, Calibration, Snapshot };
+    struct Scenario {
+        DeliveryPath path;
+        CompletionFrame completion;
+        std::chrono::milliseconds completionAt;
+        std::array<OrderedFrame, 3> order;
+    };
+
+    const auto hostedManifest = manifest({
+            {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+    const Network::AdmissionIdentitySet confirmed{10, {11, 12}};
+    std::vector<Scenario> scenarios;
+    for (const auto path: {DeliveryPath::NormalReceive, DeliveryPath::SealedDrain}) {
+        for (const auto completion: {CompletionFrame::Snapshot, CompletionFrame::QualityResponse}) {
+            const auto order = completion == CompletionFrame::Snapshot
+                               ? std::array<OrderedFrame, 3>{{OrderedFrame::Confirmation,
+                                      OrderedFrame::Calibration, OrderedFrame::Snapshot}}
+                               : std::array<OrderedFrame, 3>{{OrderedFrame::Confirmation,
+                                      OrderedFrame::Snapshot, OrderedFrame::Calibration}};
+            scenarios.push_back({path, completion, 10000ms, order});
+            scenarios.push_back({path, completion, 10001ms, order});
+        }
+    }
+    // Both paths consume a calibration response at the approved 20 ms same-machine RTT limit.
+    // The sealed path proves a complete, within-budget exchange may remain queued while the
+    // application thread reaches the total deadline and still finish admission.
+    const std::array<std::array<OrderedFrame, 3>, 6> permutations{{
+            {{OrderedFrame::Confirmation, OrderedFrame::Calibration, OrderedFrame::Snapshot}},
+            {{OrderedFrame::Confirmation, OrderedFrame::Snapshot, OrderedFrame::Calibration}},
+            {{OrderedFrame::Calibration, OrderedFrame::Confirmation, OrderedFrame::Snapshot}},
+            {{OrderedFrame::Calibration, OrderedFrame::Snapshot, OrderedFrame::Confirmation}},
+            {{OrderedFrame::Snapshot, OrderedFrame::Confirmation, OrderedFrame::Calibration}},
+            {{OrderedFrame::Snapshot, OrderedFrame::Calibration, OrderedFrame::Confirmation}}
+    }};
+    for (const auto path: {DeliveryPath::NormalReceive, DeliveryPath::SealedDrain})
+        for (const auto &order: permutations)
+            scenarios.push_back({path, CompletionFrame::CompleteBeforeDeadline, 20ms, order});
+
+    for (const auto scenario: scenarios) {
+        const auto port = unusedLoopbackPort();
+        D6R_REQUIRE(port != 0);
+        Network::TcpListener listener;
+        D6R_REQUIRE(listener.start({"127.0.0.1", port}));
+        D6R_REQUIRE(listener.waitForReady(2s));
+
+        std::atomic<std::int64_t> mainMilliseconds{0};
+        std::atomic<std::int64_t> receiveMilliseconds{1};
+        std::atomic<bool> probeReceived{false};
+        std::atomic<bool> releaseCompletion{false};
+        std::atomic<bool> completionSent{false};
+        std::atomic<bool> cancelGuest{false};
+        std::atomic<unsigned> localActions{0};
+        std::atomic<unsigned> presentations{0};
+        std::exception_ptr hostFailure;
+
+        std::thread host([&] {
+            try {
+                const auto acceptDeadline = std::chrono::steady_clock::now() + 2s;
+                std::shared_ptr<Network::TcpConnection> connection;
+                while (!connection && std::chrono::steady_clock::now() < acceptDeadline) {
+                    connection = listener.acceptConnection();
+                    if (!connection) std::this_thread::sleep_for(1ms);
+                }
+                if (!connection) throw std::runtime_error("deadline test host did not accept guest");
+                const auto receive = [&](Network::TransportFrame &frame) {
+                    const auto wallDeadline = std::chrono::steady_clock::now() + 2s;
+                    while (std::chrono::steady_clock::now() < wallDeadline) {
+                        if (connection->receive(frame)) return;
+                        std::this_thread::sleep_for(1ms);
+                    }
+                    throw std::runtime_error("deadline test host timed out waiting for frame");
+                };
+                const auto send = [&](std::vector<std::uint8_t> payload,
+                                      std::chrono::milliseconds receivedAt) {
+                    receiveMilliseconds = receivedAt.count();
+                    if (connection->send(std::move(payload)) != Network::SendResult::Accepted)
+                        throw std::runtime_error("deadline test host send failed");
+                    // Keep the injected receipt clock stable until the transport reader has
+                    // accepted the complete frame.
+                    std::this_thread::sleep_for(15ms);
+                };
+
+                Network::TransportFrame frame;
+                receive(frame);
+                (void) Network::deserializeAdmissionRequest(frame.payload);
+                send(Network::serializeAdmissionOffer(confirmed), 1ms);
+                receive(frame);
+                D6R_REQUIRE(Network::sameAdmissionIdentitySet(
+                        confirmed, Network::deserializeAdmissionAcceptance(frame.payload)));
+                receive(frame);
+                const auto probe = R::deserializeReplicationFrame(frame.payload);
+                D6R_REQUIRE(probe && probe->kind == R::ReplicationFrameKind::QualityProbe
+                            && probe->qualitySequence);
+                probeReceived = true;
+                const auto releaseDeadline = std::chrono::steady_clock::now() + 2s;
+                while (!releaseCompletion && std::chrono::steady_clock::now() < releaseDeadline)
+                    std::this_thread::sleep_for(1ms);
+                if (!releaseCompletion) throw std::runtime_error("guest did not release completion frames");
+
+                R::FullSnapshot snapshot{1, admissionLobby({11, 12})};
+                snapshot.authoritativeProducedAt = 1;
+                const auto snapshotAt = scenario.completion == CompletionFrame::Snapshot
+                                        ? scenario.completionAt
+                                        : scenario.completion == CompletionFrame::CompleteBeforeDeadline
+                                          ? scenario.completionAt - 1ms : 9998ms;
+                const auto qualityAt = scenario.completion == CompletionFrame::QualityResponse
+                                       ? scenario.completionAt
+                                       : scenario.completion == CompletionFrame::CompleteBeforeDeadline
+                                         ? scenario.completionAt : 9999ms;
+                for (std::size_t index = 0; index < scenario.order.size(); ++index) {
+                    auto receivedAt = std::chrono::milliseconds{2};
+                    if (scenario.completion == CompletionFrame::CompleteBeforeDeadline)
+                        receivedAt = scenario.completionAt - 2ms
+                                     + std::chrono::milliseconds(static_cast<int>(index));
+                    switch (scenario.order[index]) {
+                        case OrderedFrame::Confirmation:
+                            send(Network::serializeAdmissionConfirmation(confirmed), receivedAt);
+                            break;
+                        case OrderedFrame::Calibration:
+                            send(R::serializeQualityResponse(*probe->qualitySequence, 1),
+                                 scenario.completion == CompletionFrame::CompleteBeforeDeadline
+                                 ? receivedAt : qualityAt);
+                            break;
+                        case OrderedFrame::Snapshot:
+                            send(R::serializeReplicationSnapshot(snapshot),
+                                 scenario.completion == CompletionFrame::CompleteBeforeDeadline
+                                 ? receivedAt : snapshotAt);
+                            break;
+                    }
+                }
+                completionSent = true;
+
+                const auto closeDeadline = std::chrono::steady_clock::now() + 2s;
+                while (connection->state() == Network::ClientState::Connected
+                       && std::chrono::steady_clock::now() < closeDeadline)
+                    std::this_thread::sleep_for(1ms);
+                connection->close();
+            } catch (...) {
+                hostFailure = std::current_exception();
+            }
+        });
+
+        const auto guestThread = std::this_thread::get_id();
+        auto config = runtimeGuestConfig();
+        config.listenEndpoint.port = port;
+        Server::AdmissionRuntimeDependencies dependencies;
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(
+                Network::ManifestBuildResult{Network::ManifestStatus::Valid, hostedManifest});
+        dependencies.now = [&, guestThread] {
+            const auto elapsed = std::this_thread::get_id() == guestThread
+                                 ? mainMilliseconds.load() : receiveMilliseconds.load();
+            return Network::Trust::TimePoint{} + std::chrono::milliseconds(elapsed);
+        };
+        dependencies.wait = [&](std::chrono::milliseconds amount) {
+            if (probeReceived && !releaseCompletion.exchange(true)) {
+                const auto sentDeadline = std::chrono::steady_clock::now() + 2s;
+                while (!completionSent && std::chrono::steady_clock::now() < sentDeadline)
+                    std::this_thread::sleep_for(1ms);
+                D6R_REQUIRE(completionSent);
+                if (scenario.path == DeliveryPath::SealedDrain) {
+                    // The application thread remains blocked until both complete frames are in
+                    // the transport reader's queue, then reaches the admission deadline.
+                    std::this_thread::sleep_for(30ms);
+                    mainMilliseconds = 10000;
+                    return;
+                }
+            }
+            std::this_thread::sleep_for(1ms);
+            mainMilliseconds += amount.count();
+        };
+        dependencies.cancelled = [&] { return cancelGuest.load(); };
+        dependencies.localPlayerActions = [&](std::uint64_t) {
+            ++localActions;
+            return Network::Input::MoveRight;
+        };
+        dependencies.guestPresentation = [&](const R::CanonicalState &, const auto &presentation,
+                                             const auto &, const auto &) {
+            if (!presentation.canonicalStateCurrent) return;
+            ++presentations;
+            cancelGuest = true;
+        };
+
+        std::ostringstream output;
+        Server::HeadlessServer guest(config, std::move(dependencies));
+        const auto status = guest.run(output);
+        host.join();
+        listener.shutdown();
+        if (hostFailure) std::rethrow_exception(hostFailure);
+
+        D6R_REQUIRE_EQ(2, status);
+        D6R_REQUIRE_EQ(0u, localActions.load());
+        if (scenario.completion == CompletionFrame::CompleteBeforeDeadline) {
+            D6R_REQUIRE_EQ("admitted\nparticipant-id=10 player-ids=11,12\n", output.str());
+            D6R_REQUIRE(presentations.load() >= 1);
+        } else {
+            D6R_REQUIRE_EQ("Connection timed out.\n", output.str());
+            D6R_REQUIRE_EQ(0u, presentations.load());
+        }
+    }
+}
+
+#if 0
+D6R_TEST_CASE("AC-002 AC-020 AC-021 sealed drain processes complete predeadline admission and continues the connected session behind the gate") {
+    namespace R = Network::Replication;
+    const auto host = manifest({{"levels/a", 1}});
+    const Network::AdmissionIdentitySet identities{10, {11, 12}};
+    const auto lobby = admissionLobby({11, 12});
+    const auto active = admissionActiveRound(lobby);
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(lobby));
+    auto activeUpdate = publisher.publish(active, {{500, "shot-fired", 11, 0, 400, 1}});
+    D6R_REQUIRE(activeUpdate.has_value());
+    activeUpdate->authoritativeProducedAt = 103;
+
+    auto fixture = std::make_shared<RuntimeFixture>();
+    auto client = std::make_shared<FakeClientState>();
+    client->connection = std::make_shared<FakeAdmissionConnection>(fixture->now);
+    client->connection->queue(Network::serializeAdmissionOffer(identities), fixture->now + 1ms);
+    R::FullSnapshot snapshot{1, lobby};
+    snapshot.authoritativeProducedAt = 100;
+    const std::weak_ptr<FakeAdmissionConnection> weakConnection = client->connection;
+    client->connection->onSend = [fixture, weakConnection, identities, snapshot](const auto &payload) {
+        const auto connection = weakConnection.lock();
+        D6R_REQUIRE(connection);
+        if (payload.size() >= 4 && payload[3] == 'K') {
+            connection->queue(Network::serializeAdmissionConfirmation(identities),
+                              Network::Trust::TimePoint{} + 2ms);
+            connection->queue(R::serializeReplicationSnapshot(snapshot),
+                              Network::Trust::TimePoint{} + 3ms);
+            return;
+        }
+        const auto frame = R::deserializeReplicationFrame(payload);
+        if (frame && frame->kind == R::ReplicationFrameKind::QualityProbe
+            && frame->qualitySequence) {
+            connection->queue(R::serializeQualityResponse(*frame->qualitySequence, 100),
+                              Network::Trust::TimePoint{} + 4ms);
+            fixture->now = Network::Trust::TimePoint{} + 10000ms;
+        }
+    };
+    client->connection->onAdmissionSucceeded = [weakConnection, update = *activeUpdate] {
+        const auto connection = weakConnection.lock();
+        D6R_REQUIRE(connection);
+        connection->queue(R::serializeReplicationUpdate(update),
+                          Network::Trust::TimePoint{} + 5ms);
+    };
+
+    unsigned localActions = 0;
+    unsigned currentPresentations = 0;
+    bool gateHeld = true;
+    std::ostringstream output;
+    auto dependencies = guestRuntimeDependencies(fixture, client, host);
+    dependencies.productionReplicationProtocol = true;
+    dependencies.localPlayerActions = [&](std::uint64_t playerId) {
+        D6R_REQUIRE(client->connection->succeeded);
+        D6R_REQUIRE(output.str().find("admitted\n") == 0);
+        D6R_REQUIRE_EQ(std::uint64_t{11} + localActions, playerId);
+        ++localActions;
+        return Network::Input::MoveRight;
+    };
+    dependencies.guestPresentation = [&](const R::CanonicalState &state, const auto &presentation,
+                                         const auto &, const auto &) {
+        if (!presentation.canonicalStateCurrent) return;
+        D6R_REQUIRE(client->connection->succeeded);
+        D6R_REQUIRE(client->connection->currentState == Network::ClientState::Connected);
+        D6R_REQUIRE(!client->connection->closeRequested);
+        D6R_REQUIRE(!client->closed);
+        D6R_REQUIRE(output.str().find("admitted\n") == 0);
+        ++currentPresentations;
+        if (state.phase == R::Phase::ActiveRound && localActions == 2) {
+            gateHeld = false;
+            fixture->cancelled = true;
+        }
+    };
+
+    Server::HeadlessServer guest(runtimeGuestConfig(), std::move(dependencies));
+    D6R_REQUIRE_EQ(2, guest.run(output));
+    D6R_REQUIRE(!gateHeld);
+    D6R_REQUIRE_EQ(2u, localActions);
+    D6R_REQUIRE(currentPresentations >= 2);
+    D6R_REQUIRE_EQ("admitted\nparticipant-id=10 player-ids=11,12\n", output.str());
+    D6R_REQUIRE(client->connection->succeeded);
+    D6R_REQUIRE(!client->connection->closeRequested);
+}
+
+D6R_TEST_CASE("AC-002 AC-020 AC-021 admitted sealed result precedes a later terminal close and retains reconnect context") {
+    namespace R = Network::Replication;
+    const auto host = manifest({{"levels/a", 1}});
+    const Network::AdmissionIdentitySet identities{10, {11, 12}};
+    R::FullSnapshot snapshot{1, admissionLobby({11, 12})};
+    snapshot.authoritativeProducedAt = 100;
+    auto fixture = std::make_shared<RuntimeFixture>();
+    auto client = std::make_shared<FakeClientState>();
+    client->connection = std::make_shared<FakeAdmissionConnection>(fixture->now);
+    client->connection->queue(Network::serializeAdmissionOffer(identities), fixture->now + 1ms);
+    const std::weak_ptr<FakeAdmissionConnection> weakConnection = client->connection;
+    client->connection->onSend = [fixture, weakConnection, identities, snapshot](const auto &payload) {
+        const auto connection = weakConnection.lock();
+        D6R_REQUIRE(connection);
+        if (payload.size() >= 4 && payload[3] == 'K') {
+            connection->queue(Network::serializeAdmissionConfirmation(identities),
+                              Network::Trust::TimePoint{} + 2ms);
+            connection->queue(R::serializeReplicationSnapshot(snapshot),
+                              Network::Trust::TimePoint{} + 3ms);
+            return;
+        }
+        const auto frame = R::deserializeReplicationFrame(payload);
+        if (frame && frame->kind == R::ReplicationFrameKind::QualityProbe
+            && frame->qualitySequence) {
+            connection->queue(R::serializeQualityResponse(*frame->qualitySequence, 100),
+                              Network::Trust::TimePoint{} + 4ms);
+            fixture->now = Network::Trust::TimePoint{} + 10000ms;
+        }
+    };
+
+    std::vector<std::string> presentations;
+    std::ostringstream output;
+    auto dependencies = guestRuntimeDependencies(fixture, client, host);
+    dependencies.productionReplicationProtocol = true;
+    dependencies.guestPresentation = [&](const R::CanonicalState &state, const auto &presentation,
+                                         const auto &, const auto &events) {
+        D6R_REQUIRE_EQ(std::uint64_t{100}, state.sessionId);
+        D6R_REQUIRE(events.empty());
+        if (presentation.canonicalStateCurrent) {
+            D6R_REQUIRE(output.str().find("admitted\n") == 0);
+            presentations.emplace_back("current");
+            client->connection->terminal = Network::Trust::TimePoint{} + 5ms;
+            client->connection->currentState = Network::ClientState::Closed;
+        } else if (presentation.reconnecting) {
+            D6R_REQUIRE(presentation.resynchronizing);
+            D6R_REQUIRE(presentation.retainingLastConfirmedState);
+            presentations.emplace_back("reconnecting-retained");
+        }
+    };
+
+    Server::HeadlessServer guest(runtimeGuestConfig(), std::move(dependencies));
+    D6R_REQUIRE_EQ(2, guest.run(output));
+    D6R_REQUIRE(presentations == std::vector<std::string>({"current", "reconnecting-retained"}));
+    D6R_REQUIRE_EQ("admitted\nparticipant-id=10 player-ids=11,12\n", output.str());
+    D6R_REQUIRE(client->connection->succeeded);
+    D6R_REQUIRE(client->closed && !client->cancelled);
+}
+
+D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission preserves the initial lobby across confirmation active update and calibration") {
+    namespace R = Network::Replication;
+    const auto host = manifest({{"levels/a", 1}});
+    const Network::AdmissionIdentitySet identities{10, {11, 12}};
+    const auto lobby = admissionLobby({11, 12});
+    auto active = admissionActiveRound(lobby);
+    active.players[1].positionX = 700;
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(lobby));
+    auto update = publisher.publish(active, {{501, "shot-fired", 11, 0, 400, 1}});
+    D6R_REQUIRE(update.has_value());
+    update->authoritativeProducedAt = 103;
+    R::FullSnapshot snapshot{1, lobby};
+    snapshot.authoritativeProducedAt = 100;
+
+    auto fixture = std::make_shared<RuntimeFixture>();
+    auto client = std::make_shared<FakeClientState>();
+    client->connection = std::make_shared<FakeAdmissionConnection>(fixture->now);
+    client->connection->queue(Network::serializeAdmissionOffer(identities), fixture->now + 1ms);
+    const std::weak_ptr<FakeAdmissionConnection> weakConnection = client->connection;
+    client->connection->onSend = [weakConnection, identities, snapshot, update = *update](const auto &payload) {
+        const auto connection = weakConnection.lock();
+        D6R_REQUIRE(connection);
+        if (payload.size() >= 4 && payload[3] == 'K') {
+            connection->queue(R::serializeReplicationSnapshot(snapshot),
+                              Network::Trust::TimePoint{} + 2ms);
+            connection->queue(Network::serializeAdmissionConfirmation(identities),
+                              Network::Trust::TimePoint{} + 3ms);
+            connection->queue(R::serializeReplicationUpdate(update),
+                              Network::Trust::TimePoint{} + 4ms);
+            return;
+        }
+        const auto frame = R::deserializeReplicationFrame(payload);
+        if (frame && frame->kind == R::ReplicationFrameKind::QualityProbe
+            && frame->qualitySequence)
+            connection->queue(R::serializeQualityResponse(*frame->qualitySequence, 100),
+                              Network::Trust::TimePoint{} + 5ms);
+    };
+
+    unsigned localActions = 0;
+    unsigned eventDeliveries = 0;
+    unsigned currentPresentations = 0;
+    std::ostringstream output;
+    auto dependencies = guestRuntimeDependencies(fixture, client, host);
+    dependencies.productionReplicationProtocol = true;
+    dependencies.localPlayerActions = [&](std::uint64_t) {
+        D6R_REQUIRE(output.str().find("admitted\n") == 0);
+        ++localActions;
+        return Network::Input::MoveRight;
+    };
+    dependencies.guestPresentation = [&](const R::CanonicalState &state, const auto &presentation,
+                                         const auto &, const auto &events) {
+        if (!presentation.canonicalStateCurrent) return;
+        ++currentPresentations;
+        D6R_REQUIRE(output.str().find("admitted\n") == 0);
+        D6R_REQUIRE(state.phase == R::Phase::ActiveRound);
+        D6R_REQUIRE_EQ(std::uint64_t{200}, state.matchId);
+        D6R_REQUIRE_EQ(std::uint64_t{1}, state.phaseTime);
+        D6R_REQUIRE_EQ(std::int64_t{700}, state.players[1].positionX);
+        D6R_REQUIRE_EQ(std::size_t{1}, state.entities.size());
+        D6R_REQUIRE_EQ(std::uint64_t{400}, state.entities.front().entityId);
+        for (const auto &event: events) {
+            D6R_REQUIRE_EQ(std::uint64_t{501}, event.eventId);
+            ++eventDeliveries;
+        }
+        if (localActions == 2) fixture->cancelled = true;
+    };
+
+    Server::HeadlessServer guest(runtimeGuestConfig(), std::move(dependencies));
+    D6R_REQUIRE_EQ(2, guest.run(output));
+    D6R_REQUIRE_EQ("admitted\nparticipant-id=10 player-ids=11,12\n", output.str());
+    D6R_REQUIRE_EQ(2u, localActions);
+    D6R_REQUIRE_EQ(1u, eventDeliveries);
+    D6R_REQUIRE_EQ(1u, currentPresentations);
+    D6R_REQUIRE(client->connection->succeeded);
+}
+#endif
+
+D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission preserves completion precedence and ordered replication") {
+    namespace R = Network::Replication;
+    enum class Scenario { Continuing, TerminalClose, OrderedNewerFrames };
+    const auto hostedManifest = manifest({
+            {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+    const Network::AdmissionIdentitySet confirmed{10, {11, 12}};
+    std::vector<std::string> evidence;
+
+    for (const auto scenario: {Scenario::Continuing, Scenario::TerminalClose,
+                               Scenario::OrderedNewerFrames}) {
+        const auto lobby = admissionLobby({11, 12});
+        auto active = admissionActiveRound(lobby);
+        active.players[1].positionX = 700;
+        R::AuthoritativeStateReplicator publisher;
+        D6R_REQUIRE(publisher.initialize(lobby));
+        auto activeUpdate = publisher.publish(active, {{501, "shot", 11, 12, 0, 1}});
+        D6R_REQUIRE(activeUpdate.has_value());
+        activeUpdate->authoritativeProducedAt = 101;
+        R::FullSnapshot initialSnapshot{1, lobby};
+        initialSnapshot.authoritativeProducedAt = 100;
+
+        const auto port = unusedLoopbackPort();
+        D6R_REQUIRE(port != 0);
+        Network::TcpListener listener;
+        D6R_REQUIRE(listener.start({"127.0.0.1", port}));
+        D6R_REQUIRE(listener.waitForReady(2s));
+
+        std::atomic<std::int64_t> mainMilliseconds{0};
+        std::atomic<std::int64_t> receiveMilliseconds{1};
+        std::atomic<bool> probeReceived{false};
+        std::atomic<bool> releaseFrames{false};
+        std::atomic<bool> framesSent{false};
+        std::atomic<bool> cancelGuest{false};
+        std::atomic<bool> hostClosed{false};
+        std::exception_ptr hostFailure;
+        std::thread host([&] {
+            try {
+                const auto acceptDeadline = std::chrono::steady_clock::now() + 2s;
+                std::shared_ptr<Network::TcpConnection> connection;
+                while (!connection && std::chrono::steady_clock::now() < acceptDeadline) {
+                    connection = listener.acceptConnection();
+                    if (!connection) std::this_thread::sleep_for(1ms);
+                }
+                if (!connection) throw std::runtime_error("ordered admission host did not accept guest");
+                const auto receive = [&](Network::TransportFrame &frame) {
+                    const auto wallDeadline = std::chrono::steady_clock::now() + 2s;
+                    while (std::chrono::steady_clock::now() < wallDeadline) {
+                        if (connection->receive(frame)) return;
+                        std::this_thread::sleep_for(1ms);
+                    }
+                    throw std::runtime_error("ordered admission host timed out waiting for frame");
+                };
+                const auto send = [&](std::vector<std::uint8_t> payload,
+                                      std::chrono::milliseconds receivedAt) {
+                    receiveMilliseconds = receivedAt.count();
+                    if (connection->send(std::move(payload)) != Network::SendResult::Accepted)
+                        throw std::runtime_error("ordered admission host send failed scenario="
+                                + std::to_string(static_cast<int>(scenario)) + " received-at="
+                                + std::to_string(receivedAt.count()));
+                    std::this_thread::sleep_for(15ms);
+                };
+
+                Network::TransportFrame frame;
+                receive(frame);
+                (void) Network::deserializeAdmissionRequest(frame.payload);
+                send(Network::serializeAdmissionOffer(confirmed), 1ms);
+                receive(frame);
+                D6R_REQUIRE(Network::sameAdmissionIdentitySet(
+                        confirmed, Network::deserializeAdmissionAcceptance(frame.payload)));
+                receive(frame);
+                const auto probe = R::deserializeReplicationFrame(frame.payload);
+                D6R_REQUIRE(probe && probe->kind == R::ReplicationFrameKind::QualityProbe
+                            && probe->qualitySequence);
+                probeReceived = true;
+                const auto releaseDeadline = std::chrono::steady_clock::now() + 2s;
+                while (!releaseFrames && std::chrono::steady_clock::now() < releaseDeadline)
+                    std::this_thread::sleep_for(1ms);
+                if (!releaseFrames) throw std::runtime_error("guest did not release ordered frames");
+
+                if (scenario == Scenario::OrderedNewerFrames) {
+                    send(R::serializeReplicationSnapshot(initialSnapshot), 2ms);
+                    send(Network::serializeAdmissionConfirmation(confirmed), 3ms);
+                    send(R::serializeReplicationUpdate(*activeUpdate), 4ms);
+                    send(R::serializeQualityResponse(*probe->qualitySequence, 100), 5ms);
+                } else {
+                    send(Network::serializeAdmissionConfirmation(confirmed), 2ms);
+                    send(R::serializeReplicationSnapshot(initialSnapshot), 3ms);
+                    send(R::serializeQualityResponse(*probe->qualitySequence, 100), 4ms);
+                }
+                framesSent = true;
+
+                if (scenario == Scenario::TerminalClose) {
+                    connection->close();
+                    hostClosed = true;
+                    return;
+                }
+                const auto closeDeadline = std::chrono::steady_clock::now() + 2s;
+                while (!cancelGuest && connection->state() == Network::ClientState::Connected
+                       && std::chrono::steady_clock::now() < closeDeadline)
+                    std::this_thread::sleep_for(1ms);
+                connection->close();
+            } catch (...) {
+                hostFailure = std::current_exception();
+            }
+        });
+
+        const auto guestThread = std::this_thread::get_id();
+        auto config = runtimeGuestConfig();
+        config.listenEndpoint.port = port;
+        unsigned localActions = 0;
+        unsigned currentPresentations = 0;
+        unsigned reconnectingPresentations = 0;
+        unsigned eventDeliveries = 0;
+        std::ostringstream output;
+        Server::AdmissionRuntimeDependencies dependencies;
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(
+                Network::ManifestBuildResult{Network::ManifestStatus::Valid, hostedManifest});
+        dependencies.now = [&, guestThread] {
+            const auto elapsed = std::this_thread::get_id() == guestThread
+                                 ? mainMilliseconds.load() : receiveMilliseconds.load();
+            return Network::Trust::TimePoint{} + std::chrono::milliseconds(elapsed);
+        };
+        dependencies.wait = [&](std::chrono::milliseconds amount) {
+            if (probeReceived && !releaseFrames.exchange(true)) {
+                const auto sentDeadline = std::chrono::steady_clock::now() + 2s;
+                while (!framesSent && std::chrono::steady_clock::now() < sentDeadline)
+                    std::this_thread::sleep_for(1ms);
+                D6R_REQUIRE(framesSent);
+                std::this_thread::sleep_for(30ms);
+                mainMilliseconds = 10000;
+                return;
+            }
+            std::this_thread::sleep_for(1ms);
+            mainMilliseconds += amount.count();
+        };
+        dependencies.cancelled = [&] { return cancelGuest.load(); };
+        dependencies.localPlayerActions = [&](std::uint64_t playerId) {
+            D6R_REQUIRE(output.str().find("admitted\n") == 0);
+            D6R_REQUIRE(playerId == 11 || playerId == 12);
+            ++localActions;
+            return Network::Input::MoveRight;
+        };
+        dependencies.guestPresentation = [&](const R::CanonicalState &state,
+                                             const auto &presentation, const auto &,
+                                             const auto &events) {
+            D6R_REQUIRE(output.str().find("admitted\n") == 0);
+            if (presentation.canonicalStateCurrent) {
+                ++currentPresentations;
+                if (state.phase == R::Phase::ActiveRound) {
+                    D6R_REQUIRE_EQ(std::uint64_t{200}, state.matchId);
+                    D6R_REQUIRE_EQ(std::uint64_t{1}, state.phaseTime);
+                    D6R_REQUIRE_EQ(std::int64_t{700}, state.players[1].positionX);
+                    D6R_REQUIRE_EQ(std::size_t{1}, state.entities.size());
+                    D6R_REQUIRE_EQ(std::uint64_t{400}, state.entities.front().entityId);
+                    for (const auto &event: events) {
+                        D6R_REQUIRE_EQ(std::uint64_t{501}, event.eventId);
+                        ++eventDeliveries;
+                    }
+                    if (localActions == 2) cancelGuest = true;
+                } else {
+                    D6R_REQUIRE(state.phase == R::Phase::Lobby);
+                    D6R_REQUIRE_EQ(0u, localActions);
+                    if (scenario == Scenario::Continuing) cancelGuest = true;
+                }
+            } else if (presentation.reconnecting) {
+                D6R_REQUIRE(presentation.resynchronizing);
+                D6R_REQUIRE(presentation.retainingLastConfirmedState);
+                D6R_REQUIRE_EQ(std::uint64_t{100}, state.sessionId);
+                ++reconnectingPresentations;
+            }
+        };
+
+        Server::HeadlessServer guest(config, std::move(dependencies));
+        D6R_REQUIRE_EQ(2, guest.run(output));
+        host.join();
+        listener.shutdown();
+        if (hostFailure) std::rethrow_exception(hostFailure);
+
+        std::string result = std::to_string(static_cast<int>(scenario)) + ":";
+        if (output.str() == "admitted\nparticipant-id=10 player-ids=11,12\n") result += "admitted";
+        else if (output.str().find(Network::InvalidHostAdmissionMessageIdentifier) == 0) result += "invalid-host";
+        else result += "other";
+        result += ":local=" + std::to_string(localActions)
+                + ":current=" + std::to_string(currentPresentations)
+                + ":reconnecting=" + std::to_string(reconnectingPresentations)
+                + ":events=" + std::to_string(eventDeliveries)
+                + ":host-closed=" + (hostClosed ? "true" : "false");
+        evidence.push_back(std::move(result));
+    }
+    std::string joined;
+    for (const auto &entry: evidence) joined += entry + ";";
+    D6R_REQUIRE_EQ(std::string(
+            "0:admitted:local=0:current=1:reconnecting=1:events=0:host-closed=false;"
+            "1:admitted:local=0:current=0:reconnecting=1:events=0:host-closed=true;"
+            "2:admitted:local=2:current=1:reconnecting=1:events=1:host-closed=false;"), joined);
+}
+#endif
 
 D6R_TEST_CASE("guest suspended before acceptance never sends at or after hard deadline") {
     const auto host = manifest({{"levels/a", 1}});
