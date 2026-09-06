@@ -47,14 +47,16 @@ namespace Duel6 {
 
         InfoMessageQueue &update(float elapsedTime);
 
-        void renderPlayerMessages(Renderer &renderer, const Player &player, const Font &font) const;
-
+#ifndef D6R_HEADLESS_CORE
         void renderAllMessages(Renderer &renderer, const PlayerView &view, Int32 offsetY, const Font &font) const;
+#endif
 
         void clear();
 
     private:
+#ifndef D6R_HEADLESS_CORE
         static void renderMessage(Renderer &renderer, Int32 x, Int32 y, const std::string &msg, const Font &font);
+#endif
     };
 }
 

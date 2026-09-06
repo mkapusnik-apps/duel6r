@@ -26,15 +26,39 @@
 */
 
 #include <string>
+#include "DataException.h"
 #include "PlayerAnimations.h"
 #include "PlayerSkinColors.h"
 #include "TextureManager.h"
 #include "aseprite/animation.h"
 
 namespace Duel6 {
+    namespace {
+        const std::vector<AnimationEntry> &requiredAnimation(const animation::Animation &animation,
+                                                              const std::string &name) {
+            const auto lookup = animation.animationLookup.find(name);
+            if (lookup == animation.animationLookup.end() || lookup->second >= animation.animations.size())
+                D6_THROW(DataException, "Required player animation is unavailable: " + name);
+            const auto &entries = animation.animations.at(lookup->second);
+            if (entries.size() < 2 || entries.size() % 2 != 0)
+                D6_THROW(DataException, "Player animation entries are invalid: " + name);
+            for (std::size_t index = 0; index < entries.size(); index += 2) {
+                const AnimationEntry frame = entries.at(index);
+                const AnimationEntry duration = entries.at(index + 1);
+                if (frame == -1) {
+                    if (duration != 0 || index + 2 != entries.size())
+                        D6_THROW(DataException, "Player animation terminator is invalid: " + name);
+                    return entries;
+                }
+                if (frame < 0 || frame >= animation.framesCount || duration <= 0)
+                    D6_THROW(DataException, "Player animation frame is invalid: " + name);
+            }
+            D6_THROW(DataException, "Player animation terminator is missing: " + name);
+        }
+    }
 
     PlayerAnimation::PlayerAnimation(const animation::Animation &animation, const std::string &name)
-            : animation(animation.getAnimation(name)) {
+            : animation(requiredAnimation(animation, name)) {
     }
 
     Animation PlayerAnimation::get() const {

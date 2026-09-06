@@ -32,6 +32,7 @@
 
 namespace Duel6 {
     namespace {
+#ifndef D6R_HEADLESS_CORE
         AnimationEntry splashAnimation[] = {0, 82, 1, 82, 2, 82, 3, 82, 4, 82, 5, 82, 6, 82, 7, 82, 8, 82, 9, 82, -1, 0};
 
         class WaterBase : public Water {
@@ -114,6 +115,22 @@ namespace Duel6 {
                 return 180.0f;
             }
         };
+#endif
+
+        class HeadlessWater final : public Water {
+        public:
+            HeadlessWater(std::string name, Float32 airHit) : name(std::move(name)), airHit(airHit) {}
+
+            std::string getName() const override { return name; }
+            void onEnter(Player &, const Vector &, World &) const override {}
+            void onUnder(Player &player, Float32 elapsedTime) const override {
+                if (!player.hasSnorkel()) player.airHit(airHit * elapsedTime);
+            }
+
+        private:
+            std::string name;
+            Float32 airHit;
+        };
     }
 
     const Water *Water::NONE = nullptr;
@@ -121,9 +138,20 @@ namespace Duel6 {
     const Water *Water::RED;
     const Water *Water::GREEN;
 
+#ifndef D6R_HEADLESS_CORE
     void Water::initialize(Sound &sound, TextureManager &textureManager) {
         BLUE = new BlueWater(sound, textureManager);
         RED = new RedWater(sound, textureManager);
         GREEN = new GreenWater(sound, textureManager);
+    }
+#endif
+
+    void Water::initializeHeadless() {
+        static const HeadlessWater blue("blue", 60.0f);
+        static const HeadlessWater red("red", 120.0f);
+        static const HeadlessWater green("green", 180.0f);
+        BLUE = &blue;
+        RED = &red;
+        GREEN = &green;
     }
 }

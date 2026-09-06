@@ -35,6 +35,8 @@ namespace Duel6 {
                                                      {1, 164, 0, 164, 0, 82, 0, 82, 0, 82, 0, 82, 0, 820, -1, 0}};
     }
 
+    DoubleLaser::DoubleLaser() : LegacyWeapon(DEFINITION) {}
+
     DoubleLaser::DoubleLaser(Sound &sound, TextureManager &textureManager)
             : LegacyWeapon(sound, textureManager, DEFINITION, 11) {}
 

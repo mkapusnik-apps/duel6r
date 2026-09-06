@@ -36,7 +36,7 @@ namespace Duel6 {
         }
 
         Desktop::Desktop(Renderer &renderer)
-                : renderer(renderer) {}
+                : renderer(renderer), scale(1.0f) {}
 
         Desktop::~Desktop() {
         }
@@ -45,25 +45,35 @@ namespace Duel6 {
             controls.push_back(std::unique_ptr<Control>(control));
         }
 
-        void Desktop::screenSize(Int32 scrWidth, Int32 scrHeight, Int32 trX, Int32 trY) {
+        void Desktop::screenSize(Int32 scrWidth, Int32 scrHeight, Int32 canvasWidth, Int32 canvasHeight,
+                                 Int32 trX, Int32 trY, Float32 scale) {
             screenWidth = scrWidth;
             screenHeight = scrHeight;
+            this->canvasWidth = canvasWidth;
+            this->canvasHeight = canvasHeight;
             this->trX = trX;
             this->trY = trY;
+            this->scale = scale;
         }
 
         void Desktop::update(Float32 elapsedTime) {
             for (auto &control : controls) {
-                control->update(elapsedTime);
+                if (control->isVisible()) {
+                    control->update(elapsedTime);
+                }
             }
         }
 
         void Desktop::draw(const Font &font) const {
-            renderer.quadXY(Vector(0, 0), Vector(screenWidth, screenHeight), bcgColor);
-            renderer.setViewMatrix(Matrix::translate(Float32(trX), Float32(trY), 0));
+            renderer.setViewMatrix(Matrix::translate(Float32(trX), Float32(trY), 0) *
+                                   Matrix::scale(scale, scale, 1.0f));
+            renderer.quadXY(Vector(-2, -2), Vector(canvasWidth + 4, canvasHeight + 4), Color::BLACK);
+            renderer.quadXY(Vector(0, 0), Vector(canvasWidth, canvasHeight), bcgColor);
 
             for (auto &control : controls) {
-                control->draw(renderer, font);
+                if (control->isVisible()) {
+                    control->draw(renderer, font);
+                }
             }
 
             renderer.setViewMatrix(Matrix::IDENTITY);
@@ -71,34 +81,44 @@ namespace Duel6 {
 
         void Desktop::keyEvent(const KeyPressEvent &event) {
             for (auto &control : controls) {
-                control->keyEvent(event);
+                if (control->isVisible()) {
+                    control->keyEvent(event);
+                }
             }
         }
 
         void Desktop::textInputEvent(const TextInputEvent &event) {
             for (auto &control : controls) {
-                control->textInputEvent(event);
+                if (control->isVisible()) {
+                    control->textInputEvent(event);
+                }
             }
         }
 
         void Desktop::mouseButtonEvent(const MouseButtonEvent &event) {
-            MouseButtonEvent translatedEvent = event.translate(-trX, -trY);
+            MouseButtonEvent translatedEvent = event.inverseTransform(scale, trX, trY);
             for (auto &control : controls) {
-                control->mouseButtonEvent(translatedEvent);
+                if (control->isVisible()) {
+                    control->mouseButtonEvent(translatedEvent);
+                }
             }
         }
 
         void Desktop::mouseMotionEvent(const MouseMotionEvent &event) {
-            MouseMotionEvent translatedEvent = event.translate(-trX, -trY);
+            MouseMotionEvent translatedEvent = event.inverseTransform(scale, trX, trY);
             for (auto &control : controls) {
-                control->mouseMotionEvent(translatedEvent);
+                if (control->isVisible()) {
+                    control->mouseMotionEvent(translatedEvent);
+                }
             }
         }
 
         void Desktop::mouseWheelEvent(const MouseWheelEvent &event) {
-            MouseWheelEvent translatedEvent = event.translate(-trX, -trY);
+            MouseWheelEvent translatedEvent = event.inverseTransform(scale, trX, trY);
             for (auto &control : controls) {
-                control->mouseWheelEvent(translatedEvent);
+                if (control->isVisible()) {
+                    control->mouseWheelEvent(translatedEvent);
+                }
             }
         }
     }

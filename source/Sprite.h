@@ -28,16 +28,20 @@
 #ifndef DUEL6_SPRITE_H
 #define DUEL6_SPRITE_H
 
+#include <functional>
 #include <vector>
 #include "Type.h"
 #include "AnimationLooping.h"
 #include "Orientation.h"
+#ifndef D6R_HEADLESS_CORE
 #include "TextureManager.h"
+#endif
 #include "math/Vector.h"
 #include "renderer/RendererTypes.h"
 
 namespace Duel6 {
     class SpriteList;
+    class Renderer;
 
     class Sprite {
         friend class SpriteList;

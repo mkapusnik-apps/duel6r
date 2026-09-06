@@ -28,6 +28,16 @@
 #include "GLES2Renderer.h"
 
 namespace Duel6 {
+    namespace {
+        bool drainGlErrors() {
+            bool foundError = false;
+            while (glGetError() != GL_NO_ERROR) {
+                foundError = true;
+            }
+            return foundError;
+        }
+    }
+
     static float points[15];
 
     static const char *colorVertexShader =
@@ -138,11 +148,13 @@ namespace Duel6 {
 
     Texture::Id
     GLES2Renderer::createTexture(const Image &image, TextureFilter filtering, bool clamp) {
-        GLuint textureId;
+        GLuint textureId = 0;
+        drainGlErrors();
         glGenTextures(1, &textureId);
         glBindTexture(GL_TEXTURE_2D, textureId);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.getWidth(), image.getHeight(), 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.getWidth(), image.getHeight(), 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                     &image.at(0));
 
         GLint filter = filtering == TextureFilter::NEAREST ? GL_NEAREST : GL_LINEAR;
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
@@ -152,6 +164,15 @@ namespace Duel6 {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, clamp ? GL_CLAMP_TO_EDGE : GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, clamp ? GL_CLAMP_TO_EDGE : GL_REPEAT);
 
+        bool validObject = textureId != 0 && glIsTexture(textureId) == GL_TRUE;
+        bool uploadFailed = drainGlErrors() || !validObject;
+        if (uploadFailed) {
+            if (textureId != 0) {
+                glDeleteTextures(1, &textureId);
+                drainGlErrors();
+            }
+            return 0;
+        }
         return textureId;
     }
 

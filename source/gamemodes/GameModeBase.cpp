@@ -28,19 +28,20 @@
 #include "GameModeBase.h"
 
 namespace Duel6 {
-    void GameModeBase::initializePlayerPositions(Game &game, std::vector<Player> &players, World &world) const {
-        game.getAppService().getConsole().printLine("...Preparing base players");
+    void GameModeBase::initializePlayerPositions(Game &game, std::vector<Player> &players, World &world,
+                                                  RandomSource &randomSource) const {
+        game.log("...Preparing base players");
         Level::StartingPositionList startingPositions;
         world.getLevel().findStartingPositions(startingPositions);
-        std::shuffle(startingPositions.begin(), startingPositions.end(), Math::randomEngine);
+        Math::shuffle(startingPositions, randomSource, "starting-position-order");
 
         Size playerIndex = 0;
         for (Player &player : players) {
             auto &ammoRange = game.getSettings().getAmmoRange();
-            Int32 ammo = Math::random(ammoRange.first, ammoRange.second);
+            Int32 ammo = Math::random(ammoRange.first, ammoRange.second, randomSource, "starting-ammo");
             Level::StartingPosition position = startingPositions[playerIndex % startingPositions.size()];
             player.startRound(world, position.first, position.second, ammo,
-                              Weapon::getRandomEnabled(game.getSettings()));
+                              Weapon::getRandomEnabled(game.getSettings(), randomSource));
             playerIndex++;
         }
     }

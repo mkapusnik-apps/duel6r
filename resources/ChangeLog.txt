@@ -1,3 +1,7 @@
+5.5.0
+=====
+- Removed split-screen views, the F2 view toggle, and split-screen zoom; multiplayer now uses one shared arena view
+
 4.1.0 (february 2016)
 ======================
 - JSON writer with pretty-print added, person data are now saved in JSON format
@@ -212,6 +216,6 @@
 - When deleting player database the game asks
 - Fixed saving of screenshots (via F10). Now much faster and continues from the last saved number.
 - Option to switch between split-screen and full screen in-game using F2
-- Default zoom changed to 13
+- Default split-screen zoom changed to 13 (setting removed in 5.5.0)
 - Fixed readme.txt to include all keyboard shortcuts and console commands
 - Fixed refresh rate switching to 60 Hz under windows

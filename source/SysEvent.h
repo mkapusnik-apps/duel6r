@@ -118,6 +118,11 @@ namespace Duel6 {
         MouseButtonEvent translate(Int32 tx, Int32 ty) const {
             return MouseButtonEvent(x + tx, y + ty, button, state, doubleClick);
         }
+
+        MouseButtonEvent inverseTransform(Float32 scale, Int32 tx, Int32 ty) const {
+            return MouseButtonEvent(Int32((x - tx) / scale), Int32((y - ty) / scale),
+                                    button, state, doubleClick);
+        }
     };
 
     class MouseMotionEvent : public MouseEvent {
@@ -145,6 +150,11 @@ namespace Duel6 {
         MouseMotionEvent translate(Int32 tx, Int32 ty) const {
             return MouseMotionEvent(x + tx, y + ty, xDiff, yDiff, buttonState);
         }
+
+        MouseMotionEvent inverseTransform(Float32 scale, Int32 tx, Int32 ty) const {
+            return MouseMotionEvent(Int32((x - tx) / scale), Int32((y - ty) / scale),
+                                    Int32(xDiff / scale), Int32(yDiff / scale), buttonState);
+        }
     };
 
     class MouseWheelEvent : public MouseEvent {
@@ -166,6 +176,11 @@ namespace Duel6 {
 
         MouseWheelEvent translate(Int32 tx, Int32 ty) const {
             return MouseWheelEvent(x + tx, y + ty, amountX, amountY);
+        }
+
+        MouseWheelEvent inverseTransform(Float32 scale, Int32 tx, Int32 ty) const {
+            return MouseWheelEvent(Int32((x - tx) / scale), Int32((y - ty) / scale),
+                                   amountX, amountY);
         }
     };
 

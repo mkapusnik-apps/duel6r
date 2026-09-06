@@ -28,10 +28,16 @@
 #ifndef DUEL6_WORLD_H
 #define DUEL6_WORLD_H
 
+#include <memory>
+#include <functional>
+
+#include "Format.h"
 #include "Level.h"
 #include "InfoMessageQueue.h"
+#ifndef D6R_HEADLESS_CORE
 #include "LevelRenderData.h"
 #include "Explosion.h"
+#endif
 #include "Fire.h"
 #include "ShotList.h"
 #include "BonusList.h"
@@ -40,32 +46,60 @@
 namespace Duel6 {
     class Game;
 
+    struct GameplayEvent {
+        std::string kind;
+        std::string entityKind;
+        std::uint64_t localEntityId = 0;
+        Size playerRosterSlot = static_cast<Size>(-1);
+        Size targetRosterSlot = static_cast<Size>(-1);
+        std::string valueCategory;
+        std::int64_t value = 0;
+    };
+
     class World {
     private:
         const GameSettings &gameSettings;
         std::vector<Player> &players;
+        RandomSource &randomSource;
         Level level;
+#ifndef D6R_HEADLESS_CORE
         std::string background;
-        LevelRenderData levelRenderData;
+        std::unique_ptr<LevelRenderData> levelRenderData;
+#endif
         InfoMessageQueue messageQueue;
         SpriteList spriteList;
         ShotList shotList;
+#ifndef D6R_HEADLESS_CORE
         ExplosionList explosionList;
+#endif
         FireList fireList;
         BonusList bonusList;
         ElevatorList elevatorList;
         Float32 time;
+        std::function<void(const GameplayEvent &)> gameplayEventSink;
 
     public:
-        World(Game &game, const std::string &levelPath, bool mirror);
+        World(Game &game, const std::string &levelPath, bool mirror, RandomSource &randomSource);
 
         void update(Float32 elapsedTime);
 
         void raiseWater();
 
+        void setGameplayEventSink(std::function<void(const GameplayEvent &)> sink) {
+            gameplayEventSink = std::move(sink);
+        }
+
+        void emitGameplayEvent(GameplayEvent event) const {
+            if (gameplayEventSink) {
+                try { gameplayEventSink(event); } catch (...) {}
+            }
+        }
+
         const GameSettings &getGameSettings() const {
             return gameSettings;
         }
+
+        RandomSource &getRandomSource() const { return randomSource; }
 
         std::vector<Player> &getPlayers() {
             return players;
@@ -83,13 +117,15 @@ namespace Duel6 {
             return level;
         }
 
+#ifndef D6R_HEADLESS_CORE
         LevelRenderData &getLevelRenderData() {
-            return levelRenderData;
+            return *levelRenderData;
         }
 
         const LevelRenderData &getLevelRenderData() const {
-            return levelRenderData;
+            return *levelRenderData;
         }
+#endif
 
         InfoMessageQueue &getMessageQueue() {
             return messageQueue;
@@ -115,6 +151,7 @@ namespace Duel6 {
             return shotList;
         }
 
+#ifndef D6R_HEADLESS_CORE
         ExplosionList &getExplosionList() {
             return explosionList;
         }
@@ -122,6 +159,7 @@ namespace Duel6 {
         const ExplosionList &getExplosionList() const {
             return explosionList;
         }
+#endif
 
         FireList &getFireList() {
             return fireList;
@@ -131,9 +169,11 @@ namespace Duel6 {
             return fireList;
         }
 
+#ifndef D6R_HEADLESS_CORE
         std::string getBackground() const {
             return background;
         }
+#endif
 
         BonusList &getBonusList() {
             return bonusList;
@@ -156,7 +196,9 @@ namespace Duel6 {
         }
 
     private:
+#ifndef D6R_HEADLESS_CORE
         std::string findBackground(const GameResources::BackgroundList &backgrounds);
+#endif
     };
 }
 

@@ -32,6 +32,7 @@
 #include "Game.h"
 #include "GameMode.h"
 #include "Explosion.h"
+#include "gamemodes/TeamDeathMatch.h"
 
 namespace Duel6 {
     WorldRenderer::WorldRenderer(Duel6::AppService &appService, const Duel6::Game &game)
@@ -117,10 +118,14 @@ namespace Duel6 {
         return posY - charHeight;
     }
 
-    void WorldRenderer::roundOverSummary() const {
+    void WorldRenderer::roundOverSummary(bool showRoundProgress, bool separateTeamGroups, bool clampPanelBottom,
+                                         Int32 minimumPanelBottom) const {
         Float32 fontSize = 32;
         Float32 fontWidth = fontSize / 2;
         Ranking ranking = game.getMode().getRanking(game.getPlayers());
+        const bool showTeamSeparators =
+                separateTeamGroups && dynamic_cast<const TeamDeathMatch *>(&game.getMode()) != nullptr;
+        const Int32 teamSeparatorHeight = 8;
         Int32 maxLength = ranking.getMaxLength() + 6;
         Int32 maxNameLength = maxLength + 20;
         int height = fontSize * 3; // reserve for 'SCORE'
@@ -129,13 +134,28 @@ namespace Duel6 {
         for (const auto &entry : ranking.entries) {
             height += fontSize * (1 + entry.entries.size());
         }
+        if (showTeamSeparators && ranking.entries.size() > 1) {
+            height += teamSeparatorHeight * Int32(ranking.entries.size() - 1);
+        }
         const auto score = "---SCORE---";
         const auto kad = " K    A   D  K/D  PTS  ";
         const auto kadWidth = font.getTextWidth(kad, fontSize);
         const auto scoreWidth = font.getTextWidth(score, fontSize);
+        std::string roundProgress;
+        Float32 roundProgressWidth = 0;
+        if (showRoundProgress) {
+            roundProgress = Format("Rounds: {0}|{1}") << game.getPlayedRounds() << game.getSettings().getMaxRounds();
+            roundProgressWidth = font.getTextWidth(roundProgress, fontSize);
+            width = std::max(width, Int32(roundProgressWidth));
+            height += fontSize;
+        }
 
         int x = video.getScreen().getClientWidth() / 2 - width / 2;
         int y = video.getScreen().getClientHeight() / 2 - height / 2;
+        const Int32 panelBottom = y - Int32(fontSize);
+        if (clampPanelBottom && panelBottom < minimumPanelBottom) {
+            y += minimumPanelBottom - panelBottom;
+        }
 
         renderer.setBlendFunc(BlendFunc::SrcAlpha);
         renderer.quadXY(Vector(x - fontWidth, y - fontSize), Vector(width + 2 * fontWidth, height + 2 * fontSize),
@@ -143,28 +163,60 @@ namespace Duel6 {
         renderer.quadXY(Vector(x - fontWidth + 2, y - fontSize + 2),
                         Vector(width + 2 * fontWidth - 4, height + 2 * fontSize - 4), Color(0, 0, 255, 80));
 
-        renderer.quadXY(Vector(x - fontWidth - 5, height + y - fontSize),
-                        Vector(width + 2 * fontWidth + 10, fontSize + 4), Color(0, 0, 255, 255));
+        Float32 scoreY = y + height - fontSize * (showRoundProgress ? 2 : 1);
+        renderer.quadXY(Vector(x - fontWidth - 5, scoreY),
+                         Vector(width + 2 * fontWidth + 10, fontSize + 4), Color(0, 0, 255, 255));
         renderer.setBlendFunc(BlendFunc::SrcColor);
 
-        Int32 posX = video.getScreen().getClientWidth() / 2 - tableWidth / 2;;
-        Int32 posY = y + height - fontSize * 3;
+        Int32 posX = video.getScreen().getClientWidth() / 2 - tableWidth / 2;
+        Int32 posY = scoreY - fontSize * 2;
 
         Color fontColor = Color::WHITE;
 
-        font.print(x + (width - scoreWidth) / 2, y + height - fontSize, 0.0f, fontColor, score, fontSize);
-        font.print(x + width - kadWidth, y + height - 2 * fontSize, 0.0f, fontColor, "  K   A   D   K/D  PTS",
-                   fontSize);
-        for (const auto &entry : ranking.entries) {
+        font.print(x + (width - scoreWidth) / 2, scoreY, 0.0f, fontColor, score, fontSize);
+        if (showRoundProgress) {
+            font.print(x + width - roundProgressWidth, scoreY + fontSize, 0.0f, fontColor, roundProgress, fontSize);
+        }
+        font.print(posX + tableWidth - kadWidth, scoreY - fontSize, 0.0f, fontColor, kad, fontSize);
+        for (Size index = 0; index < ranking.entries.size(); index++) {
+            const auto &entry = ranking.entries[index];
             posY = renderRankingEntry(entry, posX, posY, maxLength, fontSize, true);
             for (const auto &nestedRankingEntry : entry.entries) {
                 posY = renderRankingEntry(nestedRankingEntry, posX, posY, maxLength, fontSize, true);
+            }
+            if (showTeamSeparators && index + 1 < ranking.entries.size()) {
+                posY -= teamSeparatorHeight;
+                renderer.setBlendFunc(BlendFunc::SrcAlpha);
+                renderer.quadXY(Vector(posX, posY + Int32(fontSize) + 4), Vector(tableWidth, 2),
+                                Color(255, 255, 255, 178));
             }
         }
     }
 
     void WorldRenderer::gameOverSummary() const {
-        roundOverSummary();
+        if (dynamic_cast<const TeamDeathMatch *>(&game.getMode()) == nullptr) {
+            roundOverSummary(false, false);
+            return;
+        }
+
+        const std::string notice = "End of Game";
+        const Int32 fontSize = 32;
+        const Int32 horizontalPadding = 16;
+        const Int32 verticalPadding = 8;
+        const Int32 bottomInset = 16;
+        const Int32 panelGap = 16;
+        const Int32 noticeHeight = fontSize + 2 * verticalPadding;
+        const Float32 noticeTextWidth = font.getTextWidth(notice, fontSize);
+        const Float32 noticeWidth = noticeTextWidth + 2 * horizontalPadding;
+        const Float32 noticeX = video.getScreen().getClientWidth() / 2.0f - noticeWidth / 2.0f;
+
+        roundOverSummary(false, true, true, bottomInset + noticeHeight + panelGap);
+
+        renderer.setBlendFunc(BlendFunc::SrcAlpha);
+        renderer.quadXY(Vector(noticeX, Float32(bottomInset)), Vector(noticeWidth, Float32(noticeHeight)),
+                        Color(0, 0, 255, 255));
+        renderer.setBlendFunc(BlendFunc::None);
+        font.print(noticeX + horizontalPadding, bottomInset + verticalPadding, 0.0f, Color::WHITE, notice, fontSize);
     }
 
     void WorldRenderer::roundsPlayed() const {
@@ -386,12 +438,6 @@ namespace Duel6 {
         }
     }
 
-    void WorldRenderer::splitBox(const PlayerView &view) const {
-        const auto &screen = video.getScreen();
-        setView(view.getX() - 2, view.getY() - 2, view.getWidth() + 4, view.getHeight() + 4);
-        renderer.quadXY(Vector::ZERO, Vector(screen.getClientWidth(), screen.getClientHeight()), Color::RED);
-    }
-
     void WorldRenderer::screenCurtain(const Color &color) const {
         const auto &screen = video.getScreen();
 
@@ -405,13 +451,7 @@ namespace Duel6 {
     void WorldRenderer::infoMessages() const {
         const InfoMessageQueue &messageQueue = game.getRound().getWorld().getMessageQueue();
 
-        if (game.getSettings().getScreenMode() == ScreenMode::FullScreen) {
-            messageQueue.renderAllMessages(renderer, game.getPlayers().front().getView(), 20, font);
-        } else {
-            for (const Player &player : game.getPlayers()) {
-                messageQueue.renderPlayerMessages(renderer, player, font);
-            }
-        }
+        messageQueue.renderAllMessages(renderer, game.getPlayers().front().getView(), 20, font);
     }
 
     void WorldRenderer::shotCollisionBox(const ShotList &shotList) const {
@@ -485,7 +525,7 @@ namespace Duel6 {
         return result;
     }
 
-    void WorldRenderer::fullScreen() const {
+    void WorldRenderer::sharedArena() const {
         const Player &player = game.getPlayers().front();
         Float32 remainingTime = game.getRound().getRemainingYouAreHere();
         setView(player.getView());
@@ -505,27 +545,6 @@ namespace Duel6 {
         }
     }
 
-    void WorldRenderer::splitScreen() const {
-        renderer.clearBuffers();
-
-        for (const Player &player : game.getPlayers()) {
-            video.setMode(Video::Mode::Orthogonal);
-            splitBox(player.getView());
-
-            setView(player.getView());
-            background(game.getResources().getBcgTextures().at(game.getRound().getWorld().getBackground()));
-
-            video.setMode(Video::Mode::Perspective);
-            setPlayerCamera(player);
-            renderStaticGeometry();
-            view(player);
-
-            if (!player.isAlive()) {
-                screenCurtain(Color(255, 0, 0, 128));
-            }
-        }
-    }
-
     void WorldRenderer::prerender() const {
         target->record([this]() {
             renderBackground();
@@ -534,12 +553,10 @@ namespace Duel6 {
 
     void WorldRenderer::render() const {
         const GameSettings &settings = game.getSettings();
+        const bool showRoundSummaryProgress = game.getRound().hasWinner() && !game.isOver() &&
+                                              settings.isRoundLimit() && !game.getRound().isLast();
 
-        if (settings.getScreenMode() == ScreenMode::FullScreen) {
-            fullScreen();
-        } else {
-            splitScreen();
-        }
+        sharedArena();
 
         video.setMode(Video::Mode::Orthogonal);
         setView(0, 0, video.getScreen().getClientWidth(), video.getScreen().getClientHeight());
@@ -550,24 +567,22 @@ namespace Duel6 {
             fpsCounter();
         }
 
-        if (settings.isShowRanking() && settings.getScreenMode() == ScreenMode::FullScreen) {
+        if (settings.isShowRanking()) {
             playerRankings();
         }
 
-        if (settings.isRoundLimit()) {
+        if (settings.isRoundLimit() && !showRoundSummaryProgress) {
             roundsPlayed();
         }
 
-        if (game.isDisplayingScoreTab()) {
-            roundOverSummary();
-        }
-
         if (game.getRound().hasWinner()) {
-            if (game.isOver()) {
+            if (game.getRound().isLast()) {
                 gameOverSummary();
             } else {
-                roundOverSummary();
+                roundOverSummary(showRoundSummaryProgress, true);
             }
+        } else if (game.isDisplayingScoreTab()) {
+            roundOverSummary(false, true);
         }
     }
 }

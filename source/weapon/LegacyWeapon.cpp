@@ -35,6 +35,7 @@ namespace Duel6 {
         const std::unordered_set<Size> NEAREST_FILTER_BOOM = {5, 6, 9, 13, 14, 15, 16};
     }
 
+#ifndef D6R_HEADLESS_CORE
     LegacyWeapon::LegacyWeapon(Sound &sound, TextureManager &textureManager, const Definition &definition, Size index)
             : WeaponBase(definition.name, definition.reloadSpeed), definition(definition) {
         const std::string wpnPath = Format("{0}{1,3|0}") << D6_TEXTURE_WPN_PATH << index;
@@ -50,6 +51,14 @@ namespace Duel6 {
         if (!definition.boomSound.empty()) {
             samples.boom = sound.loadSample(std::string(D6_FILE_WEAPON_SOUNDS) + definition.boomSound);
         }
+    }
+#else
+    LegacyWeapon::LegacyWeapon(Sound &, TextureManager &, const Definition &definition, Size)
+            : LegacyWeapon(definition) {}
+#endif
+
+    LegacyWeapon::LegacyWeapon(const Definition &definition)
+            : WeaponBase(definition.name, definition.reloadSpeed), definition(definition) {
     }
 
     Float32 LegacyWeapon::getShotSpeed(Float32 coefficient) const {

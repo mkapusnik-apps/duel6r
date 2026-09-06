@@ -26,6 +26,10 @@
 */
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <random>
+#include <sstream>
 #include <stdlib.h>
 #include "Sound.h"
 #include "Video.h"
@@ -41,40 +45,155 @@
 #include "gamemodes/DeathMatch.h"
 #include "gamemodes/TeamDeathMatch.h"
 #include "gamemodes/Predator.h"
+#include "Exception.h"
 
 #define D6_ALL_CHR  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890 -=\\~!@#$%^&*()_+|[];',./<>?:{}"
 #define D6_NUM_CHR  "0123456789"
 #define D6_MENU_WIDTH 850
 #define D6_MENU_HEIGHT 700
+#define D6_MENU_MAX_SCALE 1.35f
+#define D6_MENU_MESSAGE_MAX_WIDTH 790
 
 namespace Duel6 {
+    namespace {
+        Image coverImage(const Image &source, Size width, Size height) {
+            Image result(width, height);
+            Float32 sourceAspect = Float32(source.getWidth()) / Float32(source.getHeight());
+            Float32 targetAspect = Float32(width) / Float32(height);
+            Float32 cropWidth = targetAspect > sourceAspect ? Float32(source.getWidth())
+                                                            : Float32(source.getHeight()) * targetAspect;
+            Float32 cropHeight = targetAspect > sourceAspect ? Float32(source.getWidth()) / targetAspect
+                                                             : Float32(source.getHeight());
+            Float32 cropX = (Float32(source.getWidth()) - cropWidth) * 0.5f;
+            Float32 cropY = (Float32(source.getHeight()) - cropHeight) * 0.5f;
+
+            for (Size y = 0; y < height; y++) {
+                Size sourceY = std::min(source.getHeight() - 1,
+                                        Size(cropY + (Float32(y) + 0.5f) * cropHeight / Float32(height)));
+                for (Size x = 0; x < width; x++) {
+                    Size sourceX = std::min(source.getWidth() - 1,
+                                            Size(cropX + (Float32(x) + 0.5f) * cropWidth / Float32(width)));
+                    const Color &pixel = source.at(sourceY * source.getWidth() + sourceX);
+                    result.at(y * width + x) = Color(pixel.getRed(), pixel.getGreen(), pixel.getBlue(), 255);
+                }
+            }
+            return result;
+        }
+
+        Image boxBlur(const Image &source, Int32 radius) {
+            Size width = source.getWidth();
+            Size height = source.getHeight();
+            Image horizontal(width, height);
+            Image result(width, height);
+            Int32 sampleCount = radius * 2 + 1;
+
+            for (Size y = 0; y < height; y++) {
+                Int32 red = 0, green = 0, blue = 0;
+                for (Int32 offset = -radius; offset <= radius; offset++) {
+                    Size x = Size(std::max<Int32>(0, std::min<Int32>(Int32(width) - 1, offset)));
+                    const Color &pixel = source.at(y * width + x);
+                    red += pixel.getRed(); green += pixel.getGreen(); blue += pixel.getBlue();
+                }
+                for (Size x = 0; x < width; x++) {
+                    horizontal.at(y * width + x) = Color(red / sampleCount, green / sampleCount, blue / sampleCount);
+                    Size removeX = Size(std::max<Int32>(0, Int32(x) - radius));
+                    Size addX = Size(std::min<Int32>(Int32(width) - 1, Int32(x) + radius + 1));
+                    const Color &remove = source.at(y * width + removeX);
+                    const Color &add = source.at(y * width + addX);
+                    red += add.getRed() - remove.getRed();
+                    green += add.getGreen() - remove.getGreen();
+                    blue += add.getBlue() - remove.getBlue();
+                }
+            }
+
+            for (Size x = 0; x < width; x++) {
+                Int32 red = 0, green = 0, blue = 0;
+                for (Int32 offset = -radius; offset <= radius; offset++) {
+                    Size y = Size(std::max<Int32>(0, std::min<Int32>(Int32(height) - 1, offset)));
+                    const Color &pixel = horizontal.at(y * width + x);
+                    red += pixel.getRed(); green += pixel.getGreen(); blue += pixel.getBlue();
+                }
+                for (Size y = 0; y < height; y++) {
+                    result.at(y * width + x) = Color(red / sampleCount, green / sampleCount, blue / sampleCount);
+                    Size removeY = Size(std::max<Int32>(0, Int32(y) - radius));
+                    Size addY = Size(std::min<Int32>(Int32(height) - 1, Int32(y) + radius + 1));
+                    const Color &remove = horizontal.at(removeY * width + x);
+                    const Color &add = horizontal.at(addY * width + x);
+                    red += add.getRed() - remove.getRed();
+                    green += add.getGreen() - remove.getGreen();
+                    blue += add.getBlue() - remove.getBlue();
+                }
+            }
+            return result;
+        }
+
+        Image blurMenuBackground(const Image &source) {
+            Image result = source;
+            for (Int32 pass = 0; pass < 3; pass++) {
+                result = boxBlur(result, 12);
+            }
+            return result;
+        }
+
+        std::vector<std::string> wrapMessage(const std::string &message, Size maxCharacters) {
+            if (message.size() <= maxCharacters) {
+                return {message};
+            }
+            std::istringstream words(message);
+            std::vector<std::string> lines;
+            std::string line;
+            std::string word;
+            while (words >> word) {
+                if (!line.empty() && line.size() + word.size() + 1 > maxCharacters) {
+                    lines.push_back(line);
+                    line.clear();
+                }
+                if (!line.empty()) line += " ";
+                line += word;
+            }
+            if (!line.empty()) lines.push_back(line);
+            return lines;
+        }
+    }
+
     Menu::Menu(AppService &appService)
             : appService(appService), font(appService.getFont()), video(appService.getVideo()),
               renderer(video.getRenderer()), sound(appService.getSound()), gui(video.getRenderer()),
               controlsManager(appService.getControlsManager()),
-              defaultPlayerSounds(PlayerSounds::makeDefault(sound)), playMusic(false) {}
+              defaultPlayerSounds(PlayerSounds::makeDefault(sound)), menuBackgroundTexture(Texture()),
+              hasMenuBackground(false), menuBackgroundPreparationActive(false), menuBackgroundFinished(false),
+              menuBackgroundInitialFrameRendered(false), menuScale(1.0f), menuTranslationX(0),
+              menuTranslationY(0), playMusic(false) {}
+
+    Menu::~Menu() {
+        if (menuBackgroundPreparation.valid()) {
+            try {
+                menuBackgroundPreparation.wait();
+                menuBackgroundPreparation.get();
+            } catch (...) {
+                // Optional background work must not interfere with application teardown.
+            }
+        }
+        if (hasMenuBackground) {
+            renderer.freeTexture(menuBackgroundTexture);
+        }
+    }
 
     void Menu::loadPersonData(const std::string &filePath) {
         if (!File::exists(filePath)) {
             return;
         }
 
-        personListBox->clear();
         playerListBox->clear();
 
         Json::Parser parser;
         Json::Value json = parser.parse(filePath);
         persons.fromJson(json.get("persons"), personProfiles);
 
-        for (const Person &person : persons.list()) {
-            personListBox->addItem(person.getName());
-        }
-
         Json::Value playing = json.get("playing");
         for (Size i = 0; i < playing.getLength(); i++) {
             std::string name = playing.get(i).asString();
             playerListBox->addItem(name);
-            personListBox->removeItem(name);
         }
 
         updatePlayerCount();
@@ -96,71 +215,87 @@ namespace Duel6 {
     }
 
     void Menu::initialize() {
+        const Int32 menuActionY = 278;
+        const Int32 menuActionHeight = 25;
+
         appService.getConsole().printLine("\n===Menu initialization===");
         menuBannerTexture = appService.getTextureManager().loadStack(D6_TEXTURE_MENU_PATH, TextureFilter::Linear, true);
+        initializePresentation();
         appService.getConsole().printLine("...Starting GUI library");
         gui.screenSize(video.getScreen().getClientWidth(), video.getScreen().getClientHeight(),
-                       (video.getScreen().getClientWidth() - D6_MENU_WIDTH) / 2,
-                       (video.getScreen().getClientHeight() - D6_MENU_HEIGHT) / 2);
+                       D6_MENU_WIDTH, D6_MENU_HEIGHT,
+                       menuTranslationX, menuTranslationY, menuScale);
+
+        auto personsPanel = new Gui::Panel(gui);
+        personsPanel->setPosition(10, 578, 315, 326);
+        personsPanel->setCaption("PERSONS");
+
+        playersPanel = new Gui::Panel(gui);
+        playersPanel->setPosition(330, 578, 315, 326);
+
+        auto gameSettingsPanel = new Gui::Panel(gui);
+        gameSettingsPanel->setPosition(650, 578, 190, 326);
+        gameSettingsPanel->setCaption("GAME SETTINGS");
 
         scoreListBox = new Gui::ListBox(gui, true);
-        scoreListBox->setPosition(10, 199, 103, 12, 16);
+        scoreListBox->setPosition(10, 222, 101, 8, 16);
+
+        auto personListLabel = new Gui::Label(gui);
+        personListLabel->setPosition(14, 553, 288, 18);
+        personListLabel->setCaption(Format("{0,-5}{1,-19}{2,6}{3,6}")
+                                    << "Rank" << "Name" << "Elo" << "Trend");
 
         personListBox = new Gui::ListBox(gui, true);
-        personListBox->setPosition(210, 539, 18, 15, 18);
+        personListBox->setPosition(14, 535, 36, 12, 18);
         personListBox->onDoubleClick([this](Int32 index, const std::string &item) {
             addPlayer(index);
         });
 
         playerListBox = new Gui::ListBox(gui, false);
-        playerListBox->setPosition(370, 541, 13, D6_MAX_PLAYERS, 18);
+        playerListBox->setPosition(334, 553, 12, D6_MAX_PLAYERS, 18);
         playerListBox->onDoubleClick([this](Int32 index, const std::string &item) {
             removePlayer(index);
         });
 
-        eloListBox = new Gui::ListBox(gui, true);
-        eloListBox->setPosition(10, 539, 23, 15, 18);
-
         loadPersonProfiles(D6_FILE_PROFILES);
 
         auto addPlayerButton = new Gui::Button(gui);
-        addPlayerButton->setPosition(390, 253, 80, 25);
+        addPlayerButton->setPosition(285, menuActionY, 35, menuActionHeight);
         addPlayerButton->setCaption(">>");
         addPlayerButton->onClick([this](Gui::Button &) {
             addPlayer(personListBox->selectedIndex());
         });
 
         auto removePlayerButton = new Gui::Button(gui);
-        removePlayerButton->setPosition(300, 253, 85, 25);
+        removePlayerButton->setPosition(334, menuActionY, 35, menuActionHeight);
         removePlayerButton->setCaption("<<");
         removePlayerButton->onClick([this](Gui::Button &) {
             removePlayer(playerListBox->selectedIndex());
         });
 
         auto removePersonButton = new Gui::Button(gui);
-        removePersonButton->setPosition(210, 253, 85, 25);
+        removePersonButton->setPosition(14, menuActionY, 60, menuActionHeight);
         removePersonButton->setCaption("Remove");
         removePersonButton->onClick([this](Gui::Button &) {
             deletePerson();
-            rebuildTable();
         });
 
         auto addPersonButton = new Gui::Button(gui);
-        addPersonButton->setPosition(475, 253, 80, 25);
+        addPersonButton->setPosition(268, 308, 52, 22);
         addPersonButton->setCaption("Add");
         addPersonButton->onClick([this](Gui::Button &) {
             addPerson();
         });
 
         auto playButton = new Gui::Button(gui);
-        playButton->setPosition(350, 0, 150, 50);
+        playButton->setPosition(50, 70, 150, 50);
         playButton->setCaption("Play (F1)");
         playButton->onClick([this](Gui::Button &) {
             play();
         });
 
         auto clearButton = new Gui::Button(gui);
-        clearButton->setPosition(505, 0, 150, 50);
+        clearButton->setPosition(350, 70, 150, 50);
         clearButton->setCaption("Clear (F3)");
         clearButton->onClick([this](Gui::Button &) {
             if (deleteQuestion()) {
@@ -169,59 +304,44 @@ namespace Duel6 {
         });
 
         auto quitButton = new Gui::Button(gui);
-        quitButton->setPosition(660, 0, 150, 50);
+        quitButton->setPosition(650, 70, 150, 50);
         quitButton->setCaption("Quit (ESC)");
         quitButton->onClick([this](Gui::Button &) {
             close();
         });
 
         auto scoreLabel = new Gui::Label(gui);
-        scoreLabel->setPosition(10, 219, 830, 18);
+        scoreLabel->setPosition(10, 243, 830, 18);
         scoreLabel->setCaption(
                 "    Name   |   Elo | Pts | Win | Kill | Assist | Pen | Death |  K/D | Shot | Acc. | GmTm |  Dmg ");
 
-        auto eloLabel = new Gui::Label(gui);
-        eloLabel->setPosition(10, 560, 185, 18);
-        eloLabel->setCaption("Elo scoreboard");
-
-        auto personsLabel = new Gui::Label(gui);
-        personsLabel->setPosition(210, 560, 145, 18);
-        personsLabel->setCaption("Persons");
-
-        playersLabel = new Gui::Label(gui);
-        playersLabel->setPosition(370, 560, 88, 18);
-
         updatePlayerCount();
 
-        Gui::Button *shuffleButton = new Gui::Button(gui);
-        shuffleButton->setCaption("S");
-        shuffleButton->setPosition(477, 560, 17, 17);
+        shuffleButton = new Gui::Button(gui);
+        shuffleButton->setCaption("Shuffle");
+        shuffleButton->setPosition(463, menuActionY, 68, menuActionHeight);
         shuffleButton->onClick([this](Gui::Button &) {
             shufflePlayers();
         });
 
-        Gui::Button *eloShuffleButton = new Gui::Button(gui);
-        eloShuffleButton->setCaption("E");
-        eloShuffleButton->setPosition(460, 560, 17, 17);
-        eloShuffleButton->onClick([this](Gui::Button &) {
+        equalizeButton = new Gui::Button(gui);
+        equalizeButton->setCaption("Equalize");
+        equalizeButton->setPosition(385, menuActionY, 76, menuActionHeight);
+        equalizeButton->onClick([this](Gui::Button &) {
             eloShufflePlayers();
         });
 
-        auto controllerLabel = new Gui::Label(gui);
-        controllerLabel->setPosition(500, 560, 90, 18);
-        controllerLabel->setCaption("Controller");
-
         textbox = new Gui::Textbox(gui);
-        textbox->setPosition(560, 252, 14, 10, D6_ALL_CHR);
+        textbox->setPosition(14, 308, 30, 10, D6_ALL_CHR);
 
         // Player controls
         for (Size i = 0; i < D6_MAX_PLAYERS; i++) {
             controlSwitch[i] = new Gui::Spinner(gui);
-            controlSwitch[i]->setPosition(500, 539 - Int32(i) * 18, 90, 0);
+            controlSwitch[i]->setPosition(434, 553 - Int32(i) * 18, 186, 0);
 
             Gui::Button *button = new Gui::Button(gui);
             button->setCaption("D");
-            button->setPosition(590, 537 - Int32(i) * 18, 17, 17);
+            button->setPosition(623, 552 - Int32(i) * 18, 17, 17);
             button->onClick([this, i](Gui::Button &) {
                 detectControls(i);
             });
@@ -229,8 +349,8 @@ namespace Duel6 {
 
         // Button to detect all user's controllers in a batch
         Gui::Button *button = new Gui::Button(gui);
-        button->setCaption("D");
-        button->setPosition(590, 558, 17, 17);
+        button->setCaption("Detect All");
+        button->setPosition(548, menuActionY, 92, menuActionHeight);
         button->onClick([this](Gui::Button &) {
             joyRescan();
             Size curPlayersCount = playerListBox->size();
@@ -241,43 +361,262 @@ namespace Duel6 {
 
         initializeGameModes();
         gameModeSwitch = new Gui::Spinner(gui);
-        for (auto &gameMode : gameModes) {
-            gameModeSwitch->addItem(gameMode->getName());
-        }
-        gameModeSwitch->setPosition(594, 532, 200, 20);
-        gameModeSwitch->onToggled([this](Int32 selectedIndex) {
-            if (selectedIndex < 2) {
-                playerListBox->onColorize(Gui::ListBox::defaultColorize);
-            } else {
-                Int32 teamCount = 1 + selectedIndex / 2;
-                playerListBox->onColorize([teamCount](Int32 index, const std::string &label) {
-                    return Gui::ListBox::ItemColor{Color::BLACK, TEAMS[index % teamCount].color};
-                });
-            }
+        gameModeSwitch->addItem(gameModes[0]->getName());
+        gameModeSwitch->addItem(gameModes[1]->getName());
+        gameModeSwitch->addItem("Teams");
+        gameModeSwitch->setPosition(654, 540, 182, 20);
+
+        teamCountLabel = new Gui::Label(gui);
+        teamCountLabel->setCaption("Num. of Team");
+        teamCountLabel->setPosition(654, 512, 96, 20);
+
+        teamCountSwitch = new Gui::Spinner(gui);
+        teamCountSwitch->addItem("2", 2);
+        teamCountSwitch->addItem("3", 3);
+        teamCountSwitch->addItem("4", 4);
+        teamCountSwitch->setPosition(750, 512, 86, 20);
+        teamCountSwitch->onToggled([this](Int32) {
+            updatePlayerColors();
         });
 
-        auto gameSettingsLabel = new Gui::Label(gui);
-        gameSettingsLabel->setPosition(594, 560, 210, 18);
-        gameSettingsLabel->setCaption("Game Settings");
+        friendlyFireCheckBox = new Gui::CheckBox(gui, false);
+        friendlyFireCheckBox->setLabel("Friendly Fire");
+        friendlyFireCheckBox->setPosition(654, 484, 170, 20);
 
         globalAssistanceCheckBox = new Gui::CheckBox(gui, true);
         globalAssistanceCheckBox->setLabel("Assistance");
-        globalAssistanceCheckBox->setPosition(594, 504, 170, 20);
+        globalAssistanceCheckBox->setPosition(654, 510, 170, 20);
 
         quickLiquidCheckBox = new Gui::CheckBox(gui, true);
         quickLiquidCheckBox->setLabel("Quick Liquid");
-        quickLiquidCheckBox->setPosition(594, 476, 170, 20);
+        quickLiquidCheckBox->setPosition(654, 482, 170, 20);
+
+        burnableTreesCheckBox = new Gui::CheckBox(gui, game->getSettings().isBurnableTrees());
+        burnableTreesCheckBox->setLabel("Burnable Trees");
+        burnableTreesCheckBox->setPosition(654, 454, 170, 20);
 
         roundsTextbox = new Gui::Textbox(gui);
         roundsTextbox->setLabel("Rounds");
-        roundsTextbox->setLabelLeft(false);
-        roundsTextbox->setPosition(594, 452, 2, 4, D6_NUM_CHR);
+        roundsTextbox->setLabelLeft(true);
+        roundsTextbox->setPosition(792, 424, 4, 4, D6_NUM_CHR);
         updateRoundsTextbox();
+
+        gameModeSwitch->onToggled([this](Int32) {
+            updateGameSettingsLayout();
+            updatePlayerColors();
+        });
+        updateGameSettingsLayout();
+        updatePlayerColors();
 
         backgroundCount = File::countFiles(D6_TEXTURE_BCG_PATH);
         levelList.initialize(D6_FILE_LEVEL, D6_LEVEL_EXTENSION);
 
         menuTrack = sound.loadModule("sound/undead.xm");
+        startMenuBackgroundPreparation({}, true);
+    }
+
+    void Menu::initializePresentation() {
+        Int32 clientWidth = video.getScreen().getClientWidth();
+        Int32 clientHeight = video.getScreen().getClientHeight();
+        menuScale = std::min(D6_MENU_MAX_SCALE,
+                             std::min(Float32(clientWidth) / D6_MENU_WIDTH,
+                                      Float32(clientHeight) / D6_MENU_HEIGHT));
+        menuTranslationX = Int32((Float32(clientWidth) - D6_MENU_WIDTH * menuScale) * 0.5f);
+        menuTranslationY = Int32((Float32(clientHeight) - D6_MENU_HEIGHT * menuScale) * 0.5f);
+        appService.getConsole().printLine(Format("Menu presentation: scale={0}, origin=({1},{2})")
+                                          << menuScale << menuTranslationX << menuTranslationY);
+    }
+
+    Menu::PreparedMenuBackground Menu::prepareMenuBackground(Int32 clientWidth, Int32 clientHeight,
+                                                             std::vector<std::string> candidates,
+                                                             bool discoverCandidates) {
+        PreparedMenuBackground result;
+        if (discoverCandidates) {
+            try {
+                candidates = File::listDirectory(D6_TEXTURE_MENU_BACKGROUND_PATH);
+                candidates.erase(std::remove_if(candidates.begin(), candidates.end(), [](const std::string &name) {
+                    Size dot = name.find_last_of('.');
+                    if (dot == std::string::npos) return true;
+                    std::string extension = name.substr(dot);
+                    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+                    return extension != ".png" && extension != ".jpg" && extension != ".jpeg";
+                }), candidates.end());
+                std::shuffle(candidates.begin(), candidates.end(), std::mt19937(std::random_device{}()));
+            } catch (...) {
+                result.directoryAvailable = false;
+                return result;
+            }
+        }
+
+        while (!candidates.empty()) {
+            std::string candidate = candidates.front();
+            candidates.erase(candidates.begin());
+            try {
+                Image source = Image::load(D6_TEXTURE_MENU_BACKGROUND_PATH + candidate);
+                if (source.getWidth() == 0 || source.getHeight() == 0) {
+                    result.failedCandidates.push_back(candidate);
+                    continue;
+                }
+                Image covered = coverImage(source, clientWidth, clientHeight);
+                result.image = blurMenuBackground(covered);
+                result.filename = candidate;
+                result.remainingCandidates = std::move(candidates);
+                result.hasImage = true;
+                return result;
+            } catch (...) {
+                result.failedCandidates.push_back(candidate);
+            }
+        }
+        return result;
+    }
+
+    void Menu::startMenuBackgroundPreparation(std::vector<std::string> candidates,
+                                              bool discoverCandidates) const noexcept {
+        try {
+            if (menuBackgroundFinished || menuBackgroundPreparationActive) {
+                return;
+            }
+            Int32 clientWidth = video.getScreen().getClientWidth();
+            Int32 clientHeight = video.getScreen().getClientHeight();
+            menuBackgroundPreparation = std::async(std::launch::async,
+                                                   [clientWidth, clientHeight,
+                                                    candidates = std::move(candidates),
+                                                    discoverCandidates]() mutable {
+                return prepareMenuBackground(clientWidth, clientHeight, std::move(candidates),
+                                             discoverCandidates);
+            });
+            menuBackgroundPreparationActive = true;
+        } catch (...) {
+            menuBackgroundFinished = true;
+            printMenuBackgroundDiagnostic("Menu background worker unavailable; using solid black.");
+        }
+    }
+
+    void Menu::printMenuBackgroundDiagnostic(const char *message) const noexcept {
+        try {
+            appService.getConsole().printLine(message);
+        } catch (...) {
+            // Optional diagnostics must never interfere with menu rendering.
+        }
+    }
+
+    void Menu::printMenuBackgroundDiagnostic(const char *prefix, const std::string &value,
+                                             const char *suffix) const noexcept {
+        try {
+            appService.getConsole().printLine(std::string(prefix) + value + suffix);
+        } catch (...) {
+            // Optional diagnostics must never interfere with menu rendering.
+        }
+    }
+
+    void Menu::freeOptionalTexture(Texture texture) const noexcept {
+        if (texture == Texture()) {
+            return;
+        }
+        try {
+            renderer.freeTexture(texture);
+        } catch (...) {
+            // Cleanup remains best-effort for an optional visual enhancement.
+        }
+    }
+
+    void Menu::retryPreparedMenuBackground(PreparedMenuBackground &prepared) const noexcept {
+        if (prepared.remainingCandidates.empty()) {
+            menuBackgroundFinished = true;
+            printMenuBackgroundDiagnostic("No menu background could be loaded; using solid black.");
+            return;
+        }
+        startMenuBackgroundPreparation(std::move(prepared.remainingCandidates), false);
+    }
+
+    void Menu::publishPreparedMenuBackground() const noexcept {
+        try {
+            publishPreparedMenuBackgroundTransaction();
+        } catch (...) {
+            menuBackgroundPreparationActive = false;
+            menuBackgroundFinished = true;
+            printMenuBackgroundDiagnostic("Menu background processing failed; using solid black.");
+        }
+    }
+
+    void Menu::publishPreparedMenuBackgroundTransaction() const {
+        PreparedMenuBackground prepared;
+        Texture texture = Texture();
+        try {
+            if (!menuBackgroundPreparationActive || !menuBackgroundPreparation.valid()) {
+                return;
+            }
+            if (menuBackgroundPreparation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                return;
+            }
+
+            menuBackgroundPreparationActive = false;
+            prepared = menuBackgroundPreparation.get();
+
+            for (const std::string &failed : prepared.failedCandidates) {
+                printMenuBackgroundDiagnostic("Menu background failed: ", failed, "; trying another.");
+            }
+            if (!prepared.directoryAvailable) {
+                menuBackgroundFinished = true;
+                printMenuBackgroundDiagnostic("Menu background directory unavailable; using solid black.");
+                return;
+            }
+            if (!prepared.hasImage) {
+                menuBackgroundFinished = true;
+                printMenuBackgroundDiagnostic("No menu background could be loaded; using solid black.");
+                return;
+            }
+
+            texture = renderer.createTexture(prepared.image, TextureFilter::Linear, true);
+            if (texture == Texture()) {
+                printMenuBackgroundDiagnostic("Menu background upload failed: ", prepared.filename,
+                                              "; trying another.");
+                retryPreparedMenuBackground(prepared);
+                return;
+            }
+
+            try {
+                menuBackgroundFilename = prepared.filename;
+            } catch (...) {
+                freeOptionalTexture(texture);
+                texture = Texture();
+                printMenuBackgroundDiagnostic("Menu background publication failed: ", prepared.filename,
+                                              "; trying another.");
+                retryPreparedMenuBackground(prepared);
+                return;
+            }
+
+            menuBackgroundTexture = texture;
+            texture = Texture();
+            hasMenuBackground = true;
+            menuBackgroundFinished = true;
+            printMenuBackgroundDiagnostic("Menu background selected: ", menuBackgroundFilename, "");
+        } catch (...) {
+            freeOptionalTexture(texture);
+            menuBackgroundPreparationActive = false;
+            if (prepared.hasImage) {
+                printMenuBackgroundDiagnostic("Menu background publication failed: ", prepared.filename,
+                                              "; trying another.");
+                retryPreparedMenuBackground(prepared);
+            } else {
+                menuBackgroundFinished = true;
+                printMenuBackgroundDiagnostic("Menu background processing failed; using solid black.");
+            }
+        }
+    }
+
+    void Menu::renderMenuBackground() const {
+        Int32 clientWidth = video.getScreen().getClientWidth();
+        Int32 clientHeight = video.getScreen().getClientHeight();
+        renderer.setViewMatrix(Matrix::IDENTITY);
+        renderer.quadXY(Vector::ZERO, Vector(clientWidth, clientHeight), Color::BLACK);
+        if (hasMenuBackground) {
+            renderer.quadXY(Vector::ZERO, Vector(clientWidth, clientHeight), Vector(0, 1), Vector(1, -1),
+                            Material::makeTexture(menuBackgroundTexture));
+            renderer.setBlendFunc(BlendFunc::SrcAlpha);
+            renderer.quadXY(Vector::ZERO, Vector(clientWidth, clientHeight), Color(0, 0, 0, 140));
+            renderer.setBlendFunc(BlendFunc::None);
+        }
     }
 
     void Menu::initializeGameModes() {
@@ -289,6 +628,51 @@ namespace Duel6 {
         gameModes.push_back(std::make_unique<TeamDeathMatch>(3, true));
         gameModes.push_back(std::make_unique<TeamDeathMatch>(4, false));
         gameModes.push_back(std::make_unique<TeamDeathMatch>(4, true));
+    }
+
+    bool Menu::isTeamModeSelected() {
+        return gameModeSwitch->currentItem() == 2;
+    }
+
+    Int32 Menu::selectedTeamCount() {
+        return teamCountSwitch->currentValue().first;
+    }
+
+    GameMode &Menu::selectedGameMode() {
+        Int32 modeIndex = gameModeSwitch->currentItem();
+        if (modeIndex < 2) {
+            return *gameModes[modeIndex];
+        }
+
+        Int32 teamModeIndex = 2 + (selectedTeamCount() - 2) * 2 + (friendlyFireCheckBox->isChecked() ? 1 : 0);
+        return *gameModes[teamModeIndex];
+    }
+
+    void Menu::updateGameSettingsLayout() {
+        bool showTeamSettings = isTeamModeSelected();
+        teamCountLabel->setVisible(showTeamSettings);
+        teamCountSwitch->setVisible(showTeamSettings);
+        friendlyFireCheckBox->setVisible(showTeamSettings);
+        equalizeButton->setVisible(showTeamSettings);
+        shuffleButton->setVisible(showTeamSettings);
+
+        Int32 offset = showTeamSettings ? -54 : 0;
+        globalAssistanceCheckBox->setPosition(654, 510 + offset, 170, 20);
+        quickLiquidCheckBox->setPosition(654, 482 + offset, 170, 20);
+        burnableTreesCheckBox->setPosition(654, 454 + offset, 170, 20);
+        roundsTextbox->setLocation(792, 424 + offset);
+    }
+
+    void Menu::updatePlayerColors() {
+        if (!isTeamModeSelected()) {
+            playerListBox->onColorize(Gui::ListBox::defaultColorize);
+            return;
+        }
+
+        Int32 teamCount = selectedTeamCount();
+        playerListBox->onColorize([teamCount](Int32 index, const std::string &) {
+            return Gui::ListBox::ItemColor{Color::BLACK, TEAMS[index % teamCount].color};
+        });
     }
 
     void Menu::savePersonData() const {
@@ -308,6 +692,7 @@ namespace Duel6 {
     }
 
     void Menu::rebuildTable() {
+        rebuildPersonList();
         scoreListBox->clear();
         if (persons.isEmpty())
             return;
@@ -343,6 +728,14 @@ namespace Duel6 {
                             << person->getTotalDamage();
             scoreListBox->addItem(personStat);
         }
+    }
+
+    void Menu::rebuildPersonList() {
+        std::string selectedName;
+        Int32 selectedIndex = personListBox->selectedIndex();
+        if (selectedIndex >= 0 && Size(selectedIndex) < personListNames.size()) {
+            selectedName = personListNames[selectedIndex];
+        }
 
         std::vector<const Person *> eloRanking;
         for (const Person &person : persons.list()) {
@@ -350,30 +743,63 @@ namespace Duel6 {
                 eloRanking.push_back(&person);
             }
         }
-        std::sort(eloRanking.begin(), eloRanking.end(), [](const Person *left, const Person *right) {
+        std::stable_sort(eloRanking.begin(), eloRanking.end(), [](const Person *left, const Person *right) {
             return left->getElo() > right->getElo();
         });
 
-        eloListBox->clear();
+        personListBox->clear();
+        personListNames.clear();
+
+        auto addPersonRow = [this](const Person &person, const std::string &rank,
+                                   const std::string &elo, const std::string &trend) {
+            std::string clippedName = person.getName().substr(0, 19);
+            personListBox->addItem(Format("{0,-5}{1,-19}{2,6}{3,6}")
+                                   << rank << clippedName << elo << trend);
+            personListNames.push_back(person.getName());
+        };
+
         Int32 index = 1;
-        for (auto person : eloRanking) {
+        for (const Person *person : eloRanking) {
             auto trend = person->getEloTrend();
-            auto sign = trend > 0 ? "+" : "-";
-            std::string trendStr = trend == 0 ? std::string() : Format("{0}{1}") << sign << std::abs(trend);
-            eloListBox->addItem(Format("{0,2|0} {1,-11} {2,4} {3,4}") << index << person->getName() << person->getElo() << trendStr);
+            std::string trendStr = trend > 0 ? "+" + std::to_string(trend) : std::to_string(trend);
+            addPersonRow(*person, Format("{0,2|0}") << index,
+                         Format("{0}") << person->getElo(), trendStr);
             index++;
+        }
+
+        for (const Person &person : persons.list()) {
+            if (person.getEloGames() == 0) {
+                addPersonRow(person, "", "", "");
+            }
+        }
+
+        if (!selectedName.empty()) {
+            auto selected = std::find(personListNames.begin(), personListNames.end(), selectedName);
+            if (selected != personListNames.end()) {
+                Int32 refreshedIndex = Int32(selected - personListNames.begin());
+                personListBox->selectItem(refreshedIndex).scrollToView(refreshedIndex);
+            }
         }
     }
 
     void Menu::showMessage(const std::string &message) {
-        Int32 width = Int32(message.size()) * 8 + 60;
-        Int32 x = video.getScreen().getClientWidth() / 2 - width / 2,
-                y = video.getScreen().getClientHeight() / 2 - 10;
+        Size maxCharacters = (D6_MENU_MESSAGE_MAX_WIDTH - 60) / 8;
+        std::vector<std::string> lines = wrapMessage(message, maxCharacters);
+        Size longestLine = 0;
+        for (const std::string &line : lines) longestLine = std::max(longestLine, line.size());
+        Int32 width = std::min(D6_MENU_MESSAGE_MAX_WIDTH, Int32(longestLine) * 8 + 60);
+        Int32 height = Int32(lines.size()) * 16 + 4;
+        Int32 x = (D6_MENU_WIDTH - width) / 2;
+        Int32 y = (D6_MENU_HEIGHT - height) / 2;
 
-        renderer.quadXY(Vector(x, y), Vector(width, 20), Color(255, 204, 204));
-        renderer.frame(Vector(x, y), Vector(width, 20), 2, Color::BLACK);
-
-        font.print(x + 30, y + 2, Color::RED, message);
+        renderer.setViewMatrix(Matrix::translate(Float32(menuTranslationX), Float32(menuTranslationY), 0) *
+                               Matrix::scale(menuScale, menuScale, 1.0f));
+        renderer.quadXY(Vector(x, y), Vector(width, height), Color(255, 204, 204));
+        renderer.frame(Vector(x, y), Vector(width, height), 2, Color::BLACK);
+        for (Size line = 0; line < lines.size(); line++) {
+            font.print(x + 30, y + 2 + Int32(lines.size() - line - 1) * 16, Color::RED, lines[line]);
+        }
+        renderer.setViewMatrix(Matrix::IDENTITY);
         video.screenUpdate(appService.getConsole(), font);
     }
 
@@ -476,6 +902,7 @@ namespace Duel6 {
             return;
         }
         game->getSettings().setQuickLiquid(quickLiquidCheckBox->isChecked());
+        game->getSettings().setBurnableTrees(burnableTreesCheckBox->isChecked());
         game->getSettings().setGlobalAssistances(globalAssistanceCheckBox->isChecked());
         if (game->getSettings().isRoundLimit()) {
             if (game->getPlayedRounds() == 0 || game->getPlayedRounds() >= game->getSettings().getMaxRounds() || !question("Resume previous game? (Y/N)")) {
@@ -489,7 +916,7 @@ namespace Duel6 {
             }
         }
 
-        GameMode &selectedMode = *gameModes[gameModeSwitch->currentItem()];
+        GameMode &selectedMode = selectedGameMode();
 
         std::vector<Game::PlayerDefinition> playerDefinitions;
         for (Size i = 0; i < playerListBox->size(); i++) {
@@ -509,10 +936,6 @@ namespace Duel6 {
             backgrounds.push_back(i);
         }
 
-        // Screen
-        ScreenMode screenMode = ScreenMode::FullScreen;
-        Int32 screenZoom = 13;
-
         // Clear elo trend
         for (auto &person : persons.list()) {
             person.setEloTrend(0);
@@ -520,7 +943,7 @@ namespace Duel6 {
 
         // Start
         Context::push(*game);
-        game->start(playerDefinitions, levels, backgrounds, screenMode, screenZoom, selectedMode);
+        game->start(playerDefinitions, levels, backgrounds, selectedMode);
     }
 
     bool Menu::validateStartPrerequisites(const std::vector<std::string> &levels) {
@@ -560,18 +983,19 @@ namespace Duel6 {
     }
 
     void Menu::addPlayer(Int32 index) {
-        if (index != -1 && playerListBox->size() < D6_MAX_PLAYERS) {
-            const std::string &name = personListBox->getItem(index);
+        if (index >= 0 && Size(index) < personListNames.size() && playerListBox->size() < D6_MAX_PLAYERS) {
+            const std::string &name = personListNames[index];
+            if (isPlayer(name)) {
+                return;
+            }
             playerListBox->addItem(name);
-            personListBox->removeItem(index);
         }
         updatePlayerCount();
+        rebuildPersonList();
     }
 
     void Menu::removePlayer(Int32 index) {
         if (index != -1) {
-            const std::string &playerName = playerListBox->getItem(index);
-            personListBox->addItem(playerName);
             playerListBox->removeItem(index);
 
             for (Int32 i = index; i + 1 < D6_MAX_PLAYERS; i++) {
@@ -579,10 +1003,20 @@ namespace Duel6 {
             }
         }
         updatePlayerCount();
+        rebuildPersonList();
+    }
+
+    bool Menu::isPlayer(const std::string &name) const {
+        for (Size i = 0; i < playerListBox->size(); i++) {
+            if (playerListBox->getItem(i) == name) {
+                return true;
+            }
+        }
+        return false;
     }
 
     void Menu::updatePlayerCount() {
-        playersLabel->setCaption(Format("Players {0,3}") << playerListBox->size());
+        playersPanel->setCaption("PLAYERS " + std::to_string(playerListBox->size()) + "  CONTROLLER");
     }
 
     void Menu::updateRoundsTextbox() {
@@ -602,15 +1036,10 @@ namespace Duel6 {
     }
 
     void Menu::addPerson() {
-        if (!textbox->isFocused()) {
-            return;
-        }
-
         const std::string &personName = textbox->getText();
 
         if (!personName.empty() && !persons.contains(personName)) {
             persons.add(Person(personName, nullptr));
-            personListBox->addItem(personName);
             rebuildTable();
             textbox->flush();
         }
@@ -618,13 +1047,16 @@ namespace Duel6 {
 
     void Menu::deletePerson() {
         Int32 index = personListBox->selectedIndex();
-        if (index != -1) {
+        if (index >= 0 && Size(index) < personListNames.size()) {
+            const std::string personName = personListNames[index];
+            if (isPlayer(personName)) {
+                return;
+            }
             if (!deleteQuestion())
                 return;
 
-            const std::string &playerName = personListBox->selectedItem();
-            persons.remove(playerName);
-            personListBox->removeItem(playerName);
+            persons.remove(personName);
+            rebuildTable();
         }
     }
 
@@ -645,19 +1077,22 @@ namespace Duel6 {
     }
 
     void Menu::render() const {
-        Int32 trX = (video.getScreen().getClientWidth() - D6_MENU_WIDTH) / 2;
-        Int32 trY = (video.getScreen().getClientHeight() - D6_MENU_HEIGHT) / 2;
-
+        if (menuBackgroundInitialFrameRendered) {
+            publishPreparedMenuBackground();
+        } else {
+            menuBackgroundInitialFrameRendered = true;
+        }
+        renderMenuBackground();
         gui.draw(font);
 
-        renderer.setViewMatrix(Matrix::translate(Float32(trX), -Float32(trY), 0));
+        renderer.setViewMatrix(Matrix::translate(Float32(menuTranslationX), Float32(menuTranslationY), 0) *
+                               Matrix::scale(menuScale, menuScale, 1.0f));
 
-        font.print(687, video.getScreen().getClientHeight() - 20, Color::WHITE,
-                   Format("{0} {1}") << "version" << APP_VERSION);
+        std::string version = Format("{0} {1}") << "version" << APP_VERSION;
+        font.print((D6_MENU_WIDTH - Int32(version.size()) * 8) / 2, 581, Color::BLACK, version);
 
-        Int32 clientHeight = video.getScreen().getClientHeight();
         Material material = Material::makeTexture(menuBannerTexture);
-        renderer.quadXY(Vector(300, clientHeight - 100), Vector(200, 95), Vector(0, 1), Vector(1, -1), material);
+        renderer.quadXY(Vector(325, 600), Vector(200, 95), Vector(0, 1), Vector(1, -1), material);
 
         renderer.setViewMatrix(Matrix::IDENTITY);
     }
@@ -668,7 +1103,7 @@ namespace Duel6 {
         if (event.getCode() == SDLK_RETURN) {
             if (roundsTextbox->isFocused()) {
                 applyRoundsTextbox();
-            } else {
+            } else if (textbox->isFocused()) {
                 addPerson();
             }
         }
@@ -693,7 +1128,15 @@ namespace Duel6 {
     }
 
     void Menu::mouseButtonEvent(const MouseButtonEvent &event) {
+        bool roundsWasFocused = roundsTextbox->isFocused();
         gui.mouseButtonEvent(event);
+
+        if (!roundsWasFocused && roundsTextbox->isFocused() && roundsTextbox->getText() == "0") {
+            roundsTextbox->flush();
+        } else if (roundsWasFocused && !roundsTextbox->isFocused() && roundsTextbox->getText().empty()) {
+            game->getSettings().setMaxRounds(0);
+            updateRoundsTextbox();
+        }
     }
 
     void Menu::mouseMotionEvent(const MouseMotionEvent &event) {
@@ -860,7 +1303,7 @@ namespace Duel6 {
 
         }
 
-        Int32 teamPlayerCount = 1 + gameModeSwitch->currentItem() / 2;
+        Int32 teamPlayerCount = isTeamModeSelected() ? selectedTeamCount() : 1;
         for (Int32 start = 0; start < Int32(playerCount); start += teamPlayerCount) {
             auto span = std::min(teamPlayerCount, Int32(playerCount) - start);
             auto first = shuffle.begin() + start;

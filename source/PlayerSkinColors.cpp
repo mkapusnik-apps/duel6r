@@ -97,9 +97,9 @@ namespace Duel6 {
     }
 
     PlayerSkinColors PlayerSkinColors::makeRandom() {
-        const Color& hair = hairColors[Math::random(6)];
-        const Color& face = faceColors[Math::random(3)];
-        const Color& headBand = headBandColors[Math::random(3)];
+        const Color& hair = hairColors[Math::random(6, "skin-hair-color")];
+        const Color& face = faceColors[Math::random(3, "skin-face-color")];
+        const Color& headBand = headBandColors[Math::random(3, "skin-headband-color")];
         Color body = Color::random();
 
         PlayerSkinColors colors;
@@ -114,8 +114,8 @@ namespace Duel6 {
         colors.set(PlayerSkinColors::Face, face);
         colors.set(PlayerSkinColors::HeadBand, headBand);
 
-        colors.setHair(Math::random(3));
-        colors.setHeadBand(Math::random(10) > 5);
+        colors.setHair(Math::random(3, "skin-hair-style"));
+        colors.setHeadBand(Math::random(10, "skin-headband") > 5);
         return colors;
     }
 }

@@ -28,6 +28,8 @@
 #ifndef DUEL6_SHOT_H
 #define DUEL6_SHOT_H
 
+#include <cstdint>
+
 #include "Type.h"
 #include "math/Vector.h"
 #include "Rectangle.h"
@@ -50,6 +52,11 @@ namespace Duel6 {
     };
 
     class Shot {
+        friend class ShotList;
+
+    private:
+        std::uint64_t stableId = 0;
+
     public:
         virtual ~Shot() {}
 
@@ -78,6 +85,11 @@ namespace Duel6 {
         virtual void onKillPlayer(Player &player, bool directHit, const Vector &hitPoint, World &world) = 0;
 
         virtual ShotHit getShotHit() = 0;
+
+        std::uint64_t getStableId() const noexcept { return stableId; }
+
+    private:
+        void setStableId(std::uint64_t value) noexcept { stableId = value; }
     };
 }
 

@@ -31,12 +31,14 @@
 #include "../LegacyShot.h"
 
 namespace Duel6 {
+    class PlayerSkin;
     class ShitThrowerShot : public LegacyShot {
     private:
-        PlayerSkin &brownSkin;
+        PlayerSkin *brownSkin;
 
     public:
-        ShitThrowerShot(Player &player, World &world, const LegacyWeapon &weapon, Orientation shotOrientation, PlayerSkin &brownSkin);
+        ShitThrowerShot(Player &player, World &world, const LegacyWeapon &weapon, Orientation shotOrientation,
+                        PlayerSkin *brownSkin);
 
         bool hasBlood() const override;
 

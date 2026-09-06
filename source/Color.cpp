@@ -65,6 +65,8 @@ namespace Duel6 {
     }
 
     Color Color::random() {
-        return Color(Uint8(Math::random(0, 255)), Uint8(Math::random(0, 255)), Uint8(Math::random(0, 255)));
+        return Color(Uint8(Math::random(0, 255, "color-red")),
+                     Uint8(Math::random(0, 255, "color-green")),
+                     Uint8(Math::random(0, 255, "color-blue")));
     }
 }

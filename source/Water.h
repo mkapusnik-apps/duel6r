@@ -30,14 +30,20 @@
 
 #include <vector>
 #include <memory>
+#ifndef D6R_HEADLESS_CORE
 #include "Sound.h"
 #include "TextureManager.h"
+#endif
 #include "math/Vector.h"
 
 namespace Duel6 {
     class Player;
 
     class World;
+#ifdef D6R_HEADLESS_CORE
+    class Sound;
+    class TextureManager;
+#endif
 
     class Water {
     public:
@@ -56,7 +62,10 @@ namespace Duel6 {
         virtual void onUnder(Player &player, Float32 elapsedTime) const = 0;
 
     public:
+#ifndef D6R_HEADLESS_CORE
         static void initialize(Sound &sound, TextureManager &textureManager);
+#endif
+        static void initializeHeadless();
     };
 }
 

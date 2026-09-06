@@ -45,6 +45,7 @@ namespace Duel6 {
                 Button,
                 Checkbox,
                 Label,
+                Panel,
                 Textbox,
                 Listbox,
                 Switchbox,
@@ -53,6 +54,7 @@ namespace Duel6 {
 
         protected:
             Int32 x, y;
+            bool visible;
 
         public:
             Control(Desktop &desk);
@@ -67,6 +69,14 @@ namespace Duel6 {
 
             Int32 getY() const {
                 return y;
+            }
+
+            virtual void setVisible(bool value) {
+                visible = value;
+            }
+
+            bool isVisible() const {
+                return visible;
             }
 
         protected:

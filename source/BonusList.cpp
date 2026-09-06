@@ -28,14 +28,21 @@
 #include "math/Math.h"
 #include "Sound.h"
 #include "BonusList.h"
+#include "Format.h"
 #include "World.h"
 #include "collision/Collision.h"
 
 namespace Duel6 {
+#ifndef D6R_HEADLESS_CORE
     BonusList::BonusList(const GameSettings &settings, const GameResources &resources, World &world)
             : settings(settings), texture(resources.getBonusTextures()), world(world) {}
+#endif
+
+    BonusList::BonusList(const GameSettings &settings, World &world)
+            : settings(settings), world(world) {}
 
     void BonusList::render(Renderer &renderer) const {
+#ifndef D6R_HEADLESS_CORE
         for (const Bonus &bonus : bonuses) {
             bonus.render(renderer, texture);
         }
@@ -43,33 +50,41 @@ namespace Duel6 {
         for (const LyingWeapon &weapon : weapons) {
             weapon.render(renderer);
         }
+#else
+        (void) renderer;
+#endif
     }
 
     void BonusList::addRandomBonus() {
-        bool weapon = (Math::random(2) == 1);
+        RandomSource &randomSource = world.getRandomSource();
+        bool weapon = (Math::random(2, randomSource, "pickup-kind") == 1);
         const ValidPositionList& validPositionList = findValidPositions(weapon);
 
         if (validPositionList.empty()) {
             return;
         }
 
-        ValidPosition position = validPositionList[Math::random(validPositionList.size())];
+        ValidPosition position = validPositionList[
+                Math::random(validPositionList.size(), randomSource, "pickup-position")];
         Int32 x = position.first, y = position.second;
 
         bool isOverLimit = (weapons.size() + bonuses.size()) >= (validPositionList.size() / 4);
 
         if (weapon) {
-            Int32 bullets = Math::random(10) + 10;
-            weapons.push_back(LyingWeapon(Weapon::getRandomEnabled(settings), bullets, Vector(x, y)));
+            Int32 bullets = Math::random(10, randomSource, "pickup-ammo") + 10;
+            weapons.push_back(LyingWeapon(Weapon::getRandomEnabled(settings, randomSource), bullets,
+                                          Vector(x, y), nextStableId++));
             if(isOverLimit) {
                 weapons.pop_front();
             }
         } else {
-            const BonusType *type = BonusType::ALL[Math::random(BonusType::ALL.size())];
-            bool random = Math::random(RANDOM_BONUS_FREQUENCY) == 0;
-            Int32 duration = type->isOneTime() ? 0 : 13 + Math::random(17);
+            const BonusType *type = BonusType::ALL[
+                    Math::random(BonusType::ALL.size(), randomSource, "bonus-type")];
+            bool random = Math::random(RANDOM_BONUS_FREQUENCY, randomSource, "bonus-reroll") == 0;
+            Int32 duration = type->isOneTime() ? 0 : 13 + Math::random(17, randomSource, "bonus-duration");
             bonuses.push_back(
-                    Bonus(type, duration, Vector(x + 0.2f, y + 0.2f), random ? 0 : type->getTextureIndex()));
+                    Bonus(type, duration, Vector(x + 0.2f, y + 0.2f), random ? 0 : type->getTextureIndex(),
+                          nextStableId++));
             if(isOverLimit) {
                 bonuses.pop_front();
             }
@@ -126,7 +141,8 @@ namespace Duel6 {
     }
 
     void BonusList::addPlayerGun(Player &player, const CollidingEntity &playerCollider) {
-        weapons.push_back(LyingWeapon(player.getWeapon(), player.getAmmo(), player.getReloadTime(), playerCollider));
+        weapons.push_back(LyingWeapon(player.getWeapon(), player.getAmmo(), player.getReloadTime(), playerCollider,
+                                      nextStableId++));
     }
 
     void BonusList::checkBonus(Player &player) {
@@ -142,8 +158,12 @@ namespace Duel6 {
                 } else {
                     player.setBonus(type, bonus.getDuration());
                 }
+                world.emitGameplayEvent({"bonus-picked", "bonus", bonus.getStableId(), player.getRosterSlot(),
+                                         player.getRosterSlot(), "duration", bonus.getDuration()});
 
+#ifndef D6R_HEADLESS_CORE
                 player.playSound(PlayerSounds::Type::PickedBonus);
+#endif
                 bonusIter = bonuses.erase(bonusIter);
             } else {
                 ++bonusIter;
@@ -157,6 +177,8 @@ namespace Duel6 {
             weapon.collider.collideWithLevel(world.getLevel(), elapsedTime, elapsedTime);
             if(weapon.pickTimeout > 0){
                 weapon.pickTimeout -= elapsedTime;
+                if (Math::isAuthoritative())
+                    weapon.pickTimeout = Math::quantizeAuthoritative(weapon.pickTimeout);
             }
         }
     }
@@ -175,6 +197,9 @@ namespace Duel6 {
                 }
 
                 player.pickWeapon(type, weapon.getBullets(), weapon.remainingReloadTime);
+                world.emitGameplayEvent({"weapon-picked", "weapon-pickup", weapon.getStableId(),
+                                         player.getRosterSlot(), player.getRosterSlot(), "ammo",
+                                         weapon.getBullets()});
                 world.getMessageQueue().add(player, Format("You picked up gun {0}") << type.getName());
 
                 weapons.erase(weaponIter);

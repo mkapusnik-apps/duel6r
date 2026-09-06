@@ -33,6 +33,7 @@
 namespace Duel6 {
     class Bazooka : public LegacyWeapon {
     public:
+        Bazooka();
         Bazooka(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;

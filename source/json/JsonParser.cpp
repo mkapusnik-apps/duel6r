@@ -40,6 +40,11 @@ namespace Duel6 {
             return parseValue(file);
         }
 
+        Value Parser::parse(const std::vector<Uint8> &bytes) const {
+            File file(bytes);
+            return parseValue(file);
+        }
+
         Value Parser::parseValue(File &file) const {
             Uint8 byte = peekNextCharacter(file);
             Value::Type type = determineValueType(byte);

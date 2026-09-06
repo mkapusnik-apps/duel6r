@@ -39,7 +39,9 @@
 #include "bonus/FastReload.h"
 #include "bonus/InfiniteAmmo.h"
 #include "bonus/Snorkel.h"
+#ifndef D6R_HEADLESS_CORE
 #include "Video.h"
+#endif
 
 namespace Duel6 {
     const BonusType *const BonusType::NONE = nullptr;
@@ -65,40 +67,51 @@ namespace Duel6 {
                                                            BonusType::VAMPIRE_SHOTS, BonusType::INFINITE_AMMO,
                                                            BonusType::SNORKEL};
 
-    Bonus::Bonus(const BonusType *type, Int32 duration, const Vector &position, Int32 textureIndex)
-            : type(type), duration(duration), position(position), textureIndex(textureIndex) {
+    Bonus::Bonus(const BonusType *type, Int32 duration, const Vector &position, Int32 textureIndex,
+                 std::uint64_t stableId)
+            : type(type), duration(duration), position(position), textureIndex(textureIndex), stableId(stableId) {
         this->position.z = 0.5f;
     }
 
     void Bonus::render(Renderer &renderer, Texture texture) const {
+#ifndef D6R_HEADLESS_CORE
         Vector pos = getSpritePosition();
         Material material = Material::makeMaskedTexture(texture);
         renderer.quadXY(pos, Vector(1.0f, 1.0f), Vector(0.1f, 0.9f, Float32(textureIndex)), Vector(0.8f, -0.8f),
                         material);
+#else
+        (void) renderer;
+        (void) texture;
+#endif
     }
 
     Vector Bonus::getSpritePosition() const {
         return Vector(position.x - 0.2f, position.y - 0.2f, 0.47f);
     }
 
-    LyingWeapon::LyingWeapon(Weapon weapon, Int32 bullets, const Vector &position) :
-            weapon(weapon), bullets(bullets), collider(position) {
+    LyingWeapon::LyingWeapon(Weapon weapon, Int32 bullets, const Vector &position, std::uint64_t stableId) :
+            weapon(weapon), bullets(bullets), stableId(stableId), collider(position) {
         collider.position.z = 0.5f;
     }
 
     LyingWeapon::LyingWeapon(Weapon weapon, Int32 bullets, Float32 remainingReloadTime,
-                             const CollidingEntity &playerCollider)
-            : weapon(weapon), bullets(bullets), collider(playerCollider), remainingReloadTime(remainingReloadTime) {
+                             const CollidingEntity &playerCollider, std::uint64_t stableId)
+            : weapon(weapon), bullets(bullets), stableId(stableId), collider(playerCollider),
+              remainingReloadTime(remainingReloadTime) {
         collider.position.z = 0.5f;
         collider.velocity.x *= 2;
         collider.velocity.y *= 2;
     }
 
     void LyingWeapon::render(Renderer &renderer) const {
+#ifndef D6R_HEADLESS_CORE
         Vector pos = getSpritePosition();
         Material material = Material::makeMaskedTexture(weapon.getBonusTexture());
         renderer.quadXY(pos, Vector(1.0f, 1.0f), Vector(0.1f, 0.9f, Float32(weapon.getBonusTextureIndex())),
                         Vector(0.8f, -0.8f), material);
+#else
+        (void) renderer;
+#endif
     }
 
     Vector LyingWeapon::getSpritePosition() const {
