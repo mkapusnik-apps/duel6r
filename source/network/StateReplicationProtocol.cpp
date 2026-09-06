@@ -262,7 +262,8 @@ namespace Duel6::Network::Replication {
     std::vector<std::uint8_t> serializeReplicationSnapshot(const FullSnapshot &snapshot) {
         if (snapshot.version == 0 || !validateCanonicalState(snapshot.state))
             throw std::invalid_argument("Invalid replication snapshot");
-        Writer w; header(w, ReplicationFrameKind::FullSnapshot); w.integer(snapshot.version); writeState(w, snapshot.state);
+        Writer w; header(w, ReplicationFrameKind::FullSnapshot); w.integer(snapshot.version);
+        w.integer(snapshot.authoritativeProducedAt); writeState(w, snapshot.state);
         return w.finish();
     }
 
@@ -273,7 +274,8 @@ namespace Duel6::Network::Replication {
             || v.events.size() > MaxReplicatedEvents)
             throw std::invalid_argument("Invalid replication update bounds");
         Writer w; header(w, ReplicationFrameKind::IncrementalUpdate); w.integer(v.sessionId); w.integer(v.matchId);
-        w.integer(v.baseline); w.integer(v.version); w.integer(static_cast<std::uint8_t>(v.phase));
+        w.integer(v.baseline); w.integer(v.version); w.integer(v.authoritativeProducedAt);
+        w.integer(static_cast<std::uint8_t>(v.phase));
         w.integer(v.currentRoundNumber); w.integer(v.completedRounds); w.integer(v.phaseTime); w.integer(v.roundEndCountdown);
         writeChanges(w, v.participants, writeParticipant); writeSettings(w, v.settings); writeRound(w, v.round);
         writeChanges(w, v.players, writePlayer); writeChanges(w, v.entities, writeEntity); writeScore(w, v.score);
@@ -290,21 +292,25 @@ namespace Duel6::Network::Replication {
         Writer w; header(w, ReplicationFrameKind::QualityProbe); w.integer(sequence); return w.finish();
     }
 
-    std::vector<std::uint8_t> serializeQualityResponse(std::uint64_t sequence) {
+    std::vector<std::uint8_t> serializeQualityResponse(
+            std::uint64_t sequence, std::uint64_t authoritativeResponseAt) {
         if (sequence == 0) throw std::invalid_argument("Invalid quality response sequence");
-        Writer w; header(w, ReplicationFrameKind::QualityResponse); w.integer(sequence); return w.finish();
+        Writer w; header(w, ReplicationFrameKind::QualityResponse); w.integer(sequence);
+        w.integer(authoritativeResponseAt); return w.finish();
     }
 
     std::optional<ReplicationFrame> deserializeReplicationFrame(const std::vector<std::uint8_t> &payload) noexcept {
         try {
             Reader r(payload); ReplicationFrame frame; frame.kind = readHeader(r);
             if (frame.kind == ReplicationFrameKind::FullSnapshot) {
-                FullSnapshot snapshot; snapshot.version = r.integer<StateVersion>(); snapshot.state = readState(r);
+                FullSnapshot snapshot; snapshot.version = r.integer<StateVersion>();
+                snapshot.authoritativeProducedAt = r.integer<std::uint64_t>(); snapshot.state = readState(r);
                 if (!validateCanonicalState(snapshot.state) || snapshot.version == 0) return std::nullopt;
                 frame.snapshot = std::move(snapshot);
             } else if (frame.kind == ReplicationFrameKind::IncrementalUpdate) {
                 IncrementalUpdate v; v.sessionId = r.integer<Identity>(); v.matchId = r.integer<Identity>();
                 v.baseline = r.integer<StateVersion>(); v.version = r.integer<StateVersion>();
+                v.authoritativeProducedAt = r.integer<std::uint64_t>();
                 v.phase = static_cast<Phase>(r.integer<std::uint8_t>()); v.currentRoundNumber = r.integer<std::uint8_t>();
                 v.completedRounds = r.integer<std::uint8_t>(); v.phaseTime = r.integer<std::uint64_t>();
                 v.roundEndCountdown = r.integer<std::uint64_t>();
@@ -320,20 +326,33 @@ namespace Duel6::Network::Replication {
                 const auto sequence = r.integer<std::uint64_t>();
                 if (sequence == 0) return std::nullopt;
                 frame.qualitySequence = sequence;
+                if (frame.kind == ReplicationFrameKind::QualityResponse)
+                    frame.authoritativeResponseAt = r.integer<std::uint64_t>();
             }
             if (!r.complete()) return std::nullopt;
             return frame;
         } catch (...) { return std::nullopt; }
     }
 
-    AuthoritativeReplicationConnections::AuthoritativeReplicationConnections(const AuthoritativeStateReplicator &state)
-            : state(state) {}
+    AuthoritativeReplicationConnections::AuthoritativeReplicationConnections(
+            const AuthoritativeStateReplicator &state, AuthoritativeClock clock)
+            : state(state), clock(std::move(clock)) {
+        if (!this->clock) {
+            this->clock = [] {
+                const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        Responsiveness::Clock::now().time_since_epoch()).count();
+                return static_cast<std::uint64_t>(std::max<std::int64_t>(1, elapsed));
+            };
+        }
+    }
 
     bool AuthoritativeReplicationConnections::restore(
             Identity participantId, ReplicationSender sender, std::function<void()> close) {
-        const auto snapshot = state.fullSnapshot();
+        auto snapshot = state.fullSnapshot();
         if (participantId == 0 || !sender || !snapshot) return false;
         try {
+            snapshot->authoritativeProducedAt = clock();
+            if (snapshot->authoritativeProducedAt == 0) return false;
             if (sender(serializeReplicationSnapshot(*snapshot)) != SendResult::Accepted) return false;
             connections[participantId] = {std::move(sender), std::move(close)}; return true;
         } catch (...) { return false; }
@@ -343,7 +362,12 @@ namespace Duel6::Network::Replication {
 
     bool AuthoritativeReplicationConnections::broadcast(const IncrementalUpdate &update) {
         std::vector<std::uint8_t> payload;
-        try { payload = serializeReplicationUpdate(update); } catch (...) { return false; }
+        try {
+            auto produced = update;
+            produced.authoritativeProducedAt = clock();
+            if (produced.authoritativeProducedAt == 0) return false;
+            payload = serializeReplicationUpdate(produced);
+        } catch (...) { return false; }
         bool allSent = true;
         for (auto iterator = connections.begin(); iterator != connections.end();) {
             try {
@@ -367,7 +391,10 @@ namespace Duel6::Network::Replication {
         }
         if (frame->kind == ReplicationFrameKind::QualityProbe && frame->qualitySequence) {
             try {
-                if (found->second.sender(serializeQualityResponse(*frame->qualitySequence)) == SendResult::Accepted)
+                const auto respondedAt = clock();
+                if (respondedAt != 0
+                    && found->second.sender(serializeQualityResponse(
+                            *frame->qualitySequence, respondedAt)) == SendResult::Accepted)
                     return HostReplicationResult::Accepted;
             } catch (...) {}
             try { if (found->second.close) found->second.close(); } catch (...) {}
@@ -381,9 +408,11 @@ namespace Duel6::Network::Replication {
             try { if (found->second.close) found->second.close(); } catch (...) {}
             connections.erase(found); return HostReplicationResult::SessionPolicyViolation;
         }
-        const auto snapshot = state.fullSnapshot();
+        auto snapshot = state.fullSnapshot();
         if (!snapshot) return HostReplicationResult::SendFailed;
         try {
+            snapshot->authoritativeProducedAt = clock();
+            if (snapshot->authoritativeProducedAt == 0) return HostReplicationResult::SendFailed;
             if (found->second.sender(serializeReplicationSnapshot(*snapshot)) == SendResult::Accepted)
                 return HostReplicationResult::Accepted;
         } catch (...) {}
@@ -394,8 +423,10 @@ namespace Duel6::Network::Replication {
     std::size_t AuthoritativeReplicationConnections::size() const noexcept { return connections.size(); }
 
     ClientReplicationConnection::ClientReplicationConnection(
-            ReplicationSender sender, Responsiveness::Environment environment)
-            : sender(std::move(sender)), quality(environment) {}
+            ReplicationSender sender, Responsiveness::Environment environment,
+            bool requireAuthoritativeTime)
+            : sender(std::move(sender)), quality(environment),
+              requireAuthoritativeTime(requireAuthoritativeTime) {}
 
     ClientReplicationResult ClientReplicationConnection::receive(const std::vector<std::uint8_t> &payload) {
         return receive(payload, Responsiveness::Clock::now());
@@ -409,33 +440,75 @@ namespace Duel6::Network::Replication {
             transportClosed(); return ClientReplicationResult::Reconnecting;
         }
         if (frame->kind == ReplicationFrameKind::QualityResponse && frame->qualitySequence) {
-            if (!qualityProbeSentAt || *frame->qualitySequence != qualityProbeSequence
-                || acceptedAt < *qualityProbeSentAt) {
+            if (*frame->qualitySequence > qualityProbeSequence) {
+                transportClosed();
+                return ClientReplicationResult::Reconnecting;
+            }
+            if (!qualityProbeSentAt || *frame->qualitySequence < qualityProbeSequence)
+                return ClientReplicationResult::NetworkSampled;
+            if (acceptedAt < *qualityProbeSentAt
+                || (requireAuthoritativeTime
+                    && (!frame->authoritativeResponseAt || *frame->authoritativeResponseAt == 0))) {
                 transportClosed();
                 return ClientReplicationResult::Reconnecting;
             }
             const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                     acceptedAt - *qualityProbeSentAt);
+            if (elapsed >= Responsiveness::QualityProbeDeadline) {
+                recordQualityOutcome(true, quality.currentRoundTripLatency().value_or(
+                        Responsiveness::QualityProbeDeadline),
+                        *qualityProbeSentAt + Responsiveness::QualityProbeDeadline);
+                qualityProbeSentAt.reset();
+                return ClientReplicationResult::NetworkSampled;
+            }
+            if (frame->authoritativeResponseAt && *frame->authoritativeResponseAt != 0) {
+                const auto halfRoundTrip = static_cast<std::uint64_t>(elapsed.count() / 2);
+                if (*frame->authoritativeResponseAt
+                    <= std::numeric_limits<std::uint64_t>::max() - halfRoundTrip) {
+                    authoritativeClockAtSynchronization = *frame->authoritativeResponseAt + halfRoundTrip;
+                    localClockSynchronizedAt = acceptedAt;
+                }
+            }
             qualityProbeSentAt.reset();
-            (void) quality.observeNetworkSample({elapsed, qualityProbeCount, 0}, acceptedAt);
+            recordQualityOutcome(false, elapsed, acceptedAt);
+            if (pendingAuthoritativeProducedAt && pendingCanonicalAcceptedAt) {
+                if (const auto age = authoritativeStateAge(
+                        *pendingAuthoritativeProducedAt, *pendingCanonicalAcceptedAt))
+                    (void) quality.observeCanonicalState(
+                            replicated.version(), *age, *pendingCanonicalAcceptedAt);
+            }
             return ClientReplicationResult::NetworkSampled;
         }
         if (frame->kind != ReplicationFrameKind::FullSnapshot
             && frame->kind != ReplicationFrameKind::IncrementalUpdate) {
             transportClosed(); return ClientReplicationResult::Reconnecting;
         }
+        const std::uint64_t authoritativeProducedAt = frame->snapshot
+                ? frame->snapshot->authoritativeProducedAt : frame->update->authoritativeProducedAt;
+        if ((requireAuthoritativeTime && authoritativeProducedAt == 0)
+            || (authoritativeProducedAt != 0 && latestAuthoritativeProducedAt != 0
+                && authoritativeProducedAt < latestAuthoritativeProducedAt)) {
+            transportClosed(); return ClientReplicationResult::Reconnecting;
+        }
         const ApplyResult applied = frame->snapshot ? replicated.apply(*frame->snapshot) : replicated.apply(*frame->update);
         if (applied == ApplyResult::Applied) {
             const auto *state = replicated.state();
-            const auto latency = quality.currentRoundTripLatency().value_or(std::chrono::milliseconds::zero());
-            auto estimatedStateAge = latency / 2;
-            if (const auto previousStateAge = quality.currentStateAge(acceptedAt))
-                estimatedStateAge = std::min(estimatedStateAge, *previousStateAge);
             if (!state || !movement.accept(replicated.version(), *state, acceptedAt)) {
                 replicated.requireResynchronization();
                 beginResynchronization();
             } else {
-                (void) quality.observeCanonicalState(replicated.version(), estimatedStateAge, acceptedAt);
+                if (authoritativeProducedAt != 0) {
+                    latestAuthoritativeProducedAt = authoritativeProducedAt;
+                    pendingAuthoritativeProducedAt = authoritativeProducedAt;
+                    pendingCanonicalAcceptedAt = acceptedAt;
+                    if (const auto age = authoritativeStateAge(authoritativeProducedAt, acceptedAt)) {
+                        (void) quality.observeCanonicalState(replicated.version(), *age, acceptedAt);
+                    } else {
+                        (void) quality.observeCanonicalVersion(replicated.version(), acceptedAt);
+                    }
+                } else {
+                    (void) quality.observeCanonicalState(replicated.version(), acceptedAt);
+                }
                 requestPending = false;
                 return ClientReplicationResult::Applied;
             }
@@ -461,9 +534,16 @@ namespace Duel6::Network::Replication {
     }
 
     bool ClientReplicationConnection::sampleNetwork(Responsiveness::TimePoint now) {
-        constexpr auto SampleInterval = std::chrono::milliseconds(250);
         if (reconnecting) return false;
-        if (qualityProbeSentAt || (lastQualityProbeAt && now - *lastQualityProbeAt < SampleInterval)) return true;
+        if (qualityProbeSentAt) {
+            if (now - *qualityProbeSentAt < Responsiveness::QualityProbeDeadline) return true;
+            recordQualityOutcome(true, quality.currentRoundTripLatency().value_or(
+                    Responsiveness::QualityProbeDeadline),
+                    *qualityProbeSentAt + Responsiveness::QualityProbeDeadline);
+            qualityProbeSentAt.reset();
+        }
+        if (lastQualityProbeAt
+            && now - *lastQualityProbeAt < Responsiveness::QualityProbeInterval) return true;
         if (qualityProbeSequence == std::numeric_limits<std::uint64_t>::max()) {
             transportClosed();
             return false;
@@ -478,10 +558,46 @@ namespace Duel6::Network::Replication {
             transportClosed();
             return false;
         }
-        ++qualityProbeCount;
         qualityProbeSentAt = now;
         lastQualityProbeAt = now;
         return true;
+    }
+
+    void ClientReplicationConnection::recordQualityOutcome(
+            bool lost, std::chrono::milliseconds roundTripLatency,
+            Responsiveness::TimePoint observedAt) noexcept {
+        constexpr std::size_t QualityWindowSize = 4;
+        qualityProbeOutcomes.push_back(lost);
+        if (qualityProbeOutcomes.size() > QualityWindowSize) qualityProbeOutcomes.pop_front();
+        if (lost) ++unansweredQualityProbeCount;
+        const auto losses = static_cast<std::uint64_t>(std::count(
+                qualityProbeOutcomes.begin(), qualityProbeOutcomes.end(), true));
+        (void) quality.observeNetworkSample({roundTripLatency,
+                static_cast<std::uint64_t>(qualityProbeOutcomes.size()), losses}, observedAt);
+    }
+
+    std::optional<std::chrono::milliseconds> ClientReplicationConnection::authoritativeStateAge(
+            std::uint64_t producedAt, Responsiveness::TimePoint acceptedAt) const noexcept {
+        if (!localClockSynchronizedAt || !authoritativeClockAtSynchronization) return std::nullopt;
+        std::uint64_t authoritativeAcceptedAt = *authoritativeClockAtSynchronization;
+        if (acceptedAt >= *localClockSynchronizedAt) {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    acceptedAt - *localClockSynchronizedAt).count();
+            if (static_cast<std::uint64_t>(elapsed)
+                > std::numeric_limits<std::uint64_t>::max() - authoritativeAcceptedAt)
+                return std::nullopt;
+            authoritativeAcceptedAt += static_cast<std::uint64_t>(elapsed);
+        } else {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    *localClockSynchronizedAt - acceptedAt).count();
+            if (static_cast<std::uint64_t>(elapsed) > authoritativeAcceptedAt) return std::nullopt;
+            authoritativeAcceptedAt -= static_cast<std::uint64_t>(elapsed);
+        }
+        if (producedAt >= authoritativeAcceptedAt) return std::chrono::milliseconds::zero();
+        const auto age = authoritativeAcceptedAt - producedAt;
+        if (age > static_cast<std::uint64_t>(std::chrono::milliseconds::max().count()))
+            return std::nullopt;
+        return std::chrono::milliseconds(age);
     }
 
     void ClientReplicationConnection::setLocallyControlledPlayers(std::set<Identity> playerIds) {
@@ -502,6 +618,10 @@ namespace Duel6::Network::Replication {
     std::vector<Responsiveness::PresentedPlayerPose> ClientReplicationConnection::presentedPlayers(
             Responsiveness::TimePoint now) noexcept {
         return movement.sample(now);
+    }
+
+    std::vector<PresentationEvent> ClientReplicationConnection::takePresentationEvents() {
+        return replicated.takePresentationEvents();
     }
 
     void ClientReplicationConnection::beginResynchronization() noexcept {

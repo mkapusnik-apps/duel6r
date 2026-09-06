@@ -354,7 +354,7 @@ namespace {
                 [connection](std::vector<std::uint8_t> payload) {
                     try { return connection->send(std::move(payload)); }
                     catch (...) { return Duel6::Network::SendResult::NotConnected; }
-                }, environment);
+                }, environment, true);
         bool sessionAdmitted = false;
         std::unique_ptr<Duel6::Network::Input::ClientCommandSession> playerInput;
         std::optional<std::uint64_t> submittedInputTick;
@@ -477,12 +477,13 @@ namespace {
         };
         const auto publishPresentation = [&] {
             if (!runtimeDependencies.guestPresentation) return;
-            const auto *canonical = replicatedConnection.replicatedState().state();
-            if (!canonical) return;
             const auto now = runtimeNow(runtimeDependencies);
             const auto connectionState = replicatedConnection.presentationState(now);
+            const auto *canonical = replicatedConnection.replicatedState().retainedState();
+            if (!canonical) return;
             const auto players = replicatedConnection.presentedPlayers(now);
-            try { runtimeDependencies.guestPresentation(*canonical, connectionState, players); }
+            const auto events = replicatedConnection.takePresentationEvents();
+            try { runtimeDependencies.guestPresentation(*canonical, connectionState, players, events); }
             catch (...) {}
         };
         const auto isTerminal = [](Duel6::Network::ClientState state) {
@@ -676,6 +677,9 @@ namespace Duel6::Server {
         const bool productionClient = !this->runtimeDependencies.clientFactory;
         const bool productionListener = !this->runtimeDependencies.listenerFactory;
         this->runtimeDependencies.productionReplicationProtocol = productionClient && productionListener;
+        if (this->runtimeDependencies.productionReplicationProtocol
+            && this->config.tickRate != Network::Responsiveness::AuthoritativeTicksPerSecond)
+            throw std::invalid_argument("Supported network matches require the fixed 60 Hz tick rate");
         if (!this->runtimeDependencies.clientFactory) {
             this->runtimeDependencies.clientFactory = [safeClock] {
                 Network::SessionTransportDependencies dependencies;

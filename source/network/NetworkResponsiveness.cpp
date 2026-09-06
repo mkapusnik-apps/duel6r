@@ -10,6 +10,7 @@ namespace Duel6::Network::Responsiveness {
         constexpr const char *DegradedText = "Network connection degraded.";
         constexpr const char *RetainedStateText = "Last confirmed state";
         constexpr const char *SynchronizationText = "Synchronizing current state\xE2\x80\xA6";
+        constexpr const char *ReconnectingText = "Reconnecting\xE2\x80\xA6";
 
         std::int64_t interpolateValue(std::int64_t from, std::int64_t to, long double progress) noexcept {
             const long double value = static_cast<long double>(from)
@@ -61,12 +62,24 @@ namespace Duel6::Network::Responsiveness {
         return observeCanonicalState(version, std::chrono::milliseconds::zero(), acceptedAt);
     }
 
+    bool ConnectionQualityMonitor::observeCanonicalVersion(
+            Replication::StateVersion version, TimePoint acceptedAt) noexcept {
+        if (version == 0 || version < latestVersion
+            || (version == latestVersion && !resynchronizing)
+            || (latestCanonicalAcceptanceAt && acceptedAt < *latestCanonicalAcceptanceAt)) return false;
+        latestVersion = version;
+        latestCanonicalAcceptanceAt = acceptedAt;
+        resynchronizing = false;
+        reconnecting = false;
+        return true;
+    }
+
     bool ConnectionQualityMonitor::observeCanonicalState(
             Replication::StateVersion version, std::chrono::milliseconds stateAgeAtAcceptance,
             TimePoint acceptedAt) noexcept {
         const TimePoint producedAt = acceptedAt - stateAgeAtAcceptance;
         if (version == 0 || version < latestVersion
-            || (version == latestVersion && !resynchronizing)
+            || (version == latestVersion && !resynchronizing && latestCanonicalStateAt)
             || stateAgeAtAcceptance < std::chrono::milliseconds::zero()
             || (latestCanonicalAcceptanceAt && acceptedAt < *latestCanonicalAcceptanceAt)
             || (latestCanonicalStateAt && producedAt < *latestCanonicalStateAt)) return false;
@@ -124,6 +137,7 @@ namespace Duel6::Network::Responsiveness {
         } else supportedSince.reset();
 
         ConnectionPresentationState result;
+        result.canonicalStateCurrent = latestVersion != 0 && !resynchronizing && !reconnecting;
         result.degraded = degraded;
         result.resynchronizing = resynchronizing;
         result.reconnecting = reconnecting;
@@ -131,7 +145,8 @@ namespace Duel6::Network::Responsiveness {
         if (degraded) result.degradedText = DegradedText;
         if (result.retainingLastConfirmedState) {
             result.retainedStateText = RetainedStateText;
-            result.synchronizationText = SynchronizationText;
+            if (reconnecting) result.reconnectingText = ReconnectingText;
+            else result.synchronizationText = SynchronizationText;
         }
         return result;
     }

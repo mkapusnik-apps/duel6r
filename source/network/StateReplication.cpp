@@ -938,6 +938,9 @@ namespace Duel6::Network::Replication {
     bool ReplicatedState::current() const noexcept { return accepted.has_value() && !resynchronizing; }
     StateVersion ReplicatedState::version() const noexcept { return acceptedVersion; }
     const CanonicalState *ReplicatedState::state() const noexcept { return current() ? &*accepted : nullptr; }
+    const CanonicalState *ReplicatedState::retainedState() const noexcept {
+        return accepted ? &*accepted : nullptr;
+    }
     std::vector<PresentationEvent> ReplicatedState::takePresentationEvents() {
         std::vector<PresentationEvent> result;
         result.swap(pendingEvents);

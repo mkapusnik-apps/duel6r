@@ -26,6 +26,8 @@ namespace Duel6::Network::Responsiveness {
     constexpr auto SupportedRecoveryDelay = std::chrono::seconds(3);
     constexpr auto MaximumRecoveryTime = std::chrono::seconds(5);
     constexpr auto MaximumCorrectionTime = std::chrono::milliseconds(150);
+    constexpr auto QualityProbeInterval = std::chrono::milliseconds(250);
+    constexpr auto QualityProbeDeadline = std::chrono::milliseconds(250);
 
     enum class Environment { SameMachine, PrivateLan };
 
@@ -45,6 +47,7 @@ namespace Duel6::Network::Responsiveness {
     };
 
     struct ConnectionPresentationState {
+        bool canonicalStateCurrent = false;
         bool degraded = false;
         bool resynchronizing = false;
         bool reconnecting = false;
@@ -52,6 +55,7 @@ namespace Duel6::Network::Responsiveness {
         std::string degradedText;
         std::string retainedStateText;
         std::string synchronizationText;
+        std::string reconnectingText;
     };
 
     // Tracks only an admitted network participant. Local Play never constructs this type.
@@ -60,6 +64,7 @@ namespace Duel6::Network::Responsiveness {
         explicit ConnectionQualityMonitor(Environment environment);
 
         bool observeNetworkSample(const NetworkSample &sample, TimePoint observedAt) noexcept;
+        bool observeCanonicalVersion(Replication::StateVersion version, TimePoint acceptedAt) noexcept;
         bool observeCanonicalState(Replication::StateVersion version, TimePoint acceptedAt) noexcept;
         bool observeCanonicalState(Replication::StateVersion version,
                                    std::chrono::milliseconds stateAgeAtAcceptance,

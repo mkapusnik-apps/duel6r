@@ -148,7 +148,8 @@ namespace Duel6::Server {
         // to the existing guest journey. Graphical NET-05 composition remains downstream.
         std::function<void(const Network::Replication::CanonicalState &,
                            const Network::Responsiveness::ConnectionPresentationState &,
-                           const std::vector<Network::Responsiveness::PresentedPlayerPose> &)>
+                           const std::vector<Network::Responsiveness::PresentedPlayerPose> &,
+                           const std::vector<Network::Replication::PresentationEvent> &)>
                 guestPresentation;
         std::function<Authoritative::MatchRuntimeDependencies(
                 const Authoritative::MatchConfig &, const std::vector<Authoritative::PlayerDefinition> &,
