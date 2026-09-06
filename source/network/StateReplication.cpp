@@ -847,14 +847,12 @@ namespace Duel6::Network::Replication {
         acceptedRoundIdentities = std::move(nextAcceptedRounds);
         acceptedTransientEntityIdentities = std::move(nextAcceptedTransientEntities);
         highestEntityIdentity = nextHighestEntities;
-        pendingEvents.clear();
         resynchronizing = false;
         return ApplyResult::Applied;
     }
 
     ApplyResult ReplicatedState::rejectIncremental() noexcept {
         resynchronizing = true;
-        pendingEvents.clear();
         return ApplyResult::ResynchronizationRequired;
     }
 
@@ -929,11 +927,11 @@ namespace Duel6::Network::Replication {
         acceptedTransientEntityIdentities = std::move(nextAcceptedTransientEntities);
         highestEntityIdentity = nextHighestEntities;
         for (const auto &event: update.events) highestPresentedEvent = std::max(highestPresentedEvent, event.eventId);
-        pendingEvents = update.events;
+        pendingEvents.insert(pendingEvents.end(), update.events.begin(), update.events.end());
         return ApplyResult::Applied;
     }
 
-    void ReplicatedState::requireResynchronization() noexcept { resynchronizing = true; pendingEvents.clear(); }
+    void ReplicatedState::requireResynchronization() noexcept { resynchronizing = true; }
     bool ReplicatedState::resynchronizationRequired() const noexcept { return resynchronizing; }
     bool ReplicatedState::current() const noexcept { return accepted.has_value() && !resynchronizing; }
     StateVersion ReplicatedState::version() const noexcept { return acceptedVersion; }

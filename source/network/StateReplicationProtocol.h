@@ -90,6 +90,10 @@ namespace Duel6::Network::Replication {
         std::vector<Responsiveness::PresentedPlayerPose> presentedPlayers(
                 Responsiveness::TimePoint now) noexcept;
         std::vector<PresentationEvent> takePresentationEvents();
+        // Flushes work selected while a sealed admission drain prohibited output. The
+        // admission decision is already fixed, so callers intentionally do not use send
+        // failure here to replace that decision.
+        void resumeOutboundProcessing();
         void transportClosed() noexcept;
         const ReplicatedState &replicatedState() const noexcept;
         const CanonicalState *initialAdmissionState() const noexcept;
@@ -97,7 +101,7 @@ namespace Duel6::Network::Replication {
         ReplicationSender sender;
         ReplicatedState replicated;
         Responsiveness::ConnectionQualityMonitor quality;
-        const std::uint64_t maximumAuthoritativeClockUncertainty;
+        const std::chrono::milliseconds maximumCalibrationRoundTrip;
         Responsiveness::CanonicalMovementPresentation movement;
         std::optional<Responsiveness::TimePoint> qualityProbeSentAt;
         std::optional<Responsiveness::TimePoint> lastQualityProbeAt;
@@ -108,8 +112,13 @@ namespace Duel6::Network::Replication {
         struct PendingInitialFrame {
             std::vector<std::uint8_t> payload;
             Responsiveness::TimePoint acceptedAt;
+            std::shared_ptr<void> budgetReservation;
+            std::size_t reservedBytes = 0;
         };
         std::deque<PendingInitialFrame> pendingInitialFrames;
+        std::shared_ptr<void> pendingInitialSnapshotBudgetReservation;
+        std::size_t pendingInitialSnapshotReservedBytes = 0;
+        std::size_t pendingInitialPayloadBytes = 0;
         std::optional<CanonicalState> acceptedInitialAdmissionState;
         std::optional<std::uint64_t> pendingAuthoritativeProducedAt;
         std::optional<Responsiveness::TimePoint> pendingCanonicalAcceptedAt;
@@ -120,6 +129,7 @@ namespace Duel6::Network::Replication {
         std::uint64_t authoritativeClockUncertainty = 0;
         bool requireAuthoritativeTime = false;
         bool requestPending = false;
+        bool deferredFullSnapshotRequest = false;
         bool reconnecting = false;
 
         ClientReplicationResult receive(const std::vector<std::uint8_t> &payload,
@@ -127,6 +137,9 @@ namespace Duel6::Network::Replication {
                                          bool initialAdmissionCalibration,
                                          bool allowOutboundExchange);
         void beginResynchronization() noexcept;
+        std::shared_ptr<void> reservePendingInitialPayload(std::size_t bytes);
+        void releasePendingInitialPayload(std::size_t bytes) noexcept;
+        void clearPendingInitialPayloads() noexcept;
         ClientReplicationResult requestFullSnapshot(bool replacePendingRequest = false);
         void signalFullSnapshotRequest() noexcept;
         void recordQualityOutcome(bool lost, std::chrono::milliseconds roundTripLatency,

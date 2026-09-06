@@ -430,7 +430,9 @@ namespace {
                             return GuestFrameDecision(GuestDecision::Ended);
                         acceptedOffer = std::move(offer);
                         if (runtimeDependencies.productionReplicationProtocol
-                            && !replicatedConnection.sampleNetwork(runtimeNow(runtimeDependencies)))
+                            // Starting from the triggering frame's transport timestamp never
+                            // understates RTT when application polling is delayed.
+                            && !replicatedConnection.sampleNetwork(frame.receivedAt))
                             return GuestFrameDecision(GuestDecision::Ended);
                         return GuestFrameDecision();
                     } catch (...) {
@@ -519,6 +521,7 @@ namespace {
                         return 2;
                     }
                     sessionAdmitted = true;
+                    replicatedConnection.resumeOutboundProcessing();
                     return std::nullopt;
                 case GuestDecision::InvalidHost:
                     printInvalidHostAdmissionMessage(output);

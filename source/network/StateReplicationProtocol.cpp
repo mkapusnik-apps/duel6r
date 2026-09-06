@@ -477,8 +477,7 @@ namespace Duel6::Network::Replication {
             ReplicationSender sender, Responsiveness::Environment environment,
             bool requireAuthoritativeTime)
             : sender(std::move(sender)), quality(environment),
-              maximumAuthoritativeClockUncertainty(static_cast<std::uint64_t>(
-                      (Responsiveness::budget(environment).roundTripLatency.count() + 1) / 2)),
+              maximumCalibrationRoundTrip(Responsiveness::budget(environment).roundTripLatency),
               requireAuthoritativeTime(requireAuthoritativeTime) {}
 
     ClientReplicationResult ClientReplicationConnection::receive(const std::vector<std::uint8_t> &payload) {
@@ -540,8 +539,13 @@ namespace Duel6::Network::Replication {
                     return ClientReplicationResult::NetworkSampled;
                 }
             }
+            if (elapsed > maximumCalibrationRoundTrip) {
+                qualityProbeSentAt.reset();
+                if (!missedQualityDeadline) recordQualityOutcome(false, elapsed, acceptedAt);
+                return ClientReplicationResult::NetworkSampled;
+            }
             if (frame->authoritativeResponseAt && *frame->authoritativeResponseAt != 0) {
-                const auto halfRoundTrip = static_cast<std::uint64_t>(elapsed.count() / 2);
+                const auto halfRoundTrip = (static_cast<std::uint64_t>(elapsed.count()) + 1u) / 2u;
                 if (*frame->authoritativeResponseAt > MaximumAuthoritativeTimestamp - halfRoundTrip) {
                     transportClosed();
                     return ClientReplicationResult::Reconnecting;
@@ -557,10 +561,10 @@ namespace Duel6::Network::Replication {
                 }
                 authoritativeClockAtSynchronization = synchronizedTime;
                 localClockSynchronizedAt = acceptedAt;
-                const auto measuredUncertainty = static_cast<std::uint64_t>(elapsed.count())
-                                                 - halfRoundTrip;
-                authoritativeClockUncertainty = std::min(
-                        measuredUncertainty, maximumAuthoritativeClockUncertainty);
+                // A supported RTT makes ceil(RTT/2) both measurement-bounded and no
+                // greater than the environment's admitted uncertainty. Never clamp an
+                // unsupported measurement into a seemingly precise calibration.
+                authoritativeClockUncertainty = halfRoundTrip;
             }
             qualityProbeSentAt.reset();
             if (!missedQualityDeadline) recordQualityOutcome(false, elapsed, acceptedAt);
@@ -578,8 +582,12 @@ namespace Duel6::Network::Replication {
             if (pendingInitialSnapshot && pendingInitialSnapshotAcceptedAt) {
                 auto snapshot = std::move(*pendingInitialSnapshot);
                 const auto snapshotAcceptedAt = *pendingInitialSnapshotAcceptedAt;
+                const auto snapshotBytes = pendingInitialSnapshotReservedBytes;
+                auto snapshotReservation = std::move(pendingInitialSnapshotBudgetReservation);
                 pendingInitialSnapshot.reset();
                 pendingInitialSnapshotAcceptedAt.reset();
+                pendingInitialSnapshotReservedBytes = 0;
+                releasePendingInitialPayload(snapshotBytes);
                 ClientReplicationResult result;
                 try {
                     result = receive(serializeReplicationSnapshot(snapshot), snapshotAcceptedAt,
@@ -593,11 +601,14 @@ namespace Duel6::Network::Replication {
                     return result;
                 if (result == ClientReplicationResult::Applied && replicated.state())
                     acceptedInitialAdmissionState = *replicated.state();
-                else
+                else {
                     pendingInitialFrames.clear();
+                    pendingInitialPayloadBytes = 0;
+                }
                 while (acceptedInitialAdmissionState && !pendingInitialFrames.empty()) {
                     auto pending = std::move(pendingInitialFrames.front());
                     pendingInitialFrames.pop_front();
+                    releasePendingInitialPayload(pending.reservedBytes);
                     try {
                         result = receive(pending.payload, pending.acceptedAt,
                                          false, allowOutboundExchange);
@@ -628,26 +639,54 @@ namespace Duel6::Network::Replication {
             && (!localClockSynchronizedAt || !authoritativeClockAtSynchronization)) {
             if (frame->snapshot) {
                 if (!pendingInitialSnapshot) {
-                    pendingInitialSnapshot = *frame->snapshot;
-                    pendingInitialSnapshotAcceptedAt = acceptedAt;
-                } else {
-                    if (pendingInitialFrames.size() >= MaxQueuedTransportFrames) {
+                    auto reservation = reservePendingInitialPayload(payload.size());
+                    if (!reservation) {
                         transportClosed();
                         return ClientReplicationResult::Reconnecting;
                     }
-                    pendingInitialFrames.push_back({payload, acceptedAt});
+                    pendingInitialSnapshot = *frame->snapshot;
+                    pendingInitialSnapshotAcceptedAt = acceptedAt;
+                    pendingInitialSnapshotBudgetReservation = std::move(reservation);
+                    pendingInitialSnapshotReservedBytes = payload.size();
+                    pendingInitialPayloadBytes += payload.size();
+                } else {
+                    if (pendingInitialFrames.size() >= MaxQueuedTransportFrames - 1u) {
+                        transportClosed();
+                        return ClientReplicationResult::Reconnecting;
+                    }
+                    auto reservation = reservePendingInitialPayload(payload.size());
+                    if (!reservation) {
+                        transportClosed();
+                        return ClientReplicationResult::Reconnecting;
+                    }
+                    pendingInitialFrames.push_back(
+                            {payload, acceptedAt, std::move(reservation), payload.size()});
+                    pendingInitialPayloadBytes += payload.size();
                 }
                 return ClientReplicationResult::Applied;
             }
             if (pendingInitialSnapshot) {
-                if (pendingInitialFrames.size() >= MaxQueuedTransportFrames) {
+                if (pendingInitialFrames.size() >= MaxQueuedTransportFrames - 1u) {
                     transportClosed();
                     return ClientReplicationResult::Reconnecting;
                 }
-                pendingInitialFrames.push_back({payload, acceptedAt});
+                auto reservation = reservePendingInitialPayload(payload.size());
+                if (!reservation) {
+                    transportClosed();
+                    return ClientReplicationResult::Reconnecting;
+                }
+                pendingInitialFrames.push_back(
+                        {payload, acceptedAt, std::move(reservation), payload.size()});
+                pendingInitialPayloadBytes += payload.size();
                 return ClientReplicationResult::WaitingForSnapshot;
             }
-            if (!allowOutboundExchange) return ClientReplicationResult::WaitingForSnapshot;
+            if (!allowOutboundExchange) {
+                replicated.requireResynchronization();
+                beginResynchronization();
+                requestPending = true;
+                deferredFullSnapshotRequest = true;
+                return ClientReplicationResult::WaitingForSnapshot;
+            }
             replicated.requireResynchronization();
             beginResynchronization();
             return requestFullSnapshot();
@@ -709,10 +748,17 @@ namespace Duel6::Network::Replication {
             }
         }
         if (applied == ApplyResult::WaitingForSnapshot) return ClientReplicationResult::WaitingForSnapshot;
-        if (!requestPending && replicated.resynchronizationRequired()) {
-            if (!allowOutboundExchange) return ClientReplicationResult::WaitingForSnapshot;
-            beginResynchronization();
-            return requestFullSnapshot();
+        if (replicated.resynchronizationRequired()) {
+            if (!requestPending) {
+                beginResynchronization();
+                if (!allowOutboundExchange) {
+                    requestPending = true;
+                    deferredFullSnapshotRequest = true;
+                } else {
+                    return requestFullSnapshot();
+                }
+            }
+            return ClientReplicationResult::WaitingForSnapshot;
         }
         transportClosed(); return ClientReplicationResult::Reconnecting;
     }
@@ -845,9 +891,48 @@ namespace Duel6::Network::Replication {
         return replicated.takePresentationEvents();
     }
 
+    void ClientReplicationConnection::resumeOutboundProcessing() {
+        if (reconnecting || !deferredFullSnapshotRequest) return;
+        deferredFullSnapshotRequest = false;
+        try {
+            if (!sender || sender(serializeResynchronizationRequest()) != SendResult::Accepted)
+                transportClosed();
+        } catch (...) { transportClosed(); }
+    }
+
     void ClientReplicationConnection::beginResynchronization() noexcept {
         quality.beginResynchronization();
         movement.beginResynchronization();
+    }
+
+    std::shared_ptr<void> ClientReplicationConnection::reservePendingInitialPayload(std::size_t bytes) {
+        if (bytes > MaxQueuedTransportPayloadBytes
+            || pendingInitialPayloadBytes > MaxQueuedTransportPayloadBytes - bytes
+            || !Trust::processQueueBudget().reserve(bytes)) return {};
+        try {
+            return std::shared_ptr<void>(new std::size_t(bytes), [](void *reservation) {
+                const auto amount = *static_cast<std::size_t *>(reservation);
+                delete static_cast<std::size_t *>(reservation);
+                Trust::processQueueBudget().release(amount);
+            });
+        } catch (...) {
+            Trust::processQueueBudget().release(bytes);
+            throw;
+        }
+    }
+
+    void ClientReplicationConnection::releasePendingInitialPayload(std::size_t bytes) noexcept {
+        pendingInitialPayloadBytes = bytes > pendingInitialPayloadBytes
+                                     ? 0 : pendingInitialPayloadBytes - bytes;
+    }
+
+    void ClientReplicationConnection::clearPendingInitialPayloads() noexcept {
+        pendingInitialSnapshot.reset();
+        pendingInitialSnapshotAcceptedAt.reset();
+        pendingInitialSnapshotBudgetReservation.reset();
+        pendingInitialSnapshotReservedBytes = 0;
+        pendingInitialFrames.clear();
+        pendingInitialPayloadBytes = 0;
     }
 
     ClientReplicationResult ClientReplicationConnection::requestFullSnapshot(bool replacePendingRequest) {
@@ -875,9 +960,8 @@ namespace Duel6::Network::Replication {
     void ClientReplicationConnection::transportClosed() noexcept {
         reconnecting = true;
         requestPending = false;
-        pendingInitialSnapshot.reset();
-        pendingInitialSnapshotAcceptedAt.reset();
-        pendingInitialFrames.clear();
+        deferredFullSnapshotRequest = false;
+        clearPendingInitialPayloads();
         replicated.requireResynchronization();
         movement.beginResynchronization();
         quality.transportClosed();

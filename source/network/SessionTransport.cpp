@@ -1175,6 +1175,13 @@ namespace Duel6::Network {
                         break;
                     }
                 }
+                if (kind == ApplicationFrame) {
+                    std::unique_lock<std::mutex> lock(inputMutex);
+                    inputSealChanged.wait(lock, [&] {
+                        return !inputSealed || stop.load() || state.load() != ClientState::Connected;
+                    });
+                    if (stop.load() || state.load() != ClientState::Connected) break;
+                }
                 bool aggregateReserved = false;
                 const auto aggregateBlockedSince = Clock::now();
                 while (!(aggregateReserved = Trust::processQueueBudget().reserve(payloadSize)) && !stop.load()) {
