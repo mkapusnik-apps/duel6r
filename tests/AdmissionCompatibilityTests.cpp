@@ -1836,6 +1836,70 @@ D6R_TEST_CASE("guest confirmation at or after total deadline never becomes succe
     }
 }
 
+D6R_TEST_CASE("AC-002 AC-020 AC-021 late admission and replication payloads are ignored before semantic validation") {
+    namespace R = Network::Replication;
+    const auto host = manifest({{"levels/a", 1}});
+    const Network::AdmissionIdentitySet identities{10, {11, 12}};
+    const auto invalidOffer = Network::serializeAdmissionOffer({10, {11}});
+    const auto mismatchedConfirmation = Network::serializeAdmissionConfirmation({10, {11, 13}});
+    const auto disallowedReplication = R::serializeQualityProbe(77);
+    R::FullSnapshot initialSnapshot{1, admissionLobby({11, 12})};
+    initialSnapshot.authoritativeProducedAt = 1;
+    const auto snapshot = R::serializeReplicationSnapshot(initialSnapshot);
+    const auto qualityResponse = R::serializeQualityResponse(77, 1);
+
+    struct Scenario {
+        const char *name;
+        bool validOfferFirst;
+        std::vector<std::uint8_t> payload;
+    };
+    const std::vector<Scenario> scenarios{
+            {"malformed", false, {0xFF}},
+            {"invalid-offer", false, invalidOffer},
+            {"mismatched-confirmation", true, mismatchedConfirmation},
+            {"disallowed-replication-kind", true, disallowedReplication},
+            {"snapshot", true, snapshot},
+            {"quality-response", true, qualityResponse}};
+
+    for (const auto &scenario: scenarios) {
+        for (const auto receivedAt: {10000ms, 10001ms}) {
+            auto fixture = std::make_shared<RuntimeFixture>();
+            auto client = std::make_shared<FakeClientState>();
+            client->connection = std::make_shared<FakeAdmissionConnection>(fixture->now);
+            if (scenario.validOfferFirst)
+                client->connection->queue(Network::serializeAdmissionOffer(identities),
+                                          fixture->now + 1ms);
+            client->connection->queue(scenario.payload,
+                                      Network::Trust::TimePoint{} + receivedAt);
+
+            unsigned localActions = 0;
+            unsigned presentations = 0;
+            auto dependencies = guestRuntimeDependencies(fixture, client, host);
+            dependencies.localPlayerActions = [&](std::uint64_t) {
+                ++localActions;
+                return Network::Input::MoveRight;
+            };
+            dependencies.guestPresentation = [&](const R::CanonicalState &, const auto &,
+                                                  const auto &, const auto &) {
+                ++presentations;
+            };
+
+            std::ostringstream output;
+            Server::HeadlessServer guest(runtimeGuestConfig(), std::move(dependencies));
+            D6R_REQUIRE_EQ(2, guest.run(output));
+            D6R_REQUIRE_EQ(std::string("Connection timed out.\n"), output.str());
+            D6R_REQUIRE_EQ(0u, localActions);
+            D6R_REQUIRE_EQ(0u, presentations);
+            D6R_REQUIRE(client->closed && !client->cancelled);
+            D6R_REQUIRE(!client->connection->succeeded);
+            D6R_REQUIRE(!client->connection->closeRequested);
+            D6R_REQUIRE_EQ(0u, client->connection->incoming.size());
+            D6R_REQUIRE_EQ(scenario.validOfferFirst ? 2u : 1u,
+                           client->connection->sent.size());
+        }
+    }
+}
+
 #ifndef _WIN32
 D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys the admission deadline on receive and sealed drain") {
     namespace R = Network::Replication;

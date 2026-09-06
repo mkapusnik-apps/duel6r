@@ -445,7 +445,7 @@ namespace {
                         && replication->kind != Duel6::Network::Replication::ReplicationFrameKind::QualityResponse)
                         throw std::invalid_argument("Invalid initial replication snapshot");
                     const auto result = replicatedConnection.receiveInitialAdmissionFrame(
-                            frame.payload, frame.receivedAt);
+                            frame.payload, frame.receivedAt, allowOutboundExchange);
                     if (((replication->kind == Duel6::Network::Replication::ReplicationFrameKind::FullSnapshot
                           || replication->kind
                              == Duel6::Network::Replication::ReplicationFrameKind::IncrementalUpdate)
@@ -580,12 +580,6 @@ namespace {
             Duel6::Network::ClientState state = Duel6::Network::ClientState::Failed;
             try { state = connection->state(); } catch (...) {}
             if (runtimeNow(runtimeDependencies) >= deadline || isTerminal(state)) return sealAndFinish();
-            if (runtimeDependencies.productionReplicationProtocol && acceptedOffer
-                && !replicatedConnection.sampleNetwork(runtimeNow(runtimeDependencies))) {
-                if (const auto finished = publish(GuestFrameDecision(GuestDecision::Ended)))
-                    return *finished;
-            }
-
             Duel6::Network::TransportFrame frame;
             bool received = false;
             try { received = connection->receive(frame); }
@@ -600,6 +594,12 @@ namespace {
                 if (sessionAdmitted) break;
                 if (runtimeNow(runtimeDependencies) >= deadline) return sealAndFinish();
                 continue;
+            }
+
+            if (runtimeDependencies.productionReplicationProtocol && acceptedOffer
+                && !replicatedConnection.sampleNetwork(runtimeNow(runtimeDependencies))) {
+                if (const auto finished = publish(GuestFrameDecision(GuestDecision::Ended)))
+                    return *finished;
             }
 
             state = Duel6::Network::ClientState::Failed;

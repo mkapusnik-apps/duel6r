@@ -77,7 +77,8 @@ namespace Duel6::Network::Replication {
                                          Responsiveness::TimePoint acceptedAt);
         ClientReplicationResult receiveInitialAdmissionFrame(
                 const std::vector<std::uint8_t> &payload,
-                Responsiveness::TimePoint acceptedAt);
+                Responsiveness::TimePoint acceptedAt,
+                bool allowOutboundExchange = true);
         bool observeNetworkSample(const Responsiveness::NetworkSample &sample,
                                   Responsiveness::TimePoint observedAt) noexcept;
         bool sampleNetwork(Responsiveness::TimePoint now);
@@ -116,9 +117,11 @@ namespace Duel6::Network::Replication {
 
         ClientReplicationResult receive(const std::vector<std::uint8_t> &payload,
                                          Responsiveness::TimePoint acceptedAt,
-                                         bool initialAdmissionCalibration);
+                                         bool initialAdmissionCalibration,
+                                         bool allowOutboundExchange);
         void beginResynchronization() noexcept;
         ClientReplicationResult requestFullSnapshot(bool replacePendingRequest = false);
+        void signalFullSnapshotRequest() noexcept;
         void recordQualityOutcome(bool lost, std::chrono::milliseconds roundTripLatency,
                                   Responsiveness::TimePoint observedAt) noexcept;
         std::optional<std::uint64_t> authoritativeTimeAt(

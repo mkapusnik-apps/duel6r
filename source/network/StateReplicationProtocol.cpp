@@ -487,17 +487,18 @@ namespace Duel6::Network::Replication {
 
     ClientReplicationResult ClientReplicationConnection::receive(
             const std::vector<std::uint8_t> &payload, Responsiveness::TimePoint acceptedAt) {
-        return receive(payload, acceptedAt, false);
+        return receive(payload, acceptedAt, false, true);
     }
 
     ClientReplicationResult ClientReplicationConnection::receiveInitialAdmissionFrame(
-            const std::vector<std::uint8_t> &payload, Responsiveness::TimePoint acceptedAt) {
-        return receive(payload, acceptedAt, true);
+            const std::vector<std::uint8_t> &payload, Responsiveness::TimePoint acceptedAt,
+            bool allowOutboundExchange) {
+        return receive(payload, acceptedAt, true, allowOutboundExchange);
     }
 
     ClientReplicationResult ClientReplicationConnection::receive(
             const std::vector<std::uint8_t> &payload, Responsiveness::TimePoint acceptedAt,
-            bool initialAdmissionCalibration) {
+            bool initialAdmissionCalibration, bool allowOutboundExchange) {
         if (reconnecting) return ClientReplicationResult::Reconnecting;
         const auto frame = deserializeReplicationFrame(payload);
         if (!frame) {
@@ -581,7 +582,8 @@ namespace Duel6::Network::Replication {
                 pendingInitialSnapshotAcceptedAt.reset();
                 ClientReplicationResult result;
                 try {
-                    result = receive(serializeReplicationSnapshot(snapshot), snapshotAcceptedAt);
+                    result = receive(serializeReplicationSnapshot(snapshot), snapshotAcceptedAt,
+                                     false, allowOutboundExchange);
                 } catch (...) {
                     transportClosed();
                     return ClientReplicationResult::Reconnecting;
@@ -611,6 +613,7 @@ namespace Duel6::Network::Replication {
                 pendingInitialSnapshotAcceptedAt = acceptedAt;
                 return ClientReplicationResult::Applied;
             }
+            if (!allowOutboundExchange) return ClientReplicationResult::WaitingForSnapshot;
             pendingInitialSnapshot.reset();
             pendingInitialSnapshotAcceptedAt.reset();
             replicated.requireResynchronization();
@@ -626,9 +629,8 @@ namespace Duel6::Network::Replication {
                     authoritativeProducedAt, acceptedAt);
             if (plausibleProductionTime && !*plausibleProductionTime) {
                 if (frame->snapshot) {
-                    replicated.requireResynchronization();
-                    beginResynchronization();
-                    return requestFullSnapshot(true);
+                    if (allowOutboundExchange) signalFullSnapshotRequest();
+                    return ClientReplicationResult::WaitingForSnapshot;
                 }
                 return ClientReplicationResult::WaitingForSnapshot;
             }
@@ -676,6 +678,7 @@ namespace Duel6::Network::Replication {
         }
         if (applied == ApplyResult::WaitingForSnapshot) return ClientReplicationResult::WaitingForSnapshot;
         if (!requestPending && replicated.resynchronizationRequired()) {
+            if (!allowOutboundExchange) return ClientReplicationResult::WaitingForSnapshot;
             beginResynchronization();
             return requestFullSnapshot();
         }
@@ -829,6 +832,12 @@ namespace Duel6::Network::Replication {
             return ClientReplicationResult::SendFailed;
         }
         return ClientReplicationResult::WaitingForSnapshot;
+    }
+
+    void ClientReplicationConnection::signalFullSnapshotRequest() noexcept {
+        try {
+            if (sender) (void) sender(serializeResynchronizationRequest());
+        } catch (...) {}
     }
 
     void ClientReplicationConnection::transportClosed() noexcept {
