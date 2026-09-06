@@ -119,6 +119,10 @@ Back from `NET-01` returns to `MENU-01`. `Play (F1)` remains local-only and does
 
 ## Coverage rules
 
+The current authoritative inventory contains 20 stable screen IDs and 21 wireframes.
+Issue #16's 14-screen checklist is historical: it includes retired `PLAY-02`–`PLAY-04` and omits `NET-01`–`NET-09`.
+It must not define the authoritative inventory or implementation screenshot coverage.
+
 - Each listed screen must have one linked wireframe.
 - Each wireframe must have exactly one representative screenshot entry, either conforming implementation evidence or a planned downstream capture.
 - Minor loading, empty, disabled, focus, and error variants must stay in the applicable screen specification.

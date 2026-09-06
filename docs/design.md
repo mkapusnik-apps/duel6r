@@ -437,7 +437,9 @@ The following values come from renderer and GUI source.
 
 ## Stitch synchronization
 
-The corresponding Stitch project is `projects/1219346282527961142` (`Duel 6 Reloaded`).
+The corresponding Stitch project is `projects/1219346282527961142`; its current metadata reports the title `Duel 6 Reloaded`, private visibility, and the authenticated role `OWNER`.
+Issue #16 remains open, but its 14-screen inventory is retired and must be re-scoped before further use.
+Future Stitch work is optional and non-blocking.
 For PR #54 and subsequent assessment of this approved change, Stitch is a supplementary visual workspace.
 `docs/features.md`, this file, the applicable screen specifications, the version-controlled wireframes, and conforming implementation screenshots are authoritative.
 A missing or stale Stitch representation must not replace or weaken any local design, wireframe, screenshot, provenance, or implementation-presentation gate.
