@@ -15,6 +15,7 @@
 #include "../network/NetworkTrustPolicy.h"
 
 namespace Duel6::Server {
+    constexpr std::size_t MaxSessionIssuedIdentities = 65536;
     using IdentitySource = std::function<std::optional<std::uint64_t>()>;
     using ValidationWorkGate = std::function<bool()>;
     IdentitySource sequentialIdentitySource(std::uint64_t firstIdentity = 1);
@@ -52,6 +53,7 @@ namespace Duel6::Server {
         std::size_t pendingParticipantCount() const;
         std::size_t pendingPlayerCount() const;
         const AdmittedParticipant &hostParticipant() const;
+        std::vector<AdmittedParticipant> admittedParticipants() const;
         bool participantOwnsPlayer(std::uint64_t participantId, std::uint64_t playerId) const;
 
     private:
@@ -86,6 +88,9 @@ namespace Duel6::Server {
         void disconnect(Network::Trust::ConnectionId connection);
         bool authorize(Network::Trust::ConnectionId connection, Network::Trust::AuthorityAction action,
                        std::optional<Network::Trust::PlayerSlotId> player = std::nullopt) const;
+        Network::Trust::AuthorizationDecision authorizationDecision(
+                Network::Trust::ConnectionId connection, Network::Trust::AuthorityAction action,
+                std::optional<Network::Trust::PlayerSlotId> player = std::nullopt) const;
 
         void setMatchStarted(bool started);
         const Network::GameplayManifest &frozenManifest() const;

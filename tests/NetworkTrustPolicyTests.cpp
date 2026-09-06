@@ -569,6 +569,23 @@ D6R_TEST_CASE("authorization is immutable owner scoped revoked on disconnect and
     D6R_REQUIRE(!policy.authorize(22, AuthorityAction::PlayerInput, 3));
 }
 
+D6R_TEST_CASE("REP replicated state mutation is denied and closes only the offending connection") {
+    AuthorizationPolicy policy;
+    policy.createLocalHost(1, 10);
+    D6R_REQUIRE(policy.bindGuest(2, 20));
+    D6R_REQUIRE(policy.bindGuest(3, 30));
+
+    const auto denied = policy.decide(2, AuthorityAction::ReplicatedStateMutation);
+    D6R_REQUIRE(!denied.allowed);
+    D6R_REQUIRE(denied.outcome == AdmissionOutcome::SessionPolicyViolation);
+    D6R_REQUIRE(denied.closeConnection);
+
+    policy.disconnect(2);
+    D6R_REQUIRE(policy.authorize(1, AuthorityAction::HostOnly));
+    D6R_REQUIRE(policy.authorize(3, AuthorityAction::OwnReadiness));
+    D6R_REQUIRE(!policy.authorize(3, AuthorityAction::ReplicatedStateMutation));
+}
+
 D6R_TEST_CASE("fixed outcomes and diagnostics are byte exact and cannot disclose hostile peer values") {
     const std::vector<std::tuple<AdmissionOutcome, std::string, std::string>> outcomes{
         {AdmissionOutcome::MalformedRequest, "malformed-request", "Connection request rejected."},

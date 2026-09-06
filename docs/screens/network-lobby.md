@@ -27,12 +27,18 @@ Host or guest admission enters from `NET-02` or `NET-03`. Host Start match enter
 - Any configuration, roster, admission, expiry, or intentional-leave mutation clears every participant's readiness and displays the reason.
 - A disconnected admitted guest row changes Connection to `Reconnecting`, retains its prior readiness text, and blocks Start with `Waiting for <participant> to reconnect`.
 - Reconnect restores prior readiness unless another clearing mutation occurred. Expiry or intentional Leave removes that participant and players and clears every remaining readiness value.
-- Lobby removals are one atomic batch: clear every remaining readiness value, perform no winner evaluation, retain the completed `Session only` result, and label affected retained rows `Departed`.
+- Lobby removals are one atomic batch: clear every remaining readiness value, perform no winner evaluation, retain the `Session only` result, and label affected retained rows `Departed`.
 - Guest Leave opens `Leave session? Your players will be removed and you will return to Network.` Confirm removes the guest and enters guest `NET-01`; Cancel returns to the lobby.
 - Host End session opens `End session for everyone?` Confirm sends host to `NET-01` and guests to host-ended `NET-09`; Cancel returns to the lobby.
 - Admission closes at match start; there is no join-in-progress control.
-- Completed result rows remain labeled `Session only`; departed rows show `Departed`; starting a new match clears the retained result and session end discards it.
-- When an active-round or non-final-summary batch leaves fewer than two roster players, this lobby shows the current `Session only • Interrupted • No winner` result and retains any already completed round outcome.
+- Completed and interrupted result rows remain labeled `Session only`; departed rows show `Departed`; starting a new match clears the retained result and session end discards it.
+- A completed result appears first in `NET-06` and remains available in this following lobby.
+- When an active-round or non-final-summary batch leaves fewer than two roster players, this lobby shows the current `Session only • Interrupted • No winner` result directly without an intervening `NET-06` screen.
+- An interrupted result must preserve the last completed-round number and outcome when one exists.
+- A retained result must show result state, match outcome, last completed-round outcome, and cumulative ranking as separate labeled values.
+- A retained completed match outcome must equal the configured final-round outcome.
+- A retained interrupted match outcome must be `No winner`.
+- A cumulative ranking leader must not receive a champion label or treatment.
 - Invalid authoritative settings must show `Match settings are invalid. Correct the settings and try again.`
 - Invalid authoritative settings must clear all readiness values.
 - Invalid authoritative settings must keep the lobby editable for a later Start match request.
@@ -44,6 +50,7 @@ Host or guest admission enters from `NET-02` or `NET-03`. Host Start match enter
 ## Truthful copy, disabled reasons, and input
 
 - Required separate labels include participant role, ownership, `Connected` or `Reconnecting`, readiness, and `Session only` where score history is visible.
+- Retained result labels must identify result state, match outcome, last completed-round outcome, and cumulative ranking.
 - Validation copy must not disclose a peer-supplied name, release value, capability, path, hash, count, credential, address, threshold, payload, or raw filesystem value.
 - Example Start reason: `Waiting for Guest 2 to be ready`. Example Ready reason: `Assign a control to Cora`.
 - Focus order follows participant-owned controls, Ready, host-owned settings where applicable, Start match, and Leave/End session. Read-only controls are skipped.

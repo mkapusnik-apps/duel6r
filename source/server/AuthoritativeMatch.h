@@ -67,6 +67,10 @@ namespace Duel6::Server::Authoritative {
         MatchPhase phase() const noexcept;
         Tick currentTick() const noexcept;
         const MatchConfig &frozenConfig() const noexcept;
+        std::vector<PlayerDefinition> rosterDefinitions() const;
+        std::uint32_t roundEndTicksRemaining() const noexcept;
+        std::map<Identity, PlayerStatistics> playerStatistics() const;
+        RoundResult currentRoundResult() const;
         const std::optional<SessionResult> &publishedResult() const noexcept;
         const TerminalOutcome &outcome() const noexcept;
         const RoundStartDecision &roundDecision() const noexcept;
@@ -79,6 +83,8 @@ namespace Duel6::Server::Authoritative {
         const std::vector<DeterministicRandom::Decision> &randomDecisionTrace() const noexcept;
         std::uint64_t acceptedActionCount() const noexcept;
         std::uint64_t rejectedActionCount() const noexcept;
+        bool canAcceptPlayerInput(Identity participantId, Identity playerId) const noexcept;
+        bool clearPlayerInput(Identity playerId) noexcept;
 
     private:
         struct AttackerRecord {

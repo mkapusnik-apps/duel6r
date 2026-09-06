@@ -296,6 +296,13 @@ namespace Duel6::Server::Authoritative {
         }
         catch (...) { worldActive = false; }
         if (!worldActive) return false;
+        if (dependencies.worldInput) {
+            for (auto &player: players) if (!player.departed) {
+                try {
+                    if (!dependencies.worldInput(player.definition.playerId, 0)) return false;
+                } catch (...) { return false; }
+            }
+        }
         if (config.mode == Mode::Predator) predatorPlayer = currentRoundDecision.predatorPlayerId;
         currentPhase = MatchPhase::ActiveRound;
         if (dependencies.worldSnapshot && !synchronizeCanonicalWorld()) {
@@ -667,7 +674,9 @@ namespace Duel6::Server::Authoritative {
                     failRuntime();
             }
         }
-        return terminal.code == OutcomeCode::None;
+        // The tick that atomically publishes a successful terminal result was advanced successfully.
+        // A later call is still rejected by the guard above.
+        return terminal.code != OutcomeCode::RuntimeFailed && terminal.code != OutcomeCode::ShutdownFailed;
     }
 
     bool AuthoritativeMatch::synchronizeCanonicalWorld() {
@@ -878,6 +887,31 @@ namespace Duel6::Server::Authoritative {
     MatchPhase AuthoritativeMatch::phase() const noexcept { return currentPhase; }
     Tick AuthoritativeMatch::currentTick() const noexcept { return tick; }
     const MatchConfig &AuthoritativeMatch::frozenConfig() const noexcept { return config; }
+    std::vector<PlayerDefinition> AuthoritativeMatch::rosterDefinitions() const {
+        std::vector<PlayerDefinition> result;
+        result.reserve(players.size());
+        for (const auto &player: players) result.push_back(player.definition);
+        return result;
+    }
+    std::uint32_t AuthoritativeMatch::roundEndTicksRemaining() const noexcept {
+        return roundEndTicks >= RoundEndTotalTicks ? 0 : RoundEndTotalTicks - roundEndTicks;
+    }
+    std::map<Identity, PlayerStatistics> AuthoritativeMatch::playerStatistics() const {
+        std::map<Identity, PlayerStatistics> result;
+        for (const auto &player: players) result.emplace(player.definition.playerId, player.total);
+        return result;
+    }
+    RoundResult AuthoritativeMatch::currentRoundResult() const {
+        RoundResult result;
+        result.roundNumber = currentRoundDecision.roundNumber;
+        result.level = currentRoundDecision.level;
+        result.mirrored = currentRoundDecision.mirrored;
+        result.winnerPlayerIds = currentRoundWinners;
+        result.winningTeam = currentRoundWinningTeam;
+        result.noWinner = currentRoundNoWinner;
+        result.rosterOrder = currentRoundDecision.rosterOrder;
+        return result;
+    }
     const std::optional<SessionResult> &AuthoritativeMatch::publishedResult() const noexcept { return result; }
     const TerminalOutcome &AuthoritativeMatch::outcome() const noexcept { return terminal; }
     const RoundStartDecision &AuthoritativeMatch::roundDecision() const noexcept { return currentRoundDecision; }
@@ -902,4 +936,21 @@ namespace Duel6::Server::Authoritative {
     }
     std::uint64_t AuthoritativeMatch::acceptedActionCount() const noexcept { return totalActions; }
     std::uint64_t AuthoritativeMatch::rejectedActionCount() const noexcept { return rejectedActions; }
+    bool AuthoritativeMatch::canAcceptPlayerInput(Identity participantId, Identity playerId) const noexcept {
+        const PlayerState *player = findPlayer(playerId);
+        return player && player->definition.participantId == participantId && player->alive && !player->departed
+               && (currentPhase == MatchPhase::ActiveRound || currentPhase == MatchPhase::RoundEndActive)
+               && terminal.code == OutcomeCode::None;
+    }
+    bool AuthoritativeMatch::clearPlayerInput(Identity playerId) noexcept {
+        PlayerState *player = findPlayer(playerId);
+        if (!player || player->departed) return false;
+        player->inputMask = 0;
+        player->lastInputTick = static_cast<Tick>(-1);
+        if (dependencies.worldInput) {
+            try { if (!dependencies.worldInput(playerId, 0)) return false; }
+            catch (...) { return false; }
+        }
+        return true;
+    }
 }

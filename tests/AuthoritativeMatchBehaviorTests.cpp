@@ -8,10 +8,12 @@
 #include "source/server/AuthoritativeHostedMatchController.h"
 #include "source/server/AuthoritativeMatchSerialization.h"
 #include "source/server/AuthoritativeMatchValidation.h"
+#include "source/network/StateReplicationProtocol.h"
 #include "tests/TestHarness.h"
 
 namespace {
 using namespace Duel6::Server::Authoritative;
+namespace R = Duel6::Network::Replication;
 
 std::vector<PlayerDefinition> roster(std::size_t count = 4) {
     std::vector<PlayerDefinition> result;
@@ -54,6 +56,199 @@ void eliminate(AuthoritativeMatch &match, std::uint64_t &sequence, const PlayerD
 
 void finishDelay(AuthoritativeMatch &match) {
     for (std::uint32_t i = 0; i < RoundEndTotalTicks; ++i) match.advanceOneTick();
+}
+
+std::vector<R::CanonicalState> deliveredStates(const std::vector<std::vector<std::uint8_t>> &payloads) {
+    R::ReplicatedState client;
+    std::vector<R::CanonicalState> result;
+    for (const auto &payload: payloads) {
+        const auto frame = R::deserializeReplicationFrame(payload);
+        D6R_REQUIRE(frame.has_value());
+        R::ApplyResult applied = R::ApplyResult::Invalid;
+        if (frame->snapshot) applied = client.apply(*frame->snapshot);
+        else if (frame->update) applied = client.apply(*frame->update);
+        else continue;
+        D6R_REQUIRE(applied == R::ApplyResult::Applied);
+        D6R_REQUIRE(client.state() != nullptr);
+        result.push_back(*client.state());
+    }
+    return result;
+}
+
+const R::CanonicalState *lastPhase(const std::vector<R::CanonicalState> &states, R::Phase phase) {
+    const auto found = std::find_if(states.rbegin(), states.rend(), [phase](const auto &state) {
+        return state.phase == phase;
+    });
+    return found == states.rend() ? nullptr : &*found;
+}
+
+std::string followingLobbyMembershipEvidence(bool interrupted) {
+    auto requested = config();
+    if (interrupted) requested.roundLimit = 3;
+    auto players = roster(2);
+    auto participants = std::vector<R::ParticipantState>{
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}}};
+    AuthoritativeHostedMatchController controller(1);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> payloads;
+    D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+        payloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.restoreReplication(2, [](auto) { return Duel6::Network::SendResult::Accepted; }));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+    eliminate(*controller.match(), sequence, players[0], players[1]);
+    finishDelay(*controller.match());
+    if (interrupted) {
+        D6R_REQUIRE_EQ(ActionResult::Accepted, controller.match()->submit(action(
+                *controller.match(), sequence++, 1, 0, ActionKind::RemovePlayer, 102)));
+    }
+    D6R_REQUIRE(controller.observeMatchOutcome());
+
+    controller.disconnectReplication(2);
+    D6R_REQUIRE(controller.updateReplicationConnection(2, R::ConnectionState::Reconnecting));
+    const bool reconnectKeptFalse = !controller.participantReady(2);
+    D6R_REQUIRE(controller.restoreReplication(2, [](auto) { return Duel6::Network::SendResult::Accepted; }));
+    D6R_REQUIRE(controller.updateReplicationConnection(2, R::ConnectionState::Connected));
+    const bool connectionKeptFalse = !controller.participantReady(2);
+
+    participants[0].ready = false;
+    participants[1].ready = false;
+    participants.push_back({3, false, R::ConnectionState::Connected, false, {103}});
+    players.push_back({3, 103, "Player 3", 2});
+    D6R_REQUIRE(controller.updateReplicationLobby(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> admittedPayloads;
+    D6R_REQUIRE(controller.restoreReplication(3, [&](auto payload) {
+        admittedPayloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    const auto admittedStates = deliveredStates(admittedPayloads);
+    D6R_REQUIRE(!admittedStates.empty());
+    const auto &retained = admittedStates.back();
+    const bool readinessFalse = std::all_of(retained.participants.begin(), retained.participants.end(),
+            [](const auto &participant) { return !participant.ready; })
+            && !controller.participantReady(1) && !controller.participantReady(2)
+            && !controller.participantReady(3);
+    const bool noAutoStart = controller.stage() == HostedMatchStage::Lobby && controller.match() == nullptr;
+    const bool resultRetained = retained.result.available
+            && retained.result.state == (interrupted ? "Interrupted" : "Completed");
+    std::vector<Identity> scoreRows;
+    for (const auto &row: retained.score.players) scoreRows.push_back(row.playerId);
+    const bool newcomerExcluded = scoreRows == std::vector<Identity>({101, 102})
+            && retained.score.ranking == std::vector<R::Identity>({101, 102});
+
+    for (const Identity participant: {Identity{1}, Identity{2}, Identity{3}})
+        D6R_REQUIRE(controller.setParticipantReady(participant, true));
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    const auto freshStates = deliveredStates(payloads);
+    const auto *fresh = lastPhase(freshStates, R::Phase::ActiveRound);
+    const bool explicitStartReset = fresh && !fresh->result.available && fresh->result.serialized.empty()
+            && fresh->matchId != retained.matchId;
+
+    return "reconnect-false=" + std::string(reconnectKeptFalse ? "true" : "false")
+            + ";connection-false=" + (connectionKeptFalse ? "true" : "false")
+            + ";readiness-false=" + (readinessFalse ? "true" : "false")
+            + ";no-autostart=" + (noAutoStart ? "true" : "false")
+            + ";result-retained=" + (resultRetained ? "true" : "false")
+            + ";newcomer-excluded=" + (newcomerExcluded ? "true" : "false")
+            + ";explicit-reset=" + (explicitStartReset ? "true" : "false");
+}
+
+std::string followingLobbySettingsEvidence(bool interrupted) {
+    auto requested = config();
+    if (interrupted) requested.roundLimit = 3;
+    const auto players = roster(2);
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}}};
+    AuthoritativeHostedMatchController controller(1);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> payloads;
+    D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+        payloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+    eliminate(*controller.match(), sequence, players[0], players[1]);
+    finishDelay(*controller.match());
+    if (interrupted) {
+        D6R_REQUIRE_EQ(ActionResult::Accepted, controller.match()->submit(action(
+                *controller.match(), sequence++, 1, 0, ActionKind::RemovePlayer, 102)));
+    }
+    D6R_REQUIRE(controller.observeMatchOutcome());
+
+    const auto outcomeStates = deliveredStates(payloads);
+    const auto *prior = lastPhase(outcomeStates, R::Phase::Lobby);
+    D6R_REQUIRE(prior != nullptr && prior->result.available);
+    const std::string priorSerialized = prior->result.serialized;
+    const std::string priorState = prior->result.state;
+    const auto priorRanking = prior->score.ranking;
+    const auto priorWinner = prior->score.winner;
+    const auto priorRound = prior->round;
+
+    bool everyUpdatePublished = true;
+    bool everySettingReplicated = true;
+    bool resultAlwaysRetained = true;
+    const std::vector<std::pair<Mode, std::uint8_t>> changes = {
+            {Mode::TeamDeathmatch, 2},
+            {Mode::TeamDeathmatch, 3},
+            {Mode::Deathmatch, 0}};
+    for (const auto &[mode, teamCount]: changes) {
+        requested.mode = mode;
+        requested.teamCount = teamCount;
+        requested.friendlyFire = false;
+        const std::size_t payloadCount = payloads.size();
+        const bool published = controller.updateReplicationLobby(participants, players, requested);
+        everyUpdatePublished = everyUpdatePublished && published && payloads.size() > payloadCount;
+        if (!published || payloads.size() == payloadCount) {
+            everySettingReplicated = false;
+            resultAlwaysRetained = false;
+            continue;
+        }
+        const auto states = deliveredStates(payloads);
+        const auto &updated = states.back();
+        everySettingReplicated = everySettingReplicated
+                && updated.phase == R::Phase::Lobby
+                && updated.settings.mode == modeName(mode)
+                && updated.settings.teamCount == teamCount;
+        const bool sameRound = updated.round.has_value() == priorRound.has_value()
+                && (!priorRound || (updated.round->roundId == priorRound->roundId
+                        && updated.round->rosterOrder == priorRound->rosterOrder
+                        && updated.round->outcome.winnerPlayerIds == priorRound->outcome.winnerPlayerIds
+                        && updated.round->outcome.winningTeam == priorRound->outcome.winningTeam
+                        && updated.round->outcome.noWinner == priorRound->outcome.noWinner));
+        resultAlwaysRetained = resultAlwaysRetained
+                && updated.result.available
+                && updated.result.state == priorState
+                && updated.result.serialized == priorSerialized
+                && updated.score.ranking == priorRanking
+                && updated.score.winner.winnerPlayerIds == priorWinner.winnerPlayerIds
+                && updated.score.winner.winningTeam == priorWinner.winningTeam
+                && updated.score.winner.noWinner == priorWinner.noWinner
+                && sameRound;
+    }
+
+    const auto beforeStartStates = deliveredStates(payloads);
+    const bool retainedUntilStart = !beforeStartStates.empty() && beforeStartStates.back().result.available
+            && beforeStartStates.back().result.serialized == priorSerialized;
+    D6R_REQUIRE(controller.setParticipantReady(1, true));
+    D6R_REQUIRE(controller.setParticipantReady(2, true));
+    const bool started = controller.start(requested, players, manifest()).code == OutcomeCode::None;
+    const auto afterStartStates = deliveredStates(payloads);
+    const auto *nextMatch = lastPhase(afterStartStates, R::Phase::ActiveRound);
+    const bool onlyStartClears = retainedUntilStart && started && nextMatch
+            && !nextMatch->result.available && nextMatch->result.serialized.empty()
+            && nextMatch->matchId != prior->matchId;
+
+    return "published=" + std::string(everyUpdatePublished ? "true" : "false")
+            + ";settings=" + (everySettingReplicated ? "true" : "false")
+            + ";retained=" + (resultAlwaysRetained ? "true" : "false")
+            + ";start-only-clear=" + (onlyStartClears ? "true" : "false");
 }
 
 D6R_TEST_CASE("AHM mode matrix completes with documented winner and team assignment") {
@@ -423,6 +618,398 @@ D6R_TEST_CASE("AHM terminal results are atomic and cleanup controls exit meaning
     D6R_REQUIRE_EQ(ActionResult::RuntimeFailed, failed.submit({0, 1, 1, 0, ActionKind::RuntimeFailure, 0, 0, 0}));
     D6R_REQUIRE_EQ(3, failed.outcome().exitStatus);
     D6R_REQUIRE(!failed.publishedResult());
+}
+
+D6R_TEST_CASE("REP-017 NET-AC-018 completed hosted match publishes final summary then cleared-readiness lobby and clears result on new match") {
+    auto requested = config();
+    const auto players = roster(2);
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}}};
+    AuthoritativeHostedMatchController controller(1);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> payloads;
+    D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+        payloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+    eliminate(*controller.match(), sequence, players[0], players[1]);
+    finishDelay(*controller.match());
+    D6R_REQUIRE(controller.observeMatchOutcome());
+
+    const auto resultStates = deliveredStates(payloads);
+    const auto *finalSummary = lastPhase(resultStates, R::Phase::FinalSummary);
+    const auto *followingLobby = lastPhase(resultStates, R::Phase::Lobby);
+    const bool finalRetained = finalSummary && finalSummary->result.available
+                               && finalSummary->result.state == "Completed"
+                               && finalSummary->score.winner.winnerPlayerIds == std::vector<R::Identity>{101};
+    const bool lobbyRetained = followingLobby && followingLobby->result.available
+                               && followingLobby->result.state == "Completed"
+                               && followingLobby->score.winner.winnerPlayerIds == std::vector<R::Identity>{101};
+    const std::string lifecycle = "final=" + std::string(finalRetained ? "true" : "false")
+            + ";lobby=" + (lobbyRetained ? "true" : "false")
+            + ";stage-lobby=" + (controller.stage() == HostedMatchStage::Lobby ? "true" : "false")
+            + ";ready-cleared=" + (!controller.participantReady(1) && !controller.participantReady(2)
+                                      ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string("final=true;lobby=true;stage-lobby=true;ready-cleared=true"), lifecycle);
+
+    D6R_REQUIRE(controller.setParticipantReady(1, true));
+    D6R_REQUIRE(controller.setParticipantReady(2, true));
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    const auto newMatchStates = deliveredStates(payloads);
+    const auto *newMatch = lastPhase(newMatchStates, R::Phase::ActiveRound);
+    D6R_REQUIRE(newMatch != nullptr);
+    D6R_REQUIRE(!newMatch->result.available);
+    D6R_REQUIRE(newMatch->result.serialized.empty());
+    D6R_REQUIRE(newMatch->matchId != finalSummary->matchId);
+}
+
+D6R_TEST_CASE("REP-017 NET-AC-018 interrupted hosted match goes directly to cleared-readiness lobby with completed result retained") {
+    auto requested = config();
+    requested.roundLimit = 3;
+    const auto players = roster(2);
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}}};
+    AuthoritativeHostedMatchController controller(1);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> payloads;
+    D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+        payloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+    eliminate(*controller.match(), sequence, players[0], players[1]);
+    finishDelay(*controller.match());
+    D6R_REQUIRE_EQ(ActionResult::Accepted,
+            controller.match()->submit(action(*controller.match(), sequence++, 1, 0,
+                                               ActionKind::RemovePlayer, 102)));
+    D6R_REQUIRE_EQ(OutcomeCode::InterruptedNoWinner, controller.match()->outcome().code);
+    D6R_REQUIRE(controller.observeMatchOutcome());
+
+    const auto states = deliveredStates(payloads);
+    const auto *followingLobby = lastPhase(states, R::Phase::Lobby);
+    D6R_REQUIRE(followingLobby != nullptr);
+    const bool retained = followingLobby->result.available
+                          && followingLobby->result.state == "Interrupted"
+                          && followingLobby->score.winner.noWinner
+                          && followingLobby->completedRounds == 1
+                          && followingLobby->round
+                          && followingLobby->round->outcome.winnerPlayerIds == std::vector<R::Identity>{101};
+    const bool replicatedReadinessCleared = std::all_of(
+            followingLobby->participants.begin(), followingLobby->participants.end(),
+            [](const auto &participant) { return !participant.ready; });
+    const std::string lifecycle = "retained=" + std::string(retained ? "true" : "false")
+            + ";stage-lobby=" + (controller.stage() == HostedMatchStage::Lobby ? "true" : "false")
+            + ";controller-ready-cleared="
+            + (!controller.participantReady(1) && !controller.participantReady(2) ? "true" : "false")
+            + ";replicated-ready-cleared=" + (replicatedReadinessCleared ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string(
+            "retained=true;stage-lobby=true;controller-ready-cleared=true;replicated-ready-cleared=true"), lifecycle);
+}
+
+D6R_TEST_CASE("REP-017 NET-AC-018 completed following lobby permits reconnect and admission while retaining result then resets a fresh match") {
+    auto requested = config();
+    auto players = roster(2);
+    auto participants = std::vector<R::ParticipantState>{
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}}};
+    AuthoritativeHostedMatchController controller(1);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> hostPayloads;
+    std::vector<std::vector<std::uint8_t>> guestPayloads;
+    D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+        hostPayloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.restoreReplication(2, [&](auto payload) {
+        guestPayloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+    eliminate(*controller.match(), sequence, players[0], players[1]);
+    finishDelay(*controller.match());
+    D6R_REQUIRE(controller.observeMatchOutcome());
+    D6R_REQUIRE_EQ(HostedMatchStage::Lobby, controller.stage());
+
+    controller.disconnectReplication(2);
+    D6R_REQUIRE(controller.updateReplicationConnection(2, R::ConnectionState::Reconnecting));
+    D6R_REQUIRE(controller.restoreReplication(2, [&](auto payload) {
+        guestPayloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.updateReplicationConnection(2, R::ConnectionState::Connected));
+
+    participants[0].ready = false;
+    participants[1].ready = false;
+    participants.push_back({3, false, R::ConnectionState::Connected, false, {103}});
+    players.push_back({3, 103, "Player 3", 2});
+    D6R_REQUIRE(controller.updateReplicationLobby(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> admittedPayloads;
+    D6R_REQUIRE(controller.restoreReplication(3, [&](auto payload) {
+        admittedPayloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+
+    const auto retainedStates = deliveredStates(admittedPayloads);
+    D6R_REQUIRE(!retainedStates.empty());
+    const auto &retained = retainedStates.back();
+    D6R_REQUIRE(retained.phase == R::Phase::Lobby);
+    D6R_REQUIRE(retained.result.available && retained.result.state == "Completed");
+    D6R_REQUIRE_EQ(3u, retained.participants.size());
+    D6R_REQUIRE(std::all_of(retained.participants.begin(), retained.participants.end(),
+                            [](const auto &participant) { return !participant.ready; }));
+
+    for (const Identity participant: {Identity{1}, Identity{2}, Identity{3}})
+        D6R_REQUIRE(controller.setParticipantReady(participant, true));
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    const auto nextStates = deliveredStates(hostPayloads);
+    const auto *fresh = lastPhase(nextStates, R::Phase::ActiveRound);
+    D6R_REQUIRE(fresh != nullptr);
+    D6R_REQUIRE(!fresh->result.available && fresh->result.serialized.empty());
+    D6R_REQUIRE(fresh->matchId != retained.matchId);
+}
+
+D6R_TEST_CASE("REP-017 NET-AC-018 interrupted following lobby permits reconnect and admission while retaining result then resets a fresh match") {
+    auto requested = config();
+    requested.roundLimit = 3;
+    auto players = roster(2);
+    auto participants = std::vector<R::ParticipantState>{
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}}};
+    AuthoritativeHostedMatchController controller(1);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> payloads;
+    D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+        payloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.restoreReplication(2, [](auto) { return Duel6::Network::SendResult::Accepted; }));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+    eliminate(*controller.match(), sequence, players[0], players[1]);
+    finishDelay(*controller.match());
+    D6R_REQUIRE_EQ(ActionResult::Accepted, controller.match()->submit(action(
+            *controller.match(), sequence++, 1, 0, ActionKind::RemovePlayer, 102)));
+    D6R_REQUIRE(controller.observeMatchOutcome());
+    D6R_REQUIRE_EQ(HostedMatchStage::Lobby, controller.stage());
+
+    controller.disconnectReplication(2);
+    D6R_REQUIRE(controller.updateReplicationConnection(2, R::ConnectionState::Reconnecting));
+    D6R_REQUIRE(controller.restoreReplication(2, [](auto) { return Duel6::Network::SendResult::Accepted; }));
+    D6R_REQUIRE(controller.updateReplicationConnection(2, R::ConnectionState::Connected));
+
+    participants[0].ready = false;
+    participants[1].ready = false;
+    participants.push_back({3, false, R::ConnectionState::Connected, false, {103}});
+    players.push_back({3, 103, "Player 3", 2});
+    D6R_REQUIRE(controller.updateReplicationLobby(participants, players, requested));
+    const auto retainedStates = deliveredStates(payloads);
+    D6R_REQUIRE(!retainedStates.empty());
+    const auto &retained = retainedStates.back();
+    D6R_REQUIRE(retained.result.available && retained.result.state == "Interrupted");
+    D6R_REQUIRE(retained.completedRounds == 1 && retained.score.winner.noWinner);
+    D6R_REQUIRE(std::all_of(retained.participants.begin(), retained.participants.end(),
+                            [](const auto &participant) { return !participant.ready; }));
+
+    for (const Identity participant: {Identity{1}, Identity{2}, Identity{3}})
+        D6R_REQUIRE(controller.setParticipantReady(participant, true));
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    const auto freshStates = deliveredStates(payloads);
+    const auto *fresh = lastPhase(freshStates, R::Phase::ActiveRound);
+    D6R_REQUIRE(fresh != nullptr);
+    D6R_REQUIRE(!fresh->result.available && fresh->result.serialized.empty());
+    D6R_REQUIRE(fresh->matchId != retained.matchId);
+}
+
+D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 completed following lobby keeps connection separate from readiness and prior ranking") {
+    D6R_REQUIRE_EQ(std::string(
+            "reconnect-false=true;connection-false=true;readiness-false=true;no-autostart=true;"
+            "result-retained=true;newcomer-excluded=true;explicit-reset=true"),
+            followingLobbyMembershipEvidence(false));
+}
+
+D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 interrupted following lobby keeps connection separate from readiness and prior ranking") {
+    D6R_REQUIRE_EQ(std::string(
+            "reconnect-false=true;connection-false=true;readiness-false=true;no-autostart=true;"
+            "result-retained=true;newcomer-excluded=true;explicit-reset=true"),
+            followingLobbyMembershipEvidence(true));
+}
+
+D6R_TEST_CASE("REP-017 completed following lobby publishes mode and team-count changes without clearing prior result") {
+    D6R_REQUIRE_EQ(std::string("published=true;settings=true;retained=true;start-only-clear=true"),
+            followingLobbySettingsEvidence(false));
+}
+
+D6R_TEST_CASE("REP-017 interrupted following lobby publishes mode and team-count changes without clearing prior result") {
+    D6R_REQUIRE_EQ(std::string("published=true;settings=true;retained=true;start-only-clear=true"),
+            followingLobbySettingsEvidence(true));
+}
+
+D6R_TEST_CASE("AHM-AC-020 REP-017 REP-025 cumulative tie-break order survives final lobby incrementals and reconnect") {
+    const auto players = roster(4);
+    auto requested = config();
+    CanonicalWorldSnapshot snapshot;
+    snapshot.valid = true;
+    snapshot.stateDigest = 1;
+    for (const auto &definition: players) {
+        CanonicalPlayerSnapshot player;
+        player.playerId = definition.playerId;
+        player.rosterSlot = definition.rosterOrder;
+        player.alive = true;
+        player.life = MaximumLife;
+        snapshot.players.push_back(player);
+    }
+    snapshot.players[0].statistics.kills = 1;
+    snapshot.players[0].statistics.damage = 100;
+    snapshot.players[1].statistics.wins = 1;
+    snapshot.players[2].statistics.kills = 1;
+    snapshot.players[2].statistics.damage = 200;
+    snapshot.players[3].statistics.kills = 1;
+    snapshot.players[3].statistics.damage = 200;
+    for (const auto &player: snapshot.players) D6R_REQUIRE_EQ(1, player.statistics.totalPoints());
+
+    MatchRuntimeDependencies dependencies;
+    dependencies.worldSnapshot = [&] { return snapshot; };
+    dependencies.worldTick = [&](Tick, bool) {
+        for (auto &player: snapshot.players) { player.alive = false; player.life = 0; }
+        snapshot.roundOver = true;
+        ++snapshot.worldTick;
+        ++snapshot.stateDigest;
+        return true;
+    };
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}},
+            {3, false, R::ConnectionState::Connected, true, {103}},
+            {4, false, R::ConnectionState::Connected, true, {104}}};
+    AuthoritativeHostedMatchController controller(1, dependencies);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> incrementalPayloads;
+    D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+        incrementalPayloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    D6R_REQUIRE(controller.match()->advanceOneTick());
+    finishDelay(*controller.match());
+    D6R_REQUIRE(controller.observeMatchOutcome());
+
+    const auto incrementalStates = deliveredStates(incrementalPayloads);
+    const auto *finalSummary = lastPhase(incrementalStates, R::Phase::FinalSummary);
+    const auto *followingLobby = lastPhase(incrementalStates, R::Phase::Lobby);
+    std::vector<std::vector<std::uint8_t>> reconnectPayloads;
+    D6R_REQUIRE(controller.restoreReplication(2, [&](auto payload) {
+        reconnectPayloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    const auto reconnectStates = deliveredStates(reconnectPayloads);
+    D6R_REQUIRE(!reconnectStates.empty());
+    const std::vector<R::Identity> expected{102, 103, 104, 101};
+    const auto rows = [](const R::CanonicalState *state) {
+        std::vector<R::Identity> result;
+        if (state) for (const auto &row: state->score.players) result.push_back(row.playerId);
+        return result;
+    };
+    const bool finalCorrect = finalSummary && finalSummary->score.ranking == expected
+            && rows(finalSummary) == expected;
+    const bool lobbyCorrect = followingLobby && followingLobby->score.ranking == expected
+            && rows(followingLobby) == expected;
+    const bool reconnectCorrect = reconnectStates.back().score.ranking == expected
+            && rows(&reconnectStates.back()) == expected;
+    const std::string evidence = "final=" + std::string(finalCorrect ? "true" : "false")
+            + ";lobby=" + (lobbyCorrect ? "true" : "false")
+            + ";incremental=" + (finalSummary && followingLobby ? "true" : "false")
+            + ";reconnect=" + (reconnectCorrect ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string("final=true;lobby=true;incremental=true;reconnect=true"), evidence);
+}
+
+D6R_TEST_CASE("AHM REP-017 completed hosted cleanup failure is status 4 and publishes no retained result") {
+    auto players = roster(2);
+    auto requested = config();
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}}};
+    MatchRuntimeDependencies dependencies;
+    dependencies.cleanup = [] { return false; };
+    AuthoritativeHostedMatchController controller(1, dependencies);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> payloads;
+    D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+        payloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+    eliminate(*controller.match(), sequence, players[0], players[1]);
+    finishDelay(*controller.match());
+    const bool observed = controller.observeMatchOutcome();
+    const auto states = deliveredStates(payloads);
+    const bool resultReplicated = std::any_of(states.begin(), states.end(),
+            [](const auto &state) { return state.result.available; });
+    D6R_REQUIRE(controller.match() != nullptr);
+    const std::string evidence = "observed=" + std::string(observed ? "true" : "false")
+            + ";unexpected=" + (controller.stage() == HostedMatchStage::UnexpectedStop ? "true" : "false")
+            + ";status=" + std::to_string(controller.match()->outcome().exitStatus)
+            + ";released=" + (controller.match()->resourcesReleased() ? "true" : "false")
+            + ";retained=" + (controller.match()->publishedResult() ? "true" : "false")
+            + ";replicated=" + (resultReplicated ? "true" : "false")
+            + ";intentional=" + (controller.match()->outcome().code == OutcomeCode::EndedIntentionally
+                                   ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string(
+            "observed=false;unexpected=true;status=4;released=false;retained=false;replicated=false;intentional=false"),
+            evidence);
+}
+
+D6R_TEST_CASE("AHM REP-017 interrupted hosted cleanup failure is status 4 and publishes no retained result") {
+    auto players = roster(2);
+    auto requested = config();
+    requested.roundLimit = 3;
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}}};
+    MatchRuntimeDependencies dependencies;
+    dependencies.cleanup = [] { return false; };
+    AuthoritativeHostedMatchController controller(1, dependencies);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> payloads;
+    D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+        payloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+    eliminate(*controller.match(), sequence, players[0], players[1]);
+    finishDelay(*controller.match());
+    D6R_REQUIRE_EQ(ActionResult::Accepted, controller.match()->submit(action(
+            *controller.match(), sequence++, 1, 0, ActionKind::RemovePlayer, 102)));
+    const bool observed = controller.observeMatchOutcome();
+    const auto states = deliveredStates(payloads);
+    const bool resultReplicated = std::any_of(states.begin(), states.end(),
+            [](const auto &state) { return state.result.available; });
+    D6R_REQUIRE(controller.match() != nullptr);
+    const std::string evidence = "observed=" + std::string(observed ? "true" : "false")
+            + ";unexpected=" + (controller.stage() == HostedMatchStage::UnexpectedStop ? "true" : "false")
+            + ";status=" + std::to_string(controller.match()->outcome().exitStatus)
+            + ";released=" + (controller.match()->resourcesReleased() ? "true" : "false")
+            + ";retained=" + (controller.match()->publishedResult() ? "true" : "false")
+            + ";replicated=" + (resultReplicated ? "true" : "false")
+            + ";intentional=" + (controller.match()->outcome().code == OutcomeCode::EndedIntentionally
+                                   ? "true" : "false");
+    D6R_REQUIRE_EQ(std::string(
+            "observed=false;unexpected=true;status=4;released=false;retained=false;replicated=false;intentional=false"),
+            evidence);
 }
 
 D6R_TEST_CASE("AHM hosted End authorization is bound only to the frozen host identity") {

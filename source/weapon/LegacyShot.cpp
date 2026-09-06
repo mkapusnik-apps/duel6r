@@ -250,6 +250,8 @@ namespace Duel6 {
 
     void LegacyShot::addPlayerExplosion(Player &player, World &world) {
         player.removeBody();
+        world.emitGameplayEvent({"explosion", {}, 0, player.getRosterSlot(),
+                                 player.getRosterSlot(), "player", 1});
 #ifndef D6R_HEADLESS_CORE
         world.getExplosionList().add(player.getCentre(), 0.5f, 1.2f, getPlayerExplosionColor());
 #else
