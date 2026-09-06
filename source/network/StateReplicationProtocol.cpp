@@ -1,5 +1,6 @@
 #include "StateReplicationProtocol.h"
 
+#include <algorithm>
 #include <limits>
 #include <stdexcept>
 #include <type_traits>
@@ -427,7 +428,9 @@ namespace Duel6::Network::Replication {
         if (applied == ApplyResult::Applied) {
             const auto *state = replicated.state();
             const auto latency = quality.currentRoundTripLatency().value_or(std::chrono::milliseconds::zero());
-            const auto estimatedStateAge = latency / 2;
+            auto estimatedStateAge = latency / 2;
+            if (const auto previousStateAge = quality.currentStateAge(acceptedAt))
+                estimatedStateAge = std::min(estimatedStateAge, *previousStateAge);
             if (!state || !movement.accept(replicated.version(), *state, acceptedAt)) {
                 replicated.requireResynchronization();
                 beginResynchronization();
