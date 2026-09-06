@@ -117,6 +117,56 @@ normal application shutdown, crash, or forced termination → no guest NET-09 cl
 
 Back from `NET-01` returns to `MENU-01`. `Play (F1)` remains local-only and does not enter this graph. Match admission closes at `NET-04` → `NET-05`; the target has no join-in-progress or host-migration path.
 
+## Optional Stitch mapping
+
+This mapping was reviewed on 2026-09-06 against canonical source SHA `ba35e6b5b3a1beafdcc761b27cc454c3d0235e01`.
+The optional project is `projects/1219346282527961142`.
+Its title is `Duel 6 Reloaded`.
+Its visibility is private.
+The authenticated access role is `OWNER`.
+The mapping contains all 20 active stable screen IDs and all 21 active wireframes.
+The mapping treats the repository as authoritative.
+The mapping does not include retired `PLAY-02`, `PLAY-03`, or `PLAY-04` artifacts.
+The mapping does not change the separate implementation screenshot manifest.
+
+The classification describes only the value of the Stitch artifact for the current canonical wireframe.
+`current` means that the reviewed artifact represents the complete current wireframe without a known discrepancy.
+`partial` means that the artifact represents the primary task or hierarchy but does not establish complete conformance.
+`exploratory` means that the artifact provides a visual direction that the product has not approved.
+`stale` means that a later canonical change superseded part of the artifact.
+`conflicting` means that the artifact contradicts current canonical intent.
+`unavailable` means that the reviewed project has no applicable artifact.
+
+| Stable screen ID | Stable wireframe ID | Product status | Stitch screen artifact | Classification | Current limitation |
+|---|---|---|---|---|---|
+| `MENU-01` | `MENU-01-A` Non-Team | Implemented | `681ae093051749fd922ab74454f47121` | `stale` | The artifact remains a retro-menu reference, but it predates the current three-panel layout, scaled photographic background, consolidated Persons list, action alignment, and planned Network footer. |
+| `MENU-01` | `MENU-01-B` Teams | Implemented | `e26294cba3d946a0af458bcf33c275a0` | `stale` | The closest second menu exploration does not identify the Teams variant and does not establish the current conditional controls or Team setup. |
+| `MENU-02` | `MENU-02` | Planned | `ec20957d0fef4060aa75de4b05750eb3` | `stale` | The artifact predates the planned Network footer and is not implementation evidence. |
+| `PLAY-01` | `PLAY-01` | Implemented | `16de03a3b36e4447bbb1d28317b7bfea` | `partial` | The artifact is a useful native-baseline reference, but Stitch does not establish current 15-player implementation conformance. |
+| `PLAY-05` | `PLAY-05` | Implemented | `323a56ca56204f669cc4c13bc14b44b9` | `partial` | The artifact represents sudden death in one shared arena, but it does not establish all current water, status, and overlay details. |
+| `MODE-01` | `MODE-01` | Implemented | `0229745065204f29905aa41ad0b09bd8` | `partial` | The artifact represents Predator play, but it does not establish complete native rendering and HUD conformance. |
+| `MODE-02` | `MODE-02` | Implemented | `50a748fc2039487986e9480120c909ec` | `partial` | The artifact represents Team play and ranking, but it does not establish complete current Team identity and HUD conformance. |
+| `OVER-01` | `OVER-01` | Implemented | `172c3e16a6424bf1a7d95723038f3e43` | `stale` | The read-back does not confirm the later Team-group separator treatment. |
+| `OVER-02` | `OVER-02` | Implemented | `46c697bc75274ba9a668b0641e077dc0` | `stale` | The read-back does not confirm the later separator treatment or current right-aligned round-progress row. |
+| `OVER-03` | `OVER-03` | Implemented | `371ac0d850314ed49e0b6575e53caeac` | `stale` | The artifact predates the current final Team separators and separate `End of Game` notice. |
+| `CONS-01` | `CONS-01` | Planned | `d0ea32a65fe54e7b955fd41df3e59c17` | `stale` | The artifact predates the planned Network footer and is not implementation evidence. |
+| `CONS-02` | `CONS-02` | Implemented | `45c9fba682d940b1bd3c38196d530800` | `partial` | The artifact represents the console over one gameplay context, but it does not establish complete native console and shared-arena conformance. |
+| `NET-01` | `NET-01` | Planned | — | `unavailable` | The project has no applicable target network-entry artifact. |
+| `NET-02` | `NET-02` | Planned | — | `unavailable` | The project has no applicable target host-setup artifact. |
+| `NET-03` | `NET-03` | Planned | — | `unavailable` | The project has no applicable target join or connecting artifact. |
+| `NET-04` | `NET-04` | Planned | — | `unavailable` | The project has no applicable target lobby artifact. |
+| `NET-05` | `NET-05` | Planned | — | `unavailable` | The project has no applicable target network-match artifact. |
+| `NET-06` | `NET-06` | Planned | — | `unavailable` | The project has no applicable target completed-summary artifact. |
+| `NET-07` | `NET-07` | Planned | — | `unavailable` | The project has no applicable target reconnect artifact. |
+| `NET-08` | `NET-08` | Planned | — | `unavailable` | The project has no applicable target failure artifact. |
+| `NET-09` | `NET-09` | Planned | — | `unavailable` | The project has no applicable target host-ended artifact. |
+
+This review used read-only project, inventory, and screen read-back operations.
+No mass regeneration was useful because the available artifacts already provide supplementary references for implemented screens and the network UI remains planned.
+No Stitch mutation was made.
+The mapping meets issue #16 completion condition 1 because it is current for the complete active inventory and it documents every limitation.
+This completion condition does not imply product acceptance, runtime implementation, network implementation, or planned screenshot completion.
+
 ## Coverage rules
 
 The current authoritative inventory contains 20 stable screen IDs and 21 wireframes.
