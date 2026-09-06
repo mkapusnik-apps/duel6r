@@ -293,19 +293,22 @@ namespace Duel6::Network::Responsiveness {
 
         const bool sameRound = acceptedVersion && state.matchId == acceptedMatchId
                                && roundId != 0 && roundId == acceptedRoundId;
+        const bool resynchronized = waitingForFullState;
         std::map<Replication::Identity, Motion> next;
         std::set<Replication::Identity> nextPredictableLocalPlayers;
         for (const auto &player: state.players) {
             const PresentedPlayerPose target = pose(player);
             PresentedPlayerPose from = target;
             const auto prior = motion.find(player.playerId);
-            if (sameRound && prior != motion.end()) from = interpolate(prior->second, acceptedAt);
+            if (sameRound && !resynchronized && prior != motion.end())
+                from = interpolate(prior->second, acceptedAt);
             const bool local = localPlayers.count(player.playerId) != 0
                                && player.lifeState == Replication::LifeState::Alive;
             if (local) nextPredictableLocalPlayers.insert(player.playerId);
             next.emplace(player.playerId, Motion{from, target, acceptedAt,
-                    sameRound ? (local ? MaximumCorrectionTime : CanonicalUpdateInterval)
-                              : std::chrono::milliseconds::zero()});
+                    sameRound && !resynchronized
+                    ? (local ? MaximumCorrectionTime : CanonicalUpdateInterval)
+                               : std::chrono::milliseconds::zero()});
         }
         motion = std::move(next);
         predictableLocalPlayers = std::move(nextPredictableLocalPlayers);

@@ -2900,6 +2900,137 @@ D6R_TEST_CASE("NRP implausibly future staged initial snapshot is discarded witho
     verifyEnvironment(N::Environment::PrivateLan, 100ms, 50);
 }
 
+D6R_TEST_CASE("REP-042 REP-054 REP-059 NRP future full snapshots renew recovery without mutating fresh or retained state") {
+    const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
+    constexpr std::uint64_t HostEpoch = 4000;
+    const auto calibrate = [&](R::ClientReplicationConnection &client,
+                               std::vector<std::vector<std::uint8_t>> &sent) {
+        D6R_REQUIRE(client.sampleNetwork(at(0ms)));
+        const auto probe = R::deserializeReplicationFrame(sent.back());
+        D6R_REQUIRE(probe && probe->qualitySequence);
+        D6R_REQUIRE(client.receive(R::serializeQualityResponse(
+                *probe->qualitySequence, HostEpoch + 10), at(20ms))
+                    == R::ClientReplicationResult::NetworkSampled);
+    };
+
+    // A calibrated client with no baseline rejects a future complete frame, requests a
+    // replacement, and keeps every state, movement, event, and timing surface pristine.
+    std::vector<std::vector<std::uint8_t>> freshSent;
+    R::ClientReplicationConnection fresh([&](auto payload) {
+        freshSent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+    fresh.setLocallyControlledPlayers({101});
+    calibrate(fresh, freshSent);
+    auto rejectedFreshState = activeState();
+    rejectedFreshState.phaseTime = 900;
+    rejectedFreshState.players[0].positionX = 9000;
+    R::WorldEntityState staleEntity;
+    staleEntity.entityId = 77;
+    staleEntity.kind = R::EntityKind::Explosion;
+    staleEntity.type = "stale";
+    staleEntity.positionX = 9;
+    staleEntity.positionY = 9;
+    staleEntity.lifecycle = "active";
+    rejectedFreshState.entities.push_back(staleEntity);
+    R::FullSnapshot rejectedFresh{9, rejectedFreshState};
+    rejectedFresh.authoritativeProducedAt = HostEpoch + 41;
+    D6R_REQUIRE(fresh.receive(R::serializeReplicationSnapshot(rejectedFresh), at(30ms))
+                == R::ClientReplicationResult::WaitingForSnapshot);
+    D6R_REQUIRE_EQ(std::size_t{2}, freshSent.size());
+    D6R_REQUIRE_EQ(R::StateVersion{0}, fresh.replicatedState().version());
+    D6R_REQUIRE(!fresh.replicatedState().current());
+    D6R_REQUIRE(fresh.replicatedState().state() == nullptr);
+    D6R_REQUIRE(fresh.replicatedState().retainedState() == nullptr);
+    D6R_REQUIRE(fresh.presentedPlayers(at(30ms)).empty());
+    D6R_REQUIRE(!fresh.predictLocalMovement({101, 1234, 0, false, false}, at(30ms)));
+    D6R_REQUIRE(fresh.takePresentationEvents().empty());
+
+    auto freshValidState = activeState();
+    freshValidState.phaseTime = 31;
+    freshValidState.players[0].positionX = 1300;
+    R::FullSnapshot freshValid{1, freshValidState};
+    freshValid.authoritativeProducedAt = HostEpoch + 30;
+    D6R_REQUIRE(fresh.receive(R::serializeReplicationSnapshot(freshValid), at(30ms))
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE_EQ(R::StateVersion{1}, fresh.replicatedState().version());
+    D6R_REQUIRE_EQ(std::int64_t{1300}, presented(fresh.presentedPlayers(at(30ms)), 101).positionX);
+    D6R_REQUIRE(entity(*fresh.replicatedState().state(), 77) == nullptr);
+    D6R_REQUIRE(fresh.takePresentationEvents().empty());
+
+    // During an already active resynchronization, each future full snapshot is a failed
+    // replacement rather than completion of the attempt, so it renews exactly one request.
+    std::vector<std::vector<std::uint8_t>> activeSent;
+    R::ClientReplicationConnection active([&](auto payload) {
+        activeSent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+    active.setLocallyControlledPlayers({101});
+    calibrate(active, activeSent);
+    auto baselineState = activeState();
+    baselineState.players[0].positionX = 1400;
+    R::FullSnapshot baseline{1, baselineState};
+    baseline.authoritativeProducedAt = HostEpoch + 20;
+    D6R_REQUIRE(active.receive(R::serializeReplicationSnapshot(baseline), at(20ms))
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE(active.predictLocalMovement({101, 1450, 50, true, true}, at(21ms)));
+    const auto retainedBytes = R::serializeReplicationSnapshot({1, *active.replicatedState().state()});
+
+    auto invalidUpdate = validUpdate(baselineState, baselineState, {{801, "shot", 101, 102, 0, 1}});
+    invalidUpdate.baseline = 99;
+    invalidUpdate.version = 100;
+    invalidUpdate.authoritativeProducedAt = HostEpoch + 30;
+    D6R_REQUIRE(active.receive(R::serializeReplicationUpdate(invalidUpdate), at(30ms))
+                == R::ClientReplicationResult::WaitingForSnapshot);
+    D6R_REQUIRE_EQ(std::size_t{2}, activeSent.size());
+    D6R_REQUIRE(!active.replicatedState().current());
+    D6R_REQUIRE(active.replicatedState().state() == nullptr);
+    D6R_REQUIRE_EQ(retainedBytes, R::serializeReplicationSnapshot(
+            {1, *active.replicatedState().retainedState()}));
+    D6R_REQUIRE(active.takePresentationEvents().empty());
+    const auto retainedPose = presented(active.presentedPlayers(at(30ms)), 101);
+
+    auto rejectedReplacementState = baselineState;
+    rejectedReplacementState.phaseTime = 999;
+    rejectedReplacementState.players[0].positionX = 9999;
+    rejectedReplacementState.entities.clear();
+    R::FullSnapshot rejectedReplacement{8, rejectedReplacementState};
+    rejectedReplacement.authoritativeProducedAt = HostEpoch + 51;
+    D6R_REQUIRE(active.receive(R::serializeReplicationSnapshot(rejectedReplacement), at(40ms))
+                == R::ClientReplicationResult::WaitingForSnapshot);
+    D6R_REQUIRE_EQ(std::size_t{3}, activeSent.size());
+    const auto renewedRequest = R::deserializeReplicationFrame(activeSent.back());
+    D6R_REQUIRE(renewedRequest);
+    D6R_REQUIRE_EQ(R::ReplicationFrameKind::ResynchronizationRequest, renewedRequest->kind);
+    D6R_REQUIRE_EQ(R::StateVersion{1}, active.replicatedState().version());
+    D6R_REQUIRE(!active.replicatedState().current());
+    D6R_REQUIRE_EQ(retainedBytes, R::serializeReplicationSnapshot(
+            {1, *active.replicatedState().retainedState()}));
+    const auto rejectedPose = presented(active.presentedPlayers(at(40ms)), 101);
+    D6R_REQUIRE_EQ(retainedPose.positionX, rejectedPose.positionX);
+    D6R_REQUIRE_EQ(retainedPose.positionY, rejectedPose.positionY);
+    D6R_REQUIRE(active.takePresentationEvents().empty());
+
+    auto convergedState = baselineState;
+    convergedState.phaseTime = 40;
+    convergedState.players[0].positionX = 1600;
+    convergedState.entities.clear();
+    R::FullSnapshot converged{2, convergedState};
+    converged.authoritativeProducedAt = HostEpoch + 40;
+    D6R_REQUIRE(active.receive(R::serializeReplicationSnapshot(converged), at(40ms))
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE_EQ(R::StateVersion{2}, active.replicatedState().version());
+    D6R_REQUIRE(active.replicatedState().current());
+    D6R_REQUIRE_EQ(std::uint64_t{40}, active.replicatedState().state()->phaseTime);
+    D6R_REQUIRE_EQ(std::int64_t{1600}, presented(active.presentedPlayers(at(40ms)), 101).positionX);
+    D6R_REQUIRE(active.replicatedState().state()->entities.empty());
+    D6R_REQUIRE(active.takePresentationEvents().empty());
+    const auto presentation = active.presentationState(at(40ms));
+    D6R_REQUIRE(presentation.canonicalStateCurrent);
+    D6R_REQUIRE(!presentation.resynchronizing);
+    D6R_REQUIRE(!presentation.reconnecting);
+}
+
 D6R_TEST_CASE("NRP calibrated clients reject bounded-future timestamps without consuming state or time") {
     const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
     const auto verifyEnvironment = [&](N::Environment environment,

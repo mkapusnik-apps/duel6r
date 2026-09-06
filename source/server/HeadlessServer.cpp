@@ -440,6 +440,7 @@ namespace {
                            != Duel6::Network::Replication::ReplicationFrameKind::IncrementalUpdate
                         && replication->kind != Duel6::Network::Replication::ReplicationFrameKind::QualityResponse)
                         throw std::invalid_argument("Invalid initial replication snapshot");
+                    if (!beforeDeadline) return GuestFrameDecision();
                     const auto result = replicatedConnection.receive(frame.payload, frame.receivedAt);
                     if (((replication->kind == Duel6::Network::Replication::ReplicationFrameKind::FullSnapshot
                           || replication->kind
