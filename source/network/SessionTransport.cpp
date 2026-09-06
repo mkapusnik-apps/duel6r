@@ -1162,7 +1162,7 @@ namespace Duel6::Network {
                 }
                 if (kind == ApplicationFrame && !admissionComplete.load()) {
                     const unsigned frame = admissionFramesReceived.fetch_add(1);
-                    const unsigned allowed = admissionAcceptancePermitted.load() ? 2u : 1u;
+                    const unsigned allowed = admissionAcceptancePermitted.load() ? 3u : 1u;
                     if (payloadSize > Trust::MaxAdmissionPayloadBytes || frame >= allowed) {
                         fail(TransportFailure::ProtocolViolation);
                         break;

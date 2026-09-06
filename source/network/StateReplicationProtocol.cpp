@@ -487,6 +487,17 @@ namespace Duel6::Network::Replication {
 
     ClientReplicationResult ClientReplicationConnection::receive(
             const std::vector<std::uint8_t> &payload, Responsiveness::TimePoint acceptedAt) {
+        return receive(payload, acceptedAt, false);
+    }
+
+    ClientReplicationResult ClientReplicationConnection::receiveInitialAdmissionFrame(
+            const std::vector<std::uint8_t> &payload, Responsiveness::TimePoint acceptedAt) {
+        return receive(payload, acceptedAt, true);
+    }
+
+    ClientReplicationResult ClientReplicationConnection::receive(
+            const std::vector<std::uint8_t> &payload, Responsiveness::TimePoint acceptedAt,
+            bool initialAdmissionCalibration) {
         if (reconnecting) return ClientReplicationResult::Reconnecting;
         const auto frame = deserializeReplicationFrame(payload);
         if (!frame) {
@@ -511,6 +522,7 @@ namespace Duel6::Network::Replication {
                 return ClientReplicationResult::Reconnecting;
             }
             const auto elapsed = *elapsedValue;
+            bool missedQualityDeadline = false;
             if (elapsed >= Responsiveness::QualityProbeDeadline) {
                 const auto deadline = addMilliseconds(
                         *qualityProbeSentAt, Responsiveness::QualityProbeDeadline);
@@ -521,8 +533,11 @@ namespace Duel6::Network::Replication {
                 recordQualityOutcome(true, quality.currentRoundTripLatency().value_or(
                         Responsiveness::QualityProbeDeadline),
                         *deadline);
-                qualityProbeSentAt.reset();
-                return ClientReplicationResult::NetworkSampled;
+                missedQualityDeadline = true;
+                if (!initialAdmissionCalibration || localClockSynchronizedAt) {
+                    qualityProbeSentAt.reset();
+                    return ClientReplicationResult::NetworkSampled;
+                }
             }
             if (frame->authoritativeResponseAt && *frame->authoritativeResponseAt != 0) {
                 const auto halfRoundTrip = static_cast<std::uint64_t>(elapsed.count() / 2);
@@ -547,7 +562,7 @@ namespace Duel6::Network::Replication {
                         measuredUncertainty, maximumAuthoritativeClockUncertainty);
             }
             qualityProbeSentAt.reset();
-            recordQualityOutcome(false, elapsed, acceptedAt);
+            if (!missedQualityDeadline) recordQualityOutcome(false, elapsed, acceptedAt);
             if (pendingAuthoritativeProducedAt && pendingCanonicalAcceptedAt) {
                 const auto age = authoritativeStateAge(
                         *pendingAuthoritativeProducedAt, *pendingCanonicalAcceptedAt);

@@ -400,9 +400,11 @@ namespace {
             result.playerIds = admissionConfirmation->playerIds;
             return GuestFrameDecision(GuestDecision::Admitted, std::move(result));
         };
-        const auto processFrame = [&](const Duel6::Network::TransportFrame &frame) -> GuestFrameDecision {
+        const auto processFrame = [&](const Duel6::Network::TransportFrame &frame,
+                                      bool allowOutboundExchange) -> GuestFrameDecision {
             if (cancelled()) return GuestFrameDecision(GuestDecision::Cancelled);
             const bool beforeDeadline = frame.receivedAt < deadline;
+            if (!beforeDeadline) return GuestFrameDecision();
             try {
                 if (!acceptedOffer) {
                     try {
@@ -410,7 +412,7 @@ namespace {
                                 Duel6::Network::deserializeAdmissionOffer(frame.payload);
                         if (!Duel6::Network::validAdmissionIdentitySet(offer, request.localPlayerCount))
                             throw std::invalid_argument("Admission offer does not match the request");
-                        if (!beforeDeadline) return GuestFrameDecision();
+                        if (!allowOutboundExchange) return GuestFrameDecision();
                         Duel6::Network::AdmissionAcceptanceEnqueueResult queued =
                                 Duel6::Network::AdmissionAcceptanceEnqueueResult::NotQueued;
                         try {
@@ -425,11 +427,13 @@ namespace {
                         if (queued != Duel6::Network::AdmissionAcceptanceEnqueueResult::Accepted)
                             return GuestFrameDecision(GuestDecision::Ended);
                         acceptedOffer = std::move(offer);
+                        if (runtimeDependencies.productionReplicationProtocol
+                            && !replicatedConnection.sampleNetwork(runtimeNow(runtimeDependencies)))
+                            return GuestFrameDecision(GuestDecision::Ended);
                         return GuestFrameDecision();
                     } catch (...) {
                         const Duel6::Network::AdmissionResult rejection =
                                 Duel6::Network::deserializeAdmissionResult(frame.payload);
-                        if (!beforeDeadline) return {};
                         return GuestFrameDecision(GuestDecision::Rejected, rejection);
                     }
                 }
@@ -440,8 +444,8 @@ namespace {
                            != Duel6::Network::Replication::ReplicationFrameKind::IncrementalUpdate
                         && replication->kind != Duel6::Network::Replication::ReplicationFrameKind::QualityResponse)
                         throw std::invalid_argument("Invalid initial replication snapshot");
-                    if (!beforeDeadline) return GuestFrameDecision();
-                    const auto result = replicatedConnection.receive(frame.payload, frame.receivedAt);
+                    const auto result = replicatedConnection.receiveInitialAdmissionFrame(
+                            frame.payload, frame.receivedAt);
                     if (((replication->kind == Duel6::Network::Replication::ReplicationFrameKind::FullSnapshot
                           || replication->kind
                              == Duel6::Network::Replication::ReplicationFrameKind::IncrementalUpdate)
@@ -457,7 +461,6 @@ namespace {
                         Duel6::Network::deserializeAdmissionConfirmation(frame.payload);
                 if (!Duel6::Network::sameAdmissionIdentitySet(*acceptedOffer, confirmation))
                     throw std::invalid_argument("Admission confirmation does not match the offer");
-                if (!beforeDeadline) return GuestFrameDecision();
                 if (admissionConfirmation)
                     throw std::invalid_argument("Duplicate admission confirmation");
                 admissionConfirmation = confirmation;
@@ -552,8 +555,9 @@ namespace {
             }
             if (cancelAttempt()) return 2;
             for (const auto &queued: snapshot.frames) {
-                if (const auto finished = publish(processFrame(queued))) return *finished;
+                if (const auto finished = publish(processFrame(queued, false))) return *finished;
                 if (sessionAdmitted) {
+                    publishPresentation();
                     replicatedConnection.transportClosed();
                     closeClient();
                     return 2;
@@ -576,7 +580,7 @@ namespace {
             Duel6::Network::ClientState state = Duel6::Network::ClientState::Failed;
             try { state = connection->state(); } catch (...) {}
             if (runtimeNow(runtimeDependencies) >= deadline || isTerminal(state)) return sealAndFinish();
-            if (runtimeDependencies.productionReplicationProtocol && admissionConfirmation
+            if (runtimeDependencies.productionReplicationProtocol && acceptedOffer
                 && !replicatedConnection.sampleNetwork(runtimeNow(runtimeDependencies))) {
                 if (const auto finished = publish(GuestFrameDecision(GuestDecision::Ended)))
                     return *finished;
@@ -592,7 +596,7 @@ namespace {
                 return 2;
             }
             if (received) {
-                if (const auto finished = publish(processFrame(frame))) return *finished;
+                if (const auto finished = publish(processFrame(frame, true))) return *finished;
                 if (sessionAdmitted) break;
                 if (runtimeNow(runtimeDependencies) >= deadline) return sealAndFinish();
                 continue;

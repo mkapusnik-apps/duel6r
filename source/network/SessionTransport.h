@@ -202,7 +202,7 @@ namespace Duel6::Network {
         TransportTimePoint terminalAt() const;
         // Releases only the pre-admission accounting reservation. Session policy owns identity/authority.
         void markAdmissionSucceeded();
-        // Allows exactly one bounded admission-acceptance frame after the initial request.
+        // Allows the bounded admission acceptance and initial clock-calibration probe after the request.
         bool permitAdmissionAcceptance();
         void revokeAdmissionAcceptance();
 
