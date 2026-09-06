@@ -92,6 +92,7 @@ namespace Duel6::Network::Replication {
         std::vector<PresentationEvent> takePresentationEvents();
         void transportClosed() noexcept;
         const ReplicatedState &replicatedState() const noexcept;
+        const CanonicalState *initialAdmissionState() const noexcept;
     private:
         ReplicationSender sender;
         ReplicatedState replicated;
@@ -104,6 +105,12 @@ namespace Duel6::Network::Replication {
         std::optional<std::uint64_t> authoritativeClockAtSynchronization;
         std::optional<FullSnapshot> pendingInitialSnapshot;
         std::optional<Responsiveness::TimePoint> pendingInitialSnapshotAcceptedAt;
+        struct PendingInitialFrame {
+            std::vector<std::uint8_t> payload;
+            Responsiveness::TimePoint acceptedAt;
+        };
+        std::deque<PendingInitialFrame> pendingInitialFrames;
+        std::optional<CanonicalState> acceptedInitialAdmissionState;
         std::optional<std::uint64_t> pendingAuthoritativeProducedAt;
         std::optional<Responsiveness::TimePoint> pendingCanonicalAcceptedAt;
         std::deque<bool> qualityProbeOutcomes;

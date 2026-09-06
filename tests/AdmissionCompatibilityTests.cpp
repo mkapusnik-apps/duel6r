@@ -1921,8 +1921,14 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
             scenarios.push_back({path, completion, 10001ms});
         }
     }
+    // Both paths consume a calibration response whose measured RTT has already crossed the
+    // 250 ms probe timeout. The normal path proves ordinary polling does not invalidate the
+    // queued response; the sealed path proves a complete predeadline exchange may be deferred
+    // through the total deadline and still finish admission.
+    scenarios.push_back({DeliveryPath::NormalReceive,
+                          CompletionFrame::CompleteBeforeDeadline, 251ms});
     scenarios.push_back({DeliveryPath::SealedDrain,
-                         CompletionFrame::CompleteBeforeDeadline, 9999ms});
+                          CompletionFrame::CompleteBeforeDeadline, 9999ms});
 
     for (const auto scenario: scenarios) {
         const auto port = unusedLoopbackPort();
@@ -1990,9 +1996,13 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
                 R::FullSnapshot snapshot{1, admissionLobby({11, 12})};
                 snapshot.authoritativeProducedAt = 1;
                 const auto snapshotAt = scenario.completion == CompletionFrame::Snapshot
-                                        ? scenario.completionAt : 9998ms;
+                                        ? scenario.completionAt
+                                        : scenario.completion == CompletionFrame::CompleteBeforeDeadline
+                                          ? scenario.completionAt - 1ms : 9998ms;
                 const auto qualityAt = scenario.completion == CompletionFrame::QualityResponse
-                                       ? scenario.completionAt : 9999ms;
+                                       ? scenario.completionAt
+                                       : scenario.completion == CompletionFrame::CompleteBeforeDeadline
+                                         ? scenario.completionAt : 9999ms;
                 if (scenario.completion == CompletionFrame::Snapshot) {
                     send(R::serializeQualityResponse(*probe->qualitySequence, 1), qualityAt);
                     send(R::serializeReplicationSnapshot(snapshot), snapshotAt);

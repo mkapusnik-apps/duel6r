@@ -192,8 +192,9 @@ namespace Duel6::Network {
                 const std::function<TransportTimePoint()> &now,
                 TransportTimePoint deadline);
         bool receive(TransportFrame &frame);
-        // Atomically prevents later inbound application delivery and drains every frame
-        // queued before the seal together with terminal state at that linearization point.
+        // Atomically pauses later inbound application delivery and drains every frame queued
+        // before the seal together with terminal state at that linearization point. A successful
+        // admission resumes delivery; every other outcome closes the connection.
         TransportInputSnapshot sealAndDrainInput();
         ClientState state() const;
         TransportFailure failure() const;

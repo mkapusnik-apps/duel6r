@@ -984,6 +984,7 @@ namespace Duel6::Network {
                 closeRequested.store(true);
                 outputChanged.notify_all();
             }
+            inputSealChanged.notify_all();
         }
 
         std::array<std::uint8_t, 4> sourceIpv4() const { return source; }
@@ -994,6 +995,11 @@ namespace Duel6::Network {
             admissionComplete.store(true);
             if (admissionReservation) admissionReservation->release();
             admissionReservation.reset();
+            {
+                std::lock_guard<std::mutex> lock(inputMutex);
+                inputSealed = false;
+            }
+            inputSealChanged.notify_all();
         }
 
         bool permitAdmissionAcceptance() {
@@ -1028,6 +1034,7 @@ namespace Duel6::Network {
         std::deque<TransportFrame> input;
         std::size_t inputBytes = 0;
         bool inputSealed = false;
+        std::condition_variable inputSealChanged;
         std::mutex outputMutex;
         std::condition_variable outputChanged;
         std::deque<PendingFrame> applicationOutput;
@@ -1194,11 +1201,9 @@ namespace Duel6::Network {
                 }
 
                 std::unique_lock<std::mutex> lock(inputMutex);
-                if (inputSealed) {
-                    lock.unlock();
-                    Trust::processQueueBudget().release(payload.size());
-                    break;
-                }
+                inputSealChanged.wait(lock, [&] {
+                    return !inputSealed || stop.load() || state.load() != ClientState::Connected;
+                });
                 const auto blockedSince = Clock::now();
                 while ((input.size() >= MaxQueuedTransportFrames
                         || inputBytes + payload.size() > MaxQueuedTransportPayloadBytes) && !stop.load()) {
@@ -1212,7 +1217,7 @@ namespace Duel6::Network {
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                     lock.lock();
                 }
-                if (stop.load() || inputSealed) {
+                if (stop.load() || state.load() != ClientState::Connected) {
                     Trust::processQueueBudget().release(payload.size());
                     break;
                 }

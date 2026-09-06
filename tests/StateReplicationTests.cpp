@@ -2810,6 +2810,258 @@ D6R_TEST_CASE("NRP valid initial snapshot remains staged until clock calibration
     D6R_REQUIRE(!calibratedPresentation.resynchronizing);
 }
 
+D6R_TEST_CASE("AC-002 AC-021 NRP predeadline calibration survives the 250 ms probe timeout and later sampling") {
+    const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
+    constexpr std::uint64_t HostResponseAt = 2000;
+    std::vector<std::vector<std::uint8_t>> sent;
+    R::ClientReplicationConnection client([&](auto payload) {
+        sent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+
+    D6R_REQUIRE(client.sampleNetwork(at(0ms)));
+    const auto firstProbe = R::deserializeReplicationFrame(sent.back());
+    D6R_REQUIRE(firstProbe && firstProbe->qualitySequence);
+
+    auto state = activeState();
+    state.players[0].positionX = 1200;
+    R::FullSnapshot staged{1, state};
+    // A 300 ms response synchronizes at host time 2150. At the snapshot's receipt time the
+    // calibrated host clock is 1860, so this complete frame remains valid when consumed later.
+    staged.authoritativeProducedAt = 1860;
+    D6R_REQUIRE(client.receiveInitialAdmissionFrame(
+            R::serializeReplicationSnapshot(staged), at(10ms))
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE_EQ(R::StateVersion{0}, client.replicatedState().version());
+
+    D6R_REQUIRE(client.receiveInitialAdmissionFrame(R::serializeQualityResponse(
+            *firstProbe->qualitySequence, HostResponseAt), at(300ms))
+                == R::ClientReplicationResult::NetworkSampled);
+    D6R_REQUIRE_EQ(R::StateVersion{1}, client.replicatedState().version());
+    D6R_REQUIRE(client.replicatedState().current());
+    D6R_REQUIRE_EQ(std::int64_t{1200},
+                   client.replicatedState().state()->players[0].positionX);
+
+    // Sampling at the same application time starts the next ordinary probe but must not erase
+    // the completed admission calibration or reprocess the staged canonical state.
+    D6R_REQUIRE(client.sampleNetwork(at(300ms)));
+    D6R_REQUIRE_EQ(std::size_t{2}, sent.size());
+    const auto secondProbe = R::deserializeReplicationFrame(sent.back());
+    D6R_REQUIRE(secondProbe && secondProbe->qualitySequence
+                && *secondProbe->qualitySequence == *firstProbe->qualitySequence + 1);
+    D6R_REQUIRE_EQ(R::StateVersion{1}, client.replicatedState().version());
+    D6R_REQUIRE(client.replicatedState().current());
+    D6R_REQUIRE(client.takePresentationEvents().empty());
+
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(state));
+    state.phaseTime++;
+    state.players[0].positionX = 1400;
+    auto update = publisher.publish(state, {{710, "shot", 101, 102, 0, 1}});
+    D6R_REQUIRE(update.has_value());
+    update->authoritativeProducedAt = 2151;
+    D6R_REQUIRE(client.receive(R::serializeReplicationUpdate(*update), at(301ms))
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE_EQ(R::StateVersion{2}, client.replicatedState().version());
+    D6R_REQUIRE_EQ(std::int64_t{1400},
+                   client.replicatedState().state()->players[0].positionX);
+    D6R_REQUIRE_EQ(std::size_t{1}, client.takePresentationEvents().size());
+}
+
+D6R_TEST_CASE("REP-042 NRP future full snapshots are atomic before admission and on established connections") {
+    const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
+    constexpr std::uint64_t HostEpoch = 4000;
+    const auto samePresentation = [](const N::ConnectionPresentationState &left,
+                                     const N::ConnectionPresentationState &right) {
+        return left.canonicalStateCurrent == right.canonicalStateCurrent
+               && left.degraded == right.degraded
+               && left.resynchronizing == right.resynchronizing
+               && left.reconnecting == right.reconnecting
+               && left.retainingLastConfirmedState == right.retainingLastConfirmedState
+               && left.degradedText == right.degradedText
+               && left.retainedStateText == right.retainedStateText
+               && left.synchronizationText == right.synchronizationText
+               && left.reconnectingText == right.reconnectingText;
+    };
+    const auto samePoses = [](const std::vector<N::PresentedPlayerPose> &left,
+                              const std::vector<N::PresentedPlayerPose> &right) {
+        if (left.size() != right.size()) return false;
+        for (std::size_t index = 0; index < left.size(); ++index) {
+            if (left[index].playerId != right[index].playerId
+                || left[index].positionX != right[index].positionX
+                || left[index].positionY != right[index].positionY
+                || left[index].facingLeft != right[index].facingLeft
+                || left[index].crouching != right[index].crouching)
+                return false;
+        }
+        return true;
+    };
+    const auto calibrate = [&](R::ClientReplicationConnection &client,
+                               std::vector<std::vector<std::uint8_t>> &sent) {
+        D6R_REQUIRE(client.sampleNetwork(at(0ms)));
+        const auto probe = R::deserializeReplicationFrame(sent.back());
+        D6R_REQUIRE(probe && probe->qualitySequence);
+        D6R_REQUIRE(client.receive(R::serializeQualityResponse(
+                *probe->qualitySequence, HostEpoch + 10), at(20ms))
+                    == R::ClientReplicationResult::NetworkSampled);
+    };
+
+    // Before initial admission, rejection must not manufacture any current, retained, event,
+    // movement, prediction, quality, degradation, synchronization, or reconnecting surface.
+    std::vector<std::vector<std::uint8_t>> freshSent;
+    R::ClientReplicationConnection fresh([&](auto payload) {
+        freshSent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+    fresh.setLocallyControlledPlayers({101});
+    calibrate(fresh, freshSent);
+    const auto freshPresentationBefore = fresh.presentationState(at(30ms));
+    const auto freshPosesBefore = fresh.presentedPlayers(at(30ms));
+    D6R_REQUIRE(!fresh.predictLocalMovement({101, 5000, 0, true, true}, at(30ms)));
+    D6R_REQUIRE(fresh.takePresentationEvents().empty());
+
+    auto hostileFreshState = activeState();
+    hostileFreshState.players[0].positionX = 9000;
+    R::FullSnapshot hostileFresh{9, hostileFreshState};
+    hostileFresh.authoritativeProducedAt = HostEpoch + 41;
+    D6R_REQUIRE(fresh.receive(R::serializeReplicationSnapshot(hostileFresh), at(30ms))
+                == R::ClientReplicationResult::WaitingForSnapshot);
+    D6R_REQUIRE_EQ(R::StateVersion{0}, fresh.replicatedState().version());
+    D6R_REQUIRE(!fresh.replicatedState().current());
+    D6R_REQUIRE(fresh.replicatedState().state() == nullptr);
+    D6R_REQUIRE(fresh.replicatedState().retainedState() == nullptr);
+    D6R_REQUIRE(samePoses(freshPosesBefore, fresh.presentedPlayers(at(30ms))));
+    D6R_REQUIRE(!fresh.predictLocalMovement({101, 5000, 0, true, true}, at(30ms)));
+    D6R_REQUIRE(fresh.takePresentationEvents().empty());
+    D6R_REQUIRE(samePresentation(freshPresentationBefore, fresh.presentationState(at(30ms))));
+
+    auto admittedState = activeState();
+    admittedState.players[0].positionX = 1300;
+    R::FullSnapshot admitted{1, admittedState};
+    admitted.authoritativeProducedAt = HostEpoch + 30;
+    D6R_REQUIRE(fresh.receive(R::serializeReplicationSnapshot(admitted), at(30ms))
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE_EQ(R::StateVersion{1}, fresh.replicatedState().version());
+    D6R_REQUIRE_EQ(std::int64_t{1300},
+                   fresh.replicatedState().state()->players[0].positionX);
+
+    // Repeat on a current established connection with retained canonical context and an active
+    // local prediction. The rejected complete frame must not start synchronization or degradation.
+    std::vector<std::vector<std::uint8_t>> establishedSent;
+    R::ClientReplicationConnection established([&](auto payload) {
+        establishedSent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+    established.setLocallyControlledPlayers({101});
+    calibrate(established, establishedSent);
+    R::FullSnapshot baseline{1, admittedState};
+    baseline.authoritativeProducedAt = HostEpoch + 20;
+    D6R_REQUIRE(established.receive(R::serializeReplicationSnapshot(baseline), at(20ms))
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE(established.predictLocalMovement({101, 1500, 25, true, true}, at(21ms)));
+    const auto canonicalBefore = R::serializeReplicationSnapshot(
+            {1, *established.replicatedState().state()});
+    const auto retainedBefore = R::serializeReplicationSnapshot(
+            {1, *established.replicatedState().retainedState()});
+    const auto posesBefore = established.presentedPlayers(at(30ms));
+    const auto presentationBefore = established.presentationState(at(30ms));
+    D6R_REQUIRE(established.takePresentationEvents().empty());
+
+    auto hostileEstablishedState = admittedState;
+    hostileEstablishedState.phaseTime = 999;
+    hostileEstablishedState.players[0].positionX = 9999;
+    R::FullSnapshot hostileEstablished{8, hostileEstablishedState};
+    hostileEstablished.authoritativeProducedAt = HostEpoch + 41;
+    D6R_REQUIRE(established.receive(
+            R::serializeReplicationSnapshot(hostileEstablished), at(30ms))
+                == R::ClientReplicationResult::WaitingForSnapshot);
+    D6R_REQUIRE_EQ(R::StateVersion{1}, established.replicatedState().version());
+    D6R_REQUIRE(established.replicatedState().current());
+    D6R_REQUIRE_EQ(canonicalBefore, R::serializeReplicationSnapshot(
+            {1, *established.replicatedState().state()}));
+    D6R_REQUIRE_EQ(retainedBefore, R::serializeReplicationSnapshot(
+            {1, *established.replicatedState().retainedState()}));
+    D6R_REQUIRE(samePoses(posesBefore, established.presentedPlayers(at(30ms))));
+    D6R_REQUIRE(established.takePresentationEvents().empty());
+    D6R_REQUIRE(samePresentation(presentationBefore, established.presentationState(at(30ms))));
+
+    auto recoveredState = admittedState;
+    recoveredState.phaseTime++;
+    recoveredState.players[0].positionX = 1600;
+    R::FullSnapshot recovered{2, recoveredState};
+    recovered.authoritativeProducedAt = HostEpoch + 30;
+    D6R_REQUIRE(established.receive(R::serializeReplicationSnapshot(recovered), at(30ms))
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE_EQ(R::StateVersion{2}, established.replicatedState().version());
+    D6R_REQUIRE_EQ(std::int64_t{1600},
+                   established.replicatedState().state()->players[0].positionX);
+    D6R_REQUIRE(established.presentationState(at(30ms)).canonicalStateCurrent);
+}
+
+D6R_TEST_CASE("AC-021 sealed admission drain cannot start replacement exchanges or replace timeout with send failure") {
+    const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
+    constexpr std::uint64_t HostResponseAt = 2000;
+    std::size_t sendAttempts = 0;
+    bool failSends = false;
+    std::vector<std::vector<std::uint8_t>> sent;
+    R::ClientReplicationConnection client([&](auto payload) {
+        ++sendAttempts;
+        if (failSends) return Duel6::Network::SendResult::NotConnected;
+        sent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+
+    D6R_REQUIRE(client.sampleNetwork(at(0ms)));
+    const auto probe = R::deserializeReplicationFrame(sent.back());
+    D6R_REQUIRE(probe && probe->qualitySequence);
+    failSends = true;
+
+    auto state = activeState();
+    auto incremental = validUpdate(state, state);
+    incremental.baseline = 1;
+    incremental.version = 2;
+    incremental.authoritativeProducedAt = 1801;
+    D6R_REQUIRE(client.receiveInitialAdmissionFrame(
+            R::serializeReplicationUpdate(incremental), at(1ms), false)
+                == R::ClientReplicationResult::WaitingForSnapshot);
+
+    state.players[0].positionX = 9000;
+    R::FullSnapshot stagedFuture{9, state};
+    stagedFuture.authoritativeProducedAt = 2201;
+    D6R_REQUIRE(client.receiveInitialAdmissionFrame(
+            R::serializeReplicationSnapshot(stagedFuture), at(2ms), false)
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE(client.receiveInitialAdmissionFrame(R::serializeQualityResponse(
+            *probe->qualitySequence, HostResponseAt), at(300ms), false)
+                == R::ClientReplicationResult::NetworkSampled);
+
+    R::FullSnapshot futureAfterCalibration{10, state};
+    futureAfterCalibration.authoritativeProducedAt = 2162;
+    D6R_REQUIRE(client.receiveInitialAdmissionFrame(
+            R::serializeReplicationSnapshot(futureAfterCalibration), at(301ms), false)
+                == R::ClientReplicationResult::WaitingForSnapshot);
+
+    // A sealed drain is read-only with respect to transport output. In particular, the failed
+    // sender was never called for a new probe or replacement request, so the caller can retain
+    // its selected admission-timeout outcome rather than observing SendFailed.
+    D6R_REQUIRE_EQ(std::size_t{1}, sendAttempts);
+    D6R_REQUIRE_EQ(std::size_t{1}, sent.size());
+    D6R_REQUIRE_EQ(R::StateVersion{0}, client.replicatedState().version());
+    D6R_REQUIRE(!client.presentationState(at(301ms)).reconnecting);
+
+    auto legitimateState = activeState();
+    legitimateState.players[0].positionX = 1400;
+    R::FullSnapshot legitimate{1, legitimateState};
+    legitimate.authoritativeProducedAt = 2151;
+    D6R_REQUIRE(client.receiveInitialAdmissionFrame(
+            R::serializeReplicationSnapshot(legitimate), at(301ms), false)
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE_EQ(R::StateVersion{1}, client.replicatedState().version());
+    D6R_REQUIRE_EQ(std::int64_t{1400},
+                   client.replicatedState().state()->players[0].positionX);
+    D6R_REQUIRE_EQ(std::size_t{1}, sendAttempts);
+}
+
 D6R_TEST_CASE("NRP implausibly future staged initial snapshot is discarded without admission deadlock or mutation") {
     const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
     const auto verifyEnvironment = [&](N::Environment environment,

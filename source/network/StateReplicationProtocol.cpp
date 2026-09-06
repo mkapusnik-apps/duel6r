@@ -591,6 +591,24 @@ namespace Duel6::Network::Replication {
                 if (result == ClientReplicationResult::Reconnecting
                     || result == ClientReplicationResult::SendFailed)
                     return result;
+                if (result == ClientReplicationResult::Applied && replicated.state())
+                    acceptedInitialAdmissionState = *replicated.state();
+                else
+                    pendingInitialFrames.clear();
+                while (acceptedInitialAdmissionState && !pendingInitialFrames.empty()) {
+                    auto pending = std::move(pendingInitialFrames.front());
+                    pendingInitialFrames.pop_front();
+                    try {
+                        result = receive(pending.payload, pending.acceptedAt,
+                                         false, allowOutboundExchange);
+                    } catch (...) {
+                        transportClosed();
+                        return ClientReplicationResult::Reconnecting;
+                    }
+                    if (result == ClientReplicationResult::Reconnecting
+                        || result == ClientReplicationResult::SendFailed)
+                        return result;
+                }
             }
             return ClientReplicationResult::NetworkSampled;
         }
@@ -609,13 +627,27 @@ namespace Duel6::Network::Replication {
         if (requireAuthoritativeTime && replicated.version() == 0 && authoritativeProducedAt != 0
             && (!localClockSynchronizedAt || !authoritativeClockAtSynchronization)) {
             if (frame->snapshot) {
-                pendingInitialSnapshot = *frame->snapshot;
-                pendingInitialSnapshotAcceptedAt = acceptedAt;
+                if (!pendingInitialSnapshot) {
+                    pendingInitialSnapshot = *frame->snapshot;
+                    pendingInitialSnapshotAcceptedAt = acceptedAt;
+                } else {
+                    if (pendingInitialFrames.size() >= MaxQueuedTransportFrames) {
+                        transportClosed();
+                        return ClientReplicationResult::Reconnecting;
+                    }
+                    pendingInitialFrames.push_back({payload, acceptedAt});
+                }
                 return ClientReplicationResult::Applied;
             }
+            if (pendingInitialSnapshot) {
+                if (pendingInitialFrames.size() >= MaxQueuedTransportFrames) {
+                    transportClosed();
+                    return ClientReplicationResult::Reconnecting;
+                }
+                pendingInitialFrames.push_back({payload, acceptedAt});
+                return ClientReplicationResult::WaitingForSnapshot;
+            }
             if (!allowOutboundExchange) return ClientReplicationResult::WaitingForSnapshot;
-            pendingInitialSnapshot.reset();
-            pendingInitialSnapshotAcceptedAt.reset();
             replicated.requireResynchronization();
             beginResynchronization();
             return requestFullSnapshot();
@@ -845,9 +877,13 @@ namespace Duel6::Network::Replication {
         requestPending = false;
         pendingInitialSnapshot.reset();
         pendingInitialSnapshotAcceptedAt.reset();
+        pendingInitialFrames.clear();
         replicated.requireResynchronization();
         movement.beginResynchronization();
         quality.transportClosed();
     }
     const ReplicatedState &ClientReplicationConnection::replicatedState() const noexcept { return replicated; }
+    const CanonicalState *ClientReplicationConnection::initialAdmissionState() const noexcept {
+        return acceptedInitialAdmissionState ? &*acceptedInitialAdmissionState : nullptr;
+    }
 }

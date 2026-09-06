@@ -372,9 +372,11 @@ namespace {
         bool inputMatchStarted = false;
         const auto completeProductionAdmission = [&]() -> GuestFrameDecision {
             if (!admissionConfirmation) return GuestFrameDecision();
-            const auto *initial = replicatedConnection.replicatedState().state();
-            if (!initial || !replicatedConnection.replicatedState().current())
+            const auto *initial = replicatedConnection.initialAdmissionState();
+            if (!initial)
                 return GuestFrameDecision();
+            if (initial->phase != Duel6::Network::Replication::Phase::Lobby)
+                return GuestFrameDecision(GuestDecision::InvalidHost);
             const auto participant = std::find_if(
                     initial->participants.begin(), initial->participants.end(), [&](const auto &value) {
                         return value.participantId == admissionConfirmation->participantId;
@@ -511,6 +513,11 @@ namespace {
                     replicatedConnection.setLocallyControlledPlayers(
                             std::set<Duel6::Network::Replication::Identity>(
                                     decision.result.playerIds.begin(), decision.result.playerIds.end()));
+                    try { connection->markAdmissionSucceeded(); }
+                    catch (...) {
+                        closeClient();
+                        return 2;
+                    }
                     sessionAdmitted = true;
                     return std::nullopt;
                 case GuestDecision::InvalidHost:
@@ -544,7 +551,7 @@ namespace {
                    || state == Duel6::Network::ClientState::Cancelled
                    || state == Duel6::Network::ClientState::TimedOut;
         };
-        const auto sealAndFinish = [&]() -> int {
+        const auto sealAndFinish = [&]() -> std::optional<int> {
             Duel6::Network::TransportInputSnapshot snapshot;
             try { snapshot = connection->sealAndDrainInput(); }
             catch (...) {
@@ -556,14 +563,17 @@ namespace {
             if (cancelAttempt()) return 2;
             for (const auto &queued: snapshot.frames) {
                 if (const auto finished = publish(processFrame(queued, false))) return *finished;
-                if (sessionAdmitted) {
-                    publishPresentation();
+            }
+            if (cancelAttempt()) return 2;
+            if (sessionAdmitted) {
+                if (isTerminal(snapshot.state)) {
                     replicatedConnection.transportClosed();
+                    publishPresentation();
                     closeClient();
                     return 2;
                 }
+                return std::nullopt;
             }
-            if (cancelAttempt()) return 2;
             attempt.finish();
             if (snapshot.terminalAt != Duel6::Network::TransportTimePoint{}
                 && snapshot.terminalAt < deadline) {
@@ -579,7 +589,10 @@ namespace {
             if (cancelAttempt()) return 2;
             Duel6::Network::ClientState state = Duel6::Network::ClientState::Failed;
             try { state = connection->state(); } catch (...) {}
-            if (runtimeNow(runtimeDependencies) >= deadline || isTerminal(state)) return sealAndFinish();
+            if (runtimeNow(runtimeDependencies) >= deadline || isTerminal(state)) {
+                if (const auto finished = sealAndFinish()) return *finished;
+                break;
+            }
             Duel6::Network::TransportFrame frame;
             bool received = false;
             try { received = connection->receive(frame); }
@@ -592,7 +605,10 @@ namespace {
             if (received) {
                 if (const auto finished = publish(processFrame(frame, true))) return *finished;
                 if (sessionAdmitted) break;
-                if (runtimeNow(runtimeDependencies) >= deadline) return sealAndFinish();
+                if (runtimeNow(runtimeDependencies) >= deadline) {
+                    if (const auto finished = sealAndFinish()) return *finished;
+                    break;
+                }
                 continue;
             }
 
@@ -604,7 +620,10 @@ namespace {
 
             state = Duel6::Network::ClientState::Failed;
             try { state = connection->state(); } catch (...) {}
-            if (runtimeNow(runtimeDependencies) >= deadline || isTerminal(state)) return sealAndFinish();
+            if (runtimeNow(runtimeDependencies) >= deadline || isTerminal(state)) {
+                if (const auto finished = sealAndFinish()) return *finished;
+                break;
+            }
             try {
                 runtimeDependencies.wait(std::chrono::milliseconds(5));
             } catch (...) {
