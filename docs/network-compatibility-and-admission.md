@@ -20,6 +20,7 @@ Local Play remains subject to [`features.md`](features.md). This document does n
 - **Gameplay-content manifest:** The canonical list of gameplay-content paths and their exact content identities.
 - **Content identity:** A value that identifies the exact file contents for equality comparison.
 - **Pending connection:** A transport connection that has not completed admission.
+- **Complete valid production admission result:** One valid rejection, or the complete set of validated success inputs required before the production guest connects.
 
 The admission protocol version is separate from transport framing version `1`. Equal numeric values do not make these versions the same field.
 
@@ -172,7 +173,12 @@ Return to Network must enter `NET-01`. A confirmed invalid-manifest result befor
 9. On success, the host must atomically reserve provisional participant and player identities and return one complete `admission-offer` containing the nonzero participant identity, the requested player count, and the exact ordered player identities.
 10. The guest must validate the participant identity, original requested count, exact player ordering, nonzero and unique values, and separation of participant and player identities. It must return exactly one `admission-acceptance` that repeats the complete offer before the single total deadline.
 11. The host must reject an acceptance received at or after the total deadline or one that does not exactly match the offer. For one valid acceptance, it must atomically commit the participant identity, player identities, immutable connection binding, ownership, and slots.
-12. After commit, the host must return one final `admitted` confirmation containing the exact committed participant identity, player count, and ordered player identities. The guest may report success and enter the downstream lobby only after validating that confirmation strictly before its total deadline.
+12. After commit, the host must return one final `admitted` confirmation. It must contain the exact committed participant identity, player count, and ordered player identities.
+13. The production flow must start host-clock calibration before it waits for the final confirmation or initial snapshot.
+14. A production success result must include three inputs: the exact final confirmation, one valid host-clock calibration result, and one complete valid initial full snapshot.
+15. Each success input must have an authoritative receipt time strictly before the total deadline.
+16. The snapshot production time must be valid under the calibration result. Its participant identity and ordered owned-player identities must exactly match the final confirmation.
+17. The guest may report success and enter the downstream lobby only after it validates all three inputs.
 
 A guest admission request must contain at least one local player. Before commit, a rejection, offer-send failure, invalid or missing acceptance, cancellation, timeout, or disconnect must roll back the reservation and allocate no participant, playable slot, ownership, or committed session identity. Provisional identities remain burned for the session so that a later entity never reuses them. Commit is the rollback boundary: failure or loss of the final confirmation does not undo host state, and the committed participant passes to the disconnect and reconnect lifecycle owned by issue #36 while the guest reports the applicable incomplete-admission close or timeout result.
 
@@ -276,13 +282,33 @@ Missing the three-second request deadline must close the connection without admi
 
 ## Timing, cancellation, and incomplete admission
 
-The guest's 10-second deadline includes resolution, connection, compatibility, capacity, host admission, and lobby confirmation.
+The guest's 10-second deadline includes resolution, connection, compatibility, capacity, host admission, clock calibration, and initial lobby snapshot validation.
 
-Success must be confirmed by the exact final `admitted` message strictly before the deadline. At or after 10 seconds, the generic result is `Connection timed out.`. The host must reject an acceptance received at or after its attempt boundary even when the bytes are otherwise valid.
+For production networking, a final `admitted` message alone is not a complete valid admission result. The result must include all three success inputs from the guest admission flow.
 
-A complete valid rejection received before the deadline, or a complete valid final confirmation received before the deadline, must take precedence over a later generic transport symptom. An offer alone is not a complete admission result.
+The production guest must receive all three success inputs strictly before the deadline. It may process those queued inputs after the deadline during the sealed drain.
 
-At deadline or terminal-state selection, the guest transport must atomically seal application input against the reader and drain every complete frame queued before that linearization point together with terminal state. Each drained frame is decided by its authoritative `receivedAt`: a valid rejection or exact final confirmation received strictly before the deadline retains precedence even when polling resumes after the deadline, and a later recorded close cannot replace it. Invalid complete messages use `invalid-host-admission-message`. A frame timestamped at or after the deadline cannot cause acceptance or success. After the sealed drain, no racing reader enqueue may change the chosen close-versus-timeout outcome.
+The sealed drain must not start or await a new calibration exchange. If calibration is unavailable at the deadline, predeadline confirmation and snapshot inputs must produce `Connection timed out.`.
+
+An initial snapshot beyond the calibrated future bound is not a valid success input. It must change no canonical or presentation state.
+
+The production flow may request a replacement while the original deadline remains open. A replacement request must not extend or restart that deadline.
+
+The host must reject an acceptance received at or after its attempt boundary even when the bytes are otherwise valid.
+
+A complete valid rejection received before the deadline must take precedence over a later generic transport symptom. A complete valid production success received before the deadline has the same precedence.
+
+An offer alone is not a complete admission result. A final confirmation without a valid calibration result and a valid initial snapshot is also incomplete.
+
+At deadline or terminal-state selection, the guest transport must atomically seal application input against the reader. It must drain complete queued frames with the terminal state.
+
+The guest must use each frame's authoritative `receivedAt`. A complete valid result received strictly before the deadline retains precedence when polling resumes after the deadline.
+
+A later recorded close must not replace that result. Invalid complete messages received strictly before the deadline use `invalid-host-admission-message`.
+
+The guest must exclude a frame received at or after the deadline from admission, calibration, and initial-snapshot semantic validation. A late malformed, mismatched, or unexpected frame must not replace timeout or a complete valid predeadline result.
+
+After the sealed drain, no racing reader enqueue may change the selected close or timeout outcome.
 
 Without a complete host response, initial transport outcomes must use this order and copy:
 
@@ -354,7 +380,7 @@ These commands provide process-level protocol evidence only. Successful output r
 ## Acceptance criteria
 
 - **AC-001:** A host with a valid local manifest must complete local host admission with one stable nonzero participant identity.
-- **AC-002:** A compatible guest must receive and validate a final confirmation containing stable nonzero participant and player identities before the admission deadline.
+- **AC-002:** Before the admission deadline, a compatible production guest must receive the final confirmation, valid clock calibration, and a complete valid initial snapshot. The confirmed identities and snapshot ownership must match exactly.
 - **AC-003:** Admission must assign each identity once and must not reuse it during the session.
 - **AC-004:** Missing, malformed, duplicate, excessive, or late admission data must fail before playable-slot allocation.
 - **AC-005:** A protocol mismatch must fail with `protocol-incompatible` and the fixed release-mismatch copy.
@@ -372,8 +398,8 @@ These commands provide process-level protocol evidence only. Successful output r
 - **AC-017:** The host must apply every admission outcome in the fixed precedence order.
 - **AC-018:** User-visible rejection copy must contain no untrusted or compatibility-sensitive value.
 - **AC-019:** Trust-policy quotas and concurrent-validation limits must remain effective during compatibility processing.
-- **AC-020:** A complete valid rejection or final confirmation accepted before the deadline must take precedence over a later transport symptom; an offer alone must not report success.
-- **AC-021:** No complete result at the 10-second deadline must produce `Connection timed out.`.
+- **AC-020:** A complete valid rejection or production success received before the deadline must take precedence over a later transport symptom. An offer or final confirmation alone must not report success.
+- **AC-021:** Missing calibration or another required success input at the 10-second deadline must produce `Connection timed out.`. Frames received at or after the deadline must not replace that outcome.
 - **AC-022:** A transport close before complete admission must produce `Connection ended before admission completed.`.
 - **AC-023:** An admission attempt after match start must receive the fixed join-in-progress rejection.
 - **AC-024:** Local Play must start and complete without starting or requiring a network service.

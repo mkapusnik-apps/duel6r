@@ -141,8 +141,11 @@ Issue #30 owns canonical serialization, content digest choice, exchange, compari
 ### Guest connection
 
 - Hostname/address and port validation remains inline in editable `NET-03`; invalid input does not begin the connection clock.
-- A connection attempt has one 10-second total deadline covering name resolution, transport connection, compatibility, capacity, host admission, and lobby confirmation.
-- Success must be confirmed strictly before the deadline. At or after 10 seconds, the generic result is `Connection timed out.` unless a higher-precedence result below was established first.
+- A connection attempt has one 10-second total deadline. It covers resolution, transport connection, compatibility, capacity, host admission, clock calibration, and initial lobby snapshot validation.
+- Production success must include the exact final confirmation, valid host-clock calibration, and one complete valid initial lobby snapshot.
+- The guest must receive all three success inputs strictly before the deadline. It may validate queued predeadline inputs after the deadline without starting or awaiting a new exchange.
+- Missing calibration or another success input at the deadline must produce `Connection timed out.` unless a higher-precedence result was established first.
+- A frame received at or after the deadline cannot replace timeout or a complete valid predeadline result.
 - Cancel returns to editable `NET-03` and retains endpoint and local-player setup.
 - `NET-08` Retry repeats the same retained attempt when still valid; Edit setup returns to editable `NET-02` or `NET-03` with all setup retained; Return to Network goes to `NET-01`.
 
@@ -160,7 +163,11 @@ User Cancel and local inline validation take precedence before any host or trans
 8. other host policy rejection — `Host rejected the connection.`;
 9. success.
 
-The host stops at the first applicable result. A complete valid host response accepted before the deadline takes precedence over a later generic transport symptom. Without a complete host response, initial connection outcomes use this order:
+The host stops at the first applicable result. A complete valid rejection received before the deadline takes precedence over a later generic transport symptom.
+
+A complete valid production success received before the deadline has the same precedence. Final confirmation alone is not complete production success.
+
+Without a complete result, initial connection outcomes use this order:
 
 1. name-resolution failure — `Host name could not be resolved.`;
 2. unreachable or refused connection — `Host unreachable.`;
@@ -297,7 +304,7 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 - **NET-AC-006 — Readiness:** Every participant must be connected, valid, and ready to start; clearing mutations clear all readiness; a disconnected admitted guest retains prior readiness as `Reconnecting` but blocks Start by name; reconnect restores retained readiness only when no later clearing mutation occurred.
 - **NET-AC-007 — Admission:** Admission occurs only before match start, and late attempts fail with explicit join-in-progress-prohibited behavior.
 - **NET-AC-008 — Compatibility:** Admission requires an exact case-sensitive non-empty network release ID and exact gameplay-content manifest whose logical paths satisfy every ASCII length, segment, character, separator, uniqueness, and unsigned-order rule; fixed user copy discloses no peer release ID, path, value, or raw payload, and diagnostics name only independently validated canonical paths.
-- **NET-AC-009 — Timing, admission, and host-local failure:** Host startup and complete initial guest connection satisfy their 10-second boundaries; user Cancel and local validation precede the fixed host admission order, complete host responses, precise transport outcomes, and generic timeout; the host application's local supervisor alone may route the host to `NET-08` with `Hosted session stopped unexpectedly.`, which is never guest evidence; retained data, fixed copy, Retry, Edit setup, and Return destinations match this specification.
+- **NET-AC-009 — Timing, admission, and host-local failure:** Host startup and complete initial guest connection must satisfy their 10-second boundaries. Production connection success must include predeadline final confirmation, valid clock calibration, and a complete valid initial snapshot. Missing calibration must produce timeout. Late initial-connection frames must not replace timeout or predeadline success. User Cancel and local validation must keep their defined precedence. The host application's local supervisor alone may route the host to `NET-08` with `Hosted session stopped unexpectedly.` This outcome is never guest evidence. Retained data, fixed copy, Retry, Edit setup, and Return destinations must match this specification.
 - **NET-AC-010 — Authority:** Participants control only owned local players while the host owns canonical simulation, rounds, scoring, winner evaluation, and current state in one shared arena.
 - **NET-AC-011 — Reconnect:** A reservation begins at host-declared disconnect, expires at `D + 30s`, accepts only strictly-before-deadline restoration, shows positive ceiling seconds without active zero, retains one deadline across attempts, and restores only current state; silence, refusal, unreachable, reset, timeout, host crash, host-machine/listener loss, temporary failure, and no response remain ambiguous in `NET-07`; only a valid host End notice accepted through the established session, accepted restore, terminal rejection, retryable failure, and expiry follow the fixed precedence.
 - **NET-AC-012 — Active disconnect:** Active simulation, timers, hazards, connected input, combat, scoring, winner rules, and round progression continue while reserved players receive no input, remain targets, and count for winner conditions.

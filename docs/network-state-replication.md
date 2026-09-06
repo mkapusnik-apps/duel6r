@@ -82,11 +82,11 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 
 ## Full snapshot behavior
 
-- **REP-038** The authoritative service must provide a full snapshot after initial admission and before the participant enters the lobby as connected.
+- **REP-038** After host commit, the authoritative service must provide the initial full snapshot before the guest admission deadline. The guest must validate it before it reports success or enters the lobby as connected.
 - **REP-039** The authoritative service must provide a full snapshot after a successful reconnect and before restoration completes.
 - **REP-040** The authoritative service must provide a full snapshot when a connected client requires resynchronization.
 - **REP-041** A full snapshot must contain all applicable state in REP-013 through REP-030 at one state version. Its result values must follow the completed or interrupted semantics in REP-017.
-- **REP-042** A client must validate a complete full snapshot before it replaces the prior replicated state.
+- **REP-042** A client must validate a complete full snapshot before it replaces the prior replicated state. Validation must include the production-time rule in NRP-BUD-009.
 - **REP-043** A client must not present a partial snapshot as current authoritative state.
 - **REP-044** A successfully restored client must present the current authoritative state. It must not rewind the match or make an older snapshot current.
 
@@ -148,7 +148,7 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 
 - **REP-AC-001 — Stable identities:** Every replicated match, round, player, world entity, and event follows REP-005 through REP-012.
 - **REP-AC-002 — Complete state:** A full snapshot contains all applicable session, lobby, match, round, world, score, message, effect, and result state. It keeps the result values in REP-017 distinct.
-- **REP-AC-003 — Initial construction:** After admission, a client constructs one complete lobby state before it is shown as connected.
+- **REP-AC-003 — Initial construction:** Before admission success, a client validates one complete lobby snapshot against current clock calibration. The snapshot must contain the exact confirmed participant and ordered owned-player identities.
 - **REP-AC-004 — Reconnect restoration:** A reconnected client receives the current complete lobby, match, round-summary, or final-summary state without rewind.
 - **REP-AC-005 — Lifecycle:** Entity creation, update, removal, round transition, and full-snapshot replacement follow REP-031 through REP-037.
 - **REP-AC-006 — Ordered updates:** Valid incremental updates apply atomically in baseline order. Each update equals the corresponding full snapshot, including all distinct result values.

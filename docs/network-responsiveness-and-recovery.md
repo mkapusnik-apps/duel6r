@@ -21,6 +21,8 @@ Authoritative player input is in [`network-authoritative-player-input.md`](netwo
 - **Correction time:** The elapsed time from canonical-state acceptance until the presentation handoff finishes a correction to that state.
 - **Recovery time:** The elapsed time from restored supported conditions until the presentation handoff supplies current canonical state without degraded status.
 - **Degraded status:** The status that carries the exact user-visible text `Network connection degraded.`
+- **Host-clock calibration:** A bounded mapping from the client clock to the authoritative host session clock, established by a matched request and response.
+- **Calibration uncertainty:** The bounded possible difference between the calibrated host time and the actual host session time.
 
 ## Supported condition budgets
 
@@ -38,8 +40,8 @@ The budgets apply while the participant remains connected. They do not extend th
 - **NRP-BUD-005** During supported conditions, current state age must not exceed 150 ms for 95 percent of active-round observations.
 - **NRP-BUD-006** During supported conditions, current state age must not exceed 250 ms for any continuous period longer than one second.
 - **NRP-BUD-007** The client must not enter reconnect only because conditions remain inside all applicable budgets.
-- **NRP-BUD-008** Each complete canonical state update must identify its production time on the authoritative host session clock.
-- **NRP-BUD-009** The client must use that production time to determine current state age relative to the host session clock.
+- **NRP-BUD-008** Each complete canonical state update must identify its production time on the authoritative host session clock. A client must have valid host-clock calibration before it applies the update.
+- **NRP-BUD-009** The client must compare production time with calibrated host time at frame receipt. Production time may equal calibrated host time plus calibration uncertainty. A later value must not change canonical or presentation state.
 - **NRP-BUD-010** The client must not use half the measured round-trip latency as the authoritative production time.
 - **NRP-BUD-011** Production quality measurement must include probes that receive no response after their applicable response deadline.
 - **NRP-BUD-012** Successful probe responses alone must not establish zero packet loss.
@@ -120,7 +122,7 @@ The budgets apply while the participant remains connected. They do not extend th
 - **NRP-AC-012 — Authority:** Smoothing, prediction, correction, degradation, and recovery never override authoritative outcomes or pause another participant's simulation.
 - **NRP-AC-013 — Local independence:** Local Play remains unchanged and does not require network responsiveness behavior.
 - **NRP-AC-014 — Scope truth:** Completion of issue #35 alone must not support a playable-network or release-readiness claim.
-- **NRP-AC-015 — Measurement validity:** State-age measurement uses authoritative production time. Loss measurement counts applicable unanswered probes.
+- **NRP-AC-015 — Measurement validity:** State-age measurement uses authoritative production time under valid host-clock calibration. An update beyond the calibrated future bound changes no canonical or presentation state. Loss measurement counts applicable unanswered probes.
 - **NRP-AC-016 — Presentation handoff:** Production replication publishes presentation-ready state, synchronizing status, degraded status, reconnecting status, and applicable retained non-current context.
 
 ## Downstream boundaries
