@@ -82,6 +82,15 @@ namespace {
         return found == state.players.end() ? nullptr : &*found;
     }
 
+    const N::PresentedPlayerPose &presented(
+            const std::vector<N::PresentedPlayerPose> &poses, R::Identity identity) {
+        const auto found = std::find_if(poses.begin(), poses.end(), [identity](const auto &pose) {
+            return pose.playerId == identity;
+        });
+        D6R_REQUIRE(found != poses.end());
+        return *found;
+    }
+
     const R::WorldEntityState *entity(const R::CanonicalState &state, R::Identity identity) {
         const auto found = std::find_if(state.entities.begin(), state.entities.end(), [identity](const auto &value) {
             return value.entityId == identity;
@@ -2321,7 +2330,7 @@ D6R_TEST_CASE("REP codec rejects truncated trailing oversized and invalid schema
 D6R_TEST_CASE("REP production connection broadcast isolates failures and mutation policy isolates offender") {
     R::AuthoritativeStateReplicator publisher;
     D6R_REQUIRE(publisher.initialize(activeState()));
-    R::AuthoritativeReplicationConnections connections(publisher);
+    R::AuthoritativeReplicationConnections connections(publisher, [] { return 1000; });
     std::vector<std::vector<std::uint8_t>> firstPayloads;
     std::vector<std::vector<std::uint8_t>> secondPayloads;
     int firstClosed = 0;
@@ -2647,6 +2656,106 @@ D6R_TEST_CASE("NRP successful probes do not reprocess canonical versions or rese
     D6R_REQUIRE(stale.degraded);
     D6R_REQUIRE(!stale.reconnecting);
     D6R_REQUIRE(stale.canonicalStateCurrent);
+}
+
+D6R_TEST_CASE("NRP equal RTT probes tolerate changing path asymmetry without replacing confirmed state") {
+    const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
+    constexpr std::uint64_t HostEpoch = 1000;
+    std::vector<std::vector<std::uint8_t>> sent;
+    R::ClientReplicationConnection client([&](auto payload) {
+        sent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+
+    auto state = activeState();
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(state));
+
+    // Every response has the same supported 20 ms RTT. The host timestamps vary within that
+    // RTT to model a request path changing between 1 ms and 19 ms while response delay changes
+    // in the opposite direction. This must recalibrate time without treating asymmetry as loss,
+    // jitter, a transport failure, or a new canonical state.
+    const std::vector<std::pair<std::chrono::milliseconds, std::uint64_t>> probes{
+            {0ms, 1}, {250ms, 19}, {500ms, 2}, {750ms, 18}, {1000ms, 19}};
+    std::size_t nextProbe = 0;
+    const auto completeProbe = [&](std::chrono::milliseconds sentAt, std::uint64_t requestPath) {
+        D6R_REQUIRE(client.sampleNetwork(at(sentAt)));
+        const auto probe = R::deserializeReplicationFrame(sent.back());
+        D6R_REQUIRE(probe && probe->qualitySequence);
+        const auto hostResponseAt = HostEpoch
+                + static_cast<std::uint64_t>(sentAt.count()) + requestPath;
+        D6R_REQUIRE(client.receive(R::serializeQualityResponse(
+                *probe->qualitySequence, hostResponseAt), at(sentAt + 20ms))
+                    == R::ClientReplicationResult::NetworkSampled);
+        const auto presentation = client.presentationState(at(sentAt + 20ms));
+        D6R_REQUIRE(!presentation.reconnecting);
+        D6R_REQUIRE(!presentation.degraded);
+    };
+
+    completeProbe(probes.front().first, probes.front().second);
+    ++nextProbe;
+    R::FullSnapshot snapshot{1, state};
+    snapshot.authoritativeProducedAt = HostEpoch + 20;
+    D6R_REQUIRE(client.receive(R::serializeReplicationSnapshot(snapshot), at(25ms))
+                == R::ClientReplicationResult::Applied);
+
+    for (R::StateVersion version = 2; version <= 25; ++version) {
+        const auto acceptedAt = 25ms + std::chrono::milliseconds((version - 1) * 50);
+        while (nextProbe < probes.size() && probes[nextProbe].first < acceptedAt) {
+            completeProbe(probes[nextProbe].first, probes[nextProbe].second);
+            ++nextProbe;
+        }
+        state.phaseTime++;
+        state.players[1].positionX = static_cast<std::int64_t>(version * 100);
+        auto update = publisher.publish(state);
+        D6R_REQUIRE(update.has_value());
+        update->authoritativeProducedAt = HostEpoch + 20 + (version - 1) * 50;
+        D6R_REQUIRE(client.receive(R::serializeReplicationUpdate(*update), at(acceptedAt))
+                    == R::ClientReplicationResult::Applied);
+        D6R_REQUIRE_EQ(version, client.replicatedState().version());
+        D6R_REQUIRE(client.replicatedState().current());
+        const auto presentation = client.presentationState(at(acceptedAt));
+        D6R_REQUIRE(!presentation.reconnecting);
+        D6R_REQUIRE(!presentation.degraded);
+        D6R_REQUIRE(presentation.canonicalStateCurrent);
+    }
+    D6R_REQUIRE_EQ(probes.size(), nextProbe);
+
+    // The final asymmetric sample puts the estimated state age at 14 ms. The stale-state
+    // threshold therefore crosses at 1461 ms and degradation remains continuous until the
+    // exact one-second delay expires; probe recalibration must not restart that clock.
+    D6R_REQUIRE(!client.presentationState(at(2460ms)).degraded);
+    const auto stale = client.presentationState(at(2461ms));
+    D6R_REQUIRE(stale.degraded);
+    D6R_REQUIRE(!stale.reconnecting);
+    D6R_REQUIRE(stale.canonicalStateCurrent);
+
+    const auto retainedPosition = state.players[1].positionX;
+    D6R_REQUIRE_EQ(retainedPosition, client.replicatedState().state()->players[1].positionX);
+    D6R_REQUIRE_EQ(retainedPosition, presented(client.presentedPlayers(at(1375ms)), 102).positionX);
+
+    // A genuinely invalid regression in authoritative production time is still rejected.
+    // It must route to reconnect while retaining, rather than replacing, canonical context
+    // and the movement presentation confirmed above.
+    state.phaseTime++;
+    state.players[1].positionX = 999999;
+    auto rejected = publisher.publish(state);
+    D6R_REQUIRE(rejected.has_value());
+    rejected->authoritativeProducedAt = HostEpoch + 20 + 23 * 50;
+    D6R_REQUIRE(client.receive(R::serializeReplicationUpdate(*rejected), at(2470ms))
+                == R::ClientReplicationResult::Reconnecting);
+    D6R_REQUIRE_EQ(R::StateVersion{25}, client.replicatedState().version());
+    D6R_REQUIRE(!client.replicatedState().current());
+    D6R_REQUIRE(client.replicatedState().state() == nullptr);
+    D6R_REQUIRE(client.replicatedState().retainedState() != nullptr);
+    D6R_REQUIRE_EQ(retainedPosition,
+                   client.replicatedState().retainedState()->players[1].positionX);
+    const auto reconnecting = client.presentationState(at(2470ms));
+    D6R_REQUIRE(reconnecting.reconnecting);
+    D6R_REQUIRE(reconnecting.retainingLastConfirmedState);
+    D6R_REQUIRE(!reconnecting.canonicalStateCurrent);
+    D6R_REQUIRE_EQ(retainedPosition,
+                   presented(client.presentedPlayers(at(2470ms)), 102).positionX);
 }
 
 D6R_TEST_CASE("NRP local presentation bounds int64 extremes without changing canonical state or outcomes") {

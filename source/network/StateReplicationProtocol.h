@@ -92,6 +92,7 @@ namespace Duel6::Network::Replication {
         ReplicationSender sender;
         ReplicatedState replicated;
         Responsiveness::ConnectionQualityMonitor quality;
+        const std::uint64_t maximumAuthoritativeClockUncertainty;
         Responsiveness::CanonicalMovementPresentation movement;
         std::optional<Responsiveness::TimePoint> qualityProbeSentAt;
         std::optional<Responsiveness::TimePoint> lastQualityProbeAt;
@@ -103,6 +104,7 @@ namespace Duel6::Network::Replication {
         std::uint64_t qualityProbeSequence = 0;
         std::uint64_t unansweredQualityProbeCount = 0;
         std::uint64_t latestAuthoritativeProducedAt = 0;
+        std::uint64_t authoritativeClockUncertainty = 0;
         bool requireAuthoritativeTime = false;
         bool requestPending = false;
         bool reconnecting = false;
@@ -112,6 +114,8 @@ namespace Duel6::Network::Replication {
                                   Responsiveness::TimePoint observedAt) noexcept;
         std::optional<std::uint64_t> authoritativeTimeAt(
                 Responsiveness::TimePoint localTime) const noexcept;
+        std::optional<bool> authoritativeProductionTimeIsPlausible(
+                std::uint64_t producedAt, Responsiveness::TimePoint acceptedAt) const noexcept;
         std::optional<std::chrono::milliseconds> authoritativeStateAge(
                 std::uint64_t producedAt, Responsiveness::TimePoint acceptedAt) const noexcept;
     };

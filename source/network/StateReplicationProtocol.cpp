@@ -477,6 +477,8 @@ namespace Duel6::Network::Replication {
             ReplicationSender sender, Responsiveness::Environment environment,
             bool requireAuthoritativeTime)
             : sender(std::move(sender)), quality(environment),
+              maximumAuthoritativeClockUncertainty(static_cast<std::uint64_t>(
+                      (Responsiveness::budget(environment).roundTripLatency.count() + 1) / 2)),
               requireAuthoritativeTime(requireAuthoritativeTime) {}
 
     ClientReplicationResult ClientReplicationConnection::receive(const std::vector<std::uint8_t> &payload) {
@@ -539,6 +541,10 @@ namespace Duel6::Network::Replication {
                 }
                 authoritativeClockAtSynchronization = synchronizedTime;
                 localClockSynchronizedAt = acceptedAt;
+                const auto measuredUncertainty = static_cast<std::uint64_t>(elapsed.count())
+                                                 - halfRoundTrip;
+                authoritativeClockUncertainty = std::min(
+                        measuredUncertainty, maximumAuthoritativeClockUncertainty);
             }
             qualityProbeSentAt.reset();
             recordQualityOutcome(false, elapsed, acceptedAt);
@@ -572,6 +578,10 @@ namespace Duel6::Network::Replication {
                 ? frame->snapshot->version : frame->update->version;
         if (authoritativeProducedAt != 0
             && localClockSynchronizedAt && authoritativeClockAtSynchronization) {
+            const auto plausibleProductionTime = authoritativeProductionTimeIsPlausible(
+                    authoritativeProducedAt, acceptedAt);
+            if (plausibleProductionTime && !*plausibleProductionTime)
+                return ClientReplicationResult::WaitingForSnapshot;
             authoritativeAge = authoritativeStateAge(authoritativeProducedAt, acceptedAt);
             if (!authoritativeAge || !quality.canObserveCanonicalState(
                     incomingVersion, *authoritativeAge, acceptedAt)) {
@@ -703,6 +713,14 @@ namespace Duel6::Network::Replication {
         const auto result = std::chrono::milliseconds(static_cast<std::chrono::milliseconds::rep>(age));
         if (!canSubtractMilliseconds(acceptedAt, result)) return std::nullopt;
         return result;
+    }
+
+    std::optional<bool> ClientReplicationConnection::authoritativeProductionTimeIsPlausible(
+            std::uint64_t producedAt, Responsiveness::TimePoint acceptedAt) const noexcept {
+        const auto authoritativeAcceptedAt = authoritativeTimeAt(acceptedAt);
+        if (!authoritativeAcceptedAt) return std::nullopt;
+        if (producedAt <= *authoritativeAcceptedAt) return true;
+        return producedAt - *authoritativeAcceptedAt <= authoritativeClockUncertainty;
     }
 
     std::optional<std::uint64_t> ClientReplicationConnection::authoritativeTimeAt(
