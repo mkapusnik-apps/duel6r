@@ -69,6 +69,7 @@ namespace Duel6::Network::Responsiveness {
         ConnectionPresentationState update(TimePoint now) noexcept;
 
         std::optional<std::chrono::milliseconds> currentStateAge(TimePoint now) const noexcept;
+        std::optional<std::chrono::milliseconds> currentRoundTripLatency() const noexcept;
         std::optional<std::chrono::milliseconds> currentJitter() const noexcept;
         std::optional<double> currentPacketLossPercent() const noexcept;
         Replication::StateVersion acceptedVersion() const noexcept;

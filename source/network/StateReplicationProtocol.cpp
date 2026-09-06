@@ -1,5 +1,6 @@
 #include "StateReplicationProtocol.h"
 
+#include <limits>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -251,7 +252,7 @@ namespace Duel6::Network::Replication {
                 || r.integer<std::uint16_t>() != ReplicationProtocolVersion)
                 throw std::invalid_argument("Unsupported replication protocol");
             const auto kind = static_cast<ReplicationFrameKind>(r.integer<std::uint16_t>());
-            if (kind < ReplicationFrameKind::FullSnapshot || kind > ReplicationFrameKind::CanonicalStateMutation)
+            if (kind < ReplicationFrameKind::FullSnapshot || kind > ReplicationFrameKind::QualityResponse)
                 throw std::invalid_argument("Unknown replication message");
             return kind;
         }
@@ -283,6 +284,16 @@ namespace Duel6::Network::Replication {
         Writer w; header(w, ReplicationFrameKind::ResynchronizationRequest); return w.finish();
     }
 
+    std::vector<std::uint8_t> serializeQualityProbe(std::uint64_t sequence) {
+        if (sequence == 0) throw std::invalid_argument("Invalid quality probe sequence");
+        Writer w; header(w, ReplicationFrameKind::QualityProbe); w.integer(sequence); return w.finish();
+    }
+
+    std::vector<std::uint8_t> serializeQualityResponse(std::uint64_t sequence) {
+        if (sequence == 0) throw std::invalid_argument("Invalid quality response sequence");
+        Writer w; header(w, ReplicationFrameKind::QualityResponse); w.integer(sequence); return w.finish();
+    }
+
     std::optional<ReplicationFrame> deserializeReplicationFrame(const std::vector<std::uint8_t> &payload) noexcept {
         try {
             Reader r(payload); ReplicationFrame frame; frame.kind = readHeader(r);
@@ -303,6 +314,11 @@ namespace Duel6::Network::Replication {
                 v.score = readScore(r); v.messages = readMessages(r);
                 v.effects = r.vector<ContinuingEffectState>(MaxReplicatedEvents, readEffect); v.result = readResult(r);
                 v.events = r.vector<PresentationEvent>(MaxReplicatedEvents, readEvent); frame.update = std::move(v);
+            } else if (frame.kind == ReplicationFrameKind::QualityProbe
+                       || frame.kind == ReplicationFrameKind::QualityResponse) {
+                const auto sequence = r.integer<std::uint64_t>();
+                if (sequence == 0) return std::nullopt;
+                frame.qualitySequence = sequence;
             }
             if (!r.complete()) return std::nullopt;
             return frame;
@@ -348,9 +364,19 @@ namespace Duel6::Network::Replication {
             try { if (found->second.close) found->second.close(); } catch (...) {}
             connections.erase(found); return HostReplicationResult::InvalidMessage;
         }
+        if (frame->kind == ReplicationFrameKind::QualityProbe && frame->qualitySequence) {
+            try {
+                if (found->second.sender(serializeQualityResponse(*frame->qualitySequence)) == SendResult::Accepted)
+                    return HostReplicationResult::Accepted;
+            } catch (...) {}
+            try { if (found->second.close) found->second.close(); } catch (...) {}
+            connections.erase(found);
+            return HostReplicationResult::SendFailed;
+        }
         if (frame->kind == ReplicationFrameKind::CanonicalStateMutation
             || frame->kind == ReplicationFrameKind::FullSnapshot
-            || frame->kind == ReplicationFrameKind::IncrementalUpdate) {
+            || frame->kind == ReplicationFrameKind::IncrementalUpdate
+            || frame->kind == ReplicationFrameKind::QualityResponse) {
             try { if (found->second.close) found->second.close(); } catch (...) {}
             connections.erase(found); return HostReplicationResult::SessionPolicyViolation;
         }
@@ -366,19 +392,54 @@ namespace Duel6::Network::Replication {
 
     std::size_t AuthoritativeReplicationConnections::size() const noexcept { return connections.size(); }
 
-    ClientReplicationConnection::ClientReplicationConnection(ReplicationSender sender) : sender(std::move(sender)) {}
+    ClientReplicationConnection::ClientReplicationConnection(
+            ReplicationSender sender, Responsiveness::Environment environment)
+            : sender(std::move(sender)), quality(environment) {}
 
     ClientReplicationResult ClientReplicationConnection::receive(const std::vector<std::uint8_t> &payload) {
+        return receive(payload, Responsiveness::Clock::now());
+    }
+
+    ClientReplicationResult ClientReplicationConnection::receive(
+            const std::vector<std::uint8_t> &payload, Responsiveness::TimePoint acceptedAt) {
         if (reconnecting) return ClientReplicationResult::Reconnecting;
         const auto frame = deserializeReplicationFrame(payload);
-        if (!frame || (frame->kind != ReplicationFrameKind::FullSnapshot
-                       && frame->kind != ReplicationFrameKind::IncrementalUpdate)) {
+        if (!frame) {
+            transportClosed(); return ClientReplicationResult::Reconnecting;
+        }
+        if (frame->kind == ReplicationFrameKind::QualityResponse && frame->qualitySequence) {
+            if (!qualityProbeSentAt || *frame->qualitySequence != qualityProbeSequence
+                || acceptedAt < *qualityProbeSentAt) {
+                transportClosed();
+                return ClientReplicationResult::Reconnecting;
+            }
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    acceptedAt - *qualityProbeSentAt);
+            qualityProbeSentAt.reset();
+            (void) quality.observeNetworkSample({elapsed, qualityProbeCount, 0}, acceptedAt);
+            return ClientReplicationResult::NetworkSampled;
+        }
+        if (frame->kind != ReplicationFrameKind::FullSnapshot
+            && frame->kind != ReplicationFrameKind::IncrementalUpdate) {
             transportClosed(); return ClientReplicationResult::Reconnecting;
         }
         const ApplyResult applied = frame->snapshot ? replicated.apply(*frame->snapshot) : replicated.apply(*frame->update);
-        if (applied == ApplyResult::Applied) { requestPending = false; return ClientReplicationResult::Applied; }
+        if (applied == ApplyResult::Applied) {
+            const auto *state = replicated.state();
+            const auto latency = quality.currentRoundTripLatency().value_or(std::chrono::milliseconds::zero());
+            const auto estimatedStateAge = latency / 2;
+            if (!state || !movement.accept(replicated.version(), *state, acceptedAt)) {
+                replicated.requireResynchronization();
+                beginResynchronization();
+            } else {
+                (void) quality.observeCanonicalState(replicated.version(), estimatedStateAge, acceptedAt);
+                requestPending = false;
+                return ClientReplicationResult::Applied;
+            }
+        }
         if (applied == ApplyResult::WaitingForSnapshot) return ClientReplicationResult::WaitingForSnapshot;
         if (!requestPending && replicated.resynchronizationRequired()) {
+            beginResynchronization();
             requestPending = true;
             try {
                 if (!sender || sender(serializeResynchronizationRequest()) != SendResult::Accepted) {
@@ -390,8 +451,67 @@ namespace Duel6::Network::Replication {
         transportClosed(); return ClientReplicationResult::Reconnecting;
     }
 
+    bool ClientReplicationConnection::observeNetworkSample(
+            const Responsiveness::NetworkSample &sample,
+            Responsiveness::TimePoint observedAt) noexcept {
+        return quality.observeNetworkSample(sample, observedAt);
+    }
+
+    bool ClientReplicationConnection::sampleNetwork(Responsiveness::TimePoint now) {
+        constexpr auto SampleInterval = std::chrono::milliseconds(250);
+        if (reconnecting) return false;
+        if (qualityProbeSentAt || (lastQualityProbeAt && now - *lastQualityProbeAt < SampleInterval)) return true;
+        if (qualityProbeSequence == std::numeric_limits<std::uint64_t>::max()) {
+            transportClosed();
+            return false;
+        }
+        ++qualityProbeSequence;
+        try {
+            if (!sender || sender(serializeQualityProbe(qualityProbeSequence)) != SendResult::Accepted) {
+                transportClosed();
+                return false;
+            }
+        } catch (...) {
+            transportClosed();
+            return false;
+        }
+        ++qualityProbeCount;
+        qualityProbeSentAt = now;
+        lastQualityProbeAt = now;
+        return true;
+    }
+
+    void ClientReplicationConnection::setLocallyControlledPlayers(std::set<Identity> playerIds) {
+        movement.setLocallyControlledPlayers(std::move(playerIds));
+    }
+
+    bool ClientReplicationConnection::predictLocalMovement(
+            const Responsiveness::PresentedPlayerPose &pose,
+            Responsiveness::TimePoint sampledAt) noexcept {
+        return movement.predictLocalMovement(pose, sampledAt);
+    }
+
+    Responsiveness::ConnectionPresentationState ClientReplicationConnection::presentationState(
+            Responsiveness::TimePoint now) noexcept {
+        return quality.update(now);
+    }
+
+    std::vector<Responsiveness::PresentedPlayerPose> ClientReplicationConnection::presentedPlayers(
+            Responsiveness::TimePoint now) noexcept {
+        return movement.sample(now);
+    }
+
+    void ClientReplicationConnection::beginResynchronization() noexcept {
+        quality.beginResynchronization();
+        movement.beginResynchronization();
+    }
+
     void ClientReplicationConnection::transportClosed() noexcept {
-        reconnecting = true; requestPending = false; replicated.requireResynchronization();
+        reconnecting = true;
+        requestPending = false;
+        replicated.requireResynchronization();
+        movement.beginResynchronization();
+        quality.transportClosed();
     }
     const ReplicatedState &ClientReplicationConnection::replicatedState() const noexcept { return replicated; }
 }

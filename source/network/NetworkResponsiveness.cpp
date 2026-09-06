@@ -73,7 +73,8 @@ namespace Duel6::Network::Responsiveness {
         latestVersion = version;
         latestCanonicalStateAt = producedAt;
         latestCanonicalAcceptanceAt = acceptedAt;
-        stateAgeExceededSince.reset();
+        if (stateAgeAtAcceptance <= MaximumCurrentStateAge) stateAgeExceededSince.reset();
+        else if (!stateAgeExceededSince) stateAgeExceededSince = acceptedAt;
         resynchronizing = false;
         reconnecting = false;
         return true;
@@ -143,6 +144,11 @@ namespace Duel6::Network::Responsiveness {
 
     std::optional<std::chrono::milliseconds> ConnectionQualityMonitor::currentJitter() const noexcept {
         return latestJitter;
+    }
+
+    std::optional<std::chrono::milliseconds> ConnectionQualityMonitor::currentRoundTripLatency() const noexcept {
+        if (!latestNetworkSample) return std::nullopt;
+        return latestNetworkSample->roundTripLatency;
     }
 
     std::optional<double> ConnectionQualityMonitor::currentPacketLossPercent() const noexcept {

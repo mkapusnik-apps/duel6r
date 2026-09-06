@@ -345,11 +345,16 @@ namespace {
             Duel6::Network::AdmissionResult result;
         };
         std::optional<Duel6::Network::AdmissionOfferPayload> acceptedOffer;
+        const auto endpointScope = Duel6::Network::Trust::classifyIpv4Literal(config.listenEndpoint.host);
+        const auto environment = endpointScope == Duel6::Network::Trust::EndpointScope::Loopback
+                                 || config.listenEndpoint.host == "localhost"
+                                 ? Duel6::Network::Responsiveness::Environment::SameMachine
+                                 : Duel6::Network::Responsiveness::Environment::PrivateLan;
         Duel6::Network::Replication::ClientReplicationConnection replicatedConnection(
                 [connection](std::vector<std::uint8_t> payload) {
                     try { return connection->send(std::move(payload)); }
                     catch (...) { return Duel6::Network::SendResult::NotConnected; }
-                });
+                }, environment);
         bool sessionAdmitted = false;
         std::unique_ptr<Duel6::Network::Input::ClientCommandSession> playerInput;
         std::optional<std::uint64_t> submittedInputTick;
@@ -391,7 +396,7 @@ namespace {
                 if (const auto replication = Duel6::Network::Replication::deserializeReplicationFrame(frame.payload)) {
                     if (replication->kind != Duel6::Network::Replication::ReplicationFrameKind::FullSnapshot
                         || !replication->snapshot
-                        || replicatedConnection.receive(frame.payload)
+                        || replicatedConnection.receive(frame.payload, frame.receivedAt)
                            != Duel6::Network::Replication::ClientReplicationResult::Applied)
                         throw std::invalid_argument("Invalid initial replication snapshot");
                     return GuestFrameDecision();
@@ -451,6 +456,9 @@ namespace {
                                 try { return connection->send(std::move(payload)); }
                                 catch (...) { return Duel6::Network::SendResult::NotConnected; }
                             });
+                    replicatedConnection.setLocallyControlledPlayers(
+                            std::set<Duel6::Network::Replication::Identity>(
+                                    decision.result.playerIds.begin(), decision.result.playerIds.end()));
                     sessionAdmitted = true;
                     return std::nullopt;
                 case GuestDecision::InvalidHost:
@@ -466,6 +474,16 @@ namespace {
                     break;
             }
             return std::nullopt;
+        };
+        const auto publishPresentation = [&] {
+            if (!runtimeDependencies.guestPresentation) return;
+            const auto *canonical = replicatedConnection.replicatedState().state();
+            if (!canonical) return;
+            const auto now = runtimeNow(runtimeDependencies);
+            const auto connectionState = replicatedConnection.presentationState(now);
+            const auto players = replicatedConnection.presentedPlayers(now);
+            try { runtimeDependencies.guestPresentation(*canonical, connectionState, players); }
+            catch (...) {}
         };
         const auto isTerminal = [](Duel6::Network::ClientState state) {
             return state == Duel6::Network::ClientState::Closed
@@ -537,6 +555,10 @@ namespace {
         }
 
         while (!cancelled()) {
+            if (!replicatedConnection.sampleNetwork(runtimeNow(runtimeDependencies))) {
+                try { connection->requestClose(); } catch (...) {}
+                break;
+            }
             const auto *canonical = replicatedConnection.replicatedState().state();
             if (playerInput && canonical) {
                 if (!inputMatchStarted
@@ -562,13 +584,29 @@ namespace {
                         std::uint32_t actions = 0;
                         try { actions = runtimeDependencies.localPlayerActions(playerId); }
                         catch (...) { actions = Duel6::Network::Input::AllActions + 1u; }
-                        if (!playerInput->submit(playerId, canonical->phaseTime, actions)) {
+                        const auto command = playerInput->submit(playerId, canonical->phaseTime, actions);
+                        if (!command) {
                             try { connection->requestClose(); } catch (...) {}
                             break;
+                        }
+                        const auto sampledAt = runtimeNow(runtimeDependencies);
+                        const auto player = std::find_if(canonical->players.begin(), canonical->players.end(),
+                                [playerId](const auto &value) { return value.playerId == playerId; });
+                        if (player != canonical->players.end()) {
+                            Duel6::Network::Responsiveness::PresentedPlayerPose predicted{
+                                    player->playerId, player->positionX + player->velocityX,
+                                    player->positionY + player->velocityY,
+                                    player->facingLeft, player->crouching};
+                            const bool left = (actions & Duel6::Network::Input::MoveLeft) != 0;
+                            const bool right = (actions & Duel6::Network::Input::MoveRight) != 0;
+                            if (left != right) predicted.facingLeft = left;
+                            predicted.crouching = (actions & Duel6::Network::Input::Crouch) != 0;
+                            (void) replicatedConnection.predictLocalMovement(predicted, sampledAt);
                         }
                     }
                 }
             }
+            publishPresentation();
             Duel6::Network::TransportFrame frame;
             bool received = false;
             try { received = connection->receive(frame); }
@@ -590,7 +628,7 @@ namespace {
                     }
                     continue;
                 }
-                const auto result = replicatedConnection.receive(frame.payload);
+                const auto result = replicatedConnection.receive(frame.payload, frame.receivedAt);
                 if (result == Duel6::Network::Replication::ClientReplicationResult::Reconnecting
                     || result == Duel6::Network::Replication::ClientReplicationResult::SendFailed) {
                     try { connection->requestClose(); } catch (...) {}
@@ -605,6 +643,7 @@ namespace {
             catch (...) { break; }
         }
         replicatedConnection.transportClosed();
+        publishPresentation();
         closeClient();
         return 2;
     }
