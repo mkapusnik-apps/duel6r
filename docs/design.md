@@ -437,33 +437,12 @@ The following values come from renderer and GUI source.
 
 ## Stitch synchronization
 
-The corresponding Stitch project is `projects/1219346282527961142`; its current metadata reports the title `Duel 6 Reloaded`, private visibility, and the authenticated role `OWNER`.
-Issue #16 remains open, but its 14-screen inventory is retired and must be re-scoped before further use.
-Future Stitch work is optional and non-blocking.
-For PR #54 and subsequent assessment of this approved change, Stitch is a supplementary visual workspace.
-`docs/features.md`, this file, the applicable screen specifications, the version-controlled wireframes, and conforming implementation screenshots are authoritative.
-A missing or stale Stitch representation must not replace or weaken any local design, wireframe, screenshot, provenance, or implementation-presentation gate.
-A Stitch synchronization failure does not block visual acceptance when all authoritative local sources exist, remain current, and conform.
-The project includes two `MENU-01 — Main menu and session setup` explorations at screens `681ae093051749fd922ab74454f47121` and `e26294cba3d946a0af458bcf33c275a0`.
-Screen `681ae093051749fd922ab74454f47121` is a historical visual reference for the retro grey canvas, compact density, score table, and footer actions.
-Its black matte and four-panel hierarchy are stale and must not override the current scaled background or three-panel `MENU-01` wireframes.
-The application behavior and copy in `docs/features.md` override illustrative Stitch names, statistics, settings, version text, and shortcut syntax.
-The project also includes screens for Predator, Team gameplay, sudden death, and the score overlay.
-An alignment edit was requested for those four screens on 2026-08-23.
-The Stitch request timed out, so the screen update result is not confirmed.
-The Stitch design system uses an exploratory dark tactical style that does not match this native visual baseline.
-The retro `MENU-01` screen direction is an approved screen-specific exception to that exploratory design system.
-This file and `docs/features.md` remain authoritative for implementation details that the Stitch samples do not represent accurately.
-The project and screen inventory were reviewed again on 2026-09-01 for the Team score-overview grouping change.
-Stitch screen `172c3e16a6424bf1a7d95723038f3e43` is `OVER-01 — Score-tab overlay`.
-Stitch screen `46c697bc75274ba9a668b0641e077dc0` is `OVER-02 — Round-over summary`.
-A separator-treatment edit was requested for both screens on 2026-09-01.
-The request preserved the native overlay, four Team groups, score content, alignment, `OVER-02` progress row, and curtain behavior.
-The request specified an 8 px boundary band with a centered 2 px white rule at 70% opacity.
-The Stitch request timed out, so the screen update result is not confirmed.
-The local specifications and wireframes remain the implementation target.
-Two consolidated Teams variants were requested from screen `681ae093051749fd922ab74454f47121` on 2026-08-31.
-An inspection after the timeout found no generated consolidated Teams variants in the project screen inventory.
-The two existing `MENU-01` explorations remain `681ae093051749fd922ab74454f47121` and `e26294cba3d946a0af458bcf33c275a0`.
-The local screen specification and wireframes are complete and remain sufficient for implementation and visual assessment.
-The stale Stitch screens are a documented non-blocking limitation for PR #54.
+The corresponding optional Stitch project is `projects/1219346282527961142`.
+The project metadata reports the title `Duel 6 Reloaded`, private visibility, and the authenticated role `OWNER`.
+The repository design system, screen specifications, wireframes, and implementation screenshot manifest remain authoritative.
+The root `DESIGN.md` file remains a compatibility pointer.
+The Stitch design system uses an exploratory dark tactical style that conflicts with the native visual baseline.
+No Stitch design-system value may override a canonical repository value.
+A Stitch artifact may support exploration, but it must not serve as implementation screenshot evidence.
+A missing, stale, conflicting, or inaccessible Stitch artifact must not block implementation, screenshot capture, review, release, or issue completion.
+The current wireframe-level mapping and its limitations are in [`docs/screens/README.md`](screens/README.md#optional-stitch-mapping).
