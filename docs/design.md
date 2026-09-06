@@ -12,13 +12,14 @@ The current native implementation remains the source for unchanged visual detail
 The fixed product baseline is `docs/features.md` at source commit `88b72a6` for PR #62.
 This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, the person-action alignment specified in `SET-078`–`SET-083`, the person-list and action-button refinement specified in `SET-084`–`SET-091`, and the planned first-release network UI defined for issue #28.
 The network additions are target specifications for downstream issue #38 and are not implemented UI or evidence of playable networking.
-Issue #35 defines the target responsiveness, correction, degraded-state, and recovery behavior for the existing `NET-05` wireframe.
+Issue #35 implements presentation-ready responsiveness, correction, degraded-state, resynchronization, and recovery handoffs without a graphical consumer.
+Issue #35 does not change a rendered application screen, layout, or graphical state.
 Issue #30 may implement protocol, command-line, or scaffold outcomes, but it must not add graphical network UI.
 Issue #32 defines authoritative headless match states, result data, and fixed outcome copy for the planned network screens.
 Issue #32 must not add graphical network UI.
 Issue #34 defines stable replicated identities and presentation-independent result-state replication.
 Issue #34 must not add graphical network UI.
-Issue #38 owns the future presentation and visual evidence for the replicated states.
+Issue #38 owns the future graphical consumption, presentation, accessibility, and visual evidence for the replicated states.
 
 ## Visual principles
 

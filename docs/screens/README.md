@@ -13,8 +13,9 @@ Issue #32 defines authoritative headless match behavior, fixed result and failur
 Issue #32 does not implement graphical network UI and does not add a wireframe.
 Issue #34 defines stable replicated identities and presentation-independent state replication for the same durable screen identities.
 Issue #34 does not implement graphical network UI and does not add a wireframe.
-Issue #35 defines responsiveness, visible movement correction, degraded-network indication, and recovery for the existing `NET-05` state.
-Issue #35 does not add a screen or wireframe.
+Issue #35 implements presentation-ready responsiveness, correction, degraded-network, resynchronization, and recovery handoffs for the existing `NET-05` target.
+Issue #35 does not add or change a rendered screen, layout, graphical state, or wireframe.
+Issue #38 owns graphical consumption and accessibility for the issue #35 handoffs.
 Issue #38 retains ownership of graphical presentation, focus, controls, disabled reasons, screenshots, and visual conformance for these target states.
 
 The implementation supports desktop display viewports only.
