@@ -285,11 +285,15 @@ namespace Duel6::Network::Trust {
     class ReconnectReservation {
     public:
         ReconnectReservation(std::uint64_t session, ParticipantId participant, std::uint64_t reservation,
-                             Clock clock = {}, RandomFill random = {});
+                             Clock clock = {}, RandomFill random = {}, bool activateImmediately = true,
+                             const ReconnectCredential *disallowed = nullptr);
         ~ReconnectReservation();
         ReconnectReservation(const ReconnectReservation &) = delete;
         ReconnectReservation &operator=(const ReconnectReservation &) = delete;
         bool valid();
+        bool active();
+        bool activate();
+        std::optional<TimePoint> deadline();
         ReconnectCredential credential();
         ReconnectAuthorizationResult authorizeAndConsume(const ReconnectCredential &candidate,
                                                           std::uint64_t session, ParticipantId participant,
@@ -301,13 +305,13 @@ namespace Duel6::Network::Trust {
         bool participantRemoved(std::uint64_t session, ParticipantId participant);
         bool sessionEnded(std::uint64_t session);
         bool replace(std::uint64_t session, ParticipantId participant, std::uint64_t reservation,
-                     std::uint64_t replacementReservation);
+                     std::uint64_t replacementReservation, bool activateImmediately = true);
         void invalidate();
     private:
         Clock clock;
         RandomFill random;
         std::optional<ReconnectCredential> value;
-        TimePoint expiry;
+        std::optional<TimePoint> expiry;
         std::uint64_t session;
         ParticipantId participant;
         std::uint64_t reservation;
