@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -2543,8 +2544,8 @@ D6R_TEST_CASE("NRP production client uses synchronized host production age and r
     snapshot.authoritativeProducedAt = 700;
     D6R_REQUIRE(client.receive(R::serializeReplicationSnapshot(snapshot), at(30ms))
                 == R::ClientReplicationResult::Applied);
-    D6R_REQUIRE(!client.presentationState(at(1029ms)).degraded);
-    for (R::StateVersion version = 2; version <= 21; ++version) {
+    D6R_REQUIRE(!client.presentationState(at(959ms)).degraded);
+    for (R::StateVersion version = 2; version <= 19; ++version) {
         state.phaseTime++;
         auto update = publisher.publish(state);
         D6R_REQUIRE(update.has_value());
@@ -2553,7 +2554,17 @@ D6R_TEST_CASE("NRP production client uses synchronized host production age and r
         D6R_REQUIRE(client.receive(R::serializeReplicationUpdate(*update), at(acceptedAt))
                     == R::ClientReplicationResult::Applied);
     }
-    D6R_REQUIRE(client.presentationState(at(1030ms)).degraded);
+    D6R_REQUIRE(client.presentationState(at(960ms)).degraded);
+    for (R::StateVersion version = 20; version <= 21; ++version) {
+        state.phaseTime++;
+        auto update = publisher.publish(state);
+        D6R_REQUIRE(update.has_value());
+        update->authoritativeProducedAt = 700 + (version - 1) * 50;
+        const auto acceptedAt = 30ms + std::chrono::milliseconds((version - 1) * 50);
+        D6R_REQUIRE(client.receive(R::serializeReplicationUpdate(*update), at(acceptedAt))
+                    == R::ClientReplicationResult::Applied);
+        D6R_REQUIRE(client.presentationState(at(acceptedAt)).degraded);
+    }
 
     for (R::StateVersion version = 22; version <= 81; ++version) {
         state.phaseTime++;
@@ -2574,6 +2585,82 @@ D6R_TEST_CASE("NRP production client uses synchronized host production age and r
     const auto recovered = client.presentationState(at(4040ms));
     D6R_REQUIRE(!recovered.degraded);
     D6R_REQUIRE(recovered.canonicalStateCurrent);
+}
+
+D6R_TEST_CASE("NRP production client bounds adversarial peer timestamps and local clock extremes") {
+    const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
+    const auto maximumTimestamp = static_cast<std::uint64_t>(
+            std::chrono::milliseconds::max().count());
+
+    R::FullSnapshot extremeSnapshot{1, activeState()};
+    extremeSnapshot.authoritativeProducedAt = std::numeric_limits<std::uint64_t>::max();
+    const auto extremePayload = R::serializeReplicationSnapshot(extremeSnapshot);
+    const auto decodedExtreme = R::deserializeReplicationFrame(extremePayload);
+    D6R_REQUIRE(decodedExtreme && decodedExtreme->snapshot);
+    D6R_REQUIRE_EQ(std::numeric_limits<std::uint64_t>::max(),
+                   decodedExtreme->snapshot->authoritativeProducedAt);
+    R::ClientReplicationConnection unsignedOverflow({}, N::Environment::SameMachine, true);
+    D6R_REQUIRE(unsignedOverflow.receive(extremePayload, at(0ms))
+                == R::ClientReplicationResult::Reconnecting);
+    D6R_REQUIRE_EQ(R::StateVersion{0}, unsignedOverflow.replicatedState().version());
+
+    std::vector<std::vector<std::uint8_t>> sent;
+    R::ClientReplicationConnection responseOverflow([&](auto payload) {
+        sent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+    D6R_REQUIRE(responseOverflow.sampleNetwork(at(0ms)));
+    auto probe = R::deserializeReplicationFrame(sent.back());
+    D6R_REQUIRE(probe && probe->qualitySequence);
+    D6R_REQUIRE(responseOverflow.receive(R::serializeQualityResponse(
+            *probe->qualitySequence, maximumTimestamp - 9), at(20ms))
+                == R::ClientReplicationResult::Reconnecting);
+
+    sent.clear();
+    R::ClientReplicationConnection clampedFuture([&](auto payload) {
+        sent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+    D6R_REQUIRE(clampedFuture.sampleNetwork(at(0ms)));
+    probe = R::deserializeReplicationFrame(sent.back());
+    D6R_REQUIRE(probe && probe->qualitySequence);
+    D6R_REQUIRE(clampedFuture.receive(R::serializeQualityResponse(
+            *probe->qualitySequence, maximumTimestamp - 10), at(20ms))
+                == R::ClientReplicationResult::NetworkSampled);
+    R::FullSnapshot maximumSnapshot{1, activeState()};
+    maximumSnapshot.authoritativeProducedAt = maximumTimestamp;
+    D6R_REQUIRE(clampedFuture.receive(R::serializeReplicationSnapshot(maximumSnapshot), at(20ms))
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE(!clampedFuture.presentationState(at(20ms)).degraded);
+
+    auto state = activeState();
+    state.phaseTime++;
+    auto maximumUpdate = validUpdate(activeState(), state);
+    maximumUpdate.baseline = 1;
+    maximumUpdate.version = 2;
+    maximumUpdate.authoritativeProducedAt = maximumTimestamp;
+    D6R_REQUIRE(clampedFuture.receive(R::serializeReplicationUpdate(maximumUpdate), at(21ms))
+                == R::ClientReplicationResult::Reconnecting);
+    D6R_REQUIRE_EQ(R::StateVersion{1}, clampedFuture.replicatedState().version());
+
+    sent.clear();
+    R::ClientReplicationConnection localSpan([&](auto payload) {
+        sent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+    const auto nearMinimum = N::TimePoint::min() + 20ms;
+    D6R_REQUIRE(localSpan.sampleNetwork(N::TimePoint::min()));
+    probe = R::deserializeReplicationFrame(sent.back());
+    D6R_REQUIRE(probe && probe->qualitySequence);
+    D6R_REQUIRE(localSpan.receive(R::serializeQualityResponse(*probe->qualitySequence, 1000),
+                                  nearMinimum)
+                == R::ClientReplicationResult::NetworkSampled);
+    R::FullSnapshot ordinarySnapshot{1, activeState()};
+    ordinarySnapshot.authoritativeProducedAt = 1000;
+    D6R_REQUIRE(localSpan.receive(R::serializeReplicationSnapshot(ordinarySnapshot),
+                                  N::TimePoint::max())
+                == R::ClientReplicationResult::Reconnecting);
+    D6R_REQUIRE_EQ(R::StateVersion{0}, localSpan.replicatedState().version());
 }
 
 D6R_TEST_CASE("NRP unanswered 250 ms probes degrade despite continuously arriving canonical traffic") {

@@ -541,6 +541,8 @@ namespace Duel6::Network::Replication {
                     transportClosed();
                     return ClientReplicationResult::Reconnecting;
                 }
+                pendingAuthoritativeProducedAt.reset();
+                pendingCanonicalAcceptedAt.reset();
             }
             return ClientReplicationResult::NetworkSampled;
         }
@@ -574,16 +576,18 @@ namespace Duel6::Network::Replication {
             } else {
                 if (authoritativeProducedAt != 0) {
                     latestAuthoritativeProducedAt = authoritativeProducedAt;
-                    pendingAuthoritativeProducedAt = authoritativeProducedAt;
-                    pendingCanonicalAcceptedAt = acceptedAt;
                     if (authoritativeAge) {
                         if (!quality.observeCanonicalState(
                                 replicated.version(), *authoritativeAge, acceptedAt)) {
                             transportClosed();
                             return ClientReplicationResult::Reconnecting;
                         }
+                        pendingAuthoritativeProducedAt.reset();
+                        pendingCanonicalAcceptedAt.reset();
                     } else {
                         (void) quality.observeCanonicalVersion(replicated.version(), acceptedAt);
+                        pendingAuthoritativeProducedAt = authoritativeProducedAt;
+                        pendingCanonicalAcceptedAt = acceptedAt;
                     }
                 } else {
                     (void) quality.observeCanonicalState(replicated.version(), acceptedAt);

@@ -119,30 +119,56 @@ D6R_TEST_CASE("supported boundary samples remain connected and do not become deg
     }
 }
 
-D6R_TEST_CASE("state age must breach continuously for one second before exact degraded text appears") {
-    N::ConnectionQualityMonitor monitor(N::Environment::SameMachine);
-    observeFreshSupported(monitor, 1, at(0ms));
-    D6R_REQUIRE(!monitor.update(at(1249ms)).degraded);
-    const auto degraded = monitor.update(at(1250ms));
-    D6R_REQUIRE(degraded.degraded);
-    D6R_REQUIRE_EQ(std::string("Network connection degraded."), degraded.degradedText);
-    D6R_REQUIRE(degraded.degradedText.find("disconnected") == std::string::npos);
-    D6R_REQUIRE(degraded.degradedText.find("host") == std::string::npos);
+D6R_TEST_CASE("state age degradation delay is measured from the authoritative 250 ms crossing") {
+    struct Scenario {
+        std::chrono::milliseconds age;
+        std::chrono::milliseconds remainingDelay;
+    };
+    for (const auto scenario: {Scenario{251ms, 999ms}, Scenario{300ms, 950ms},
+                               Scenario{1249ms, 1ms}, Scenario{1250ms, 0ms}}) {
+        N::ConnectionQualityMonitor monitor(N::Environment::SameMachine);
+        D6R_REQUIRE(monitor.observeNetworkSample({10ms, 100, 0}, at(2000ms)));
+        D6R_REQUIRE(monitor.observeNetworkSample({10ms, 100, 0}, at(2001ms)));
+        D6R_REQUIRE(monitor.observeCanonicalState(1, scenario.age, at(2001ms)));
+        if (scenario.remainingDelay > 0ms)
+            D6R_REQUIRE(!monitor.update(at(2001ms + scenario.remainingDelay - 1ms)).degraded);
+        const auto degraded = monitor.update(at(2001ms + scenario.remainingDelay));
+        D6R_REQUIRE(degraded.degraded);
+        D6R_REQUIRE_EQ(std::string("Network connection degraded."), degraded.degradedText);
+        D6R_REQUIRE(degraded.degradedText.find("disconnected") == std::string::npos);
+        D6R_REQUIRE(degraded.degradedText.find("host") == std::string::npos);
+    }
 }
 
-D6R_TEST_CASE("continuously stale canonical updates still trigger degradation after one second") {
+D6R_TEST_CASE("continuously stale canonical updates preserve the original threshold crossing") {
     N::ConnectionQualityMonitor monitor(N::Environment::SameMachine);
     D6R_REQUIRE(monitor.observeNetworkSample({10ms, 100, 0}, at(0ms)));
-    for (R::StateVersion version = 1; version <= 20; ++version) {
+    for (R::StateVersion version = 1; version <= 19; ++version) {
         const auto now = at(std::chrono::milliseconds((version - 1) * 50));
         D6R_REQUIRE(monitor.observeCanonicalState(version, 300ms, now));
         D6R_REQUIRE(!monitor.update(now).degraded);
     }
-    const auto now = at(1000ms);
-    D6R_REQUIRE(monitor.observeCanonicalState(21, 300ms, now));
-    const auto degraded = monitor.update(now);
+    D6R_REQUIRE(monitor.observeCanonicalState(20, 300ms, at(950ms)));
+    const auto degraded = monitor.update(at(950ms));
     D6R_REQUIRE(degraded.degraded);
     D6R_REQUIRE_EQ(std::string("Network connection degraded."), degraded.degradedText);
+}
+
+D6R_TEST_CASE("extreme state ages and steady-clock boundaries fail safely without wrapping") {
+    N::ConnectionQualityMonitor monitor(N::Environment::SameMachine);
+    D6R_REQUIRE(!monitor.observeCanonicalState(
+            1, std::chrono::milliseconds::max(), N::TimePoint::max()));
+    D6R_REQUIRE_EQ(R::StateVersion{0}, monitor.acceptedVersion());
+
+    D6R_REQUIRE(!monitor.observeCanonicalState(1, 1ms, N::TimePoint::min()));
+    D6R_REQUIRE_EQ(R::StateVersion{0}, monitor.acceptedVersion());
+
+    D6R_REQUIRE(monitor.observeCanonicalState(1, 1250ms, N::TimePoint::max()));
+    D6R_REQUIRE(monitor.update(N::TimePoint::max()).degraded);
+
+    N::ConnectionQualityMonitor span(N::Environment::SameMachine);
+    D6R_REQUIRE(span.observeCanonicalState(1, N::TimePoint::min()));
+    D6R_REQUIRE(!span.currentStateAge(N::TimePoint::max()).has_value());
 }
 
 D6R_TEST_CASE("network budget breach must be sustained and supported recovery must last three seconds") {
