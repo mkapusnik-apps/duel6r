@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <deque>
@@ -1048,6 +1049,7 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
     D6R_REQUIRE(hostConfig.listenEndpoint.port != 0);
     std::atomic<bool> ready{false};
     std::atomic<bool> stopHost{false};
+    const auto fixtureDeadline = std::chrono::steady_clock::now() + 15s;
     std::mutex evidenceMutex;
     std::vector<Server::Authoritative::Identity> hostPlayers;
     std::vector<Server::Authoritative::Identity> guestPlayers;
@@ -1058,7 +1060,11 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
 
     Server::AdmissionRuntimeDependencies hostDependencies;
     hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
-    hostDependencies.cancelled = [&] { return stopHost.load(); };
+    // Bound the fixture itself so a guest admission/drain failure is reported by the behavioral
+    // assertions below instead of stranding host.join() until the outer CTest timeout.
+    hostDependencies.cancelled = [&] {
+        return stopHost.load() || std::chrono::steady_clock::now() >= fixtureDeadline;
+    };
     hostDependencies.hostedServiceStatus = [&](Network::HostServiceStatusCode status) {
         if (status == Network::HostServiceStatusCode::Ready) ready = true;
         return true;
@@ -1928,10 +1934,12 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
     namespace R = Network::Replication;
     enum class DeliveryPath { NormalReceive, SealedDrain };
     enum class CompletionFrame { Snapshot, QualityResponse, CompleteBeforeDeadline };
+    enum class OrderedFrame { Confirmation, Calibration, Snapshot };
     struct Scenario {
         DeliveryPath path;
         CompletionFrame completion;
         std::chrono::milliseconds completionAt;
+        std::array<OrderedFrame, 3> order;
     };
 
     const auto hostedManifest = manifest({
@@ -1940,17 +1948,29 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
     std::vector<Scenario> scenarios;
     for (const auto path: {DeliveryPath::NormalReceive, DeliveryPath::SealedDrain}) {
         for (const auto completion: {CompletionFrame::Snapshot, CompletionFrame::QualityResponse}) {
-            scenarios.push_back({path, completion, 10000ms});
-            scenarios.push_back({path, completion, 10001ms});
+            const auto order = completion == CompletionFrame::Snapshot
+                               ? std::array<OrderedFrame, 3>{{OrderedFrame::Confirmation,
+                                      OrderedFrame::Calibration, OrderedFrame::Snapshot}}
+                               : std::array<OrderedFrame, 3>{{OrderedFrame::Confirmation,
+                                      OrderedFrame::Snapshot, OrderedFrame::Calibration}};
+            scenarios.push_back({path, completion, 10000ms, order});
+            scenarios.push_back({path, completion, 10001ms, order});
         }
     }
     // Both paths consume a calibration response at the approved 20 ms same-machine RTT limit.
     // The sealed path proves a complete, within-budget exchange may remain queued while the
     // application thread reaches the total deadline and still finish admission.
-    scenarios.push_back({DeliveryPath::NormalReceive,
-                          CompletionFrame::CompleteBeforeDeadline, 20ms});
-    scenarios.push_back({DeliveryPath::SealedDrain,
-                          CompletionFrame::CompleteBeforeDeadline, 20ms});
+    const std::array<std::array<OrderedFrame, 3>, 6> permutations{{
+            {{OrderedFrame::Confirmation, OrderedFrame::Calibration, OrderedFrame::Snapshot}},
+            {{OrderedFrame::Confirmation, OrderedFrame::Snapshot, OrderedFrame::Calibration}},
+            {{OrderedFrame::Calibration, OrderedFrame::Confirmation, OrderedFrame::Snapshot}},
+            {{OrderedFrame::Calibration, OrderedFrame::Snapshot, OrderedFrame::Confirmation}},
+            {{OrderedFrame::Snapshot, OrderedFrame::Confirmation, OrderedFrame::Calibration}},
+            {{OrderedFrame::Snapshot, OrderedFrame::Calibration, OrderedFrame::Confirmation}}
+    }};
+    for (const auto path: {DeliveryPath::NormalReceive, DeliveryPath::SealedDrain})
+        for (const auto &order: permutations)
+            scenarios.push_back({path, CompletionFrame::CompleteBeforeDeadline, 20ms, order});
 
     for (const auto scenario: scenarios) {
         const auto port = unusedLoopbackPort();
@@ -2003,8 +2023,6 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
                 receive(frame);
                 D6R_REQUIRE(Network::sameAdmissionIdentitySet(
                         confirmed, Network::deserializeAdmissionAcceptance(frame.payload)));
-                send(Network::serializeAdmissionConfirmation(confirmed), 2ms);
-
                 receive(frame);
                 const auto probe = R::deserializeReplicationFrame(frame.payload);
                 D6R_REQUIRE(probe && probe->kind == R::ReplicationFrameKind::QualityProbe
@@ -2025,12 +2043,26 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
                                        ? scenario.completionAt
                                        : scenario.completion == CompletionFrame::CompleteBeforeDeadline
                                          ? scenario.completionAt : 9999ms;
-                if (scenario.completion == CompletionFrame::Snapshot) {
-                    send(R::serializeQualityResponse(*probe->qualitySequence, 1), qualityAt);
-                    send(R::serializeReplicationSnapshot(snapshot), snapshotAt);
-                } else {
-                    send(R::serializeReplicationSnapshot(snapshot), snapshotAt);
-                    send(R::serializeQualityResponse(*probe->qualitySequence, 1), qualityAt);
+                for (std::size_t index = 0; index < scenario.order.size(); ++index) {
+                    auto receivedAt = std::chrono::milliseconds{2};
+                    if (scenario.completion == CompletionFrame::CompleteBeforeDeadline)
+                        receivedAt = scenario.completionAt - 2ms
+                                     + std::chrono::milliseconds(static_cast<int>(index));
+                    switch (scenario.order[index]) {
+                        case OrderedFrame::Confirmation:
+                            send(Network::serializeAdmissionConfirmation(confirmed), receivedAt);
+                            break;
+                        case OrderedFrame::Calibration:
+                            send(R::serializeQualityResponse(*probe->qualitySequence, 1),
+                                 scenario.completion == CompletionFrame::CompleteBeforeDeadline
+                                 ? receivedAt : qualityAt);
+                            break;
+                        case OrderedFrame::Snapshot:
+                            send(R::serializeReplicationSnapshot(snapshot),
+                                 scenario.completion == CompletionFrame::CompleteBeforeDeadline
+                                 ? receivedAt : snapshotAt);
+                            break;
+                    }
                 }
                 completionSent = true;
 

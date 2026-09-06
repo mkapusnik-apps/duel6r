@@ -538,7 +538,10 @@ namespace {
             return std::nullopt;
         };
         const auto publishPresentation = [&] {
-            if (!runtimeDependencies.guestPresentation) return;
+            if (!runtimeDependencies.guestPresentation) {
+                (void) replicatedConnection.takePresentationEvents();
+                return;
+            }
             const auto now = runtimeNow(runtimeDependencies);
             const auto connectionState = replicatedConnection.presentationState(now);
             const auto *canonical = replicatedConnection.replicatedState().retainedState();

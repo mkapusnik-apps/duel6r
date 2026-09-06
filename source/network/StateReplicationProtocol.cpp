@@ -13,7 +13,7 @@ namespace Duel6::Network::Replication {
 
         std::optional<std::chrono::milliseconds> elapsedMilliseconds(
                 Responsiveness::TimePoint startedAt,
-                Responsiveness::TimePoint finishedAt) noexcept {
+                Responsiveness::TimePoint finishedAt, bool roundUp = false) noexcept {
             if (finishedAt < startedAt) return std::nullopt;
             using Clock = Responsiveness::Clock;
             using Rep = Clock::duration::rep;
@@ -33,8 +33,13 @@ namespace Duel6::Network::Replication {
             } else {
                 ticks = static_cast<Unsigned>(finished - started);
             }
-            return std::chrono::duration_cast<std::chrono::milliseconds>(
-                    Clock::duration{static_cast<Rep>(ticks)});
+            const Clock::duration precise{static_cast<Rep>(ticks)};
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(precise);
+            if (roundUp && std::chrono::duration_cast<Clock::duration>(elapsed) < precise) {
+                if (elapsed == std::chrono::milliseconds::max()) return std::nullopt;
+                elapsed += std::chrono::milliseconds(1);
+            }
+            return elapsed;
         }
 
         bool canSubtractMilliseconds(Responsiveness::TimePoint from,
@@ -62,15 +67,16 @@ namespace Duel6::Network::Replication {
         std::optional<std::uint64_t> extrapolateAuthoritativeTime(
                 std::uint64_t authoritativeTime,
                 Responsiveness::TimePoint synchronizedAt,
-                Responsiveness::TimePoint localTime) noexcept {
+                Responsiveness::TimePoint localTime,
+                bool upperBound = false) noexcept {
             if (localTime >= synchronizedAt) {
-                const auto elapsed = elapsedMilliseconds(synchronizedAt, localTime);
+                const auto elapsed = elapsedMilliseconds(synchronizedAt, localTime, upperBound);
                 if (!elapsed || static_cast<std::uint64_t>(elapsed->count())
                     > MaximumAuthoritativeTimestamp - authoritativeTime)
                     return std::nullopt;
                 return authoritativeTime + static_cast<std::uint64_t>(elapsed->count());
             }
-            const auto elapsed = elapsedMilliseconds(localTime, synchronizedAt);
+            const auto elapsed = elapsedMilliseconds(localTime, synchronizedAt, !upperBound);
             if (!elapsed || static_cast<std::uint64_t>(elapsed->count()) > authoritativeTime)
                 return std::nullopt;
             return authoritativeTime - static_cast<std::uint64_t>(elapsed->count());
@@ -533,7 +539,7 @@ namespace Duel6::Network::Replication {
                 transportClosed();
                 return ClientReplicationResult::Reconnecting;
             }
-            const auto elapsedValue = elapsedMilliseconds(*qualityProbeSentAt, acceptedAt);
+            const auto elapsedValue = elapsedMilliseconds(*qualityProbeSentAt, acceptedAt, true);
             if (!elapsedValue) {
                 transportClosed();
                 return ClientReplicationResult::Reconnecting;
@@ -584,7 +590,7 @@ namespace Duel6::Network::Replication {
                                 *localClockSynchronizedAt, acceptedAt);
                         const auto priorUpperBound = extrapolateAuthoritativeTime(
                                 *authoritativeClockUpperBoundAtSynchronization,
-                                *localClockSynchronizedAt, acceptedAt);
+                                *localClockSynchronizedAt, acceptedAt, true);
                         if (!priorLowerBound || !priorUpperBound) {
                             intervalConsistent = false;
                         } else {
@@ -766,37 +772,61 @@ namespace Duel6::Network::Replication {
             transportClosed();
             return ClientReplicationResult::Reconnecting;
         }
-        const ApplyResult applied = frame->snapshot ? replicated.apply(*frame->snapshot) : replicated.apply(*frame->update);
+        ReplicatedState candidateReplicated = replicated;
+        Responsiveness::CanonicalMovementPresentation candidateMovement = movement;
+        Responsiveness::ConnectionQualityMonitor candidateQuality = quality;
+        const ApplyResult applied = frame->snapshot ? candidateReplicated.apply(*frame->snapshot)
+                                                    : candidateReplicated.apply(*frame->update);
         if (applied == ApplyResult::Applied) {
-            const auto *state = replicated.state();
-            if (!state || !movement.accept(replicated.version(), *state, acceptedAt)) {
+            const auto *state = candidateReplicated.state();
+            if (!state || !candidateMovement.accept(candidateReplicated.version(), *state, acceptedAt)) {
                 replicated.requireResynchronization();
                 beginResynchronization();
             } else {
                 if (authoritativeProducedAt != 0) {
-                    latestAuthoritativeProducedAt = authoritativeProducedAt;
                     if (authoritativeAge) {
-                        (void) quality.observeCanonicalState(
-                                replicated.version(), *authoritativeAge, acceptedAt);
-                        pendingAuthoritativeProducedAt.reset();
-                        pendingCanonicalAcceptedAt.reset();
+                        if (!candidateQuality.observeCanonicalState(
+                                candidateReplicated.version(), *authoritativeAge, acceptedAt)) {
+                            transportClosed();
+                            return ClientReplicationResult::Reconnecting;
+                        }
                     } else {
-                        (void) quality.observeCanonicalVersion(replicated.version(), acceptedAt);
-                        pendingAuthoritativeProducedAt = authoritativeProducedAt;
-                        pendingCanonicalAcceptedAt = acceptedAt;
+                        if (!candidateQuality.observeCanonicalVersion(
+                                candidateReplicated.version(), acceptedAt)) {
+                            transportClosed();
+                            return ClientReplicationResult::Reconnecting;
+                        }
                     }
                 } else {
-                    (void) quality.observeCanonicalState(replicated.version(), acceptedAt);
+                    if (!candidateQuality.observeCanonicalState(
+                            candidateReplicated.version(), acceptedAt)) {
+                        transportClosed();
+                        return ClientReplicationResult::Reconnecting;
+                    }
+                }
+                replicated = std::move(candidateReplicated);
+                movement = std::move(candidateMovement);
+                quality = std::move(candidateQuality);
+                latestAuthoritativeProducedAt = authoritativeProducedAt != 0
+                                                ? authoritativeProducedAt
+                                                : latestAuthoritativeProducedAt;
+                if (authoritativeProducedAt != 0 && !authoritativeAge) {
+                    pendingAuthoritativeProducedAt = authoritativeProducedAt;
+                    pendingCanonicalAcceptedAt = acceptedAt;
+                } else {
+                    pendingAuthoritativeProducedAt.reset();
+                    pendingCanonicalAcceptedAt.reset();
                 }
                 requestPending = false;
                 if (initialAdmissionCalibration && frame->snapshot
                     && !acceptedInitialAdmissionState)
-                    acceptedInitialAdmissionState = *state;
+                    acceptedInitialAdmissionState = *replicated.state();
                 return ClientReplicationResult::Applied;
             }
         }
         if (applied == ApplyResult::WaitingForSnapshot) return ClientReplicationResult::WaitingForSnapshot;
-        if (replicated.resynchronizationRequired()) {
+        if (candidateReplicated.resynchronizationRequired()) {
+            replicated.requireResynchronization();
             if (!requestPending) {
                 beginResynchronization();
                 if (!allowOutboundExchange) {
@@ -820,7 +850,7 @@ namespace Duel6::Network::Replication {
     bool ClientReplicationConnection::sampleNetwork(Responsiveness::TimePoint now) {
         if (reconnecting) return false;
         if (qualityProbeSentAt) {
-            const auto elapsed = elapsedMilliseconds(*qualityProbeSentAt, now);
+            const auto elapsed = elapsedMilliseconds(*qualityProbeSentAt, now, true);
             if (!elapsed) {
                 transportClosed();
                 return false;
@@ -907,7 +937,7 @@ namespace Duel6::Network::Replication {
         if (!localClockSynchronizedAt || !authoritativeClockUpperBoundAtSynchronization)
             return std::nullopt;
         return extrapolateAuthoritativeTime(
-                *authoritativeClockUpperBoundAtSynchronization, *localClockSynchronizedAt, localTime);
+                *authoritativeClockUpperBoundAtSynchronization, *localClockSynchronizedAt, localTime, true);
     }
 
     void ClientReplicationConnection::setLocallyControlledPlayers(std::set<Identity> playerIds) {

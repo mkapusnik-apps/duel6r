@@ -2735,11 +2735,13 @@ D6R_TEST_CASE("NRP equal RTT probes tolerate changing path asymmetry without rep
     }
     D6R_REQUIRE_EQ(probes.size(), nextProbe);
 
-    // The final asymmetric sample puts the estimated state age at 14 ms. The stale-state
-    // threshold therefore crosses at 1461 ms and degradation remains continuous until the
-    // exact one-second delay expires; probe recalibration must not restart that clock.
-    D6R_REQUIRE(!client.presentationState(at(2460ms)).degraded);
-    const auto stale = client.presentationState(at(2461ms));
+    // The first two measurement intervals intersect at local 270 ms in [1269, 1271], whose
+    // midpoint is 1270. Every later supported-RTT sample is disjoint and therefore preserves
+    // that bounded calibration. The final state accepted at 1225 ms was produced at host 2220,
+    // so its exact estimated age is 5 ms. It crosses the 250 ms stale boundary at 1470 ms and
+    // degradation begins exactly one second later; recalibration must not restart that clock.
+    D6R_REQUIRE(!client.presentationState(at(2469ms)).degraded);
+    const auto stale = client.presentationState(at(2470ms));
     D6R_REQUIRE(stale.degraded);
     D6R_REQUIRE(!stale.reconnecting);
     D6R_REQUIRE(stale.canonicalStateCurrent);
@@ -2770,6 +2772,143 @@ D6R_TEST_CASE("NRP equal RTT probes tolerate changing path asymmetry without rep
     D6R_REQUIRE(!reconnecting.canonicalStateCurrent);
     D6R_REQUIRE_EQ(retainedPosition,
                    presented(client.presentedPlayers(at(2470ms)), 102).positionX);
+}
+
+D6R_TEST_CASE("NRP calibration exposes exact interval bounds midpoint age and future decisions") {
+    const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
+    const auto calibrate = [&](R::ClientReplicationConnection &client,
+                               std::vector<std::vector<std::uint8_t>> &sent) {
+        D6R_REQUIRE(client.sampleNetwork(at(0ms)));
+        const auto probe = R::deserializeReplicationFrame(sent.back());
+        D6R_REQUIRE(probe && probe->qualitySequence);
+        // A response timestamp of 1000 received after a 20 ms RTT declares [1000, 1020].
+        D6R_REQUIRE(client.receive(R::serializeQualityResponse(*probe->qualitySequence, 1000),
+                                   at(20ms))
+                    == R::ClientReplicationResult::NetworkSampled);
+    };
+
+    std::vector<std::vector<std::uint8_t>> boundarySent;
+    R::ClientReplicationConnection boundary([&](auto payload) {
+        boundarySent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+    calibrate(boundary, boundarySent);
+
+    auto state = activeState();
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(state));
+    R::FullSnapshot exactUpper{1, state};
+    // At local 30 ms the exact extrapolated interval is [1010, 1030].
+    exactUpper.authoritativeProducedAt = 1030;
+    D6R_REQUIRE(boundary.receive(R::serializeReplicationSnapshot(exactUpper), at(30ms))
+                == R::ClientReplicationResult::Applied);
+    state.phaseTime++;
+    auto future = publisher.publish(state);
+    D6R_REQUIRE(future.has_value());
+    future->authoritativeProducedAt = 1031;
+    D6R_REQUIRE(boundary.receive(R::serializeReplicationUpdate(*future), at(30ms))
+                == R::ClientReplicationResult::WaitingForSnapshot);
+    D6R_REQUIRE_EQ(R::StateVersion{1}, boundary.replicatedState().version());
+    D6R_REQUIRE(boundary.replicatedState().current());
+    D6R_REQUIRE(!boundary.presentationState(at(30ms)).reconnecting);
+
+    std::vector<std::vector<std::uint8_t>> ageSent;
+    R::ClientReplicationConnection age([&](auto payload) {
+        ageSent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+    calibrate(age, ageSent);
+    R::FullSnapshot exactLower{1, activeState()};
+    exactLower.authoritativeProducedAt = 1000;
+    D6R_REQUIRE(age.receive(R::serializeReplicationSnapshot(exactLower), at(30ms))
+                == R::ClientReplicationResult::Applied);
+    // The interval midpoint is 1020 at acceptance, making state age exactly 20 ms. Its local
+    // production point is therefore 10 ms: 250 ms current age plus 1000 ms delay ends at 1260.
+    D6R_REQUIRE(!age.presentationState(at(1259ms)).degraded);
+    D6R_REQUIRE(age.presentationState(at(1260ms)).degraded);
+}
+
+D6R_TEST_CASE("NRP overlapping asymmetric recalibrations shrink bounds and move estimates both ways") {
+    const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
+    std::vector<std::vector<std::uint8_t>> sent;
+    R::ClientReplicationConnection client([&](auto payload) {
+        sent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+    const auto complete = [&](std::chrono::milliseconds sentAt,
+                              std::chrono::milliseconds receivedAt,
+                              std::uint64_t hostResponseAt) {
+        D6R_REQUIRE(client.sampleNetwork(at(sentAt)));
+        const auto probe = R::deserializeReplicationFrame(sent.back());
+        D6R_REQUIRE(probe && probe->qualitySequence);
+        D6R_REQUIRE(client.receive(R::serializeQualityResponse(
+                *probe->qualitySequence, hostResponseAt), at(receivedAt))
+                    == R::ClientReplicationResult::NetworkSampled);
+        D6R_REQUIRE(!client.presentationState(at(receivedAt)).reconnecting);
+    };
+
+    complete(0ms, 20ms, 1000);       // [1000, 1020], midpoint 1010.
+    complete(250ms, 260ms, 1254);    // Prior [1240, 1260] intersects [1254, 1264]
+                                      // as [1254, 1260], midpoint 1257: later and narrower.
+    complete(500ms, 520ms, 1495);    // Prior [1514, 1520] intersects [1495, 1515]
+                                      // as [1514, 1515], midpoint 1514: earlier, larger RTT.
+
+    R::FullSnapshot upper{1, activeState()};
+    upper.authoritativeProducedAt = 1515;
+    D6R_REQUIRE(client.receive(R::serializeReplicationSnapshot(upper), at(520ms))
+                == R::ClientReplicationResult::Applied);
+    auto changed = activeState();
+    changed.phaseTime++;
+    auto future = validUpdate(activeState(), changed);
+    future.baseline = 1;
+    future.version = 2;
+    future.authoritativeProducedAt = 1516;
+    D6R_REQUIRE(client.receive(R::serializeReplicationUpdate(future), at(520ms))
+                == R::ClientReplicationResult::WaitingForSnapshot);
+    D6R_REQUIRE_EQ(R::StateVersion{1}, client.replicatedState().version());
+    D6R_REQUIRE(!client.presentationState(at(520ms)).reconnecting);
+}
+
+D6R_TEST_CASE("NRP disjoint supported recalibration preserves prior bounded clock and future bound") {
+    const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
+    std::vector<std::vector<std::uint8_t>> sent;
+    R::ClientReplicationConnection client([&](auto payload) {
+        sent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+    D6R_REQUIRE(client.sampleNetwork(at(0ms)));
+    auto probe = R::deserializeReplicationFrame(sent.back());
+    D6R_REQUIRE(probe && probe->qualitySequence);
+    D6R_REQUIRE(client.receive(R::serializeQualityResponse(
+            *probe->qualitySequence, 1000), at(20ms))
+                == R::ClientReplicationResult::NetworkSampled); // [1000, 1020]
+
+    D6R_REQUIRE(client.sampleNetwork(at(250ms)));
+    probe = R::deserializeReplicationFrame(sent.back());
+    D6R_REQUIRE(probe && probe->qualitySequence);
+    D6R_REQUIRE(client.receive(R::serializeQualityResponse(
+            *probe->qualitySequence, 2000), at(270ms))
+                == R::ClientReplicationResult::NetworkSampled); // Disjoint from prior [1250,1270].
+    D6R_REQUIRE(!client.presentationState(at(270ms)).reconnecting);
+
+    R::FullSnapshot baseline{1, activeState()};
+    baseline.authoritativeProducedAt = 1250;
+    D6R_REQUIRE(client.receive(R::serializeReplicationSnapshot(baseline), at(270ms))
+                == R::ClientReplicationResult::Applied);
+    auto changed = activeState();
+    changed.phaseTime++;
+    auto widenedFuture = validUpdate(activeState(), changed);
+    widenedFuture.baseline = 1;
+    widenedFuture.version = 2;
+    widenedFuture.authoritativeProducedAt = 1271;
+    D6R_REQUIRE(client.receive(R::serializeReplicationUpdate(widenedFuture), at(270ms))
+                == R::ClientReplicationResult::WaitingForSnapshot);
+    D6R_REQUIRE_EQ(R::StateVersion{1}, client.replicatedState().version());
+    D6R_REQUIRE(client.replicatedState().current());
+    D6R_REQUIRE(!client.presentationState(at(270ms)).reconnecting);
+    // Preserved midpoint 1260 gives this baseline an exact 10 ms age and degradation at 1510.
+    D6R_REQUIRE(!client.presentationState(at(1509ms)).degraded);
+    D6R_REQUIRE(client.presentationState(at(1510ms)).degraded);
 }
 
 D6R_TEST_CASE("NRP valid initial snapshot remains staged until clock calibration then applies normally") {
