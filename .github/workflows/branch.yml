@@ -49,3 +49,13 @@ jobs:
 
       - name: Verify build output
         run: test -x build/duel6r
+
+  ready:
+    name: Feature Ready
+    needs: [compile]
+    runs-on: self-hosted
+    if: ${{ always() }}
+    steps:
+      - name: Verify required jobs
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
