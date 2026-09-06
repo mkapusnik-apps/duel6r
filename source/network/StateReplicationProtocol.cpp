@@ -559,6 +559,35 @@ namespace Duel6::Network::Replication {
                 pendingAuthoritativeProducedAt.reset();
                 pendingCanonicalAcceptedAt.reset();
             }
+            if (pendingInitialSnapshot && pendingInitialSnapshotAcceptedAt) {
+                auto snapshot = std::move(*pendingInitialSnapshot);
+                const auto snapshotAcceptedAt = *pendingInitialSnapshotAcceptedAt;
+                pendingInitialSnapshot.reset();
+                pendingInitialSnapshotAcceptedAt.reset();
+                ClientReplicationResult result;
+                try {
+                    result = receive(serializeReplicationSnapshot(snapshot), snapshotAcceptedAt);
+                } catch (...) {
+                    transportClosed();
+                    return ClientReplicationResult::Reconnecting;
+                }
+                if (result == ClientReplicationResult::Reconnecting
+                    || result == ClientReplicationResult::SendFailed)
+                    return result;
+                if (result == ClientReplicationResult::WaitingForSnapshot) {
+                    requestPending = true;
+                    try {
+                        if (!sender
+                            || sender(serializeResynchronizationRequest()) != SendResult::Accepted) {
+                            transportClosed();
+                            return ClientReplicationResult::SendFailed;
+                        }
+                    } catch (...) {
+                        transportClosed();
+                        return ClientReplicationResult::SendFailed;
+                    }
+                }
+            }
             return ClientReplicationResult::NetworkSampled;
         }
         if (frame->kind != ReplicationFrameKind::FullSnapshot
@@ -572,6 +601,13 @@ namespace Duel6::Network::Replication {
             || (authoritativeProducedAt != 0 && latestAuthoritativeProducedAt != 0
                 && authoritativeProducedAt < latestAuthoritativeProducedAt)) {
             transportClosed(); return ClientReplicationResult::Reconnecting;
+        }
+        if (requireAuthoritativeTime && frame->snapshot && replicated.version() == 0
+            && authoritativeProducedAt != 0
+            && (!localClockSynchronizedAt || !authoritativeClockAtSynchronization)) {
+            pendingInitialSnapshot = *frame->snapshot;
+            pendingInitialSnapshotAcceptedAt = acceptedAt;
+            return ClientReplicationResult::Applied;
         }
         std::optional<std::chrono::milliseconds> authoritativeAge;
         const Replication::StateVersion incomingVersion = frame->snapshot
@@ -774,6 +810,8 @@ namespace Duel6::Network::Replication {
     void ClientReplicationConnection::transportClosed() noexcept {
         reconnecting = true;
         requestPending = false;
+        pendingInitialSnapshot.reset();
+        pendingInitialSnapshotAcceptedAt.reset();
         replicated.requireResynchronization();
         movement.beginResynchronization();
         quality.transportClosed();

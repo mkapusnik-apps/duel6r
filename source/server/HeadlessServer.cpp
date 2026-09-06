@@ -354,6 +354,7 @@ namespace {
             Duel6::Network::AdmissionResult result;
         };
         std::optional<Duel6::Network::AdmissionOfferPayload> acceptedOffer;
+        bool initialCanonicalIdentityValidated = false;
         const auto endpointScope = Duel6::Network::Trust::classifyIpv4Literal(config.listenEndpoint.host);
         const auto environment = endpointScope == Duel6::Network::Trust::EndpointScope::Loopback
                                  || config.listenEndpoint.host == "localhost"
@@ -415,13 +416,14 @@ namespace {
                 if (!Duel6::Network::sameAdmissionIdentitySet(*acceptedOffer, confirmation))
                     throw std::invalid_argument("Admission confirmation does not match the offer");
                 const auto *initial = replicatedConnection.replicatedState().state();
-                if (runtimeDependencies.productionReplicationProtocol
-                    && (!initial || std::none_of(initial->participants.begin(), initial->participants.end(),
+                if (runtimeDependencies.productionReplicationProtocol && initial
+                    && std::none_of(initial->participants.begin(), initial->participants.end(),
                         [&](const auto &participant) {
                             return participant.participantId == confirmation.participantId
                                    && participant.connection
                                       == Duel6::Network::Replication::ConnectionState::Connected;
-                        }))) throw std::invalid_argument("Admission confirmation preceded its replication snapshot");
+                        })) throw std::invalid_argument("Admission confirmation preceded its replication snapshot");
+                initialCanonicalIdentityValidated = initial != nullptr;
                 if (!beforeDeadline) return GuestFrameDecision();
                 Duel6::Network::AdmissionResult result;
                 result.code = Duel6::Network::AdmissionResultCode::Admitted;
@@ -570,6 +572,19 @@ namespace {
                 break;
             }
             const auto *canonical = replicatedConnection.replicatedState().state();
+            if (canonical && !initialCanonicalIdentityValidated) {
+                initialCanonicalIdentityValidated = std::any_of(
+                        canonical->participants.begin(), canonical->participants.end(),
+                        [&](const auto &participant) {
+                            return participant.participantId == acceptedOffer->participantId
+                                   && participant.connection
+                                      == Duel6::Network::Replication::ConnectionState::Connected;
+                        });
+                if (!initialCanonicalIdentityValidated) {
+                    try { connection->requestClose(); } catch (...) {}
+                    break;
+                }
+            }
             if (playerInput && canonical) {
                 if (!inputMatchStarted
                     && canonical->phase == Duel6::Network::Replication::Phase::ActiveRound) {

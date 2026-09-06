@@ -98,6 +98,8 @@ namespace Duel6::Network::Replication {
         std::optional<Responsiveness::TimePoint> lastQualityProbeAt;
         std::optional<Responsiveness::TimePoint> localClockSynchronizedAt;
         std::optional<std::uint64_t> authoritativeClockAtSynchronization;
+        std::optional<FullSnapshot> pendingInitialSnapshot;
+        std::optional<Responsiveness::TimePoint> pendingInitialSnapshotAcceptedAt;
         std::optional<std::uint64_t> pendingAuthoritativeProducedAt;
         std::optional<Responsiveness::TimePoint> pendingCanonicalAcceptedAt;
         std::deque<bool> qualityProbeOutcomes;
