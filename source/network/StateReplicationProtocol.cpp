@@ -59,6 +59,11 @@ namespace Duel6::Network::Replication {
             return Responsiveness::TimePoint{Clock::duration{fromCount + delta}};
         }
 
+        std::uint64_t saturatingAdd(std::uint64_t left, std::uint64_t right) noexcept {
+            return right > std::numeric_limits<std::uint64_t>::max() - left
+                   ? std::numeric_limits<std::uint64_t>::max() : left + right;
+        }
+
         class Writer {
         public:
             template<typename T> void integer(T value) {
@@ -551,20 +556,28 @@ namespace Duel6::Network::Replication {
                     return ClientReplicationResult::Reconnecting;
                 }
                 std::uint64_t synchronizedTime = *frame->authoritativeResponseAt + halfRoundTrip;
+                std::uint64_t synchronizedUncertainty = halfRoundTrip;
                 if (localClockSynchronizedAt && authoritativeClockAtSynchronization) {
                     const auto priorTime = authoritativeTimeAt(acceptedAt);
                     if (!priorTime) {
                         transportClosed();
                         return ClientReplicationResult::Reconnecting;
                     }
-                    synchronizedTime = std::max(synchronizedTime, *priorTime);
+                    if (*priorTime > synchronizedTime) {
+                        synchronizedUncertainty = std::max(
+                                authoritativeClockUncertainty,
+                                saturatingAdd(*priorTime - synchronizedTime, halfRoundTrip));
+                        synchronizedTime = *priorTime;
+                    }
                 }
                 authoritativeClockAtSynchronization = synchronizedTime;
                 localClockSynchronizedAt = acceptedAt;
                 // A supported RTT makes ceil(RTT/2) both measurement-bounded and no
-                // greater than the environment's admitted uncertainty. Never clamp an
-                // unsupported measurement into a seemingly precise calibration.
-                authoritativeClockUncertainty = halfRoundTrip;
+                // greater than the environment's admitted uncertainty. If monotonicity
+                // retains a later prior estimate, preserve an interval that contains both
+                // that prior uncertainty and the complete newest measurement interval.
+                // Never clamp an unsupported measurement into a seemingly precise calibration.
+                authoritativeClockUncertainty = synchronizedUncertainty;
             }
             qualityProbeSentAt.reset();
             if (!missedQualityDeadline) recordQualityOutcome(false, elapsed, acceptedAt);
@@ -744,6 +757,9 @@ namespace Duel6::Network::Replication {
                     (void) quality.observeCanonicalState(replicated.version(), acceptedAt);
                 }
                 requestPending = false;
+                if (initialAdmissionCalibration && frame->snapshot
+                    && !acceptedInitialAdmissionState)
+                    acceptedInitialAdmissionState = *state;
                 return ClientReplicationResult::Applied;
             }
         }

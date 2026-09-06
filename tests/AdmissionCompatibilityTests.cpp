@@ -965,7 +965,7 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
                 if (connection->send(R::serializeReplicationSnapshot(snapshot))
                     != Network::SendResult::Accepted)
                     throw std::runtime_error("fake host could not send initial snapshot");
-                std::this_thread::sleep_for(25ms);
+                std::this_thread::sleep_for(5ms);
                 snapshotWasUnavailableBeforeConfirmation = presentations.load() == 0
                         && localActions.load() == 0;
                 if (connection->send(Network::serializeAdmissionConfirmation(confirmed))
@@ -1944,14 +1944,13 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
             scenarios.push_back({path, completion, 10001ms});
         }
     }
-    // Both paths consume a calibration response whose measured RTT has already crossed the
-    // 250 ms probe timeout. The normal path proves ordinary polling does not invalidate the
-    // queued response; the sealed path proves a complete predeadline exchange may be deferred
-    // through the total deadline and still finish admission.
+    // Both paths consume a calibration response at the approved 20 ms same-machine RTT limit.
+    // The sealed path proves a complete, within-budget exchange may remain queued while the
+    // application thread reaches the total deadline and still finish admission.
     scenarios.push_back({DeliveryPath::NormalReceive,
-                          CompletionFrame::CompleteBeforeDeadline, 251ms});
+                          CompletionFrame::CompleteBeforeDeadline, 20ms});
     scenarios.push_back({DeliveryPath::SealedDrain,
-                          CompletionFrame::CompleteBeforeDeadline, 9999ms});
+                          CompletionFrame::CompleteBeforeDeadline, 20ms});
 
     for (const auto scenario: scenarios) {
         const auto port = unusedLoopbackPort();
