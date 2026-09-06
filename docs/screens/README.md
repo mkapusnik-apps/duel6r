@@ -164,8 +164,8 @@ The classification describes only the value of the Stitch artifact for the curre
 This review used read-only project, inventory, and screen read-back operations.
 No mass regeneration was useful because the available artifacts already provide supplementary references for implemented screens and the network UI remains planned.
 No Stitch mutation was made.
-The mapping meets issue #16 completion condition 1 because it is current for the complete active inventory and it documents every limitation.
-This completion condition does not imply product acceptance, runtime implementation, network implementation, or planned screenshot completion.
+The mapping is current for the complete active inventory and documents every known limitation.
+This mapping does not imply product acceptance, runtime implementation, network implementation, or planned screenshot completion.
 
 ## Coverage rules
 
