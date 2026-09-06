@@ -120,11 +120,26 @@ namespace Duel6::Network::Responsiveness {
         return observeCanonicalState(version, std::chrono::milliseconds::zero(), acceptedAt);
     }
 
+    bool ConnectionQualityMonitor::canObserveCanonicalVersion(
+            Replication::StateVersion version, TimePoint acceptedAt) const noexcept {
+        return version != 0 && version >= latestVersion
+               && (version != latestVersion || resynchronizing)
+               && (!latestCanonicalAcceptanceAt || acceptedAt >= *latestCanonicalAcceptanceAt);
+    }
+
+    bool ConnectionQualityMonitor::canObserveCanonicalState(
+            Replication::StateVersion version, std::chrono::milliseconds stateAgeAtAcceptance,
+            TimePoint acceptedAt) const noexcept {
+        TimePoint producedAt;
+        if (!subtractMilliseconds(acceptedAt, stateAgeAtAcceptance, producedAt)) return false;
+        return version != 0 && version >= latestVersion
+               && (version != latestVersion || resynchronizing || !latestCanonicalStateAt)
+               && (!latestCanonicalAcceptanceAt || acceptedAt >= *latestCanonicalAcceptanceAt);
+    }
+
     bool ConnectionQualityMonitor::observeCanonicalVersion(
             Replication::StateVersion version, TimePoint acceptedAt) noexcept {
-        if (version == 0 || version < latestVersion
-            || (version == latestVersion && !resynchronizing)
-            || (latestCanonicalAcceptanceAt && acceptedAt < *latestCanonicalAcceptanceAt)) return false;
+        if (!canObserveCanonicalVersion(version, acceptedAt)) return false;
         latestVersion = version;
         latestCanonicalAcceptanceAt = acceptedAt;
         resynchronizing = false;
@@ -136,20 +151,20 @@ namespace Duel6::Network::Responsiveness {
             Replication::StateVersion version, std::chrono::milliseconds stateAgeAtAcceptance,
             TimePoint acceptedAt) noexcept {
         TimePoint producedAt;
-        if (!subtractMilliseconds(acceptedAt, stateAgeAtAcceptance, producedAt)) return false;
-        if (version == 0 || version < latestVersion
-            || (version == latestVersion && !resynchronizing && latestCanonicalStateAt)
-            || stateAgeAtAcceptance < std::chrono::milliseconds::zero()
-            || (latestCanonicalAcceptanceAt && acceptedAt < *latestCanonicalAcceptanceAt)
-            || (latestCanonicalStateAt && producedAt < *latestCanonicalStateAt)) return false;
+        if (!canObserveCanonicalState(version, stateAgeAtAcceptance, acceptedAt)
+            || !subtractMilliseconds(acceptedAt, stateAgeAtAcceptance, producedAt)) return false;
+        if (latestCanonicalStateAt && producedAt < *latestCanonicalStateAt)
+            producedAt = *latestCanonicalStateAt;
+        const auto effectiveAge = elapsedMilliseconds(producedAt, acceptedAt);
+        if (!effectiveAge) return false;
         latestVersion = version;
         latestCanonicalStateAt = producedAt;
         latestCanonicalAcceptanceAt = acceptedAt;
-        if (stateAgeAtAcceptance <= MaximumCurrentStateAge) stateAgeExceededSince.reset();
+        if (*effectiveAge <= MaximumCurrentStateAge) stateAgeExceededSince.reset();
         else if (!stateAgeExceededSince) {
             TimePoint thresholdCrossedAt;
             if (!subtractMilliseconds(acceptedAt,
-                    stateAgeAtAcceptance - MaximumCurrentStateAge,
+                    *effectiveAge - MaximumCurrentStateAge,
                     thresholdCrossedAt)) return false;
             stateAgeExceededSince = thresholdCrossedAt;
         }

@@ -528,7 +528,16 @@ namespace Duel6::Network::Replication {
                     transportClosed();
                     return ClientReplicationResult::Reconnecting;
                 }
-                authoritativeClockAtSynchronization = *frame->authoritativeResponseAt + halfRoundTrip;
+                std::uint64_t synchronizedTime = *frame->authoritativeResponseAt + halfRoundTrip;
+                if (localClockSynchronizedAt && authoritativeClockAtSynchronization) {
+                    const auto priorTime = authoritativeTimeAt(acceptedAt);
+                    if (!priorTime) {
+                        transportClosed();
+                        return ClientReplicationResult::Reconnecting;
+                    }
+                    synchronizedTime = std::max(synchronizedTime, *priorTime);
+                }
+                authoritativeClockAtSynchronization = synchronizedTime;
                 localClockSynchronizedAt = acceptedAt;
             }
             qualityProbeSentAt.reset();
@@ -559,13 +568,25 @@ namespace Duel6::Network::Replication {
             transportClosed(); return ClientReplicationResult::Reconnecting;
         }
         std::optional<std::chrono::milliseconds> authoritativeAge;
+        const Replication::StateVersion incomingVersion = frame->snapshot
+                ? frame->snapshot->version : frame->update->version;
         if (authoritativeProducedAt != 0
             && localClockSynchronizedAt && authoritativeClockAtSynchronization) {
             authoritativeAge = authoritativeStateAge(authoritativeProducedAt, acceptedAt);
-            if (!authoritativeAge) {
+            if (!authoritativeAge || !quality.canObserveCanonicalState(
+                    incomingVersion, *authoritativeAge, acceptedAt)) {
                 transportClosed();
                 return ClientReplicationResult::Reconnecting;
             }
+        } else if (authoritativeProducedAt != 0) {
+            if (!quality.canObserveCanonicalVersion(incomingVersion, acceptedAt)) {
+                transportClosed();
+                return ClientReplicationResult::Reconnecting;
+            }
+        } else if (!quality.canObserveCanonicalState(
+                incomingVersion, std::chrono::milliseconds::zero(), acceptedAt)) {
+            transportClosed();
+            return ClientReplicationResult::Reconnecting;
         }
         const ApplyResult applied = frame->snapshot ? replicated.apply(*frame->snapshot) : replicated.apply(*frame->update);
         if (applied == ApplyResult::Applied) {
@@ -577,11 +598,8 @@ namespace Duel6::Network::Replication {
                 if (authoritativeProducedAt != 0) {
                     latestAuthoritativeProducedAt = authoritativeProducedAt;
                     if (authoritativeAge) {
-                        if (!quality.observeCanonicalState(
-                                replicated.version(), *authoritativeAge, acceptedAt)) {
-                            transportClosed();
-                            return ClientReplicationResult::Reconnecting;
-                        }
+                        (void) quality.observeCanonicalState(
+                                replicated.version(), *authoritativeAge, acceptedAt);
                         pendingAuthoritativeProducedAt.reset();
                         pendingCanonicalAcceptedAt.reset();
                     } else {
@@ -678,25 +696,32 @@ namespace Duel6::Network::Replication {
 
     std::optional<std::chrono::milliseconds> ClientReplicationConnection::authoritativeStateAge(
             std::uint64_t producedAt, Responsiveness::TimePoint acceptedAt) const noexcept {
-        if (!localClockSynchronizedAt || !authoritativeClockAtSynchronization) return std::nullopt;
-        std::uint64_t authoritativeAcceptedAt = *authoritativeClockAtSynchronization;
-        if (acceptedAt >= *localClockSynchronizedAt) {
-            const auto elapsed = elapsedMilliseconds(*localClockSynchronizedAt, acceptedAt);
-            if (!elapsed || static_cast<std::uint64_t>(elapsed->count())
-                > MaximumAuthoritativeTimestamp - authoritativeAcceptedAt)
-                return std::nullopt;
-            authoritativeAcceptedAt += static_cast<std::uint64_t>(elapsed->count());
-        } else {
-            const auto elapsed = elapsedMilliseconds(acceptedAt, *localClockSynchronizedAt);
-            if (!elapsed || static_cast<std::uint64_t>(elapsed->count()) > authoritativeAcceptedAt)
-                return std::nullopt;
-            authoritativeAcceptedAt -= static_cast<std::uint64_t>(elapsed->count());
-        }
-        if (producedAt >= authoritativeAcceptedAt) return std::chrono::milliseconds::zero();
-        const auto age = authoritativeAcceptedAt - producedAt;
+        const auto authoritativeAcceptedAt = authoritativeTimeAt(acceptedAt);
+        if (!authoritativeAcceptedAt) return std::nullopt;
+        if (producedAt >= *authoritativeAcceptedAt) return std::chrono::milliseconds::zero();
+        const auto age = *authoritativeAcceptedAt - producedAt;
         const auto result = std::chrono::milliseconds(static_cast<std::chrono::milliseconds::rep>(age));
         if (!canSubtractMilliseconds(acceptedAt, result)) return std::nullopt;
         return result;
+    }
+
+    std::optional<std::uint64_t> ClientReplicationConnection::authoritativeTimeAt(
+            Responsiveness::TimePoint localTime) const noexcept {
+        if (!localClockSynchronizedAt || !authoritativeClockAtSynchronization) return std::nullopt;
+        std::uint64_t authoritativeTime = *authoritativeClockAtSynchronization;
+        if (localTime >= *localClockSynchronizedAt) {
+            const auto elapsed = elapsedMilliseconds(*localClockSynchronizedAt, localTime);
+            if (!elapsed || static_cast<std::uint64_t>(elapsed->count())
+                > MaximumAuthoritativeTimestamp - authoritativeTime)
+                return std::nullopt;
+            authoritativeTime += static_cast<std::uint64_t>(elapsed->count());
+        } else {
+            const auto elapsed = elapsedMilliseconds(localTime, *localClockSynchronizedAt);
+            if (!elapsed || static_cast<std::uint64_t>(elapsed->count()) > authoritativeTime)
+                return std::nullopt;
+            authoritativeTime -= static_cast<std::uint64_t>(elapsed->count());
+        }
+        return authoritativeTime;
     }
 
     void ClientReplicationConnection::setLocallyControlledPlayers(std::set<Identity> playerIds) {

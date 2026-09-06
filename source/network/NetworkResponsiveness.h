@@ -64,6 +64,11 @@ namespace Duel6::Network::Responsiveness {
         explicit ConnectionQualityMonitor(Environment environment);
 
         bool observeNetworkSample(const NetworkSample &sample, TimePoint observedAt) noexcept;
+        bool canObserveCanonicalVersion(Replication::StateVersion version,
+                                        TimePoint acceptedAt) const noexcept;
+        bool canObserveCanonicalState(Replication::StateVersion version,
+                                      std::chrono::milliseconds stateAgeAtAcceptance,
+                                      TimePoint acceptedAt) const noexcept;
         bool observeCanonicalVersion(Replication::StateVersion version, TimePoint acceptedAt) noexcept;
         bool observeCanonicalState(Replication::StateVersion version, TimePoint acceptedAt) noexcept;
         bool observeCanonicalState(Replication::StateVersion version,

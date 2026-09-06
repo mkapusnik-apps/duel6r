@@ -110,6 +110,8 @@ namespace Duel6::Network::Replication {
         void beginResynchronization() noexcept;
         void recordQualityOutcome(bool lost, std::chrono::milliseconds roundTripLatency,
                                   Responsiveness::TimePoint observedAt) noexcept;
+        std::optional<std::uint64_t> authoritativeTimeAt(
+                Responsiveness::TimePoint localTime) const noexcept;
         std::optional<std::chrono::milliseconds> authoritativeStateAge(
                 std::uint64_t producedAt, Responsiveness::TimePoint acceptedAt) const noexcept;
     };

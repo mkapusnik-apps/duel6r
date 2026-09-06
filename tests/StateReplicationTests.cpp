@@ -2587,6 +2587,125 @@ D6R_TEST_CASE("NRP production client uses synchronized host production age and r
     D6R_REQUIRE(recovered.canonicalStateCurrent);
 }
 
+D6R_TEST_CASE("NRP successful probes do not reprocess canonical versions or reset authoritative state age") {
+    const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
+    std::vector<std::vector<std::uint8_t>> sent;
+    R::ClientReplicationConnection client([&](auto payload) {
+        sent.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+
+    auto state = activeState();
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(state));
+
+    D6R_REQUIRE(client.sampleNetwork(at(0ms)));
+    auto probe = R::deserializeReplicationFrame(sent.back());
+    D6R_REQUIRE(probe && probe->qualitySequence);
+    R::FullSnapshot snapshot{1, state};
+    snapshot.authoritativeProducedAt = 990;
+    D6R_REQUIRE(client.receive(R::serializeReplicationSnapshot(snapshot), at(5ms))
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE(client.receive(R::serializeQualityResponse(*probe->qualitySequence, 1000), at(20ms))
+                == R::ClientReplicationResult::NetworkSampled);
+
+    state.phaseTime++;
+    const R::PresentationEvent outcome{701, "shot", 101, 102, 50, 1};
+    auto update = publisher.publish(state, {outcome});
+    D6R_REQUIRE(update.has_value());
+    update->authoritativeProducedAt = 1290;
+    D6R_REQUIRE(client.sampleNetwork(at(250ms)));
+    probe = R::deserializeReplicationFrame(sent.back());
+    D6R_REQUIRE(probe && probe->qualitySequence);
+    D6R_REQUIRE(client.receive(R::serializeQualityResponse(*probe->qualitySequence, 1250), at(270ms))
+                == R::ClientReplicationResult::NetworkSampled);
+    D6R_REQUIRE(client.receive(R::serializeReplicationUpdate(*update), at(300ms))
+                == R::ClientReplicationResult::Applied);
+    D6R_REQUIRE_EQ(std::size_t{1}, client.takePresentationEvents().size());
+    const auto acceptedState = R::serializeReplicationSnapshot(
+            {client.replicatedState().version(), *client.replicatedState().state()});
+
+    for (const auto sampleAt: {500ms, 750ms, 1000ms, 1250ms}) {
+        D6R_REQUIRE(client.sampleNetwork(at(sampleAt)));
+        probe = R::deserializeReplicationFrame(sent.back());
+        D6R_REQUIRE(probe && probe->qualitySequence);
+        D6R_REQUIRE(client.receive(R::serializeQualityResponse(
+                *probe->qualitySequence, 1000 + static_cast<std::uint64_t>(sampleAt.count())),
+                at(sampleAt + 20ms)) == R::ClientReplicationResult::NetworkSampled);
+        D6R_REQUIRE_EQ(R::StateVersion{2}, client.replicatedState().version());
+        D6R_REQUIRE(client.replicatedState().current());
+        D6R_REQUIRE(client.takePresentationEvents().empty());
+        D6R_REQUIRE_EQ(acceptedState, R::serializeReplicationSnapshot(
+                {client.replicatedState().version(), *client.replicatedState().state()}));
+        const auto presentation = client.presentationState(at(sampleAt + 20ms));
+        D6R_REQUIRE(!presentation.reconnecting);
+        D6R_REQUIRE(presentation.canonicalStateCurrent);
+    }
+
+    D6R_REQUIRE(!client.presentationState(at(1549ms)).degraded);
+    const auto stale = client.presentationState(at(1550ms));
+    D6R_REQUIRE(stale.degraded);
+    D6R_REQUIRE(!stale.reconnecting);
+    D6R_REQUIRE(stale.canonicalStateCurrent);
+}
+
+D6R_TEST_CASE("NRP local presentation bounds int64 extremes without changing canonical state or outcomes") {
+    const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
+    const auto minimum = std::numeric_limits<std::int64_t>::min();
+    const auto maximum = std::numeric_limits<std::int64_t>::max();
+    auto canonical = activeState();
+    canonical.players[0].positionX = minimum;
+    canonical.players[0].positionY = maximum;
+    canonical.players[0].velocityX = minimum;
+    canonical.players[0].velocityY = maximum;
+    const auto canonicalBefore = R::serializeReplicationSnapshot({1, canonical});
+
+    N::CanonicalMovementPresentation movement;
+    movement.setLocallyControlledPlayers({101});
+    D6R_REQUIRE(movement.accept(1, canonical, at(0ms)));
+    D6R_REQUIRE(movement.predictLocalMovement(
+            {101, maximum, minimum, true, true}, at(1ms)));
+
+    auto corrected = canonical;
+    corrected.phaseTime++;
+    corrected.players[0].positionX = maximum;
+    corrected.players[0].positionY = minimum;
+    corrected.players[0].velocityX = maximum;
+    corrected.players[0].velocityY = minimum;
+    const auto correctedBefore = R::serializeReplicationSnapshot({2, corrected});
+    D6R_REQUIRE(movement.accept(2, corrected, at(10ms)));
+
+    const auto poseAt = [&](std::chrono::milliseconds elapsed) {
+        const auto poses = movement.sample(at(elapsed));
+        const auto found = std::find_if(poses.begin(), poses.end(), [](const auto &pose) {
+            return pose.playerId == 101;
+        });
+        D6R_REQUIRE(found != poses.end());
+        return *found;
+    };
+    const auto start = poseAt(10ms);
+    D6R_REQUIRE_EQ(maximum, start.positionX);
+    D6R_REQUIRE_EQ(minimum, start.positionY);
+    const auto midpoint = poseAt(85ms);
+    const auto repeatedMidpoint = poseAt(85ms);
+    D6R_REQUIRE_EQ(midpoint.positionX, repeatedMidpoint.positionX);
+    D6R_REQUIRE_EQ(midpoint.positionY, repeatedMidpoint.positionY);
+    D6R_REQUIRE(midpoint.positionX >= minimum && midpoint.positionX <= maximum);
+    D6R_REQUIRE(midpoint.positionY >= minimum && midpoint.positionY <= maximum);
+    const auto finished = poseAt(160ms);
+    D6R_REQUIRE_EQ(maximum, finished.positionX);
+    D6R_REQUIRE_EQ(minimum, finished.positionY);
+
+    D6R_REQUIRE_EQ(canonicalBefore, R::serializeReplicationSnapshot({1, canonical}));
+    D6R_REQUIRE_EQ(correctedBefore, R::serializeReplicationSnapshot({2, corrected}));
+    D6R_REQUIRE_EQ(maximum, corrected.players[0].velocityX);
+    D6R_REQUIRE_EQ(minimum, corrected.players[0].velocityY);
+    D6R_REQUIRE(!corrected.round->outcome.noWinner);
+    D6R_REQUIRE(corrected.round->outcome.winnerPlayerIds.empty());
+    D6R_REQUIRE(!corrected.score.winner.noWinner);
+    D6R_REQUIRE(corrected.score.winner.winnerPlayerIds.empty());
+}
+
 D6R_TEST_CASE("NRP production client bounds adversarial peer timestamps and local clock extremes") {
     const auto at = [](std::chrono::milliseconds elapsed) { return N::TimePoint{} + elapsed; };
     const auto maximumTimestamp = static_cast<std::uint64_t>(
