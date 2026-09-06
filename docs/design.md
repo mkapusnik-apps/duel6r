@@ -12,6 +12,7 @@ The current native implementation remains the source for unchanged visual detail
 The fixed product baseline is `docs/features.md` at source commit `88b72a6` for PR #62.
 This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, the person-action alignment specified in `SET-078`–`SET-083`, the person-list and action-button refinement specified in `SET-084`–`SET-091`, and the planned first-release network UI defined for issue #28.
 The network additions are target specifications for downstream issue #38 and are not implemented UI or evidence of playable networking.
+Issue #35 defines the target responsiveness, correction, degraded-state, and recovery behavior for the existing `NET-05` wireframe.
 Issue #30 may implement protocol, command-line, or scaffold outcomes, but it must not add graphical network UI.
 Issue #32 defines authoritative headless match states, result data, and fixed outcome copy for the planned network screens.
 Issue #32 must not add graphical network UI.
@@ -288,6 +289,30 @@ The following values come from renderer and GUI source.
 - Only the host may show the `End session` action.
 - The interface must keep Local Play copy, settings, advancement, scripting, and persistence behavior unchanged.
 - Target network UI must not offer discovery, matchmaking, Internet, NAT traversal, accounts, passwords, dedicated servers, join-in-progress, or host migration.
+- Live `NET-05` network status must use a compact, flat, translucent status region at the bottom of the client.
+- The status region must use `info-surface`, `info-text`, and the standard 16 px gameplay text.
+- The status region must keep a 16 px inset from the client edges.
+- The status region must keep 4 px of clear inner space around its text.
+- The status region must keep a minimum 16 px gap between its left and right content groups.
+- The left group must show participant role, `LAN session`, and connection state.
+- The right group must show `Session only scores` and `Optional scripts disabled`.
+- The degraded state must add the exact persistent text `Network connection degraded.` to the left group.
+- The degraded state must not use color, animation, or an icon as the only degraded cue.
+- The degraded state must not dim, freeze, divide, or replace the shared arena.
+- The degraded indication must not receive focus or create an interaction target.
+- The degraded indication must remain above world imagery and below a blocking confirmation panel in the overlay hierarchy.
+- The degraded indication must not make ranking, round progress, event text, player status, or a session action unreadable.
+- Network status text must not truncate the degraded indication.
+- Network status text may wrap only at word boundaries.
+- A wrapped network status region must grow upward in 16 px text rows.
+- A wrapped network status region must not extend beyond three text rows.
+- Full resynchronization may retain the last complete accepted frame as context.
+- Retained resynchronization context must show `Last confirmed state` and `Synchronizing current state…` as persistent text.
+- Retained resynchronization context must not show a percentage, partial-state count, or another recovery-progress value.
+- A movement correction must keep one visible sprite for the corrected player.
+- A movement correction must move that sprite toward one latest accepted canonical position.
+- A movement correction must not use a duplicate sprite, ghost trail, flashing marker, camera shift, or outcome effect.
+- A movement correction must not change another player's visible state or an authoritative outcome.
 
 ### Gameplay presentation
 

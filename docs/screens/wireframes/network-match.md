@@ -10,7 +10,8 @@ Target representative viewport: 1280 by 900 px. The gameplay renderer fills the 
 │       P1        P2          P3          P4       P5        P6        │
 │        terrain • hazards • pickups • shots • water                   │
 │                                                                      │
-│ Host • LAN session • Connected                 Session only scores   │
+│ Host • LAN session • Connected         Session only scores           │
+│ Network connection degraded.           Optional scripts disabled    │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -26,5 +27,24 @@ Target representative viewport: 1280 by 900 px. The gameplay renderer fills the 
 - Guests do not receive an advance action.
 - The final-round variant enters `NET-06` and does not show `Advance round`.
 - Compact status states that optional scripts are disabled and results are session-only.
+- The degraded-network state is a variant of this wireframe and is not a new screen.
+- The representative variant shows the exact persistent text `Network connection degraded.` while complete canonical updates continue.
+- The bottom status region uses a 16 px client-edge inset and standard 16 px gameplay text.
+- The bottom status region keeps 4 px of clear inner space around its text.
+- The left status group contains role, LAN scope, connection state, and the degraded indication.
+- The right status group contains result scope and script policy.
+- The two status groups keep at least 16 px of clear space.
+- The status groups wrap at word boundaries before they overlap.
+- The degraded indication does not truncate or use an ellipsis.
+- The status region grows upward to no more than three text rows when width requires wrapping.
+- The status region does not make ranking, round progress, events, player status, or session actions unreadable.
+- The degraded indication does not dim, freeze, divide, or replace the arena.
+- A visible local-player correction keeps one sprite and moves it toward one latest accepted canonical position within 150 ms.
+- A correction does not use a ghost, trail, flash, duplicate sprite, camera shift, or outcome effect.
+- Full resynchronization may retain only the last complete accepted frame as non-current context.
+- Retained resynchronization context shows `Last confirmed state` and `Synchronizing current state…` without partial progress.
+- Recovery removes the degraded indication only after the approved supported-condition interval.
+- The network status region is non-interactive and does not receive focus or capture gameplay input.
+- The exact degraded text supplies a non-color status cue.
 
 Planned representative screenshot: [`SS-019`](../../screenshots/README.md#ss-019).
