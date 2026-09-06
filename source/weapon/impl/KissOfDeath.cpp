@@ -35,6 +35,8 @@ namespace Duel6 {
                                                      {0, 132, 1, 132, 2, 132, 1, 132, 0, 132, 0, 132, 0, 132, -1, 0}};
     }
 
+    KissOfDeath::KissOfDeath() : LegacyWeapon(DEFINITION) {}
+
     KissOfDeath::KissOfDeath(Sound &sound, TextureManager &textureManager)
             : LegacyWeapon(sound, textureManager, DEFINITION, 12) {}
 

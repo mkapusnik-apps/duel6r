@@ -7,9 +7,17 @@ Screen-specific requirements are in [`docs/screens`](screens/README.md).
 Screenshot evidence is in [`docs/screenshots`](screenshots/README.md).
 The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a second source of truth.
 
-The current native implementation is the source of truth for this baseline.
-This baseline describes the presentation at branch `feature-documentation-audit-fixes`, capture source SHA `12cd6dca742b90293f552fefa3bfd3a8871aa7a2`.
-The audit date is 2026-08-18.
+The approved product requirements are the source of truth for visual-impact changes.
+The current native implementation remains the source for unchanged visual details.
+The fixed product baseline is the current product-owned `docs/features.md` content.
+This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, the person-action alignment specified in `SET-078`–`SET-083`, the person-list and action-button refinement specified in `SET-084`–`SET-091`, the final Team game summary specified in `UI-GAME-001`–`UI-GAME-004`, and the planned first-release network UI defined for issue #28.
+The network additions are target specifications for downstream issue #38 and are not implemented UI or evidence of playable networking.
+Issue #30 may implement protocol, command-line, or scaffold outcomes, but it must not add graphical network UI.
+Issue #32 defines authoritative headless match states, result data, and fixed outcome copy for the planned network screens.
+Issue #32 must not add graphical network UI.
+Issue #34 defines stable replicated identities and presentation-independent result-state replication.
+Issue #34 must not add graphical network UI.
+Issue #38 owns the future presentation and visual evidence for the replicated states.
 
 ## Visual principles
 
@@ -18,7 +26,7 @@ The audit date is 2026-08-18.
 - The interface must use direct labels and immediate visual feedback.
 - The interface must preserve player and team identity during fast play.
 - The interface must use text, position, shape, or motion with color when the implementation provides these cues.
-- New documentation must describe implemented behavior and must not invent a replacement style.
+- New documentation must distinguish implemented behavior from approved target behavior and must not invent a replacement style.
 
 ## Coordinate and viewport conventions
 
@@ -27,15 +35,24 @@ The audit date is 2026-08-18.
 - A wireframe note must identify any important bottom-left renderer position.
 - The release build must use the current display width and height in exclusive full-screen mode.
 - The debug build must use a 1280 by 900 window.
-- The menu must center its fixed 850 by 700 logical canvas in the current client area.
-- The menu background must fill the complete client area with `#C0C0C0`.
+- The menu must preserve its fixed 850 by 700 logical canvas and uniformly scale it by `min(1.35, clientWidth/850, clientHeight/700)`.
+- The menu must center the scaled canvas in the current client area.
+- An 850 by 700 client is the compatibility floor and renders the canvas at 100%.
+- A 1280 by 720 client is the modern evaluation minimum.
+- A 1920 by 1080 or larger client uses the 135% scale cap.
+- The complete client area behind the canvas must show the session-selected menu background, or solid black after all eligible images fail to load.
+- The 850 by 700 menu canvas must use `#C0C0C0`.
 - The menu must not reflow its internal controls for narrow or wide displays.
 - The gameplay renderer must fill the current client area.
-- Full-screen gameplay must give each player the same complete client-area view.
-- Split-screen gameplay must use the implemented half-screen view rectangles and 4 px red separators.
+- Gameplay must use one undivided arena view for each match.
+- The shared arena view must show the whole level and all players.
+- The shared arena view must support two through 15 players.
+- Each game mode and player count must use the same client-area view model.
+- The gameplay view must not contain player-specific camera regions or camera separators.
 - The implementation does not define a mobile layout.
 - Documentation must not claim mobile support until the implementation defines a mobile viewport and input model.
-- The implementation does not add letterboxing to the menu or the arena.
+- The menu canvas must have a 2-logical-pixel black perimeter keyline.
+- The gameplay renderer must not add letterboxing.
 - A capture must show the complete client area without external window chrome unless the environment requires windowed debug mode.
 
 ## Typography
@@ -56,8 +73,12 @@ The following values come from renderer and GUI source.
 
 | Token | Value | Implemented use |
 |---|---:|---|
-| `menu-surface` | `#C0C0C0` | Complete menu background |
+| `menu-background-scrim` | `rgba(0,0,0,0.55)` | Full-client layer over the blurred menu gameplay still |
+| `menu-keyline` | `#000000` | 2-logical-pixel perimeter around the scaled menu canvas |
+| `menu-surface` | `#C0C0C0` | Fixed menu canvas and control surfaces |
 | `menu-label-surface` | `#AAAAAA` | Label strip background |
+| `menu-panel-header` | `#0000C8` | Setup panel title strips |
+| `menu-panel-header-text` | `#FFFFFF` | Setup panel title text |
 | `field-surface` | `#FFFFFF` | List, spinner, and text field surface |
 | `text-default` | `#000000` | Menu and console text |
 | `frame-light` | `#EBEBEB` | Raised top and left edges |
@@ -74,9 +95,8 @@ The following values come from renderer and GUI source.
 | `summary-outer` | `rgba(255,255,255,0.31)` | Score summary outer panel |
 | `summary-inner` | `rgba(0,0,255,0.31)` | Score summary inner panel |
 | `summary-header` | `#0000FF` | Score summary heading strip |
+| `team-group-separator` | `rgba(255,255,255,0.70)` | Rule between adjacent team groups in Team score overviews |
 | `winner-curtain` | animated `rgba(128,0,0,0..0.78)` | Full-screen round-end curtain |
-| `dead-view-curtain` | `rgba(255,0,0,0.50)` | Dead split-screen player view |
-| `split-divider` | `#FF0000` | Split-screen gutters |
 | `console-surface` | `#EEDD00` | Console panel |
 | `console-separator` | `#FF0000` | Console separator text |
 | `console-edge` | `#000000` | Console lower edge |
@@ -94,14 +114,58 @@ The following values come from renderer and GUI source.
 - Controls must use the implemented two-line light and dark frame.
 - A pressed control must reverse the light and dark frame and must offset its caption by 1 px.
 - The menu must use compact control spacing and must not add decorative whitespace.
+- The main menu must use three raised panel groups for Persons, Players, and Game Settings.
+- The Persons and Players panels must split their combined logical region equally.
+- The Persons panel must use `x=10–324` and a width of 315 logical px.
+- The Players panel must use `x=330–644` and a width of 315 logical px.
+- The Game Settings panel must remain at `x=650–839` and a width of 190 logical px.
+- The setup row must keep the 5-logical-pixel gap between Persons and Players.
+- The setup row must keep the 5-logical-pixel gap between Players and Game Settings.
+- Each setup panel must use the blue panel header and white panel header text.
+- The Players panel must keep each player next to that player's control assignment.
 - Gameplay overlays must use flat translucent fills without drop shadows.
 - The score summary must use two translucent rectangular layers and a solid blue heading strip.
-- New documentation must not specify rounded corners, shadows, gradients, or blur that the implementation does not provide.
+- A non-final limited-round summary must show its round-progress label in a dedicated row above the score heading strip.
+- The round-progress label must use the score-summary type and the score-summary heading-strip text color.
+- The round-progress label must align to the top-right of the score panel.
+- The right edge of the round-progress label must be 16 px inside the right bound of the translucent outer panel.
+- The progress row must start 32 px below the top bound of the translucent outer panel.
+- The score heading must remain aligned to the horizontal center of the score panel.
+- The progress row must use a 32 px row height.
+- The progress row must not use the solid blue fill of the score heading strip.
+- The score panel must keep the progress row and the score heading strip separate and legible.
+- A Team score overview must keep each team row directly adjacent to that team's nested player rows.
+- A Team score overview must use an 8 px separator band between adjacent team groups.
+- The separator band must contain a 2 px horizontal `team-group-separator` rule at its vertical center.
+- The separator rule must span the score-table width.
+- The separator band must use 3 px of clear inner-panel space above and below the rule.
+- A Team score overview must not add a separator band after the last team group.
+- The separator treatment must apply to the active-round Tab scoreboard, the non-final post-round Team summary, and the final limited Team summary.
+- The separator treatment must support two through four teams.
+- The separator treatment must not change team colors, team names, row colors, score columns, ranking order, row alignment, controls, or round-progress behavior.
+- A non-Team score overview must remain unchanged.
+- A final Team summary must show `End of Game` in a dedicated notice region at the bottom of the client.
+- The final-state notice must use white 32 px score-summary text on a solid `summary-header` surface.
+- The final-state notice must use at least 16 px of horizontal text padding and 8 px of vertical text padding.
+- The final-state notice must align to the horizontal center of the client.
+- The bottom edge of the final-state notice must be 16 px from the bottom client edge.
+- The final-state notice must keep at least 16 px of clear space from the final score panel.
+- The final-state notice must not overlap, clip, cover, replace, or reduce the final score content.
+- New documentation must not specify rounded corners, shadows, or gradients that the implementation does not provide. Blur is reserved for the approved full-client menu background.
 
 ## Imagery and assets
 
 - The menu must use the animated stack at `resources/textures/menu/` as its banner source.
-- The menu banner must render at 200 by 95 px near the upper center of the client area.
+- The menu banner must render at 200 by 95 px near the upper center of the menu canvas.
+- The menu must show the runtime application version with the banner.
+- The menu must choose one eligible still from `resources/textures/menu-backgrounds/` with equal probability when the menu first initializes.
+- The selected still must remain unchanged for the application session, including menu navigation and returns from gameplay.
+- The still must fill the complete client with a centered aspect-ratio-preserving cover crop and no distortion.
+- The rendered still must use a Gaussian-equivalent blur near sigma 12 px with a sampling radius of at least 24 px at client resolution, followed by the 55% black scrim.
+- The grey canvas, its controls, and its keyline must remain unblurred and undimmed.
+- A failed still must cause an untried eligible still to be attempted without an error dialog. Exhausting all eligible stills must fall back to solid black without blocking menu initialization.
+- The selected background filename must be available in non-user-facing startup diagnostics.
+- The menu must not use a version value, person name, score value, or copyright line from a Stitch sample.
 - Gameplay must use the indexed images in `resources/textures/backgrounds/` behind level geometry.
 - Gameplay must use level geometry from `resources/levels/*.json` and block definitions from `resources/data/blocks.json`.
 - Gameplay must use `resources/textures/blocks/`, `resources/textures/man/`, `resources/textures/weapon/`, `resources/textures/bonus/`, and `resources/textures/elevator/` for visible world objects.
@@ -131,16 +195,106 @@ The following values come from renderer and GUI source.
 - A button must show raised and pressed frame states.
 - A list must show the selected row with a blue fill and white text.
 - A list must support wheel scrolling when the pointer is inside the list.
-- A person row must support double-click to add the person to the player roster.
+- The main-menu Persons list must use one row for each saved person.
+- The main-menu Persons list must use the columns `Rank`, `Name`, `Elo`, and `Trend`.
+- A ranked person row must show all four values.
+- An unranked person row must show the name and must leave `Rank`, `Elo`, and `Trend` empty.
+- A roster member must remain visible and selectable in the Persons list.
+- The Persons list must not use a separate color or disabled treatment for a roster member.
+- The Players list must show roster membership separately.
+- A person row must support double-click to add the person to the player roster when the person is not already in the roster.
+- A double-click on a roster member in the Persons list must make no visible change.
 - A player row must support double-click to remove the player from the roster.
 - A spinner must use left and right triangle buttons.
 - A checkbox must reverse its frame when it is checked.
+- The game mode spinner must show `Deathmatch`, `Predator`, and `Teams`.
+- The Players panel must show `Equalize` and `Shuffle` only when `Teams` is selected.
+- The Players panel must provide active interaction targets for `Equalize` and `Shuffle` only when `Teams` is selected.
+- The Players panel must hide `Equalize` and `Shuffle` when `Deathmatch` or `Predator` is selected.
+- A hidden roster-order control must not have an interaction target.
+- The visibility of both roster-order controls must update immediately when the selected mode changes.
+- `Remove`, `<<`, `>>`, `Equalize`, `Shuffle`, and `Detect All` must use one common button height.
+- Each of these button captions must have visible space from its border on all sides.
+- The batch controller-detection action must use the caption `Detect All`.
+- Each row-level controller-detection action must use the caption `D`.
+- The game mode spinner must show `Teams` one time.
+- The Game Settings panel must show `Num. of Team` and `Friendly Fire` only when `Teams` is selected.
+- Conditional settings must stay inside the existing Game Settings panel bounds.
+- Controls below a hidden conditional group must move up to keep one compact vertical stack.
+- The roster must use the applicable team colors only when `Teams` is selected.
+- A change to the team count must update the roster colors immediately.
+- A non-Team mode must use the standard roster row colors.
+- Player text and selection feedback must remain readable over each roster team color.
 - A focused text field must append an underscore to its text.
 - Only one text field must have focus at a time.
 - The person-name field must accept only its implemented character set.
-- The rounds field must accept digits only.
+- The Rounds field must accept digits only.
+- The Rounds field must show `0` at application startup unless a startup setting overrides it.
+- The application must keep the applied Rounds value during the current application session.
+- The Rounds field must show the applied value when gameplay returns to the menu.
+- The application must not restore a Rounds value from an earlier application session.
+- Focus must clear the Rounds field immediately when the field shows exactly `0`.
+- Focus must keep the Rounds field value unchanged when the field shows a positive value.
+- The focused empty Rounds field must show only the standard focus underscore.
+- Focus loss from an empty Rounds field must show `0` and set unlimited-round semantics.
+- Focus loss from a non-empty Rounds field must not apply the edit.
+- Enter and Play must retain their existing Rounds application behavior.
 - The menu has no implemented disabled style.
 - Invalid actions may produce no visible change unless a blocking message is documented for that action.
+
+### Target network controls and status
+
+- `MENU-01`, `NET-01`–`NET-04`, and `NET-08` must use the retro 850 by 700 logical canvas and the same uniform scaling, centered presentation, photographic background, scrim, keyline, type, square controls, and compact density as the local menu.
+- `NET-05`–`NET-07` may overlay the undivided shared arena or summary context where their screen specifications require it; they must not introduce player-specific viewports.
+- `NET-09` must be a blocking panel over the last confirmed lobby, arena, summary, or reconnect context. It must not replace that context with a fixed 850 by 700 canvas requirement.
+- Participant role, connection, readiness, and ownership must use separate textual fields or columns. Color may reinforce but must not replace `Host`, `Guest`, `Connected`, `Reconnecting`, `Ready`, or `Not ready`.
+- Connection copy must be truthful: the UI must not show a lobby, listening state, successful connection, or restored session before the runtime confirms it.
+- A disabled action must remain readable and must show a nearby textual reason, including the named unready participant or invalid configuration where applicable.
+- Host-owned fields must be visibly read-only to guests, and participant-owned player controls must not appear editable to another participant.
+- Reconnecting UI must show the positive ceiling seconds remaining from the host deadline, never active `0`, and state that active play continues when the match is active.
+- Guest Leave, reconnect Leave session, and host End session actions must use consequence confirmations and the destinations defined by the product specification.
+- Silence, refusal, unreachable, reset, timeout, host crash, host-machine/listener loss, temporary failure, or no response must remain guest `NET-07` through the fixed deadline; it must not be presented as host end.
+- `NET-09` must use only the fixed intentional host-end copy after a valid End session notice is accepted through the current established session.
+- Host-local supervised hosted-service failure must use host `NET-08` with `Hosted session stopped unexpectedly.` and must never become guest evidence.
+- Host startup must show `Starting session…` while the startup attempt is active.
+- Host startup must show `Startup can take up to 10 seconds.` without claiming readiness.
+- Host startup must lock the retained setup and must replace Start session and Back with Cancel.
+- Accepted startup Cancel must show `Cancelling session…` until cleanup completes.
+- Completed startup Cancel must return to editable `NET-02` with the retained setup.
+- A startup failure must keep Retry disabled until cleanup completes.
+- An eligible startup Retry must start a new attempt with the retained setup.
+- A post-readiness hosted-service failure must keep Retry disabled because Retry cannot restore the ended session.
+- `Edit setup` must return to retained editable `NET-02` for a new host attempt.
+- `Return to Network` must enter `NET-01` after cleanup.
+- Only the confirmed `End session` action may produce the intentional host-end notice.
+- Normal application shutdown, a crash, forced termination, and hosted-service failure must not produce or imply the intentional host-end notice.
+- Release, manifest, content, admission, reconnect, and termination user copy must not include a peer-supplied name, release ID, capability, path, hash, count, credential, source address, threshold, payload, or raw filesystem value.
+- Host-service lifecycle copy must not include an endpoint, process value, command, credential, filesystem path, payload, or operating-system error text.
+- Trusted diagnostics may identify one differing path only after the application validates that path against every canonical-path rule.
+- Trusted diagnostics must not include an invalid path or raw payload.
+- `NET-06` must show the exact label `Session only` near the summary heading or result table.
+- `NET-06` must show result state `Completed`.
+- `NET-06` must show match outcome and last completed-round outcome as separate labeled values.
+- A completed match outcome must equal the configured final-round outcome.
+- A retained `NET-04` result must show result state `Completed` or `Interrupted`.
+- An interrupted match outcome must show the exact value `No winner` in `NET-04`.
+- An interrupted result must preserve the last completed-round outcome when that outcome exists.
+- A cumulative ranking must remain separate from match outcome and last completed-round outcome.
+- A cumulative ranking leader must not receive a champion label or treatment.
+- Final network results must state `Not saved to local statistics or Elo`.
+- Network match setup must expose only mode, level plan, round limit, Assistance, Quick Liquid, and Burnable Trees.
+- Network round limit must accept only integers from 1 through 99.
+- Network match setup must not expose weapon enablement, ammunition ranges, level data, or gameplay definitions as settings.
+- Network match status must state that optional Lua and profile scripts are disabled for network play.
+- Only the host may show an enabled early-advance action after a round outcome exists.
+- Guests must not see an enabled round-advance action.
+- Network round-end presentation must distinguish the first-second active phase from the final-five-second frozen phase.
+- The final round must enter the final summary and must not show a next-round action.
+- An interrupted match must enter `NET-04` directly and must not enter `NET-06`.
+- A completed result must appear in `NET-06` and then remain available in the following `NET-04` lobby.
+- Only the host may show the `End session` action.
+- The interface must keep Local Play copy, settings, advancement, scripting, and persistence behavior unchanged.
+- Target network UI must not offer discovery, matchmaking, Internet, NAT traversal, accounts, passwords, dedicated servers, join-in-progress, or host migration.
 
 ### Gameplay presentation
 
@@ -155,15 +309,40 @@ The following values come from renderer and GUI source.
 - Ammunition must use blue text on a yellow rectangle.
 - Round kills must use blue point marks.
 - Team ranking must group named team rows and nested player rows.
+- Team score-overview groups must use the defined separator treatment in `OVER-01` and non-final `OVER-02`.
+- A final limited Team score overview must use the same separator treatment in `OVER-03`.
+- A final limited Team score overview must show the literal `End of Game` in the defined bottom notice region.
 - Team identity must also change headband, trousers, and hair-top colors.
 - Predator identity must use a body alpha of 0.1 while the weapon remains visible.
+- Live ranking must remain available for every supported player count.
+- Event messages, player status, and score summaries must remain available in the shared arena view.
+- Round progress must remain available in the shared arena view except while a non-final limited-round summary panel is visible.
+- A non-final limited-round summary must show `Rounds: <played>|<total>` in a dedicated row above the solid blue score heading strip.
+- The summary round-progress label must use the exact `Rounds: <played>|<total>` format.
+- The summary round-progress label must align to the panel top-right in the dedicated progress row.
+- The right edge of the summary round-progress label must be 16 px inside the right bound of the translucent outer panel.
+- The summary round-progress label must include the round that has just ended in `<played>`.
+- The summary round-progress label must use the configured positive round limit in `<total>`.
+- A resumed match must use its accumulated played-round count in the summary round-progress label.
+- An unlimited round summary must not show the summary round-progress label.
+- The final game summary and the active-round Tab score overlay must not show the new summary round-progress label.
+- The top-center arena round progress must be hidden while the non-final limited-round summary panel is visible.
+- The top-center arena round progress must return in the first visible frame of the next active round.
+- The summary popup must show only one round-count location.
+- F2 must not change the gameplay view.
 
 ### Blocking menu messages
 
-- A blocking menu message must use a centered 20 px high panel.
-- The panel width must equal eight times the message length plus 60 px.
+- A short blocking menu message must use a centered 20-logical-pixel high panel and remain on one line.
+- A short panel width must equal eight times the message length plus 60 logical px.
+- A long blocking message may wrap at word boundaries within the logical menu canvas; sentence boundaries should be preferred where practical.
+- A wrapped message panel must grow vertically by one 16-logical-pixel text row per additional line.
 - The panel must use a 2 px black frame.
 - Confirmation copy must include its implemented keyboard choices.
+- A start-prerequisite message must name each missing prerequisite in a separate sentence.
+- A start-prerequisite message must tell the user to correct content or configuration and restart the application.
+- A start-prerequisite message must show `Press any key.` as its dismissal instruction.
+- A start-prerequisite message must keep the unchanged menu visible behind the panel.
 - Controller detection must remain open until an accepted control input is detected.
 - The one-player validation message must remain open until any event is received.
 
@@ -172,6 +351,7 @@ The following values come from renderer and GUI source.
 - The backquote key must toggle the console over the current menu or gameplay frame.
 - The console must take keyboard and text input while it is open.
 - The console must span the complete client width.
+- The console must remain unscaled while the menu below it uses the menu presentation transform.
 - The console height must contain 15 history rows, one separator row, one input row, and its lower edge.
 - The console must sit against the top edge of the visible client area.
 - The console must use `=` for the separator and `^` when history is scrolled.
@@ -181,26 +361,37 @@ The following values come from renderer and GUI source.
 
 - Documentation must identify keyboard-only actions and mouse-only actions.
 - Visible shortcut labels such as `F1`, `F3`, and `ESC` must remain in button captions.
+- The current menu action captions use `Play (F1)`, `Clear (F3)`, and `Quit (ESC)`; the target network entry adds `Network (F2)` between Play and Clear.
+- The menu action captions must not place a bracketed shortcut before the action name.
 - A confirmation must show `Y/N` in its message.
 - Team names must accompany team colors in rankings.
 - Player names must accompany player color and status cues when their indicators are visible.
 - Living and dead ranking entries use both state-dependent text color and continued row placement.
-- Split-screen player regions must use spatial separation and red boundaries.
-- A dead split-screen view must use a translucent red curtain in addition to the absent live state.
 - Status bars currently rely on color and fill length without text labels.
 - Team apparel currently relies on color during direct arena play.
 - The implementation has no documented focus traversal, focus ring, screen reader output, reduced-motion mode, high-contrast mode, or text scaling mode.
 - Screenshot evidence must not claim support for an accessibility mode that the implementation does not provide.
+- Target network screens must define a deterministic keyboard and controller focus order, preserve a visible focused-control state, and allow primary, Back, Cancel, Retry, Ready, and Return actions without a mouse.
+- Focus must not rely only on color, and status changes must remain as visible text rather than transient color or motion alone.
+- Starting, cancelling, failure, Retry eligibility, and cleanup status must remain available as persistent text.
+- A disabled Retry control must show a persistent textual reason and must not receive focus.
+- Unsupported actions must be absent rather than represented by ambiguous disabled affordances.
+- Round-end phase, automatic-advance timing, result state, match outcome, last completed-round outcome, no-winner state, script exclusion, and no-persistence status must remain visible as text.
+- Result tables must use text headings for ranking criteria and values.
+- Result tables must not rely only on row order or color to communicate rank, team, winner, or departed state.
+- Result tables must not use rank or row emphasis to imply a match champion.
 
 ## Responsive behavior
 
-- The menu must remain a centered fixed canvas on supported desktop display sizes.
+- The menu must remain a centered, uniformly scaled fixed-layout canvas on supported desktop display sizes.
+- A supported menu client area must be at least 850 by 700 px.
+- The 850 by 700 logical positions, proportions, text, controls, banner, lists, score table, bevels, and interaction bounds must scale together.
+- Pointer coordinates must use the inverse menu transform before GUI hit testing.
+- Menu scaling must not alter the gameplay camera, world rendering, or gameplay overlays.
 - The gameplay camera must use the current client dimensions.
-- Two-player split-screen must place Player 2 in the upper centered view and Player 1 in the lower centered view.
-- Three-player split-screen must place Player 3 in the upper centered view and Players 1 and 2 in the lower row.
-- Four-player split-screen must place Players 3 and 4 in the upper row and Players 1 and 2 in the lower row.
-- Split-screen must be available only when the match has fewer than five players.
-- More than four players must use the full-screen arena presentation.
+- Every match must keep one undivided arena at each supported desktop viewport.
+- The camera must keep the complete level and all active players in the shared view.
+- A player count change must not create another viewport layout.
 - Overlay panels must calculate their horizontal and vertical centers from the current client dimensions where the source does so.
 
 ## Freshness and change control
@@ -210,7 +401,20 @@ The following values come from renderer and GUI source.
 - A visual-impact change must invalidate each affected screenshot entry.
 - A shared token or component change must trigger an assessment of all screens.
 - Screenshot provenance must record branch, source SHA, environment, workflow, state, viewport, and artifact path.
+- Evidence for menu background selection or persistence must also record the selected filename, runtime asset manifest revision, and session identifier.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
+- Eleven screenshot entries remain `Planned` until issue #38 implements and captures `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
+- `SS-001` and `SS-024` must represent the two approved `MENU-01` conditional-layout wireframes.
+- `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry.
+- The PR #59 `SS-001` and `SS-024` artifacts are historical because they show the prior person-action arrangement.
+- The PR #60 `SS-001` and `SS-024` artifacts are historical because they show the shorter Persons list, the higher person-name row, and the previous batch controller-detection caption.
+- The PR #62 `SS-001` and `SS-024` artifacts are historical because they show `<<` in the Persons panel.
+- PR #69 provides the latest captured implementation screenshots for nine implemented wireframes.
+- PR #70 provides the latest captured implementation screenshot for `OVER-03`.
+- `SS-001` and `SS-024` represent the current three-action `MENU-01` implementation and conform at PR #69 assessment head `f4708d337bb82be55c553c64608bd75ccd64121f`.
+- `SS-003`, `SS-007`–`SS-011`, and `SS-014` represent the current implemented gameplay and overlay wireframes and conform at the same assessment head.
+- `SS-012` represents the current final Team game summary and conforms at PR #70 exact head `212c5242afecb4298d5b33d9c0ee2225cc067d0b`.
+- Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
 
 ## Reviewed implementation sources
 
@@ -233,41 +437,33 @@ The following values come from renderer and GUI source.
 
 ## Stitch synchronization
 
-- Project title: `Duel 6`.
-- Product scope: Dedicated Duel 6 Reloaded visual workspace.
-- Project ID: `1219346282527961142`.
-- Project URL: [Duel 6 Stitch project](https://stitch.withgoogle.com/projects/1219346282527961142).
-- Owner scope: The currently authenticated Stitch account is the owner.
-- Access scope: The project is private.
-- Collaborator scope: This synchronization does not request an additional collaborator.
-- Design system: `Duel 6 Reloaded — Native Baseline` (`assets/7257739717738214874`).
-- Synchronization date: 2026-08-22.
-- Verification status: Blocked.
-
-The available Stitch project API does not provide a project-title update operation.
-The project title therefore remains `Duel 6`.
-The user accepts this existing project as the dedicated product workspace.
-The project is private and owner-only access is the intended final scope.
-
-The final Stitch screen listing returns three screen records and no duplicate stable screen ID.
-Eleven required screen records remain unavailable after individual generation requests and completion checks.
-The active project theme reports an unapproved dark glass style with cyan accents.
-The active project theme does not conform to this native baseline.
-A baseline design-system application was requested twice for every available screen instance.
-Stitch timed out and still reports Aura Kinetic as the active project theme.
-The project must confirm the baseline design system before coverage can pass review.
-
-Manual Stitch UI action is required if the asynchronous operations do not appear later.
-The owner must rename the project to `Duel 6 Reloaded` when the UI supports project-title editing.
-The owner must set `Duel 6 Reloaded — Native Baseline` as the project design system and remove the Aura Kinetic design-system instance.
-The owner must create only the 11 pending stable screen IDs in the screen inventory.
-The owner must edit `MENU-01` and `PLAY-02` in place against their canonical wireframes.
-The owner must not create replacement records for those two existing IDs.
-
-The Stitch workspace must preserve the documented native baseline.
-The workspace must contain one representative artifact for each of the 14 authoritative wireframes.
-The artifact name must start with the stable screen ID.
-The artifact notes must contain applicable variants and workflows.
-Stitch artifacts must not replace implementation screenshot evidence.
-The local screen inventory records the required stable artifact identifiers.
-The mapping must not be treated as complete until Stitch returns one screen record for each identifier.
+The corresponding Stitch project is `projects/1219346282527961142`; its current metadata reports the title `Duel 6 Reloaded`, private visibility, and the authenticated role `OWNER`.
+Issue #16 remains open, but its 14-screen inventory is retired and must be re-scoped before further use.
+Future Stitch work is optional and non-blocking.
+For PR #54 and subsequent assessment of this approved change, Stitch is a supplementary visual workspace.
+`docs/features.md`, this file, the applicable screen specifications, the version-controlled wireframes, and conforming implementation screenshots are authoritative.
+A missing or stale Stitch representation must not replace or weaken any local design, wireframe, screenshot, provenance, or implementation-presentation gate.
+A Stitch synchronization failure does not block visual acceptance when all authoritative local sources exist, remain current, and conform.
+The project includes two `MENU-01 — Main menu and session setup` explorations at screens `681ae093051749fd922ab74454f47121` and `e26294cba3d946a0af458bcf33c275a0`.
+Screen `681ae093051749fd922ab74454f47121` is a historical visual reference for the retro grey canvas, compact density, score table, and footer actions.
+Its black matte and four-panel hierarchy are stale and must not override the current scaled background or three-panel `MENU-01` wireframes.
+The application behavior and copy in `docs/features.md` override illustrative Stitch names, statistics, settings, version text, and shortcut syntax.
+The project also includes screens for Predator, Team gameplay, sudden death, and the score overlay.
+An alignment edit was requested for those four screens on 2026-08-23.
+The Stitch request timed out, so the screen update result is not confirmed.
+The Stitch design system uses an exploratory dark tactical style that does not match this native visual baseline.
+The retro `MENU-01` screen direction is an approved screen-specific exception to that exploratory design system.
+This file and `docs/features.md` remain authoritative for implementation details that the Stitch samples do not represent accurately.
+The project and screen inventory were reviewed again on 2026-09-01 for the Team score-overview grouping change.
+Stitch screen `172c3e16a6424bf1a7d95723038f3e43` is `OVER-01 — Score-tab overlay`.
+Stitch screen `46c697bc75274ba9a668b0641e077dc0` is `OVER-02 — Round-over summary`.
+A separator-treatment edit was requested for both screens on 2026-09-01.
+The request preserved the native overlay, four Team groups, score content, alignment, `OVER-02` progress row, and curtain behavior.
+The request specified an 8 px boundary band with a centered 2 px white rule at 70% opacity.
+The Stitch request timed out, so the screen update result is not confirmed.
+The local specifications and wireframes remain the implementation target.
+Two consolidated Teams variants were requested from screen `681ae093051749fd922ab74454f47121` on 2026-08-31.
+An inspection after the timeout found no generated consolidated Teams variants in the project screen inventory.
+The two existing `MENU-01` explorations remain `681ae093051749fd922ab74454f47121` and `e26294cba3d946a0af458bcf33c275a0`.
+The local screen specification and wireframes are complete and remain sufficient for implementation and visual assessment.
+The stale Stitch screens are a documented non-blocking limitation for PR #54.

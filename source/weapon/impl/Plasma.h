@@ -33,6 +33,7 @@
 namespace Duel6 {
     class Plasma : public LegacyWeapon {
     public:
+        Plasma();
         Plasma(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;

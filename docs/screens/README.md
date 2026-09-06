@@ -1,53 +1,138 @@
 # Screen inventory
 
 This inventory is authoritative for product screens and materially distinct full-screen visual states.
-The baseline uses the native implementation at branch `feature-documentation-audit-fixes`, capture source SHA `12cd6dca742b90293f552fefa3bfd3a8871aa7a2`.
+The target baseline uses the shared arena view requirements in `docs/features.md`.
 The product has no implemented URL routes.
 Each route value below therefore names a reproducible local workflow.
+`NET-01`–`NET-09` and the `MENU-01` Network action are approved target specifications for issue #28. They are not implemented screens or evidence of playable network support; downstream issue #38 owns implementation.
+Issue #30 defines protocol, compatibility, admission, and exact outcome copy for planned `NET-02`, `NET-03`, and `NET-08` states.
+Issue #30 does not implement these graphical screens.
+Issue #31 defines hosted-service lifecycle states, exact outcome copy, precedence, Retry eligibility, and destinations for planned `NET-02`, `NET-08`, and the intentional-end boundary of `NET-09`.
+Issue #31 does not implement graphical network UI and does not add a wireframe.
+Issue #32 defines authoritative headless match behavior, fixed result and failure copy, and future states for `NET-04`, `NET-05`, `NET-06`, and `NET-08`.
+Issue #32 does not implement graphical network UI and does not add a wireframe.
+Issue #34 defines stable replicated identities and presentation-independent state replication for the same durable screen identities.
+Issue #34 does not implement graphical network UI and does not add a wireframe.
+Issue #38 retains ownership of graphical presentation, focus, controls, disabled reasons, screenshots, and visual conformance for these target states.
 
 The implementation supports desktop display viewports only.
 Each screen uses one desktop wireframe because the implementation does not define a mobile layout.
+The `MENU-01` visual baseline was updated on 2026-08-23 from the approved retro menu direction in the connected Stitch project.
+The update changes the menu presentation and control layout without adding a screen or changing product behavior.
+The 2026-08-24 Game Settings update adds a default-enabled Burnable Trees checkbox below Quick Liquid and moves Rounds down by one row.
+This update affects `MENU-01`, the menu background in `MENU-02`, and the visible menu area in `CONS-01`.
+This update does not add a screen or a wireframe.
+The 2026-08-26 approved menu presentation preserves that 850 by 700 logical layout while uniformly scaling and centering it, replacing the black matte with one session-persistent blurred gameplay still under a 55% black scrim, and adding a black canvas keyline.
+The same presentation appears in `MENU-01`, behind messages in `MENU-02`, and below the unscaled full-width console in `CONS-01`.
+This presentation change invalidates the prior representative screenshots for those three existing wireframes but does not add a screen or wireframe.
+The 2026-08-29 Rounds update changes the visible focus, empty, restored-zero, and session-retained-value states in `MENU-01`.
+This update does not add a screen or wireframe.
+The `MENU-01` representative screenshot must show the applied positive value after gameplay returns during the same application session.
+The corrected 2026-08-31 round-progress update changes only the non-final limited-match state of `OVER-02`.
+The update adds `Rounds: <played>|<total>` in a dedicated row above the score heading strip.
+The update right-aligns the label 16 px inside the round-summary panel's right bound.
+The update hides the top-center arena progress while the summary is visible and restores it when the next round begins.
+The update does not add a screen or a wireframe.
+The 2026-08-31 consolidated Teams update gives `MENU-01` two conditional-layout wireframes.
+The non-Team wireframe hides the Team settings and uses standard roster rows.
+The Teams wireframe shows both Team settings and uses the selected team-count colors.
+The update does not add a full-screen state or a new screen identifier.
+The localized roster-order update keeps these two wireframes because one must show the controls absent and one must show them present.
+The non-Team wireframe hides `Equalize` and `Shuffle` and removes their interaction targets.
+The Teams wireframe shows the full `Equalize` and `Shuffle` labels.
+The approved 2026-09-01 Team score-overview update affects the Team variants of `OVER-01` and non-final `OVER-02`.
+The update adds an 8 px separator band with a centered 2 px rule between adjacent team groups.
+The update does not change non-Team score overviews or `OVER-03`.
+The update does not add a screen or a wireframe.
+The consolidated-person-list update replaces the separate Elo and available-person panels with one `PERSONS` panel.
+The update affects both `MENU-01` wireframes and does not add a screen or wireframe.
+The approved PR #58 refinement splits the Persons and Players combined region 50:50.
+Persons and Players each use 315 logical px, both 5 px setup-panel gaps remain, and Game Settings remains unchanged.
+The refinement affects both `MENU-01` wireframes and does not add a screen or wireframe.
+The localized PR #60 refinement puts the person-name field and `Add` in one row.
+It puts `Remove`, `<<`, and `>>` in a separate row that aligns with the Teams roster-order row.
+The person-action row keeps the same position when roster-order controls are hidden.
+The refinement affects both `MENU-01` wireframes and does not add a screen or wireframe.
+The localized PR #62 refinement moves the person-name row down by one standard list row.
+It expands the Persons list by one standard list row.
+It gives the person actions, roster-order actions, and batch controller-detection action one common button height with visible caption padding.
+It renames the batch controller-detection action to `Detect All` and keeps `D` for each row action.
+The refinement affects both `MENU-01` wireframes and does not add a screen or wireframe.
+The localized PR #65 refinement puts `Remove` at the bottom-left and `>>` at the bottom-right of Persons.
+It puts `<<` at the bottom-left and `Detect All` at the bottom-right of Players.
+It centers `Equalize` and `Shuffle` as one group in the available span between the Players edge controls.
+The refinement affects both `MENU-01` wireframes and does not add a screen or wireframe.
+The final Team game-summary update affects the Team variant of `OVER-03`.
+The update gives each Team boundary the separator treatment already used in non-final `OVER-02`.
+The update adds a separate bottom `End of Game` notice.
+The update does not change `OVER-01`, `OVER-02`, non-Team final summaries, or the stable `OVER-03` wireframe count.
 
-| Screen ID | Screen or state | Specification | Wireframe | Stitch artifact | Functional requirements | Primary source |
-|---|---|---|---|---|---|---|
-| `MENU-01` | Main menu and session setup | [Specification](menu-main.md) | [Wireframe](wireframes/menu-main.md) | [`MENU-01 — Main menu and session setup`](https://stitch.withgoogle.com/projects/1219346282527961142/screens/681ae093051749fd922ab74454f47121) | `SET-001`–`SET-023`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005` | `source/Menu.cpp` |
-| `MENU-02` | Menu blocking message | [Specification](menu-message.md) | [Wireframe](wireframes/menu-message.md) | Pending: `MENU-02 — Menu blocking message` | `SET-003`, `SET-006`–`SET-007`, `SET-022`, `LIF-023`–`LIF-029`, `INP-008`–`INP-009` | `source/Menu.cpp:368-486` |
-| `PLAY-01` | Live full-screen gameplay | [Specification](play-fullscreen.md) | [Wireframe](wireframes/play-fullscreen.md) | Pending: `PLAY-01 — Live full-screen gameplay` | `LIF-001`–`LIF-022`, `INP-012`–`INP-017`, `PLY-001`–`PLY-010`, `ENV-001`–`ENV-013`, `CMB-001`–`CMB-020`, `BON-001`–`BON-020`, `SCO-001`–`SCO-018`, `UI-001`, `UI-008`–`UI-015` | `source/WorldRenderer.cpp` |
-| `PLAY-02` | Two-player split-screen | [Specification](play-split-2.md) | [Wireframe](wireframes/play-split-2.md) | [`PLAY-02 — Two-player split-screen`](https://stitch.withgoogle.com/projects/1219346282527961142/screens/bfb50cc23087486a9df5decc3a6e79f5) | `UI-002`–`UI-007`, `UI-009`–`UI-010`, `UI-014` | `source/Round.cpp:100-127` |
-| `PLAY-03` | Three-player split-screen | [Specification](play-split-3.md) | [Wireframe](wireframes/play-split-3.md) | Pending: `PLAY-03 — Three-player split-screen` | `UI-002`–`UI-007`, `UI-009`–`UI-010`, `UI-014` | `source/Round.cpp:129-134` |
-| `PLAY-04` | Four-player split-screen | [Specification](play-split-4.md) | [Wireframe](wireframes/play-split-4.md) | Pending: `PLAY-04 — Four-player split-screen` | `UI-002`–`UI-007`, `UI-009`–`UI-010`, `UI-014` | `source/Round.cpp:136-142` |
-| `PLAY-05` | Sudden-death rising water | [Specification](play-sudden-death.md) | [Wireframe](wireframes/play-sudden-death.md) | Pending: `PLAY-05 — Sudden-death rising water` | `ENV-002`–`ENV-007`, `ENV-009`–`ENV-013`, `UI-008`–`UI-015` | `source/Round.cpp:146-200` |
-| `MODE-01` | Predator live gameplay | [Specification](mode-predator.md) | [Wireframe](wireframes/mode-predator.md) | Pending: `MODE-01 — Predator live gameplay` | `MOD-PR-001`–`MOD-PR-008`, `UI-008`–`UI-015` | `source/gamemodes/Predator.cpp` |
-| `MODE-02` | Team live gameplay and ranking | [Specification](mode-team.md) | [Wireframe](wireframes/mode-team.md) | [`MODE-02 — Team live gameplay and ranking`](https://stitch.withgoogle.com/projects/1219346282527961142/screens/50a748fc2039487986e9480120c909ec) | `SET-020`–`SET-021`, `SCO-005`–`SCO-006`, `SCO-013`–`SCO-017`, `MOD-TM-001`–`MOD-TM-011`, `UI-008`–`UI-015` | `source/gamemodes/TeamDeathMatch.cpp` |
-| `OVER-01` | Score-tab overlay | [Specification](overlay-score-tab.md) | [Wireframe](wireframes/overlay-score-tab.md) | Pending: `OVER-01 — Score-tab overlay` | `SCO-018`, `MOD-TM-010`–`MOD-TM-011`, `UI-011` | `source/Game.cpp:62-83` |
-| `OVER-02` | Round-over summary | [Specification](overlay-round-over.md) | [Wireframe](wireframes/overlay-round-over.md) | Pending: `OVER-02 — Round-over summary` | `LIF-011`–`LIF-017`, `MOD-DM-001`–`MOD-DM-003`, `MOD-PR-005`–`MOD-PR-008`, `MOD-TM-005`–`MOD-TM-011`, `UI-012` | `source/WorldRenderer.cpp:120-169,472-505,565-570` |
-| `OVER-03` | Game-over summary | [Specification](overlay-game-over.md) | [Wireframe](wireframes/overlay-game-over.md) | Pending: `OVER-03 — Game-over summary` | `LIF-018`, `SCO-022`–`SCO-023`, `UI-013`–`UI-014` | `source/Game.cpp:51-79,158-164` |
-| `CONS-01` | Console over menu | [Specification](console-menu.md) | [Wireframe](wireframes/console-menu.md) | Pending: `CONS-01 — Console over menu` | `CFG-001`–`CFG-002`, `CFG-008`–`CFG-020` | `source/console/ConsoleRenderer.cpp` |
-| `CONS-02` | Console over gameplay | [Specification](console-gameplay.md) | [Wireframe](wireframes/console-gameplay.md) | Pending: `CONS-02 — Console over gameplay` | `CFG-001`–`CFG-002`, `CFG-008`–`CFG-020` | `source/console/ConsoleRenderer.cpp` |
+| Screen ID | Screen or state | Specification | Wireframe | Functional requirements | Primary source |
+|---|---|---|---|---|---|
+| `MENU-01` | Main menu and session setup; expanded consolidated person list; aligned and equal-height action buttons; conditional Team settings and roster-order controls; planned Network entry | [Specification](menu-main.md) | [Non-Team and Teams wireframes](wireframes/menu-main.md) | `SET-001`–`SET-091`, `AC-011`, `AC-040`–`AC-051`, `AC-053`–`AC-069`, plus target `NET-AC-002`, `NET-AC-009`, `NET-AC-015` | Target: `docs/features.md`; context: `source/Menu.cpp`; planned footer: `docs/network-play-first-release.md` |
+| `MENU-02` | Menu blocking message over planned Network footer | [Specification](menu-message.md) | [Wireframe](wireframes/menu-message.md) | Existing local requirements plus target `NET-AC-015`, `NET-AC-017` | Current: `source/Menu.cpp`; target footer: `docs/network-play-first-release.md` |
+| `PLAY-01` | Live shared arena gameplay for 2–15 players | [Specification](play-fullscreen.md) | [Wireframe](wireframes/play-fullscreen.md) | `LIF-001`–`LIF-022`, `INP-012`–`INP-017`, `PLY-001`–`PLY-010`, `ENV-001`–`ENV-013`, `CMB-001`–`CMB-020`, `BON-001`–`BON-020`, `SCO-001`–`SCO-018`, `UI-001`–`UI-020` | Target: `docs/features.md`; context: `source/WorldRenderer.cpp` |
+| `MODE-01` | Predator live gameplay | [Specification](mode-predator.md) | [Wireframe](wireframes/mode-predator.md) | `MOD-PR-001`–`MOD-PR-008`, `UI-001`–`UI-020` | `source/gamemodes/Predator.cpp` |
+| `MODE-02` | Team live gameplay and ranking | [Specification](mode-team.md) | [Wireframe](wireframes/mode-team.md) | `SET-020`–`SET-021`, `SCO-005`–`SCO-006`, `SCO-013`–`SCO-017`, `MOD-TM-001`–`MOD-TM-011`, `UI-001`–`UI-020` | `source/gamemodes/TeamDeathMatch.cpp` |
+| `PLAY-05` | Sudden-death rising water | [Specification](play-sudden-death.md) | [Wireframe](wireframes/play-sudden-death.md) | `ENV-002`–`ENV-007`, `ENV-009`–`ENV-013`, `UI-001`–`UI-020` | `source/Round.cpp:146-200` |
+| `OVER-01` | Score-tab overlay | [Specification](overlay-score-tab.md) | [Wireframe](wireframes/overlay-score-tab.md) | `SCO-018`, `MOD-TM-010`–`MOD-TM-011`, `UI-011` | `source/Game.cpp:62-83` |
+| `OVER-02` | Round-over summary | [Specification](overlay-round-over.md) | [Wireframe](wireframes/overlay-round-over.md) | `LIF-011`–`LIF-017`, `MOD-DM-001`–`MOD-DM-003`, `MOD-PR-005`–`MOD-PR-008`, `MOD-TM-005`–`MOD-TM-011`, `UI-012`, `UI-RND-001`–`UI-RND-010`, `AC-052` | Target: `docs/features.md`; context: `source/Game.cpp:130-169`, `source/WorldRenderer.cpp:120-178,514-547` |
+| `OVER-03` | Game-over summary; final Team grouping and bottom completion notice | [Specification](overlay-game-over.md) | [Wireframe](wireframes/overlay-game-over.md) | `LIF-018`, `SCO-022`–`SCO-023`, `UI-013`–`UI-014`, `UI-GAME-001`–`UI-GAME-004`, `AC-070`–`AC-071` | Target: `docs/features.md`; context: `source/Game.cpp:51-79,158-164` |
+| `CONS-01` | Console over menu with planned Network footer | [Specification](console-menu.md) | [Wireframe](wireframes/console-menu.md) | Existing console requirements plus target `NET-AC-015`, `NET-AC-017` | Current: `source/console/ConsoleRenderer.cpp`; target footer: `docs/network-play-first-release.md` |
+| `CONS-02` | Console over gameplay | [Specification](console-gameplay.md) | [Wireframe](wireframes/console-gameplay.md) | `CFG-001`–`CFG-002`, `CFG-008`–`CFG-020` | `source/console/ConsoleRenderer.cpp` |
+| `NET-01` | Target network entry | [Specification](network-entry.md) | [Wireframe](wireframes/network-entry.md) | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-015`, `NET-AC-017`, `NET-AC-019` | Target: `docs/network-play-first-release.md` |
+| `NET-02` | Target host setup | [Specification](network-host-setup.md) | [Wireframe](wireframes/network-host-setup.md) | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-009`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-019`; issue #30 `AC-001`, `AC-009`, `AC-017`, `AC-018`, `AC-020`, `AC-024`, `AC-025`; issue #31 `HSL-AC-003`–`HSL-AC-010`, `HSL-AC-014`, `HSL-AC-016`–`HSL-AC-018` | Targets: `docs/network-play-first-release.md`; `docs/network-compatibility-and-admission.md`; `docs/network-host-service-lifecycle.md` |
+| `NET-03` | Target join setup and connecting | [Specification](network-join.md) | [Wireframe](wireframes/network-join.md) | `NET-AC-001`, `NET-AC-002`, `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-016`, `NET-AC-017`, `NET-AC-019`; issue #30 `AC-002`–`AC-023` | Targets: `docs/network-play-first-release.md`; `docs/network-compatibility-and-admission.md` |
+| `NET-04` | Target lobby, readiness, and retained completed or interrupted result | [Specification](network-lobby.md) | [Wireframe](wireframes/network-lobby.md) | `NET-AC-004`–`NET-AC-008`, `NET-AC-013`–`NET-AC-014`, `NET-AC-016`–`NET-AC-018`; issue #32 `AHM-AC-003`–`AHM-AC-007`, `AHM-AC-019`–`AHM-AC-026`, `AHM-AC-029`, `AHM-AC-032` | Targets: `docs/network-play-first-release.md`; `docs/network-authoritative-headless-match.md` |
+| `NET-05` | Target network match shared arena and round-result phase | [Specification](network-match.md) | [Wireframe](wireframes/network-match.md) | `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-010`–`NET-AC-014`, `NET-AC-016`–`NET-AC-018`; issue #32 `AHM-AC-012`–`AHM-AC-015`, `AHM-AC-019`, `AHM-AC-024`, `AHM-AC-032` | Targets: `docs/network-play-first-release.md`; `docs/network-authoritative-headless-match.md` |
+| `NET-06` | Target completed final session summary | [Specification](network-summary.md) | [Wireframe](wireframes/network-summary.md) | `NET-AC-010`, `NET-AC-011`, `NET-AC-014`, `NET-AC-016`–`NET-AC-018`; issue #32 `AHM-AC-016`, `AHM-AC-020`–`AHM-AC-023`, `AHM-AC-029`, `AHM-AC-032` | Targets: `docs/network-play-first-release.md`; `docs/network-authoritative-headless-match.md` |
+| `NET-07` | Target guest reconnect | [Specification](network-reconnect.md) | [Wireframe](wireframes/network-reconnect.md) | `NET-AC-006`, `NET-AC-009`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017` | Target: `docs/network-play-first-release.md` |
+| `NET-08` | Target connection, session, or authoritative-match failure | [Specification](network-failure.md) | [Wireframe](wireframes/network-failure.md) | `NET-AC-002`, `NET-AC-007`–`NET-AC-009`, `NET-AC-011`, `NET-AC-013`, `NET-AC-016`, `NET-AC-017`, `NET-AC-019`; issue #30 `AC-005`–`AC-010`, `AC-017`–`AC-023`, `AC-025`; issue #31 `HSL-AC-003`, `HSL-AC-006`, `HSL-AC-008`–`HSL-AC-011`, `HSL-AC-013`–`HSL-AC-016`, `HSL-AC-018`; issue #32 `AHM-AC-025`–`AHM-AC-031` | Targets: `docs/network-play-first-release.md`; `docs/network-compatibility-and-admission.md`; `docs/network-host-service-lifecycle.md`; `docs/network-authoritative-headless-match.md` |
+| `NET-09` | Host-ended session outcome | [Specification](network-host-ended.md) | [Wireframe](wireframes/network-host-ended.md) | `NET-AC-003`, `NET-AC-009`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018`; issue #31 `HSL-AC-012`–`HSL-AC-013` | Targets: `docs/network-play-first-release.md`; `docs/network-host-service-lifecycle.md` |
 
-## Stitch workspace mapping
+## Target network navigation
 
-The artifacts belong to [Stitch project `1219346282527961142`](https://stitch.withgoogle.com/projects/1219346282527961142).
-Each stable artifact identifier maps to exactly one authoritative wireframe.
-The artifact prompts and the linked screen specifications record variants and workflows.
-Stitch artifacts are design references and are not implementation screenshot evidence.
-The 2026-08-22 synchronization attempts submitted generation requests for all 14 identifiers.
-The final focused pass resubmitted each of the 11 missing identifiers individually and checked the screen listing after each request.
-Stitch returns three unique screen records.
-Eleven required records remain pending after the final completion checks.
-The available `MENU-01` artifact does not conform because its settings and action structure differ from the documented native menu.
-The available `PLAY-02` artifact does not conform because it shows four cameras instead of two centered cameras.
-Final in-place correction requests for `MENU-01` and `PLAY-02` timed out without a confirmed update.
-The owner must complete the pending records and the two in-place corrections in the Stitch UI if the asynchronous requests do not appear later.
-The project coverage and conformance therefore remain blocked.
+```text
+MENU-01 → NET-01 → Host → NET-02 → NET-04
+                   Join → NET-03 → NET-04
+NET-02 startup Cancel → editable NET-02 with setup retained and no listener
+NET-02 Starting → Cancel only; no setup edits, second Start, lobby, listening, or ready claim
+NET-02 startup failure after cleanup → NET-08 → eligible Retry, retained NET-02, or NET-01
+NET-03 connection Cancel → editable NET-03 with setup retained
+NET-04 → NET-05 → completed NET-06 → following NET-04
+NET-05 active-round or non-final-summary interruption → NET-04; never NET-06
+NET-04 guest Leave confirm → guest NET-01; Cancel → NET-04
+NET-05 guest Leave session confirm → guest NET-01; Cancel → NET-05
+NET-06 guest Leave confirm → guest NET-01; Cancel → NET-06
+connection/startup failure → NET-08 → Retry, Edit NET-02/NET-03, or NET-01
+guest disconnect from NET-04, NET-05, or NET-06 → NET-07
+NET-07 success → current authoritative NET-04/NET-05/NET-06
+NET-07 Leave session confirm → guest NET-01; Cancel → NET-07 with deadline unchanged
+NET-07 retryable resolution/refusal/unreachable/reset/timeout/host-crash/machine-or-listener-loss/temporary/no-response → remain NET-07
+NET-07 terminal rejection or deadline expiry → NET-08 with reconnect Retry disabled
+host End session confirm from NET-04/NET-05/NET-06 → host NET-01; guests host-ended NET-09
+host-local supervised hosted-service failure → host NET-08; guests remain NET-07 until terminal rejection/expiry
+normal application shutdown, crash, or forced termination → no guest NET-09 claim
+```
+
+Back from `NET-01` returns to `MENU-01`. `Play (F1)` remains local-only and does not enter this graph. Match admission closes at `NET-04` → `NET-05`; the target has no join-in-progress or host-migration path.
 
 ## Coverage rules
 
+The current authoritative inventory contains 20 stable screen IDs and 21 wireframes.
+Issue #16's 14-screen checklist is historical: it includes retired `PLAY-02`–`PLAY-04` and omits `NET-01`–`NET-09`.
+It must not define the authoritative inventory or implementation screenshot coverage.
+
 - Each listed screen must have one linked wireframe.
-- Each wireframe must have exactly one representative implementation screenshot entry.
+- Each wireframe must have exactly one representative screenshot entry, either conforming implementation evidence or a planned downstream capture.
 - Minor loading, empty, disabled, focus, and error variants must stay in the applicable screen specification.
 - A new full-screen flow state or a material layout change must receive a stable screen ID.
 - An overlay that materially changes the primary task must receive a stable screen ID.
 - Screenshot status must remain `Pending` until the requested implementation state is reached and captured.
+- Planned target screens must use `Planned` until downstream implementation exists; planned entries are not current evidence.
+
+`PLAY-02`, `PLAY-03`, and `PLAY-04` are retired identifiers.
+They must not be reused for another screen.
+`PLAY-01` is authoritative for each mode and each supported player count.
 
 Unresolved functional and visual decisions are consolidated in [GitHub issue #7](https://github.com/mkapusnik-apps/duel6r/issues/7). The current implementation remains authoritative until those decisions are made and implemented.

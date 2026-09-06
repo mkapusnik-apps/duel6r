@@ -34,23 +34,33 @@ namespace Duel6 {
                                                      "shit thrower",
                                                      "shit.wav", "shit-hit.wav",
                                                      {0, 82, 0, 82, 0, 82, 0, 82, 0, 82, 0, 82, 0, 82, -1, 0}};
+#ifndef D6R_HEADLESS_CORE
+        animation::Animation loadPlayerAnimation(TextureManager &textureManager) {
+            return textureManager.loadAnimation(std::string(D6_TEXTURE_MAN_PATH) + "man.ase");
+        }
+#endif
     }
 
+    ShitThrower::ShitThrower() : LegacyWeapon(DEFINITION) {}
+
+#ifndef D6R_HEADLESS_CORE
     ShitThrower::ShitThrower(Sound &sound, TextureManager &textureManager)
-            : LegacyWeapon(sound, textureManager, DEFINITION, 16) {
-        Color brownColor(83, 44, 0);
-        std::string animationPath(D6_TEXTURE_MAN_PATH);
-        animationPath += "man.ase";
-        animation::Animation playerAnimation = textureManager.loadAnimation(animationPath);
-        PlayerSkinColors skinColors(brownColor);
-        brownSkin = std::make_unique<PlayerSkin>(skinColors, textureManager, playerAnimation);
-    }
+            : LegacyWeapon(sound, textureManager, DEFINITION, 16),
+              brownAnimation(std::make_unique<animation::Animation>(loadPlayerAnimation(textureManager))),
+              brownAnimations(std::make_unique<PlayerAnimations>(*brownAnimation)),
+              brownSkin(std::make_unique<PlayerSkin>(PlayerSkinColors(Color(83, 44, 0)),
+                                                      textureManager, *brownAnimations)) {}
+#endif
 
     Float32 ShitThrower::getBulletSpeed() const {
         return 5.49f;
     }
 
     std::unique_ptr<Shot> ShitThrower::makeShot(Player &player, World &world, Orientation orientation) const {
-        return std::make_unique<ShitThrowerShot>(player, world, *this, orientation, *brownSkin);
+#ifdef D6R_HEADLESS_CORE
+        return std::make_unique<ShitThrowerShot>(player, world, *this, orientation, nullptr);
+#else
+        return std::make_unique<ShitThrowerShot>(player, world, *this, orientation, brownSkin.get());
+#endif
     }
 }

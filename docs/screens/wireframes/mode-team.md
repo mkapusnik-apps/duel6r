@@ -3,10 +3,11 @@
 Representative viewport: 1280 by 900 debug client.
 The representative state uses two teams and four players.
 Three-team and four-team variants add team groups without changing the layout model.
+Every team and player remains in one undivided arena view.
 
 ```text
 ┌──────────────────────────────── 1280 × 900 ────────────────────────────────────┐
-│ event feed                                      ┌ Alpha · team points ───────┐ │
+│ event feed · one shared arena                   ┌ Alpha · team points ───────┐ │
 │                                                 │   player A | points         │ │
 │   Alpha player: red apparel                     │   player C | points         │ │
 │          ●                                      ├ Bravo · team points ───────┤ │

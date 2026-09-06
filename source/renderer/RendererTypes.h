@@ -28,7 +28,13 @@
 #ifndef DUEL6_RENDERER_RENDERERTYPES_H
 #define DUEL6_RENDERER_RENDERERTYPES_H
 
-#if defined(D6_RENDERER_GL1)
+#if defined(D6R_HEADLESS_CORE)
+#include "../Type.h"
+namespace Duel6 {
+    typedef Uint32 Texture;
+    enum class BlendFunc { None, Add, SrcAlpha, SrcColor };
+}
+#elif defined(D6_RENDERER_GL1)
 #include "gl1/GL1Types.h"
 #elif defined(D6_RENDERER_GLES2)
 #include "es2/GLES2Types.h"

@@ -22,7 +22,7 @@ The current application is a local monolith:
 - [`AppService`](../source/AppService.h) groups client-only services such as video, font, textures, input, and sound with scripting.
 - [`Menu`](../source/Menu.h) owns roster setup, profile loading, controller assignment, stats display, level selection, settings, and direct game launch.
 - [`Game`](../source/Game.h) owns match-level state, players, game mode, current round, rendering support, and input event handling.
-- [`Round`](../source/Round.h) owns one live round, world updates, winner checks, split-screen behavior, script hooks, and local key handling.
+- [`Round`](../source/Round.h) owns one live round, world updates, winner checks, shared-arena player views, script hooks, and local key handling.
 - [`World`](../source/World.h) owns live entities such as players, level, shots, bonuses, elevators, fire, explosions, messages, and water.
 - [`CMakeLists.txt`](../CMakeLists.txt) currently defines one large source list for one primary executable-oriented build.
 
@@ -382,7 +382,7 @@ Manual feature-parity gates:
 - Deathmatch, Predator, and team modes;
 - assistance and quick liquid settings;
 - round limits and scoreboard flow;
-- split-screen behavior for fewer than five players, mapped to replicated render views;
+- one shared arena view for every supported player count, mapped to a replicated render view;
 - water, elevators, weapons, dropped weapons, bonuses, and sudden death;
 - persistent stats after Local Game;
 - console in menu and gameplay;

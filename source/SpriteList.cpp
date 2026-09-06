@@ -26,7 +26,9 @@
 */
 
 #include "SpriteList.h"
+#ifndef D6R_HEADLESS_CORE
 #include "Video.h"
+#endif
 
 namespace Duel6 {
     SpriteList::Iterator SpriteList::add(Animation animation, Texture texture) {
@@ -51,6 +53,7 @@ namespace Duel6 {
         }
     }
 
+#ifndef D6R_HEADLESS_CORE
     void SpriteList::render(Renderer &renderer) const {
         renderTransparent(renderer, false);
 
@@ -69,4 +72,9 @@ namespace Duel6 {
             }
         }
     }
+#else
+    void SpriteList::render(Renderer &) const {}
+
+    void SpriteList::renderTransparent(Renderer &, bool) const {}
+#endif
 }

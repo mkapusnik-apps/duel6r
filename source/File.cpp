@@ -33,9 +33,12 @@
 
 namespace Duel6 {
     File::File(const std::string &path, Mode mode, Access access)
-            : handle(nullptr) {
+            : handle(nullptr), memory(nullptr), memoryOffset(0) {
         open(path, mode, access);
     }
+
+    File::File(const std::vector<Uint8> &bytes)
+            : handle(nullptr), memory(&bytes), memoryOffset(0) {}
 
     File &File::open(const std::string &path, Mode mode, Access access) {
         close();
@@ -54,11 +57,22 @@ namespace Duel6 {
             fclose(handle);
             handle = nullptr;
         }
+        memory = nullptr;
+        memoryOffset = 0;
 
         return *this;
     }
 
     File &File::read(void *ptr, Size size, Size count) {
+        if (memory != nullptr) {
+            if (size != 0 && count > (memory->size() - memoryOffset) / size) {
+                D6_THROW(IoException, "Insufficient data in input stream");
+            }
+            const Size length = size * count;
+            memcpy(ptr, memory->data() + memoryOffset, length);
+            memoryOffset += length;
+            return *this;
+        }
         if (handle == nullptr) {
             D6_THROW(IoException, "Reading from a closed stream");
         }
@@ -71,6 +85,9 @@ namespace Duel6 {
     }
 
     File &File::write(const void *ptr, Size size, Size count) {
+        if (memory != nullptr) {
+            D6_THROW(IoException, "Writing to a read-only memory stream");
+        }
         if (handle == nullptr) {
             D6_THROW(IoException, "Writing to a closed stream");
         }
@@ -83,6 +100,17 @@ namespace Duel6 {
     }
 
     File &File::seek(long offset, Seek seek) {
+        if (memory != nullptr) {
+            const long origin = seek == Seek::Set ? 0L
+                    : seek == Seek::End ? static_cast<long>(memory->size())
+                    : static_cast<long>(memoryOffset);
+            const long next = origin + offset;
+            if (next < 0 || static_cast<Size>(next) > memory->size()) {
+                D6_THROW(IoException, "Seek operation failed");
+            }
+            memoryOffset = static_cast<Size>(next);
+            return *this;
+        }
         if (handle == nullptr) {
             D6_THROW(IoException, "Trying to seek in a closed stream");
         }
@@ -108,6 +136,9 @@ namespace Duel6 {
     }
 
     bool File::isEof() const {
+        if (memory != nullptr) {
+            return memoryOffset == memory->size();
+        }
         if (handle == nullptr) {
             D6_THROW(IoException, "Querying closed stream for end of file");
         }

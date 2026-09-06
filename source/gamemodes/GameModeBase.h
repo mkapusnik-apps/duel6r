@@ -37,16 +37,20 @@ namespace Duel6 {
         bool globalAssistances;
 
     public:
+#ifndef D6R_HEADLESS_CORE
         void initializePlayers(std::vector<Game::PlayerDefinition> &definitions) override {}
+#endif
 
         void initializeGame(Game &game, std::vector<Player> &players, bool quickLiquid, bool globalAssistances) override {
             this->quickLiquid = quickLiquid;
             this->globalAssistances = globalAssistances;
         }
 
-        void initializeRound(Game &game, std::vector<Player> &players, World &world) override {}
+        void initializeRound(Game &game, std::vector<Player> &players, World &world,
+                             RandomSource &randomSource) override {}
 
-        void initializePlayerPositions(Game &game, std::vector<Player> &players, World &world) const override;
+        void initializePlayerPositions(Game &game, std::vector<Player> &players, World &world,
+                                       RandomSource &randomSource) const override;
 
         Ranking getRanking(const std::vector<Player> &players) const override;
 

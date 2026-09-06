@@ -25,7 +25,9 @@
 * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#ifndef D6R_HEADLESS_CORE
 #include "Font.h"
+#endif
 #include "InfoMessageQueue.h"
 
 namespace Duel6 {
@@ -46,19 +48,7 @@ namespace Duel6 {
         return *this;
     }
 
-    void InfoMessageQueue::renderPlayerMessages(Renderer &renderer, const Player &player, const Font &font) const {
-        const PlayerView &view = player.getView();
-        Int32 posX = view.getX() + 4;
-        Int32 posY = view.getY() + view.getHeight() - 24;
-
-        for (const InfoMessage &msg : messages) {
-            if (player.is(msg.getPlayer())) {
-                renderMessage(renderer, posX, posY, msg.getText(), font);
-                posY -= 16;
-            }
-        }
-    }
-
+#ifndef D6R_HEADLESS_CORE
     void InfoMessageQueue::renderAllMessages(Renderer &renderer, const PlayerView &view, Int32 offsetY, const Font &font) const {
         Int32 posX = view.getX() + 4;
         Int32 posY = view.getY() + view.getHeight() - offsetY;
@@ -75,6 +65,7 @@ namespace Duel6 {
         renderer.setBlendFunc(BlendFunc::None);
         font.print(x, y, Color::YELLOW, msg);
     }
+#endif
 
     void InfoMessageQueue::clear() {
         messages.clear();

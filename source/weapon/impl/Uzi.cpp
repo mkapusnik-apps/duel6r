@@ -36,6 +36,8 @@ namespace Duel6 {
                                                      {0, 82, 0, 82, 0, 82, 0, 82, 0, 82, 0, 82, 0, 820, -1, 0}};
     }
 
+    Uzi::Uzi() : LegacyWeapon(DEFINITION) {}
+
     Uzi::Uzi(Sound &sound, TextureManager &textureManager)
             : LegacyWeapon(sound, textureManager, DEFINITION, 8) {}
 

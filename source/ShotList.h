@@ -43,6 +43,7 @@ namespace Duel6 {
 
     private:
         std::list<ShotPointer> shots;
+        std::uint64_t nextStableId = 1;
 
     public:
         ShotList();
@@ -50,6 +51,8 @@ namespace Duel6 {
         void addShot(ShotPointer &&shot);
 
         void update(World &world, Float32 elapsedTime);
+
+        std::uint64_t nextStableIdentity() const noexcept { return nextStableId; }
 
         void forEach(std::function<bool(const Shot &)> handler) const;
 

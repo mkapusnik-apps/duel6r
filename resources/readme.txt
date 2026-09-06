@@ -98,7 +98,6 @@ Ovladani:
 	        Konec hry                  - ESC
 	        Nova hra (v menu i ve hre) - F1
 	        Restart urovne             - SHIFT + F1
-	        Prepinani modu full/split  - F2 (ve hre, pouze pokud je hracu mene nez 5)
 	        Smazani statistik          - F3 (v menu)
 	        Prubezny stav bodu         - F4 (ve hre)
 	        Screenshot                 - F10
@@ -129,4 +128,3 @@ zasahy do nej, vyuzivani jeho casti pro jine ucely nebo jeho
 prodavani je zakazano. Hru smite sirit pouze zdarma a nejlepe s mym 
 souhlasem. Nerucim za zadne skody na vasem pocitaci zpusobene
 timto programem.
-

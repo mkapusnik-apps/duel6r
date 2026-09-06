@@ -126,6 +126,7 @@ namespace Duel6 {
     bool Weapon::isChargeable() const {
         return impl->isChargeable();
     }
+#ifndef D6R_HEADLESS_CORE
     void Weapon::initialize(Sound &sound, TextureManager &textureManager) {
         add(std::make_unique<Pistol>(sound, textureManager));
         add(std::make_unique<Bazooka>(sound, textureManager));
@@ -145,14 +146,46 @@ namespace Duel6 {
         add(std::make_unique<StopperGun>(sound, textureManager));
         add(std::make_unique<ShitThrower>(sound, textureManager));
     }
+#endif
+
+    void Weapon::initializeHeadless() {
+        add(std::make_unique<Pistol>());
+        add(std::make_unique<Bazooka>());
+        add(std::make_unique<Lightning>());
+        add(std::make_unique<Shotgun>());
+        add(std::make_unique<Plasma>());
+        add(std::make_unique<Laser>());
+        add(std::make_unique<MachineGun>());
+        add(std::make_unique<Triton>());
+        add(std::make_unique<Uzi>());
+        add(std::make_unique<Bow>());
+        add(std::make_unique<Slime>());
+        add(std::make_unique<DoubleLaser>());
+        add(std::make_unique<KissOfDeath>());
+        add(std::make_unique<Spray>());
+        add(std::make_unique<Sling>());
+        add(std::make_unique<StopperGun>());
+        add(std::make_unique<ShitThrower>());
+    }
 
     const std::vector<Weapon> &Weapon::values() {
         return weapons;
     }
 
     const Weapon &Weapon::getRandomEnabled(const GameSettings &settings) {
+        return getRandomEnabled(settings, Math::localRandomSource());
+    }
+
+    const Weapon &Weapon::getRandomEnabled(const GameSettings &settings, RandomSource &randomSource) {
         auto &enabledWeapons = settings.getEnabledWeapons();
-        Size randomIndex = Math::random(enabledWeapons.size());
+        if (Math::isAuthoritative()) {
+            std::vector<const Weapon *> ordered;
+            ordered.reserve(enabledWeapons.size());
+            for (const Weapon &weapon: weapons)
+                if (enabledWeapons.find(weapon) != enabledWeapons.end()) ordered.push_back(&weapon);
+            return *ordered[Math::random(ordered.size(), randomSource, "starting-weapon")];
+        }
+        Size randomIndex = Math::random(enabledWeapons.size(), randomSource, "starting-weapon");
         auto randomWeapon = enabledWeapons.cbegin();
         std::advance(randomWeapon, randomIndex);
         return *randomWeapon;

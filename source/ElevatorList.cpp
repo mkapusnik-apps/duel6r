@@ -27,6 +27,7 @@
 
 #include "Player.h"
 #include "ElevatorList.h"
+#include "DataException.h"
 #include "json/JsonParser.h"
 
 namespace Duel6 {
@@ -39,24 +40,44 @@ namespace Duel6 {
     }
 
     void ElevatorList::load(const std::string &path, bool mirror) {
-        Json::Parser parser;
-        Json::Value root = parser.parse(path);
+        load(Json::Parser().parse(path), mirror);
+    }
+
+    void ElevatorList::load(const std::vector<Uint8> &bytes, bool mirror) {
+        load(Json::Parser().parse(bytes), mirror);
+    }
+
+    void ElevatorList::load(const Json::Value &root, bool mirror) {
 
         Int32 width = root.get("width").asInt();
         Int32 height = root.get("height").asInt();
+        if (width <= 0 || height <= 0) D6_THROW(DataException, "Elevator level dimensions are invalid");
 
         Size elevators = root.get("elevators").getLength();
+        if (elevators > 1024) D6_THROW(DataException, "Elevator count is unsupported");
         for (Size i = 0; i < elevators; i++) {
             Json::Value definition = root.get("elevators").get(i);
             bool circular = definition.getOrDefault("circular", Json::Value::makeBoolean(false)).asBoolean();
             Elevator elevator(circular);
             Json::Value points = definition.get("controlPoints");
+            if (points.getLength() == 0 || points.getLength() > 1024)
+                D6_THROW(DataException, "Elevator control-point count is invalid");
+            Int32 firstX = 0, firstY = 0, previousX = 0, previousY = 0;
             for (Size j = 0; j < points.getLength(); j++) {
                 Int32 x = points.get(j).get("x").asInt();
                 Int32 y = points.get(j).get("y").asInt();
                 Int32 wait = points.get(j).getOrDefault("wait", Json::Value::makeNumber(0)).asInt();
+                if (x < 0 || x >= width || y < 0 || y > height || wait < 0)
+                    D6_THROW(DataException, "Elevator control point is outside the level");
+                if (j == 0) { firstX = x; firstY = y; }
+                else if (x == previousX && y == previousY)
+                    D6_THROW(DataException, "Elevator contains a zero-length section");
+                previousX = x;
+                previousY = y;
                 elevator.addControlPoint(Elevator::ControlPoint(mirror ? width - 1 - x : x, height - y, wait));
             }
+            if (circular && points.getLength() > 1 && firstX == previousX && firstY == previousY)
+                D6_THROW(DataException, "Circular elevator contains a zero-length section");
             add(elevator);
         }
     }

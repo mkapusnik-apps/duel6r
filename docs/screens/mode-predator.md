@@ -10,7 +10,8 @@ Primary sources are `source/gamemodes/Predator.cpp`, `source/gamemodes/PredatorP
 
 ## Layout and hierarchy
 
-- The layout must preserve the full-screen arena structure in [`mode-predator.md`](wireframes/mode-predator.md).
+- The layout must preserve the undivided shared arena structure in [`mode-predator.md`](wireframes/mode-predator.md).
+- The shared arena must show the predator and all marines.
 - The randomly selected predator must use body alpha `0.1`.
 - The predator's weapon must remain visible.
 - Other players must remain opaque.
@@ -32,8 +33,8 @@ Primary sources are `source/gamemodes/Predator.cpp`, `source/gamemodes/PredatorP
 - Near transparency and the visible weapon are the implemented predator cues.
 - The live screen does not provide a persistent non-color text cue for the predator role.
 - Result messages must provide textual outcome cues.
-- The viewport must follow the standard full-screen or selected split-screen rules.
-- The representative wireframe uses full-screen because role presentation does not create a separate responsive layout.
+- The viewport must follow the shared arena rules for every supported player count.
+- The representative wireframe uses three players because role presentation does not create another responsive layout.
 
 ## Screenshot link
 

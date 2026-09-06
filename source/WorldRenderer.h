@@ -64,9 +64,7 @@ namespace Duel6 {
 
         void view(const Player &player) const;
 
-        void fullScreen() const;
-
-        void splitScreen() const;
+        void sharedArena() const;
 
         void walls(const FaceList &walls) const;
 
@@ -86,7 +84,8 @@ namespace Duel6 {
         renderRankingEntry(const Ranking::Entry &entry, Int32 posX, Int32 posY, Int32 maxLength, Float32 charHeight,
                            bool extended) const;
 
-        void roundOverSummary() const;
+        void roundOverSummary(bool showRoundProgress, bool separateTeamGroups, bool clampPanelBottom = false,
+                              Int32 minimumPanelBottom = 0) const;
 
         void gameOverSummary() const;
 
@@ -112,8 +111,6 @@ namespace Duel6 {
         void invulRings(const std::vector<Player> &players) const;
 
         void invulRing(const Player &player) const;
-
-        void splitBox(const PlayerView &view) const;
 
         void screenCurtain(const Color &color) const;
 

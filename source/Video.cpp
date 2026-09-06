@@ -125,7 +125,11 @@ namespace Duel6 {
         }
 
         SDL_SetWindowTitle(sdlWin, name.c_str());
-        SDL_SetWindowIcon(sdlWin, SDL_LoadBMP(icon.c_str()));
+        SDL_Surface *iconSurface = SDL_LoadBMP(icon.c_str());
+        if (iconSurface) {
+            SDL_SetWindowIcon(sdlWin, iconSurface);
+            SDL_FreeSurface(iconSurface);
+        }
 
         return sdlWin;
     }

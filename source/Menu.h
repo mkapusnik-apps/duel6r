@@ -30,6 +30,7 @@
 
 #include <vector>
 #include <unordered_map>
+#include <future>
 #include "Type.h"
 #include "Context.h"
 #include "LevelList.h"
@@ -45,6 +46,7 @@
 #include "gui/CheckBox.h"
 #include "gui/ListBox.h"
 #include "gui/Label.h"
+#include "gui/Panel.h"
 #include "gui/TextBox.h"
 #include "gui/Spinner.h"
 #include "GameMode.h"
@@ -55,6 +57,15 @@ namespace Duel6 {
     class Menu
             : public Context {
     private:
+        struct PreparedMenuBackground {
+            Image image;
+            std::string filename;
+            std::vector<std::string> remainingCandidates;
+            std::vector<std::string> failedCandidates;
+            bool hasImage = false;
+            bool directoryAvailable = true;
+        };
+
         AppService &appService;
         Font &font;
         Video &video;
@@ -69,25 +80,41 @@ namespace Duel6 {
         LevelList levelList;
         PersonList persons;
         Gui::ListBox *personListBox;
+        std::vector<std::string> personListNames;
         Gui::ListBox *playerListBox;
         Gui::ListBox *scoreListBox;
-        Gui::ListBox *eloListBox;
         Gui::Spinner *controlSwitch[D6_MAX_PLAYERS];
         Gui::Textbox *textbox;
         Gui::Textbox *roundsTextbox;
         Gui::Spinner *gameModeSwitch;
+        Gui::Label *teamCountLabel;
+        Gui::Spinner *teamCountSwitch;
+        Gui::CheckBox *friendlyFireCheckBox;
         Gui::CheckBox *globalAssistanceCheckBox;
         Gui::CheckBox *quickLiquidCheckBox;
-        Gui::Label *playersLabel;
+        Gui::CheckBox *burnableTreesCheckBox;
+        Gui::Panel *playersPanel;
+        Gui::Button *equalizeButton;
+        Gui::Button *shuffleButton;
         Size backgroundCount;
         Texture menuBannerTexture;
+        mutable Texture menuBackgroundTexture;
+        mutable std::string menuBackgroundFilename;
+        mutable bool hasMenuBackground;
+        mutable std::future<PreparedMenuBackground> menuBackgroundPreparation;
+        mutable bool menuBackgroundPreparationActive;
+        mutable bool menuBackgroundFinished;
+        mutable bool menuBackgroundInitialFrameRendered;
+        Float32 menuScale;
+        Int32 menuTranslationX;
+        Int32 menuTranslationY;
         Sound::Track menuTrack;
         bool playMusic;
 
     public:
         explicit Menu(AppService &appService);
 
-        ~Menu() override = default;
+        ~Menu() override;
 
         void setGameReference(Game &game) {
             this->game = &game;
@@ -134,7 +161,43 @@ namespace Duel6 {
 
         void initializeGameModes();
 
+        bool isTeamModeSelected();
+
+        Int32 selectedTeamCount();
+
+        GameMode &selectedGameMode();
+
+        void updateGameSettingsLayout();
+
+        void updatePlayerColors();
+
+        void initializePresentation();
+
+        void startMenuBackgroundPreparation(std::vector<std::string> candidates,
+                                            bool discoverCandidates) const noexcept;
+
+        static PreparedMenuBackground prepareMenuBackground(Int32 clientWidth, Int32 clientHeight,
+                                                            std::vector<std::string> candidates,
+                                                            bool discoverCandidates);
+
+        void publishPreparedMenuBackground() const noexcept;
+
+        void publishPreparedMenuBackgroundTransaction() const;
+
+        void retryPreparedMenuBackground(PreparedMenuBackground &prepared) const noexcept;
+
+        void freeOptionalTexture(Texture texture) const noexcept;
+
+        void printMenuBackgroundDiagnostic(const char *message) const noexcept;
+
+        void printMenuBackgroundDiagnostic(const char *prefix, const std::string &value,
+                                           const char *suffix) const noexcept;
+
+        void renderMenuBackground() const;
+
         void showMessage(const std::string &message);
+
+        bool validateStartPrerequisites(const std::vector<std::string> &levels);
 
         void detectControls(Size playerIndex);
 
@@ -158,6 +221,8 @@ namespace Duel6 {
 
         void removePlayer(Int32 c);
 
+        bool isPlayer(const std::string &name) const;
+
         void updatePlayerCount();
 
         void updateRoundsTextbox();
@@ -165,6 +230,8 @@ namespace Duel6 {
         void applyRoundsTextbox();
 
         void rebuildTable();
+
+        void rebuildPersonList();
 
         bool question(const std::string &question);
 

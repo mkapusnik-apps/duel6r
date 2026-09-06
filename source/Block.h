@@ -102,7 +102,8 @@ namespace Duel6 {
 
         static Meta loadMeta(const std::string &path);
 
-    private:
+        static Meta loadMeta(const std::vector<Uint8> &bytes);
+
         static Type determineType(const std::string &kind);
     };
 }

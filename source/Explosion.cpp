@@ -32,6 +32,10 @@ namespace Duel6 {
             : textures(resources.getExplosionTextures()), speed(speed) {
     }
 
+    ExplosionList::ExplosionList(Texture textures, Float32 speed)
+            : textures(textures), speed(speed) {
+    }
+
     void ExplosionList::update(Float32 elapsedTime) {
         auto explIter = explosions.begin();
         while (explIter != explosions.end()) {

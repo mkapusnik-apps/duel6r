@@ -36,6 +36,8 @@ namespace Duel6 {
                                                      {0, 82, 1, 82, 1, 82, 2, 82, 2, 82, 0, 82, 0, 82, -1, 0}};
     }
 
+    StopperGun::StopperGun() : LegacyWeapon(DEFINITION) {}
+
     StopperGun::StopperGun(Sound &sound, TextureManager &textureManager)
             : LegacyWeapon(sound, textureManager, DEFINITION, 15) {}
 

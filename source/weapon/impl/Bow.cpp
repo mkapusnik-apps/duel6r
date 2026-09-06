@@ -36,6 +36,8 @@ namespace Duel6 {
                                                      {1, 164, 2, 164, 0, 82, 0, 82, 0, 82, 0, 82, 0, 820, -1, 0}};
     }
 
+    Bow::Bow() : LegacyWeapon(DEFINITION) {}
+
     Bow::Bow(Sound &sound, TextureManager &textureManager)
             : LegacyWeapon(sound, textureManager, DEFINITION, 9) {}
 

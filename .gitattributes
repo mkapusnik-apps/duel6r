@@ -1,0 +1,3 @@
+source/client/** text eol=lf
+source/network/** text eol=lf
+source/server/** text eol=lf
