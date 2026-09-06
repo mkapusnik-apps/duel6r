@@ -112,6 +112,7 @@ namespace Duel6::Network::Replication {
         bool reconnecting = false;
 
         void beginResynchronization() noexcept;
+        ClientReplicationResult requestFullSnapshot(bool replacePendingRequest = false);
         void recordQualityOutcome(bool lost, std::chrono::milliseconds roundTripLatency,
                                   Responsiveness::TimePoint observedAt) noexcept;
         std::optional<std::uint64_t> authoritativeTimeAt(

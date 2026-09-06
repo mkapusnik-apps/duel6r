@@ -354,6 +354,7 @@ namespace {
             Duel6::Network::AdmissionResult result;
         };
         std::optional<Duel6::Network::AdmissionOfferPayload> acceptedOffer;
+        std::optional<Duel6::Network::AdmissionConfirmation> admissionConfirmation;
         bool initialCanonicalIdentityValidated = false;
         const auto endpointScope = Duel6::Network::Trust::classifyIpv4Literal(config.listenEndpoint.host);
         const auto environment = endpointScope == Duel6::Network::Trust::EndpointScope::Loopback
@@ -369,6 +370,36 @@ namespace {
         std::unique_ptr<Duel6::Network::Input::ClientCommandSession> playerInput;
         std::optional<std::uint64_t> submittedInputTick;
         bool inputMatchStarted = false;
+        const auto completeProductionAdmission = [&]() -> GuestFrameDecision {
+            if (!admissionConfirmation) return GuestFrameDecision();
+            const auto *initial = replicatedConnection.replicatedState().state();
+            if (!initial || !replicatedConnection.replicatedState().current())
+                return GuestFrameDecision();
+            const auto participant = std::find_if(
+                    initial->participants.begin(), initial->participants.end(), [&](const auto &value) {
+                        return value.participantId == admissionConfirmation->participantId;
+                    });
+            if (participant == initial->participants.end()
+                || participant->connection
+                   != Duel6::Network::Replication::ConnectionState::Connected
+                || participant->ownedPlayerIds != admissionConfirmation->playerIds)
+                return GuestFrameDecision(GuestDecision::InvalidHost);
+            for (const auto playerId: admissionConfirmation->playerIds) {
+                const auto player = std::find_if(
+                        initial->players.begin(), initial->players.end(), [playerId](const auto &value) {
+                            return value.playerId == playerId;
+                        });
+                if (player == initial->players.end()
+                    || player->ownerParticipantId != admissionConfirmation->participantId)
+                    return GuestFrameDecision(GuestDecision::InvalidHost);
+            }
+            initialCanonicalIdentityValidated = true;
+            Duel6::Network::AdmissionResult result;
+            result.code = Duel6::Network::AdmissionResultCode::Admitted;
+            result.participantId = admissionConfirmation->participantId;
+            result.playerIds = admissionConfirmation->playerIds;
+            return GuestFrameDecision(GuestDecision::Admitted, std::move(result));
+        };
         const auto processFrame = [&](const Duel6::Network::TransportFrame &frame) -> GuestFrameDecision {
             if (cancelled()) return GuestFrameDecision(GuestDecision::Cancelled);
             const bool beforeDeadline = frame.receivedAt < deadline;
@@ -405,26 +436,32 @@ namespace {
 
                 if (const auto replication = Duel6::Network::Replication::deserializeReplicationFrame(frame.payload)) {
                     if (replication->kind != Duel6::Network::Replication::ReplicationFrameKind::FullSnapshot
-                        || !replication->snapshot
-                        || replicatedConnection.receive(frame.payload, frame.receivedAt)
-                           != Duel6::Network::Replication::ClientReplicationResult::Applied)
+                        && replication->kind
+                           != Duel6::Network::Replication::ReplicationFrameKind::IncrementalUpdate
+                        && replication->kind != Duel6::Network::Replication::ReplicationFrameKind::QualityResponse)
                         throw std::invalid_argument("Invalid initial replication snapshot");
-                    return GuestFrameDecision();
+                    const auto result = replicatedConnection.receive(frame.payload, frame.receivedAt);
+                    if (((replication->kind == Duel6::Network::Replication::ReplicationFrameKind::FullSnapshot
+                          || replication->kind
+                             == Duel6::Network::Replication::ReplicationFrameKind::IncrementalUpdate)
+                         && result != Duel6::Network::Replication::ClientReplicationResult::Applied
+                         && result != Duel6::Network::Replication::ClientReplicationResult::WaitingForSnapshot)
+                        || (replication->kind
+                            == Duel6::Network::Replication::ReplicationFrameKind::QualityResponse
+                            && result != Duel6::Network::Replication::ClientReplicationResult::NetworkSampled))
+                        throw std::invalid_argument("Invalid initial replication snapshot");
+                    return completeProductionAdmission();
                 }
                 const Duel6::Network::AdmissionConfirmation confirmation =
                         Duel6::Network::deserializeAdmissionConfirmation(frame.payload);
                 if (!Duel6::Network::sameAdmissionIdentitySet(*acceptedOffer, confirmation))
                     throw std::invalid_argument("Admission confirmation does not match the offer");
-                const auto *initial = replicatedConnection.replicatedState().state();
-                if (runtimeDependencies.productionReplicationProtocol && initial
-                    && std::none_of(initial->participants.begin(), initial->participants.end(),
-                        [&](const auto &participant) {
-                            return participant.participantId == confirmation.participantId
-                                   && participant.connection
-                                      == Duel6::Network::Replication::ConnectionState::Connected;
-                        })) throw std::invalid_argument("Admission confirmation preceded its replication snapshot");
-                initialCanonicalIdentityValidated = initial != nullptr;
                 if (!beforeDeadline) return GuestFrameDecision();
+                if (admissionConfirmation)
+                    throw std::invalid_argument("Duplicate admission confirmation");
+                admissionConfirmation = confirmation;
+                if (runtimeDependencies.productionReplicationProtocol)
+                    return completeProductionAdmission();
                 Duel6::Network::AdmissionResult result;
                 result.code = Duel6::Network::AdmissionResultCode::Admitted;
                 result.participantId = confirmation.participantId;
@@ -538,6 +575,11 @@ namespace {
             Duel6::Network::ClientState state = Duel6::Network::ClientState::Failed;
             try { state = connection->state(); } catch (...) {}
             if (runtimeNow(runtimeDependencies) >= deadline || isTerminal(state)) return sealAndFinish();
+            if (runtimeDependencies.productionReplicationProtocol && admissionConfirmation
+                && !replicatedConnection.sampleNetwork(runtimeNow(runtimeDependencies))) {
+                if (const auto finished = publish(GuestFrameDecision(GuestDecision::Ended)))
+                    return *finished;
+            }
 
             Duel6::Network::TransportFrame frame;
             bool received = false;
