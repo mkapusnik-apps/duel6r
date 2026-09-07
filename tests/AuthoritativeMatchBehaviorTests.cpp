@@ -6,6 +6,7 @@
 
 #include "source/server/AuthoritativeMatch.h"
 #include "source/server/AuthoritativeHostedMatchController.h"
+#include "source/server/AuthoritativeReplication.h"
 #include "source/server/AuthoritativeMatchSerialization.h"
 #include "source/server/AuthoritativeMatchValidation.h"
 #include "source/network/StateReplicationProtocol.h"
@@ -1024,6 +1025,106 @@ D6R_TEST_CASE("AHM hosted End authorization is bound only to the frozen host ide
     D6R_REQUIRE_EQ(HostedMatchStage::MatchActive, controller.stage());
     D6R_REQUIRE_EQ(OutcomeCode::EndedIntentionally, controller.end(1).code);
     D6R_REQUIRE_EQ(HostedMatchStage::Ended, controller.stage());
+}
+
+D6R_TEST_CASE("REP-017 final-summary and following-lobby departures preserve completion and mark result rows") {
+    const auto departedResultRow = [](const std::string &serialized, Identity participantId) {
+        const auto start = serialized.find("\"participantId\":" + std::to_string(participantId));
+        if (start == std::string::npos) return false;
+        const auto end = serialized.find('}', start);
+        const auto departed = serialized.find("\"departed\":true", start);
+        return departed != std::string::npos && (end == std::string::npos || departed < end);
+    };
+    auto requested = config();
+    const auto players = roster(3);
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}},
+            {3, false, R::ConnectionState::Connected, true, {103}}};
+    AuthoritativeMatch match;
+    D6R_REQUIRE_EQ(OutcomeCode::None, match.start(requested, players, manifest()).code);
+    AuthoritativeReplication replication(9001);
+    D6R_REQUIRE(replication.setLobby(1, participants, players, requested));
+    D6R_REQUIRE(replication.beginMatch(match).has_value());
+    std::uint64_t sequence = 1;
+    eliminate(match, sequence, players[0], players[1]);
+    eliminate(match, sequence, players[0], players[2]);
+    finishDelay(match);
+    D6R_REQUIRE(match.publishedResult().has_value());
+    D6R_REQUIRE(match.publishedResult()->state == ResultState::Completed);
+    const auto originalGuest = std::find_if(match.publishedResult()->players.begin(),
+            match.publishedResult()->players.end(), [](const auto &row) { return row.participantId == 2; });
+    D6R_REQUIRE(originalGuest != match.publishedResult()->players.end());
+    D6R_REQUIRE(!originalGuest->departed);
+    D6R_REQUIRE(replication.capture(match).has_value());
+    D6R_REQUIRE(replication.retainsCompletedResult());
+
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply(*replication.fullSnapshot()) == R::ApplyResult::Applied);
+    const auto finalDeparture = replication.markResultParticipantsDeparted({2});
+    D6R_REQUIRE(finalDeparture.has_value());
+    D6R_REQUIRE(client.apply(*finalDeparture) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.state()->phase == R::Phase::FinalSummary);
+    D6R_REQUIRE(client.state()->result.state == "Completed");
+    D6R_REQUIRE(departedResultRow(client.state()->result.serialized, 2));
+    const auto departedFinal = std::find_if(client.state()->players.begin(), client.state()->players.end(),
+            [](const auto &player) { return player.ownerParticipantId == 2; });
+    D6R_REQUIRE(departedFinal != client.state()->players.end());
+    D6R_REQUIRE(departedFinal->lifeState == R::LifeState::Departed);
+
+    const auto followingLobby = replication.enterFollowingLobby();
+    D6R_REQUIRE(followingLobby.has_value());
+    D6R_REQUIRE(client.apply(*followingLobby) == R::ApplyResult::Applied);
+    const auto lobbyDeparture = replication.markResultParticipantsDeparted({3});
+    D6R_REQUIRE(lobbyDeparture.has_value());
+    D6R_REQUIRE(client.apply(*lobbyDeparture) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.state()->phase == R::Phase::Lobby);
+    D6R_REQUIRE(client.state()->result.state == "Completed");
+    D6R_REQUIRE(departedResultRow(client.state()->result.serialized, 2));
+    D6R_REQUIRE(departedResultRow(client.state()->result.serialized, 3));
+    const auto departedLobby = std::find_if(client.state()->players.begin(), client.state()->players.end(),
+            [](const auto &player) { return player.ownerParticipantId == 3; });
+    D6R_REQUIRE(departedLobby != client.state()->players.end());
+    D6R_REQUIRE(departedLobby->lifeState == R::LifeState::Departed);
+}
+
+D6R_TEST_CASE("REP-013 following-lobby removal clears all lifecycle and replicated readiness") {
+    auto requested = config();
+    const auto players = roster(3);
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}},
+            {3, false, R::ConnectionState::Connected, true, {103}}};
+    AuthoritativeHostedMatchController controller(1);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    std::vector<std::vector<std::uint8_t>> payloads;
+    D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+        payloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+    std::uint64_t sequence = 1;
+    eliminate(*controller.match(), sequence, players[0], players[1]);
+    eliminate(*controller.match(), sequence, players[0], players[2]);
+    finishDelay(*controller.match());
+    D6R_REQUIRE(controller.observeMatchOutcome());
+    D6R_REQUIRE(controller.stage() == HostedMatchStage::Lobby);
+    D6R_REQUIRE(controller.retainsCompletedResult());
+    D6R_REQUIRE(controller.setParticipantReady(1, true));
+    D6R_REQUIRE(controller.setParticipantReady(2, true));
+    D6R_REQUIRE(controller.setParticipantReady(3, true));
+    payloads.clear();
+
+    D6R_REQUIRE(controller.removeLifecycleParticipants({2}));
+    D6R_REQUIRE(!controller.participantReady(1));
+    D6R_REQUIRE(!controller.participantReady(2));
+    D6R_REQUIRE(!controller.participantReady(3));
+    const auto states = deliveredStates(payloads);
+    D6R_REQUIRE(!states.empty());
+    D6R_REQUIRE(std::all_of(states.back().participants.begin(), states.back().participants.end(),
+            [](const auto &participant) { return !participant.ready; }));
+    D6R_REQUIRE_EQ(std::string("Completed"), states.back().result.state);
 }
 
 D6R_TEST_CASE("AHM malformed first and later frozen levels block before rounds clear readiness and permit End") {

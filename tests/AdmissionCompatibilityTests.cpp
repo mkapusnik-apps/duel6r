@@ -1599,6 +1599,72 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
             "reconnecting=true;newcomer=true;readiness-false=true;prior-ranking-excludes=true;"
             "no-autostart=true;host-status=0"), evidence);
 }
+
+D6R_TEST_CASE("NET-09 production Headless sends one intentional End notice and none for Stop or failure") {
+    enum class Termination { End, Stop, Failure };
+    const auto hostedManifest = manifest({
+            {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+    auto content = std::make_shared<Network::FrozenGameplayContent>();
+    (*content)["data/blocks.json"] = {'{', '}'};
+    (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+    (*content)["levels/a.json"] = {'{', '}'};
+    const Network::ManifestBuildResult built{Network::ManifestStatus::Valid, hostedManifest, content};
+
+    for (const auto termination: {Termination::End, Termination::Stop, Termination::Failure}) {
+        Server::ServerConfig hostConfig = runtimeServerConfig();
+        hostConfig.listenEndpoint.port = unusedLoopbackPort();
+        D6R_REQUIRE(hostConfig.listenEndpoint.port != 0);
+        std::atomic<bool> ready{false};
+        std::atomic<bool> terminate{false};
+        Server::AdmissionRuntimeDependencies dependencies;
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+        dependencies.cancelled = [&] {
+            return termination == Termination::Stop && terminate.load();
+        };
+        dependencies.intentionalHostEndRequested = [&] {
+            return termination == Termination::End && terminate.load();
+        };
+        dependencies.wait = [&](std::chrono::milliseconds duration) {
+            if (termination == Termination::Failure && terminate.load())
+                throw std::runtime_error("injected supervised host failure");
+            std::this_thread::sleep_for(duration);
+        };
+        dependencies.hostedServiceStatus = [&](Network::HostServiceStatusCode status) {
+            if (status == Network::HostServiceStatusCode::Ready) ready = true;
+            return true;
+        };
+        std::ostringstream hostOutput;
+        int hostStatus = -1;
+        std::thread host([&] {
+            Server::HeadlessServer server(hostConfig, std::move(dependencies));
+            hostStatus = server.run(hostOutput);
+        });
+        for (unsigned attempt = 0; attempt < 400 && !ready; ++attempt) std::this_thread::sleep_for(5ms);
+        D6R_REQUIRE(ready);
+
+        auto guest = connectProductionPeer(hostConfig.listenEndpoint, hostedManifest);
+        D6R_REQUIRE(pumpUntil(*guest, [&] { return guest->admitted; }, 2s));
+        terminate = true;
+        unsigned notices = 0;
+        const auto deadline = std::chrono::steady_clock::now() + 3s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            Network::TransportFrame frame;
+            if (guest->connection->receive(frame)) {
+                if (Network::Lifecycle::deserializeIntentionalHostEnd(frame.payload)) ++notices;
+                continue;
+            }
+            const auto state = guest->connection->state();
+            if (state == Network::ClientState::Closed || state == Network::ClientState::Failed
+                || state == Network::ClientState::Cancelled || state == Network::ClientState::TimedOut) break;
+            std::this_thread::sleep_for(5ms);
+        }
+        guest->client->close();
+        host.join();
+
+        D6R_REQUIRE_EQ(termination == Termination::Failure ? 3 : 0, hostStatus);
+        D6R_REQUIRE_EQ(termination == Termination::End ? 1u : 0u, notices);
+    }
+}
 #endif
 
 D6R_TEST_CASE("lost confirmation after atomic commit never rolls back host and never reports host success") {

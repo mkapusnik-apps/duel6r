@@ -372,6 +372,25 @@ namespace Duel6::Network::Replication {
                    && left.teamRanking == right.teamRanking && sameOutcome(left.winner, right.winner);
         }
 
+        bool onlyMarksPlayersDeparted(const CanonicalState &before, const CanonicalState &after) {
+            if (before.players.size() != after.players.size()) return false;
+            bool changed = false;
+            for (const auto &prior: before.players) {
+                const auto current = std::find_if(after.players.begin(), after.players.end(), [&](const auto &player) {
+                    return player.playerId == prior.playerId;
+                });
+                if (current == after.players.end()) return false;
+                auto expected = prior;
+                if (prior.lifeState != current->lifeState) {
+                    if (current->lifeState != LifeState::Departed) return false;
+                    expected.lifeState = LifeState::Departed;
+                    changed = true;
+                }
+                if (!playerEqual(expected, *current)) return false;
+            }
+            return changed;
+        }
+
         bool sameCanonicalState(const CanonicalState &left, const CanonicalState &right) {
             const auto sameSettings = [](const MatchSettingsState &a, const MatchSettingsState &b) {
                 return a.mode == b.mode && a.teamCount == b.teamCount && a.friendlyFire == b.friendlyFire
@@ -425,14 +444,16 @@ namespace Duel6::Network::Replication {
                     && (after.phase == Phase::FinalSummary || after.phase == Phase::Lobby);
             if (!remainsPresented || !before.result.available
                 || (before.result.state != "Completed" && before.result.state != "Interrupted")) return false;
-            return before.currentRoundNumber != after.currentRoundNumber
+            if (before.currentRoundNumber != after.currentRoundNumber
                     || before.completedRounds != after.completedRounds
                     || !sameCompletedRound(before.round, after.round)
                     || !sameScore(before.score, after.score)
                     || before.result.available != after.result.available
                     || before.result.sessionOnly != after.result.sessionOnly
-                    || before.result.state != after.result.state
-                   || before.result.serialized != after.result.serialized;
+                    || before.result.state != after.result.state) return true;
+            if (before.result.serialized == after.result.serialized) return false;
+            return before.result.state != "Completed" || after.result.state != "Completed"
+                   || !onlyMarksPlayersDeparted(before, after);
         }
 
         bool validResolvedOutcome(const RoundOutcomeState &outcome, const CanonicalState &state) {

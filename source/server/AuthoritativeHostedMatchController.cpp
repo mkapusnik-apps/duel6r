@@ -78,9 +78,10 @@ namespace Duel6::Server::Authoritative {
         clearReadiness();
         if (!activeMatch || currentStage != HostedMatchStage::MatchActive) {
             if (!replication.retainsCompletedResult()) return true;
+            if (!replication.resultDepartureUpdateRequired(participantIds)) return true;
             const auto update = replication.markResultParticipantsDeparted(participantIds);
             if (!update) return false;
-            (void) replicationConnections.broadcast(*update);
+            (void) replicationConnections.broadcastCurrentSnapshot();
             return true;
         }
         std::vector<Identity> players;

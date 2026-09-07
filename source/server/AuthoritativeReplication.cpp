@@ -434,17 +434,24 @@ namespace Duel6::Server::Authoritative {
         if (!retainsCompletedResult() || participantIds.empty()) return std::nullopt;
         const AuthoritativeReplication before = *this;
         const std::set<Identity> removals(participantIds.begin(), participantIds.end());
-        bool changed = false;
+        bool resultChanged = false;
         for (auto &row: retainedResult->players) if (removals.count(row.participantId) && !row.departed) {
             row.departed = true;
-            changed = true;
+            resultChanged = true;
         }
-        if (!changed) return std::nullopt;
-        const auto serialized = serializeSessionResult(*retainedResult);
-        if (!serialized) { *this = before; return std::nullopt; }
-        state.result.serialized = *serialized;
-        for (auto &player: state.players)
-            if (removals.count(player.ownerParticipantId)) player.lifeState = R::LifeState::Departed;
+        bool readinessChanged = false;
+        for (auto &participant: state.participants) if (participant.ready) {
+            participant.ready = false;
+            readinessChanged = true;
+        }
+        if (!resultChanged && !readinessChanged) return std::nullopt;
+        if (resultChanged) {
+            const auto serialized = serializeSessionResult(*retainedResult);
+            if (!serialized) { *this = before; return std::nullopt; }
+            state.result.serialized = *serialized;
+            for (auto &player: state.players)
+                if (removals.count(player.ownerParticipantId)) player.lifeState = R::LifeState::Departed;
+        }
         auto update = publisher.publish(state);
         if (!update) *this = before;
         return update;
@@ -472,5 +479,15 @@ namespace Duel6::Server::Authoritative {
     bool AuthoritativeReplication::retainsCompletedResult() const noexcept {
         return retainedResult && retainedResult->state == ResultState::Completed
                && state.result.available && state.result.state == "Completed";
+    }
+    bool AuthoritativeReplication::resultDepartureUpdateRequired(
+            const std::vector<Identity> &participantIds) const noexcept {
+        if (!retainsCompletedResult() || participantIds.empty()) return false;
+        if (std::any_of(state.participants.begin(), state.participants.end(),
+                        [](const auto &participant) { return participant.ready; })) return true;
+        const std::set<Identity> removals(participantIds.begin(), participantIds.end());
+        return std::any_of(retainedResult->players.begin(), retainedResult->players.end(), [&](const auto &row) {
+            return removals.count(row.participantId) && !row.departed;
+        });
     }
 }

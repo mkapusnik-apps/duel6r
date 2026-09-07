@@ -31,6 +31,7 @@ namespace Duel6::Server::Authoritative {
         std::optional<Network::Replication::FullSnapshot> fullSnapshot() const;
         const Network::Replication::AuthoritativeStateReplicator &replicator() const noexcept;
         bool retainsCompletedResult() const noexcept;
+        bool resultDepartureUpdateRequired(const std::vector<Identity> &participantIds) const noexcept;
 
     private:
         Network::Replication::StableIdentitySource identities;
