@@ -60,6 +60,7 @@ namespace Duel6::Server::Authoritative {
                               const Network::GameplayManifest &manifest);
         ActionResult submit(const AuthoritativeAction &action);
         ActionResult submitHostControl(Identity participantId, ActionKind kind, Identity targetPlayerId = 0);
+        ActionResult removePlayersBatch(Identity participantId, const std::vector<Identity> &playerIds);
         bool advanceOneTick();
         TerminalOutcome runUntilTerminal(Tick maximumTicks = MaxMatchTicks);
         TerminalOutcome shutdown();

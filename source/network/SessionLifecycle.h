@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "NetworkTrustPolicy.h"
+#include "AdmissionProtocol.h"
 
 namespace Duel6::Network::Lifecycle {
     using ConnectionId = Trust::ConnectionId;
@@ -76,13 +77,32 @@ namespace Duel6::Network::Lifecycle {
 
     struct IntentionalHostEndNotice { std::uint64_t sessionId = 0; };
 
+    struct ReconnectAttempt {
+        ReconnectRequest request;
+        AdmissionRequest compatibility;
+    };
+
+    struct ReconnectResponse {
+        std::uint64_t sessionId = 0;
+        ParticipantId participantId = 0;
+        ReconnectOutcome outcome = ReconnectOutcome::AuthorizationFailed;
+        std::optional<ReconnectGrant> nextGrant;
+    };
+
     std::vector<std::uint8_t> serializeReconnectGrant(const ReconnectGrant &grant);
     std::vector<std::uint8_t> serializeReconnectRequest(const ReconnectRequest &request);
     std::vector<std::uint8_t> serializeIntentionalHostEnd(const IntentionalHostEndNotice &notice);
+    std::vector<std::uint8_t> serializeReconnectAttempt(const ReconnectAttempt &attempt);
+    std::vector<std::uint8_t> serializeReconnectResponse(const ReconnectResponse &response);
     std::optional<ReconnectGrant> deserializeReconnectGrant(const std::vector<std::uint8_t> &payload) noexcept;
     std::optional<ReconnectRequest> deserializeReconnectRequest(const std::vector<std::uint8_t> &payload) noexcept;
     std::optional<IntentionalHostEndNotice> deserializeIntentionalHostEnd(
             const std::vector<std::uint8_t> &payload) noexcept;
+    std::optional<ReconnectAttempt> deserializeReconnectAttempt(
+            const std::vector<std::uint8_t> &payload) noexcept;
+    std::optional<ReconnectResponse> deserializeReconnectResponse(
+            const std::vector<std::uint8_t> &payload) noexcept;
+    void eraseLifecycleCredentialPayload(std::vector<std::uint8_t> &payload) noexcept;
 
     struct HostHooks {
         // Disconnect must synchronously revoke participant input and mark replication Reconnecting.
@@ -124,6 +144,7 @@ namespace Duel6::Network::Lifecycle {
                                       ReconnectCompatibility compatibility = ReconnectCompatibility::Compatible);
         bool queueIntentionalLeave(ParticipantId participantId, ConnectionId connectionId);
         bool queueReservedLeave(const ReconnectRequest &request, ConnectionId attemptConnectionId);
+        bool clearReadiness() noexcept;
         RemovalOutcome processLifecycleBatch(Phase phase);
         HostEndResult endSession(ParticipantId participantId, ConnectionId connectionId);
         std::string_view supervisedHostFailure();
@@ -156,12 +177,14 @@ namespace Duel6::Network::Lifecycle {
         std::set<ParticipantId> pendingLeaves;
         std::uint64_t nextReservationId = 1;
         bool sessionEnded = false;
+        bool operationActive = false;
 
         std::unique_ptr<Trust::ReconnectReservation> makeDormantReservation(
                 ParticipantId participantId, std::uint64_t reservationId,
                 const Trust::ReconnectCredential *disallowed = nullptr);
         void close(ConnectionId connectionId) noexcept;
         void clearAll() noexcept;
+        void failSession() noexcept;
     };
 
     class GuestSessionRecovery final {

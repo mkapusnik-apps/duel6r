@@ -1,6 +1,7 @@
 #include "SessionLifecycle.h"
 
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 namespace Duel6::Network::Lifecycle {
@@ -10,6 +11,16 @@ namespace Duel6::Network::Lifecycle {
         constexpr std::uint16_t GrantKind = 1;
         constexpr std::uint16_t RequestKind = 2;
         constexpr std::uint16_t HostEndKind = 3;
+        constexpr std::uint16_t AttemptKind = 4;
+        constexpr std::uint16_t ResponseKind = 5;
+
+        class OperationGuard final {
+        public:
+            explicit OperationGuard(bool &active) : active(active) { active = true; }
+            ~OperationGuard() { active = false; }
+        private:
+            bool &active;
+        };
 
         TimePoint realNow() { return std::chrono::steady_clock::now(); }
 
@@ -47,6 +58,9 @@ namespace Duel6::Network::Lifecycle {
             append64(out, session); append64(out, participant); append64(out, reservation);
             out.insert(out.end(), credential.bytes.begin(), credential.bytes.end());
             return out;
+        }
+        bool validOutcome(std::uint16_t value) {
+            return value <= static_cast<std::uint16_t>(ReconnectOutcome::RestoreFailed);
         }
         template<typename T>
         std::optional<T> deserializeCredential(const std::vector<std::uint8_t> &payload, std::uint16_t expected) {
@@ -91,6 +105,42 @@ namespace Duel6::Network::Lifecycle {
         append32(out, Magic); append16(out, Version); append16(out, HostEndKind); append64(out, notice.sessionId);
         return out;
     }
+    std::vector<std::uint8_t> serializeReconnectAttempt(const ReconnectAttempt &attempt) {
+        auto request = serializeReconnectRequest(attempt.request);
+        if (request.empty()) return {};
+        auto compatibility = serializeAdmissionRequest(attempt.compatibility);
+        if (compatibility.empty() || compatibility.size() > Trust::MaxAdmissionPayloadBytes
+            || compatibility.size() > std::numeric_limits<std::uint32_t>::max()) {
+            eraseLifecycleCredentialPayload(request);
+            return {};
+        }
+        std::vector<std::uint8_t> out;
+        out.reserve(12 + request.size() + compatibility.size());
+        append32(out, Magic); append16(out, Version); append16(out, AttemptKind);
+        append32(out, static_cast<std::uint32_t>(compatibility.size()));
+        out.insert(out.end(), request.begin() + 8, request.end());
+        out.insert(out.end(), compatibility.begin(), compatibility.end());
+        eraseLifecycleCredentialPayload(request);
+        return out;
+    }
+    std::vector<std::uint8_t> serializeReconnectResponse(const ReconnectResponse &response) {
+        if (!validOutcome(static_cast<std::uint16_t>(response.outcome))
+            || response.sessionId == 0 || response.participantId == 0
+            || (response.outcome == ReconnectOutcome::Accepted) != response.nextGrant.has_value()
+            || (response.nextGrant && (response.nextGrant->sessionId != response.sessionId
+                || response.nextGrant->participantId != response.participantId))) return {};
+        std::vector<std::uint8_t> out;
+        out.reserve(response.nextGrant ? 52 : 28);
+        append32(out, Magic); append16(out, Version); append16(out, ResponseKind);
+        append16(out, static_cast<std::uint16_t>(response.outcome)); append16(out, 0);
+        append64(out, response.sessionId); append64(out, response.participantId);
+        if (response.nextGrant) {
+            append64(out, response.nextGrant->reservationId);
+            out.insert(out.end(), response.nextGrant->credential.bytes.begin(),
+                       response.nextGrant->credential.bytes.end());
+        }
+        return out;
+    }
     std::optional<ReconnectGrant> deserializeReconnectGrant(const std::vector<std::uint8_t> &payload) noexcept {
         try { return deserializeCredential<ReconnectGrant>(payload, GrantKind); } catch (...) { return std::nullopt; }
     }
@@ -109,6 +159,66 @@ namespace Duel6::Network::Lifecycle {
             return value;
         } catch (...) { return std::nullopt; }
     }
+    std::optional<ReconnectAttempt> deserializeReconnectAttempt(
+            const std::vector<std::uint8_t> &payload) noexcept {
+        try {
+            if (payload.size() < 52) return std::nullopt;
+            std::size_t at = 0; std::uint32_t magic = 0, compatibilitySize = 0;
+            std::uint16_t version = 0, kind = 0;
+            if (!read32(payload, at, magic) || !read16(payload, at, version) || !read16(payload, at, kind)
+                || !read32(payload, at, compatibilitySize) || magic != Magic || version != Version
+                || kind != AttemptKind || compatibilitySize == 0
+                || compatibilitySize > Trust::MaxAdmissionPayloadBytes
+                || payload.size() != 52u + compatibilitySize) return std::nullopt;
+            std::vector<std::uint8_t> requestPayload;
+            requestPayload.reserve(48);
+            append32(requestPayload, Magic); append16(requestPayload, Version); append16(requestPayload, RequestKind);
+            requestPayload.insert(requestPayload.end(), payload.begin() + 12, payload.begin() + 52);
+            auto request = deserializeReconnectRequest(requestPayload);
+            eraseLifecycleCredentialPayload(requestPayload);
+            if (!request) return std::nullopt;
+            std::vector<std::uint8_t> compatibilityPayload(payload.begin() + 52, payload.end());
+            ReconnectAttempt result{std::move(*request), deserializeAdmissionRequest(compatibilityPayload)};
+            return result;
+        } catch (...) { return std::nullopt; }
+    }
+    std::optional<ReconnectResponse> deserializeReconnectResponse(
+            const std::vector<std::uint8_t> &payload) noexcept {
+        try {
+            if (payload.size() != 28 && payload.size() != 52) return std::nullopt;
+            std::size_t at = 0; std::uint32_t magic = 0; std::uint16_t version = 0, kind = 0, outcome = 0, reserved = 0;
+            ReconnectResponse result;
+            if (!read32(payload, at, magic) || !read16(payload, at, version) || !read16(payload, at, kind)
+                || !read16(payload, at, outcome) || !read16(payload, at, reserved)
+                || !read64(payload, at, result.sessionId) || !read64(payload, at, result.participantId)
+                || magic != Magic || version != Version || kind != ResponseKind || reserved != 0
+                || !validOutcome(outcome) || result.sessionId == 0 || result.participantId == 0)
+                return std::nullopt;
+            result.outcome = static_cast<ReconnectOutcome>(outcome);
+            if (payload.size() == 52) {
+                ReconnectGrant grant;
+                grant.sessionId = result.sessionId; grant.participantId = result.participantId;
+                if (!read64(payload, at, grant.reservationId) || grant.reservationId == 0) return std::nullopt;
+                std::copy(payload.begin() + static_cast<std::ptrdiff_t>(at), payload.end(), grant.credential.bytes.begin());
+                bool nonzero = false; for (auto byte: grant.credential.bytes) nonzero = nonzero || byte != 0;
+                if (!nonzero) return std::nullopt;
+                result.nextGrant = std::move(grant);
+            }
+            if ((result.outcome == ReconnectOutcome::Accepted) != result.nextGrant.has_value()) return std::nullopt;
+            return result;
+        } catch (...) { return std::nullopt; }
+    }
+    void eraseLifecycleCredentialPayload(std::vector<std::uint8_t> &payload) noexcept {
+        if (payload.size() < 8 || payload[0] != 0x44 || payload[1] != 0x36
+            || payload[2] != 0x4c || payload[3] != 0x43) return;
+        if (payload.size() == 48 && payload[6] == 0
+            && (payload[7] == GrantKind || payload[7] == RequestKind))
+            Trust::secureEraseMemory(payload.data() + 32, 16);
+        else if (payload.size() >= 52 && payload[6] == 0 && payload[7] == AttemptKind)
+            Trust::secureEraseMemory(payload.data() + 36, 16);
+        else if (payload.size() == 52 && payload[6] == 0 && payload[7] == ResponseKind)
+            Trust::secureEraseMemory(payload.data() + 36, 16);
+    }
 
     HostSessionLifecycle::HostSessionLifecycle(std::uint64_t sessionId, ParticipantId hostParticipantId,
             ConnectionId hostConnectionId, std::vector<PlayerId> hostOwnedPlayers, Clock clock,
@@ -121,7 +231,11 @@ namespace Duel6::Network::Lifecycle {
             || this->hostOwnedPlayers.empty() || this->hostOwnedPlayers.size() > Trust::MaxParticipants
             || unique.size() != this->hostOwnedPlayers.size() || unique.count(0)) sessionEnded = true;
     }
-    HostSessionLifecycle::~HostSessionLifecycle() { clearAll(); }
+    HostSessionLifecycle::~HostSessionLifecycle() {
+        sessionEnded = true;
+        operationActive = true;
+        clearAll();
+    }
 
     std::unique_ptr<Trust::ReconnectReservation> HostSessionLifecycle::makeDormantReservation(
             ParticipantId participantId, std::uint64_t reservationId,
@@ -133,7 +247,7 @@ namespace Duel6::Network::Lifecycle {
 
     std::optional<ReconnectGrant> HostSessionLifecycle::admitGuest(ParticipantId participantId,
             ConnectionId connectionId, std::vector<PlayerId> ownedPlayers, bool readyValue) {
-        if (sessionEnded || participantId == 0 || participantId == hostParticipantId || connectionId == 0
+        if (sessionEnded || operationActive || participantId == 0 || participantId == hostParticipantId || connectionId == 0
             || ownedPlayers.empty() || participants.size() >= MaximumLifecycleParticipants - 1
             || participants.count(participantId) || nextReservationId == 0
             || retainedPlayerCount() + ownedPlayers.size() > Trust::MaxParticipants) return std::nullopt;
@@ -142,13 +256,16 @@ namespace Duel6::Network::Lifecycle {
         for (const auto &[id, participant]: participants)
             for (PlayerId player: participant.players) if (unique.count(player)) return std::nullopt;
         for (PlayerId player: hostOwnedPlayers) if (unique.count(player)) return std::nullopt;
+        OperationGuard operation(operationActive);
         const std::uint64_t reservationId = nextReservationId++;
         auto reservation = makeDormantReservation(participantId, reservationId);
         if (!reservation) return std::nullopt;
         ReconnectGrant grant{sessionId, participantId, reservationId, reservation->credential()};
+        (void) readyValue;
+        for (auto &[id, participant]: participants) participant.ready = false;
         Participant participant;
         participant.connectionId = connectionId; participant.players = std::move(ownedPlayers);
-        participant.ready = readyValue; participant.reservationId = reservationId;
+        participant.ready = false; participant.reservationId = reservationId;
         participant.reservation = std::move(reservation);
         participants.emplace(participantId, std::move(participant));
         return grant;
@@ -156,13 +273,14 @@ namespace Duel6::Network::Lifecycle {
 
     bool HostSessionLifecycle::transportClosed(ParticipantId participantId, ConnectionId connectionId) {
         const auto found = participants.find(participantId);
-        if (sessionEnded || found == participants.end() || !found->second.connected
-            || found->second.connectionId != connectionId || !found->second.reservation
-            || !found->second.reservation->activate()) return false;
+        if (sessionEnded || operationActive || found == participants.end() || !found->second.connected
+            || found->second.connectionId != connectionId || !found->second.reservation) return false;
+        OperationGuard operation(operationActive);
+        if (!found->second.reservation->activate()) return false;
         found->second.connected = false;
         bool disconnected = true;
         try { if (hooks.disconnect) disconnected = hooks.disconnect(participantId); } catch (...) { disconnected = false; }
-        if (!disconnected) supervisedHostFailure();
+        if (!disconnected) failSession();
         return disconnected;
     }
 
@@ -173,94 +291,131 @@ namespace Duel6::Network::Lifecycle {
         const auto reject = [&](ReconnectOutcome outcome) {
             close(connectionId); result.outcome = outcome; return result;
         };
-        if (sessionEnded || connectionId == 0) return reject(ReconnectOutcome::AuthorizationFailed);
+        if (operationActive) return reject(ReconnectOutcome::AuthorizationFailed);
+        if (sessionEnded || connectionId == 0)
+            return reject(ReconnectOutcome::AuthorizationFailed);
+        OperationGuard operation(operationActive);
         const auto found = participants.find(request.participantId);
         if (found == participants.end() || found->second.connected || !found->second.reservation)
             return reject(ReconnectOutcome::AuthorizationFailed);
-        Participant &participant = found->second;
-        if (request.sessionId != sessionId || request.reservationId != participant.reservationId)
+        if (request.sessionId != sessionId || request.reservationId != found->second.reservationId)
             return reject(ReconnectOutcome::AuthorizationFailed);
-        const auto deadline = participant.reservation->deadline();
+        std::optional<TimePoint> deadline;
+        try { deadline = found->second.reservation->deadline(); } catch (...) {}
         if (!deadline) return reject(ReconnectOutcome::AuthorizationFailed);
-        if (clock() >= *deadline) {
-            participant.reservation->expireIfDue();
+        TimePoint now = TimePoint::max();
+        try { now = clock(); } catch (...) {}
+        if (now >= *deadline) {
+            try { found->second.reservation->expireIfDue(); } catch (...) {}
             return reject(ReconnectOutcome::AuthorizationFailed);
         }
-        if (nextReservationId == 0) return reject(ReconnectOutcome::RetryableFailure);
-        const std::uint64_t replacementId = nextReservationId++;
-        auto replacement = makeDormantReservation(request.participantId, replacementId, &request.credential);
-        if (!replacement) return reject(ReconnectOutcome::RetryableFailure);
-        const auto authorization = participant.reservation->authorizeAndConsume(
-                request.credential, request.sessionId, request.participantId, request.reservationId);
-        if (!authorization.accepted) return reject(ReconnectOutcome::AuthorizationFailed);
+        Trust::ReconnectAuthorizationResult proof;
+        try {
+            proof = found->second.reservation->authorize(
+                    request.credential, request.sessionId, request.participantId, request.reservationId);
+        } catch (...) {}
+        if (!proof.accepted) return reject(ReconnectOutcome::AuthorizationFailed);
         if (compatibility != ReconnectCompatibility::Compatible) {
-            pendingLeaves.insert(request.participantId);
             if (compatibility == ReconnectCompatibility::ReleaseMismatch)
                 return reject(ReconnectOutcome::ReleaseMismatch);
             if (compatibility == ReconnectCompatibility::ContentMismatch)
                 return reject(ReconnectOutcome::ContentMismatch);
             return reject(ReconnectOutcome::AuthorizationFailed);
         }
+        if (nextReservationId == 0) return reject(ReconnectOutcome::RetryableFailure);
+        const std::uint64_t replacementId = nextReservationId++;
+        auto replacement = makeDormantReservation(request.participantId, replacementId, &request.credential);
+        if (!replacement) return reject(ReconnectOutcome::RetryableFailure);
+        const auto authorization = found->second.reservation->authorizeAndConsume(
+                request.credential, request.sessionId, request.participantId, request.reservationId);
+        if (!authorization.accepted) return reject(ReconnectOutcome::AuthorizationFailed);
         bool restored = false;
         try { restored = hooks.restoreCurrent && hooks.restoreCurrent(request.participantId, connectionId); }
         catch (...) { restored = false; }
-        if (!restored) {
-            participant.reservation.reset();
+        TimePoint restoredAt = TimePoint::max();
+        try { restoredAt = clock(); } catch (...) {}
+        const auto current = participants.find(request.participantId);
+        if (!restored || restoredAt >= *deadline || sessionEnded || current == participants.end()) {
+            try { if (hooks.disconnect) (void) hooks.disconnect(request.participantId); } catch (...) {}
+            if (current != participants.end()) current->second.reservation.reset();
             pendingLeaves.insert(request.participantId);
-            return reject(ReconnectOutcome::RestoreFailed);
+            return reject(restoredAt >= *deadline ? ReconnectOutcome::Expired : ReconnectOutcome::RestoreFailed);
         }
-        participant.connectionId = connectionId; participant.connected = true;
-        participant.reservationId = replacementId; participant.reservation = std::move(replacement);
+        current->second.connectionId = connectionId; current->second.connected = true;
+        current->second.reservationId = replacementId; current->second.reservation = std::move(replacement);
         result.outcome = ReconnectOutcome::Accepted; result.closeOffendingConnection = false;
         result.nextGrant = ReconnectGrant{sessionId, request.participantId, replacementId,
-                                          participant.reservation->credential()};
+                                          current->second.reservation->credential()};
         return result;
     }
 
     bool HostSessionLifecycle::queueIntentionalLeave(
             ParticipantId participantId, ConnectionId connectionId) {
         const auto found = participants.find(participantId);
-        if (sessionEnded || found == participants.end() || !found->second.connected
+        if (sessionEnded || operationActive || found == participants.end() || !found->second.connected
             || found->second.connectionId != connectionId) return false;
+        OperationGuard operation(operationActive);
         return pendingLeaves.insert(participantId).second;
     }
 
     bool HostSessionLifecycle::queueReservedLeave(
             const ReconnectRequest &request, ConnectionId attemptConnectionId) {
+        if (operationActive) {
+            close(attemptConnectionId);
+            return false;
+        }
         const auto found = participants.find(request.participantId);
         if (sessionEnded || found == participants.end() || found->second.connected || !found->second.reservation
             || request.sessionId != sessionId || request.reservationId != found->second.reservationId) {
             close(attemptConnectionId); return false;
         }
+        OperationGuard operation(operationActive);
         if (!found->second.reservation->consume(request.credential, request.sessionId,
                                                 request.participantId, request.reservationId)) {
             close(attemptConnectionId); return false;
         }
-        return pendingLeaves.insert(request.participantId).second;
+        const bool queued = pendingLeaves.insert(request.participantId).second;
+        close(attemptConnectionId);
+        return queued;
+    }
+
+    bool HostSessionLifecycle::clearReadiness() noexcept {
+        if (sessionEnded || operationActive) return false;
+        OperationGuard operation(operationActive);
+        for (auto &[id, participant]: participants) participant.ready = false;
+        return true;
     }
 
     RemovalOutcome HostSessionLifecycle::processLifecycleBatch(Phase phase) {
-        if (sessionEnded || phase == Phase::Ended) return RemovalOutcome::NothingChanged;
+        if (sessionEnded || operationActive || phase == Phase::Ended) return RemovalOutcome::NothingChanged;
+        OperationGuard operation(operationActive);
         std::set<ParticipantId> removals = pendingLeaves;
-        for (auto &[id, participant]: participants)
-            if (!participant.connected && participant.reservation && participant.reservation->expireIfDue())
-                removals.insert(id);
+        try {
+            for (auto &[id, participant]: participants)
+                if (!participant.connected && participant.reservation && participant.reservation->expireIfDue())
+                    removals.insert(id);
+        } catch (...) {
+            pendingLeaves.insert(removals.begin(), removals.end());
+            return RemovalOutcome::Failed;
+        }
         pendingLeaves.clear();
         if (removals.empty()) return RemovalOutcome::NothingChanged;
         std::vector<ParticipantId> batch(removals.begin(), removals.end());
         bool applied = false;
         try { applied = hooks.removeBatch && hooks.removeBatch(batch, phase); } catch (...) { applied = false; }
         if (!applied) {
-            pendingLeaves = std::move(removals);
+            pendingLeaves.insert(removals.begin(), removals.end());
             return RemovalOutcome::Failed;
         }
+        std::vector<ConnectionId> connectionsToClose;
         for (ParticipantId id: batch) {
             const auto found = participants.find(id);
             if (found == participants.end()) continue;
-            if (found->second.connected) close(found->second.connectionId);
+            if (found->second.connected) connectionsToClose.push_back(found->second.connectionId);
             found->second.reservation.reset();
             participants.erase(found);
         }
+        for (ConnectionId connection: connectionsToClose) close(connection);
         const std::size_t roster = retainedPlayerCount();
         if (phase == Phase::Lobby || ((phase == Phase::ActiveRound
             || phase == Phase::NonFinalRoundSummary) && roster < 2))
@@ -274,33 +429,38 @@ namespace Duel6::Network::Lifecycle {
 
     HostEndResult HostSessionLifecycle::endSession(ParticipantId participantId, ConnectionId connectionId) {
         HostEndResult result;
-        if (sessionEnded || participantId != hostParticipantId || connectionId != hostConnectionId) return result;
+        if (sessionEnded || operationActive || participantId != hostParticipantId || connectionId != hostConnectionId)
+            return result;
+        OperationGuard operation(operationActive);
         result.accepted = true; result.notice.sessionId = sessionId;
         const auto payload = serializeIntentionalHostEnd(result.notice);
-        for (const auto &[id, participant]: participants) if (participant.connected) {
+        sessionEnded = true;
+        std::vector<ConnectionId> established;
+        for (const auto &[id, participant]: participants)
+            if (participant.connected) established.push_back(participant.connectionId);
+        for (ConnectionId connection: established) {
             bool accepted = false;
             try {
                 accepted = hooks.sendIntentionalHostEnd
-                           && hooks.sendIntentionalHostEnd(participant.connectionId, payload);
+                           && hooks.sendIntentionalHostEnd(connection, payload);
             } catch (...) { accepted = false; }
-            if (accepted) result.establishedGuestConnections.push_back(participant.connectionId);
+            if (accepted) result.establishedGuestConnections.push_back(connection);
         }
-        sessionEnded = true;
         clearAll();
         try { if (hooks.discardSession) hooks.discardSession(); } catch (...) {}
         return result;
     }
 
     std::string_view HostSessionLifecycle::supervisedHostFailure() {
-        if (sessionEnded) return {};
-        sessionEnded = true; clearAll();
-        try { if (hooks.discardSession) hooks.discardSession(); } catch (...) {}
+        if (sessionEnded || operationActive) return {};
+        OperationGuard operation(operationActive);
+        failSession();
         return HostedServiceStoppedCopy;
     }
     void HostSessionLifecycle::shutdown() {
-        if (sessionEnded) return;
-        sessionEnded = true; clearAll();
-        try { if (hooks.discardSession) hooks.discardSession(); } catch (...) {}
+        if (sessionEnded || operationActive) return;
+        OperationGuard operation(operationActive);
+        failSession();
     }
 
     bool HostSessionLifecycle::connected(ParticipantId participantId) const noexcept {
@@ -308,6 +468,8 @@ namespace Duel6::Network::Lifecycle {
         return found != participants.end() && found->second.connected;
     }
     bool HostSessionLifecycle::reserved(ParticipantId participantId) {
+        if (operationActive) return false;
+        OperationGuard operation(operationActive);
         const auto found = participants.find(participantId);
         return found != participants.end() && !found->second.connected && found->second.reservation
                && found->second.reservation->active();
@@ -328,11 +490,18 @@ namespace Duel6::Network::Lifecycle {
     }
     void HostSessionLifecycle::clearAll() noexcept {
         pendingLeaves.clear();
-        for (auto &[id, participant]: participants) {
+        auto removed = std::move(participants);
+        participants.clear();
+        for (auto &[id, participant]: removed) {
             participant.reservation.reset();
             if (participant.connected) close(participant.connectionId);
         }
-        participants.clear();
+    }
+    void HostSessionLifecycle::failSession() noexcept {
+        if (sessionEnded) return;
+        sessionEnded = true;
+        clearAll();
+        try { if (hooks.discardSession) hooks.discardSession(); } catch (...) {}
     }
 
     GuestSessionRecovery::GuestSessionRecovery(std::uint64_t sessionId, ParticipantId participantId,
@@ -354,7 +523,7 @@ namespace Duel6::Network::Lifecycle {
         grant = std::move(value); return true;
     }
     bool GuestSessionRecovery::transportClosed(TimePoint hostClockNow, bool retainedState) {
-        if (currentJourney != GuestJourney::Established || !grant) return false;
+        if (currentJourney != GuestJourney::Established) return false;
         disconnectedAt = hostClockNow; deadline = hostClockNow + ReconnectWindow;
         retainedCompleteState = retainedState; currentJourney = GuestJourney::Reconnecting;
         return true;
@@ -418,9 +587,9 @@ namespace Duel6::Network::Lifecycle {
     }
     std::optional<unsigned> GuestSessionRecovery::positiveSecondsRemaining(TimePoint now) const noexcept {
         if (currentJourney != GuestJourney::Reconnecting || !deadline || now >= *deadline) return std::nullopt;
-        const auto remaining = *deadline - now;
-        const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count();
-        return static_cast<unsigned>((millis + 999) / 1000);
+        const auto seconds = std::chrono::ceil<std::chrono::seconds>(*deadline - now).count();
+        return static_cast<unsigned>((std::min<std::int64_t>)(seconds,
+                static_cast<std::int64_t>((std::numeric_limits<unsigned>::max)())));
     }
     std::string_view GuestSessionRecovery::failureCopy() const noexcept {
         return currentJourney == GuestJourney::ConnectionFailure ? reconnectCopy(terminalOutcome) : std::string_view{};

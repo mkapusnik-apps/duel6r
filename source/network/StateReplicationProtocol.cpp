@@ -518,6 +518,18 @@ namespace Duel6::Network::Replication {
         return receive(payload, acceptedAt, true, allowOutboundExchange);
     }
 
+    ClientReplicationResult ClientReplicationConnection::receiveReconnectSnapshot(
+            const std::vector<std::uint8_t> &payload, Responsiveness::TimePoint acceptedAt) {
+        if (!reconnecting) return ClientReplicationResult::Reconnecting;
+        const auto frame = deserializeReplicationFrame(payload);
+        if (!frame || frame->kind != ReplicationFrameKind::FullSnapshot || !frame->snapshot)
+            return ClientReplicationResult::Reconnecting;
+        reconnecting = false;
+        const auto result = receive(payload, acceptedAt, false, false);
+        if (result != ClientReplicationResult::Applied) transportClosed();
+        return result;
+    }
+
     ClientReplicationResult ClientReplicationConnection::receive(
             const std::vector<std::uint8_t> &payload, Responsiveness::TimePoint acceptedAt,
             bool initialAdmissionCalibration, bool allowOutboundExchange) {

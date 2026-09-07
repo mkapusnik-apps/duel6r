@@ -431,6 +431,43 @@ namespace Duel6::Server::Authoritative {
         return result;
     }
 
+    ActionResult AuthoritativeMatch::removePlayersBatch(
+            Identity participantId, const std::vector<Identity> &playerIds) {
+        if (!isHost(participantId) || playerIds.empty() || terminal.code != OutcomeCode::None
+            || currentPhase == MatchPhase::Failed || currentPhase == MatchPhase::Completed
+            || currentPhase == MatchPhase::Ended) return reject(ActionResult::RejectedPhase);
+        const std::set<Identity> unique(playerIds.begin(), playerIds.end());
+        if (unique.size() != playerIds.size() || unique.count(0)) return reject(ActionResult::RejectedValue);
+        for (const auto playerId: unique) {
+            const PlayerState *player = findPlayer(playerId);
+            if (!player || player->departed) return reject(ActionResult::RejectedValue);
+        }
+        for (const auto playerId: unique) {
+            if (dependencies.worldRemove) {
+                try {
+                    if (!dependencies.worldRemove(playerId)) {
+                        failRuntime();
+                        return ActionResult::RuntimeFailed;
+                    }
+                } catch (...) {
+                    failRuntime();
+                    return ActionResult::RuntimeFailed;
+                }
+            }
+        }
+        for (const auto playerId: unique) {
+            PlayerState *player = findPlayer(playerId);
+            player->departed = true;
+            player->alive = false;
+            player->inputMask = 0;
+        }
+        ++totalActions;
+        interruptIfRosterTooSmall();
+        if (terminal.code == OutcomeCode::None && currentPhase == MatchPhase::ActiveRound)
+            evaluateRoundOutcome();
+        return ActionResult::Accepted;
+    }
+
     ActionResult AuthoritativeMatch::submitImpl(const AuthoritativeAction &action, bool internalHostControl) {
         const ActionResult validation = validateAction(action, internalHostControl);
         if (validation != ActionResult::Accepted) return reject(validation);

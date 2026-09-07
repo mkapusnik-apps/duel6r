@@ -267,6 +267,7 @@ namespace Duel6::Network::Trust {
     std::string formatDiagnostic(const DiagnosticEvent &event);
 
     using RandomFill = std::function<bool(std::uint8_t *, std::size_t)>;
+    void secureEraseMemory(void *target, std::size_t size) noexcept;
     struct ReconnectCredential {
         std::array<std::uint8_t, ReconnectCredentialBytes> bytes{};
         ReconnectCredential() = default;
@@ -295,6 +296,9 @@ namespace Duel6::Network::Trust {
         bool activate();
         std::optional<TimePoint> deadline();
         ReconnectCredential credential();
+        ReconnectAuthorizationResult authorize(const ReconnectCredential &candidate,
+                                               std::uint64_t session, ParticipantId participant,
+                                               std::uint64_t reservation);
         ReconnectAuthorizationResult authorizeAndConsume(const ReconnectCredential &candidate,
                                                           std::uint64_t session, ParticipantId participant,
                                                           std::uint64_t reservation);

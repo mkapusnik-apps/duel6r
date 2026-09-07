@@ -116,6 +116,21 @@ namespace Duel6::Server {
         return true;
     }
 
+    bool SessionAllocation::removeParticipants(const std::vector<std::uint64_t> &participantIds) {
+        std::lock_guard<std::mutex> lock(mutex);
+        std::set<std::uint64_t> unique(participantIds.begin(), participantIds.end());
+        if (unique.size() != participantIds.size() || unique.count(0) || unique.count(hostId)) return false;
+        std::size_t removedPlayers = 0;
+        for (const auto participantId: unique) {
+            const auto found = participants.find(participantId);
+            if (found == participants.end()) return false;
+            removedPlayers += found->second.playerIds.size();
+        }
+        for (const auto participantId: unique) participants.erase(participantId);
+        players -= removedPlayers;
+        return true;
+    }
+
     std::optional<AdmittedParticipant> SessionAllocation::pendingParticipant(std::uint64_t transactionId) const {
         std::lock_guard<std::mutex> lock(mutex);
         const auto reservation = pending.find(transactionId);
@@ -265,6 +280,23 @@ namespace Duel6::Server {
     void AdmissionPolicy::disconnect(Network::Trust::ConnectionId connection) {
         std::lock_guard<std::mutex> lock(policyMutex);
         authorization.disconnect(connection);
+    }
+
+    bool AdmissionPolicy::reconnect(Network::Trust::ConnectionId connection, std::uint64_t participantId) {
+        std::lock_guard<std::mutex> lock(policyMutex);
+        if (connection == 0 || participantId == 0) return false;
+        const auto participants = sessionAllocation.admittedParticipants();
+        const auto found = std::find_if(participants.begin(), participants.end(), [participantId](const auto &value) {
+            return value.participantId == participantId && !value.localHost;
+        });
+        return found != participants.end() && authorization.bindGuest(connection, participantId);
+    }
+
+    bool AdmissionPolicy::removeParticipants(const std::vector<std::uint64_t> &participantIds) {
+        std::lock_guard<std::mutex> lock(policyMutex);
+        if (!sessionAllocation.removeParticipants(participantIds)) return false;
+        for (const auto participantId: participantIds) authorization.removeParticipant(participantId);
+        return true;
     }
 
     bool AdmissionPolicy::authorize(Network::Trust::ConnectionId connection,

@@ -153,6 +153,10 @@ namespace Duel6::Network::Trust {
         }
     }
 
+    void secureEraseMemory(void *target, std::size_t size) noexcept {
+        if (target && size != 0) secureErase(target, size);
+    }
+
     EndpointScope classifyIpv4(const std::array<std::uint8_t, 4> &address) {
         if (address[0] == 127) return EndpointScope::Loopback;
         if (address[0] == 10 || (address[0] == 172 && address[1] >= 16 && address[1] <= 31)
@@ -687,7 +691,7 @@ namespace Duel6::Network::Trust {
         }
         return *this;
     }
-    void ReconnectCredential::clear() noexcept { secureErase(bytes.data(), bytes.size()); }
+    void ReconnectCredential::clear() noexcept { secureEraseMemory(bytes.data(), bytes.size()); }
 
     ReconnectReservation::ReconnectReservation(std::uint64_t session, ParticipantId participant,
                                                std::uint64_t reservation, Clock clock, RandomFill random,
@@ -724,6 +728,19 @@ namespace Duel6::Network::Trust {
         expireIfDueLocked();
         if (!value) throw std::logic_error("Reconnect credential is unavailable");
         return ReconnectCredential(*value);
+    }
+    ReconnectAuthorizationResult ReconnectReservation::authorize(
+            const ReconnectCredential &candidate, std::uint64_t expectedSession,
+            ParticipantId expectedParticipant, std::uint64_t expectedReservation) {
+        std::lock_guard<std::mutex> lock(mutex);
+        expireIfDueLocked();
+        const ReconnectCredential unavailable{};
+        const ReconnectCredential &stored = value ? *value : unavailable;
+        const bool credentialMatches = constantTimeEqual(stored, candidate);
+        const bool accepted = value.has_value() && expiry.has_value() && clock() < *expiry && !allZero(candidate)
+                              && session == expectedSession && participant == expectedParticipant
+                              && reservation == expectedReservation && credentialMatches;
+        return {accepted, !accepted, accepted ? std::string_view{} : ReconnectAuthorizationFailureCopy};
     }
     ReconnectAuthorizationResult ReconnectReservation::authorizeAndConsume(
             const ReconnectCredential &candidate, std::uint64_t expectedSession,

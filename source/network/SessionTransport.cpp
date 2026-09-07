@@ -871,20 +871,39 @@ namespace Duel6::Network {
         SendResult send(std::vector<std::uint8_t> payload) {
             if (payload.size() > MaxPayloadBytes) return SendResult::PayloadTooLarge;
             std::lock_guard<std::mutex> lock(outputMutex);
-            return enqueueApplicationLocked(std::move(payload));
+            return enqueueApplicationLocked(std::move(payload), false);
         }
 
-        SendResult enqueueApplicationLocked(std::vector<std::uint8_t> payload) {
+        SendResult sendSensitive(std::vector<std::uint8_t> payload) {
+            if (payload.size() > MaxPayloadBytes) {
+                Trust::secureEraseMemory(payload.data(), payload.size());
+                return SendResult::PayloadTooLarge;
+            }
+            std::lock_guard<std::mutex> lock(outputMutex);
+            return enqueueApplicationLocked(std::move(payload), true);
+        }
+
+        SendResult enqueueApplicationLocked(std::vector<std::uint8_t> payload, bool sensitive) {
             ClientState current = state.load();
-            if (current == ClientState::Closing) return SendResult::Closing;
-            if (current != ClientState::Connected) return SendResult::NotConnected;
+            if (current == ClientState::Closing) {
+                if (sensitive) Trust::secureEraseMemory(payload.data(), payload.size());
+                return SendResult::Closing;
+            }
+            if (current != ClientState::Connected) {
+                if (sensitive) Trust::secureEraseMemory(payload.data(), payload.size());
+                return SendResult::NotConnected;
+            }
             if (applicationOutput.size() + activeApplicationFrames >= MaxQueuedTransportFrames
                 || outputBytes + activeApplicationBytes + payload.size() > MaxQueuedTransportPayloadBytes) {
+                if (sensitive) Trust::secureEraseMemory(payload.data(), payload.size());
                 return SendResult::Backpressure;
             }
-            if (!Trust::processQueueBudget().reserve(payload.size())) return SendResult::Backpressure;
+            if (!Trust::processQueueBudget().reserve(payload.size())) {
+                if (sensitive) Trust::secureEraseMemory(payload.data(), payload.size());
+                return SendResult::Backpressure;
+            }
             outputBytes += payload.size();
-            applicationOutput.push_back({ApplicationFrame, std::move(payload)});
+            applicationOutput.push_back({ApplicationFrame, std::move(payload), sensitive});
             outputChanged.notify_one();
             return SendResult::Accepted;
         }
@@ -1016,6 +1035,7 @@ namespace Duel6::Network {
         struct PendingFrame {
             std::uint16_t kind;
             std::vector<std::uint8_t> payload;
+            bool sensitive = false;
         };
 
         SocketHandle socket;
@@ -1062,6 +1082,8 @@ namespace Duel6::Network {
                 std::lock_guard<std::mutex> lock(inputMutex);
                 release += inputBytes;
                 inputBytes = 0;
+                for (auto &frame: input)
+                    Trust::secureEraseMemory(frame.payload.data(), frame.payload.size());
                 input.clear();
             }
             {
@@ -1069,6 +1091,9 @@ namespace Duel6::Network {
                 release += outputBytes + activeApplicationBytes;
                 outputBytes = 0;
                 activeApplicationBytes = 0;
+                for (auto &frame: applicationOutput)
+                    if (frame.sensitive)
+                        Trust::secureEraseMemory(frame.payload.data(), frame.payload.size());
                 applicationOutput.clear();
             }
             Trust::processQueueBudget().release(release);
@@ -1346,6 +1371,8 @@ namespace Duel6::Network {
                     }
                 }
                 bool written = writeFrame(frame);
+                if (frame.sensitive)
+                    Trust::secureEraseMemory(frame.payload.data(), frame.payload.size());
                 {
                     std::lock_guard<std::mutex> lock(outputMutex);
                     if (controlFrame) {
@@ -1370,6 +1397,9 @@ namespace Duel6::Network {
     TcpConnection::TcpConnection(std::unique_ptr<Impl> impl) : impl(std::move(impl)) {}
     TcpConnection::~TcpConnection() = default;
     SendResult TcpConnection::send(std::vector<std::uint8_t> payload) { return impl->send(std::move(payload)); }
+    SendResult TcpConnection::sendSensitive(std::vector<std::uint8_t> payload) {
+        return impl->sendSensitive(std::move(payload));
+    }
     bool TcpConnection::receive(TransportFrame &frame) { return impl->receive(frame); }
     TransportInputSnapshot TcpConnection::sealAndDrainInput() { return impl->sealAndDrainInput(); }
 

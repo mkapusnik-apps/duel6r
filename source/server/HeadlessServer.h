@@ -56,6 +56,11 @@ namespace Duel6::Server {
     public:
         virtual ~AdmissionRuntimeConnection() = default;
         virtual Network::SendResult send(std::vector<std::uint8_t> payload) = 0;
+        virtual Network::SendResult sendSensitive(std::vector<std::uint8_t> payload) {
+            const auto result = send(payload);
+            Network::Trust::secureEraseMemory(payload.data(), payload.size());
+            return result;
+        }
         virtual Network::AdmissionAcceptanceEnqueueResult enqueueAdmissionAcceptance(
                 std::vector<std::uint8_t> payload,
                 Network::AdmissionAttemptGate &attempt,

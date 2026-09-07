@@ -79,6 +79,9 @@ namespace Duel6::Network::Replication {
                 const std::vector<std::uint8_t> &payload,
                 Responsiveness::TimePoint acceptedAt,
                 bool allowOutboundExchange = true);
+        ClientReplicationResult receiveReconnectSnapshot(
+                const std::vector<std::uint8_t> &payload,
+                Responsiveness::TimePoint acceptedAt);
         bool observeNetworkSample(const Responsiveness::NetworkSample &sample,
                                   Responsiveness::TimePoint observedAt) noexcept;
         bool sampleNetwork(Responsiveness::TimePoint now);

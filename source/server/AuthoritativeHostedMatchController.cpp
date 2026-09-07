@@ -71,6 +71,23 @@ namespace Duel6::Server::Authoritative {
         playerInput.revokePlayer(playerId);
     }
 
+    bool AuthoritativeHostedMatchController::removeLifecycleParticipants(
+            const std::vector<Identity> &participantIds) {
+        if (participantIds.empty()) return false;
+        std::set<Identity> removals(participantIds.begin(), participantIds.end());
+        if (removals.size() != participantIds.size() || removals.count(0)
+            || removals.count(hostParticipantId)) return false;
+        if (!activeMatch || currentStage != HostedMatchStage::MatchActive) return true;
+        std::vector<Identity> players;
+        for (const auto &player: activeMatch->rosterDefinitions())
+            if (removals.count(player.participantId)) players.push_back(player.playerId);
+        if (players.empty()
+            || activeMatch->removePlayersBatch(hostParticipantId, players) != ActionResult::Accepted) return false;
+        for (const auto playerId: players) playerInput.revokePlayer(playerId);
+        if (!captureReplication()) return false;
+        return activeMatch->outcome().code == OutcomeCode::None || observeMatchOutcome();
+    }
+
     AuthoritativePlayerInput::ReceiveResult AuthoritativeHostedMatchController::receivePlayerInput(
             Identity participantId, const Network::Input::Command &command, bool remote) {
         return playerInput.receive(participantId, command, remote);
