@@ -157,11 +157,23 @@ namespace Duel6 {
             y += minimumPanelBottom - panelBottom;
         }
 
+        Float32 panelHeight = height + 2 * fontSize;
+        if (clampPanelBottom) {
+            const Int32 finalRoundCounterTopInset = 4;
+            const Int32 finalRoundCounterBorder = 1;
+            const Int32 overlayGap = 1;
+            const Float32 maximumPanelTop = video.getScreen().getClientHeight() - fontSize
+                                            - finalRoundCounterTopInset - finalRoundCounterBorder - overlayGap;
+            const Float32 minimumPanelTop = y + height + 4;
+            const Float32 constrainedPanelTop = std::max(maximumPanelTop, minimumPanelTop);
+            panelHeight = std::min(panelHeight, constrainedPanelTop - (y - fontSize));
+        }
+
         renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        renderer.quadXY(Vector(x - fontWidth, y - fontSize), Vector(width + 2 * fontWidth, height + 2 * fontSize),
+        renderer.quadXY(Vector(x - fontWidth, y - fontSize), Vector(width + 2 * fontWidth, panelHeight),
                         Color(255, 255, 255, 80));
         renderer.quadXY(Vector(x - fontWidth + 2, y - fontSize + 2),
-                        Vector(width + 2 * fontWidth - 4, height + 2 * fontSize - 4), Color(0, 0, 255, 80));
+                        Vector(width + 2 * fontWidth - 4, panelHeight - 4), Color(0, 0, 255, 80));
 
         Float32 scoreY = y + height - fontSize * (showRoundProgress ? 2 : 1);
         renderer.quadXY(Vector(x - fontWidth - 5, scoreY),
