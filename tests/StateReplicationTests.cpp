@@ -209,9 +209,12 @@ namespace {
             return result;
         }
 
+        std::size_t rootMembers() const noexcept { return rootObjectMembers; }
+
     private:
         const std::string &source;
         std::size_t position = 0;
+        std::size_t rootObjectMembers = 0;
 
         bool string() {
             if (position >= source.size() || source[position++] != '"') return false;
@@ -239,9 +242,11 @@ namespace {
         }
 
         bool object(std::size_t &result) {
+            const bool root = position == 0;
             ++position;
             if (position < source.size() && source[position] == '}') { ++position; return true; }
             while (position < source.size()) {
+                if (root) ++rootObjectMembers;
                 if (!string() || position >= source.size() || source[position++] != ':' || !value(result))
                     return false;
                 if (position >= source.size()) return false;
@@ -1613,6 +1618,79 @@ D6R_TEST_CASE("REP-017 REP-048 maximum canonical completed result accepts only d
         evidence += attack.name + "=" + (snapshotRejected && retained ? "true" : "false");
     }
     D6R_REQUIRE_EQ(std::string("over-bound=true;malformed=true;mixed-mutation=true"), evidence);
+}
+
+D6R_TEST_CASE("REP-017 REP-048 near-limit twentieth result member is rejected before state mutation") {
+    constexpr std::size_t ExpectedMaximumParsedValues = 23512;
+    const auto initial = maximumCompletedReplicationState(false);
+    const auto departed = maximumCompletedReplicationState(true);
+
+    JsonValueCounter canonicalShape(departed.result.serialized);
+    const auto canonicalValues = canonicalShape.count();
+    D6R_REQUIRE(canonicalValues.has_value());
+    D6R_REQUIRE_EQ(ExpectedMaximumParsedValues, *canonicalValues);
+    D6R_REQUIRE_EQ(19u, canonicalShape.rootMembers());
+
+    auto wide = departed;
+    auto wideResult = maximumCompletedResult(true);
+    wideResult.finalWinnerPlayerIds.pop_back();
+    const auto serializedWideBase = A::serializeSessionResult(wideResult);
+    D6R_REQUIRE(serializedWideBase.has_value());
+    wide.result.serialized = *serializedWideBase;
+    wide.result.serialized.insert(wide.result.serialized.size() - 1, ",\"twentieth\":null");
+    JsonValueCounter wideShape(wide.result.serialized);
+    const auto wideValues = wideShape.count();
+    D6R_REQUIRE(wideValues.has_value());
+    D6R_REQUIRE_EQ(ExpectedMaximumParsedValues, *wideValues);
+    D6R_REQUIRE_EQ(20u, wideShape.rootMembers());
+    D6R_REQUIRE(R::validateCanonicalState(wide));
+
+    auto duplicate = departed;
+    D6R_REQUIRE(replaceOnce(duplicate.result.serialized,
+            "\"label\":\"Maximum canonical result\"",
+            "\"state\":\"Maximum canonical result\""));
+    JsonValueCounter duplicateShape(duplicate.result.serialized);
+    const auto duplicateValues = duplicateShape.count();
+    D6R_REQUIRE(duplicateValues.has_value());
+    D6R_REQUIRE_EQ(ExpectedMaximumParsedValues, *duplicateValues);
+    D6R_REQUIRE_EQ(19u, duplicateShape.rootMembers());
+    D6R_REQUIRE(R::validateCanonicalState(duplicate));
+
+    const auto legitimateUpdate = validUpdate(initial, departed);
+    const auto acceptedBytes = R::serializeReplicationSnapshot({1, initial});
+    std::string evidence;
+    for (const auto &[name, attack]: std::vector<std::pair<std::string, R::CanonicalState>>{
+            {"twentieth-member", wide}, {"duplicate-key", duplicate}}) {
+        R::ReplicatedState full;
+        D6R_REQUIRE(full.apply({1, initial}) == R::ApplyResult::Applied);
+        const bool fullRejected = full.apply({2, attack}) == R::ApplyResult::Invalid
+                && full.version() == 1 && full.current() && full.state()
+                && R::serializeReplicationSnapshot({full.version(), *full.state()}) == acceptedBytes;
+
+        auto attackedUpdate = legitimateUpdate;
+        attackedUpdate.result = attack.result;
+        R::ReplicatedState incremental;
+        D6R_REQUIRE(incremental.apply({1, initial}) == R::ApplyResult::Applied);
+        const bool resynchronizing = incremental.apply(attackedUpdate)
+                                     == R::ApplyResult::ResynchronizationRequired
+                && incremental.version() == 1 && !incremental.current() && incremental.state() == nullptr;
+        const bool retained = resynchronizing
+                && incremental.apply({1, initial}) == R::ApplyResult::Applied
+                && incremental.current() && incremental.state()
+                && R::serializeReplicationSnapshot(
+                        {incremental.version(), *incremental.state()}) == acceptedBytes;
+
+        if (!evidence.empty()) evidence += ';';
+        evidence += name + "=" + (fullRejected && retained ? "true" : "false");
+    }
+    D6R_REQUIRE_EQ(std::string("twentieth-member=true;duplicate-key=true"), evidence);
+
+    R::ReplicatedState maximumSnapshot;
+    D6R_REQUIRE(maximumSnapshot.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(maximumSnapshot.apply({2, departed}) == R::ApplyResult::Applied);
+    R::ReplicatedState maximumIncremental;
+    D6R_REQUIRE(maximumIncremental.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(maximumIncremental.apply(legitimateUpdate) == R::ApplyResult::Applied);
 }
 
 D6R_TEST_CASE("REP-017 REP-025 REP-048 publisher freezes retained result while following Lobby remains editable") {
