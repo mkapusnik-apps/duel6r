@@ -387,6 +387,22 @@ namespace {
         return state;
     }
 
+    R::CanonicalState firstResultWithDepartureLabels(bool interrupted,
+                                                       bool canonicalDeparture,
+                                                       bool resultDeparture) {
+        auto state = interrupted ? retainedResultWithDepartureLabels(true)
+                                 : completedResultWithDepartureLabels();
+        state.phaseTime = 14;
+        if (canonicalDeparture) state.players[1].lifeState = R::LifeState::Departed;
+        if (resultDeparture) {
+            const bool replaced = replaceOnce(state.result.serialized,
+                    "\"participantId\":21,\"departed\":false",
+                    "\"participantId\":21,\"departed\":true");
+            D6R_REQUIRE(replaced);
+        }
+        return state;
+    }
+
     R::CanonicalState retainedInterruptedLobby() {
         auto state = retainedCompletedLobby();
         state.currentRoundNumber = 1;
@@ -700,6 +716,132 @@ namespace {
         const auto update = publisher.publish(std::move(after), std::move(events));
         D6R_REQUIRE(update.has_value());
         return *update;
+    }
+
+    enum class FirstResultDelivery { InitialSnapshot, ResynchronizationSnapshot, IncrementalUpdate };
+
+    bool firstResultDepartureScenario(bool interrupted, bool canonicalDeparture,
+                                      bool resultDeparture, FirstResultDelivery delivery) {
+        const auto terminal = firstResultWithDepartureLabels(
+                interrupted, canonicalDeparture, resultDeparture);
+        const auto synchronized = firstResultWithDepartureLabels(interrupted, true, true);
+        const bool shouldAccept = canonicalDeparture && resultDeparture;
+        D6R_REQUIRE(R::validateCanonicalState(terminal));
+        D6R_REQUIRE(R::validateCanonicalState(synchronized));
+
+        R::ReplicatedState client;
+        R::StateVersion retainedVersion = 0;
+        std::optional<R::CanonicalState> retained;
+        const R::PresentationEvent pendingEvent{991, "result-transition", 0, 0, 0, 0};
+        const R::PresentationEvent rejectedEvent{992, "result-transition", 0, 0, 0, 0};
+        bool applicationCorrect = false;
+
+        if (delivery == FirstResultDelivery::InitialSnapshot) {
+            const auto result = client.apply({1, terminal});
+            applicationCorrect = shouldAccept
+                    ? result == R::ApplyResult::Applied && client.version() == 1
+                      && client.current() && client.state()
+                    : result == R::ApplyResult::Invalid && client.version() == 0
+                      && !client.current() && client.retainedState() == nullptr
+                      && client.takePresentationEvents().empty();
+            if (!shouldAccept && client.apply({1, synchronized}) != R::ApplyResult::Applied) return false;
+        } else {
+            const auto active = activeState();
+            auto beforeTerminal = active;
+            beforeTerminal.phaseTime++;
+            D6R_REQUIRE(client.apply({1, active}) == R::ApplyResult::Applied);
+            D6R_REQUIRE(client.apply(validUpdate(active, beforeTerminal, {pendingEvent}))
+                        == R::ApplyResult::Applied);
+            retainedVersion = client.version();
+            retained = *client.retainedState();
+
+            R::ApplyResult result = R::ApplyResult::Invalid;
+            if (delivery == FirstResultDelivery::ResynchronizationSnapshot) {
+                client.requireResynchronization();
+                result = client.apply({3, terminal});
+            } else {
+                auto update = validUpdate(beforeTerminal, terminal, {rejectedEvent});
+                update.baseline = 2;
+                update.version = 3;
+                result = client.apply(update);
+            }
+
+            if (shouldAccept) {
+                applicationCorrect = result == R::ApplyResult::Applied && client.version() == 3
+                        && client.current() && client.state();
+            } else {
+                const auto expectedResult = delivery == FirstResultDelivery::IncrementalUpdate
+                        ? R::ApplyResult::ResynchronizationRequired : R::ApplyResult::Invalid;
+                applicationCorrect = result == expectedResult && client.version() == retainedVersion
+                        && !client.current() && client.state() == nullptr && client.retainedState()
+                        && R::serializeReplicationSnapshot({retainedVersion, *client.retainedState()})
+                           == R::serializeReplicationSnapshot({retainedVersion, *retained});
+                if (client.apply({3, synchronized}) != R::ApplyResult::Applied) return false;
+            }
+        }
+
+        if (!applicationCorrect || !client.state()
+            || client.state()->players[1].lifeState != R::LifeState::Departed
+            || client.state()->result.serialized != synchronized.result.serialized) return false;
+
+        auto followingLobby = synchronized;
+        followingLobby.phase = R::Phase::Lobby;
+        followingLobby.participants[0].ready = false;
+        followingLobby.participants[1].ready = false;
+        followingLobby.messages.status = "Lobby";
+        followingLobby.messages.scoreSummaryVisible = false;
+        followingLobby = legitimateFollowingLobbyChange(std::move(followingLobby));
+        const auto followingVersion = client.version() + 1;
+        bool followingApplied = false;
+        if (delivery == FirstResultDelivery::IncrementalUpdate) {
+            auto update = validUpdate(synchronized, followingLobby);
+            update.baseline = client.version();
+            update.version = followingVersion;
+            followingApplied = client.apply(update) == R::ApplyResult::Applied;
+        } else {
+            followingApplied = client.apply({followingVersion, followingLobby}) == R::ApplyResult::Applied;
+        }
+        if (!followingApplied || !client.state()
+            || client.state()->settings.assistance != followingLobby.settings.assistance
+            || !client.state()->participants[0].ready
+            || client.state()->players[1].displayName != "Guest (Edited)") return false;
+
+        auto removed = followingLobby;
+        removed.participants.pop_back();
+        removed.players.pop_back();
+        const auto removalVersion = client.version() + 1;
+        if (client.apply({removalVersion, removed}) != R::ApplyResult::Applied) return false;
+        const auto retainedAfterRemoval = R::serializeReplicationSnapshot(
+                {client.version(), *client.retainedState()});
+        const bool identityHistoryPreserved = client.apply({client.version() + 1, followingLobby})
+                                              == R::ApplyResult::Invalid
+                && client.version() == removalVersion && client.retainedState()
+                && R::serializeReplicationSnapshot({client.version(), *client.retainedState()})
+                   == retainedAfterRemoval;
+
+        const auto events = client.takePresentationEvents();
+        const bool pendingEventsPreserved = delivery == FirstResultDelivery::InitialSnapshot
+                ? events.empty()
+                : shouldAccept && delivery == FirstResultDelivery::IncrementalUpdate
+                  ? events.size() == 2 && events[0].eventId == pendingEvent.eventId
+                    && events[1].eventId == rejectedEvent.eventId
+                  : events.size() == 1 && events.front().eventId == pendingEvent.eventId;
+        return identityHistoryPreserved && pendingEventsPreserved;
+    }
+
+    std::string firstResultDepartureMatrix(FirstResultDelivery delivery) {
+        std::string evidence;
+        for (const bool interrupted: {false, true}) {
+            if (!evidence.empty()) evidence += ';';
+            evidence += std::string(interrupted ? "Interrupted" : "Completed")
+                    + "/synchronized="
+                    + (firstResultDepartureScenario(interrupted, true, true, delivery) ? "true" : "false")
+                    + ",result-only="
+                    + (firstResultDepartureScenario(interrupted, false, true, delivery) ? "true" : "false")
+                    + ",canonical-only="
+                    + (firstResultDepartureScenario(interrupted, true, false, delivery) ? "true" : "false");
+        }
+        return evidence;
     }
 
     void requireRejectedWithoutVersionMutation(const R::IncrementalUpdate &invalid) {
@@ -1651,6 +1793,27 @@ D6R_TEST_CASE("REP-017 REP-048 REP-066 retained result departure consistency cli
     D6R_REQUIRE_EQ(std::string(
             "Completed/synchronized=true,result-only=true,canonical-only=true,departed-to-alive=true;"
             "Interrupted/synchronized=true,result-only=true,canonical-only=true,departed-to-alive=true"), evidence);
+}
+
+D6R_TEST_CASE("REP-017 REP-041 REP-042 REP-066 initial first-result snapshot departure consistency") {
+    D6R_REQUIRE_EQ(std::string(
+            "Completed/synchronized=true,result-only=true,canonical-only=true;"
+            "Interrupted/synchronized=true,result-only=true,canonical-only=true"),
+            firstResultDepartureMatrix(FirstResultDelivery::InitialSnapshot));
+}
+
+D6R_TEST_CASE("REP-017 REP-040..044 REP-066 resynchronized first-result snapshot departure consistency") {
+    D6R_REQUIRE_EQ(std::string(
+            "Completed/synchronized=true,result-only=true,canonical-only=true;"
+            "Interrupted/synchronized=true,result-only=true,canonical-only=true"),
+            firstResultDepartureMatrix(FirstResultDelivery::ResynchronizationSnapshot));
+}
+
+D6R_TEST_CASE("REP-017 REP-048..051 REP-066 first-result active-to-terminal update departure consistency") {
+    D6R_REQUIRE_EQ(std::string(
+            "Completed/synchronized=true,result-only=true,canonical-only=true;"
+            "Interrupted/synchronized=true,result-only=true,canonical-only=true"),
+            firstResultDepartureMatrix(FirstResultDelivery::IncrementalUpdate));
 }
 
 D6R_TEST_CASE("REP-017 REP-048 maximum canonical completed result accepts only departed transitions") {

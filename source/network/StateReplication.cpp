@@ -582,6 +582,20 @@ namespace Duel6::Network::Replication {
             return result;
         }
 
+        bool consistentCanonicalResultDepartures(const CanonicalState &state) noexcept {
+            try {
+                const auto result = canonicalResultLabels(state.result.serialized);
+                if (!result) return true;
+                for (const auto &row: result->rows) {
+                    const auto player = std::find_if(state.players.begin(), state.players.end(),
+                            [&](const auto &value) { return value.playerId == row.playerId; });
+                    if (player != state.players.end()
+                        && row.departed != (player->lifeState == LifeState::Departed)) return false;
+                }
+                return true;
+            } catch (...) { return false; }
+        }
+
         std::optional<std::set<Identity>> departedPlayerTransitions(
                 const CanonicalState &before, const CanonicalState &after) {
             if (before.players.size() != after.players.size()) return std::nullopt;
@@ -1081,6 +1095,7 @@ namespace Duel6::Network::Replication {
 
     ApplyResult ReplicatedState::apply(const FullSnapshot &snapshot) {
         if (snapshot.version == 0 || !validateCanonicalState(snapshot.state)
+            || !consistentCanonicalResultDepartures(snapshot.state)
             || (accepted && snapshot.state.sessionId != accepted->sessionId)
             || (accepted && accepted->matchId != 0 && snapshot.state.matchId == accepted->matchId
                 && sameRound(accepted->round, snapshot.state.round)
@@ -1214,7 +1229,7 @@ namespace Duel6::Network::Replication {
                 return rejectIncremental();
             eventTextBytes += event.type.size();
         }
-        if (!validateCanonicalState(candidate)
+        if (!validateCanonicalState(candidate) || !consistentCanonicalResultDepartures(candidate)
             || !withinPayloadLimit(candidate, update.events.size(), eventTextBytes)) return rejectIncremental();
         accepted = std::move(candidate); acceptedVersion = update.version;
         acceptedParticipantIdentities = std::move(nextAcceptedParticipants);
