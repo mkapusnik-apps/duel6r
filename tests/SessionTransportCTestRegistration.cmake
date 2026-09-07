@@ -217,6 +217,17 @@ if (UNIX OR WIN32)
             TIMEOUT 180)
 
     add_test(
+            NAME duel6r-quick-liquid-behavior-tests
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/QuickLiquidBehaviorTests.py
+                    $<TARGET_FILE:${D6R_SERVER_APP_NAME}>
+    )
+    set_tests_properties(duel6r-quick-liquid-behavior-tests PROPERTIES
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            LABELS "application;integration;gameplay;quick-liquid;regression"
+            TIMEOUT 60)
+
+    add_test(
             NAME duel6r-session-transport-process-tests
             COMMAND ${Python3_EXECUTABLE}
                     ${CMAKE_SOURCE_DIR}/tests/SessionTransportProcessTests.py
