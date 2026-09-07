@@ -68,6 +68,21 @@ namespace Duel6 {
                                                     RandomSource &randomSource) const {
         game.log("...Preparing team players");
         Level::StartingPositionList startingPositions;
+
+        if (quickLiquid) {
+            findQuickLiquidStartingPositions(world.getLevel(), startingPositions, randomSource);
+            Size playerIndex = 0;
+            for (Player &player : players) {
+                auto &ammoRange = game.getSettings().getAmmoRange();
+                Int32 ammo = Math::random(ammoRange.first, ammoRange.second, randomSource, "starting-ammo");
+                Level::StartingPosition position = startingPositions[playerIndex % startingPositions.size()];
+                player.startRound(world, position.first, position.second, ammo,
+                                  Weapon::getRandomEnabled(game.getSettings(), randomSource));
+                playerIndex++;
+            }
+            return;
+        }
+
         world.getLevel().findStartingPositions(startingPositions);
 
         Int32 layerSpan = Int32(startingPositions.size()) / teamsCount;
