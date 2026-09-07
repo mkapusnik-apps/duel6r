@@ -29,6 +29,8 @@ A **tree-burning explosion** is an explosion that could burn an applicable tree 
 
 A **Quick Liquid preferred starting position** is a level starting position above the water surface after the first two water-rise steps.
 
+A **Team starting area** is the separate level area assigned to one team for starting-position selection in a round.
+
 A **random permutation** is one roster order selected at random from all possible roster orders. The existing order is a valid result.
 
 Requirement IDs are stable references. Inventory notes are current observations and are not permanent product requirements.
@@ -235,8 +237,8 @@ The **batch controller-detection action** detects a control preset for each play
 
 - **ENV-QL-001** At the start of each round with Quick Liquid on, the game must identify all Quick Liquid preferred starting positions.
 - **ENV-QL-002** For the position count in this section, the game must count each level starting position one time.
-- **ENV-QL-003** If there is a preferred starting position for each player, the game must place each player at a preferred starting position.
-- **ENV-QL-004** If there are fewer preferred starting positions than players, the game must use all preferred positions before it uses other starting positions.
+- **ENV-QL-003** If there is a preferred starting position for each player, the game must place each player at a preferred starting position. In Team deathmatch, Quick Liquid must not change the Team starting-area assignment for the round. The game must prefer the player's Team starting area when positions have equal Quick Liquid priority.
+- **ENV-QL-004** If there are fewer preferred starting positions than players, the game must use all preferred positions before it uses other starting positions. In Team deathmatch, Quick Liquid must not change the Team starting-area assignment for the round. The game must prefer the player's Team starting area when positions have equal Quick Liquid priority.
 - **ENV-QL-005** Under the condition in ENV-QL-004, the first water-rise step must occur eight seconds after sudden death starts. This wait adds five seconds.
 - **ENV-QL-006** After ENV-QL-005, water-rise steps must use the three-second interval in ENV-009.
 - **ENV-QL-007** ENV-QL-001 through ENV-QL-006 must apply in Deathmatch, Predator, and Team deathmatch.
@@ -532,8 +534,8 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-012** Starting weapons, ammo, shooting, charge, reload, drops, pickups, and empty-ammo behavior follow PLY-001 and CMB-001 through CMB-020. A replaced weapon must remain in the world at the player's collider position. It must receive twice the player's horizontal and vertical velocity. This behavior must also apply when the replaced weapon has zero ammo.
 - **AC-013** Each immediate and timed bonus produces the applicable behavior in BON-001 through BON-020.
 - **AC-014** Spawn protection, indicators, water, drowning, elevators, stuck recovery, regeneration, and sudden death follow PLY-003 through ENV-013.
-- **AC-ENV-QL-001** In each selectable mode, enough preferred starting positions put every player at a preferred position in each Quick Liquid round.
-- **AC-ENV-QL-002** In each selectable mode, too few preferred starting positions make the game use all preferred positions first. The first water-rise step occurs after eight seconds.
+- **AC-ENV-QL-001** In each selectable mode, enough preferred starting positions put every player at a preferred position in each Quick Liquid round. Quick Liquid keeps the round's Team starting-area assignment. Team players use their Team starting areas when possible without reducing preferred-position priority.
+- **AC-ENV-QL-002** In each selectable mode, too few preferred starting positions make the game use all preferred positions first. Quick Liquid keeps the round's Team starting-area assignment. Team players use their Team starting areas when possible without reducing preferred-position priority. The first water-rise step occurs after eight seconds.
 - **AC-ENV-QL-003** After the delayed first step, water rises every three seconds. With Quick Liquid off, starting-position selection and water-rise timing remain unchanged.
 - **AC-015** Each selectable mode uses one shared arena view for each supported player count. The view does not divide into separate player regions.
 - **AC-016** A completed round persists person statistics, roster membership, and played-round count for the next menu load.
