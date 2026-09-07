@@ -1,14 +1,21 @@
+#include <cstdlib>
 #include <exception>
 #include <iostream>
+#include <string>
 
 #include "source/Exception.h"
 #include "tests/TestHarness.h"
 
 int main() {
     const auto &tests = Duel6::Test::registry();
+    const char *filterValue = std::getenv("D6R_TEST_FILTER");
+    const std::string filter = filterValue ? filterValue : "";
     std::size_t failed = 0;
+    std::size_t executed = 0;
 
     for (const auto &test: tests) {
+        if (!filter.empty() && std::string(test.name).find(filter) == std::string::npos) continue;
+        ++executed;
         try {
             test.function();
             std::cout << "[PASS] " << test.name << '\n';
@@ -30,6 +37,6 @@ int main() {
         }
     }
 
-    std::cout << "Executed " << tests.size() << " test(s), failures: " << failed << '\n';
+    std::cout << "Executed " << executed << " test(s), failures: " << failed << '\n';
     return failed == 0 ? 0 : 1;
 }

@@ -397,6 +397,8 @@ namespace {
                     catch (...) { return Duel6::Network::SendResult::NotConnected; }
                 }, environment, true);
         bool sessionAdmitted = false;
+        std::uint64_t admittedSessionId = 0;
+        Duel6::Network::Lifecycle::ParticipantId admittedParticipantId = 0;
         std::unique_ptr<Duel6::Network::Input::ClientCommandSession> playerInput;
         std::unique_ptr<Duel6::Network::Lifecycle::GuestSessionRecovery> sessionRecovery;
         Duel6::Network::Lifecycle::ConnectionId guestConnectionId = 1;
@@ -541,7 +543,7 @@ namespace {
                     printAdmissionResult(output, decision.result);
                     closeClient();
                     return 2;
-                case GuestDecision::Admitted:
+                case GuestDecision::Admitted: {
                     printAdmissionResult(output, decision.result);
                     if (!runtimeDependencies.productionReplicationProtocol) {
                         closeClient();
@@ -554,6 +556,8 @@ namespace {
                                 catch (...) { return Duel6::Network::SendResult::NotConnected; }
                             });
                     if (reconnectGrant) {
+                        admittedSessionId = reconnectGrant->sessionId;
+                        admittedParticipantId = decision.result.participantId;
                         sessionRecovery = std::make_unique<Duel6::Network::Lifecycle::GuestSessionRecovery>(
                                 reconnectGrant->sessionId, decision.result.participantId,
                                 guestConnectionId, replicatedConnection.replicatedState().current());
@@ -574,6 +578,7 @@ namespace {
                     sessionAdmitted = true;
                     replicatedConnection.resumeOutboundProcessing();
                     return std::nullopt;
+                }
                 case GuestDecision::InvalidHost:
                     printInvalidHostAdmissionMessage(output);
                     closeClient();
@@ -695,6 +700,23 @@ namespace {
 
 establishedSession:
         while (!cancelled()) {
+            std::optional<Duel6::Network::Lifecycle::ParticipantActionKind> participantAction;
+            try {
+                if (runtimeDependencies.localParticipantAction)
+                    participantAction = runtimeDependencies.localParticipantAction();
+            } catch (...) { break; }
+            if (participantAction) {
+                auto payload = Duel6::Network::Lifecycle::serializeParticipantAction({
+                        admittedSessionId, admittedParticipantId, *participantAction});
+                Duel6::Network::SendResult sent = Duel6::Network::SendResult::NotConnected;
+                try { sent = connection->send(std::move(payload)); } catch (...) {}
+                if (sent != Duel6::Network::SendResult::Accepted) break;
+                if (*participantAction == Duel6::Network::Lifecycle::ParticipantActionKind::Leave) {
+                    if (sessionRecovery) sessionRecovery->leave();
+                    closeClient();
+                    return 0;
+                }
+            }
             if (!replicatedConnection.sampleNetwork(runtimeNow(runtimeDependencies))) {
                 try { connection->requestClose(); } catch (...) {}
                 break;
@@ -815,6 +837,14 @@ establishedSession:
         closeClient();
         if (!sessionRecovery) return 2;
         while (!cancelled()) {
+            bool reservedLeaveRequested = false;
+            try {
+                if (runtimeDependencies.localParticipantAction) {
+                    const auto action = runtimeDependencies.localParticipantAction();
+                    reservedLeaveRequested = action
+                            && *action == Duel6::Network::Lifecycle::ParticipantActionKind::Leave;
+                }
+            } catch (...) { return 2; }
             const auto now = runtimeNow(runtimeDependencies);
             sessionRecovery->update(now);
             if (sessionRecovery->journey() == Duel6::Network::Lifecycle::GuestJourney::ConnectionFailure) {
@@ -825,6 +855,10 @@ establishedSession:
             }
             const auto retryRequest = sessionRecovery->retry();
             if (!retryRequest) {
+                if (reservedLeaveRequested) {
+                    sessionRecovery->leave();
+                    return 0;
+                }
                 try { runtimeDependencies.wait(std::chrono::milliseconds(5)); }
                 catch (...) { return 2; }
                 continue;
@@ -833,6 +867,10 @@ establishedSession:
             try { retryClient = runtimeDependencies.clientFactory(); } catch (...) {}
             if (!retryClient || !retryClient->start(config.listenEndpoint)) {
                 try { if (retryClient) retryClient->close(); } catch (...) {}
+                if (reservedLeaveRequested) {
+                    sessionRecovery->leave();
+                    return 0;
+                }
                 try { runtimeDependencies.wait(std::chrono::milliseconds(50)); } catch (...) { return 2; }
                 continue;
             }
@@ -850,13 +888,29 @@ establishedSession:
             }
             if (!reconnected) {
                 try { retryClient->close(); } catch (...) {}
+                if (reservedLeaveRequested) {
+                    sessionRecovery->leave();
+                    return 0;
+                }
                 continue;
             }
             std::shared_ptr<Duel6::Server::AdmissionRuntimeConnection> retryConnection;
             try { retryConnection = retryClient->connection(); } catch (...) {}
             if (!retryConnection) {
                 try { retryClient->close(); } catch (...) {}
+                if (reservedLeaveRequested) {
+                    sessionRecovery->leave();
+                    return 0;
+                }
                 continue;
+            }
+            if (reservedLeaveRequested) {
+                auto leavePayload = Duel6::Network::Lifecycle::serializeReconnectRequest(*retryRequest);
+                try { (void) retryConnection->sendSensitive(leavePayload); } catch (...) {}
+                Duel6::Network::Lifecycle::eraseLifecycleCredentialPayload(leavePayload);
+                sessionRecovery->leave();
+                try { retryClient->close(); } catch (...) {}
+                return 0;
             }
             auto attemptPayload = Duel6::Network::Lifecycle::serializeReconnectAttempt(
                     {*retryRequest, request});
@@ -1376,8 +1430,10 @@ namespace Duel6::Server {
                 return true;
             };
             hooks.removeBatch = [&](const std::vector<Network::Lifecycle::ParticipantId> &participants,
-                                    Network::Lifecycle::Phase) {
-                if (!hostedMatch->removeLifecycleParticipants(participants)
+                                     Network::Lifecycle::Phase) {
+                if (!hostedMatch->canRemoveLifecycleParticipants(participants)
+                    || !admissionPolicy->canRemoveParticipants(participants)
+                    || !hostedMatch->removeLifecycleParticipants(participants)
                     || !admissionPolicy->removeParticipants(participants)) return false;
                 for (const auto participantId: participants) {
                     participantConnections.erase(participantId);
@@ -1406,10 +1462,76 @@ namespace Duel6::Server {
         Network::TransportTimePoint nextMatchTick{};
         const auto matchTickDuration = std::chrono::duration_cast<Network::TransportTimePoint::duration>(
                 std::chrono::duration<double>(1.0 / static_cast<double>(Authoritative::FixedTickRate)));
+        const auto startMatchIfReady = [&] {
+            if (!hostedMatch || !sessionLifecycle || !admissionPolicy || !hostedSettings
+                || hostedMatch->stage() != Authoritative::HostedMatchStage::Lobby
+                || !sessionLifecycle->allConnectedAndReady()) return true;
+            auto current = replicationLobbyState(
+                    admissionPolicy->allocation(), connectedParticipants, *hostedSettings);
+            if (current.participants.size() < 2 || current.participants.size() > Network::MaxNetworkPlayers
+                || current.players.size() < 2 || current.players.size() > Network::MaxNetworkPlayers
+                || !std::all_of(current.participants.begin(), current.participants.end(), [](const auto &participant) {
+                    return participant.connection == Network::Replication::ConnectionState::Connected;
+                }) || !std::all_of(current.participants.begin(), current.participants.end(), [&](const auto &participant) {
+                    return hostedMatch->participantReady(participant.participantId);
+                })) return true;
+            if (!runtimeDependencies.authoritativeRuntimeFactory) return false;
+            hostPlayerInput->reset();
+            auto matchDependencies = runtimeDependencies.authoritativeRuntimeFactory(
+                    *hostedSettings, current.players, hostedContent);
+            const auto started = hostedMatch->start(
+                    *hostedSettings, current.players, hostedContent.manifest, std::move(matchDependencies));
+            if (started.code != Authoritative::OutcomeCode::None) return false;
+            admissionPolicy->setMatchStarted(true);
+            nextMatchTick = runtimeNow(runtimeDependencies) + matchTickDuration;
+            return true;
+        };
         const auto cancelled = [this] {
             try { return runtimeDependencies.cancelled(); } catch (...) { return true; }
         };
         while (!stopRequested && !cancelled()) {
+            bool intentionalEnd = false;
+            try {
+                intentionalEnd = runtimeDependencies.intentionalHostEndRequested
+                                 && runtimeDependencies.intentionalHostEndRequested();
+            } catch (...) { runtimeFailed = true; }
+            if (runtimeFailed) break;
+            if (intentionalEnd) {
+                if (!sessionLifecycle || !hostedMatch || !admissionPolicy) {
+                    runtimeFailed = true;
+                    break;
+                }
+                const auto &host = admissionPolicy->allocation().hostParticipant();
+                const auto ended = sessionLifecycle->endSession(
+                        host.participantId,
+                        (std::numeric_limits<Network::Lifecycle::ConnectionId>::max)());
+                const auto matchEnded = hostedMatch->end(host.participantId);
+                if (!ended.accepted || (matchEnded.code != Authoritative::OutcomeCode::EndedIntentionally
+                    && matchEnded.code != Authoritative::OutcomeCode::None)) runtimeFailed = true;
+                break;
+            }
+            std::optional<bool> hostReadiness;
+            try {
+                if (runtimeDependencies.hostReadinessChange)
+                    hostReadiness = runtimeDependencies.hostReadinessChange();
+            } catch (...) { runtimeFailed = true; }
+            if (runtimeFailed) break;
+            if (hostReadiness) {
+                if (!sessionLifecycle || !hostedMatch || !admissionPolicy
+                    || hostedMatch->stage() != Authoritative::HostedMatchStage::Lobby) {
+                    runtimeFailed = true;
+                    break;
+                }
+                const auto &host = admissionPolicy->allocation().hostParticipant();
+                if (!sessionLifecycle->setReady(
+                        host.participantId,
+                        (std::numeric_limits<Network::Lifecycle::ConnectionId>::max)(), *hostReadiness)
+                    || !hostedMatch->setParticipantReady(host.participantId, *hostReadiness)
+                    || !startMatchIfReady()) {
+                    runtimeFailed = true;
+                    break;
+                }
+            }
             while (true) {
                 std::shared_ptr<AdmissionRuntimeConnection> connection;
                 try { connection = listener->acceptConnection(); }
@@ -1455,7 +1577,19 @@ namespace Duel6::Server {
                         runtime.requestReceived = true;
                         const auto reconnectAttempt = sessionLifecycle
                                 ? Network::Lifecycle::deserializeReconnectAttempt(frame.payload) : std::nullopt;
-                        if (reconnectAttempt && frame.receivedAt < runtime.requestDeadline) {
+                        const auto reservedLeave = sessionLifecycle
+                                ? Network::Lifecycle::deserializeReconnectRequest(frame.payload) : std::nullopt;
+                        if (reservedLeave && frame.receivedAt < runtime.requestDeadline) {
+                            deferLifecycleClose = true;
+                            try {
+                                (void) sessionLifecycle->queueReservedLeave(*reservedLeave, runtime.connectionId);
+                            } catch (...) {
+                                deferredLifecycleCloses.insert(runtime.connectionId);
+                            }
+                            deferLifecycleClose = false;
+                            if (deferredLifecycleCloses.erase(runtime.connectionId))
+                                connection->requestClose();
+                        } else if (reconnectAttempt && frame.receivedAt < runtime.requestDeadline) {
                             auto compatibility = reconnectCompatibility(
                                     reconnectAttempt->compatibility, admissionPolicy->frozenManifest());
                             const auto admitted = admissionPolicy->allocation().admittedParticipants();
@@ -1483,16 +1617,27 @@ namespace Duel6::Server {
                             response.outcome = reconnect.outcome;
                             response.nextGrant = reconnect.nextGrant;
                             auto responsePayload = Network::Lifecycle::serializeReconnectResponse(response);
-                            const auto responseSent = responsePayload.empty()
-                                    ? Network::SendResult::NotConnected : connection->sendSensitive(responsePayload);
+                            Network::SendResult responseSent = Network::SendResult::NotConnected;
+                            try {
+                                if (!responsePayload.empty()) responseSent = connection->sendSensitive(responsePayload);
+                            } catch (...) {}
                             Network::Lifecycle::eraseLifecycleCredentialPayload(responsePayload);
                             if (reconnect.outcome == Network::Lifecycle::ReconnectOutcome::Accepted
                                 && responseSent == Network::SendResult::Accepted
                                 && participant != admitted.end()) {
-                                runtime.offer = {participant->participantId, participant->playerIds};
-                                runtime.admitted = true;
-                                connection->markAdmissionSucceeded();
+                                if (!sessionLifecycle->reconnectDeliverySucceeded(
+                                        reconnectAttempt->request.participantId, runtime.connectionId)) {
+                                    runtimeFailed = true;
+                                    deferredLifecycleCloses.insert(runtime.connectionId);
+                                } else {
+                                    runtime.offer = {participant->participantId, participant->playerIds};
+                                    runtime.admitted = true;
+                                    connection->markAdmissionSucceeded();
+                                }
                             } else {
+                                if (reconnect.outcome == Network::Lifecycle::ReconnectOutcome::Accepted)
+                                    (void) sessionLifecycle->reconnectDeliveryFailed(
+                                            reconnectAttempt->request.participantId, runtime.connectionId);
                                 deferredLifecycleCloses.insert(runtime.connectionId);
                             }
                             if (deferredLifecycleCloses.erase(runtime.connectionId))
@@ -1602,8 +1747,11 @@ namespace Duel6::Server {
                             }
                             if (replicationReady && lifecycleGrant) {
                                 auto grantPayload = Network::Lifecycle::serializeReconnectGrant(*lifecycleGrant);
-                                replicationReady = !grantPayload.empty()
-                                    && connection->sendSensitive(grantPayload) == Network::SendResult::Accepted;
+                                Network::SendResult grantSent = Network::SendResult::NotConnected;
+                                try {
+                                    if (!grantPayload.empty()) grantSent = connection->sendSensitive(grantPayload);
+                                } catch (...) {}
+                                replicationReady = grantSent == Network::SendResult::Accepted;
                                 Network::Lifecycle::eraseLifecycleCredentialPayload(grantPayload);
                             }
                             const bool confirmationObserved = replicationReady
@@ -1618,35 +1766,14 @@ namespace Duel6::Server {
                                 result.participantId = runtime.offer.participantId;
                                 result.playerIds = runtime.offer.playerIds;
                                 printAdmissionResult(output, result);
-                                if (hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
-                                    auto current = replicationLobbyState(
-                                            admissionPolicy->allocation(), connectedParticipants, *hostedSettings);
-                                    const bool explicitlyReady = std::all_of(
-                                            current.players.begin(), current.players.end(), [&](const auto &player) {
-                                                return hostedMatch->participantReady(player.participantId);
-                                            });
-                                    if (current.players.size() >= 2 && explicitlyReady) {
-                                        if (!runtimeDependencies.authoritativeRuntimeFactory) {
-                                            runtimeFailed = true;
-                                            connection->requestClose();
-                                            throw std::runtime_error("Canonical runtime factory is unavailable");
-                                        }
-                                        hostPlayerInput->reset();
-                                        auto matchDependencies = runtimeDependencies.authoritativeRuntimeFactory(
-                                                *hostedSettings, current.players, hostedContent);
-                                        const auto started = hostedMatch->start(
-                                                *hostedSettings, current.players, hostedContent.manifest,
-                                                std::move(matchDependencies));
-                                        if (started.code != Authoritative::OutcomeCode::None) {
-                                            runtimeFailed = true;
-                                            connection->requestClose();
-                                        } else {
-                                            admissionPolicy->setMatchStarted(true);
-                                            nextMatchTick = runtimeNow(runtimeDependencies) + matchTickDuration;
-                                        }
-                                    }
+                                if (!startMatchIfReady()) {
+                                    runtimeFailed = true;
+                                    connection->requestClose();
                                 }
                             } else {
+                                if (sessionLifecycle)
+                                    (void) sessionLifecycle->queueIntentionalLeave(
+                                            runtime.offer.participantId, runtime.connectionId);
                                 connection->requestClose();
                             }
                         } else {
@@ -1673,7 +1800,25 @@ namespace Duel6::Server {
                         LifecycleCredentialPayloadGuard credentialPayload(unexpected.payload);
                         if (!hostedMatch) connection->requestClose();
                         else {
-                            if (Network::Input::isPlayerInputFrame(unexpected.payload)) {
+                            if (const auto action = Network::Lifecycle::deserializeParticipantAction(
+                                    unexpected.payload)) {
+                                const auto authorityAction = action->kind == Network::Lifecycle::ParticipantActionKind::Leave
+                                        ? Network::Trust::AuthorityAction::Leave
+                                        : Network::Trust::AuthorityAction::OwnReadiness;
+                                const auto decision = admissionPolicy->authorizationDecision(
+                                        runtime.connectionId, authorityAction);
+                                if (!decision.allowed || action->participantId != runtime.offer.participantId
+                                    || !sessionLifecycle
+                                    || !sessionLifecycle->applyParticipantAction(*action, runtime.connectionId)) {
+                                    if (!decision.allowed && decision.closeConnection) connection->requestClose();
+                                    else connection->requestClose();
+                                } else if (action->kind != Network::Lifecycle::ParticipantActionKind::Leave) {
+                                    const bool ready = action->kind
+                                            == Network::Lifecycle::ParticipantActionKind::Ready;
+                                    if (!hostedMatch->setParticipantReady(action->participantId, ready)
+                                        || !startMatchIfReady()) runtimeFailed = true;
+                                }
+                            } else if (Network::Input::isPlayerInputFrame(unexpected.payload)) {
                                 const auto frame = Network::Input::deserializeFrame(unexpected.payload);
                                 if (!frame || frame->kind != Network::Input::FrameKind::Command || !frame->command) {
                                     (void) write(*connection, Network::Input::serializeOutcome(

@@ -983,4 +983,11 @@ namespace Duel6 {
         timeToReload = weapon.isChargeable() ? getReloadInterval() : 0;
         setFlag(FlagHasGun);
     }
+
+    void Player::setHeadlessDeparted() noexcept {
+        if (!headless) return;
+        controllerState = 0;
+        setFlag(FlagDead | FlagLying);
+        unsetFlag(FlagMoveUp | FlagMoveDown | FlagMoveLeft | FlagMoveRight | FlagKnee | FlagPick);
+    }
 }

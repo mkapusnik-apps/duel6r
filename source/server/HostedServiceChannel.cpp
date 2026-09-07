@@ -179,34 +179,55 @@ namespace Duel6::Server {
 #endif
     }
 
-    bool HostedServiceChannel::stopRequested() noexcept {
-        if (stopped || !active()) return stopped;
+    void HostedServiceChannel::pollCommand() noexcept {
+        if (stopped || intentionalEnd || !active()) return;
         std::array<std::uint8_t, Network::HostServiceControlMessageBytes> message{};
 #ifdef D6R_TRANSPORT_WINDOWS
         DWORD available = 0;
         if (!PeekNamedPipe(static_cast<HANDLE>(controlHandle), nullptr, 0, nullptr, &available, nullptr)) {
             stopped = true;
-            return true;
+            return;
         }
-        if (available == 0) return false;
+        if (available == 0) return;
         DWORD readCount = 0;
         if (available != message.size()
             || !ReadFile(static_cast<HANDLE>(controlHandle), message.data(), static_cast<DWORD>(message.size()),
                          &readCount, nullptr) || readCount != message.size()) {
             stopped = true;
-            return true;
+            return;
         }
 #else
         const ssize_t readCount = read(controlDescriptor, message.data(), message.size());
-        if (readCount < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) return false;
+        if (readCount < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) return;
         if (readCount != static_cast<ssize_t>(message.size())) {
             stopped = true;
-            return true;
+            return;
         }
 #endif
         Network::HostServiceCommandCode command{};
-        stopped = !Network::decodeHostServiceCommand(message.data(), message.size(), command)
-                  || command == Network::HostServiceCommandCode::Stop;
+        if (!Network::decodeHostServiceCommand(message.data(), message.size(), command)) {
+            stopped = true;
+            return;
+        }
+        if (command == Network::HostServiceCommandCode::Stop) stopped = true;
+        else if (command == Network::HostServiceCommandCode::EndSession) intentionalEnd = true;
+        else readinessChange = command == Network::HostServiceCommandCode::Ready;
+    }
+
+    bool HostedServiceChannel::stopRequested() noexcept {
+        pollCommand();
         return stopped;
+    }
+
+    bool HostedServiceChannel::intentionalEndRequested() noexcept {
+        pollCommand();
+        return intentionalEnd;
+    }
+
+    std::optional<bool> HostedServiceChannel::takeReadinessChange() noexcept {
+        pollCommand();
+        auto result = readinessChange;
+        readinessChange.reset();
+        return result;
     }
 }

@@ -141,6 +141,19 @@ set_tests_properties(duel6r-network-trust-policy-tests PROPERTIES
         LABELS "application;network;security"
         TIMEOUT 30)
 
+add_executable(duel6r-session-lifecycle-tests
+        ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+        ${CMAKE_SOURCE_DIR}/tests/SessionLifecycleTests.cpp)
+target_include_directories(duel6r-session-lifecycle-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(duel6r-session-lifecycle-tests duel6r-network-scaffold)
+if (MINGW)
+    set_property(TARGET duel6r-session-lifecycle-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
+add_test(NAME duel6r-session-lifecycle-tests COMMAND duel6r-session-lifecycle-tests)
+set_tests_properties(duel6r-session-lifecycle-tests PROPERTIES
+        LABELS "application;integration;network;reconnect;lifecycle;security;regression"
+        TIMEOUT 30)
+
 add_executable(duel6r-admission-compatibility-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
         ${CMAKE_SOURCE_DIR}/tests/AdmissionCompatibilityTests.cpp)

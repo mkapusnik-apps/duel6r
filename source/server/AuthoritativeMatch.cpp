@@ -442,18 +442,18 @@ namespace Duel6::Server::Authoritative {
             const PlayerState *player = findPlayer(playerId);
             if (!player || player->departed) return reject(ActionResult::RejectedValue);
         }
-        for (const auto playerId: unique) {
-            if (dependencies.worldRemove) {
-                try {
-                    if (!dependencies.worldRemove(playerId)) {
-                        failRuntime();
-                        return ActionResult::RuntimeFailed;
-                    }
-                } catch (...) {
-                    failRuntime();
-                    return ActionResult::RuntimeFailed;
-                }
+        if (!dependencies.worldRemoveBatch) {
+            failRuntime();
+            return ActionResult::RuntimeFailed;
+        }
+        try {
+            if (!dependencies.worldRemoveBatch(playerIds)) {
+                failRuntime();
+                return ActionResult::RuntimeFailed;
             }
+        } catch (...) {
+            failRuntime();
+            return ActionResult::RuntimeFailed;
         }
         for (const auto playerId: unique) {
             PlayerState *player = findPlayer(playerId);
@@ -466,6 +466,19 @@ namespace Duel6::Server::Authoritative {
         if (terminal.code == OutcomeCode::None && currentPhase == MatchPhase::ActiveRound)
             evaluateRoundOutcome();
         return ActionResult::Accepted;
+    }
+
+    bool AuthoritativeMatch::canRemovePlayersBatch(
+            Identity participantId, const std::vector<Identity> &playerIds) const noexcept {
+        if (!isHost(participantId) || playerIds.empty() || terminal.code != OutcomeCode::None
+            || currentPhase == MatchPhase::Failed || currentPhase == MatchPhase::Completed
+            || currentPhase == MatchPhase::Ended || !dependencies.worldRemoveBatch) return false;
+        const std::set<Identity> unique(playerIds.begin(), playerIds.end());
+        if (unique.size() != playerIds.size() || unique.count(0)) return false;
+        return std::all_of(unique.begin(), unique.end(), [&](const auto playerId) {
+            const PlayerState *player = findPlayer(playerId);
+            return player && !player->departed;
+        });
     }
 
     ActionResult AuthoritativeMatch::submitImpl(const AuthoritativeAction &action, bool internalHostControl) {

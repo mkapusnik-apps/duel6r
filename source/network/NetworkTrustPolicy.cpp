@@ -756,6 +756,40 @@ namespace Duel6::Network::Trust {
         if (accepted) invalidateLocked();
         return {accepted, !accepted, accepted ? std::string_view{} : ReconnectAuthorizationFailureCopy};
     }
+    ReconnectAuthorizationResult ReconnectReservation::authorizeAndSuspend(
+            const ReconnectCredential &candidate, std::uint64_t expectedSession,
+            ParticipantId expectedParticipant, std::uint64_t expectedReservation) {
+        std::lock_guard<std::mutex> lock(mutex);
+        expireIfDueLocked();
+        const ReconnectCredential unavailable{};
+        const ReconnectCredential &stored = value ? *value : unavailable;
+        const bool credentialMatches = constantTimeEqual(stored, candidate);
+        const bool accepted = value.has_value() && !suspendedValue.has_value() && expiry.has_value()
+                              && clock() < *expiry && !allZero(candidate)
+                              && session == expectedSession && participant == expectedParticipant
+                              && reservation == expectedReservation && credentialMatches;
+        if (accepted) {
+            suspendedValue.emplace(std::move(*value));
+            value.reset();
+        }
+        return {accepted, !accepted, accepted ? std::string_view{} : ReconnectAuthorizationFailureCopy};
+    }
+    bool ReconnectReservation::restoreSuspended() {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (value || !suspendedValue || !expiry || clock() >= *expiry) {
+            invalidateLocked();
+            return false;
+        }
+        value.emplace(std::move(*suspendedValue));
+        suspendedValue.reset();
+        return true;
+    }
+    bool ReconnectReservation::consumeSuspended() {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (value || !suspendedValue) return false;
+        invalidateLocked();
+        return true;
+    }
     bool ReconnectReservation::consume(const ReconnectCredential &candidate, std::uint64_t expectedSession,
                                        ParticipantId expectedParticipant, std::uint64_t expectedReservation) {
         return authorizeAndConsume(candidate, expectedSession, expectedParticipant, expectedReservation).accepted;
@@ -831,6 +865,10 @@ namespace Duel6::Network::Trust {
         if (value) {
             value->clear();
             value.reset();
+        }
+        if (suspendedValue) {
+            suspendedValue->clear();
+            suspendedValue.reset();
         }
         expiry.reset();
     }

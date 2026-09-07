@@ -111,6 +111,8 @@ namespace Duel6::Client {
             return true;
         }
         virtual void requestStop() = 0;
+        virtual void requestEndSession() { requestStop(); }
+        virtual bool requestReadiness(bool) { return false; }
         virtual bool waitForExit(std::chrono::milliseconds timeout) = 0;
         virtual void forceTerminate() = 0;
         virtual bool cleanupConfirmed() { return hasExited(); }
@@ -151,6 +153,7 @@ namespace Duel6::Client {
         bool retry();
         bool cancelStartup();
         bool endSession();
+        bool setSessionReady(bool ready);
         void applicationExit();
         bool retainedSetup(HostServiceStartConfig &config) const;
         bool dismissFailure();

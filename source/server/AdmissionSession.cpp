@@ -131,6 +131,16 @@ namespace Duel6::Server {
         return true;
     }
 
+    bool SessionAllocation::containsParticipants(const std::vector<std::uint64_t> &participantIds) const {
+        std::lock_guard<std::mutex> lock(mutex);
+        const std::set<std::uint64_t> unique(participantIds.begin(), participantIds.end());
+        if (unique.empty() || unique.size() != participantIds.size() || unique.count(0)
+            || unique.count(hostId)) return false;
+        return std::all_of(unique.begin(), unique.end(), [&](const auto participantId) {
+            return participants.count(participantId) != 0;
+        });
+    }
+
     std::optional<AdmittedParticipant> SessionAllocation::pendingParticipant(std::uint64_t transactionId) const {
         std::lock_guard<std::mutex> lock(mutex);
         const auto reservation = pending.find(transactionId);
@@ -297,6 +307,12 @@ namespace Duel6::Server {
         if (!sessionAllocation.removeParticipants(participantIds)) return false;
         for (const auto participantId: participantIds) authorization.removeParticipant(participantId);
         return true;
+    }
+
+    bool AdmissionPolicy::canRemoveParticipants(
+            const std::vector<std::uint64_t> &participantIds) const {
+        std::lock_guard<std::mutex> lock(policyMutex);
+        return sessionAllocation.containsParticipants(participantIds);
     }
 
     bool AdmissionPolicy::authorize(Network::Trust::ConnectionId connection,

@@ -73,10 +73,8 @@ namespace Duel6::Server::Authoritative {
 
     bool AuthoritativeHostedMatchController::removeLifecycleParticipants(
             const std::vector<Identity> &participantIds) {
-        if (participantIds.empty()) return false;
+        if (!canRemoveLifecycleParticipants(participantIds)) return false;
         std::set<Identity> removals(participantIds.begin(), participantIds.end());
-        if (removals.size() != participantIds.size() || removals.count(0)
-            || removals.count(hostParticipantId)) return false;
         if (!activeMatch || currentStage != HostedMatchStage::MatchActive) return true;
         std::vector<Identity> players;
         for (const auto &player: activeMatch->rosterDefinitions())
@@ -86,6 +84,21 @@ namespace Duel6::Server::Authoritative {
         for (const auto playerId: players) playerInput.revokePlayer(playerId);
         if (!captureReplication()) return false;
         return activeMatch->outcome().code == OutcomeCode::None || observeMatchOutcome();
+    }
+
+    bool AuthoritativeHostedMatchController::canRemoveLifecycleParticipants(
+            const std::vector<Identity> &participantIds) const noexcept {
+        try {
+            if (participantIds.empty()) return false;
+            const std::set<Identity> removals(participantIds.begin(), participantIds.end());
+            if (removals.size() != participantIds.size() || removals.count(0)
+                || removals.count(hostParticipantId)) return false;
+            if (!activeMatch || currentStage != HostedMatchStage::MatchActive) return true;
+            std::vector<Identity> players;
+            for (const auto &player: activeMatch->rosterDefinitions())
+                if (removals.count(player.participantId)) players.push_back(player.playerId);
+            return !players.empty() && activeMatch->canRemovePlayersBatch(hostParticipantId, players);
+        } catch (...) { return false; }
     }
 
     AuthoritativePlayerInput::ReceiveResult AuthoritativeHostedMatchController::receivePlayerInput(

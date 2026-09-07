@@ -51,6 +51,7 @@ namespace Duel6::Server::Authoritative {
         void disconnectPlayerInput(Identity participantId) noexcept;
         void revokePlayerInput(Identity playerId) noexcept;
         bool removeLifecycleParticipants(const std::vector<Identity> &participantIds);
+        bool canRemoveLifecycleParticipants(const std::vector<Identity> &participantIds) const noexcept;
         AuthoritativePlayerInput::ReceiveResult receivePlayerInput(
                 Identity participantId, const Network::Input::Command &command, bool remote = true);
         bool advanceOneTick();

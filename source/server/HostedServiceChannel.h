@@ -2,6 +2,7 @@
 #define DUEL6_SERVER_HOSTEDSERVICECHANNEL_H
 
 #include <memory>
+#include <optional>
 
 #include "../network/HostServiceControlProtocol.h"
 
@@ -14,6 +15,8 @@ namespace Duel6::Server {
         bool active() const noexcept;
         bool send(Network::HostServiceStatusCode status) noexcept;
         bool stopRequested() noexcept;
+        bool intentionalEndRequested() noexcept;
+        std::optional<bool> takeReadinessChange() noexcept;
 
     private:
         HostedServiceChannel();
@@ -26,6 +29,10 @@ namespace Duel6::Server {
         int controlDescriptor = -1;
 #endif
         bool stopped = false;
+        bool intentionalEnd = false;
+        std::optional<bool> readinessChange;
+
+        void pollCommand() noexcept;
     };
 }
 

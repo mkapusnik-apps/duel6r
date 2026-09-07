@@ -18,6 +18,7 @@
 #include "../network/NetworkResponsiveness.h"
 #include "../network/Protocol.h"
 #include "../network/SessionTransport.h"
+#include "../network/SessionLifecycle.h"
 #include "../network/StateReplication.h"
 
 namespace Duel6::Server {
@@ -56,10 +57,12 @@ namespace Duel6::Server {
     public:
         virtual ~AdmissionRuntimeConnection() = default;
         virtual Network::SendResult send(std::vector<std::uint8_t> payload) = 0;
+        // Production transports must override this method and retain the sensitive marker through
+        // queueing, active write, rejection, and cleanup. The fallback transfers the only owned
+        // buffer to deterministic seams; it never creates the unerasable copy that a const send
+        // handoff would leave behind.
         virtual Network::SendResult sendSensitive(std::vector<std::uint8_t> payload) {
-            const auto result = send(payload);
-            Network::Trust::secureEraseMemory(payload.data(), payload.size());
-            return result;
+            return send(std::move(payload));
         }
         virtual Network::AdmissionAcceptanceEnqueueResult enqueueAdmissionAcceptance(
                 std::vector<std::uint8_t> payload,
@@ -140,6 +143,9 @@ namespace Duel6::Server {
         std::function<Network::SendResult(AdmissionRuntimeConnection &, std::vector<std::uint8_t>)> outboundWriter;
         std::function<bool(const AdmissionLifecycleEvent &)> lifecycleObserver;
         std::function<bool(Network::HostServiceStatusCode)> hostedServiceStatus;
+        std::function<bool()> intentionalHostEndRequested;
+        std::function<std::optional<bool>()> hostReadinessChange;
+        std::function<std::optional<Network::Lifecycle::ParticipantActionKind>()> localParticipantAction;
         std::shared_ptr<const Network::ManifestSource> manifestSource;
         Network::ManifestFilesystemObserver filesystemObserver;
         IdentitySource identitySource;

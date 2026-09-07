@@ -32,6 +32,9 @@ namespace Duel6::Server::Authoritative {
         std::function<bool(Tick, bool, RandomSource &)> worldTickWithRandom;
         std::function<bool(Identity, std::uint32_t)> worldInput;
         std::function<bool(Identity)> worldRemove;
+        // Lifecycle removal requires one all-or-nothing world mutation; per-player callbacks are
+        // intentionally not used because a later callback failure could expose a partial batch.
+        std::function<bool(const std::vector<Identity> &)> worldRemoveBatch;
         std::function<CanonicalWorldSnapshot()> worldSnapshot;
         std::function<void()> worldEnd;
         std::function<void(RandomSource &)> worldEndWithRandom;
@@ -61,6 +64,7 @@ namespace Duel6::Server::Authoritative {
         ActionResult submit(const AuthoritativeAction &action);
         ActionResult submitHostControl(Identity participantId, ActionKind kind, Identity targetPlayerId = 0);
         ActionResult removePlayersBatch(Identity participantId, const std::vector<Identity> &playerIds);
+        bool canRemovePlayersBatch(Identity participantId, const std::vector<Identity> &playerIds) const noexcept;
         bool advanceOneTick();
         TerminalOutcome runUntilTerminal(Tick maximumTicks = MaxMatchTicks);
         TerminalOutcome shutdown();

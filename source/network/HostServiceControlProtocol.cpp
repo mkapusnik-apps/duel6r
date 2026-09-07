@@ -69,10 +69,16 @@ namespace Duel6::Network {
     }
 
     bool decodeHostServiceCommand(const std::uint8_t *message, std::size_t size,
-                                  HostServiceCommandCode &command) noexcept {
-        if (!validEnvelope(message, size)
-            || message[5] != static_cast<std::uint8_t>(HostServiceCommandCode::Stop)) return false;
-        command = HostServiceCommandCode::Stop;
-        return true;
+                                   HostServiceCommandCode &command) noexcept {
+        if (!validEnvelope(message, size)) return false;
+        switch (static_cast<HostServiceCommandCode>(message[5])) {
+            case HostServiceCommandCode::Stop:
+            case HostServiceCommandCode::EndSession:
+            case HostServiceCommandCode::Ready:
+            case HostServiceCommandCode::NotReady:
+                command = static_cast<HostServiceCommandCode>(message[5]);
+                return true;
+        }
+        return false;
     }
 }

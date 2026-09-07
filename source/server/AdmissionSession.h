@@ -46,6 +46,7 @@ namespace Duel6::Server {
         bool commit(std::uint64_t transactionId);
         bool rollback(std::uint64_t transactionId);
         bool removeParticipants(const std::vector<std::uint64_t> &participantIds);
+        bool containsParticipants(const std::vector<std::uint64_t> &participantIds) const;
         std::optional<AdmittedParticipant> pendingParticipant(std::uint64_t transactionId) const;
         Network::AdmissionResult allocateGuest(std::uint8_t localPlayers);
         bool hasCapacity(std::uint8_t localPlayers) const;
@@ -89,6 +90,7 @@ namespace Duel6::Server {
         void disconnect(Network::Trust::ConnectionId connection);
         bool reconnect(Network::Trust::ConnectionId connection, std::uint64_t participantId);
         bool removeParticipants(const std::vector<std::uint64_t> &participantIds);
+        bool canRemoveParticipants(const std::vector<std::uint64_t> &participantIds) const;
         bool authorize(Network::Trust::ConnectionId connection, Network::Trust::AuthorityAction action,
                        std::optional<Network::Trust::PlayerSlotId> player = std::nullopt) const;
         Network::Trust::AuthorizationDecision authorizationDecision(

@@ -300,8 +300,13 @@ namespace Duel6::Network::Trust {
                                                std::uint64_t session, ParticipantId participant,
                                                std::uint64_t reservation);
         ReconnectAuthorizationResult authorizeAndConsume(const ReconnectCredential &candidate,
+                                                           std::uint64_t session, ParticipantId participant,
+                                                           std::uint64_t reservation);
+        ReconnectAuthorizationResult authorizeAndSuspend(const ReconnectCredential &candidate,
                                                           std::uint64_t session, ParticipantId participant,
                                                           std::uint64_t reservation);
+        bool restoreSuspended();
+        bool consumeSuspended();
         bool consume(const ReconnectCredential &candidate, std::uint64_t session, ParticipantId participant,
                      std::uint64_t reservation);
         bool expireIfDue();
@@ -315,6 +320,7 @@ namespace Duel6::Network::Trust {
         Clock clock;
         RandomFill random;
         std::optional<ReconnectCredential> value;
+        std::optional<ReconnectCredential> suspendedValue;
         std::optional<TimePoint> expiry;
         std::uint64_t session;
         ParticipantId participant;

@@ -89,11 +89,19 @@ namespace Duel6::Network::Lifecycle {
         std::optional<ReconnectGrant> nextGrant;
     };
 
+    enum class ParticipantActionKind : std::uint16_t { Ready = 1, NotReady = 2, Leave = 3 };
+    struct ParticipantAction {
+        std::uint64_t sessionId = 0;
+        ParticipantId participantId = 0;
+        ParticipantActionKind kind = ParticipantActionKind::NotReady;
+    };
+
     std::vector<std::uint8_t> serializeReconnectGrant(const ReconnectGrant &grant);
     std::vector<std::uint8_t> serializeReconnectRequest(const ReconnectRequest &request);
     std::vector<std::uint8_t> serializeIntentionalHostEnd(const IntentionalHostEndNotice &notice);
     std::vector<std::uint8_t> serializeReconnectAttempt(const ReconnectAttempt &attempt);
     std::vector<std::uint8_t> serializeReconnectResponse(const ReconnectResponse &response);
+    std::vector<std::uint8_t> serializeParticipantAction(const ParticipantAction &action);
     std::optional<ReconnectGrant> deserializeReconnectGrant(const std::vector<std::uint8_t> &payload) noexcept;
     std::optional<ReconnectRequest> deserializeReconnectRequest(const std::vector<std::uint8_t> &payload) noexcept;
     std::optional<IntentionalHostEndNotice> deserializeIntentionalHostEnd(
@@ -101,6 +109,8 @@ namespace Duel6::Network::Lifecycle {
     std::optional<ReconnectAttempt> deserializeReconnectAttempt(
             const std::vector<std::uint8_t> &payload) noexcept;
     std::optional<ReconnectResponse> deserializeReconnectResponse(
+            const std::vector<std::uint8_t> &payload) noexcept;
+    std::optional<ParticipantAction> deserializeParticipantAction(
             const std::vector<std::uint8_t> &payload) noexcept;
     void eraseLifecycleCredentialPayload(std::vector<std::uint8_t> &payload) noexcept;
 
@@ -144,7 +154,12 @@ namespace Duel6::Network::Lifecycle {
                                       ReconnectCompatibility compatibility = ReconnectCompatibility::Compatible);
         bool queueIntentionalLeave(ParticipantId participantId, ConnectionId connectionId);
         bool queueReservedLeave(const ReconnectRequest &request, ConnectionId attemptConnectionId);
+        bool applyParticipantAction(const ParticipantAction &action, ConnectionId connectionId) noexcept;
+        bool setReady(ParticipantId participantId, ConnectionId connectionId, bool readyValue) noexcept;
         bool clearReadiness() noexcept;
+        bool allConnectedAndReady() const noexcept;
+        bool reconnectDeliverySucceeded(ParticipantId participantId, ConnectionId connectionId) noexcept;
+        bool reconnectDeliveryFailed(ParticipantId participantId, ConnectionId connectionId) noexcept;
         RemovalOutcome processLifecycleBatch(Phase phase);
         HostEndResult endSession(ParticipantId participantId, ConnectionId connectionId);
         std::string_view supervisedHostFailure();
@@ -164,6 +179,8 @@ namespace Duel6::Network::Lifecycle {
             bool ready = false;
             std::uint64_t reservationId = 0;
             std::unique_ptr<Trust::ReconnectReservation> reservation;
+            std::uint64_t rollbackReservationId = 0;
+            std::unique_ptr<Trust::ReconnectReservation> rollbackReservation;
         };
 
         std::uint64_t sessionId;
@@ -176,6 +193,7 @@ namespace Duel6::Network::Lifecycle {
         std::map<ParticipantId, Participant> participants;
         std::set<ParticipantId> pendingLeaves;
         std::uint64_t nextReservationId = 1;
+        bool hostReady = false;
         bool sessionEnded = false;
         bool operationActive = false;
 
