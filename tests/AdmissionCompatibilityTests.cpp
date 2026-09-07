@@ -460,6 +460,7 @@ namespace {
         state.entities = {projectile};
         return state;
     }
+#endif
 }
 
 D6R_TEST_CASE("AC-001 AC-002 compatibility constants capabilities and wire format are exact") {
