@@ -180,6 +180,33 @@ namespace {
         return state;
     }
 
+    R::CanonicalState completedResultWithDepartureLabels() {
+        auto state = distinctFinalSummary();
+        state.result.serialized =
+                "{\"label\":\"match\",\"state\":\"Completed\",\"outcome\":\"player-102\","
+                "\"winner\":102,\"ranking\":[101,102],\"score\":[3,2],\"round\":2,\"players\":["
+                "{\"rank\":1,\"playerId\":101,\"participantId\":20,\"departed\":false,\"points\":3},"
+                "{\"rank\":2,\"playerId\":102,\"participantId\":21,\"departed\":false,\"points\":2}]}";
+        return state;
+    }
+
+    bool replaceOnce(std::string &value, const std::string &before, const std::string &after) {
+        const auto position = value.find(before);
+        if (position == std::string::npos || value.find(before, position + before.size()) != std::string::npos)
+            return false;
+        value.replace(position, before.size(), after);
+        return true;
+    }
+
+    R::CanonicalState completedResultDeparture(R::CanonicalState state) {
+        state.players[1].lifeState = R::LifeState::Departed;
+        const bool replaced = replaceOnce(state.result.serialized,
+                "\"participantId\":21,\"departed\":false",
+                "\"participantId\":21,\"departed\":true");
+        D6R_REQUIRE(replaced);
+        return state;
+    }
+
     R::CanonicalState retainedInterruptedLobby() {
         auto state = retainedCompletedLobby();
         state.currentRoundNumber = 1;
@@ -1276,6 +1303,84 @@ D6R_TEST_CASE("REP-017 REP-018 REP-025 completed result survives final summary a
     D6R_REQUIRE_EQ(std::vector<R::Identity>({102}), client.state()->round->outcome.winnerPlayerIds);
     D6R_REQUIRE_EQ(std::vector<R::Identity>({102}), client.state()->score.winner.winnerPlayerIds);
     D6R_REQUIRE_EQ(101u, client.state()->score.ranking.front());
+}
+
+D6R_TEST_CASE("REP-017 REP-048 departed-only completed-result transitions are exact for snapshots and updates") {
+    const auto initial = completedResultWithDepartureLabels();
+    const auto legitimate = completedResultDeparture(initial);
+    D6R_REQUIRE(R::validateCanonicalState(initial));
+    D6R_REQUIRE(R::validateCanonicalState(legitimate));
+
+    R::ReplicatedState snapshotClient;
+    D6R_REQUIRE(snapshotClient.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(snapshotClient.apply({2, legitimate}) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(2u, snapshotClient.version());
+    D6R_REQUIRE(snapshotClient.state() != nullptr);
+    D6R_REQUIRE(snapshotClient.state()->players[1].lifeState == R::LifeState::Departed);
+    D6R_REQUIRE_EQ(legitimate.result.serialized, snapshotClient.state()->result.serialized);
+
+    const auto legitimateUpdate = validUpdate(initial, legitimate);
+    R::ReplicatedState updateClient;
+    D6R_REQUIRE(updateClient.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(updateClient.apply(legitimateUpdate) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(2u, updateClient.version());
+    D6R_REQUIRE(updateClient.state() != nullptr);
+    D6R_REQUIRE(updateClient.state()->players[1].lifeState == R::LifeState::Departed);
+    D6R_REQUIRE_EQ(legitimate.result.serialized, updateClient.state()->result.serialized);
+
+    const std::vector<std::pair<std::string, std::function<void(std::string &)>>> attacks = {
+            {"outcome", [](auto &serialized) {
+                D6R_REQUIRE(replaceOnce(serialized, "\"outcome\":\"player-102\"",
+                                        "\"outcome\":\"player-101\""));
+            }},
+            {"winner", [](auto &serialized) {
+                D6R_REQUIRE(replaceOnce(serialized, "\"winner\":102", "\"winner\":101"));
+            }},
+            {"ranking", [](auto &serialized) {
+                D6R_REQUIRE(replaceOnce(serialized, "\"ranking\":[101,102]", "\"ranking\":[102,101]"));
+            }},
+            {"unrelated-row", [](auto &serialized) {
+                D6R_REQUIRE(replaceOnce(serialized,
+                        "\"participantId\":20,\"departed\":false",
+                        "\"participantId\":20,\"departed\":true"));
+            }},
+            {"score", [](auto &serialized) {
+                D6R_REQUIRE(replaceOnce(serialized, "\"score\":[3,2]", "\"score\":[4,2]"));
+            }},
+            {"round", [](auto &serialized) {
+                D6R_REQUIRE(replaceOnce(serialized, "\"round\":2", "\"round\":1"));
+            }},
+            {"malformed", [](auto &serialized) { serialized.pop_back(); }}};
+
+    std::string evidence;
+    const auto initialBytes = R::serializeReplicationSnapshot({1, initial});
+    for (const auto &[name, alter]: attacks) {
+        auto attacked = legitimate;
+        alter(attacked.result.serialized);
+        D6R_REQUIRE(R::validateCanonicalState(attacked));
+
+        R::ReplicatedState full;
+        D6R_REQUIRE(full.apply({1, initial}) == R::ApplyResult::Applied);
+        const bool fullRejected = full.apply({2, attacked}) == R::ApplyResult::Invalid
+                && full.version() == 1 && full.current() && full.state()
+                && R::serializeReplicationSnapshot({full.version(), *full.state()}) == initialBytes;
+
+        auto attackedUpdate = legitimateUpdate;
+        attackedUpdate.result = attacked.result;
+        R::ReplicatedState incremental;
+        D6R_REQUIRE(incremental.apply({1, initial}) == R::ApplyResult::Applied);
+        const bool updateRejected = incremental.apply(attackedUpdate) == R::ApplyResult::ResynchronizationRequired
+                && incremental.version() == 1 && !incremental.current() && incremental.state() == nullptr;
+        const bool unchangedAfterRecovery = updateRejected
+                && incremental.apply({1, initial}) == R::ApplyResult::Applied
+                && incremental.state()
+                && R::serializeReplicationSnapshot({incremental.version(), *incremental.state()}) == initialBytes;
+
+        if (!evidence.empty()) evidence += ';';
+        evidence += name + "=" + (fullRejected && unchangedAfterRecovery ? "true" : "false");
+    }
+    D6R_REQUIRE_EQ(std::string("outcome=true;winner=true;ranking=true;unrelated-row=true;score=true;"
+                               "round=true;malformed=true"), evidence);
 }
 
 D6R_TEST_CASE("REP-017 REP-025 REP-048 publisher freezes retained result while following Lobby remains editable") {

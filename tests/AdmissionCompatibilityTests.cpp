@@ -437,6 +437,7 @@ namespace {
         return state;
     }
 
+#ifndef _WIN32
     Network::Replication::CanonicalState admissionActiveRound(
             const Network::Replication::CanonicalState &lobby) {
         namespace R = Network::Replication;
