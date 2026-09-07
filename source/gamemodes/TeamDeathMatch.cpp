@@ -90,7 +90,7 @@ namespace Duel6 {
                 std::vector<Size> candidates;
                 for (Size index = 0; index < startingPositions.size(); index++) {
                     const bool preferred = level.isQuickLiquidPreferredStartingPosition(startingPositions[index]);
-                    if (available[index] && preferred == preferredAvailable
+                    if (layerSpan > 0 && available[index] && preferred == preferredAvailable
                         && index / layerSpan == playerTeam) candidates.push_back(index);
                 }
                 if (candidates.empty()) {

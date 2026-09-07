@@ -103,6 +103,36 @@ def events(result, kind):
     return parsed
 
 
+def random_value(result, purpose):
+    matches = [int(decision.rsplit(":", 1)[1])
+               for decision in result["randomTrace"].split(",")
+               if f":{purpose}:" in decision]
+    assert len(matches) == 1, (purpose, matches, result["randomTrace"])
+    return matches[0]
+
+
+def assert_team_area_selection(result, ordered_positions):
+    """Model the documented priority, then require the legacy team area when available."""
+    positions = player_blocks(result)
+    layer_span = len(ordered_positions) // 2
+    rotation = random_value(result, "team-spawn-rotation")
+    available = set(range(len(ordered_positions)))
+    for roster_slot, player_id in enumerate((101, 102, 103, 104)):
+        actual_index = ordered_positions.index(positions[player_id])
+        assert actual_index in available, (positions, ordered_positions, available)
+        actual_priority = ordered_positions[actual_index][1] == 4
+        preferred_available = any(ordered_positions[index][1] == 4 for index in available)
+        assert actual_priority == preferred_available, (player_id, positions, available)
+        same_priority = {index for index in available
+                         if (ordered_positions[index][1] == 4) == preferred_available}
+        team_area = (roster_slot + rotation) % 2
+        in_team_area = {index for index in same_priority if index // layer_span == team_area}
+        if in_team_area:
+            assert actual_index in in_team_area, \
+                (player_id, team_area, positions, in_team_area, ordered_positions)
+        available.remove(actual_index)
+
+
 with tempfile.TemporaryDirectory(prefix="duel6r-quick-liquid-") as temporary:
     root = pathlib.Path(temporary)
     (root / "data").mkdir()
@@ -112,8 +142,11 @@ with tempfile.TemporaryDirectory(prefix="duel6r-quick-liquid-") as temporary:
     shutil.copyfile(source / "data" / "config.script", root / "data" / "config.script")
 
     enough_preferred = set(range(1, WIDTH - 1))
+    enough_ordered_positions = [(x, 4) for x in sorted(enough_preferred)]
     insufficient_preferred = {2, 8}
     fallback = {4, 6}
+    insufficient_ordered_positions = [(x, 2) for x in sorted(fallback)] \
+                                     + [(x, 4) for x in sorted(insufficient_preferred)]
     write_level(root / "levels" / "enough.json", enough_preferred, set())
     write_level(root / "levels" / "insufficient.json", insufficient_preferred, fallback)
 
@@ -127,6 +160,8 @@ with tempfile.TemporaryDirectory(prefix="duel6r-quick-liquid-") as temporary:
         assert len(set(positions.values())) == len(PLAYERS), (mode, positions)
         assert all(x in enough_preferred and y == 4 for x, y in positions.values()), (mode, positions)
         assert all(y > rises[-1]["value"] for _, y in positions.values()), (mode, positions, rises)
+        if mode[0] == "--match-mode=team-deathmatch":
+            assert_team_area_selection(result, enough_ordered_positions)
 
     # The production multi-round loop reconstructs the world three times on a
     # fixture whose only possible starting positions are all preferred.
@@ -150,6 +185,8 @@ with tempfile.TemporaryDirectory(prefix="duel6r-quick-liquid-") as temporary:
         occupied_fallback = {(x, y) for x, y in positions.values() if y == 2}
         assert occupied_preferred == {(x, 4) for x in insufficient_preferred}, (mode, positions)
         assert occupied_fallback == {(x, 2) for x in fallback}, (mode, positions)
+        if mode[0] == "--match-mode=team-deathmatch":
+            assert_team_area_selection(result, insufficient_ordered_positions)
         sudden_death = events(result, "sudden-death-started")
         rises = events(result, "water-level-changed")
         assert len(sudden_death) == 1 and len(rises) == 2, (mode, sudden_death, rises)
