@@ -662,6 +662,20 @@ D6R_TEST_CASE("REP-017 NET-AC-018 completed hosted match publishes final summary
     D6R_REQUIRE_EQ(std::string("final=true;lobby=true;stage-lobby=true;ready-cleared=true"), lifecycle);
 
     D6R_REQUIRE(controller.setParticipantReady(1, true));
+    D6R_REQUIRE_EQ(OutcomeCode::SettingsInvalid, controller.start(requested, players, manifest()).code);
+    D6R_REQUIRE(controller.currentSessionResult().has_value());
+    D6R_REQUIRE(controller.retainsCompletedResult());
+    std::vector<std::vector<std::uint8_t>> rejectedStartPayloads;
+    D6R_REQUIRE(controller.restoreReplication(2, [&](auto payload) {
+        rejectedStartPayloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    const auto rejectedStartStates = deliveredStates(rejectedStartPayloads);
+    D6R_REQUIRE(!rejectedStartStates.empty());
+    D6R_REQUIRE(rejectedStartStates.back().result.available);
+    D6R_REQUIRE_EQ(std::string("Completed"), rejectedStartStates.back().result.state);
+
+    D6R_REQUIRE(controller.setParticipantReady(1, true));
     D6R_REQUIRE(controller.setParticipantReady(2, true));
     D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
     const auto newMatchStates = deliveredStates(payloads);
@@ -1347,5 +1361,276 @@ D6R_TEST_CASE("AHM-AC-015 AHM-AC-023 completed hosted result is session-only unt
     D6R_REQUIRE_EQ(OutcomeCode::EndedIntentionally, controller.end(1).code);
     D6R_REQUIRE(controller.stage() == HostedMatchStage::Ended);
     D6R_REQUIRE(!controller.currentSessionResult().has_value());
+    D6R_REQUIRE(!controller.retainsCompletedResult());
+    std::vector<std::vector<std::uint8_t>> payloads;
+    D6R_REQUIRE(!controller.restoreReplication(3, [&](auto payload) {
+        payloads.push_back(std::move(payload));
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(payloads.empty());
+}
+
+D6R_TEST_CASE("NET-AC-013 NET-AC-018 completed and interrupted following-lobby departures synchronize retained and replicated results") {
+    const auto verify = [](bool interrupted) {
+        auto requested = config();
+        if (interrupted) requested.roundLimit = 3;
+        auto players = roster(interrupted ? 2 : 3);
+        std::vector<R::ParticipantState> participants = {
+                {1, true, R::ConnectionState::Connected, true, {101}},
+                {2, false, R::ConnectionState::Connected, true, {102}}};
+        if (!interrupted)
+            participants.push_back({3, false, R::ConnectionState::Connected, true, {103}});
+        AuthoritativeHostedMatchController controller(1);
+        D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+        std::vector<std::vector<std::uint8_t>> payloads;
+        D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+            payloads.push_back(std::move(payload));
+            return Duel6::Network::SendResult::Accepted;
+        }));
+        D6R_REQUIRE(controller.markServiceReady());
+        D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+        std::uint64_t sequence = 1;
+        eliminate(*controller.match(), sequence, players[0], players[1]);
+        if (!interrupted) eliminate(*controller.match(), sequence, players[0], players[2]);
+        finishDelay(*controller.match());
+        if (interrupted) {
+            D6R_REQUIRE_EQ(ActionResult::Accepted, controller.match()->submit(action(
+                    *controller.match(), sequence++, 1, 0, ActionKind::RemovePlayer, 102)));
+            D6R_REQUIRE_EQ(OutcomeCode::InterruptedNoWinner, controller.match()->outcome().code);
+        }
+        D6R_REQUIRE(controller.observeMatchOutcome());
+        D6R_REQUIRE(controller.currentSessionResult().has_value());
+        D6R_REQUIRE(controller.currentSessionResult()->state
+                    == (interrupted ? ResultState::Interrupted : ResultState::Completed));
+
+        const Identity departure = interrupted ? 3 : 2;
+        const auto beforeDeparture = serializeSessionResult(*controller.currentSessionResult());
+        D6R_REQUIRE(beforeDeparture.has_value());
+        if (interrupted) {
+            participants[0].ready = false;
+            participants[1].ready = false;
+            participants.push_back({3, false, R::ConnectionState::Connected, false, {103}});
+            players.push_back({3, 103, "Newcomer", 2});
+            D6R_REQUIRE(controller.updateReplicationLobby(participants, players, requested));
+            for (const Identity participant: {Identity{1}, Identity{2}, Identity{3}})
+                D6R_REQUIRE(controller.setParticipantReady(participant, true));
+        }
+        payloads.clear();
+        D6R_REQUIRE(controller.removeLifecycleParticipants({departure}));
+        D6R_REQUIRE(controller.currentSessionResult().has_value());
+        const auto retainedRow = std::find_if(controller.currentSessionResult()->players.begin(),
+                controller.currentSessionResult()->players.end(), [departure](const auto &row) {
+                    return row.participantId == departure;
+                });
+        if (interrupted) {
+            D6R_REQUIRE(retainedRow == controller.currentSessionResult()->players.end());
+            D6R_REQUIRE_EQ(*beforeDeparture, *serializeSessionResult(*controller.currentSessionResult()));
+        } else {
+            D6R_REQUIRE(retainedRow != controller.currentSessionResult()->players.end());
+            D6R_REQUIRE(retainedRow->departed);
+        }
+
+        const auto states = deliveredStates(payloads);
+        D6R_REQUIRE(!states.empty());
+        const auto &replicated = states.back();
+        D6R_REQUIRE(replicated.phase == R::Phase::Lobby);
+        D6R_REQUIRE(replicated.result.available);
+        D6R_REQUIRE_EQ(std::string(interrupted ? "Interrupted" : "Completed"), replicated.result.state);
+        if (interrupted) {
+            D6R_REQUIRE_EQ(*beforeDeparture, replicated.result.serialized);
+            D6R_REQUIRE(std::all_of(replicated.participants.begin(), replicated.participants.end(),
+                    [](const auto &participant) { return !participant.ready; }));
+            return;
+        }
+        const auto serializedDeparture = replicated.result.serialized.find(
+                "\"participantId\":" + std::to_string(departure));
+        D6R_REQUIRE(serializedDeparture != std::string::npos);
+        const auto serializedRowEnd = replicated.result.serialized.find('}', serializedDeparture);
+        const auto departed = replicated.result.serialized.find("\"departed\":true", serializedDeparture);
+        D6R_REQUIRE(departed != std::string::npos
+                    && (serializedRowEnd == std::string::npos || departed < serializedRowEnd));
+    };
+
+    verify(false);
+    verify(true);
+}
+
+void verifyInterruptedRetainedResultLifecycleDeparture(bool authoritativeExpiry) {
+        auto requested = config();
+        requested.roundLimit = 3;
+        const auto players = roster(2);
+        const std::vector<R::ParticipantState> participants = {
+                {1, true, R::ConnectionState::Connected, true, {101}},
+                {2, false, R::ConnectionState::Connected, true, {102}}};
+        AuthoritativeHostedMatchController controller(1);
+        D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+        std::vector<std::vector<std::uint8_t>> incrementals;
+        D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+            incrementals.push_back(std::move(payload));
+            return Duel6::Network::SendResult::Accepted;
+        }));
+        D6R_REQUIRE(controller.markServiceReady());
+        D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, manifest()).code);
+        std::uint64_t sequence = 1;
+        eliminate(*controller.match(), sequence, players[0], players[1]);
+        finishDelay(*controller.match());
+        D6R_REQUIRE(controller.stage() == HostedMatchStage::MatchActive);
+
+        Duel6::Network::Lifecycle::TimePoint now{};
+        std::uint8_t credentialSeed = 1;
+        unsigned removalCalls = 0;
+        Duel6::Network::Lifecycle::HostHooks hooks;
+        hooks.disconnect = [&](Identity participantId) {
+            return controller.updateReplicationConnection(participantId, R::ConnectionState::Reconnecting);
+        };
+        hooks.removeBatch = [&](const std::vector<std::uint64_t> &removed,
+                                Duel6::Network::Lifecycle::Phase phase) {
+            ++removalCalls;
+            D6R_REQUIRE_EQ((std::vector<std::uint64_t>{2}), removed);
+            D6R_REQUIRE(phase == Duel6::Network::Lifecycle::Phase::ActiveRound);
+            return controller.removeLifecycleParticipants(removed);
+        };
+        Duel6::Network::Lifecycle::HostSessionLifecycle lifecycle(
+                9001, 1, 10, {101}, [&] { return now; },
+                [&](std::uint8_t *target, std::size_t size) {
+                    for (std::size_t index = 0; index < size; ++index)
+                        target[index] = static_cast<std::uint8_t>(credentialSeed + index);
+                    ++credentialSeed;
+                    return true;
+                }, hooks);
+        D6R_REQUIRE(lifecycle.admitGuest(2, 20, {102}, true).has_value());
+        if (!authoritativeExpiry) {
+            D6R_REQUIRE(lifecycle.applyParticipantAction(
+                    {9001, 2, Duel6::Network::Lifecycle::ParticipantActionKind::Leave}, 20));
+        } else {
+            D6R_REQUIRE(lifecycle.transportClosed(2, 20));
+            now += Duel6::Network::Lifecycle::ReconnectWindow;
+        }
+        const auto lifecycleOutcome = lifecycle.processLifecycleBatch(
+                Duel6::Network::Lifecycle::Phase::ActiveRound);
+        const std::string transitionEvidence = "outcome="
+                + std::to_string(static_cast<unsigned>(lifecycleOutcome))
+                + ";removals=" + std::to_string(removalCalls)
+                + ";lifecycle-ended=" + (lifecycle.ended() ? "true" : "false")
+                + ";stage-lobby=" + (controller.stage() == HostedMatchStage::Lobby ? "true" : "false")
+                + ";retained=" + (controller.currentSessionResult() ? "true" : "false")
+                + ";state=" + (controller.currentSessionResult()
+                                ? (controller.currentSessionResult()->state == ResultState::Interrupted
+                                   ? "Interrupted" : "Completed") : "None");
+        D6R_REQUIRE_EQ(std::string(
+                "outcome=3;removals=1;lifecycle-ended=false;stage-lobby=true;retained=true;state=Interrupted"),
+                transitionEvidence);
+
+        D6R_REQUIRE_EQ(1u, removalCalls);
+        D6R_REQUIRE(!lifecycle.ended());
+        D6R_REQUIRE_EQ(1u, lifecycle.retainedPlayerCount());
+        D6R_REQUIRE(controller.stage() == HostedMatchStage::Lobby);
+        D6R_REQUIRE(controller.currentSessionResult().has_value());
+        D6R_REQUIRE(controller.currentSessionResult()->state == ResultState::Interrupted);
+        D6R_REQUIRE(controller.currentSessionResult()->finalNoWinner);
+        const auto hostResult = std::find_if(controller.currentSessionResult()->players.begin(),
+                controller.currentSessionResult()->players.end(), [](const auto &row) {
+                    return row.participantId == 1;
+                });
+        const auto guestResult = std::find_if(controller.currentSessionResult()->players.begin(),
+                controller.currentSessionResult()->players.end(), [](const auto &row) {
+                    return row.participantId == 2;
+                });
+        D6R_REQUIRE(hostResult != controller.currentSessionResult()->players.end());
+        D6R_REQUIRE(guestResult != controller.currentSessionResult()->players.end());
+        D6R_REQUIRE(!hostResult->departed);
+        D6R_REQUIRE(guestResult->departed);
+        const auto retained = serializeSessionResult(*controller.currentSessionResult());
+        D6R_REQUIRE(retained.has_value());
+
+        const auto incrementalStates = deliveredStates(incrementals);
+        D6R_REQUIRE(!incrementalStates.empty());
+        const auto &incremental = incrementalStates.back();
+        D6R_REQUIRE(incremental.phase == R::Phase::Lobby);
+        D6R_REQUIRE(incremental.result.available);
+        D6R_REQUIRE_EQ(std::string("Interrupted"), incremental.result.state);
+        D6R_REQUIRE_EQ(*retained, incremental.result.serialized);
+        const auto hostCanonical = std::find_if(incremental.players.begin(), incremental.players.end(),
+                [](const auto &player) { return player.ownerParticipantId == 1; });
+        const auto guestCanonical = std::find_if(incremental.players.begin(), incremental.players.end(),
+                [](const auto &player) { return player.ownerParticipantId == 2; });
+        D6R_REQUIRE(hostCanonical != incremental.players.end());
+        D6R_REQUIRE(guestCanonical != incremental.players.end());
+        D6R_REQUIRE(hostCanonical->lifeState != R::LifeState::Departed);
+        D6R_REQUIRE(guestCanonical->lifeState == R::LifeState::Departed);
+
+        std::vector<std::vector<std::uint8_t>> fullPayloads;
+        D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+            fullPayloads.push_back(std::move(payload));
+            return Duel6::Network::SendResult::Accepted;
+        }));
+        const auto fullStates = deliveredStates(fullPayloads);
+        D6R_REQUIRE_EQ(1u, fullStates.size());
+        D6R_REQUIRE(fullStates.back().phase == R::Phase::Lobby);
+        D6R_REQUIRE_EQ(std::string("Interrupted"), fullStates.back().result.state);
+        D6R_REQUIRE_EQ(*retained, fullStates.back().result.serialized);
+
+        const std::size_t payloadCount = incrementals.size();
+        D6R_REQUIRE(controller.removeLifecycleParticipants({2}));
+        D6R_REQUIRE_EQ(payloadCount, incrementals.size());
+        D6R_REQUIRE_EQ(1u, removalCalls);
+        D6R_REQUIRE(lifecycle.processLifecycleBatch(Duel6::Network::Lifecycle::Phase::FinalSummary)
+                    == Duel6::Network::Lifecycle::RemovalOutcome::NothingChanged);
+        D6R_REQUIRE(controller.stage() == HostedMatchStage::Lobby);
+        D6R_REQUIRE(controller.currentSessionResult().has_value());
+        D6R_REQUIRE(controller.currentSessionResult()->state == ResultState::Interrupted);
+        D6R_REQUIRE_EQ(*retained, *serializeSessionResult(*controller.currentSessionResult()));
+}
+
+D6R_TEST_CASE("NET-AC-013 interrupted retained result intentional leave lifecycle synchronization") {
+    verifyInterruptedRetainedResultLifecycleDeparture(false);
+}
+
+D6R_TEST_CASE("NET-AC-013 interrupted retained result authoritative expiry lifecycle synchronization") {
+    verifyInterruptedRetainedResultLifecycleDeparture(true);
+}
+
+D6R_TEST_CASE("NET-AC-014 NET-AC-018 shutdown and runtime failure discard all retained result representations") {
+    const auto verifyDiscard = [](bool runtimeFailure) {
+        const auto players = roster(2);
+        const std::vector<R::ParticipantState> participants = {
+                {1, true, R::ConnectionState::Connected, true, {101}},
+                {2, false, R::ConnectionState::Connected, true, {102}}};
+        AuthoritativeHostedMatchController controller(1);
+        D6R_REQUIRE(controller.initializeReplication(participants, players, config()));
+        D6R_REQUIRE(controller.markServiceReady());
+        D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(config(), players, manifest()).code);
+        std::uint64_t sequence = 1;
+        eliminate(*controller.match(), sequence, players[0], players[1]);
+        finishDelay(*controller.match());
+        D6R_REQUIRE(controller.observeMatchOutcome());
+        D6R_REQUIRE(controller.currentSessionResult().has_value());
+        D6R_REQUIRE(controller.retainsCompletedResult());
+
+        if (runtimeFailure) {
+            D6R_REQUIRE(controller.setParticipantReady(1, true));
+            D6R_REQUIRE(controller.setParticipantReady(2, true));
+            MatchRuntimeDependencies failure;
+            failure.contentPreflight = [](const auto &) { return true; };
+            failure.worldStart = [](RoundStartDecision &) { return false; };
+            D6R_REQUIRE_EQ(OutcomeCode::RuntimeFailed,
+                    controller.start(config(), players, manifest(), std::move(failure)).code);
+            D6R_REQUIRE(controller.stage() == HostedMatchStage::UnexpectedStop);
+        } else {
+            controller.discardSessionResults();
+        }
+
+        D6R_REQUIRE(!controller.currentSessionResult().has_value());
+        D6R_REQUIRE(!controller.retainsCompletedResult());
+        std::vector<std::vector<std::uint8_t>> payloads;
+        D6R_REQUIRE(!controller.restoreReplication(3, [&](auto payload) {
+            payloads.push_back(std::move(payload));
+            return Duel6::Network::SendResult::Accepted;
+        }));
+        D6R_REQUIRE(payloads.empty());
+    };
+
+    verifyDiscard(false);
+    verifyDiscard(true);
 }
 }

@@ -556,7 +556,8 @@ namespace Duel6::Network::Replication {
             if (!CanonicalJsonParser(serialized).parse(root) || root.kind != ParsedJsonValue::Kind::Object) return std::nullopt;
             const auto *state = member(root, "\"state\"");
             const auto *players = member(root, "\"players\"");
-            if (!state || state->kind != ParsedJsonValue::Kind::String || state->token != "\"Completed\""
+            if (!state || state->kind != ParsedJsonValue::Kind::String
+                || (state->token != "\"Completed\"" && state->token != "\"Interrupted\"")
                 || !players || players->kind != ParsedJsonValue::Kind::Array) return std::nullopt;
             CanonicalResultLabels result;
             std::set<Identity> playerIds;

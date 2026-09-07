@@ -372,6 +372,13 @@ namespace Duel6::Server::Authoritative {
         if (match.publishedResult()) {
             const auto serialized = serializeSessionResult(*match.publishedResult());
             if (!serialized) return false;
+            for (const auto &row: match.publishedResult()->players) if (row.departed) {
+                const auto player = std::find_if(state.players.begin(), state.players.end(), [&](const auto &value) {
+                    return value.playerId == row.playerId;
+                });
+                if (player == state.players.end() || player->ownerParticipantId != row.participantId) return false;
+                player->lifeState = R::LifeState::Departed;
+            }
             retainedResult = *match.publishedResult();
             state.result.available = true; state.result.sessionOnly = true;
             state.result.state = match.publishedResult()->state == ResultState::Completed ? "Completed" : "Interrupted";
