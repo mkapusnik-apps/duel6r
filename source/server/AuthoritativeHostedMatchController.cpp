@@ -75,7 +75,14 @@ namespace Duel6::Server::Authoritative {
             const std::vector<Identity> &participantIds) {
         if (!canRemoveLifecycleParticipants(participantIds)) return false;
         std::set<Identity> removals(participantIds.begin(), participantIds.end());
-        if (!activeMatch || currentStage != HostedMatchStage::MatchActive) return true;
+        clearReadiness();
+        if (!activeMatch || currentStage != HostedMatchStage::MatchActive) {
+            if (!replication.retainsCompletedResult()) return true;
+            const auto update = replication.markResultParticipantsDeparted(participantIds);
+            if (!update) return false;
+            (void) replicationConnections.broadcast(*update);
+            return true;
+        }
         std::vector<Identity> players;
         for (const auto &player: activeMatch->rosterDefinitions())
             if (removals.count(player.participantId)) players.push_back(player.playerId);
@@ -298,6 +305,9 @@ namespace Duel6::Server::Authoritative {
     HostedMatchStage AuthoritativeHostedMatchController::stage() const noexcept { return currentStage; }
     bool AuthoritativeHostedMatchController::contentStartBlocked() const noexcept {
         return currentStage == HostedMatchStage::ContentBlocked;
+    }
+    bool AuthoritativeHostedMatchController::retainsCompletedResult() const noexcept {
+        return replication.retainsCompletedResult();
     }
     bool AuthoritativeHostedMatchController::participantReady(Identity participantId) const noexcept {
         const auto found = readiness.find(participantId);

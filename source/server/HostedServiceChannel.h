@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <optional>
+#include <vector>
 
 #include "../network/HostServiceControlProtocol.h"
 
@@ -31,8 +32,10 @@ namespace Duel6::Server {
         bool stopped = false;
         bool intentionalEnd = false;
         std::optional<bool> readinessChange;
+        std::vector<std::uint8_t> commandBytes;
 
         void pollCommand() noexcept;
+        void decodeCommands() noexcept;
     };
 }
 

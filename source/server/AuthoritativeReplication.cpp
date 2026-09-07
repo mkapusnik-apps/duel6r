@@ -143,6 +143,7 @@ namespace Duel6::Server::Authoritative {
         state.matchId = identities.issue(R::IdentityCategory::Match);
         if (state.matchId == 0) { *this = before; return std::nullopt; }
         state.result = {};
+        retainedResult.reset();
         state.round.reset();
         state.score = {};
         observedRound = 0;
@@ -371,6 +372,7 @@ namespace Duel6::Server::Authoritative {
         if (match.publishedResult()) {
             const auto serialized = serializeSessionResult(*match.publishedResult());
             if (!serialized) return false;
+            retainedResult = *match.publishedResult();
             state.result.available = true; state.result.sessionOnly = true;
             state.result.state = match.publishedResult()->state == ResultState::Completed ? "Completed" : "Interrupted";
             state.result.serialized = *serialized;
@@ -427,6 +429,27 @@ namespace Duel6::Server::Authoritative {
         return update;
     }
 
+    std::optional<R::IncrementalUpdate> AuthoritativeReplication::markResultParticipantsDeparted(
+            const std::vector<Identity> &participantIds) {
+        if (!retainsCompletedResult() || participantIds.empty()) return std::nullopt;
+        const AuthoritativeReplication before = *this;
+        const std::set<Identity> removals(participantIds.begin(), participantIds.end());
+        bool changed = false;
+        for (auto &row: retainedResult->players) if (removals.count(row.participantId) && !row.departed) {
+            row.departed = true;
+            changed = true;
+        }
+        if (!changed) return std::nullopt;
+        const auto serialized = serializeSessionResult(*retainedResult);
+        if (!serialized) { *this = before; return std::nullopt; }
+        state.result.serialized = *serialized;
+        for (auto &player: state.players)
+            if (removals.count(player.ownerParticipantId)) player.lifeState = R::LifeState::Departed;
+        auto update = publisher.publish(state);
+        if (!update) *this = before;
+        return update;
+    }
+
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::enterFollowingLobby() {
         if (publisher.version() == 0 || (state.phase != R::Phase::FinalSummary && state.phase != R::Phase::Lobby)
             || !state.result.available)
@@ -446,4 +469,8 @@ namespace Duel6::Server::Authoritative {
 
     std::optional<R::FullSnapshot> AuthoritativeReplication::fullSnapshot() const { return publisher.fullSnapshot(); }
     const R::AuthoritativeStateReplicator &AuthoritativeReplication::replicator() const noexcept { return publisher; }
+    bool AuthoritativeReplication::retainsCompletedResult() const noexcept {
+        return retainedResult && retainedResult->state == ResultState::Completed
+               && state.result.available && state.result.state == "Completed";
+    }
 }

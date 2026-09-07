@@ -526,11 +526,8 @@ namespace Duel6::Network::Lifecycle {
         }
         for (ConnectionId connection: connectionsToClose) close(connection);
         const std::size_t roster = retainedPlayerCount();
-        if (phase == Phase::Lobby || ((phase == Phase::ActiveRound
-            || phase == Phase::NonFinalRoundSummary) && roster < 2)) {
-            hostReady = false;
-            for (auto &[id, participant]: participants) participant.ready = false;
-        }
+        hostReady = false;
+        for (auto &[id, participant]: participants) participant.ready = false;
         if (phase == Phase::Lobby) return RemovalOutcome::LobbyUpdated;
         if (phase == Phase::FinalSummary) return RemovalOutcome::FinalSummaryRetained;
         if (roster < 2) return RemovalOutcome::InterruptedToLobby;

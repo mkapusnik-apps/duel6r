@@ -25,14 +25,18 @@ namespace Duel6::Server::Authoritative {
                 Identity participantId, Network::Replication::ConnectionState connection);
         std::optional<Network::Replication::IncrementalUpdate> beginMatch(const AuthoritativeMatch &match);
         std::optional<Network::Replication::IncrementalUpdate> capture(const AuthoritativeMatch &match);
+        std::optional<Network::Replication::IncrementalUpdate> markResultParticipantsDeparted(
+                const std::vector<Identity> &participantIds);
         std::optional<Network::Replication::IncrementalUpdate> enterFollowingLobby();
         std::optional<Network::Replication::FullSnapshot> fullSnapshot() const;
         const Network::Replication::AuthoritativeStateReplicator &replicator() const noexcept;
+        bool retainsCompletedResult() const noexcept;
 
     private:
         Network::Replication::StableIdentitySource identities;
         Network::Replication::AuthoritativeStateReplicator publisher;
         Network::Replication::CanonicalState state;
+        std::optional<SessionResult> retainedResult;
         std::map<std::pair<Identity, std::uint64_t>, Identity> worldIdentities;
         std::uint64_t highestObservedEventSequence = 0;
         std::uint64_t highestObservedTransitionSequence = 0;

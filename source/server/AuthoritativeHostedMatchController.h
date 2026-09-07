@@ -58,6 +58,7 @@ namespace Duel6::Server::Authoritative {
 
         HostedMatchStage stage() const noexcept;
         bool contentStartBlocked() const noexcept;
+        bool retainsCompletedResult() const noexcept;
         bool participantReady(Identity participantId) const noexcept;
         AuthoritativeMatch *match() noexcept;
         const AuthoritativeMatch *match() const noexcept;

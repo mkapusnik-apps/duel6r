@@ -1447,6 +1447,14 @@ namespace Duel6::Server {
                 }
                 return true;
             };
+            hooks.sendIntentionalHostEnd = [&](Network::Lifecycle::ConnectionId connectionId,
+                                               const std::vector<std::uint8_t> &payload) {
+                const auto found = std::find_if(connections.begin(), connections.end(), [connectionId](const auto &value) {
+                    return value.connectionId == connectionId && value.admitted;
+                });
+                return found != connections.end()
+                       && write(*found->transport, payload) == Network::SendResult::Accepted;
+            };
             hooks.discardSession = [&] {
                 participantConnections.clear();
                 connectedParticipants.clear();
@@ -1928,6 +1936,9 @@ namespace Duel6::Server {
                                      || matchPhase == Authoritative::MatchPhase::RoundEndFrozen
                                      ? Network::Lifecycle::Phase::NonFinalRoundSummary
                                      : Network::Lifecycle::Phase::ActiveRound;
+                } else if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby
+                           && hostedMatch->retainsCompletedResult()) {
+                    lifecyclePhase = Network::Lifecycle::Phase::FinalSummary;
                 } else if (hostedMatch->stage() == Authoritative::HostedMatchStage::Ended) {
                     lifecyclePhase = Network::Lifecycle::Phase::Ended;
                 }
@@ -1961,6 +1972,10 @@ namespace Duel6::Server {
                     if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                         hostPlayerInput->reset();
                         admissionPolicy->setMatchStarted(false);
+                        if (!sessionLifecycle->clearReadiness()) {
+                            runtimeFailed = true;
+                            break;
+                        }
                     }
                     nextMatchTick += matchTickDuration;
                 }
