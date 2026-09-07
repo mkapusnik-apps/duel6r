@@ -8,19 +8,18 @@ The screen has no mobile layout, so this single desktop wireframe covers the tar
 
 ```text
 ┌───────────────── undivided shared arena under dark red curtain ────────────────┐
-│ final outcome event                                   final round counter       │
+│ final outcome event                [ Rounds: 1| 1 ] 32 px, top-centered         │
 │                                                                                │
 │              ┌────────────────────────────────────────────┐                    │
 │              │                 ---SCORE---                 │                    │
 │              │                   K   A   D  K/D  PTS       │                    │
-│              │ Alpha          | team totals               │ ← team row         │
-│              │ Ada, Amir      | aligned nested rows        │ ← one group         │
+│              │ Alpha + four aligned nested player rows     │ ← one group         │
 │              │ ────────────────────────────────────────── │ ← 2 px rule / 8 px band
-│              │ Bravo + two aligned nested player rows      │                    │
+│              │ Delta + three aligned nested player rows    │                    │
 │              │ ────────────────────────────────────────── │ ← group boundary    │
-│              │ Charlie + two aligned nested player rows    │                    │
+│              │ Bravo + four aligned nested player rows     │                    │
 │              │ ────────────────────────────────────────── │ ← group boundary    │
-│              │ Delta + two aligned nested player rows      │ ← no trailing band  │
+│              │ Charlie + four aligned nested player rows   │ ← no trailing band  │
 │              └────────────────────────────────────────────┘                    │
 │                                                                                │
 │                              clear gap ≥ 16 px                                  │
@@ -30,7 +29,11 @@ The screen has no mobile layout, so this single desktop wireframe covers the tar
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The representative state uses four teams and two nested players per team.
+The representative state uses four teams and 15 nested players in 19 score rows.
+The final round counter uses the same 32 px character height as the `SCORE` heading.
+The counter remains horizontally centered at the top client edge.
+The counter backing contains the complete text without clipping.
+The counter backing does not overlap the score panel.
 Each team row touches its nested player rows without an internal gap.
 Each adjacent group boundary uses the same 8 px band as non-final `OVER-02`.
 Each band contains a 2 px white rule at 70% opacity with 3 px of clear space above and below it.

@@ -16,6 +16,11 @@ Primary sources are `source/Game.cpp:51-79,158-164`, `source/Round.cpp:231-237`,
 - The final score panel must use the same visual table structure as round over.
 - The final score must include K, A, D, K/D, and PTS.
 - Final Elo updates do not appear as a separate gameplay panel.
+- The final round counter must remain at the horizontal center of the top client edge.
+- The final round counter must use the same 32 px character height as the `SCORE` heading.
+- The final round counter backing must contain the complete counter text.
+- The final round counter backing must not overlap the final score panel.
+- The final round counter and the `SCORE` heading must remain visually separate and readable.
 - In Team deathmatch, each team row must stay directly adjacent to that team's nested player rows.
 - In Team deathmatch, an 8 px separator band must separate adjacent team groups.
 - A 2 px `team-group-separator` rule must cross the score-table width at the vertical center of each separator band.
@@ -44,6 +49,7 @@ Primary sources are `source/Game.cpp:51-79,158-164`, `source/Round.cpp:231-237`,
 - Score rows and the `End of Game` text must remain on one line.
 - The overlay must not add wrapping, truncation, or scrolling.
 - The score panel and notice must remain inside the complete client area at the representative 1280 by 900 viewport.
+- The final round counter must remain inside the complete client area without clipping.
 - The notice region must not cover the live ranking, outcome message, or final round progress when those elements remain visible.
 - The curtain must remain behind the score panel and the notice.
 
@@ -77,6 +83,9 @@ Primary sources are `source/Game.cpp:51-79,158-164`, `source/Round.cpp:231-237`,
 ## Observable acceptance
 
 - A final limited four-team summary must show three separator bands.
+- The representative final Team summary must show 15 players in 19 score rows.
+- The visible character height of `Rounds: 1| 1` must match the visible character height of `SCORE`.
+- The `Rounds: 1| 1` text must remain top-centered, fully contained by its backing, and separate from the score panel.
 - Each separator band must match the non-final Team summary in width, height, rule thickness, opacity, and inner spacing.
 - The final score must show every expected team row and nested player row.
 - The bottom notice must read exactly `End of Game`.
