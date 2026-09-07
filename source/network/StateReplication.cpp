@@ -383,6 +383,24 @@ namespace Duel6::Network::Replication {
             std::vector<ParsedJsonValue> array;
         };
 
+        constexpr std::size_t MaxCanonicalResultRounds = 99;
+        constexpr std::size_t MaxCanonicalResultTeams = 4;
+        constexpr std::size_t StatisticsJsonValues = 1 + 12;
+        constexpr std::size_t RoundResultJsonValues = 1 + 5
+                                                      + 2 * (1 + MaxReplicatedPlayers);
+        constexpr std::size_t PlayerResultJsonValues = 1 + 7 + StatisticsJsonValues
+                                                       + 1 + MaxCanonicalResultRounds
+                                                             * StatisticsJsonValues;
+        constexpr std::size_t TeamResultJsonValues = 1 + 3 + 1 + MaxReplicatedPlayers;
+        constexpr std::size_t MaxCanonicalResultJsonValues = 1 + 13
+                                                              + (1 + MaxReplicatedPlayers) + 2
+                                                              + (1 + MaxCanonicalResultRounds
+                                                                     * RoundResultJsonValues)
+                                                              + (1 + MaxReplicatedPlayers
+                                                                     * PlayerResultJsonValues)
+                                                              + (1 + MaxCanonicalResultTeams
+                                                                     * TeamResultJsonValues);
+
         class CanonicalJsonParser final {
         public:
             explicit CanonicalJsonParser(const std::string &source) : source(source) {}
@@ -397,7 +415,8 @@ namespace Duel6::Network::Replication {
             std::size_t values = 0;
 
             bool parseValue(ParsedJsonValue &value, std::size_t depth) {
-                if (position >= source.size() || depth > 16 || ++values > 4096) return false;
+                if (position >= source.size() || depth > 16
+                    || ++values > MaxCanonicalResultJsonValues) return false;
                 value.start = position;
                 const char first = source[position];
                 bool parsed = false;
