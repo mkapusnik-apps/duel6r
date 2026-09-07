@@ -238,6 +238,7 @@ namespace Duel6::Network::Replication {
         std::optional<IncrementalUpdate> publish(CanonicalState state,
                                                  std::vector<PresentationEvent> events = {});
         std::optional<FullSnapshot> fullSnapshot() const;
+        void discard() noexcept;
         StateVersion version() const noexcept;
     private:
         StateVersion currentVersion = 0;

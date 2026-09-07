@@ -1,6 +1,7 @@
 #include "NetworkMatchResultRetention.h"
 
 #include <limits>
+#include <set>
 
 #include "AuthoritativeMatchSerialization.h"
 
@@ -27,6 +28,24 @@ namespace Duel6::Server::Authoritative {
         retained = result;
         serialized = std::move(candidate);
         return ResultRetentionStatus::Retained;
+    }
+
+    bool NetworkMatchResultRetention::markParticipantsDeparted(
+            const std::vector<Identity> &participantIds) {
+        if (!retained || participantIds.empty()) return false;
+        const std::set<Identity> departures(participantIds.begin(), participantIds.end());
+        SessionResult updated = *retained;
+        bool changed = false;
+        for (auto &row: updated.players) if (departures.count(row.participantId) && !row.departed) {
+            row.departed = true;
+            changed = true;
+        }
+        if (!changed) return true;
+        const auto candidate = serializeSessionResult(updated);
+        if (!candidate) return false;
+        retained = std::move(updated);
+        serialized = std::move(candidate);
+        return true;
     }
 
     void NetworkMatchResultRetention::discard() noexcept {

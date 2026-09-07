@@ -431,7 +431,7 @@ namespace Duel6::Server::Authoritative {
 
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::markResultParticipantsDeparted(
             const std::vector<Identity> &participantIds) {
-        if (!retainsCompletedResult() || participantIds.empty()) return std::nullopt;
+        if (!retainsSessionResult() || participantIds.empty()) return std::nullopt;
         const AuthoritativeReplication before = *this;
         const std::set<Identity> removals(participantIds.begin(), participantIds.end());
         bool resultChanged = false;
@@ -457,6 +457,31 @@ namespace Duel6::Server::Authoritative {
         return update;
     }
 
+    void AuthoritativeReplication::discardSessionResults() noexcept {
+        retainedResult.reset();
+        state.matchId = 0;
+        state.phase = R::Phase::Lobby;
+        state.currentRoundNumber = 0;
+        state.completedRounds = 0;
+        state.phaseTime = 0;
+        state.roundEndCountdown = 0;
+        state.round.reset();
+        state.entities.clear();
+        state.score = {};
+        state.messages.status = "lobby";
+        state.messages.events.clear();
+        state.messages.currentPlayerIndicators.clear();
+        state.messages.roundProgress = 0;
+        state.messages.scoreSummaryVisible = false;
+        state.effects.clear();
+        state.result = {};
+        worldIdentities.clear();
+        highestObservedEventSequence = 0;
+        highestObservedTransitionSequence = 0;
+        observedRound = 0;
+        publisher.discard();
+    }
+
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::enterFollowingLobby() {
         if (publisher.version() == 0 || (state.phase != R::Phase::FinalSummary && state.phase != R::Phase::Lobby)
             || !state.result.available)
@@ -476,13 +501,20 @@ namespace Duel6::Server::Authoritative {
 
     std::optional<R::FullSnapshot> AuthoritativeReplication::fullSnapshot() const { return publisher.fullSnapshot(); }
     const R::AuthoritativeStateReplicator &AuthoritativeReplication::replicator() const noexcept { return publisher; }
+    bool AuthoritativeReplication::retainsSessionResult() const noexcept {
+        return retainedResult
+               && (retainedResult->state == ResultState::Completed
+                   || retainedResult->state == ResultState::Interrupted)
+               && state.result.available
+               && (state.result.state == "Completed" || state.result.state == "Interrupted");
+    }
     bool AuthoritativeReplication::retainsCompletedResult() const noexcept {
-        return retainedResult && retainedResult->state == ResultState::Completed
+        return retainsSessionResult() && retainedResult->state == ResultState::Completed
                && state.result.available && state.result.state == "Completed";
     }
     bool AuthoritativeReplication::resultDepartureUpdateRequired(
             const std::vector<Identity> &participantIds) const noexcept {
-        if (!retainsCompletedResult() || participantIds.empty()) return false;
+        if (!retainsSessionResult() || participantIds.empty()) return false;
         if (std::any_of(state.participants.begin(), state.participants.end(),
                         [](const auto &participant) { return participant.ready; })) return true;
         const std::set<Identity> removals(participantIds.begin(), participantIds.end());

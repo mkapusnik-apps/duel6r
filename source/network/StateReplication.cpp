@@ -687,8 +687,7 @@ namespace Duel6::Network::Replication {
                     || before.result.sessionOnly != after.result.sessionOnly
                     || before.result.state != after.result.state) return true;
             if (before.result.serialized == after.result.serialized) return false;
-            return before.result.state != "Completed" || after.result.state != "Completed"
-                   || !validDepartedResultTransition(before, after);
+            return !validDepartedResultTransition(before, after);
         }
 
         bool validResolvedOutcome(const RoundOutcomeState &outcome, const CanonicalState &state) {
@@ -1042,6 +1041,18 @@ namespace Duel6::Network::Replication {
     std::optional<FullSnapshot> AuthoritativeStateReplicator::fullSnapshot() const {
         if (!current || currentVersion == 0) return std::nullopt;
         return FullSnapshot{currentVersion, *current};
+    }
+
+    void AuthoritativeStateReplicator::discard() noexcept {
+        currentVersion = 0;
+        current.reset();
+        highestEmittedEvent = 0;
+        issuedParticipantIdentities.clear();
+        issuedPlayerIdentities.clear();
+        issuedMatchIdentities.clear();
+        issuedRoundIdentities.clear();
+        transientEntityIdentities.clear();
+        highestEntityIdentity = 0;
     }
 
     StateVersion AuthoritativeStateReplicator::version() const noexcept { return currentVersion; }

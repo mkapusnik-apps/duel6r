@@ -77,10 +77,14 @@ namespace Duel6::Server::Authoritative {
         std::set<Identity> removals(participantIds.begin(), participantIds.end());
         clearReadiness();
         if (!activeMatch || currentStage != HostedMatchStage::MatchActive) {
-            if (!replication.retainsCompletedResult()) return true;
+            if (!replication.retainsSessionResult()) return true;
             if (!replication.resultDepartureUpdateRequired(participantIds)) return true;
             const auto update = replication.markResultParticipantsDeparted(participantIds);
             if (!update) return false;
+            if (!resultRetention.markParticipantsDeparted(participantIds)) {
+                discardSessionResults();
+                return false;
+            }
             (void) replicationConnections.broadcastCurrentSnapshot();
             return true;
         }
@@ -337,6 +341,7 @@ namespace Duel6::Server::Authoritative {
     void AuthoritativeHostedMatchController::discardSessionResults() noexcept {
         activeResultGeneration = 0;
         resultRetention.discard();
+        replication.discardSessionResults();
     }
 
     HostedMatchStage AuthoritativeHostedMatchController::stage() const noexcept { return currentStage; }

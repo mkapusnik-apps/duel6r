@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 #include "AuthoritativeMatchTypes.h"
 
@@ -17,6 +18,7 @@ namespace Duel6::Server::Authoritative {
     public:
         std::optional<std::uint64_t> beginMatch() noexcept;
         ResultRetentionStatus retain(std::uint64_t generation, const SessionResult &result);
+        bool markParticipantsDeparted(const std::vector<Identity> &participantIds);
         void discard() noexcept;
 
         const std::optional<SessionResult> &current() const noexcept;

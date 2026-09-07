@@ -28,8 +28,10 @@ namespace Duel6::Server::Authoritative {
         std::optional<Network::Replication::IncrementalUpdate> markResultParticipantsDeparted(
                 const std::vector<Identity> &participantIds);
         std::optional<Network::Replication::IncrementalUpdate> enterFollowingLobby();
+        void discardSessionResults() noexcept;
         std::optional<Network::Replication::FullSnapshot> fullSnapshot() const;
         const Network::Replication::AuthoritativeStateReplicator &replicator() const noexcept;
+        bool retainsSessionResult() const noexcept;
         bool retainsCompletedResult() const noexcept;
         bool resultDepartureUpdateRequired(const std::vector<Identity> &participantIds) const noexcept;
 

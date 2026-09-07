@@ -9,6 +9,7 @@
 #include "source/server/AuthoritativeReplication.h"
 #include "source/server/AuthoritativeMatchSerialization.h"
 #include "source/server/AuthoritativeMatchValidation.h"
+#include "source/server/NetworkMatchResultRetention.h"
 #include "source/network/StateReplicationProtocol.h"
 #include "source/network/SessionLifecycle.h"
 #include "tests/TestHarness.h"
@@ -641,6 +642,8 @@ D6R_TEST_CASE("REP-017 NET-AC-018 completed hosted match publishes final summary
     eliminate(*controller.match(), sequence, players[0], players[1]);
     finishDelay(*controller.match());
     D6R_REQUIRE(controller.observeMatchOutcome());
+    D6R_REQUIRE(controller.currentSessionResult().has_value());
+    D6R_REQUIRE(controller.currentSessionResult()->state == ResultState::Completed);
 
     const auto resultStates = deliveredStates(payloads);
     const auto *finalSummary = lastPhase(resultStates, R::Phase::FinalSummary);
@@ -667,6 +670,7 @@ D6R_TEST_CASE("REP-017 NET-AC-018 completed hosted match publishes final summary
     D6R_REQUIRE(!newMatch->result.available);
     D6R_REQUIRE(newMatch->result.serialized.empty());
     D6R_REQUIRE(newMatch->matchId != finalSummary->matchId);
+    D6R_REQUIRE(!controller.currentSessionResult().has_value());
 }
 
 D6R_TEST_CASE("REP-017 NET-AC-018 interrupted hosted match goes directly to cleared-readiness lobby with completed result retained") {
@@ -693,6 +697,9 @@ D6R_TEST_CASE("REP-017 NET-AC-018 interrupted hosted match goes directly to clea
                                                ActionKind::RemovePlayer, 102)));
     D6R_REQUIRE_EQ(OutcomeCode::InterruptedNoWinner, controller.match()->outcome().code);
     D6R_REQUIRE(controller.observeMatchOutcome());
+    D6R_REQUIRE(controller.currentSessionResult().has_value());
+    D6R_REQUIRE(controller.currentSessionResult()->state == ResultState::Interrupted);
+    D6R_REQUIRE(controller.currentSessionResult()->finalNoWinner);
 
     const auto states = deliveredStates(payloads);
     const auto *followingLobby = lastPhase(states, R::Phase::Lobby);
@@ -971,6 +978,7 @@ D6R_TEST_CASE("AHM REP-017 completed hosted cleanup failure is status 4 and publ
     D6R_REQUIRE_EQ(std::string(
             "observed=false;unexpected=true;status=4;released=false;retained=false;replicated=false;intentional=false"),
             evidence);
+    D6R_REQUIRE(!controller.currentSessionResult().has_value());
 }
 
 D6R_TEST_CASE("AHM REP-017 interrupted hosted cleanup failure is status 4 and publishes no retained result") {
@@ -1012,6 +1020,7 @@ D6R_TEST_CASE("AHM REP-017 interrupted hosted cleanup failure is status 4 and pu
     D6R_REQUIRE_EQ(std::string(
             "observed=false;unexpected=true;status=4;released=false;retained=false;replicated=false;intentional=false"),
             evidence);
+    D6R_REQUIRE(!controller.currentSessionResult().has_value());
 }
 
 D6R_TEST_CASE("AHM hosted End authorization is bound only to the frozen host identity") {
@@ -1026,6 +1035,7 @@ D6R_TEST_CASE("AHM hosted End authorization is bound only to the frozen host ide
     D6R_REQUIRE_EQ(HostedMatchStage::MatchActive, controller.stage());
     D6R_REQUIRE_EQ(OutcomeCode::EndedIntentionally, controller.end(1).code);
     D6R_REQUIRE_EQ(HostedMatchStage::Ended, controller.stage());
+    D6R_REQUIRE(!controller.currentSessionResult().has_value());
 }
 
 D6R_TEST_CASE("REP-017 final-summary and following-lobby departures preserve completion and mark result rows") {
@@ -1267,5 +1277,75 @@ D6R_TEST_CASE("AHM canonical JSON is stable escaped bounded and excludes persist
     result.rounds.resize(100);
     result.completedRounds = 100;
     D6R_REQUIRE(!serializeSessionResult(result));
+}
+
+D6R_TEST_CASE("NET-AC-018 result retention accepts one exact terminal result per match and rejects replay") {
+    NetworkMatchResultRetention retention;
+    D6R_REQUIRE(!NetworkMatchResultRetention::persistenceEligible());
+    D6R_REQUIRE(!retention.current().has_value());
+
+    const auto firstGeneration = retention.beginMatch();
+    D6R_REQUIRE(firstGeneration.has_value());
+    SessionResult completed;
+    completed.config = config();
+    completed.completedRounds = 1;
+    completed.rounds.push_back({1, "levels/a.json", false, {101}, Team::None, false, {101, 102}});
+    PlayerResultRow winner;
+    winner.playerId = 101;
+    winner.participantId = 1;
+    winner.displayName = "Winner";
+    winner.rosterOrder = 0;
+    winner.statistics.wins = 1;
+    winner.rounds.push_back(winner.statistics);
+    completed.players.push_back(winner);
+    completed.finalWinnerPlayerIds = {101};
+
+    D6R_REQUIRE(retention.retain(*firstGeneration, completed) == ResultRetentionStatus::Retained);
+    D6R_REQUIRE(retention.current().has_value());
+    D6R_REQUIRE_EQ(std::string("Winner"), retention.current()->players.front().displayName);
+    D6R_REQUIRE(retention.retain(*firstGeneration, completed) == ResultRetentionStatus::Duplicate);
+
+    SessionResult conflicting = completed;
+    conflicting.players.front().displayName = "Forged replacement";
+    D6R_REQUIRE(retention.retain(*firstGeneration, conflicting) == ResultRetentionStatus::Rejected);
+    D6R_REQUIRE_EQ(std::string("Winner"), retention.current()->players.front().displayName);
+    D6R_REQUIRE(retention.retain(0, completed) == ResultRetentionStatus::Rejected);
+
+    const auto secondGeneration = retention.beginMatch();
+    D6R_REQUIRE(secondGeneration.has_value());
+    D6R_REQUIRE(*secondGeneration != *firstGeneration);
+    D6R_REQUIRE(!retention.current().has_value());
+    D6R_REQUIRE(retention.retain(*firstGeneration, completed) == ResultRetentionStatus::Rejected);
+    D6R_REQUIRE(retention.retain(*secondGeneration, completed) == ResultRetentionStatus::Retained);
+
+    retention.discard();
+    retention.discard();
+    D6R_REQUIRE(!retention.current().has_value());
+    D6R_REQUIRE(retention.retain(*secondGeneration, completed) == ResultRetentionStatus::Rejected);
+}
+
+D6R_TEST_CASE("AHM-AC-015 AHM-AC-023 completed hosted result is session-only until host End discards it") {
+    const auto players = roster(2);
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}}};
+    AuthoritativeHostedMatchController controller(1);
+    D6R_REQUIRE(!controller.resultsPersistenceEligible());
+    D6R_REQUIRE(controller.initializeReplication(participants, players, config()));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(config(), players, manifest()).code);
+
+    std::uint64_t sequence = 1;
+    eliminate(*controller.match(), sequence, players[0], players[1]);
+    finishDelay(*controller.match());
+    D6R_REQUIRE(controller.observeMatchOutcome());
+    D6R_REQUIRE(controller.currentSessionResult().has_value());
+    D6R_REQUIRE(controller.currentSessionResult()->state == ResultState::Completed);
+    D6R_REQUIRE_EQ(std::string("Session only"), controller.currentSessionResult()->label);
+    D6R_REQUIRE_EQ(1u, controller.currentSessionResult()->completedRounds);
+
+    D6R_REQUIRE_EQ(OutcomeCode::EndedIntentionally, controller.end(1).code);
+    D6R_REQUIRE(controller.stage() == HostedMatchStage::Ended);
+    D6R_REQUIRE(!controller.currentSessionResult().has_value());
 }
 }
