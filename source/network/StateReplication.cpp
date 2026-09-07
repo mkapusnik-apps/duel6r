@@ -547,6 +547,7 @@ namespace Duel6::Network::Replication {
         };
 
         struct CanonicalResultLabels {
+            std::string state;
             std::string normalized;
             std::vector<CanonicalResultRowLabel> rows;
         };
@@ -560,6 +561,7 @@ namespace Duel6::Network::Replication {
                 || (state->token != "\"Completed\"" && state->token != "\"Interrupted\"")
                 || !players || players->kind != ParsedJsonValue::Kind::Array) return std::nullopt;
             CanonicalResultLabels result;
+            result.state = state->token == "\"Completed\"" ? "Completed" : "Interrupted";
             std::set<Identity> playerIds;
             for (const auto &row: players->array) {
                 if (row.kind != ParsedJsonValue::Kind::Object) return std::nullopt;
@@ -582,17 +584,23 @@ namespace Duel6::Network::Replication {
             return result;
         }
 
-        bool consistentCanonicalResultDepartures(const CanonicalState &state) noexcept {
+        bool validAvailableTerminalResult(const CanonicalState &state) noexcept {
             try {
+                if (!state.result.available) return true;
                 const auto result = canonicalResultLabels(state.result.serialized);
-                if (!result) return true;
+                if (!result || result->state != state.result.state) return false;
+                std::set<Identity> resultPlayerIds;
                 for (const auto &row: result->rows) {
+                    resultPlayerIds.insert(row.playerId);
                     const auto player = std::find_if(state.players.begin(), state.players.end(),
                             [&](const auto &value) { return value.playerId == row.playerId; });
                     if (player != state.players.end()
-                        && row.departed != (player->lifeState == LifeState::Departed)) return false;
+                        && (row.participantId != player->ownerParticipantId
+                            || row.departed != (player->lifeState == LifeState::Departed))) return false;
                 }
-                return true;
+                std::set<Identity> scorePlayerIds;
+                for (const auto &row: state.score.players) scorePlayerIds.insert(row.playerId);
+                return resultPlayerIds == scorePlayerIds;
             } catch (...) { return false; }
         }
 
@@ -979,7 +987,7 @@ namespace Duel6::Network::Replication {
     }
 
     bool AuthoritativeStateReplicator::initialize(CanonicalState state) {
-        if (current || !validateCanonicalState(state)) return false;
+        if (current || !validateCanonicalState(state) || !validAvailableTerminalResult(state)) return false;
         for (const auto &participant: state.participants)
             issuedParticipantIdentities.insert(participant.participantId);
         issuedPlayerIdentities = referencedPlayerIdentities(state);
@@ -1000,7 +1008,8 @@ namespace Duel6::Network::Replication {
             for (const auto &entity: state.entities) if (priorEntities.count(entity.entityId)) return std::nullopt;
         }
         if (!current || currentVersion == std::numeric_limits<StateVersion>::max()
-            || !validateCanonicalState(state) || state.sessionId != current->sessionId
+            || !validateCanonicalState(state) || !validAvailableTerminalResult(state)
+            || state.sessionId != current->sessionId
             || (current->matchId != 0 && state.matchId == current->matchId
                 && sameRound(current->round, state.round) && state.phaseTime < current->phaseTime)
             || containsReusedCreation(current->participants, state.participants,
@@ -1095,7 +1104,7 @@ namespace Duel6::Network::Replication {
 
     ApplyResult ReplicatedState::apply(const FullSnapshot &snapshot) {
         if (snapshot.version == 0 || !validateCanonicalState(snapshot.state)
-            || !consistentCanonicalResultDepartures(snapshot.state)
+            || !validAvailableTerminalResult(snapshot.state)
             || (accepted && snapshot.state.sessionId != accepted->sessionId)
             || (accepted && accepted->matchId != 0 && snapshot.state.matchId == accepted->matchId
                 && sameRound(accepted->round, snapshot.state.round)
@@ -1229,7 +1238,7 @@ namespace Duel6::Network::Replication {
                 return rejectIncremental();
             eventTextBytes += event.type.size();
         }
-        if (!validateCanonicalState(candidate) || !consistentCanonicalResultDepartures(candidate)
+        if (!validateCanonicalState(candidate) || !validAvailableTerminalResult(candidate)
             || !withinPayloadLimit(candidate, update.events.size(), eventTextBytes)) return rejectIncremental();
         accepted = std::move(candidate); acceptedVersion = update.version;
         acceptedParticipantIdentities = std::move(nextAcceptedParticipants);
