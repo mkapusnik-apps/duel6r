@@ -431,6 +431,56 @@ namespace Duel6::Server::Authoritative {
         return result;
     }
 
+    ActionResult AuthoritativeMatch::removePlayersBatch(
+            Identity participantId, const std::vector<Identity> &playerIds) {
+        if (!isHost(participantId) || playerIds.empty() || terminal.code != OutcomeCode::None
+            || currentPhase == MatchPhase::Failed || currentPhase == MatchPhase::Completed
+            || currentPhase == MatchPhase::Ended) return reject(ActionResult::RejectedPhase);
+        const std::set<Identity> unique(playerIds.begin(), playerIds.end());
+        if (unique.size() != playerIds.size() || unique.count(0)) return reject(ActionResult::RejectedValue);
+        for (const auto playerId: unique) {
+            const PlayerState *player = findPlayer(playerId);
+            if (!player || player->departed) return reject(ActionResult::RejectedValue);
+        }
+        if (!dependencies.worldRemoveBatch) {
+            failRuntime();
+            return ActionResult::RuntimeFailed;
+        }
+        try {
+            if (!dependencies.worldRemoveBatch(playerIds)) {
+                failRuntime();
+                return ActionResult::RuntimeFailed;
+            }
+        } catch (...) {
+            failRuntime();
+            return ActionResult::RuntimeFailed;
+        }
+        for (const auto playerId: unique) {
+            PlayerState *player = findPlayer(playerId);
+            player->departed = true;
+            player->alive = false;
+            player->inputMask = 0;
+        }
+        ++totalActions;
+        interruptIfRosterTooSmall();
+        if (terminal.code == OutcomeCode::None && currentPhase == MatchPhase::ActiveRound)
+            evaluateRoundOutcome();
+        return ActionResult::Accepted;
+    }
+
+    bool AuthoritativeMatch::canRemovePlayersBatch(
+            Identity participantId, const std::vector<Identity> &playerIds) const noexcept {
+        if (!isHost(participantId) || playerIds.empty() || terminal.code != OutcomeCode::None
+            || currentPhase == MatchPhase::Failed || currentPhase == MatchPhase::Completed
+            || currentPhase == MatchPhase::Ended || !dependencies.worldRemoveBatch) return false;
+        const std::set<Identity> unique(playerIds.begin(), playerIds.end());
+        if (unique.size() != playerIds.size() || unique.count(0)) return false;
+        return std::all_of(unique.begin(), unique.end(), [&](const auto playerId) {
+            const PlayerState *player = findPlayer(playerId);
+            return player && !player->departed;
+        });
+    }
+
     ActionResult AuthoritativeMatch::submitImpl(const AuthoritativeAction &action, bool internalHostControl) {
         const ActionResult validation = validateAction(action, internalHostControl);
         if (validation != ActionResult::Accepted) return reject(validation);

@@ -356,7 +356,10 @@ namespace Duel6::Client {
     }
 
     void HostServiceSupervisor::finishOwnedChild(SelectedStop selected, HostServiceOutcome selectedFailure) {
-        try { child->requestStop(); } catch (...) {}
+        try {
+            if (selected == SelectedStop::EndSession) child->requestEndSession();
+            else child->requestStop();
+        } catch (...) {}
         HostServiceTimePoint hardDeadline;
         {
             std::lock_guard<std::mutex> lock(mutex);
@@ -429,6 +432,13 @@ namespace Duel6::Client {
             changed.notify_all();
         }
         observe(current);
+    }
+
+    bool HostServiceSupervisor::setSessionReady(bool ready) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (state != HostServiceState::Active || !child || selectedStop != SelectedStop::None) return false;
+        try { return child->requestReadiness(ready); }
+        catch (...) { return false; }
     }
 
     const char *hostServiceOutcomeIdentifier(HostServiceOutcome value) noexcept {

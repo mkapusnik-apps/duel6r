@@ -12,6 +12,7 @@
 
 #include "tests/TestHarness.h"
 #include "source/client/HostServiceSupervisor.h"
+#include "source/network/HostServiceControlProtocol.h"
 
 #ifndef D6R_HOST_SERVICE_TEST_CHILD
 #error D6R_HOST_SERVICE_TEST_CHILD must name the native lifecycle test child
@@ -144,4 +145,55 @@ D6R_TEST_CASE("HSL-AC-015 numeric PGID reuse seam never signals an unrelated gro
     seam.ownedGroup = 24001; // The same numeric PGID now denotes an unrelated process group.
     seam.force();
     D6R_REQUIRE_EQ(std::size_t(1), seam.signalledGroups.size());
+}
+
+D6R_TEST_CASE("HSL-AC-016 fixed control frames retain partial bytes and stop at the first terminal command") {
+    struct PortableFixedFrameSeam {
+        std::vector<std::uint8_t> pending;
+        std::optional<bool> readiness;
+        bool stopped = false;
+        bool ended = false;
+
+        void receive(const std::uint8_t *bytes, std::size_t size) {
+            pending.insert(pending.end(), bytes, bytes + size);
+            std::size_t consumed = 0;
+            while (!stopped && !ended
+                   && pending.size() - consumed >= Network::HostServiceControlMessageBytes) {
+                Network::HostServiceCommandCode command{};
+                D6R_REQUIRE(Network::decodeHostServiceCommand(
+                        pending.data() + consumed, Network::HostServiceControlMessageBytes, command));
+                consumed += Network::HostServiceControlMessageBytes;
+                if (command == Network::HostServiceCommandCode::Stop) stopped = true;
+                else if (command == Network::HostServiceCommandCode::EndSession) ended = true;
+                else readiness = command == Network::HostServiceCommandCode::Ready;
+            }
+            if (stopped || ended) pending.clear();
+            else if (consumed != 0) pending.erase(
+                    pending.begin(), pending.begin() + static_cast<std::ptrdiff_t>(consumed));
+        }
+    };
+
+    const auto verify = [](Network::HostServiceCommandCode firstTerminal) {
+        PortableFixedFrameSeam seam;
+        std::vector<std::uint8_t> stream;
+        const auto append = [&](Network::HostServiceCommandCode command) {
+            const auto frame = Network::encodeHostServiceCommand(command);
+            stream.insert(stream.end(), frame.begin(), frame.end());
+        };
+        append(Network::HostServiceCommandCode::Ready);
+        append(Network::HostServiceCommandCode::NotReady);
+        append(firstTerminal);
+        append(firstTerminal == Network::HostServiceCommandCode::EndSession
+               ? Network::HostServiceCommandCode::Stop : Network::HostServiceCommandCode::EndSession);
+        seam.receive(stream.data(), 3);
+        D6R_REQUIRE(!seam.readiness.has_value() && !seam.stopped && !seam.ended);
+        seam.receive(stream.data() + 3, stream.size() - 3);
+        D6R_REQUIRE(seam.readiness.has_value() && !*seam.readiness);
+        D6R_REQUIRE_EQ(firstTerminal == Network::HostServiceCommandCode::EndSession, seam.ended);
+        D6R_REQUIRE_EQ(firstTerminal == Network::HostServiceCommandCode::Stop, seam.stopped);
+        D6R_REQUIRE(seam.pending.empty());
+    };
+
+    verify(Network::HostServiceCommandCode::EndSession);
+    verify(Network::HostServiceCommandCode::Stop);
 }

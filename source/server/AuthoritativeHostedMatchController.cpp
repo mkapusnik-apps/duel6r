@@ -71,6 +71,44 @@ namespace Duel6::Server::Authoritative {
         playerInput.revokePlayer(playerId);
     }
 
+    bool AuthoritativeHostedMatchController::removeLifecycleParticipants(
+            const std::vector<Identity> &participantIds) {
+        if (!canRemoveLifecycleParticipants(participantIds)) return false;
+        std::set<Identity> removals(participantIds.begin(), participantIds.end());
+        clearReadiness();
+        if (!activeMatch || currentStage != HostedMatchStage::MatchActive) {
+            if (!replication.retainsCompletedResult()) return true;
+            if (!replication.resultDepartureUpdateRequired(participantIds)) return true;
+            const auto update = replication.markResultParticipantsDeparted(participantIds);
+            if (!update) return false;
+            (void) replicationConnections.broadcastCurrentSnapshot();
+            return true;
+        }
+        std::vector<Identity> players;
+        for (const auto &player: activeMatch->rosterDefinitions())
+            if (removals.count(player.participantId)) players.push_back(player.playerId);
+        if (players.empty()
+            || activeMatch->removePlayersBatch(hostParticipantId, players) != ActionResult::Accepted) return false;
+        for (const auto playerId: players) playerInput.revokePlayer(playerId);
+        if (!captureReplication()) return false;
+        return activeMatch->outcome().code == OutcomeCode::None || observeMatchOutcome();
+    }
+
+    bool AuthoritativeHostedMatchController::canRemoveLifecycleParticipants(
+            const std::vector<Identity> &participantIds) const noexcept {
+        try {
+            if (participantIds.empty()) return false;
+            const std::set<Identity> removals(participantIds.begin(), participantIds.end());
+            if (removals.size() != participantIds.size() || removals.count(0)
+                || removals.count(hostParticipantId)) return false;
+            if (!activeMatch || currentStage != HostedMatchStage::MatchActive) return true;
+            std::vector<Identity> players;
+            for (const auto &player: activeMatch->rosterDefinitions())
+                if (removals.count(player.participantId)) players.push_back(player.playerId);
+            return !players.empty() && activeMatch->canRemovePlayersBatch(hostParticipantId, players);
+        } catch (...) { return false; }
+    }
+
     AuthoritativePlayerInput::ReceiveResult AuthoritativeHostedMatchController::receivePlayerInput(
             Identity participantId, const Network::Input::Command &command, bool remote) {
         return playerInput.receive(participantId, command, remote);
@@ -268,6 +306,9 @@ namespace Duel6::Server::Authoritative {
     HostedMatchStage AuthoritativeHostedMatchController::stage() const noexcept { return currentStage; }
     bool AuthoritativeHostedMatchController::contentStartBlocked() const noexcept {
         return currentStage == HostedMatchStage::ContentBlocked;
+    }
+    bool AuthoritativeHostedMatchController::retainsCompletedResult() const noexcept {
+        return replication.retainsCompletedResult();
     }
     bool AuthoritativeHostedMatchController::participantReady(Identity participantId) const noexcept {
         const auto found = readiness.find(participantId);

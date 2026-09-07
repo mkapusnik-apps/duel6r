@@ -112,6 +112,9 @@ namespace Duel6::Server::Authoritative {
             return self->setPlayerInput(playerId, mask);
         };
         result.worldRemove = [self](Identity playerId) { return self->removePlayer(playerId); };
+        result.worldRemoveBatch = [self](const std::vector<Identity> &playerIds) {
+            return self->removePlayers(playerIds);
+        };
         result.worldSnapshot = [self] { return self->snapshot(); };
         result.worldEndWithRandom = [self](RandomSource &randomSource) { self->endWorld(&randomSource); };
         result.cleanup = [self] { return self->cleanup(); };
@@ -374,12 +377,35 @@ namespace Duel6::Server::Authoritative {
     bool CanonicalMatchRuntime::removePlayer(Identity playerId) {
         if (!game) return false;
         const auto found = canonicalPlayersById.find(playerId);
-        if (found == canonicalPlayersById.end() || departedPlayerIds.count(playerId)) return false;
+        const auto held = heldInputsByPlayerId.find(playerId);
+        if (found == canonicalPlayersById.end() || departedPlayerIds.count(playerId)
+            || held == heldInputsByPlayerId.end()) return false;
         Player &player = *found->second;
-        player.setControllerState(0);
-        heldInputsByPlayerId[playerId] = 0;
-        departedPlayerIds.insert(playerId);
-        if (player.isAlive()) player.die();
+        auto nextDeparted = departedPlayerIds;
+        nextDeparted.insert(playerId);
+        player.setHeadlessDeparted();
+        held->second = 0;
+        departedPlayerIds.swap(nextDeparted);
+        return true;
+    }
+
+    bool CanonicalMatchRuntime::removePlayers(const std::vector<Identity> &playerIds) {
+        if (!game || playerIds.empty()) return false;
+        const std::set<Identity> unique(playerIds.begin(), playerIds.end());
+        if (unique.size() != playerIds.size() || unique.count(0)) return false;
+        for (const auto playerId: unique) {
+            const auto found = canonicalPlayersById.find(playerId);
+            if (found == canonicalPlayersById.end() || departedPlayerIds.count(playerId)
+                || heldInputsByPlayerId.count(playerId) == 0) return false;
+        }
+        auto nextDeparted = departedPlayerIds;
+        nextDeparted.insert(unique.begin(), unique.end());
+        for (const auto playerId: unique) {
+            Player &player = *canonicalPlayersById.at(playerId);
+            player.setHeadlessDeparted();
+            heldInputsByPlayerId.at(playerId) = 0;
+        }
+        departedPlayerIds.swap(nextDeparted);
         return true;
     }
 

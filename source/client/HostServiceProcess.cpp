@@ -59,6 +59,8 @@ namespace Duel6::Client {
                 return owned->observeExitAndDrainStatus(exit, statuses, observationClock);
             }
             void requestStop() override { owned->requestStop(); }
+            void requestEndSession() override { owned->requestEndSession(); }
+            bool requestReadiness(bool ready) override { return owned->requestReadiness(ready); }
             bool waitForExit(std::chrono::milliseconds timeout) override { return owned->waitForExit(timeout); }
             void forceTerminate() override { owned->forceTerminate(); }
             bool cleanupConfirmed() override { return owned->cleanupConfirmed(); }
@@ -190,12 +192,27 @@ namespace Duel6::Client {
             bool hasExited() override { return WaitForSingleObject(process, 0) == WAIT_OBJECT_0; }
 
             void requestStop() override {
+                (void) requestCommand(Network::HostServiceCommandCode::Stop, true);
+            }
+
+            void requestEndSession() override {
+                (void) requestCommand(Network::HostServiceCommandCode::EndSession, true);
+            }
+
+            bool requestReadiness(bool ready) override {
+                return requestCommand(ready ? Network::HostServiceCommandCode::Ready
+                                            : Network::HostServiceCommandCode::NotReady, false);
+            }
+
+            bool requestCommand(Network::HostServiceCommandCode command, bool terminal) {
                 std::lock_guard<std::mutex> lock(controlMutex);
-                if (stopSent || !controlWrite) return;
-                const auto message = Network::encodeHostServiceCommand(Network::HostServiceCommandCode::Stop);
+                if (stopSent || !controlWrite) return false;
+                const auto message = Network::encodeHostServiceCommand(command);
                 DWORD count = 0;
-                WriteFile(controlWrite, message.data(), static_cast<DWORD>(message.size()), &count, nullptr);
-                stopSent = true;
+                const bool sent = WriteFile(controlWrite, message.data(), static_cast<DWORD>(message.size()),
+                                            &count, nullptr) && count == message.size();
+                if (sent && terminal) stopSent = true;
+                return sent;
             }
 
             bool waitForExit(std::chrono::milliseconds timeout) override {
@@ -407,9 +424,22 @@ namespace Duel6::Client {
             }
 
             void requestStop() override {
+                (void) requestCommand(Network::HostServiceCommandCode::Stop, true);
+            }
+
+            void requestEndSession() override {
+                (void) requestCommand(Network::HostServiceCommandCode::EndSession, true);
+            }
+
+            bool requestReadiness(bool ready) override {
+                return requestCommand(ready ? Network::HostServiceCommandCode::Ready
+                                            : Network::HostServiceCommandCode::NotReady, false);
+            }
+
+            bool requestCommand(Network::HostServiceCommandCode command, bool terminal) {
                 std::lock_guard<std::mutex> lock(controlMutex);
-                if (stopSent || controlWrite < 0) return;
-                const auto message = Network::encodeHostServiceCommand(Network::HostServiceCommandCode::Stop);
+                if (stopSent || controlWrite < 0) return false;
+                const auto message = Network::encodeHostServiceCommand(command);
                 std::size_t offset = 0;
                 while (offset < message.size()) {
                     const ssize_t count = send(controlWrite, message.data() + offset, message.size() - offset,
@@ -418,7 +448,9 @@ namespace Duel6::Client {
                     if (count <= 0) break;
                     offset += static_cast<std::size_t>(count);
                 }
-                stopSent = true;
+                const bool sent = offset == message.size();
+                if (sent && terminal) stopSent = true;
+                return sent;
             }
 
             bool waitForExit(std::chrono::milliseconds timeout) override {

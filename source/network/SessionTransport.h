@@ -185,6 +185,7 @@ namespace Duel6::Network {
         TcpConnection &operator=(const TcpConnection &) = delete;
 
         SendResult send(std::vector<std::uint8_t> payload);
+        SendResult sendSensitive(std::vector<std::uint8_t> payload);
         AdmissionAcceptanceEnqueueResult enqueueAdmissionAcceptance(
                 std::vector<std::uint8_t> payload,
                 AdmissionAttemptGate &attempt,

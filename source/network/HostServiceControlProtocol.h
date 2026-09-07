@@ -19,7 +19,10 @@ namespace Duel6::Network {
     };
 
     enum class HostServiceCommandCode : std::uint8_t {
-        Stop = 1
+        Stop = 1,
+        EndSession = 2,
+        Ready = 3,
+        NotReady = 4
     };
 
     std::array<std::uint8_t, HostServiceStatusMessageBytes> encodeHostServiceStatus(

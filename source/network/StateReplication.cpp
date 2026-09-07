@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <string_view>
 #include <utility>
 
 namespace Duel6::Network::Replication {
@@ -372,6 +373,259 @@ namespace Duel6::Network::Replication {
                    && left.teamRanking == right.teamRanking && sameOutcome(left.winner, right.winner);
         }
 
+        struct ParsedJsonValue {
+            enum class Kind { Object, Array, String, Number, Boolean, Null } kind = Kind::Null;
+            std::string token;
+            bool boolean = false;
+            std::size_t start = 0;
+            std::size_t end = 0;
+            std::vector<std::pair<std::string, ParsedJsonValue>> object;
+            std::vector<ParsedJsonValue> array;
+        };
+
+        constexpr std::size_t MaxCanonicalResultRounds = 99;
+        constexpr std::size_t MaxCanonicalResultTeams = 4;
+        // The canonical root is the widest object at 19 members; statistics objects have 12.
+        constexpr std::size_t MaxCanonicalResultObjectMembers = 19;
+        constexpr std::size_t StatisticsJsonValues = 1 + 12;
+        constexpr std::size_t RoundResultJsonValues = 1 + 5
+                                                      + 2 * (1 + MaxReplicatedPlayers);
+        constexpr std::size_t PlayerResultJsonValues = 1 + 7 + StatisticsJsonValues
+                                                       + 1 + MaxCanonicalResultRounds
+                                                             * StatisticsJsonValues;
+        constexpr std::size_t TeamResultJsonValues = 1 + 3 + 1 + MaxReplicatedPlayers;
+        constexpr std::size_t MaxCanonicalResultJsonValues = 1 + 13
+                                                              + (1 + MaxReplicatedPlayers) + 2
+                                                              + (1 + MaxCanonicalResultRounds
+                                                                     * RoundResultJsonValues)
+                                                              + (1 + MaxReplicatedPlayers
+                                                                     * PlayerResultJsonValues)
+                                                              + (1 + MaxCanonicalResultTeams
+                                                                     * TeamResultJsonValues);
+
+        class CanonicalJsonParser final {
+        public:
+            explicit CanonicalJsonParser(const std::string &source) : source(source) {}
+
+            bool parse(ParsedJsonValue &value) {
+                return parseValue(value, 0) && position == source.size();
+            }
+
+        private:
+            const std::string &source;
+            std::size_t position = 0;
+            std::size_t values = 0;
+
+            bool parseValue(ParsedJsonValue &value, std::size_t depth) {
+                if (position >= source.size() || depth > 16
+                    || ++values > MaxCanonicalResultJsonValues) return false;
+                value.start = position;
+                const char first = source[position];
+                bool parsed = false;
+                if (first == '{') parsed = parseObject(value, depth);
+                else if (first == '[') parsed = parseArray(value, depth);
+                else if (first == '"') {
+                    value.kind = ParsedJsonValue::Kind::String;
+                    parsed = parseString(value.token);
+                } else if (first == '-' || (first >= '0' && first <= '9')) {
+                    value.kind = ParsedJsonValue::Kind::Number;
+                    parsed = parseNumber(value.token);
+                } else if (source.compare(position, 4, "true") == 0) {
+                    value.kind = ParsedJsonValue::Kind::Boolean; value.boolean = true; position += 4; parsed = true;
+                } else if (source.compare(position, 5, "false") == 0) {
+                    value.kind = ParsedJsonValue::Kind::Boolean; value.boolean = false; position += 5; parsed = true;
+                } else if (source.compare(position, 4, "null") == 0) {
+                    value.kind = ParsedJsonValue::Kind::Null; position += 4; parsed = true;
+                }
+                value.end = position;
+                return parsed;
+            }
+
+            bool parseString(std::string &token) {
+                const std::size_t start = position++;
+                while (position < source.size()) {
+                    const unsigned char character = static_cast<unsigned char>(source[position++]);
+                    if (character == '"') {
+                        token = source.substr(start, position - start);
+                        return true;
+                    }
+                    if (character < 0x20) return false;
+                    if (character != '\\') continue;
+                    if (position >= source.size()) return false;
+                    const char escaped = source[position++];
+                    if (escaped == '"' || escaped == '\\' || escaped == '/' || escaped == 'b'
+                        || escaped == 'f' || escaped == 'n' || escaped == 'r' || escaped == 't') continue;
+                    if (escaped != 'u' || position + 4 > source.size()) return false;
+                    for (std::size_t digit = 0; digit < 4; ++digit) {
+                        const char hexadecimal = source[position++];
+                        if (!((hexadecimal >= '0' && hexadecimal <= '9')
+                              || (hexadecimal >= 'a' && hexadecimal <= 'f')
+                              || (hexadecimal >= 'A' && hexadecimal <= 'F'))) return false;
+                    }
+                }
+                return false;
+            }
+
+            bool parseNumber(std::string &token) {
+                const std::size_t start = position;
+                if (source[position] == '-' && (++position == source.size())) return false;
+                if (source[position] == '0') ++position;
+                else {
+                    if (source[position] < '1' || source[position] > '9') return false;
+                    do { ++position; }
+                    while (position < source.size() && source[position] >= '0' && source[position] <= '9');
+                }
+                token = source.substr(start, position - start);
+                return true;
+            }
+
+            bool parseObject(ParsedJsonValue &value, std::size_t depth) {
+                value.kind = ParsedJsonValue::Kind::Object;
+                ++position;
+                if (position < source.size() && source[position] == '}') { ++position; return true; }
+                while (position < source.size()) {
+                    if (value.object.size() >= MaxCanonicalResultObjectMembers) return false;
+                    std::string key;
+                    if (source[position] != '"' || !parseString(key) || position >= source.size()
+                        || source[position++] != ':') return false;
+                    if (std::any_of(value.object.begin(), value.object.end(), [&](const auto &member) {
+                        return member.first == key;
+                    })) return false;
+                    ParsedJsonValue member;
+                    if (!parseValue(member, depth + 1)) return false;
+                    value.object.emplace_back(std::move(key), std::move(member));
+                    if (position >= source.size()) return false;
+                    if (source[position] == '}') { ++position; return true; }
+                    if (source[position++] != ',') return false;
+                }
+                return false;
+            }
+
+            bool parseArray(ParsedJsonValue &value, std::size_t depth) {
+                value.kind = ParsedJsonValue::Kind::Array;
+                ++position;
+                if (position < source.size() && source[position] == ']') { ++position; return true; }
+                while (position < source.size()) {
+                    ParsedJsonValue member;
+                    if (!parseValue(member, depth + 1)) return false;
+                    value.array.push_back(std::move(member));
+                    if (position >= source.size()) return false;
+                    if (source[position] == ']') { ++position; return true; }
+                    if (source[position++] != ',') return false;
+                }
+                return false;
+            }
+        };
+
+        const ParsedJsonValue *member(const ParsedJsonValue &object, std::string_view key) {
+            const auto found = std::find_if(object.object.begin(), object.object.end(), [&](const auto &entry) {
+                return entry.first == key;
+            });
+            return found == object.object.end() ? nullptr : &found->second;
+        }
+
+        std::optional<Identity> positiveIdentity(const ParsedJsonValue *value) {
+            if (!value || value->kind != ParsedJsonValue::Kind::Number || value->token.empty()
+                || value->token.front() == '-' || (value->token.size() > 1 && value->token.front() == '0'))
+                return std::nullopt;
+            Identity result = 0;
+            for (const char digit: value->token) {
+                if (digit < '0' || digit > '9') return std::nullopt;
+                const Identity next = static_cast<Identity>(digit - '0');
+                if (result > (std::numeric_limits<Identity>::max() - next) / 10u) return std::nullopt;
+                result = result * 10u + next;
+            }
+            return result == 0 ? std::nullopt : std::optional<Identity>(result);
+        }
+
+        struct CanonicalResultRowLabel {
+            Identity playerId = 0;
+            Identity participantId = 0;
+            bool departed = false;
+            std::size_t labelStart = 0;
+            std::size_t labelEnd = 0;
+        };
+
+        struct CanonicalResultLabels {
+            std::string normalized;
+            std::vector<CanonicalResultRowLabel> rows;
+        };
+
+        std::optional<CanonicalResultLabels> canonicalResultLabels(const std::string &serialized) {
+            ParsedJsonValue root;
+            if (!CanonicalJsonParser(serialized).parse(root) || root.kind != ParsedJsonValue::Kind::Object) return std::nullopt;
+            const auto *state = member(root, "\"state\"");
+            const auto *players = member(root, "\"players\"");
+            if (!state || state->kind != ParsedJsonValue::Kind::String || state->token != "\"Completed\""
+                || !players || players->kind != ParsedJsonValue::Kind::Array) return std::nullopt;
+            CanonicalResultLabels result;
+            std::set<Identity> playerIds;
+            for (const auto &row: players->array) {
+                if (row.kind != ParsedJsonValue::Kind::Object) return std::nullopt;
+                const auto playerId = positiveIdentity(member(row, "\"playerId\""));
+                const auto participantId = positiveIdentity(member(row, "\"participantId\""));
+                const auto *departed = member(row, "\"departed\"");
+                if (!playerId || !participantId || !departed
+                    || departed->kind != ParsedJsonValue::Kind::Boolean || !playerIds.insert(*playerId).second)
+                    return std::nullopt;
+                result.rows.push_back({*playerId, *participantId, departed->boolean,
+                                       departed->start, departed->end});
+            }
+            std::size_t copied = 0;
+            for (const auto &row: result.rows) {
+                result.normalized.append(serialized, copied, row.labelStart - copied);
+                result.normalized.push_back('?');
+                copied = row.labelEnd;
+            }
+            result.normalized.append(serialized, copied, serialized.size() - copied);
+            return result;
+        }
+
+        std::optional<std::set<Identity>> departedPlayerTransitions(
+                const CanonicalState &before, const CanonicalState &after) {
+            if (before.players.size() != after.players.size()) return std::nullopt;
+            std::set<Identity> changed;
+            for (const auto &prior: before.players) {
+                const auto current = std::find_if(after.players.begin(), after.players.end(), [&](const auto &player) {
+                    return player.playerId == prior.playerId;
+                });
+                if (current == after.players.end()) return std::nullopt;
+                auto expected = prior;
+                if (prior.lifeState != current->lifeState) {
+                    if (current->lifeState != LifeState::Departed) return std::nullopt;
+                    expected.lifeState = LifeState::Departed;
+                    changed.insert(prior.playerId);
+                }
+                if (!playerEqual(expected, *current)) return std::nullopt;
+            }
+            return changed;
+        }
+
+        bool validDepartedResultTransition(const CanonicalState &before, const CanonicalState &after) noexcept {
+            try {
+                const auto prior = canonicalResultLabels(before.result.serialized);
+                const auto current = canonicalResultLabels(after.result.serialized);
+                const auto playerTransitions = departedPlayerTransitions(before, after);
+                if (!prior || !current || !playerTransitions || prior->normalized != current->normalized
+                    || prior->rows.size() != current->rows.size() || playerTransitions->empty()) return false;
+                std::set<Identity> resultTransitions;
+                for (std::size_t index = 0; index < prior->rows.size(); ++index) {
+                    const auto &left = prior->rows[index];
+                    const auto &right = current->rows[index];
+                    if (left.playerId != right.playerId || left.participantId != right.participantId
+                        || (left.departed && !right.departed)) return false;
+                    if (left.departed == right.departed) continue;
+                    const auto player = std::find_if(after.players.begin(), after.players.end(), [&](const auto &value) {
+                        return value.playerId == right.playerId;
+                    });
+                    if (player == after.players.end() || player->ownerParticipantId != right.participantId
+                        || player->lifeState != LifeState::Departed) return false;
+                    resultTransitions.insert(right.playerId);
+                }
+                return !resultTransitions.empty() && resultTransitions == *playerTransitions;
+            } catch (...) { return false; }
+        }
+
         bool sameCanonicalState(const CanonicalState &left, const CanonicalState &right) {
             const auto sameSettings = [](const MatchSettingsState &a, const MatchSettingsState &b) {
                 return a.mode == b.mode && a.teamCount == b.teamCount && a.friendlyFire == b.friendlyFire
@@ -425,14 +679,16 @@ namespace Duel6::Network::Replication {
                     && (after.phase == Phase::FinalSummary || after.phase == Phase::Lobby);
             if (!remainsPresented || !before.result.available
                 || (before.result.state != "Completed" && before.result.state != "Interrupted")) return false;
-            return before.currentRoundNumber != after.currentRoundNumber
+            if (before.currentRoundNumber != after.currentRoundNumber
                     || before.completedRounds != after.completedRounds
                     || !sameCompletedRound(before.round, after.round)
                     || !sameScore(before.score, after.score)
                     || before.result.available != after.result.available
                     || before.result.sessionOnly != after.result.sessionOnly
-                    || before.result.state != after.result.state
-                   || before.result.serialized != after.result.serialized;
+                    || before.result.state != after.result.state) return true;
+            if (before.result.serialized == after.result.serialized) return false;
+            return before.result.state != "Completed" || after.result.state != "Completed"
+                   || !validDepartedResultTransition(before, after);
         }
 
         bool validResolvedOutcome(const RoundOutcomeState &outcome, const CanonicalState &state) {

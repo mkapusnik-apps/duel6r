@@ -153,6 +153,10 @@ namespace Duel6::Network::Trust {
         }
     }
 
+    void secureEraseMemory(void *target, std::size_t size) noexcept {
+        if (target && size != 0) secureErase(target, size);
+    }
+
     EndpointScope classifyIpv4(const std::array<std::uint8_t, 4> &address) {
         if (address[0] == 127) return EndpointScope::Loopback;
         if (address[0] == 10 || (address[0] == 172 && address[1] >= 16 && address[1] <= 31)
@@ -687,14 +691,15 @@ namespace Duel6::Network::Trust {
         }
         return *this;
     }
-    void ReconnectCredential::clear() noexcept { secureErase(bytes.data(), bytes.size()); }
+    void ReconnectCredential::clear() noexcept { secureEraseMemory(bytes.data(), bytes.size()); }
 
     ReconnectReservation::ReconnectReservation(std::uint64_t session, ParticipantId participant,
-                                               std::uint64_t reservation, Clock clock, RandomFill random)
+                                               std::uint64_t reservation, Clock clock, RandomFill random,
+                                               bool activateImmediately, const ReconnectCredential *disallowed)
             : clock(selectedClock(std::move(clock))), random(random ? std::move(random) : RandomFill(secureRandom)),
-              expiry(this->clock() + ReconnectCredentialLifetime), session(session), participant(participant),
-              reservation(reservation) {
-        if (session != 0 && participant != 0 && reservation != 0) generateLocked();
+              session(session), participant(participant), reservation(reservation) {
+        if (session != 0 && participant != 0 && reservation != 0 && generateLocked(disallowed)
+            && activateImmediately) expiry = this->clock() + ReconnectCredentialLifetime;
     }
     ReconnectReservation::~ReconnectReservation() { invalidate(); }
     bool ReconnectReservation::valid() {
@@ -702,11 +707,40 @@ namespace Duel6::Network::Trust {
         expireIfDueLocked();
         return value.has_value();
     }
+    bool ReconnectReservation::active() {
+        std::lock_guard<std::mutex> lock(mutex);
+        expireIfDueLocked();
+        return value.has_value() && expiry.has_value();
+    }
+    bool ReconnectReservation::activate() {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (!value || expiry) return false;
+        expiry = clock() + ReconnectCredentialLifetime;
+        return true;
+    }
+    std::optional<TimePoint> ReconnectReservation::deadline() {
+        std::lock_guard<std::mutex> lock(mutex);
+        expireIfDueLocked();
+        return value ? expiry : std::nullopt;
+    }
     ReconnectCredential ReconnectReservation::credential() {
         std::lock_guard<std::mutex> lock(mutex);
         expireIfDueLocked();
         if (!value) throw std::logic_error("Reconnect credential is unavailable");
         return ReconnectCredential(*value);
+    }
+    ReconnectAuthorizationResult ReconnectReservation::authorize(
+            const ReconnectCredential &candidate, std::uint64_t expectedSession,
+            ParticipantId expectedParticipant, std::uint64_t expectedReservation) {
+        std::lock_guard<std::mutex> lock(mutex);
+        expireIfDueLocked();
+        const ReconnectCredential unavailable{};
+        const ReconnectCredential &stored = value ? *value : unavailable;
+        const bool credentialMatches = constantTimeEqual(stored, candidate);
+        const bool accepted = value.has_value() && expiry.has_value() && clock() < *expiry && !allZero(candidate)
+                              && session == expectedSession && participant == expectedParticipant
+                              && reservation == expectedReservation && credentialMatches;
+        return {accepted, !accepted, accepted ? std::string_view{} : ReconnectAuthorizationFailureCopy};
     }
     ReconnectAuthorizationResult ReconnectReservation::authorizeAndConsume(
             const ReconnectCredential &candidate, std::uint64_t expectedSession,
@@ -716,11 +750,45 @@ namespace Duel6::Network::Trust {
         const ReconnectCredential unavailable{};
         const ReconnectCredential &stored = value ? *value : unavailable;
         const bool credentialMatches = constantTimeEqual(stored, candidate);
-        const bool accepted = value.has_value() && !allZero(candidate)
+        const bool accepted = value.has_value() && expiry.has_value() && clock() < *expiry && !allZero(candidate)
                               && session == expectedSession && participant == expectedParticipant
                               && reservation == expectedReservation && credentialMatches;
         if (accepted) invalidateLocked();
         return {accepted, !accepted, accepted ? std::string_view{} : ReconnectAuthorizationFailureCopy};
+    }
+    ReconnectAuthorizationResult ReconnectReservation::authorizeAndSuspend(
+            const ReconnectCredential &candidate, std::uint64_t expectedSession,
+            ParticipantId expectedParticipant, std::uint64_t expectedReservation) {
+        std::lock_guard<std::mutex> lock(mutex);
+        expireIfDueLocked();
+        const ReconnectCredential unavailable{};
+        const ReconnectCredential &stored = value ? *value : unavailable;
+        const bool credentialMatches = constantTimeEqual(stored, candidate);
+        const bool accepted = value.has_value() && !suspendedValue.has_value() && expiry.has_value()
+                              && clock() < *expiry && !allZero(candidate)
+                              && session == expectedSession && participant == expectedParticipant
+                              && reservation == expectedReservation && credentialMatches;
+        if (accepted) {
+            suspendedValue.emplace(std::move(*value));
+            value.reset();
+        }
+        return {accepted, !accepted, accepted ? std::string_view{} : ReconnectAuthorizationFailureCopy};
+    }
+    bool ReconnectReservation::restoreSuspended() {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (value || !suspendedValue || !expiry || clock() >= *expiry) {
+            invalidateLocked();
+            return false;
+        }
+        value.emplace(std::move(*suspendedValue));
+        suspendedValue.reset();
+        return true;
+    }
+    bool ReconnectReservation::consumeSuspended() {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (value || !suspendedValue) return false;
+        invalidateLocked();
+        return true;
     }
     bool ReconnectReservation::consume(const ReconnectCredential &candidate, std::uint64_t expectedSession,
                                        ParticipantId expectedParticipant, std::uint64_t expectedReservation) {
@@ -755,7 +823,8 @@ namespace Duel6::Network::Trust {
         return changed;
     }
     bool ReconnectReservation::replace(std::uint64_t expectedSession, ParticipantId expectedParticipant,
-                                       std::uint64_t expectedReservation, std::uint64_t replacementReservation) {
+                                       std::uint64_t expectedReservation, std::uint64_t replacementReservation,
+                                       bool activateImmediately) {
         std::lock_guard<std::mutex> lock(mutex);
         expireIfDueLocked();
         if (!value || replacementReservation == 0 || session != expectedSession
@@ -763,8 +832,9 @@ namespace Duel6::Network::Trust {
         ReconnectCredential replaced(std::move(*value));
         value.reset();
         reservation = replacementReservation;
-        expiry = clock() + ReconnectCredentialLifetime;
+        expiry.reset();
         const bool generated = generateLocked(&replaced);
+        if (generated && activateImmediately) expiry = clock() + ReconnectCredentialLifetime;
         replaced.clear();
         return generated;
     }
@@ -787,7 +857,7 @@ namespace Duel6::Network::Trust {
         return false;
     }
     bool ReconnectReservation::expireIfDueLocked() {
-        if (!value || clock() < expiry) return false;
+        if (!value || !expiry || clock() < *expiry) return false;
         invalidateLocked();
         return true;
     }
@@ -796,6 +866,11 @@ namespace Duel6::Network::Trust {
             value->clear();
             value.reset();
         }
+        if (suspendedValue) {
+            suspendedValue->clear();
+            suspendedValue.reset();
+        }
+        expiry.reset();
     }
 
     bool guestContentMayLoadOrExecute() { return false; }

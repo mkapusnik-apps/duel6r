@@ -36,6 +36,12 @@ int main(int argc, char **argv) {
         };
         if (hostedChannel) {
             dependencies.cancelled = [hostedChannel] { return hostedChannel->stopRequested(); };
+            dependencies.intentionalHostEndRequested = [hostedChannel] {
+                return hostedChannel->intentionalEndRequested();
+            };
+            dependencies.hostReadinessChange = [hostedChannel] {
+                return hostedChannel->takeReadinessChange();
+            };
             dependencies.hostedServiceStatus = [hostedChannel](Duel6::Network::HostServiceStatusCode status) {
                 return hostedChannel->send(status);
             };

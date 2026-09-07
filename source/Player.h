@@ -455,6 +455,8 @@ namespace Duel6 {
 
         void setHeadlessLoadout(const Weapon &weapon, Int32 ammo);
 
+        void setHeadlessDeparted() noexcept;
+
     private:
         void makeMove(const Level &level, Float32 elapsedTime);
 

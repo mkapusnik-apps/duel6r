@@ -70,6 +70,7 @@ namespace Duel6::Server::Authoritative {
         bool tickWorld(Tick tick, bool simulate, RandomSource &randomSource);
         bool setPlayerInput(Identity playerId, std::uint32_t inputMask);
         bool removePlayer(Identity playerId);
+        bool removePlayers(const std::vector<Identity> &playerIds);
         CanonicalWorldSnapshot snapshot();
         void appendEvent(std::string kind, std::uint64_t entityId = 0, Identity playerId = 0,
                           Identity targetPlayerId = 0, std::string valueCategory = {}, std::int64_t value = 0);

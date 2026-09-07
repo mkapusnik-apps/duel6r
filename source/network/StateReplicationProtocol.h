@@ -55,6 +55,7 @@ namespace Duel6::Network::Replication {
         bool restore(Identity participantId, ReplicationSender sender, std::function<void()> close = {});
         void disconnect(Identity participantId) noexcept;
         bool broadcast(const IncrementalUpdate &update);
+        bool broadcastCurrentSnapshot();
         HostReplicationResult receive(Identity participantId, const std::vector<std::uint8_t> &payload);
         std::size_t size() const noexcept;
     private:
@@ -79,6 +80,9 @@ namespace Duel6::Network::Replication {
                 const std::vector<std::uint8_t> &payload,
                 Responsiveness::TimePoint acceptedAt,
                 bool allowOutboundExchange = true);
+        ClientReplicationResult receiveReconnectSnapshot(
+                const std::vector<std::uint8_t> &payload,
+                Responsiveness::TimePoint acceptedAt);
         bool observeNetworkSample(const Responsiveness::NetworkSample &sample,
                                   Responsiveness::TimePoint observedAt) noexcept;
         bool sampleNetwork(Responsiveness::TimePoint now);

@@ -454,6 +454,27 @@ namespace Duel6::Network::Replication {
         return allSent;
     }
 
+    bool AuthoritativeReplicationConnections::broadcastCurrentSnapshot() {
+        auto snapshot = state.fullSnapshot();
+        if (!snapshot) return false;
+        std::vector<std::uint8_t> payload;
+        try {
+            snapshot->authoritativeProducedAt = clock();
+            if (snapshot->authoritativeProducedAt == 0) return false;
+            payload = serializeReplicationSnapshot(*snapshot);
+        } catch (...) { return false; }
+        bool allSent = true;
+        for (auto iterator = connections.begin(); iterator != connections.end();) {
+            try {
+                if (iterator->second.sender(payload) == SendResult::Accepted) { ++iterator; continue; }
+            } catch (...) {}
+            allSent = false;
+            try { if (iterator->second.close) iterator->second.close(); } catch (...) {}
+            iterator = connections.erase(iterator);
+        }
+        return allSent;
+    }
+
     HostReplicationResult AuthoritativeReplicationConnections::receive(
             Identity participantId, const std::vector<std::uint8_t> &payload) {
         const auto found = connections.find(participantId);
@@ -516,6 +537,18 @@ namespace Duel6::Network::Replication {
             const std::vector<std::uint8_t> &payload, Responsiveness::TimePoint acceptedAt,
             bool allowOutboundExchange) {
         return receive(payload, acceptedAt, true, allowOutboundExchange);
+    }
+
+    ClientReplicationResult ClientReplicationConnection::receiveReconnectSnapshot(
+            const std::vector<std::uint8_t> &payload, Responsiveness::TimePoint acceptedAt) {
+        if (!reconnecting) return ClientReplicationResult::Reconnecting;
+        const auto frame = deserializeReplicationFrame(payload);
+        if (!frame || frame->kind != ReplicationFrameKind::FullSnapshot || !frame->snapshot)
+            return ClientReplicationResult::Reconnecting;
+        reconnecting = false;
+        const auto result = receive(payload, acceptedAt, false, false);
+        if (result != ClientReplicationResult::Applied) transportClosed();
+        return result;
     }
 
     ClientReplicationResult ClientReplicationConnection::receive(
