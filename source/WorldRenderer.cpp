@@ -220,13 +220,26 @@ namespace Duel6 {
     }
 
     void WorldRenderer::roundsPlayed() const {
+        const std::string rounds = Format("Rounds: {0,3}|{1,3}") << game.getCurrentRound() + 1
+                                                                  << game.getSettings().getMaxRounds();
+        if (game.getRound().hasWinner() && game.getRound().isLast()) {
+            const Float32 fontSize = 32;
+            const Int32 horizontalPadding = 8;
+            int width = font.getTextWidth(rounds, fontSize) + 2 * horizontalPadding;
+            int x = video.getScreen().getClientWidth() / 2 - width / 2;
+            int y = video.getScreen().getClientHeight() - Int32(fontSize) - 4;
+
+            renderer.quadXY(Vector(x - 1, y - 1), Vector(width + 2, Int32(fontSize) + 2), Color::BLACK);
+            font.print(x + horizontalPadding, y, 0.0f, Color::WHITE, rounds, fontSize);
+            return;
+        }
+
         int width = 134;
         int x = video.getScreen().getClientWidth() / 2 - width / 2;
         int y = video.getScreen().getClientHeight() - 20;
 
         renderer.quadXY(Vector(x - 1, y - 1), Vector(width + 2, 18), Color::BLACK);
-        font.print(x + 8, y, Color::WHITE,
-                   Format("Rounds: {0,3}|{1,3}") << game.getCurrentRound() + 1 << game.getSettings().getMaxRounds());
+        font.print(x + 8, y, Color::WHITE, rounds);
     }
 
     void WorldRenderer::fpsCounter() const {
