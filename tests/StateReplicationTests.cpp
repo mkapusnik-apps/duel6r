@@ -844,6 +844,184 @@ namespace {
         return evidence;
     }
 
+    struct AvailableResultAttack {
+        const char *name;
+        std::function<void(R::CanonicalState &)> alter;
+    };
+
+    std::vector<AvailableResultAttack> incompleteAvailableResultAttacks() {
+        return {
+                {"missing-state", [](auto &state) {
+                    state.result.serialized = "{\"players\":[{\"playerId\":101,\"participantId\":20,\"departed\":false}]}";
+                }},
+                {"invalid-state", [](auto &state) {
+                    state.result.serialized = "{\"state\":17,\"players\":[{\"playerId\":101,\"participantId\":20,\"departed\":false}]}";
+                }},
+                {"missing-players", [](auto &state) {
+                    state.result.serialized = "{\"state\":\"" + state.result.state + "\"}";
+                }},
+                {"invalid-players", [](auto &state) {
+                    state.result.serialized = "{\"state\":\"" + state.result.state + "\",\"players\":{}}";
+                }},
+                {"mismatched-state", [](auto &state) {
+                    const std::string other = state.result.state == "Completed" ? "Interrupted" : "Completed";
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"state\":\"" + state.result.state + "\"",
+                            "\"state\":\"" + other + "\""));
+                }},
+                {"invalid-player-row", [](auto &state) {
+                    state.result.serialized = "{\"state\":\"" + state.result.state
+                            + "\",\"players\":[{\"playerId\":\"101\",\"participantId\":20,\"departed\":false}]}";
+                }},
+                {"unowned-player-row", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"playerId\":101,\"participantId\":20",
+                            "\"playerId\":101,\"participantId\":99"));
+                }},
+                {"duplicate-player-row", [](auto &state) {
+                    state.result.serialized = "{\"state\":\"" + state.result.state
+                            + "\",\"players\":["
+                              "{\"playerId\":101,\"participantId\":20,\"departed\":false},"
+                              "{\"playerId\":101,\"participantId\":20,\"departed\":false}]}";
+                }}
+        };
+    }
+
+    R::CanonicalState completeAvailableResult(bool interrupted) {
+        return firstResultWithDepartureLabels(interrupted, false, false);
+    }
+
+    R::CanonicalState retainedResultWithoutGuest(R::CanonicalState state) {
+        state.phase = R::Phase::Lobby;
+        state.participants[0].ready = false;
+        state.participants[1].ready = false;
+        state.participants.pop_back();
+        state.players.pop_back();
+        state.messages.status = "Lobby";
+        state.messages.scoreSummaryVisible = false;
+        return state;
+    }
+
+    std::string authoritativeAvailableResultValidation(bool initialize) {
+        std::string failures;
+        for (const bool interrupted: {false, true}) {
+            const auto valid = completeAvailableResult(interrupted);
+            for (const auto &attack: incompleteAvailableResultAttacks()) {
+                auto malformed = valid;
+                attack.alter(malformed);
+                bool correct = false;
+                if (initialize) {
+                    R::AuthoritativeStateReplicator publisher;
+                    const bool rejected = !publisher.initialize(malformed)
+                            && publisher.version() == 0 && !publisher.fullSnapshot();
+                    const bool validPreserved = publisher.initialize(valid)
+                            && publisher.version() == 1 && publisher.fullSnapshot()
+                            && publisher.fullSnapshot()->state.result.serialized == valid.result.serialized;
+                    const auto removed = retainedResultWithoutGuest(valid);
+                    const bool identityHistoryPreserved = validPreserved && publisher.publish(removed)
+                            && !publisher.publish(valid) && publisher.version() == 2;
+                    correct = rejected && validPreserved && identityHistoryPreserved;
+                } else {
+                    const auto active = activeState();
+                    R::AuthoritativeStateReplicator publisher;
+                    const R::PresentationEvent event{993, "result-transition", 0, 0, 0, 0};
+                    if (publisher.initialize(active)) {
+                        const auto before = publisher.fullSnapshot();
+                        const bool rejected = !publisher.publish(malformed, {event})
+                                && publisher.version() == 1 && before && publisher.fullSnapshot()
+                                && R::serializeReplicationSnapshot(*before)
+                                   == R::serializeReplicationSnapshot(*publisher.fullSnapshot());
+                        const auto accepted = publisher.publish(valid, {event});
+                        const bool validPreserved = accepted && publisher.version() == 2
+                                && accepted->events.size() == 1 && accepted->events.front().eventId == event.eventId
+                                && publisher.fullSnapshot()->state.result.serialized == valid.result.serialized;
+                        const auto removed = retainedResultWithoutGuest(valid);
+                        const bool identityHistoryPreserved = validPreserved && publisher.publish(removed)
+                                && !publisher.publish(valid) && publisher.version() == 3;
+                        correct = rejected && validPreserved && identityHistoryPreserved;
+                    }
+                }
+                if (!correct) {
+                    if (!failures.empty()) failures += ';';
+                    failures += std::string(interrupted ? "Interrupted/" : "Completed/") + attack.name;
+                }
+            }
+        }
+        return failures;
+    }
+
+    std::string clientAvailableResultValidation(FirstResultDelivery delivery) {
+        std::string failures;
+        for (const bool interrupted: {false, true}) {
+            const auto valid = completeAvailableResult(interrupted);
+            for (const auto &attack: incompleteAvailableResultAttacks()) {
+                auto malformed = valid;
+                attack.alter(malformed);
+                R::ReplicatedState client;
+                bool correct = false;
+                if (delivery == FirstResultDelivery::InitialSnapshot) {
+                    const auto rejected = client.apply({1, malformed});
+                    const bool atomic = rejected == R::ApplyResult::Invalid && client.version() == 0
+                            && !client.current() && client.retainedState() == nullptr
+                            && client.takePresentationEvents().empty();
+                    const bool validPreserved = client.apply({1, valid}) == R::ApplyResult::Applied
+                            && client.version() == 1 && client.current() && client.state()
+                            && client.state()->result.serialized == valid.result.serialized;
+                    const auto removed = retainedResultWithoutGuest(valid);
+                    const bool identityHistoryPreserved = validPreserved
+                            && client.apply({2, removed}) == R::ApplyResult::Applied
+                            && client.apply({3, valid}) == R::ApplyResult::Invalid
+                            && client.version() == 2 && client.retainedState()
+                            && client.retainedState()->players.size() == 1;
+                    correct = atomic && validPreserved && identityHistoryPreserved;
+                } else {
+                    const auto active = activeState();
+                    auto confirmed = active;
+                    confirmed.phaseTime++;
+                    const R::PresentationEvent pending{994, "confirmed-event", 101, 0, 0, 0};
+                    if (client.apply({1, active}) == R::ApplyResult::Applied
+                        && client.apply(validUpdate(active, confirmed, {pending})) == R::ApplyResult::Applied) {
+                        const auto retainedBytes = R::serializeReplicationSnapshot({2, *client.retainedState()});
+                        R::ApplyResult rejected = R::ApplyResult::Applied;
+                        if (delivery == FirstResultDelivery::ResynchronizationSnapshot) {
+                            client.requireResynchronization();
+                            rejected = client.apply({3, malformed});
+                        } else {
+                            auto update = validUpdate(confirmed, valid);
+                            update.baseline = 2;
+                            update.version = 3;
+                            update.events = {{995, "rejected-event", 101, 0, 0, 0}};
+                            rejected = client.apply(update);
+                        }
+                        const auto expected = delivery == FirstResultDelivery::IncrementalUpdate
+                                              ? R::ApplyResult::ResynchronizationRequired : R::ApplyResult::Invalid;
+                        const bool atomic = rejected == expected && client.version() == 2
+                                && !client.current() && client.state() == nullptr && client.retainedState()
+                                && R::serializeReplicationSnapshot({2, *client.retainedState()}) == retainedBytes;
+                        const bool recovered = client.apply({3, valid}) == R::ApplyResult::Applied
+                                && client.version() == 3 && client.current() && client.state()
+                                && client.state()->result.serialized == valid.result.serialized;
+                        const auto events = client.takePresentationEvents();
+                        const bool pendingPreserved = events.size() == 1 && events.front().eventId == pending.eventId;
+
+                        const auto removed = retainedResultWithoutGuest(valid);
+                        const bool removedApplied = client.apply({4, removed}) == R::ApplyResult::Applied;
+                        const bool identityHistoryPreserved = removedApplied
+                                && client.apply({5, valid}) == R::ApplyResult::Invalid
+                                && client.version() == 4 && client.retainedState()
+                                && client.retainedState()->players.size() == 1;
+                        correct = atomic && recovered && pendingPreserved && identityHistoryPreserved;
+                    }
+                }
+                if (!correct) {
+                    if (!failures.empty()) failures += ';';
+                    failures += std::string(interrupted ? "Interrupted/" : "Completed/") + attack.name;
+                }
+            }
+        }
+        return failures;
+    }
+
     void requireRejectedWithoutVersionMutation(const R::IncrementalUpdate &invalid) {
         R::ReplicatedState client;
         D6R_REQUIRE(client.apply(R::FullSnapshot{1, activeState()}) == R::ApplyResult::Applied);
@@ -1814,6 +1992,26 @@ D6R_TEST_CASE("REP-017 REP-048..051 REP-066 first-result active-to-terminal upda
             "Completed/synchronized=true,result-only=true,canonical-only=true;"
             "Interrupted/synchronized=true,result-only=true,canonical-only=true"),
             firstResultDepartureMatrix(FirstResultDelivery::IncrementalUpdate));
+}
+
+D6R_TEST_CASE("REP-017 REP-040 REP-048 malformed available retained results fail authoritative initialization atomically") {
+    D6R_REQUIRE_EQ(std::string(), authoritativeAvailableResultValidation(true));
+}
+
+D6R_TEST_CASE("REP-017 REP-040 REP-048 malformed available retained results fail authoritative publication atomically") {
+    D6R_REQUIRE_EQ(std::string(), authoritativeAvailableResultValidation(false));
+}
+
+D6R_TEST_CASE("REP-017 REP-041 REP-042 REP-066 malformed available retained results fail initial snapshot atomically") {
+    D6R_REQUIRE_EQ(std::string(), clientAvailableResultValidation(FirstResultDelivery::InitialSnapshot));
+}
+
+D6R_TEST_CASE("REP-017 REP-041 REP-044 REP-066 malformed available retained results fail higher-version resync atomically") {
+    D6R_REQUIRE_EQ(std::string(), clientAvailableResultValidation(FirstResultDelivery::ResynchronizationSnapshot));
+}
+
+D6R_TEST_CASE("REP-017 REP-048..051 REP-066 malformed available retained results fail first active-to-terminal update atomically") {
+    D6R_REQUIRE_EQ(std::string(), clientAvailableResultValidation(FirstResultDelivery::IncrementalUpdate));
 }
 
 D6R_TEST_CASE("REP-017 REP-048 maximum canonical completed result accepts only departed transitions") {
