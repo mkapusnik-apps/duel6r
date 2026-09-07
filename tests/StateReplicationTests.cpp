@@ -146,6 +146,57 @@ namespace {
         return update;
     }
 
+    std::string serializedTwoPlayerResult(bool interrupted, bool guestDeparted = false,
+                                          R::Identity resultOnlyPlayerId = 0) {
+        A::SessionResult result;
+        result.label = "match";
+        result.state = interrupted ? A::ResultState::Interrupted : A::ResultState::Completed;
+        result.config.mode = A::Mode::Deathmatch;
+        result.config.levelPlan = A::LevelPlan::Fixed;
+        result.config.fixedLevel = "levels/a.json";
+        result.config.playableLevels = {"levels/a.json"};
+        result.config.enabledWeapons = {"pistol"};
+        result.config.roundLimit = 2;
+        result.config.hostParticipantId = 20;
+        result.config.seed = 1234;
+        result.completedRounds = interrupted ? 1 : 2;
+
+        result.rounds.push_back({1, "levels/a.json", false, {101}, A::Team::None,
+                                 false, {101, 102}});
+        if (interrupted) {
+            result.finalNoWinner = true;
+        } else {
+            result.rounds.push_back({2, "levels/a.json", false,
+                                     {resultOnlyPlayerId ? resultOnlyPlayerId : 102}, A::Team::None,
+                                     false, resultOnlyPlayerId
+                                            ? std::vector<A::Identity>{101, 102, resultOnlyPlayerId}
+                                            : std::vector<A::Identity>{101, 102}});
+            result.finalWinnerPlayerIds = {resultOnlyPlayerId ? resultOnlyPlayerId : 102};
+        }
+
+        const auto addPlayer = [&](A::Identity playerId, A::Identity participantId,
+                                   const char *name, std::uint8_t rosterOrder,
+                                   std::uint64_t points, bool departed) {
+            A::PlayerResultRow row;
+            row.playerId = playerId;
+            row.participantId = participantId;
+            row.displayName = name;
+            row.rosterOrder = rosterOrder;
+            row.departed = departed;
+            row.statistics.kills = points;
+            row.rounds.resize(result.completedRounds);
+            result.players.push_back(std::move(row));
+        };
+        if (resultOnlyPlayerId)
+            addPlayer(resultOnlyPlayerId, 20, "Result-only", 2, 4, false);
+        addPlayer(101, 20, "Host", 0, 3, false);
+        addPlayer(102, 21, "Guest", 1, 2, guestDeparted);
+
+        const auto serialized = A::serializeSessionResult(result);
+        D6R_REQUIRE(serialized.has_value());
+        return *serialized;
+    }
+
     R::CanonicalState distinctFinalSummary() {
         auto state = activeState();
         state.phase = R::Phase::FinalSummary;
@@ -167,7 +218,7 @@ namespace {
         state.result.available = true;
         state.result.sessionOnly = true;
         state.result.state = "Completed";
-        state.result.serialized = "completed-round-1=101;completed-round-2=102;match-outcome=102;cumulative-leader=101";
+        state.result.serialized = serializedTwoPlayerResult(false);
         return state;
     }
 
@@ -182,13 +233,7 @@ namespace {
     }
 
     R::CanonicalState completedResultWithDepartureLabels() {
-        auto state = distinctFinalSummary();
-        state.result.serialized =
-                "{\"label\":\"match\",\"state\":\"Completed\",\"outcome\":\"player-102\","
-                "\"winner\":102,\"ranking\":[101,102],\"score\":[3,2],\"round\":2,\"players\":["
-                "{\"rank\":1,\"playerId\":101,\"participantId\":20,\"departed\":false,\"points\":3},"
-                "{\"rank\":2,\"playerId\":102,\"participantId\":21,\"departed\":false,\"points\":2}]}";
-        return state;
+        return distinctFinalSummary();
     }
 
     bool replaceOnce(std::string &value, const std::string &before, const std::string &after) {
@@ -356,8 +401,8 @@ namespace {
     R::CanonicalState completedResultDeparture(R::CanonicalState state) {
         state.players[1].lifeState = R::LifeState::Departed;
         const bool replaced = replaceOnce(state.result.serialized,
-                "\"participantId\":21,\"departed\":false",
-                "\"participantId\":21,\"departed\":true");
+                "\"departed\":false,\"rosterOrder\":1",
+                "\"departed\":true,\"rosterOrder\":1");
         D6R_REQUIRE(replaced);
         return state;
     }
@@ -379,11 +424,7 @@ namespace {
         state.score.winner = {};
         state.score.winner.noWinner = true;
         state.result.state = "Interrupted";
-        state.result.serialized =
-                "{\"label\":\"match\",\"state\":\"Interrupted\",\"outcome\":\"no-winner\","
-                "\"winner\":null,\"ranking\":[101,102],\"score\":[3,2],\"round\":1,\"players\":["
-                "{\"rank\":1,\"playerId\":101,\"participantId\":20,\"departed\":false,\"points\":3},"
-                "{\"rank\":2,\"playerId\":102,\"participantId\":21,\"departed\":false,\"points\":2}]}";
+        state.result.serialized = serializedTwoPlayerResult(true);
         return state;
     }
 
@@ -396,8 +437,8 @@ namespace {
         if (canonicalDeparture) state.players[1].lifeState = R::LifeState::Departed;
         if (resultDeparture) {
             const bool replaced = replaceOnce(state.result.serialized,
-                    "\"participantId\":21,\"departed\":false",
-                    "\"participantId\":21,\"departed\":true");
+                    "\"departed\":false,\"rosterOrder\":1",
+                    "\"departed\":true,\"rosterOrder\":1");
             D6R_REQUIRE(replaced);
         }
         return state;
@@ -413,7 +454,7 @@ namespace {
         state.score.winner = {};
         state.score.winner.noWinner = true;
         state.result.state = "Interrupted";
-        state.result.serialized = "interrupted;completed-round-1=101;match-outcome=no-winner";
+        state.result.serialized = serializedTwoPlayerResult(true);
         return state;
     }
 
@@ -517,7 +558,7 @@ namespace {
         }
         auto interrupted = followingLobby;
         interrupted.result.state = "Interrupted";
-        interrupted.result.serialized = "interrupted;completed-rounds=2;match-outcome=no-winner";
+        interrupted.result.serialized = serializedTwoPlayerResult(true);
         interrupted.score.winner = {};
         interrupted.score.winner.noWinner = true;
         result.push_back({"FinalSummary-to-Lobby/result-state", final, followingLobby, interrupted});
@@ -760,7 +801,9 @@ namespace {
                 client.requireResynchronization();
                 result = client.apply({3, terminal});
             } else {
-                auto update = validUpdate(beforeTerminal, terminal, {rejectedEvent});
+                auto update = validUpdate(beforeTerminal, synchronized, {rejectedEvent});
+                update.result = terminal.result;
+                if (!canonicalDeparture) update.players.clear();
                 update.baseline = 2;
                 update.version = 3;
                 result = client.apply(update);
@@ -988,6 +1031,7 @@ namespace {
                             rejected = client.apply({3, malformed});
                         } else {
                             auto update = validUpdate(confirmed, valid);
+                            update.result = malformed.result;
                             update.baseline = 2;
                             update.version = 3;
                             update.events = {{995, "rejected-event", 101, 0, 0, 0}};
@@ -1406,7 +1450,7 @@ D6R_TEST_CASE("REP one active resynchronization blocks deltas and restores every
             state.result.available = true;
             state.result.sessionOnly = true;
             state.result.state = "Completed";
-            state.result.serialized = "canonical-session-result";
+            state.result.serialized = serializedTwoPlayerResult(false);
             state.entities.clear();
             state.effects.clear();
         } else if (phase == R::Phase::Ended) {
@@ -1764,7 +1808,7 @@ D6R_TEST_CASE("REP-017 REP-018 REP-025 interruption discards incomplete round an
     interrupted.completedRounds = 1;
     interrupted.currentRoundNumber = 1;
     interrupted.result.state = "Interrupted";
-    interrupted.result.serialized = "interrupted;completed-round-1=101;match-outcome=no-winner";
+    interrupted.result.serialized = serializedTwoPlayerResult(true);
     interrupted.round->roundNumber = 1;
     interrupted.round->roundId = 40;
     interrupted.round->outcome.winnerPlayerIds = {101};
@@ -1829,25 +1873,29 @@ D6R_TEST_CASE("REP-017 REP-048 departed-only completed-result transitions are ex
 
     const std::vector<std::pair<std::string, std::function<void(std::string &)>>> attacks = {
             {"outcome", [](auto &serialized) {
-                D6R_REQUIRE(replaceOnce(serialized, "\"outcome\":\"player-102\"",
-                                        "\"outcome\":\"player-101\""));
+                D6R_REQUIRE(replaceOnce(serialized, "\"winnerPlayerIds\":[102]",
+                                         "\"winnerPlayerIds\":[101]"));
             }},
             {"winner", [](auto &serialized) {
-                D6R_REQUIRE(replaceOnce(serialized, "\"winner\":102", "\"winner\":101"));
+                D6R_REQUIRE(replaceOnce(serialized, "\"finalWinnerPlayerIds\":[102]",
+                                         "\"finalWinnerPlayerIds\":[101]"));
             }},
             {"ranking", [](auto &serialized) {
-                D6R_REQUIRE(replaceOnce(serialized, "\"ranking\":[101,102]", "\"ranking\":[102,101]"));
+                D6R_REQUIRE(replaceOnce(serialized, "\"rank\":1,\"playerId\":101",
+                                         "\"rank\":2,\"playerId\":101"));
+                D6R_REQUIRE(replaceOnce(serialized, "\"rank\":2,\"playerId\":102",
+                                         "\"rank\":1,\"playerId\":102"));
             }},
             {"unrelated-row", [](auto &serialized) {
                 D6R_REQUIRE(replaceOnce(serialized,
-                        "\"participantId\":20,\"departed\":false",
-                        "\"participantId\":20,\"departed\":true"));
+                        "\"playerId\":101,\"participantId\":20",
+                        "\"playerId\":101,\"participantId\":99"));
             }},
             {"score", [](auto &serialized) {
-                D6R_REQUIRE(replaceOnce(serialized, "\"score\":[3,2]", "\"score\":[4,2]"));
+                D6R_REQUIRE(replaceOnce(serialized, "\"totalPoints\":3", "\"totalPoints\":4"));
             }},
             {"round", [](auto &serialized) {
-                D6R_REQUIRE(replaceOnce(serialized, "\"round\":2", "\"round\":1"));
+                D6R_REQUIRE(replaceOnce(serialized, "\"completedRounds\":2", "\"completedRounds\":1"));
             }},
             {"malformed", [](auto &serialized) { serialized.pop_back(); }}};
 
@@ -2881,7 +2929,7 @@ D6R_TEST_CASE("REP-006 REP-007 REP-042 authoritative retained result rejects a n
     resultOnly.score.winner.winnerPlayerIds = {resultOnlyIdentity};
     resultOnly.round->rosterOrder.push_back(resultOnlyIdentity);
     resultOnly.round->outcome.winnerPlayerIds = {resultOnlyIdentity};
-    resultOnly.result.serialized = "completed;match-outcome=777;cumulative-ranking=777,101,102";
+    resultOnly.result.serialized = serializedTwoPlayerResult(false, false, resultOnlyIdentity);
     D6R_REQUIRE(R::validateCanonicalState(initial));
     D6R_REQUIRE(R::validateCanonicalState(resultOnly));
     D6R_REQUIRE(player(resultOnly, resultOnlyIdentity) == nullptr);
@@ -2937,7 +2985,7 @@ D6R_TEST_CASE("REP-006 REP-007 REP-048 REP-AC-001/006/007 client rejects a new r
     resultOnly.score.winner.winnerPlayerIds = {resultOnlyIdentity};
     resultOnly.round->rosterOrder.push_back(resultOnlyIdentity);
     resultOnly.round->outcome.winnerPlayerIds = {resultOnlyIdentity};
-    resultOnly.result.serialized = "completed;match-outcome=778;cumulative-ranking=778,101,102";
+    resultOnly.result.serialized = serializedTwoPlayerResult(false, false, resultOnlyIdentity);
     D6R_REQUIRE(R::validateCanonicalState(initial));
     D6R_REQUIRE(R::validateCanonicalState(resultOnly));
     D6R_REQUIRE(player(resultOnly, resultOnlyIdentity) == nullptr);
