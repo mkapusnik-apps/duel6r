@@ -385,6 +385,8 @@ namespace Duel6::Network::Replication {
 
         constexpr std::size_t MaxCanonicalResultRounds = 99;
         constexpr std::size_t MaxCanonicalResultTeams = 4;
+        // The canonical root is the widest object at 19 members; statistics objects have 12.
+        constexpr std::size_t MaxCanonicalResultObjectMembers = 19;
         constexpr std::size_t StatisticsJsonValues = 1 + 12;
         constexpr std::size_t RoundResultJsonValues = 1 + 5
                                                       + 2 * (1 + MaxReplicatedPlayers);
@@ -482,6 +484,7 @@ namespace Duel6::Network::Replication {
                 ++position;
                 if (position < source.size() && source[position] == '}') { ++position; return true; }
                 while (position < source.size()) {
+                    if (value.object.size() >= MaxCanonicalResultObjectMembers) return false;
                     std::string key;
                     if (source[position] != '"' || !parseString(key) || position >= source.size()
                         || source[position++] != ':') return false;
