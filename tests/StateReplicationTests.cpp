@@ -11,6 +11,7 @@
 #include "source/network/StateReplicationProtocol.h"
 #include "source/network/NetworkTrustPolicy.h"
 #include "source/server/AuthoritativeMatch.h"
+#include "source/server/AuthoritativeMatchSerialization.h"
 #include "source/server/AuthoritativeReplication.h"
 #include "tests/TestHarness.h"
 
@@ -196,6 +197,155 @@ namespace {
             return false;
         value.replace(position, before.size(), after);
         return true;
+    }
+
+    class JsonValueCounter final {
+    public:
+        explicit JsonValueCounter(const std::string &source) : source(source) {}
+
+        std::optional<std::size_t> count() {
+            std::size_t result = 0;
+            if (!value(result) || position != source.size()) return std::nullopt;
+            return result;
+        }
+
+    private:
+        const std::string &source;
+        std::size_t position = 0;
+
+        bool string() {
+            if (position >= source.size() || source[position++] != '"') return false;
+            while (position < source.size()) {
+                const char character = source[position++];
+                if (character == '"') return true;
+                if (character == '\\') {
+                    if (position >= source.size()) return false;
+                    ++position;
+                }
+            }
+            return false;
+        }
+
+        bool value(std::size_t &result) {
+            if (position >= source.size()) return false;
+            ++result;
+            if (source[position] == '{') return object(result);
+            if (source[position] == '[') return array(result);
+            if (source[position] == '"') return string();
+            const auto start = position;
+            while (position < source.size() && source[position] != ','
+                   && source[position] != ']' && source[position] != '}') ++position;
+            return position != start;
+        }
+
+        bool object(std::size_t &result) {
+            ++position;
+            if (position < source.size() && source[position] == '}') { ++position; return true; }
+            while (position < source.size()) {
+                if (!string() || position >= source.size() || source[position++] != ':' || !value(result))
+                    return false;
+                if (position >= source.size()) return false;
+                if (source[position] == '}') { ++position; return true; }
+                if (source[position++] != ',') return false;
+            }
+            return false;
+        }
+
+        bool array(std::size_t &result) {
+            ++position;
+            if (position < source.size() && source[position] == ']') { ++position; return true; }
+            while (position < source.size()) {
+                if (!value(result) || position >= source.size()) return false;
+                if (source[position] == ']') { ++position; return true; }
+                if (source[position++] != ',') return false;
+            }
+            return false;
+        }
+    };
+
+    A::SessionResult maximumCompletedResult(bool departed) {
+        A::SessionResult result;
+        result.label = "Maximum canonical result";
+        result.config.mode = A::Mode::TeamDeathmatch;
+        result.config.teamCount = 4;
+        result.config.roundLimit = 99;
+        result.completedRounds = 99;
+        std::vector<A::Identity> identities;
+        for (std::size_t index = 0; index < A::MaxPlayers; ++index)
+            identities.push_back(101 + index);
+        result.finalWinnerPlayerIds = identities;
+        result.finalWinningTeam = A::Team::Alpha;
+        for (std::uint8_t roundNumber = 1; roundNumber <= 99; ++roundNumber) {
+            A::RoundResult round;
+            round.roundNumber = roundNumber;
+            round.level = "levels/maximum.json";
+            round.winnerPlayerIds = identities;
+            round.winningTeam = A::Team::Alpha;
+            round.rosterOrder = identities;
+            result.rounds.push_back(std::move(round));
+        }
+        for (std::size_t index = 0; index < A::MaxPlayers; ++index) {
+            A::PlayerResultRow player;
+            player.playerId = identities[index];
+            player.participantId = 20 + index;
+            player.displayName = "Player " + std::to_string(index + 1);
+            player.team = static_cast<A::Team>(index % 4 + 1);
+            player.departed = departed && index + 1 == A::MaxPlayers;
+            player.rosterOrder = static_cast<std::uint8_t>(index);
+            player.rounds.resize(99);
+            result.players.push_back(std::move(player));
+        }
+        for (std::uint8_t team = 1; team <= 4; ++team)
+            result.teams.push_back({static_cast<A::Team>(team), team, identities});
+        return result;
+    }
+
+    R::CanonicalState maximumCompletedReplicationState(bool departed) {
+        R::CanonicalState state;
+        state.sessionId = 10;
+        state.hostParticipantId = 20;
+        state.matchId = 30;
+        state.phase = R::Phase::FinalSummary;
+        state.currentRoundNumber = 99;
+        state.completedRounds = 99;
+        state.settings.mode = "TeamDeathmatch";
+        state.settings.teamCount = 4;
+        state.settings.levelPlan = "Fixed";
+        state.settings.levels = {"levels/maximum.json"};
+        state.settings.roundLimit = 99;
+        state.score.teamTotals = {4, 3, 3, 3};
+        state.score.teamRanking = {1, 2, 3, 4};
+        for (std::size_t index = 0; index < A::MaxPlayers; ++index) {
+            const R::Identity playerId = 101 + index;
+            const R::Identity participantId = 20 + index;
+            state.participants.push_back({participantId, index == 0,
+                                          R::ConnectionState::Connected, true, {playerId}});
+            R::PlayerState player;
+            player.playerId = playerId;
+            player.ownerParticipantId = participantId;
+            player.rosterPosition = static_cast<std::uint8_t>(index);
+            player.displayName = "Player " + std::to_string(index + 1);
+            player.team = static_cast<std::uint8_t>(index % 4 + 1);
+            player.lifeState = departed && index + 1 == A::MaxPlayers
+                               ? R::LifeState::Departed : R::LifeState::Alive;
+            player.life = 100;
+            state.players.push_back(std::move(player));
+            state.score.players.push_back({playerId});
+            state.score.ranking.push_back(playerId);
+        }
+        state.score.winner.winnerPlayerIds = {101};
+        state.score.winner.winningTeam = 1;
+        state.round = R::RoundState{128, 99, "levels/maximum.json", false,
+                                    state.score.ranking, state.score.winner};
+        state.messages.status = "FinalSummary";
+        state.messages.scoreSummaryVisible = true;
+        state.result.available = true;
+        state.result.sessionOnly = true;
+        state.result.state = "Completed";
+        const auto serialized = A::serializeSessionResult(maximumCompletedResult(departed));
+        D6R_REQUIRE(serialized.has_value());
+        state.result.serialized = *serialized;
+        return state;
     }
 
     R::CanonicalState completedResultDeparture(R::CanonicalState state) {
@@ -1381,6 +1531,88 @@ D6R_TEST_CASE("REP-017 REP-048 departed-only completed-result transitions are ex
     }
     D6R_REQUIRE_EQ(std::string("outcome=true;winner=true;ranking=true;unrelated-row=true;score=true;"
                                "round=true;malformed=true"), evidence);
+}
+
+D6R_TEST_CASE("REP-017 REP-048 maximum canonical completed result accepts only departed transitions") {
+    constexpr std::size_t ExpectedMaximumParsedValues = 23512;
+    const auto initial = maximumCompletedReplicationState(false);
+    const auto departed = maximumCompletedReplicationState(true);
+    D6R_REQUIRE(R::validateCanonicalState(initial));
+    D6R_REQUIRE(R::validateCanonicalState(departed));
+    const auto initialValues = JsonValueCounter(initial.result.serialized).count();
+    const auto departedValues = JsonValueCounter(departed.result.serialized).count();
+    D6R_REQUIRE(initialValues.has_value());
+    D6R_REQUIRE(departedValues.has_value());
+    D6R_REQUIRE_EQ(ExpectedMaximumParsedValues, *initialValues);
+    D6R_REQUIRE_EQ(ExpectedMaximumParsedValues, *departedValues);
+    D6R_REQUIRE(initial.result.serialized.size() <= R::MaxReplicatedResultBytes);
+
+    R::ReplicatedState full;
+    D6R_REQUIRE(full.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(full.apply({2, departed}) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(2u, full.version());
+    D6R_REQUIRE(full.state() != nullptr);
+    D6R_REQUIRE(full.state()->players.back().lifeState == R::LifeState::Departed);
+    D6R_REQUIRE_EQ(departed.result.serialized, full.state()->result.serialized);
+
+    const auto legitimateUpdate = validUpdate(initial, departed);
+    R::ReplicatedState incremental;
+    D6R_REQUIRE(incremental.apply({1, initial}) == R::ApplyResult::Applied);
+    D6R_REQUIRE(incremental.apply(legitimateUpdate) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(2u, incremental.version());
+    D6R_REQUIRE(incremental.state() != nullptr);
+    D6R_REQUIRE(incremental.state()->players.back().lifeState == R::LifeState::Departed);
+    D6R_REQUIRE_EQ(departed.result.serialized, incremental.state()->result.serialized);
+
+    struct Attack {
+        std::string name;
+        std::function<void(std::string &)> alter;
+        std::optional<std::size_t> expectedValues;
+    };
+    const std::vector<Attack> attacks = {
+            {"over-bound", [](auto &serialized) {
+                serialized.insert(serialized.size() - 1, ",\"overBound\":null");
+            }, ExpectedMaximumParsedValues + 1},
+            {"malformed", [](auto &serialized) { serialized.pop_back(); }, std::nullopt},
+            {"mixed-mutation", [](auto &serialized) {
+                D6R_REQUIRE(replaceOnce(serialized, "\"completedRounds\":99",
+                                        "\"completedRounds\":98"));
+            }, ExpectedMaximumParsedValues}};
+
+    const auto acceptedBytes = R::serializeReplicationSnapshot({1, initial});
+    std::string evidence;
+    for (const auto &attack: attacks) {
+        auto attacked = departed;
+        attack.alter(attacked.result.serialized);
+        D6R_REQUIRE(R::validateCanonicalState(attacked));
+        const auto counted = JsonValueCounter(attacked.result.serialized).count();
+        D6R_REQUIRE_EQ(attack.expectedValues.has_value(), counted.has_value());
+        if (counted) D6R_REQUIRE_EQ(*attack.expectedValues, *counted);
+
+        R::ReplicatedState snapshotClient;
+        D6R_REQUIRE(snapshotClient.apply({1, initial}) == R::ApplyResult::Applied);
+        const bool snapshotRejected = snapshotClient.apply({2, attacked}) == R::ApplyResult::Invalid
+                && snapshotClient.version() == 1 && snapshotClient.current() && snapshotClient.state()
+                && R::serializeReplicationSnapshot(
+                        {snapshotClient.version(), *snapshotClient.state()}) == acceptedBytes;
+
+        auto attackedUpdate = legitimateUpdate;
+        attackedUpdate.result = attacked.result;
+        R::ReplicatedState updateClient;
+        D6R_REQUIRE(updateClient.apply({1, initial}) == R::ApplyResult::Applied);
+        const bool updateRejected = updateClient.apply(attackedUpdate)
+                                    == R::ApplyResult::ResynchronizationRequired
+                && updateClient.version() == 1 && !updateClient.current() && updateClient.state() == nullptr;
+        const bool retained = updateRejected
+                && updateClient.apply({1, initial}) == R::ApplyResult::Applied
+                && updateClient.state()
+                && R::serializeReplicationSnapshot(
+                        {updateClient.version(), *updateClient.state()}) == acceptedBytes;
+
+        if (!evidence.empty()) evidence += ';';
+        evidence += attack.name + "=" + (snapshotRejected && retained ? "true" : "false");
+    }
+    D6R_REQUIRE_EQ(std::string("over-bound=true;malformed=true;mixed-mutation=true"), evidence);
 }
 
 D6R_TEST_CASE("REP-017 REP-025 REP-048 publisher freezes retained result while following Lobby remains editable") {
