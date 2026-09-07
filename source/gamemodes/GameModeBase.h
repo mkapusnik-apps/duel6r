@@ -36,6 +36,9 @@ namespace Duel6 {
         bool quickLiquid;
         bool globalAssistances;
 
+        void findQuickLiquidStartingPositions(Level &level, Level::StartingPositionList &startingPositions,
+                                              RandomSource &randomSource) const;
+
     public:
 #ifndef D6R_HEADLESS_CORE
         void initializePlayers(std::vector<Game::PlayerDefinition> &definitions) override {}

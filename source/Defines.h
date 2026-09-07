@@ -70,6 +70,7 @@
 #define D6_YOU_ARE_HERE_DURATION 3.0f
 
 #define D6_RAISE_WATER_WAIT      3.0f
+#define D6_QUICK_LIQUID_FIRST_RAISE_WAIT 8.0f
 
 
 #define D6_MAX_LIFE              100.0f

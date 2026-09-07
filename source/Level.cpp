@@ -163,6 +163,10 @@ namespace Duel6 {
         }
     }
 
+    bool Level::isQuickLiquidPreferredStartingPosition(const StartingPosition &position) const {
+        return position.second > waterLevel + 2;
+    }
+
     void Level::findTopmostNonWallPositions(StartingPositionList &startingPositions) {
         for (Int32 y = getHeight() - 1; y >= 0 && startingPositions.empty(); y--) {
             for (Int32 x = 0; x < getWidth(); x++) {

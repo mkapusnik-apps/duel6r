@@ -25,15 +25,31 @@
 * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <algorithm>
+
 #include "GameModeBase.h"
 
 namespace Duel6 {
+    void GameModeBase::findQuickLiquidStartingPositions(Level &level,
+                                                        Level::StartingPositionList &startingPositions,
+                                                        RandomSource &randomSource) const {
+        level.findStartingPositions(startingPositions);
+        Math::shuffle(startingPositions, randomSource, "starting-position-order");
+        std::stable_partition(startingPositions.begin(), startingPositions.end(), [&level](const auto &position) {
+            return level.isQuickLiquidPreferredStartingPosition(position);
+        });
+    }
+
     void GameModeBase::initializePlayerPositions(Game &game, std::vector<Player> &players, World &world,
                                                   RandomSource &randomSource) const {
         game.log("...Preparing base players");
         Level::StartingPositionList startingPositions;
-        world.getLevel().findStartingPositions(startingPositions);
-        Math::shuffle(startingPositions, randomSource, "starting-position-order");
+        if (quickLiquid) {
+            findQuickLiquidStartingPositions(world.getLevel(), startingPositions, randomSource);
+        } else {
+            world.getLevel().findStartingPositions(startingPositions);
+            Math::shuffle(startingPositions, randomSource, "starting-position-order");
+        }
 
         Size playerIndex = 0;
         for (Player &player : players) {

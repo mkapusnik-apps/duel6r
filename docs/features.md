@@ -15,6 +15,7 @@ The Equalize and Shuffle menu requirements define an approved change to the earl
 The person-action alignment requirements define an approved change to the earlier implementation baseline.
 The person-list space and menu-button refinement requirements define an approved change to the merged PR #60 baseline at commit `f2de2ac008ac6282a98acd6c44dc7543e5bfd73c`.
 The final Team game-summary requirements define an approved change to the earlier implementation baseline.
+The Quick Liquid round-start requirements define an approved change to the earlier implementation baseline.
 
 The word **person** means a persistent named record. The word **player** means a person in the active match roster.
 
@@ -25,6 +26,10 @@ A **playable level** is any level that the application successfully loads.
 The **Burnable Trees** setting controls explosion-triggered burn behavior for coniferous and broad-leaved decorative trees.
 
 A **tree-burning explosion** is an explosion that could burn an applicable tree in the documented implementation baseline.
+
+A **Quick Liquid preferred starting position** is a level starting position above the water surface after the first two water-rise steps.
+
+A **Team starting area** is the separate level area assigned to one team for starting-position selection in a round.
 
 A **random permutation** is one roster order selected at random from all possible roster orders. The existing order is a valid result.
 
@@ -222,11 +227,22 @@ The **batch controller-detection action** detects a control preset for each play
 - **ENV-006** Air must recover at twice its standard recharge rate while the player's head is outside water.
 - **ENV-007** Entering water at foot level must create a splash and play that water type's splash sound.
 - **ENV-008** A player must be able to stand on and move with an elevator.
-- **ENV-009** During sudden death, the water level must rise once every three seconds.
+- **ENV-009** Unless ENV-QL-005 applies, the first water-rise step must occur three seconds after sudden death starts. Later steps must occur every three seconds.
 - **ENV-010** In Deathmatch and Predator, Quick Liquid must start sudden death immediately.
 - **ENV-011** Without Quick Liquid, Deathmatch and Predator must start sudden death when two of more than two original players remain.
 - **ENV-012** In Team deathmatch, Quick Liquid must start sudden death immediately.
 - **ENV-013** Without Quick Liquid, Team deathmatch must start sudden death when any configured team has fewer than two living players.
+
+### Quick Liquid round start
+
+- **ENV-QL-001** At the start of each round with Quick Liquid on, the game must identify all Quick Liquid preferred starting positions.
+- **ENV-QL-002** For the position count in this section, the game must count each level starting position one time.
+- **ENV-QL-003** If there is a preferred starting position for each player, the game must place each player at a preferred starting position. In Team deathmatch, Quick Liquid must not change the Team starting-area assignment for the round. The game must prefer the player's Team starting area when positions have equal Quick Liquid priority.
+- **ENV-QL-004** If there are fewer preferred starting positions than players, the game must use all preferred positions before it uses other starting positions. In Team deathmatch, Quick Liquid must not change the Team starting-area assignment for the round. The game must prefer the player's Team starting area when positions have equal Quick Liquid priority.
+- **ENV-QL-005** Under the condition in ENV-QL-004, the first water-rise step must occur eight seconds after sudden death starts. This wait adds five seconds.
+- **ENV-QL-006** After ENV-QL-005, water-rise steps must use the three-second interval in ENV-009.
+- **ENV-QL-007** ENV-QL-001 through ENV-QL-006 must apply in Deathmatch, Predator, and Team deathmatch.
+- **ENV-QL-008** When Quick Liquid is off, these requirements must not change starting-position selection or water-rise timing.
 
 ### Decorative tree burning
 
@@ -518,6 +534,9 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-012** Starting weapons, ammo, shooting, charge, reload, drops, pickups, and empty-ammo behavior follow PLY-001 and CMB-001 through CMB-020. A replaced weapon must remain in the world at the player's collider position. It must receive twice the player's horizontal and vertical velocity. This behavior must also apply when the replaced weapon has zero ammo.
 - **AC-013** Each immediate and timed bonus produces the applicable behavior in BON-001 through BON-020.
 - **AC-014** Spawn protection, indicators, water, drowning, elevators, stuck recovery, regeneration, and sudden death follow PLY-003 through ENV-013.
+- **AC-ENV-QL-001** In each selectable mode, enough preferred starting positions put every player at a preferred position in each Quick Liquid round. Quick Liquid keeps the round's Team starting-area assignment. Team players use their Team starting areas when possible without reducing preferred-position priority.
+- **AC-ENV-QL-002** In each selectable mode, too few preferred starting positions make the game use all preferred positions first. Quick Liquid keeps the round's Team starting-area assignment. Team players use their Team starting areas when possible without reducing preferred-position priority. The first water-rise step occurs after eight seconds.
+- **AC-ENV-QL-003** After the delayed first step, water rises every three seconds. With Quick Liquid off, starting-position selection and water-rise timing remain unchanged.
 - **AC-015** Each selectable mode uses one shared arena view for each supported player count. The view does not divide into separate player regions.
 - **AC-016** A completed round persists person statistics, roster membership, and played-round count for the next menu load.
 - **AC-017** A missing person-data file produces an empty usable menu, as specified by PER-002.
