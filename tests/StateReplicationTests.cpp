@@ -362,6 +362,31 @@ namespace {
         return state;
     }
 
+    R::CanonicalState retainedResultWithDepartureLabels(bool interrupted) {
+        auto state = completedResultWithDepartureLabels();
+        state.phase = R::Phase::Lobby;
+        state.participants[0].ready = false;
+        state.participants[1].ready = false;
+        state.messages.status = "Lobby";
+        state.messages.scoreSummaryVisible = false;
+        if (!interrupted) return state;
+
+        state.currentRoundNumber = 1;
+        state.completedRounds = 1;
+        state.round->roundId = 40;
+        state.round->roundNumber = 1;
+        state.round->outcome.winnerPlayerIds = {101};
+        state.score.winner = {};
+        state.score.winner.noWinner = true;
+        state.result.state = "Interrupted";
+        state.result.serialized =
+                "{\"label\":\"match\",\"state\":\"Interrupted\",\"outcome\":\"no-winner\","
+                "\"winner\":null,\"ranking\":[101,102],\"score\":[3,2],\"round\":1,\"players\":["
+                "{\"rank\":1,\"playerId\":101,\"participantId\":20,\"departed\":false,\"points\":3},"
+                "{\"rank\":2,\"playerId\":102,\"participantId\":21,\"departed\":false,\"points\":2}]}";
+        return state;
+    }
+
     R::CanonicalState retainedInterruptedLobby() {
         auto state = retainedCompletedLobby();
         state.currentRoundNumber = 1;
@@ -505,8 +530,7 @@ namespace {
         state.participants[1].connection = R::ConnectionState::Reconnecting;
         state.players[0].rosterPosition = 1;
         state.players[1].rosterPosition = 0;
-        state.players[1].displayName = "Guest (Departed)";
-        state.players[1].lifeState = R::LifeState::Departed;
+        state.players[1].displayName = "Guest (Edited)";
         return state;
     }
 
@@ -1538,6 +1562,97 @@ D6R_TEST_CASE("REP-017 REP-048 departed-only completed-result transitions are ex
                                "round=true;malformed=true"), evidence);
 }
 
+D6R_TEST_CASE("REP-017 REP-048 retained result departure consistency publisher validation") {
+    std::string evidence;
+    for (const bool interrupted: {false, true}) {
+        const auto initial = retainedResultWithDepartureLabels(interrupted);
+        const auto synchronized = completedResultDeparture(initial);
+        auto resultOnly = synchronized;
+        resultOnly.players[1].lifeState = R::LifeState::Alive;
+        auto canonicalOnly = initial;
+        canonicalOnly.players[1].lifeState = R::LifeState::Departed;
+        auto unauthorizedRevival = synchronized;
+        unauthorizedRevival.players[1].lifeState = R::LifeState::Alive;
+        D6R_REQUIRE(R::validateCanonicalState(initial));
+        D6R_REQUIRE(R::validateCanonicalState(synchronized));
+        D6R_REQUIRE(R::validateCanonicalState(resultOnly));
+        D6R_REQUIRE(R::validateCanonicalState(canonicalOnly));
+        D6R_REQUIRE(R::validateCanonicalState(unauthorizedRevival));
+
+        const auto accepted = [&] {
+            R::AuthoritativeStateReplicator publisher;
+            return publisher.initialize(initial) && publisher.publish(synchronized).has_value()
+                    && publisher.version() == 2;
+        }();
+        const auto rejected = [&](const R::CanonicalState &candidate,
+                                  const R::CanonicalState &baseline) {
+            R::AuthoritativeStateReplicator publisher;
+            if (!publisher.initialize(baseline)) return false;
+            const auto before = publisher.fullSnapshot();
+            const bool result = !publisher.publish(candidate).has_value();
+            const auto after = publisher.fullSnapshot();
+            return result && publisher.version() == 1 && before && after
+                    && R::serializeReplicationSnapshot(*before)
+                       == R::serializeReplicationSnapshot(*after);
+        };
+        const std::string prefix = interrupted ? "Interrupted" : "Completed";
+        if (!evidence.empty()) evidence += ';';
+        evidence += prefix + "/synchronized=" + (accepted ? "true" : "false")
+                + ",result-only=" + (rejected(resultOnly, initial) ? "true" : "false")
+                + ",canonical-only=" + (rejected(canonicalOnly, initial) ? "true" : "false")
+                + ",departed-to-alive=" + (rejected(unauthorizedRevival, synchronized) ? "true" : "false");
+    }
+    D6R_REQUIRE_EQ(std::string(
+            "Completed/synchronized=true,result-only=true,canonical-only=true,departed-to-alive=true;"
+            "Interrupted/synchronized=true,result-only=true,canonical-only=true,departed-to-alive=true"), evidence);
+}
+
+D6R_TEST_CASE("REP-017 REP-048 REP-066 retained result departure consistency client update validation") {
+    std::string evidence;
+    for (const bool interrupted: {false, true}) {
+        const auto initial = retainedResultWithDepartureLabels(interrupted);
+        const auto synchronized = completedResultDeparture(initial);
+        const auto synchronizedUpdate = validUpdate(initial, synchronized);
+
+        R::ReplicatedState acceptedClient;
+        const bool accepted = acceptedClient.apply({1, initial}) == R::ApplyResult::Applied
+                && acceptedClient.apply(synchronizedUpdate) == R::ApplyResult::Applied
+                && acceptedClient.version() == 2 && acceptedClient.current() && acceptedClient.state()
+                && acceptedClient.state()->players[1].lifeState == R::LifeState::Departed
+                && acceptedClient.state()->result.serialized == synchronized.result.serialized;
+
+        const auto rejected = [&](const R::IncrementalUpdate &candidate,
+                                  const R::CanonicalState &baseline) {
+            R::ReplicatedState client;
+            return client.apply({1, baseline}) == R::ApplyResult::Applied
+                    && client.apply(candidate) == R::ApplyResult::ResynchronizationRequired
+                    && client.version() == 1 && !client.current() && client.state() == nullptr
+                    && client.takePresentationEvents().empty();
+        };
+
+        auto resultOnly = synchronizedUpdate;
+        resultOnly.players.clear();
+        auto canonicalOnly = synchronizedUpdate;
+        canonicalOnly.result = initial.result;
+
+        auto benignAfterDeparture = synchronized;
+        benignAfterDeparture.phaseTime++;
+        auto unauthorizedRevival = validUpdate(synchronized, benignAfterDeparture);
+        unauthorizedRevival.players.push_back(
+                {R::ChangeKind::Update, initial.players[1].playerId, initial.players[1]});
+
+        const std::string prefix = interrupted ? "Interrupted" : "Completed";
+        if (!evidence.empty()) evidence += ';';
+        evidence += prefix + "/synchronized=" + (accepted ? "true" : "false")
+                + ",result-only=" + (rejected(resultOnly, initial) ? "true" : "false")
+                + ",canonical-only=" + (rejected(canonicalOnly, initial) ? "true" : "false")
+                + ",departed-to-alive=" + (rejected(unauthorizedRevival, synchronized) ? "true" : "false");
+    }
+    D6R_REQUIRE_EQ(std::string(
+            "Completed/synchronized=true,result-only=true,canonical-only=true,departed-to-alive=true;"
+            "Interrupted/synchronized=true,result-only=true,canonical-only=true,departed-to-alive=true"), evidence);
+}
+
 D6R_TEST_CASE("REP-017 REP-048 maximum canonical completed result accepts only departed transitions") {
     constexpr std::size_t ExpectedMaximumParsedValues = 23512;
     const auto initial = maximumCompletedReplicationState(false);
@@ -1722,8 +1837,8 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 publisher freezes retained result while f
                     && publisher.fullSnapshot()->state.participants[1].connection == R::ConnectionState::Reconnecting
                     && publisher.fullSnapshot()->state.players[0].rosterPosition == 1
                     && publisher.fullSnapshot()->state.players[1].rosterPosition == 0
-                    && publisher.fullSnapshot()->state.players[1].displayName == "Guest (Departed)"
-                    && publisher.fullSnapshot()->state.players[1].lifeState == R::LifeState::Departed;
+                    && publisher.fullSnapshot()->state.players[1].displayName == "Guest (Edited)"
+                    && publisher.fullSnapshot()->state.players[1].lifeState == R::LifeState::Alive;
             if (legitimateChangesApplied) {
                 requireRetainedResultEqual(scenario.before, publisher.fullSnapshot()->state);
                 auto departed = legitimate;
@@ -1790,8 +1905,8 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 REP-066 client rejects retained result al
                     && client.state()->participants[1].connection == R::ConnectionState::Reconnecting
                     && client.state()->players[0].rosterPosition == 1
                     && client.state()->players[1].rosterPosition == 0
-                    && client.state()->players[1].displayName == "Guest (Departed)"
-                    && client.state()->players[1].lifeState == R::LifeState::Departed;
+                    && client.state()->players[1].displayName == "Guest (Edited)"
+                    && client.state()->players[1].lifeState == R::LifeState::Alive;
             if (legitimateChangesApplied) {
                 const auto delivered = client.takePresentationEvents();
                 requireRetainedResultEqual(scenario.before, *client.state());
@@ -2325,8 +2440,8 @@ D6R_TEST_CASE("REP-013 REP-014 REP-017 legitimate following Lobby mutations pres
         D6R_REQUIRE(client.state()->participants[1].connection == R::ConnectionState::Reconnecting);
         D6R_REQUIRE_EQ(1u, client.state()->players[0].rosterPosition);
         D6R_REQUIRE_EQ(0u, client.state()->players[1].rosterPosition);
-        D6R_REQUIRE_EQ(std::string("Guest (Departed)"), client.state()->players[1].displayName);
-        D6R_REQUIRE(client.state()->players[1].lifeState == R::LifeState::Departed);
+        D6R_REQUIRE_EQ(std::string("Guest (Edited)"), client.state()->players[1].displayName);
+        D6R_REQUIRE(client.state()->players[1].lifeState == R::LifeState::Alive);
         requireRetainedResultEqual(initial, *client.state());
 
         auto rosterReduced = legitimate;

@@ -627,6 +627,26 @@ namespace Duel6::Network::Replication {
             } catch (...) { return false; }
         }
 
+        bool changesRetainedResultPlayerDeparture(
+                const CanonicalState &before, const CanonicalState &after) noexcept {
+            try {
+                const auto result = canonicalResultLabels(before.result.serialized);
+                if (!result) return false;
+                for (const auto &row: result->rows) {
+                    const auto prior = std::find_if(before.players.begin(), before.players.end(), [&](const auto &player) {
+                        return player.playerId == row.playerId;
+                    });
+                    const auto current = std::find_if(after.players.begin(), after.players.end(), [&](const auto &player) {
+                        return player.playerId == row.playerId;
+                    });
+                    if (prior != before.players.end() && current != after.players.end()
+                        && (prior->lifeState == LifeState::Departed)
+                           != (current->lifeState == LifeState::Departed)) return true;
+                }
+                return false;
+            } catch (...) { return true; }
+        }
+
         bool sameCanonicalState(const CanonicalState &left, const CanonicalState &right) {
             const auto sameSettings = [](const MatchSettingsState &a, const MatchSettingsState &b) {
                 return a.mode == b.mode && a.teamCount == b.teamCount && a.friendlyFire == b.friendlyFire
@@ -687,7 +707,8 @@ namespace Duel6::Network::Replication {
                     || before.result.available != after.result.available
                     || before.result.sessionOnly != after.result.sessionOnly
                     || before.result.state != after.result.state) return true;
-            if (before.result.serialized == after.result.serialized) return false;
+            if (before.result.serialized == after.result.serialized)
+                return changesRetainedResultPlayerDeparture(before, after);
             return !validDepartedResultTransition(before, after);
         }
 

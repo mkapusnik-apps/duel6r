@@ -99,6 +99,12 @@ namespace Duel6::Server::Authoritative {
             player.playerId = entry.playerId; player.ownerParticipantId = entry.participantId;
             player.rosterPosition = entry.rosterOrder; player.displayName = entry.displayName;
             player.life = MaximumLife; player.lifeState = R::LifeState::Alive;
+            if (retainedResult) {
+                const auto row = std::find_if(retainedResult->players.begin(), retainedResult->players.end(),
+                        [&](const auto &value) { return value.playerId == player.playerId; });
+                if (row != retainedResult->players.end() && row->departed)
+                    player.lifeState = R::LifeState::Departed;
+            }
             state.players.push_back(std::move(player));
         }
         if (!state.result.available) {
