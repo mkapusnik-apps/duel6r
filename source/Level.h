@@ -109,6 +109,8 @@ namespace Duel6 {
 
         void findStartingPositions(StartingPositionList &startingPositions);
 
+        bool isQuickLiquidPreferredStartingPosition(const StartingPosition &position) const;
+
         void findTopmostNonWallPositions(StartingPositionList &startingPositions);
 
         Int32 getWaterLevel() const;

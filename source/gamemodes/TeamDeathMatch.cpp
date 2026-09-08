@@ -68,6 +68,47 @@ namespace Duel6 {
                                                     RandomSource &randomSource) const {
         game.log("...Preparing team players");
         Level::StartingPositionList startingPositions;
+
+        if (quickLiquid) {
+            Level &level = world.getLevel();
+            level.findStartingPositions(startingPositions);
+            const Size layerSpan = startingPositions.size() / static_cast<Size>(teamsCount);
+            const Int32 randomizer = Math::random(teamsCount, randomSource, "team-spawn-rotation");
+            std::vector<bool> available(startingPositions.size(), true);
+            for (Player &player : players) {
+                auto &ammoRange = game.getSettings().getAmmoRange();
+                Int32 ammo = Math::random(ammoRange.first, ammoRange.second, randomSource, "starting-ammo");
+
+                if (std::none_of(available.begin(), available.end(), [](bool value) { return value; }))
+                    std::fill(available.begin(), available.end(), true);
+                bool preferredAvailable = false;
+                for (Size index = 0; index < startingPositions.size() && !preferredAvailable; index++)
+                    preferredAvailable = available[index]
+                            && level.isQuickLiquidPreferredStartingPosition(startingPositions[index]);
+                const Size playerTeam = (player.getRosterSlot() + static_cast<Size>(randomizer))
+                                        % static_cast<Size>(teamsCount);
+                std::vector<Size> candidates;
+                for (Size index = 0; index < startingPositions.size(); index++) {
+                    const bool preferred = level.isQuickLiquidPreferredStartingPosition(startingPositions[index]);
+                    if (layerSpan > 0 && available[index] && preferred == preferredAvailable
+                        && index / layerSpan == playerTeam) candidates.push_back(index);
+                }
+                if (candidates.empty()) {
+                    for (Size index = 0; index < startingPositions.size(); index++) {
+                        const bool preferred = level.isQuickLiquidPreferredStartingPosition(startingPositions[index]);
+                        if (available[index] && preferred == preferredAvailable) candidates.push_back(index);
+                    }
+                }
+                const Size index = candidates[Math::random(Int32(candidates.size()), randomSource,
+                                                           "team-spawn-position")];
+                available[index] = false;
+                Level::StartingPosition position = startingPositions[index];
+                player.startRound(world, position.first, position.second, ammo,
+                                  Weapon::getRandomEnabled(game.getSettings(), randomSource));
+            }
+            return;
+        }
+
         world.getLevel().findStartingPositions(startingPositions);
 
         Int32 layerSpan = Int32(startingPositions.size()) / teamsCount;
