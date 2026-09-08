@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdlib>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -9,7 +10,10 @@
 #include "source/server/AuthoritativeReplication.h"
 #include "source/server/AuthoritativeMatchSerialization.h"
 #include "source/server/AuthoritativeMatchValidation.h"
+#include "source/server/CanonicalMatchRuntime.h"
+#include "source/server/FrozenGameplayConfig.h"
 #include "source/server/NetworkMatchResultRetention.h"
+#include "source/network/CompatibilityManifest.h"
 #include "source/network/StateReplicationProtocol.h"
 #include "source/network/SessionLifecycle.h"
 #include "tests/TestHarness.h"
@@ -42,6 +46,142 @@ MatchConfig config() {
     value.enabledWeapons = {"pistol", "bazooka"};
     value.roundLimit = 1;
     return value;
+}
+
+struct ProductionCanonicalFixture {
+    MatchConfig requested;
+    std::vector<PlayerDefinition> players = roster(2);
+    Duel6::Network::ManifestBuildResult content;
+    AuthoritativeHostedMatchController controller;
+    std::vector<std::vector<std::uint8_t>> payloads;
+    std::uint64_t sequence = 1;
+    std::vector<std::uint32_t> previousInputs;
+    std::uint8_t observedRound = 0;
+
+    explicit ProductionCanonicalFixture(std::uint8_t rounds)
+            : requested(canonicalConfig(rounds)),
+              content(Duel6::Network::CompatibilityManifestBuilder(".", {}).build()),
+              controller(1, CanonicalMatchRuntime::createDependencies(requested, players, content)),
+              previousInputs(players.size(), std::numeric_limits<std::uint32_t>::max()) {
+        D6R_REQUIRE(content.valid());
+        const std::vector<R::ParticipantState> participants = {
+                {1, true, R::ConnectionState::Connected, true, {101}},
+                {2, false, R::ConnectionState::Connected, true, {102}}};
+        D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+        D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
+            payloads.push_back(std::move(payload));
+            return Duel6::Network::SendResult::Accepted;
+        }));
+        D6R_REQUIRE(controller.markServiceReady());
+        D6R_REQUIRE(controller.setParticipantReady(1, true));
+        D6R_REQUIRE(controller.setParticipantReady(2, true));
+        D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, content.manifest).code);
+    }
+
+    static MatchConfig canonicalConfig(std::uint8_t rounds) {
+        const auto built = Duel6::Network::CompatibilityManifestBuilder(".", {}).build();
+        D6R_REQUIRE(built.valid() && built.content);
+        const auto source = built.content->find("data/config.script");
+        D6R_REQUIRE(source != built.content->end());
+        FrozenGameplayConfig gameplay;
+        D6R_REQUIRE(parseFrozenGameplayConfig(std::string_view(
+                reinterpret_cast<const char *>(source->second.data()), source->second.size()), gameplay));
+        MatchConfig value;
+        value.seed = 424242;
+        value.hostParticipantId = 1;
+        value.levelPlan = LevelPlan::Fixed;
+        value.fixedLevel = "levels/duel_01.json";
+        for (const auto &entry: built.manifest)
+            if (entry.logicalPath.compare(0, 7, "levels/") == 0
+                && entry.logicalPath.size() > 5
+                && entry.logicalPath.compare(entry.logicalPath.size() - 5, 5, ".json") == 0)
+                value.playableLevels.push_back(entry.logicalPath);
+        value.enabledWeapons = std::move(gameplay.enabledWeapons);
+        value.startingAmmoMinimum = 30;
+        value.startingAmmoMaximum = 30;
+        value.fixedStartingWeapon = "pistol";
+        value.compactSpawnLayout = true;
+        value.roundLimit = rounds;
+        return value;
+    }
+
+    bool driveOneTick() {
+        AuthoritativeMatch *match = controller.match();
+        D6R_REQUIRE(match != nullptr);
+        if (match->phase() == MatchPhase::ActiveRound && match->currentTick() % 5u == 0) {
+            if (observedRound != match->roundDecision().roundNumber) {
+                observedRound = match->roundDecision().roundNumber;
+                std::fill(previousInputs.begin(), previousInputs.end(), std::numeric_limits<std::uint32_t>::max());
+            }
+            const CanonicalWorldSnapshot *world = match->canonicalWorldSnapshot();
+            D6R_REQUIRE(world != nullptr);
+            const auto shooter = std::find_if(world->players.begin(), world->players.end(),
+                    [](const auto &player) { return player.playerId == 102; });
+            const auto target = std::find_if(world->players.begin(), world->players.end(),
+                    [](const auto &player) { return player.playerId == 101; });
+            if (shooter != world->players.end() && target != world->players.end() && shooter->alive && target->alive) {
+                const std::int64_t horizontal = std::llabs(target->positionX - shooter->positionX);
+                std::uint32_t input = 0;
+                if (match->currentTick() < 5u || horizontal > 3 * 65536)
+                    input = target->positionX < shooter->positionX ? MoveLeft : MoveRight;
+                if (horizontal < 4 * 65536 && (match->currentTick() / 30u + 1u) % 2u == 0) input |= Shoot;
+                if (input != previousInputs[1]) {
+                    previousInputs[1] = input;
+                    D6R_REQUIRE_EQ(ActionResult::Accepted, match->submit({match->currentTick(), sequence++, 2, 102,
+                            ActionKind::PlayerInput, 0, input, 0}));
+                }
+            }
+        }
+        D6R_REQUIRE(controller.advanceOneTick());
+        return controller.observeMatchOutcome();
+    }
+
+    bool driveToRound(std::uint8_t roundNumber) {
+        for (std::size_t tick = 0; tick < 20000; ++tick) {
+            if (controller.match() && controller.match()->phase() == MatchPhase::ActiveRound
+                && controller.match()->roundDecision().roundNumber == roundNumber) return true;
+            if (!driveOneTick()) return false;
+        }
+        return false;
+    }
+
+    bool driveToTerminal() {
+        for (std::size_t tick = 0; tick < 60000 && controller.match(); ++tick)
+            if (!driveOneTick()) return false;
+        return controller.match() == nullptr && controller.stage() == HostedMatchStage::Lobby;
+    }
+};
+
+const PlayerResultRow &resultPlayer(const SessionResult &result, Identity playerId) {
+    const auto found = std::find_if(result.players.begin(), result.players.end(),
+            [playerId](const auto &row) { return row.playerId == playerId; });
+    D6R_REQUIRE(found != result.players.end());
+    return *found;
+}
+
+const R::ScoreRowState &scorePlayer(const R::CanonicalState &state, Identity playerId) {
+    const auto found = std::find_if(state.score.players.begin(), state.score.players.end(),
+            [playerId](const auto &row) { return row.playerId == playerId; });
+    D6R_REQUIRE(found != state.score.players.end());
+    return *found;
+}
+
+void requireCumulativeScoreMatchesResult(const R::CanonicalState &state, const SessionResult &result) {
+    D6R_REQUIRE_EQ(*serializeSessionResult(result), state.result.serialized);
+    for (const auto &row: result.players) {
+        const auto &score = scorePlayer(state, row.playerId);
+        D6R_REQUIRE_EQ(row.statistics.totalPoints(), score.cumulativePoints);
+        D6R_REQUIRE_EQ(row.statistics.shots, score.shots);
+        D6R_REQUIRE_EQ(row.statistics.hits, score.hits);
+        D6R_REQUIRE_EQ(row.statistics.kills, score.kills);
+        D6R_REQUIRE_EQ(row.statistics.deaths, score.deaths);
+        D6R_REQUIRE_EQ(row.statistics.assists, score.assists);
+        D6R_REQUIRE_EQ(row.statistics.wins, score.wins);
+        D6R_REQUIRE_EQ(row.statistics.penalties, score.penalties);
+        D6R_REQUIRE_EQ(row.statistics.survivalTicks, score.survivalTicks);
+        D6R_REQUIRE_EQ(row.statistics.damage, score.damage);
+        D6R_REQUIRE_EQ(row.statistics.assistedDamage, score.assistedDamage);
+    }
 }
 
 AuthoritativeAction action(const AuthoritativeMatch &match, std::uint64_t sequence, Identity participant,
@@ -1632,5 +1772,90 @@ D6R_TEST_CASE("NET-AC-014 NET-AC-018 shutdown and runtime failure discard all re
 
     verifyDiscard(false);
     verifyDiscard(true);
+}
+
+D6R_TEST_CASE("REP-017 REP-025 production canonical one-round survival publishes FinalSummary and retained FollowingMatch result") {
+    ProductionCanonicalFixture fixture(1);
+    D6R_REQUIRE(fixture.driveToTerminal());
+    D6R_REQUIRE(fixture.controller.currentSessionResult().has_value());
+    const SessionResult &result = *fixture.controller.currentSessionResult();
+    D6R_REQUIRE(result.state == ResultState::Completed);
+    D6R_REQUIRE_EQ(1, result.completedRounds);
+    D6R_REQUIRE(resultPlayer(result, 102).statistics.survivalTicks > 0);
+    D6R_REQUIRE(result.rounds[0].rosterOrder == std::vector<Identity>({101, 102}));
+
+    const auto states = deliveredStates(fixture.payloads);
+    const auto *summary = lastPhase(states, R::Phase::FinalSummary);
+    const auto *following = lastPhase(states, R::Phase::Lobby);
+    D6R_REQUIRE(summary != nullptr);
+    D6R_REQUIRE(following != nullptr && following->result.available);
+    D6R_REQUIRE_EQ(std::string("Completed"), following->result.state);
+    requireCumulativeScoreMatchesResult(*summary, result);
+    requireCumulativeScoreMatchesResult(*following, result);
+}
+
+D6R_TEST_CASE("REP-017 REP-025 production canonical three-round result publishes cumulative score and preserves roster history matrices") {
+    ProductionCanonicalFixture fixture(3);
+    D6R_REQUIRE(fixture.driveToTerminal());
+    D6R_REQUIRE(fixture.controller.currentSessionResult().has_value());
+    const SessionResult &result = *fixture.controller.currentSessionResult();
+    D6R_REQUIRE(result.state == ResultState::Completed);
+    D6R_REQUIRE_EQ(3, result.completedRounds);
+    D6R_REQUIRE_EQ(std::size_t{3}, result.rounds.size());
+    for (const auto &round: result.rounds)
+        D6R_REQUIRE(round.rosterOrder == std::vector<Identity>({101, 102}));
+    for (const auto &row: result.players) {
+        D6R_REQUIRE_EQ(std::size_t{3}, row.rounds.size());
+        D6R_REQUIRE_EQ(1, row.rounds[0].roundsPlayed);
+        D6R_REQUIRE_EQ(1, row.rounds[1].roundsPlayed);
+        D6R_REQUIRE_EQ(1, row.rounds[2].roundsPlayed);
+    }
+
+    const auto states = deliveredStates(fixture.payloads);
+    const auto *summary = lastPhase(states, R::Phase::FinalSummary);
+    const auto *following = lastPhase(states, R::Phase::Lobby);
+    D6R_REQUIRE(summary != nullptr);
+    D6R_REQUIRE(following != nullptr && following->result.available);
+    requireCumulativeScoreMatchesResult(*summary, result);
+    requireCumulativeScoreMatchesResult(*following, result);
+    bool exposesDistinctRoundAndCumulativeScore = false;
+    for (const auto &row: result.players) {
+        const auto &score = scorePlayer(*summary, row.playerId);
+        D6R_REQUIRE_EQ(row.rounds.back().totalPoints(), score.roundPoints);
+        D6R_REQUIRE_EQ(row.statistics.totalPoints(), score.cumulativePoints);
+        exposesDistinctRoundAndCumulativeScore |= score.roundPoints != score.cumulativePoints;
+    }
+    D6R_REQUIRE(exposesDistinctRoundAndCumulativeScore);
+}
+
+D6R_TEST_CASE("REP-017 REP-025 production canonical interrupted match retains completed-round cumulative stats and no winner") {
+    ProductionCanonicalFixture fixture(3);
+    D6R_REQUIRE(fixture.driveToRound(2));
+    AuthoritativeMatch *match = fixture.controller.match();
+    D6R_REQUIRE(match != nullptr);
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match->submit({match->currentTick(), fixture.sequence++, 1, 0,
+            ActionKind::RemovePlayer, 101, 0, 0}));
+    D6R_REQUIRE(fixture.controller.observeMatchOutcome());
+    D6R_REQUIRE(fixture.controller.currentSessionResult().has_value());
+    const SessionResult &result = *fixture.controller.currentSessionResult();
+    D6R_REQUIRE(result.state == ResultState::Interrupted);
+    D6R_REQUIRE(result.finalNoWinner);
+    D6R_REQUIRE(result.finalWinnerPlayerIds.empty());
+    D6R_REQUIRE(result.finalWinningTeam == Team::None);
+    D6R_REQUIRE_EQ(1, result.completedRounds);
+    D6R_REQUIRE_EQ(std::size_t{1}, result.rounds.size());
+    D6R_REQUIRE(result.rounds[0].rosterOrder == std::vector<Identity>({101, 102}));
+    for (const auto &row: result.players) {
+        D6R_REQUIRE_EQ(std::size_t{1}, row.rounds.size());
+        D6R_REQUIRE_EQ(1, row.rounds[0].roundsPlayed);
+    }
+
+    const auto states = deliveredStates(fixture.payloads);
+    const auto *following = lastPhase(states, R::Phase::Lobby);
+    D6R_REQUIRE(following != nullptr && following->result.available);
+    D6R_REQUIRE_EQ(std::string("Interrupted"), following->result.state);
+    D6R_REQUIRE(following->score.winner.noWinner);
+    D6R_REQUIRE(following->score.winner.winnerPlayerIds.empty());
+    requireCumulativeScoreMatchesResult(*following, result);
 }
 }

@@ -16,7 +16,8 @@ add_executable(duel6r-authoritative-match-behavior-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
         ${CMAKE_SOURCE_DIR}/tests/AuthoritativeMatchBehaviorTests.cpp)
 target_include_directories(duel6r-authoritative-match-behavior-tests PRIVATE ${CMAKE_SOURCE_DIR})
-target_link_libraries(duel6r-authoritative-match-behavior-tests duel6r-network-scaffold)
+target_link_libraries(duel6r-authoritative-match-behavior-tests
+        duel6r-network-scaffold duel6r-canonical-gameplay-core)
 if (MINGW)
     set_property(TARGET duel6r-authoritative-match-behavior-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
 endif ()
