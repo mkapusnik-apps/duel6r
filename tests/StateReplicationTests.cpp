@@ -1272,6 +1272,183 @@ namespace {
         return state;
     }
 
+    R::CanonicalState rosterHistoryResult(
+            const std::vector<std::uint8_t> &positions,
+            const std::vector<std::vector<R::Identity>> &roundRosters,
+            std::uint8_t teamCount = 0, bool interrupted = false,
+            const std::vector<R::Identity> &departed = {}) {
+        D6R_REQUIRE(!positions.empty());
+        D6R_REQUIRE(!roundRosters.empty());
+        D6R_REQUIRE(roundRosters.size() < 99);
+
+        A::SessionResult result;
+        result.label = "Session only";
+        result.state = interrupted ? A::ResultState::Interrupted : A::ResultState::Completed;
+        result.config.mode = teamCount ? A::Mode::TeamDeathmatch : A::Mode::Deathmatch;
+        result.config.teamCount = teamCount;
+        result.config.levelPlan = A::LevelPlan::Fixed;
+        result.config.fixedLevel = "levels/a.json";
+        result.config.playableLevels = {"levels/a.json"};
+        result.config.enabledWeapons = {"pistol"};
+        result.config.roundLimit = static_cast<std::uint8_t>(
+                roundRosters.size() + (interrupted ? 1u : 0u));
+        result.config.hostParticipantId = 20;
+        result.config.seed = 1234;
+        result.completedRounds = static_cast<std::uint8_t>(roundRosters.size());
+        result.finalNoWinner = true;
+        for (std::size_t index = 0; index < roundRosters.size(); ++index) {
+            A::RoundResult round;
+            round.roundNumber = static_cast<std::uint8_t>(index + 1);
+            round.level = "levels/a.json";
+            round.noWinner = true;
+            round.rosterOrder = roundRosters[index];
+            result.rounds.push_back(std::move(round));
+        }
+
+        R::CanonicalState state;
+        state.sessionId = 10;
+        state.hostParticipantId = 20;
+        state.matchId = 30;
+        state.phase = interrupted ? R::Phase::Lobby : R::Phase::FinalSummary;
+        state.currentRoundNumber = result.completedRounds;
+        state.completedRounds = result.completedRounds;
+        state.settings.mode = teamCount ? "Team deathmatch" : "Deathmatch";
+        state.settings.teamCount = teamCount;
+        state.settings.levelPlan = "Fixed level";
+        state.settings.levels = {"levels/a.json"};
+        state.settings.roundLimit = result.config.roundLimit;
+        state.score.winner.noWinner = true;
+        state.round = R::RoundState{static_cast<R::Identity>(40u + result.completedRounds),
+                                    result.completedRounds,
+                                    "levels/a.json", false, roundRosters.back(), state.score.winner};
+        state.messages.status = interrupted ? "Lobby" : "FinalSummary";
+        state.messages.scoreSummaryVisible = !interrupted;
+
+        for (std::size_t index = 0; index < positions.size(); ++index) {
+            const R::Identity playerId = 101 + index;
+            const R::Identity participantId = 20 + index;
+            const bool isDeparted = std::find(departed.begin(), departed.end(), playerId) != departed.end();
+            const auto team = teamCount
+                    ? static_cast<A::Team>(positions[index] % teamCount + 1u) : A::Team::None;
+
+            A::PlayerResultRow row;
+            row.playerId = playerId;
+            row.participantId = participantId;
+            row.displayName = "Player " + std::to_string(index + 1);
+            row.team = team;
+            row.departed = isDeparted;
+            row.rosterOrder = positions[index];
+            for (const auto &roundRoster: roundRosters) {
+                A::PlayerStatistics statistics;
+                statistics.roundsPlayed = std::find(roundRoster.begin(), roundRoster.end(), playerId)
+                        == roundRoster.end() ? 0u : 1u;
+                row.statistics.roundsPlayed += statistics.roundsPlayed;
+                row.rounds.push_back(statistics);
+            }
+            result.players.push_back(std::move(row));
+
+            state.participants.push_back({participantId, index == 0,
+                    R::ConnectionState::Connected, false, {playerId}});
+            R::PlayerState player;
+            player.playerId = playerId;
+            player.ownerParticipantId = participantId;
+            player.rosterPosition = positions[index];
+            player.displayName = "Player " + std::to_string(index + 1);
+            player.team = static_cast<std::uint8_t>(team);
+            player.lifeState = isDeparted ? R::LifeState::Departed : R::LifeState::Alive;
+            player.life = isDeparted ? 0 : 100;
+            state.players.push_back(std::move(player));
+            state.score.players.push_back({playerId});
+            state.score.ranking.push_back(playerId);
+        }
+        if (teamCount) {
+            state.score.teamTotals.assign(teamCount, 0);
+            for (std::uint8_t team = 1; team <= teamCount; ++team) {
+                std::vector<R::Identity> teamPlayers;
+                for (std::size_t index = 0; index < positions.size(); ++index)
+                    if (positions[index] % teamCount + 1u == team) teamPlayers.push_back(101 + index);
+                result.teams.push_back({static_cast<A::Team>(team), 0, teamPlayers});
+                state.score.teamRanking.push_back(team);
+            }
+        }
+        state.result.available = true;
+        state.result.sessionOnly = true;
+        state.result.state = interrupted ? "Interrupted" : "Completed";
+        const auto serialized = A::serializeSessionResult(result);
+        D6R_REQUIRE(serialized.has_value());
+        state.result.serialized = *serialized;
+        return state;
+    }
+
+    bool availableResultInitialValidation(const R::CanonicalState &state, bool expectedValid) {
+        R::AuthoritativeStateReplicator publisher;
+        R::ReplicatedState client;
+        const bool published = publisher.initialize(state);
+        const auto applied = client.apply({1, state});
+        if (expectedValid)
+            return published && publisher.version() == 1 && publisher.fullSnapshot()
+                    && applied == R::ApplyResult::Applied && client.version() == 1 && client.current();
+        return !published && publisher.version() == 0 && !publisher.fullSnapshot()
+                && applied == R::ApplyResult::Invalid && client.version() == 0 && !client.current();
+    }
+
+    struct ResultRosterScenario {
+        const char *name;
+        R::CanonicalState state;
+        bool expectedValid;
+    };
+
+    R::CanonicalState retainedResultLobby(R::CanonicalState state) {
+        state.phase = R::Phase::Lobby;
+        state.messages.status = "Lobby";
+        state.messages.scoreSummaryVisible = false;
+        return state;
+    }
+
+    std::string resultRosterValidationMatrix() {
+        const std::vector<R::Identity> threePlayers{101, 102, 103};
+        std::vector<ResultRosterScenario> scenarios;
+        for (std::uint8_t teamCount: {2, 3, 4}) {
+            std::vector<std::uint8_t> contiguous;
+            std::vector<R::Identity> players;
+            for (std::uint8_t index = 0; index < teamCount; ++index) {
+                contiguous.push_back(index);
+                players.push_back(101 + index);
+            }
+            scenarios.push_back({teamCount == 2 ? "two-team-contiguous"
+                                                : teamCount == 3 ? "three-team-contiguous"
+                                                                 : "four-team-contiguous",
+                                 rosterHistoryResult(contiguous, {players}, teamCount), true});
+            contiguous.back() = teamCount;
+            scenarios.push_back({teamCount == 2 ? "two-team-position-gap"
+                                                : teamCount == 3 ? "three-team-position-gap"
+                                                                 : "four-team-position-gap",
+                                 rosterHistoryResult(contiguous, {players}, teamCount), false});
+        }
+        scenarios.push_back({"first-round-original-roster", rosterHistoryResult(
+                {0, 1, 2}, {threePlayers, threePlayers, threePlayers}), true});
+        scenarios.push_back({"first-round-omits-nondeparted-original", retainedResultLobby(
+                rosterHistoryResult({0, 1, 2}, {{101, 102}, {101, 102}, {101, 102}})), false});
+        scenarios.push_back({"player-disappears-then-reappears", rosterHistoryResult(
+                {0, 1, 2}, {threePlayers, {101, 102}, threePlayers}), false});
+        scenarios.push_back({"monotonic-roster-reduction", rosterHistoryResult(
+                {0, 1, 2}, {threePlayers, {101, 102}, {101, 102}}, 0, false, {103}), true});
+        scenarios.push_back({"interrupted-preserves-completed-reductions", rosterHistoryResult(
+                {0, 1, 2}, {threePlayers, {101, 102}}, 0, true, {102, 103}), true});
+        scenarios.push_back({"valid-removal-before-first-completed-round", rosterHistoryResult(
+                {0, 1, 2}, {{101, 102}, {101, 102}}, 0, true, {102, 103}), true});
+        scenarios.push_back({"post-result-departure-label", rosterHistoryResult(
+                {0, 1, 2}, {threePlayers, threePlayers, threePlayers}, 0, false, {103}), true});
+
+        std::string failures;
+        for (const auto &scenario: scenarios)
+            if (!availableResultInitialValidation(scenario.state, scenario.expectedValid)) {
+                if (!failures.empty()) failures += ';';
+                failures += scenario.name;
+            }
+        return failures;
+    }
+
     R::CanonicalState retainedResultWithoutGuest(R::CanonicalState state) {
         state.phase = R::Phase::Lobby;
         state.participants[0].ready = false;
@@ -2655,6 +2832,10 @@ D6R_TEST_CASE("REP-017 REP-048..051 REP-066 malformed available retained results
 
 D6R_TEST_CASE("REP-017 REP-041 REP-049 complete canonical results remain accepted on every ingestion path") {
     D6R_REQUIRE_EQ(std::string(), validCompleteAvailableResultAcceptance());
+}
+
+D6R_TEST_CASE("AHM-AC-020 AHM-AC-024 REP-009 REP-017 REP-041 REP-042 REP-066 canonical result roster history is contiguous and monotonic") {
+    D6R_REQUIRE_EQ(std::string(), resultRosterValidationMatrix());
 }
 
 D6R_TEST_CASE("AHM-AC-006 REP-014 REP-017 active match settings cannot change with a coordinated terminal result") {
