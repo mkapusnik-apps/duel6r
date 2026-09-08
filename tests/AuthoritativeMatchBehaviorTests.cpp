@@ -58,15 +58,17 @@ struct ProductionCanonicalFixture {
     std::vector<std::uint32_t> previousInputs;
     std::uint8_t observedRound = 0;
 
-    explicit ProductionCanonicalFixture(std::uint8_t rounds)
+    explicit ProductionCanonicalFixture(std::uint8_t rounds, std::size_t playerCount = 2)
             : requested(canonicalConfig(rounds)),
+              players(roster(playerCount)),
               content(Duel6::Network::CompatibilityManifestBuilder(".", {}).build()),
               controller(1, CanonicalMatchRuntime::createDependencies(requested, players, content)),
               previousInputs(players.size(), std::numeric_limits<std::uint32_t>::max()) {
         D6R_REQUIRE(content.valid());
-        const std::vector<R::ParticipantState> participants = {
-                {1, true, R::ConnectionState::Connected, true, {101}},
-                {2, false, R::ConnectionState::Connected, true, {102}}};
+        std::vector<R::ParticipantState> participants;
+        for (const auto &player: players)
+            participants.push_back({player.participantId, player.participantId == 1,
+                    R::ConnectionState::Connected, true, {player.playerId}});
         D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
         D6R_REQUIRE(controller.restoreReplication(1, [&](auto payload) {
             payloads.push_back(std::move(payload));
@@ -118,7 +120,7 @@ struct ProductionCanonicalFixture {
             const auto shooter = std::find_if(world->players.begin(), world->players.end(),
                     [](const auto &player) { return player.playerId == 102; });
             const auto target = std::find_if(world->players.begin(), world->players.end(),
-                    [](const auto &player) { return player.playerId == 101; });
+                    [](const auto &player) { return player.playerId != 102 && player.alive; });
             if (shooter != world->players.end() && target != world->players.end() && shooter->alive && target->alive) {
                 const std::int64_t horizontal = std::llabs(target->positionX - shooter->positionX);
                 std::uint32_t input = 0;
@@ -140,6 +142,22 @@ struct ProductionCanonicalFixture {
         for (std::size_t tick = 0; tick < 20000; ++tick) {
             if (controller.match() && controller.match()->phase() == MatchPhase::ActiveRound
                 && controller.match()->roundDecision().roundNumber == roundNumber) return true;
+            if (!driveOneTick()) return false;
+        }
+        return false;
+    }
+
+    bool driveToRoundScore(std::uint8_t roundNumber) {
+        for (std::size_t tick = 0; tick < 20000; ++tick) {
+            const AuthoritativeMatch *match = controller.match();
+            if (match && match->phase() == MatchPhase::ActiveRound
+                && match->roundDecision().roundNumber == roundNumber) {
+                const CanonicalWorldSnapshot *world = match->canonicalWorldSnapshot();
+                D6R_REQUIRE(world != nullptr);
+                if (std::any_of(world->players.begin(), world->players.end(), [](const auto &player) {
+                        return player.statistics.totalPoints() != 0;
+                    })) return true;
+            }
             if (!driveOneTick()) return false;
         }
         return false;
@@ -223,6 +241,68 @@ const R::CanonicalState *lastPhase(const std::vector<R::CanonicalState> &states,
         return state.phase == phase;
     });
     return found == states.rend() ? nullptr : &*found;
+}
+
+void requireStatisticsEqual(const PlayerStatistics &expected, const PlayerStatistics &actual) {
+    D6R_REQUIRE_EQ(expected.roundsPlayed, actual.roundsPlayed);
+    D6R_REQUIRE_EQ(expected.shots, actual.shots);
+    D6R_REQUIRE_EQ(expected.hits, actual.hits);
+    D6R_REQUIRE_EQ(expected.kills, actual.kills);
+    D6R_REQUIRE_EQ(expected.deaths, actual.deaths);
+    D6R_REQUIRE_EQ(expected.assists, actual.assists);
+    D6R_REQUIRE_EQ(expected.wins, actual.wins);
+    D6R_REQUIRE_EQ(expected.penalties, actual.penalties);
+    D6R_REQUIRE_EQ(expected.survivalTicks, actual.survivalTicks);
+    D6R_REQUIRE_EQ(expected.damage, actual.damage);
+    D6R_REQUIRE_EQ(expected.assistedDamage, actual.assistedDamage);
+}
+
+void verifyProductionCanonicalInterruptedRoundDiscardsScore(std::uint8_t completedRounds) {
+    ProductionCanonicalFixture fixture(3, 3);
+    const std::uint8_t activeRound = static_cast<std::uint8_t>(completedRounds + 1);
+    D6R_REQUIRE(fixture.driveToRound(activeRound));
+    AuthoritativeMatch *match = fixture.controller.match();
+    D6R_REQUIRE(match != nullptr);
+    auto completedStatistics = match->playerStatistics();
+    for (auto &entry: completedStatistics) entry.second.roundsPlayed = completedRounds;
+
+    D6R_REQUIRE(fixture.driveToRoundScore(activeRound));
+    match = fixture.controller.match();
+    D6R_REQUIRE(match != nullptr && match->phase() == MatchPhase::ActiveRound);
+    const CanonicalWorldSnapshot *scoredWorld = match->canonicalWorldSnapshot();
+    D6R_REQUIRE(scoredWorld != nullptr);
+    D6R_REQUIRE(std::any_of(scoredWorld->players.begin(), scoredWorld->players.end(), [](const auto &player) {
+        return player.statistics.totalPoints() != 0;
+    }));
+
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match->submitHostControl(1, ActionKind::RemovePlayer, 101));
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match->submitHostControl(1, ActionKind::RemovePlayer, 103));
+    D6R_REQUIRE(fixture.controller.observeMatchOutcome());
+    D6R_REQUIRE(fixture.controller.currentSessionResult().has_value());
+    const SessionResult &result = *fixture.controller.currentSessionResult();
+    D6R_REQUIRE(result.state == ResultState::Interrupted);
+    D6R_REQUIRE_EQ(completedRounds, result.completedRounds);
+    D6R_REQUIRE_EQ(static_cast<std::size_t>(completedRounds), result.rounds.size());
+    for (const auto &row: result.players) {
+        D6R_REQUIRE_EQ(static_cast<std::size_t>(completedRounds), row.rounds.size());
+        requireStatisticsEqual(completedStatistics.at(row.playerId), row.statistics);
+    }
+
+    const auto states = deliveredStates(fixture.payloads);
+    const auto *following = lastPhase(states, R::Phase::Lobby);
+    D6R_REQUIRE(following != nullptr && following->result.available);
+    D6R_REQUIRE_EQ(std::string("Interrupted"), following->result.state);
+    requireCumulativeScoreMatchesResult(*following, result);
+    if (completedRounds == 0) {
+        D6R_REQUIRE(!following->round.has_value());
+        for (const auto &score: following->score.players) D6R_REQUIRE_EQ(0, score.roundPoints);
+    } else {
+        D6R_REQUIRE(following->round.has_value());
+        D6R_REQUIRE_EQ(completedRounds, following->round->roundNumber);
+        D6R_REQUIRE(following->round->rosterOrder == result.rounds.back().rosterOrder);
+        for (const auto &row: result.players)
+            D6R_REQUIRE_EQ(row.rounds.back().totalPoints(), scorePlayer(*following, row.playerId).roundPoints);
+    }
 }
 
 std::string followingLobbyMembershipEvidence(bool interrupted) {
@@ -1826,6 +1906,14 @@ D6R_TEST_CASE("REP-017 REP-025 production canonical three-round result publishes
         exposesDistinctRoundAndCumulativeScore |= score.roundPoints != score.cumulativePoints;
     }
     D6R_REQUIRE(exposesDistinctRoundAndCumulativeScore);
+}
+
+D6R_TEST_CASE("REP-017 REP-025 production canonical interruption discards scored first incomplete round") {
+    verifyProductionCanonicalInterruptedRoundDiscardsScore(0);
+}
+
+D6R_TEST_CASE("REP-017 REP-025 production canonical interruption discards scored incomplete round after a completed round") {
+    verifyProductionCanonicalInterruptedRoundDiscardsScore(1);
 }
 
 D6R_TEST_CASE("REP-017 REP-025 production canonical interrupted match retains completed-round cumulative stats and no winner") {

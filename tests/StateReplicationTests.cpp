@@ -1435,8 +1435,8 @@ namespace {
                 {0, 1, 2}, {threePlayers, {101, 102}, {101, 102}}, 0, false, {103}), true});
         scenarios.push_back({"interrupted-preserves-completed-reductions", rosterHistoryResult(
                 {0, 1, 2}, {threePlayers, {101, 102}}, 0, true, {102, 103}), true});
-        scenarios.push_back({"valid-removal-before-first-completed-round", rosterHistoryResult(
-                {0, 1, 2}, {{101, 102}, {101, 102}}, 0, true, {102, 103}), true});
+        scenarios.push_back({"first-round-omits-original-player-departed-later", rosterHistoryResult(
+                {0, 1, 2}, {{101, 102}, {101, 102}}, 0, true, {102, 103}), false});
         scenarios.push_back({"post-result-departure-label", rosterHistoryResult(
                 {0, 1, 2}, {threePlayers, threePlayers, threePlayers}, 0, false, {103}), true});
 
