@@ -14,7 +14,7 @@ The consolidated person list requirements define an approved change to the earli
 The Equalize and Shuffle menu requirements define an approved change to the earlier implementation baseline.
 The person-action alignment requirements define an approved change to the earlier implementation baseline.
 The person-list space and menu-button refinement requirements define an approved change to the merged PR #60 baseline at commit `f2de2ac008ac6282a98acd6c44dc7543e5bfd73c`.
-The final Team game-summary requirements define an approved change to the earlier implementation baseline.
+The shared final game-summary requirements define an approved change to the earlier implementation baseline.
 The Quick Liquid round-start requirements define an approved change to the earlier implementation baseline.
 
 The word **person** means a persistent named record. The word **player** means a person in the active match roster.
@@ -391,12 +391,15 @@ The **shared arena view** is one gameplay view that shows the whole level to all
 - **UI-RND-009** The final game summary and the active-round Tab score summary must not show the round-progress row from UI-RND-001.
 - **UI-RND-010** The round summary panel must right-align the round-progress label in the panel's top-right corner.
 
-### Final Team game summary
+### Final game summary
 
-- **UI-GAME-001** After the last round of a limited Team match, the final game summary must use the same team-group spacing as the non-final round summary.
-- **UI-GAME-002** While the final Team game summary is visible, the bottom of the window must show the exact text `End of Game`.
+- **UI-GAME-001** After the last round of a limited Team match, the final game summary must use the non-final summary's team-group spacing.
+- **UI-GAME-002** While a final limited Deathmatch or Team game summary is visible, the window bottom must show the exact text `End of Game`.
 - **UI-GAME-003** The `End of Game` notification must be clearly legible and visually separate from the final score table.
 - **UI-GAME-004** The `End of Game` notification must not obscure or replace final score content.
+- **UI-GAME-005** In a final limited Deathmatch or Team game summary, the final round counter must use the same character height as the `SCORE` heading.
+- **UI-GAME-006** The final round counter backing must contain the complete counter text.
+- **UI-GAME-007** The final round counter and the final score panel must remain visually separate and readable.
 
 ### Split-screen removal scope
 
@@ -593,7 +596,8 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-068** The batch controller-detection action shows `Detect All`. Each row-level controller-detection action still shows `D`.
 - **AC-069** The refinement keeps person-list content, person actions, roster-order actions, and controller-detection behavior unchanged.
 - **AC-070** After the last round of a limited Team match, each team boundary has the same spacing as the non-final round summary.
-- **AC-071** While the final Team game summary is visible, `End of Game` is clearly legible at the bottom of the window. It is separate from the score table and does not obscure score content.
+- **AC-071** A final limited Deathmatch or Team game summary shows `End of Game` at the window bottom. The notification is legible and separate from the score table. It does not obscure score content.
+- **AC-072** In a final limited Deathmatch or Team game summary, the final round counter and `SCORE` heading use the same character height. The counter backing contains all counter text. The counter and score panel remain separate and readable.
 
 ## Source traceability
 
