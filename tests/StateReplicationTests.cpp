@@ -147,11 +147,13 @@ namespace {
     }
 
     std::string serializedTwoPlayerResult(bool interrupted, bool guestDeparted = false,
-                                          R::Identity resultOnlyPlayerId = 0) {
+                                          R::Identity resultOnlyPlayerId = 0, bool teams = false) {
         A::SessionResult result;
-        result.label = "match";
+        result.label = "Session only";
         result.state = interrupted ? A::ResultState::Interrupted : A::ResultState::Completed;
-        result.config.mode = A::Mode::Deathmatch;
+        result.config.mode = teams ? A::Mode::TeamDeathmatch : A::Mode::Deathmatch;
+        result.config.teamCount = teams ? 2 : 0;
+        result.config.friendlyFire = teams;
         result.config.levelPlan = A::LevelPlan::Fixed;
         result.config.fixedLevel = "levels/a.json";
         result.config.playableLevels = {"levels/a.json"};
@@ -161,7 +163,8 @@ namespace {
         result.config.seed = 1234;
         result.completedRounds = interrupted ? 1 : 2;
 
-        result.rounds.push_back({1, "levels/a.json", false, {101}, A::Team::None,
+        result.rounds.push_back({1, "levels/a.json", false, {101},
+                                 teams ? A::Team::Alpha : A::Team::None,
                                  false, {101, 102}});
         if (interrupted) {
             result.finalNoWinner = true;
@@ -172,6 +175,10 @@ namespace {
                                             ? std::vector<A::Identity>{101, 102, resultOnlyPlayerId}
                                             : std::vector<A::Identity>{101, 102}});
             result.finalWinnerPlayerIds = {resultOnlyPlayerId ? resultOnlyPlayerId : 102};
+            if (teams) {
+                result.rounds.back().winningTeam = A::Team::Bravo;
+                result.finalWinningTeam = A::Team::Bravo;
+            }
         }
 
         const auto addPlayer = [&](A::Identity playerId, A::Identity participantId,
@@ -183,14 +190,34 @@ namespace {
             row.displayName = name;
             row.rosterOrder = rosterOrder;
             row.departed = departed;
-            row.statistics.kills = points;
+            row.team = teams ? (playerId == 101 ? A::Team::Alpha : A::Team::Bravo) : A::Team::None;
             row.rounds.resize(result.completedRounds);
+            if (playerId != 101 && playerId != 102) {
+                row.rounds[0].kills = points;
+            } else if (playerId == 101) {
+                row.rounds[0].kills = 2;
+                row.rounds[0].wins = 1;
+            } else if (interrupted) {
+                row.rounds[0].kills = 2;
+            } else {
+                row.rounds[1].kills = 1;
+                row.rounds[1].wins = 1;
+            }
+            for (const auto &round: row.rounds) {
+                row.statistics.kills += round.kills;
+                row.statistics.wins += round.wins;
+            }
+            D6R_REQUIRE_EQ(static_cast<std::int64_t>(points), row.statistics.totalPoints());
             result.players.push_back(std::move(row));
         };
         if (resultOnlyPlayerId)
             addPlayer(resultOnlyPlayerId, 20, "Result-only", 2, 4, false);
         addPlayer(101, 20, "Host", 0, 3, false);
         addPlayer(102, 21, "Guest", 1, 2, guestDeparted);
+        if (teams) {
+            result.teams.push_back({A::Team::Alpha, 3, {101}});
+            result.teams.push_back({A::Team::Bravo, 2, {102}});
+        }
 
         const auto serialized = A::serializeSessionResult(result);
         D6R_REQUIRE(serialized.has_value());
@@ -207,8 +234,12 @@ namespace {
         state.round->outcome.winnerPlayerIds = {102};
         state.score.players[0].roundPoints = 0;
         state.score.players[0].cumulativePoints = 3;
+        state.score.players[0].kills = 2;
+        state.score.players[0].wins = 1;
         state.score.players[1].roundPoints = 2;
         state.score.players[1].cumulativePoints = 2;
+        state.score.players[1].kills = 1;
+        state.score.players[1].wins = 1;
         state.score.ranking = {101, 102};
         state.score.winner.winnerPlayerIds = {102};
         state.entities.clear();
@@ -241,6 +272,52 @@ namespace {
         if (position == std::string::npos || value.find(before, position + before.size()) != std::string::npos)
             return false;
         value.replace(position, before.size(), after);
+        return true;
+    }
+
+    bool replaceOccurrence(std::string &value, const std::string &before,
+                           const std::string &after, std::size_t occurrence) {
+        std::size_t position = 0;
+        for (std::size_t index = 0; index <= occurrence; ++index) {
+            position = value.find(before, position);
+            if (position == std::string::npos) return false;
+            if (index != occurrence) position += before.size();
+        }
+        value.replace(position, before.size(), after);
+        return true;
+    }
+
+    bool removeJsonMember(std::string &json, const std::string &key, std::size_t occurrence = 0) {
+        const std::string marker = "\"" + key + "\":";
+        std::size_t keyStart = 0;
+        for (std::size_t index = 0; index <= occurrence; ++index) {
+            keyStart = json.find(marker, keyStart);
+            if (keyStart == std::string::npos) return false;
+            if (index != occurrence) keyStart += marker.size();
+        }
+        std::size_t valueEnd = keyStart + marker.size();
+        bool inString = false;
+        bool escaped = false;
+        int nesting = 0;
+        for (; valueEnd < json.size(); ++valueEnd) {
+            const char character = json[valueEnd];
+            if (inString) {
+                if (escaped) escaped = false;
+                else if (character == '\\') escaped = true;
+                else if (character == '"') inString = false;
+                continue;
+            }
+            if (character == '"') inString = true;
+            else if (character == '[' || character == '{') ++nesting;
+            else if (character == ']' || character == '}') {
+                if (nesting == 0) break;
+                --nesting;
+            } else if (character == ',' && nesting == 0) break;
+        }
+        if (valueEnd == json.size()) return false;
+        if (keyStart > 0 && json[keyStart - 1] == ',') json.erase(keyStart - 1, valueEnd - keyStart + 1);
+        else if (json[valueEnd] == ',') json.erase(keyStart, valueEnd - keyStart + 1);
+        else json.erase(keyStart, valueEnd - keyStart);
         return true;
     }
 
@@ -423,6 +500,9 @@ namespace {
         state.round->outcome.winnerPlayerIds = {101};
         state.score.winner = {};
         state.score.winner.noWinner = true;
+        state.score.players[1].kills = 2;
+        state.score.players[1].wins = 0;
+        state.score.players[1].roundPoints = 0;
         state.result.state = "Interrupted";
         state.result.serialized = serializedTwoPlayerResult(true);
         return state;
@@ -434,6 +514,7 @@ namespace {
         auto state = interrupted ? retainedResultWithDepartureLabels(true)
                                  : completedResultWithDepartureLabels();
         state.phaseTime = 14;
+        state.settings.levelPlan = "Fixed level";
         if (canonicalDeparture) state.players[1].lifeState = R::LifeState::Departed;
         if (resultDeparture) {
             const bool replaced = replaceOnce(state.result.serialized,
@@ -890,10 +971,17 @@ namespace {
     struct AvailableResultAttack {
         const char *name;
         std::function<void(R::CanonicalState &)> alter;
+        bool team = false;
     };
 
     std::vector<AvailableResultAttack> incompleteAvailableResultAttacks() {
         return {
+                {"state-and-players-only", [](auto &state) {
+                    state.result.serialized = "{\"state\":\"" + state.result.state
+                            + "\",\"players\":["
+                              "{\"playerId\":101,\"participantId\":20,\"departed\":false},"
+                              "{\"playerId\":102,\"participantId\":21,\"departed\":false}]}";
+                }},
                 {"missing-state", [](auto &state) {
                     state.result.serialized = "{\"players\":[{\"playerId\":101,\"participantId\":20,\"departed\":false}]}";
                 }},
@@ -926,12 +1014,162 @@ namespace {
                             + "\",\"players\":["
                               "{\"playerId\":101,\"participantId\":20,\"departed\":false},"
                               "{\"playerId\":101,\"participantId\":20,\"departed\":false}]}";
+                }},
+                {"missing-label", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "label"));
+                }},
+                {"missing-mode", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "mode"));
+                }},
+                {"missing-assistance", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "assistance"));
+                }},
+                {"missing-quick-liquid", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "quickLiquid"));
+                }},
+                {"missing-burnable-trees", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "burnableTrees"));
+                }},
+                {"missing-level-plan", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "levelPlan"));
+                }},
+                {"missing-round-limit", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "roundLimit"));
+                }},
+                {"missing-team-count", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "teamCount"));
+                }, true},
+                {"missing-friendly-fire", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "friendlyFire"));
+                }, true},
+                {"missing-seed", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "seed"));
+                }},
+                {"missing-completed-rounds", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "completedRounds"));
+                }},
+                {"missing-final-winner-identities", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "finalWinnerPlayerIds"));
+                }},
+                {"missing-final-winning-team", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "finalWinningTeam"));
+                }},
+                {"missing-final-no-winner", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "finalNoWinner"));
+                }},
+                {"missing-completed-round-rows", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "rounds"));
+                }},
+                {"missing-player-rank", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "rank"));
+                }},
+                {"missing-player-cumulative-statistics", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "cumulative"));
+                }},
+                {"missing-player-round-statistics", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "rounds", 1));
+                }},
+                {"missing-team-rankings", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "teams"));
+                }, true},
+                {"winner-no-winner-conflict", [](auto &state) {
+                    const std::string prior = std::string("\"finalNoWinner\":")
+                            + (state.result.state == "Completed" ? "false" : "true");
+                    const std::string altered = std::string("\"finalNoWinner\":")
+                            + (state.result.state == "Completed" ? "true" : "false");
+                    D6R_REQUIRE(replaceOnce(state.result.serialized, prior, altered));
+                }},
+                {"completed-round-count-mismatch", [](auto &state) {
+                    const std::string count = state.result.state == "Completed" ? "2" : "1";
+                    const std::string other = state.result.state == "Completed" ? "1" : "2";
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"completedRounds\":" + count, "\"completedRounds\":" + other));
+                }},
+                {"last-completed-round-outcome-mismatch", [](auto &state) {
+                    if (state.result.state == "Completed")
+                        D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                                "\"winnerPlayerIds\":[102]", "\"winnerPlayerIds\":[101]", 0));
+                    else D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"winnerPlayerIds\":[101]", "\"winnerPlayerIds\":[102]"));
+                }},
+                {"player-score-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"totalPoints\":3", "\"totalPoints\":4", 0));
+                }},
+                {"player-ranking-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"rank\":1,\"playerId\":101", "\"rank\":2,\"playerId\":101"));
+                }},
+                {"mode-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"mode\":\"Deathmatch\"", "\"mode\":\"Predator\""));
+                }},
+                {"assistance-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"assistance\":false", "\"assistance\":true"));
+                }},
+                {"quick-liquid-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"quickLiquid\":false", "\"quickLiquid\":true"));
+                }},
+                {"burnable-trees-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"burnableTrees\":true", "\"burnableTrees\":false"));
+                }},
+                {"level-plan-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"levelPlan\":\"Fixed level\"", "\"levelPlan\":\"Random level\""));
+                }},
+                {"round-limit-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"roundLimit\":2", "\"roundLimit\":3"));
+                }},
+                {"team-count-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"teamCount\":2", "\"teamCount\":3"));
+                }, true},
+                {"friendly-fire-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"friendlyFire\":true", "\"friendlyFire\":false"));
+                }, true},
+                {"team-outcome-mismatch", [](auto &state) {
+                    const std::string prior = state.result.state == "Completed" ? "Bravo" : "";
+                    const std::string altered = state.result.state == "Completed" ? "Alpha" : "Bravo";
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"finalWinningTeam\":\"" + prior + "\"",
+                            "\"finalWinningTeam\":\"" + altered + "\""));
+                }, true},
+                {"team-ranking-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"rank\":1", "\"rank\":2", 1));
+                }, true},
+                {"seed-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"seed\":1234", "\"seed\":4321"));
+                }},
+                {"zero-seed", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized, "\"seed\":1234", "\"seed\":0"));
                 }}
         };
     }
 
     R::CanonicalState completeAvailableResult(bool interrupted) {
         return firstResultWithDepartureLabels(interrupted, false, false);
+    }
+
+    R::CanonicalState completeAvailableTeamResult(bool interrupted) {
+        auto state = completeAvailableResult(interrupted);
+        state.settings.mode = "Team deathmatch";
+        state.settings.teamCount = 2;
+        state.settings.friendlyFire = true;
+        state.players[0].team = 1;
+        state.players[1].team = 2;
+        state.score.teamTotals = {3, 2};
+        state.score.teamRanking = {1, 2};
+        if (state.round) state.round->outcome.winningTeam = interrupted ? 1 : 2;
+        if (!interrupted) state.score.winner.winningTeam = 2;
+        state.result.serialized = serializedTwoPlayerResult(interrupted, false, 0, true);
+        return state;
     }
 
     R::CanonicalState retainedResultWithoutGuest(R::CanonicalState state) {
@@ -948,8 +1186,9 @@ namespace {
     std::string authoritativeAvailableResultValidation(bool initialize) {
         std::string failures;
         for (const bool interrupted: {false, true}) {
-            const auto valid = completeAvailableResult(interrupted);
             for (const auto &attack: incompleteAvailableResultAttacks()) {
+                const auto valid = attack.team ? completeAvailableTeamResult(interrupted)
+                                               : completeAvailableResult(interrupted);
                 auto malformed = valid;
                 attack.alter(malformed);
                 bool correct = false;
@@ -996,8 +1235,9 @@ namespace {
     std::string clientAvailableResultValidation(FirstResultDelivery delivery) {
         std::string failures;
         for (const bool interrupted: {false, true}) {
-            const auto valid = completeAvailableResult(interrupted);
             for (const auto &attack: incompleteAvailableResultAttacks()) {
+                const auto valid = attack.team ? completeAvailableTeamResult(interrupted)
+                                               : completeAvailableResult(interrupted);
                 auto malformed = valid;
                 attack.alter(malformed);
                 R::ReplicatedState client;
@@ -1062,6 +1302,51 @@ namespace {
                     failures += std::string(interrupted ? "Interrupted/" : "Completed/") + attack.name;
                 }
             }
+        }
+        return failures;
+    }
+
+    std::string validCompleteAvailableResultAcceptance() {
+        std::string failures;
+        for (const bool interrupted: {false, true}) for (const bool team: {false, true}) {
+            const auto valid = team ? completeAvailableTeamResult(interrupted)
+                                    : completeAvailableResult(interrupted);
+            const auto addFailure = [&](const char *path) {
+                if (!failures.empty()) failures += ';';
+                failures += std::string(interrupted ? "Interrupted/" : "Completed/")
+                        + (team ? "Teams/" : "Deathmatch/") + path;
+            };
+
+            R::AuthoritativeStateReplicator initialized;
+            if (!initialized.initialize(valid) || initialized.version() != 1
+                || !initialized.fullSnapshot()) addFailure("authoritative-initialize");
+
+            R::AuthoritativeStateReplicator published;
+            if (!published.initialize(activeState()) || !published.publish(valid)
+                || published.version() != 2) addFailure("authoritative-publish");
+
+            R::ReplicatedState initial;
+            if (initial.apply({1, valid}) != R::ApplyResult::Applied || initial.version() != 1
+                || !initial.current()) addFailure("client-initial");
+
+            R::ReplicatedState resynchronized;
+            if (resynchronized.apply({1, activeState()}) != R::ApplyResult::Applied) {
+                addFailure("client-resync-baseline");
+            } else {
+                resynchronized.requireResynchronization();
+                if (resynchronized.apply({2, valid}) != R::ApplyResult::Applied
+                    || resynchronized.version() != 2 || !resynchronized.current())
+                    addFailure("client-resync");
+            }
+
+            R::ReplicatedState incremental;
+            const auto update = validUpdate(activeState(), valid,
+                    {{996, "result-transition", 0, 0, 0, 0}});
+            if (incremental.apply({1, activeState()}) != R::ApplyResult::Applied
+                || incremental.apply(update) != R::ApplyResult::Applied
+                || incremental.version() != 2 || !incremental.current()
+                || incremental.takePresentationEvents().size() != 1)
+                addFailure("client-incremental");
         }
         return failures;
     }
@@ -2060,6 +2345,10 @@ D6R_TEST_CASE("REP-017 REP-041 REP-044 REP-066 malformed available retained resu
 
 D6R_TEST_CASE("REP-017 REP-048..051 REP-066 malformed available retained results fail first active-to-terminal update atomically") {
     D6R_REQUIRE_EQ(std::string(), clientAvailableResultValidation(FirstResultDelivery::IncrementalUpdate));
+}
+
+D6R_TEST_CASE("REP-017 REP-041 REP-049 complete canonical results remain accepted on every ingestion path") {
+    D6R_REQUIRE_EQ(std::string(), validCompleteAvailableResultAcceptance());
 }
 
 D6R_TEST_CASE("REP-017 REP-048 maximum canonical completed result accepts only departed transitions") {
