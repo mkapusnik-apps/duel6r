@@ -521,7 +521,8 @@ namespace {
         state.score.players[1].wins = 0;
         state.score.players[1].roundPoints = 0;
         state.result.state = "Interrupted";
-        state.result.serialized = serializedTwoPlayerResult(true);
+        state.players[1].lifeState = R::LifeState::Departed;
+        state.result.serialized = serializedTwoPlayerResult(true, true);
         return state;
     }
 
@@ -531,11 +532,14 @@ namespace {
         auto state = interrupted ? retainedResultWithDepartureLabels(true)
                                  : completedResultWithDepartureLabels();
         state.phaseTime = 14;
-        if (canonicalDeparture) state.players[1].lifeState = R::LifeState::Departed;
-        if (resultDeparture) {
+        state.players[1].lifeState = canonicalDeparture
+                ? R::LifeState::Departed : R::LifeState::Alive;
+        if (resultDeparture != interrupted) {
             const bool replaced = replaceOnce(state.result.serialized,
-                    "\"departed\":false,\"rosterOrder\":1",
-                    "\"departed\":true,\"rosterOrder\":1");
+                    interrupted ? "\"departed\":true,\"rosterOrder\":1"
+                                : "\"departed\":false,\"rosterOrder\":1",
+                    interrupted ? "\"departed\":false,\"rosterOrder\":1"
+                                : "\"departed\":true,\"rosterOrder\":1");
             D6R_REQUIRE(replaced);
         }
         return state;
@@ -553,7 +557,8 @@ namespace {
         state.score.players[1].kills = 2;
         state.score.players[1].wins = 0;
         state.result.state = "Interrupted";
-        state.result.serialized = serializedTwoPlayerResult(true);
+        state.players[1].lifeState = R::LifeState::Departed;
+        state.result.serialized = serializedTwoPlayerResult(true, true);
         return state;
     }
 
@@ -615,6 +620,7 @@ namespace {
 
     R::IncrementalUpdate validUpdate(const R::CanonicalState &before, R::CanonicalState after,
                                      std::vector<R::PresentationEvent> events);
+    R::CanonicalState activeTeamState(std::uint8_t teamCount, bool friendlyFire);
 
     std::vector<RetainedPhaseMutation> finalSummaryPhaseMutations() {
         const auto final = distinctFinalSummary();
@@ -934,17 +940,34 @@ namespace {
         followingLobby.participants[1].ready = false;
         followingLobby.messages.status = "Lobby";
         followingLobby.messages.scoreSummaryVisible = false;
-        followingLobby = legitimateFollowingLobbyChange(std::move(followingLobby));
-        const auto followingVersion = client.version() + 1;
-        bool followingApplied = false;
-        if (delivery == FirstResultDelivery::IncrementalUpdate) {
-            auto update = validUpdate(synchronized, followingLobby);
-            update.baseline = client.version();
-            update.version = followingVersion;
-            followingApplied = client.apply(update) == R::ApplyResult::Applied;
-        } else {
-            followingApplied = client.apply({followingVersion, followingLobby}) == R::ApplyResult::Applied;
+
+        // Completed settings remain frozen through the terminal-to-lobby
+        // transition. Lobby-owned edits are valid only after that result has
+        // already been established in the following lobby.
+        bool followingApplied = true;
+        if (synchronized.phase != R::Phase::Lobby) {
+            const auto followingVersion = client.version() + 1;
+            if (delivery == FirstResultDelivery::IncrementalUpdate) {
+                auto update = validUpdate(synchronized, followingLobby);
+                update.baseline = client.version();
+                update.version = followingVersion;
+                followingApplied = client.apply(update) == R::ApplyResult::Applied;
+            } else {
+                followingApplied = client.apply({followingVersion, followingLobby}) == R::ApplyResult::Applied;
+            }
         }
+
+        const auto editableLobby = legitimateFollowingLobbyChange(followingLobby);
+        const auto editedVersion = client.version() + 1;
+        if (followingApplied && delivery == FirstResultDelivery::IncrementalUpdate) {
+            auto update = validUpdate(followingLobby, editableLobby);
+            update.baseline = client.version();
+            update.version = editedVersion;
+            followingApplied = client.apply(update) == R::ApplyResult::Applied;
+        } else if (followingApplied) {
+            followingApplied = client.apply({editedVersion, editableLobby}) == R::ApplyResult::Applied;
+        }
+        followingLobby = editableLobby;
         if (!followingApplied || !client.state()
             || client.state()->settings.assistance != followingLobby.settings.assistance
             || !client.state()->participants[0].ready
@@ -1271,7 +1294,10 @@ namespace {
                             && publisher.fullSnapshot()->state.result.serialized == valid.result.serialized;
                     correct = rejected && validPreserved;
                 } else {
-                    const auto active = activeState();
+                    auto active = attack.team ? activeTeamState(valid.settings.teamCount,
+                                                                 valid.settings.friendlyFire)
+                                              : activeState();
+                    active.settings = valid.settings;
                     R::AuthoritativeStateReplicator publisher;
                     const R::PresentationEvent event{993, "result-transition", 0, 0, 0, 0};
                     if (publisher.initialize(active)) {
@@ -1318,7 +1344,10 @@ namespace {
                             && client.state()->result.serialized == valid.result.serialized;
                     correct = atomic && validPreserved;
                 } else {
-                    const auto active = activeState();
+                    auto active = attack.team ? activeTeamState(valid.settings.teamCount,
+                                                                 valid.settings.friendlyFire)
+                                              : activeState();
+                    active.settings = valid.settings;
                     auto confirmed = active;
                     confirmed.phaseTime++;
                     const R::PresentationEvent pending{994, "confirmed-event", 101, 0, 0, 0};
@@ -1375,8 +1404,12 @@ namespace {
             if (!initialized.initialize(valid) || initialized.version() != 1
                 || !initialized.fullSnapshot()) addFailure("authoritative-initialize");
 
+            auto active = team ? activeTeamState(valid.settings.teamCount, valid.settings.friendlyFire)
+                               : activeState();
+            active.settings = valid.settings;
+
             R::AuthoritativeStateReplicator published;
-            if (!published.initialize(activeState()) || !published.publish(valid)
+            if (!published.initialize(active) || !published.publish(valid)
                 || published.version() != 2) addFailure("authoritative-publish");
 
             R::ReplicatedState initial;
@@ -1384,7 +1417,7 @@ namespace {
                 || !initial.current()) addFailure("client-initial");
 
             R::ReplicatedState resynchronized;
-            if (resynchronized.apply({1, activeState()}) != R::ApplyResult::Applied) {
+            if (resynchronized.apply({1, active}) != R::ApplyResult::Applied) {
                 addFailure("client-resync-baseline");
             } else {
                 resynchronized.requireResynchronization();
@@ -1394,9 +1427,9 @@ namespace {
             }
 
             R::ReplicatedState incremental;
-            const auto update = validUpdate(activeState(), valid,
+            const auto update = validUpdate(active, valid,
                     {{996, "result-transition", 0, 0, 0, 0}});
-            if (incremental.apply({1, activeState()}) != R::ApplyResult::Applied
+            if (incremental.apply({1, active}) != R::ApplyResult::Applied
                 || incremental.apply(update) != R::ApplyResult::Applied
                 || incremental.version() != 2 || !incremental.current()
                 || incremental.takePresentationEvents().size() != 1)
@@ -2453,11 +2486,20 @@ D6R_TEST_CASE("REP-017 REP-048 retained result departure consistency publisher v
     std::string evidence;
     for (const bool interrupted: {false, true}) {
         const auto initial = retainedResultWithDepartureLabels(interrupted);
-        const auto synchronized = completedResultDeparture(initial);
+        auto synchronized = interrupted ? initial : completedResultDeparture(initial);
+        if (interrupted) synchronized.phaseTime++;
         auto resultOnly = synchronized;
-        resultOnly.players[1].lifeState = R::LifeState::Alive;
-        auto canonicalOnly = initial;
-        canonicalOnly.players[1].lifeState = R::LifeState::Departed;
+        auto canonicalOnly = synchronized;
+        if (interrupted) {
+            D6R_REQUIRE(replaceOnce(resultOnly.result.serialized,
+                    "\"departed\":true,\"rosterOrder\":1",
+                    "\"departed\":false,\"rosterOrder\":1"));
+            canonicalOnly.players[1].lifeState = R::LifeState::Alive;
+        } else {
+            resultOnly.players[1].lifeState = R::LifeState::Alive;
+            canonicalOnly = initial;
+            canonicalOnly.players[1].lifeState = R::LifeState::Departed;
+        }
         auto unauthorizedRevival = synchronized;
         unauthorizedRevival.players[1].lifeState = R::LifeState::Alive;
         D6R_REQUIRE(R::validateCanonicalState(initial));
@@ -2498,7 +2540,8 @@ D6R_TEST_CASE("REP-017 REP-048 REP-066 retained result departure consistency cli
     std::string evidence;
     for (const bool interrupted: {false, true}) {
         const auto initial = retainedResultWithDepartureLabels(interrupted);
-        const auto synchronized = completedResultDeparture(initial);
+        auto synchronized = interrupted ? initial : completedResultDeparture(initial);
+        if (interrupted) synchronized.phaseTime++;
         const auto synchronizedUpdate = validUpdate(initial, synchronized);
 
         R::ReplicatedState acceptedClient;
@@ -2518,15 +2561,29 @@ D6R_TEST_CASE("REP-017 REP-048 REP-066 retained result departure consistency cli
         };
 
         auto resultOnly = synchronizedUpdate;
-        resultOnly.players.clear();
+        if (interrupted) {
+            D6R_REQUIRE(replaceOnce(resultOnly.result.serialized,
+                    "\"departed\":true,\"rosterOrder\":1",
+                    "\"departed\":false,\"rosterOrder\":1"));
+        } else {
+            resultOnly.players.clear();
+        }
         auto canonicalOnly = synchronizedUpdate;
-        canonicalOnly.result = initial.result;
+        if (interrupted) {
+            auto alive = initial.players[1];
+            alive.lifeState = R::LifeState::Alive;
+            canonicalOnly.players.push_back({R::ChangeKind::Update, alive.playerId, alive});
+        } else {
+            canonicalOnly.result = initial.result;
+        }
 
         auto benignAfterDeparture = synchronized;
         benignAfterDeparture.phaseTime++;
         auto unauthorizedRevival = validUpdate(synchronized, benignAfterDeparture);
+        auto revived = initial.players[1];
+        revived.lifeState = R::LifeState::Alive;
         unauthorizedRevival.players.push_back(
-                {R::ChangeKind::Update, initial.players[1].playerId, initial.players[1]});
+                {R::ChangeKind::Update, revived.playerId, revived});
 
         const std::string prefix = interrupted ? "Interrupted" : "Completed";
         if (!evidence.empty()) evidence += ';';
@@ -2820,12 +2877,11 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 publisher freezes retained result while f
                     && publisher.fullSnapshot()->state.players[0].rosterPosition == 1
                     && publisher.fullSnapshot()->state.players[1].rosterPosition == 0
                     && publisher.fullSnapshot()->state.players[1].displayName == "Guest (Edited)"
-                    && publisher.fullSnapshot()->state.players[1].lifeState == R::LifeState::Alive;
+                    && publisher.fullSnapshot()->state.players[1].lifeState
+                       == legitimate.players[1].lifeState;
             if (legitimateChangesApplied) {
                 requireRetainedResultEqual(scenario.before, publisher.fullSnapshot()->state);
-                auto departed = legitimate;
-                departed.participants.pop_back();
-                departed.players.pop_back();
+                auto departed = retainedResultWithoutGuest(legitimate);
                 const auto removal = publisher.publish(departed);
                 const bool rosterRemovalApplied = removal && publisher.version() == 3
                         && publisher.fullSnapshot()->state.participants.size() == 1
@@ -2888,13 +2944,11 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 REP-066 client rejects retained result al
                     && client.state()->players[0].rosterPosition == 1
                     && client.state()->players[1].rosterPosition == 0
                     && client.state()->players[1].displayName == "Guest (Edited)"
-                    && client.state()->players[1].lifeState == R::LifeState::Alive;
+                    && client.state()->players[1].lifeState == legitimate.players[1].lifeState;
             if (legitimateChangesApplied) {
                 const auto delivered = client.takePresentationEvents();
                 requireRetainedResultEqual(scenario.before, *client.state());
-                auto departed = legitimate;
-                departed.participants.pop_back();
-                departed.players.pop_back();
+                auto departed = retainedResultWithoutGuest(legitimate);
                 auto removal = validUpdate(legitimate, departed);
                 removal.baseline = 2;
                 removal.version = 3;
@@ -2935,19 +2989,20 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 publisher freezes Final Summary result th
         const bool stateAndVersionUnchanged = rejected && before && after && publisher.version() == 1
                 && R::serializeReplicationSnapshot(*before) == R::serializeReplicationSnapshot(*after);
 
-        const auto legitimate = legitimateFollowingLobbyChange(retainedCompletedLobby());
-        const auto accepted = stateAndVersionUnchanged ? publisher.publish(legitimate, {event}) : std::nullopt;
-        const bool eventHistoryUnchanged = accepted && accepted->events.size() == 1
-                && accepted->events.front().eventId == event.eventId;
+        const auto retainedLobby = retainedCompletedLobby();
+        const auto lobbyTransition = stateAndVersionUnchanged
+                ? publisher.publish(retainedLobby, {event}) : std::nullopt;
+        const auto legitimate = legitimateFollowingLobbyChange(retainedLobby);
+        const auto accepted = lobbyTransition ? publisher.publish(legitimate) : std::nullopt;
+        const bool eventHistoryUnchanged = accepted && lobbyTransition->events.size() == 1
+                && lobbyTransition->events.front().eventId == event.eventId;
         bool identityHistoryUnchanged = false;
         if (eventHistoryUnchanged) {
-            auto removed = legitimate;
-            removed.participants.pop_back();
-            removed.players.pop_back();
+            auto removed = retainedResultWithoutGuest(legitimate);
             const auto removal = publisher.publish(removed);
             const auto beforeReuse = publisher.fullSnapshot();
-            identityHistoryUnchanged = removal && publisher.version() == 3
-                    && !publisher.publish(legitimate).has_value() && publisher.version() == 3
+            identityHistoryUnchanged = removal && publisher.version() == 4
+                    && !publisher.publish(legitimate).has_value() && publisher.version() == 4
                     && beforeReuse && publisher.fullSnapshot()
                     && R::serializeReplicationSnapshot(*beforeReuse)
                        == R::serializeReplicationSnapshot(*publisher.fullSnapshot());
@@ -2978,26 +3033,31 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 REP-066 client freezes Final Summary resu
                 && R::serializeReplicationSnapshot({1, scenario.before})
                    == R::serializeReplicationSnapshot({client.version(), *client.state()});
 
-        const auto legitimate = legitimateFollowingLobbyChange(retainedCompletedLobby());
-        const auto acceptedUpdate = validUpdate(scenario.before, legitimate, {event});
-        const bool legitimateApplied = restored && client.apply(acceptedUpdate) == R::ApplyResult::Applied
-                && client.version() == 2 && client.state()
+        const auto retainedLobby = retainedCompletedLobby();
+        const auto lobbyTransition = validUpdate(scenario.before, retainedLobby, {event});
+        const bool lobbyEstablished = restored
+                && client.apply(lobbyTransition) == R::ApplyResult::Applied;
+        const auto legitimate = legitimateFollowingLobbyChange(retainedLobby);
+        auto acceptedUpdate = validUpdate(retainedLobby, legitimate);
+        acceptedUpdate.baseline = 2;
+        acceptedUpdate.version = 3;
+        const bool legitimateApplied = lobbyEstablished
+                && client.apply(acceptedUpdate) == R::ApplyResult::Applied
+                && client.version() == 3 && client.state()
                 && client.state()->settings.assistance == legitimate.settings.assistance;
         const auto delivered = client.takePresentationEvents();
         bool identityHistoryUnchanged = false;
         if (legitimateApplied && delivered.size() == 1 && delivered.front().eventId == event.eventId) {
-            auto removed = legitimate;
-            removed.participants.pop_back();
-            removed.players.pop_back();
+            auto removed = retainedResultWithoutGuest(legitimate);
             auto removal = validUpdate(legitimate, removed);
-            removal.baseline = 2;
-            removal.version = 3;
+            removal.baseline = 3;
+            removal.version = 4;
             const bool removedApplied = client.apply(removal) == R::ApplyResult::Applied;
-            const auto reuse = lobbyCreationUpdate(3, 4, legitimate,
+            const auto reuse = lobbyCreationUpdate(4, 5, legitimate,
                     legitimate.participants.back(), legitimate.players.back());
             identityHistoryUnchanged = removedApplied
                     && client.apply(reuse) == R::ApplyResult::ResynchronizationRequired
-                    && client.version() == 3 && client.takePresentationEvents().empty();
+                    && client.version() == 4 && client.takePresentationEvents().empty();
         }
         if (!(rejected && restored && legitimateApplied && delivered.size() == 1
               && delivered.front().eventId == event.eventId && identityHistoryUnchanged)) {
@@ -3423,25 +3483,26 @@ D6R_TEST_CASE("REP-013 REP-014 REP-017 legitimate following Lobby mutations pres
         D6R_REQUIRE_EQ(1u, client.state()->players[0].rosterPosition);
         D6R_REQUIRE_EQ(0u, client.state()->players[1].rosterPosition);
         D6R_REQUIRE_EQ(std::string("Guest (Edited)"), client.state()->players[1].displayName);
-        D6R_REQUIRE(client.state()->players[1].lifeState == R::LifeState::Alive);
+        D6R_REQUIRE(client.state()->players[1].lifeState == legitimate.players[1].lifeState);
         requireRetainedResultEqual(initial, *client.state());
 
-        auto rosterReduced = legitimate;
-        rosterReduced.participants.pop_back();
-        rosterReduced.players.pop_back();
+        auto rosterReduced = retainedResultWithoutGuest(legitimate);
         const auto removal = publisher.publish(rosterReduced);
         D6R_REQUIRE(removal.has_value());
         D6R_REQUIRE(client.apply(*removal) == R::ApplyResult::Applied);
         D6R_REQUIRE_EQ(1u, client.state()->participants.size());
         D6R_REQUIRE_EQ(1u, client.state()->players.size());
         D6R_REQUIRE_EQ(2u, client.state()->score.players.size());
-        requireRetainedResultEqual(initial, *client.state());
+        requireRetainedResultEqual(rosterReduced, *client.state());
     }
 }
 
 D6R_TEST_CASE("REP-005 REP-017 reconnect snapshot reserves player identities retained only in prior result rows") {
     auto followingLobby = distinctFinalSummary();
     followingLobby.phase = R::Phase::Lobby;
+    D6R_REQUIRE(replaceOnce(followingLobby.result.serialized,
+            "\"departed\":false,\"rosterOrder\":1",
+            "\"departed\":true,\"rosterOrder\":1"));
     followingLobby.participants.erase(followingLobby.participants.begin() + 1);
     followingLobby.participants.front().ownedPlayerIds = {101};
     followingLobby.players.erase(followingLobby.players.begin() + 1);
