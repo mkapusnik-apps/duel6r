@@ -1221,6 +1221,21 @@ namespace {
                     D6R_REQUIRE(replaceOccurrence(state.result.serialized,
                             "\"rosterOrder\":[101,102]", "\"rosterOrder\":[102]", 0));
                 }, false, false, true},
+                {"nonfinal-round-roster-sequence-conflicts-with-player-roster-order", [](auto &state) {
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"rosterOrder\":[101,102]", "\"rosterOrder\":[102,101]", 0));
+                }, false, false, true},
+                {"team-assignment-conflicts-with-roster-position-modulo", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"rosterOrder\":0,\"cumulative\"",
+                            "\"rosterOrder\":15,\"cumulative\""));
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"rosterOrder\":1,\"cumulative\"",
+                            "\"rosterOrder\":0,\"cumulative\""));
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"rosterOrder\":15,\"cumulative\"",
+                            "\"rosterOrder\":1,\"cumulative\""));
+                }, true},
                 {"rounds-played-without-round-participation", [](auto &state) {
                     const std::string played = state.result.state == "Completed" ? "2" : "1";
                     const std::string reduced = state.result.state == "Completed" ? "1" : "0";
