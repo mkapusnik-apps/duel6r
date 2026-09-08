@@ -220,6 +220,8 @@ namespace Duel6 {
         const Int32 counterBottom = finalRoundCounter();
 
         roundOverSummary(false, teamDeathMatch, true, bottomInset + noticeHeight + panelGap, counterBottom - panelGap);
+        // Keep counter text above an oversized score panel's intersecting backing surface.
+        finalRoundCounter();
 
         renderer.setBlendFunc(BlendFunc::SrcAlpha);
         renderer.quadXY(Vector(noticeX, Float32(bottomInset)), Vector(noticeWidth, Float32(noticeHeight)),
