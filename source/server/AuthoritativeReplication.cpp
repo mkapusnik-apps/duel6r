@@ -395,9 +395,40 @@ namespace Duel6::Server::Authoritative {
             state.score.winner.winningTeam = static_cast<std::uint8_t>(match.publishedResult()->finalWinningTeam);
             state.score.winner.noWinner = match.publishedResult()->finalNoWinner;
             if (interrupted) {
+                const bool discardedActiveRound = match.publishedResult()->completedRounds
+                                                  < match.roundDecision().roundNumber;
+                state.score.players.clear(); state.score.ranking.clear();
+                for (const auto &row: match.publishedResult()->players) {
+                    R::ScoreRowState score;
+                    score.playerId = row.playerId;
+                    score.roundPoints = row.rounds.empty() ? 0 : row.rounds.back().totalPoints();
+                    score.cumulativePoints = row.statistics.totalPoints();
+                    score.shots = row.statistics.shots; score.hits = row.statistics.hits;
+                    score.kills = row.statistics.kills; score.deaths = row.statistics.deaths;
+                    score.assists = row.statistics.assists; score.wins = row.statistics.wins;
+                    score.penalties = row.statistics.penalties;
+                    score.survivalTicks = row.statistics.survivalTicks;
+                    score.damage = row.statistics.damage;
+                    score.assistedDamage = row.statistics.assistedDamage;
+                    state.score.players.push_back(std::move(score));
+                    state.score.ranking.push_back(row.playerId);
+                }
+                state.score.teamTotals.assign(config.teamCount, 0);
+                state.score.teamRanking.clear();
+                for (const auto &team: match.publishedResult()->teams) {
+                    const auto teamIndex = static_cast<std::uint8_t>(team.team);
+                    if (teamIndex == 0 || teamIndex > state.score.teamTotals.size()) return false;
+                    state.score.teamTotals[teamIndex - 1] = team.totalPoints;
+                    state.score.teamRanking.push_back(teamIndex);
+                }
                 for (auto &participant: state.participants) participant.ready = false;
                 state.currentRoundNumber = state.completedRounds;
                 state.entities.clear(); state.effects.clear();
+                if (discardedActiveRound) {
+                    events.clear();
+                    state.messages.events.clear();
+                    state.messages.currentPlayerIndicators.clear();
+                }
                 if (match.publishedResult()->rounds.empty()) state.round.reset();
                 else {
                     const auto &lastRound = match.publishedResult()->rounds.back();

@@ -998,6 +998,7 @@ namespace Duel6::Network::Replication {
             }
 
             std::set<Identity> priorRoster;
+            bool firstRound = true;
             for (const auto &round: result.rounds) {
                 std::set<Identity> currentRoster;
                 std::uint8_t priorPosition = 0;
@@ -1012,11 +1013,12 @@ namespace Duel6::Network::Replication {
                     first = false;
                     priorPosition = player->rosterOrder;
                 }
-                if (priorRoster.empty()) {
+                if (firstRound) {
                     for (const auto *player: roster)
-                        if (!player->departed && !currentRoster.count(player->playerId)) return false;
+                        if (!currentRoster.count(player->playerId)) return false;
                 }
                 priorRoster = std::move(currentRoster);
+                firstRound = false;
             }
             return true;
         }
