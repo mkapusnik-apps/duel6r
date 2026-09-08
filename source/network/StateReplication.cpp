@@ -987,6 +987,27 @@ namespace Duel6::Network::Replication {
                        || outcome.winnerPlayerIds.size() == 1);
         }
 
+        bool validResultRosterSemantics(const CanonicalResultLabels &result) {
+            if (result.mode == "Team deathmatch") {
+                for (const auto &player: result.rows)
+                    if (player.team != static_cast<std::uint8_t>(
+                            player.rosterOrder % result.teamCount + 1u)) return false;
+            }
+            for (const auto &round: result.rounds) {
+                std::uint8_t priorPosition = 0;
+                bool first = true;
+                for (Identity identity: round.rosterOrder) {
+                    const auto player = std::find_if(result.rows.begin(), result.rows.end(),
+                            [&](const auto &value) { return value.playerId == identity; });
+                    if (player == result.rows.end()
+                        || (!first && player->rosterOrder <= priorPosition)) return false;
+                    first = false;
+                    priorPosition = player->rosterOrder;
+                }
+            }
+            return true;
+        }
+
         bool resultRanksAhead(const CanonicalResultRowLabel &left, const CanonicalResultRowLabel &right) {
             if (left.cumulative.totalPoints != right.cumulative.totalPoints)
                 return left.cumulative.totalPoints > right.cumulative.totalPoints;
@@ -1019,6 +1040,7 @@ namespace Duel6::Network::Replication {
                         result->rows.begin(), result->rows.end(),
                         [](const auto &row) { return !row.departed; }));
                 if (result->optionalScriptsEnabled
+                    || !validResultRosterSemantics(*result)
                     || !validResultOutcomeForMode(result->finalOutcome, result->mode, result->rows)
                     || (result->state == "Interrupted" && !result->finalOutcome.noWinner)
                     || (result->state == "Interrupted" && activeResultPlayers >= 2)
