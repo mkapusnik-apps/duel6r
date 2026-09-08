@@ -988,22 +988,35 @@ namespace Duel6::Network::Replication {
         }
 
         bool validResultRosterSemantics(const CanonicalResultLabels &result) {
-            if (result.mode == "Team deathmatch") {
-                for (const auto &player: result.rows)
-                    if (player.team != static_cast<std::uint8_t>(
+            std::vector<const CanonicalResultRowLabel *> roster(result.rows.size(), nullptr);
+            for (const auto &player: result.rows) {
+                if (player.rosterOrder >= roster.size() || roster[player.rosterOrder]) return false;
+                roster[player.rosterOrder] = &player;
+                if (result.mode == "Team deathmatch"
+                    && player.team != static_cast<std::uint8_t>(
                             player.rosterOrder % result.teamCount + 1u)) return false;
             }
+
+            std::set<Identity> priorRoster;
             for (const auto &round: result.rounds) {
+                std::set<Identity> currentRoster;
                 std::uint8_t priorPosition = 0;
                 bool first = true;
                 for (Identity identity: round.rosterOrder) {
                     const auto player = std::find_if(result.rows.begin(), result.rows.end(),
                             [&](const auto &value) { return value.playerId == identity; });
                     if (player == result.rows.end()
-                        || (!first && player->rosterOrder <= priorPosition)) return false;
+                        || !currentRoster.insert(identity).second
+                        || (!first && player->rosterOrder <= priorPosition)
+                        || (!priorRoster.empty() && !priorRoster.count(identity))) return false;
                     first = false;
                     priorPosition = player->rosterOrder;
                 }
+                if (priorRoster.empty()) {
+                    for (const auto *player: roster)
+                        if (!player->departed && !currentRoster.count(player->playerId)) return false;
+                }
+                priorRoster = std::move(currentRoster);
             }
             return true;
         }
