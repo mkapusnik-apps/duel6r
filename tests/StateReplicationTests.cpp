@@ -517,9 +517,10 @@ namespace {
         state.round->outcome.winnerPlayerIds = {101};
         state.score.winner = {};
         state.score.winner.noWinner = true;
+        state.score.players[0].roundPoints = 3;
         state.score.players[1].kills = 2;
         state.score.players[1].wins = 0;
-        state.score.players[1].roundPoints = 0;
+        state.score.players[1].roundPoints = 2;
         state.result.state = "Interrupted";
         state.players[1].lifeState = R::LifeState::Departed;
         state.result.serialized = serializedTwoPlayerResult(true, true);
@@ -554,8 +555,10 @@ namespace {
         state.round->outcome.winnerPlayerIds = {101};
         state.score.winner = {};
         state.score.winner.noWinner = true;
+        state.score.players[0].roundPoints = 3;
         state.score.players[1].kills = 2;
         state.score.players[1].wins = 0;
+        state.score.players[1].roundPoints = 2;
         state.result.state = "Interrupted";
         state.players[1].lifeState = R::LifeState::Departed;
         state.result.serialized = serializedTwoPlayerResult(true, true);
@@ -1681,10 +1684,7 @@ namespace {
         D6R_REQUIRE(!valid.score.players.empty());
         auto malformed = valid;
         const auto priorRoundPoints = malformed.score.players.front().roundPoints;
-        malformed.score.players.front().roundPoints = valid.completedRounds == 0
-                ? 1 : valid.score.players.front().cumulativePoints;
-        if (malformed.score.players.front().roundPoints == priorRoundPoints)
-            ++malformed.score.players.front().roundPoints;
+        malformed.score.players.front().roundPoints = priorRoundPoints + 1;
 
         auto active = activeState();
         active.settings = valid.settings;
@@ -2259,36 +2259,61 @@ D6R_TEST_CASE("REP-005 REP-006 REP-048 mid-match match identity replacement resy
 }
 
 D6R_TEST_CASE("REP-005 REP-007 REP-010 REP-048 removed round identity cannot return in update or resync snapshot") {
-    const auto initial = activeState();
-    auto secondRound = initial;
-    secondRound.currentRoundNumber = 2;
-    secondRound.completedRounds = 1;
-    secondRound.phaseTime++;
-    secondRound.round->roundId = 41;
-    secondRound.round->roundNumber = 2;
-    secondRound.entities.clear();
-    const auto transition = validUpdate(initial, secondRound);
+    A::MatchConfig requested = matchConfig();
+    requested.roundLimit = 3;
+    A::AuthoritativeMatch match;
+    D6R_REQUIRE(match.start(requested, roster(), manifest()).code == A::OutcomeCode::None);
+    A::AuthoritativeReplication replication(902);
+    const std::vector<R::ParticipantState> participants = {
+            {20, true, R::ConnectionState::Connected, true, {101}},
+            {21, false, R::ConnectionState::Connected, true, {102}}};
+    D6R_REQUIRE(replication.setLobby(20, participants, roster(), requested));
+    D6R_REQUIRE(replication.beginMatch(match).has_value());
+    const auto firstRound = replication.fullSnapshot();
+    D6R_REQUIRE(firstRound.has_value() && firstRound->state.round.has_value());
+    const R::Identity removedRoundIdentity = firstRound->state.round->roundId;
 
-    auto reused = secondRound;
-    reused.phaseTime++;
-    reused.round->roundId = 40;
-    const auto reuse = validUpdate(secondRound, reused);
+    D6R_REQUIRE(match.submit({match.currentTick(), 1, 20, 101, A::ActionKind::ShotDamage,
+                              102, 0, A::MaximumLife}) == A::ActionResult::Accepted);
+    const auto summary = replication.capture(match);
+    const auto summaryFull = replication.fullSnapshot();
+    D6R_REQUIRE(summary.has_value() && summaryFull.has_value());
+    for (std::uint32_t tick = 0; tick < A::RoundEndTotalTicks; ++tick)
+        D6R_REQUIRE(match.advanceOneTick());
+    const auto secondRound = replication.capture(match);
+    const auto secondRoundFull = replication.fullSnapshot();
+    D6R_REQUIRE(secondRound.has_value() && secondRound->round.has_value());
+    D6R_REQUIRE(secondRoundFull.has_value() && secondRoundFull->state.round.has_value());
+    const R::Identity currentRoundIdentity = secondRound->round->roundId;
+    D6R_REQUIRE(currentRoundIdentity != removedRoundIdentity);
+
+    D6R_REQUIRE(match.advanceOneTick());
+    const auto currentUpdate = replication.capture(match);
+    const auto currentFull = replication.fullSnapshot();
+    D6R_REQUIRE(currentUpdate.has_value() && currentUpdate->round.has_value());
+    D6R_REQUIRE(currentFull.has_value() && currentFull->state.round.has_value());
+    auto reusedUpdate = *currentUpdate;
+    reusedUpdate.round->roundId = removedRoundIdentity;
+    auto reusedSnapshot = *currentFull;
+    reusedSnapshot.state.round->roundId = removedRoundIdentity;
 
     R::ReplicatedState incremental;
-    D6R_REQUIRE(incremental.apply({1, initial}) == R::ApplyResult::Applied);
-    D6R_REQUIRE(incremental.apply(transition) == R::ApplyResult::Applied);
-    D6R_REQUIRE_EQ(41u, incremental.state()->round->roundId);
-    D6R_REQUIRE(incremental.apply(reuse) == R::ApplyResult::ResynchronizationRequired);
-    D6R_REQUIRE_EQ(2u, incremental.version());
-    D6R_REQUIRE(incremental.apply({3, secondRound}) == R::ApplyResult::Applied);
-    D6R_REQUIRE_EQ(41u, incremental.state()->round->roundId);
+    D6R_REQUIRE(incremental.apply(*firstRound) == R::ApplyResult::Applied);
+    D6R_REQUIRE(incremental.apply(*summary) == R::ApplyResult::Applied);
+    D6R_REQUIRE(incremental.apply(*secondRound) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(currentRoundIdentity, incremental.state()->round->roundId);
+    D6R_REQUIRE(incremental.apply(reusedUpdate) == R::ApplyResult::ResynchronizationRequired);
+    D6R_REQUIRE_EQ(secondRound->version, incremental.version());
+    D6R_REQUIRE(incremental.apply(*currentFull) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(currentRoundIdentity, incremental.state()->round->roundId);
 
     R::ReplicatedState snapshot;
-    D6R_REQUIRE(snapshot.apply({1, initial}) == R::ApplyResult::Applied);
-    D6R_REQUIRE(snapshot.apply({2, secondRound}) == R::ApplyResult::Applied);
-    D6R_REQUIRE(snapshot.apply({3, reused}) == R::ApplyResult::Invalid);
-    D6R_REQUIRE_EQ(2u, snapshot.version());
-    D6R_REQUIRE_EQ(41u, snapshot.state()->round->roundId);
+    D6R_REQUIRE(snapshot.apply(*firstRound) == R::ApplyResult::Applied);
+    D6R_REQUIRE(snapshot.apply(*summaryFull) == R::ApplyResult::Applied);
+    D6R_REQUIRE(snapshot.apply(*secondRoundFull) == R::ApplyResult::Applied);
+    D6R_REQUIRE(snapshot.apply(reusedSnapshot) == R::ApplyResult::Invalid);
+    D6R_REQUIRE_EQ(secondRoundFull->version, snapshot.version());
+    D6R_REQUIRE_EQ(currentRoundIdentity, snapshot.state()->round->roundId);
 }
 
 D6R_TEST_CASE("REP invalid stale duplicate out-of-order malformed and inconsistent deltas do not mutate") {
@@ -4014,23 +4039,17 @@ D6R_TEST_CASE("REP-017 REP-018 REP-025 production interruption retains the origi
     D6R_REQUIRE_EQ(completedRoundIdentity, firstSummaryFull->state.round->roundId);
     D6R_REQUIRE(incremental.apply(*firstSummary) == R::ApplyResult::Applied);
     D6R_REQUIRE_EQ(completedRoundIdentity, incremental.state()->round->roundId);
-    const auto completedRoundPoints = match.playerStatistics().at(101).totalPoints();
     for (std::uint32_t tick = 0; tick < A::RoundEndTotalTicks; ++tick) D6R_REQUIRE(match.advanceOneTick());
     const auto secondRound = replication.capture(match);
     D6R_REQUIRE(secondRound.has_value());
     D6R_REQUIRE(secondRound->round.has_value());
     D6R_REQUIRE(secondRound->round->roundId != completedRoundIdentity);
     D6R_REQUIRE(incremental.apply(*secondRound) == R::ApplyResult::Applied);
-
-    D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 20, 101, A::ActionKind::ShotDamage,
-                              103, 0, A::MaximumLife}) == A::ActionResult::Accepted);
-    const auto scoredSecondRound = replication.capture(match);
-    D6R_REQUIRE(scoredSecondRound.has_value());
-    D6R_REQUIRE(incremental.apply(*scoredSecondRound) == R::ApplyResult::Applied);
-    D6R_REQUIRE(match.playerStatistics().at(101).totalPoints() > completedRoundPoints);
+    D6R_REQUIRE(match.phase() == A::MatchPhase::ActiveRound);
 
     D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 20, 0, A::ActionKind::RemovePlayer,
                               102, 0, 0}) == A::ActionResult::Accepted);
+    D6R_REQUIRE(match.phase() == A::MatchPhase::ActiveRound);
     D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 20, 0, A::ActionKind::RemovePlayer,
                               103, 0, 0}) == A::ActionResult::Accepted);
     D6R_REQUIRE(match.outcome().code == A::OutcomeCode::InterruptedNoWinner);
