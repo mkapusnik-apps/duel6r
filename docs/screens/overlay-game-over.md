@@ -44,8 +44,13 @@ Primary sources are `source/Game.cpp:51-79,158-164`, `source/Round.cpp:231-237`,
 - The backing width must grow from the measured complete counter text.
 - The backing must keep visible inner space on the left and right of the counter text.
 - Every rendered counter character must remain inside the backing and the client bounds.
-- The final round counter and the final score panel must have separate visible bounds.
-- At least 16 px of clear arena or curtain space must separate the counter backing from the score panel.
+- The layout must first use the available middle height between the top counter allocation and the bottom notice allocation.
+- A score panel that fits in the available middle height must keep at least 16 px of clear arena or curtain space from the counter backing.
+- A score panel that fits in the available middle height must not overlap the counter backing.
+- A score panel that is taller than the available middle height may overlap the counter backing.
+- An oversized score panel must use the minimum backing overlap needed after the layout uses the complete available middle height.
+- The overlap must not reach, cover, clip, or reduce the contrast of any counter character.
+- The overlap must not cover, clip, or reduce the contrast of any score heading, row, value, or separator.
 
 ## Content and containment
 
@@ -56,7 +61,7 @@ Primary sources are `source/Game.cpp:51-79,158-164`, `source/Round.cpp:231-237`,
 - A long player name must use the existing score-table width behavior.
 - Score rows and the `End of Game` text must remain on one line.
 - The overlay must not add wrapping, truncation, or scrolling.
-- The counter, score panel, and notice must remain inside the complete client area at the representative 1280 by 900 viewport.
+- The counter text, score content, and notice must remain inside the complete client area at the representative 1280 by 900 viewport.
 - The notice region must not cover the live ranking, outcome message, or final round progress when those elements remain visible.
 - The curtain must remain behind the score panel and the notice.
 
@@ -87,11 +92,14 @@ Primary sources are `source/Game.cpp:51-79,158-164`, `source/Round.cpp:231-237`,
 - The panel and curtain must adapt to current client dimensions.
 - The notice must remain horizontally centered and 16 px above the bottom edge at each supported desktop viewport.
 - The final round counter backing must remain horizontally centered in the top counter region at each supported desktop viewport.
-- The final round counter must remain fully contained and readable at each supported desktop viewport.
-- The score panel must preserve the clear-space requirement at each supported desktop viewport.
-- The layout must allocate separate top-counter, center-score, and bottom-notice regions before it permits overlap.
-- If the preferred positions do not fit, the layout must move the score panel within the available middle region before it permits overlap with the counter or notice.
-- The existing oversized-score-panel behavior remains unchanged after the layout uses the available non-overlapping middle height.
+- The final round counter text must remain fully contained and readable at each supported desktop viewport.
+- The score panel must apply the fitted-panel or oversized-panel rule at each supported desktop viewport.
+- The layout must allocate top-counter, middle-score, and bottom-notice regions before it permits overlap.
+- The layout must keep at least 16 px between the counter backing and a score panel that fits in the middle region.
+- If the score panel is taller than the middle region, the panel may extend into the counter backing by only the required excess height.
+- In the oversized state, the counter text must remain visually above any intersecting backing surface.
+- In the oversized state, score content must remain visually distinct from the counter text and backing.
+- The oversized state must not wrap, truncate, scale down, or remove counter text or score content to create separation.
 - No mobile layout exists, so one desktop wireframe is sufficient.
 
 ## Observable acceptance
@@ -106,7 +114,9 @@ Primary sources are `source/Game.cpp:51-79,158-164`, `source/Round.cpp:231-237`,
 - No score content may appear below, behind, or inside the notice.
 - The final round counter and `---SCORE---` must have the same visible character height.
 - The final round counter backing must contain the complete counter with visible inner space.
-- A visible gap of at least 16 px must separate the final round counter backing from the score panel.
+- A fitted score panel must keep a visible gap of at least 16 px from the final round counter backing.
+- An oversized score panel may overlap only the counter backing by the minimum required vertical depth.
+- An oversized score panel must leave every counter character and every item of score content complete, unobscured, and readable.
 - A Deathmatch final summary must keep its separator-free score table.
 - Only a Team final summary may use the Team-group separator treatment.
 

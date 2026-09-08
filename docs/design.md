@@ -158,8 +158,13 @@ The following values come from renderer and GUI source.
 - The final round counter must use white text on its existing opaque black backing.
 - The final round counter backing must grow from the measured counter width and must keep visible inner space on each side of the text.
 - The final round counter backing must contain every counter character inside its visible bounds.
-- The final round counter and the final score panel must have separate visible bounds with at least 16 px of clear space between them.
-- The final round counter, score panel, and bottom notice must remain inside the client area.
+- The layout must first use the available middle height to keep at least 16 px of clear space between the final round counter backing and the final score panel.
+- A score panel that fits in the available middle height must not overlap the final round counter backing.
+- A score panel that is taller than the available middle height may overlap only the final round counter backing.
+- An oversized score panel must use the minimum backing overlap needed after the layout uses the complete available middle height.
+- An oversized score panel must not obscure, clip, or reduce the contrast of the final round counter text or final score content.
+- The final round counter text and every score heading, row, value, and separator must remain readable when backing surfaces overlap.
+- The final round counter text, score content, and bottom notice must remain inside the client area.
 - New documentation must not specify rounded corners, shadows, or gradients that the implementation does not provide. Blur is reserved for the approved full-client menu background.
 
 ## Imagery and assets
@@ -346,7 +351,9 @@ The following values come from renderer and GUI source.
 - A final limited Team score overview must use the same separator treatment in `OVER-03`.
 - A final limited Deathmatch or Team score overview must show the literal `End of Game` in the defined bottom notice region.
 - A final limited Deathmatch or Team score overview must show its final round counter at the same character height as `---SCORE---`.
-- The final round counter backing must contain the complete counter and must remain separate from the score panel.
+- The final round counter backing must contain the complete counter.
+- The layout must separate the counter backing and score panel when the score panel fits in the available middle height.
+- An oversized score panel may overlap the counter backing without obscuring counter text or score content.
 - Team identity must also change headband, trousers, and hair-top colors.
 - Predator identity must use a body alpha of 0.1 while the weapon remains visible.
 - Live ranking must remain available for every supported player count.

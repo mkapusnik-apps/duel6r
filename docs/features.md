@@ -399,7 +399,7 @@ The **shared arena view** is one gameplay view that shows the whole level to all
 - **UI-GAME-004** The `End of Game` notification must not obscure or replace final score content.
 - **UI-GAME-005** In a final limited Deathmatch or Team game summary, the final round counter must use the same character height as the `SCORE` heading.
 - **UI-GAME-006** The final round counter backing must contain the complete counter text.
-- **UI-GAME-007** The final round counter and the final score panel must remain visually separate and readable.
+- **UI-GAME-007** The layout must use the available middle height to separate the final round counter and the final score panel. If the final score panel is taller than that height, it may overlap the counter backing. The overlap must not obscure the counter text or final score content.
 
 ### Split-screen removal scope
 
@@ -597,7 +597,7 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-069** The refinement keeps person-list content, person actions, roster-order actions, and controller-detection behavior unchanged.
 - **AC-070** After the last round of a limited Team match, each team boundary has the same spacing as the non-final round summary.
 - **AC-071** A final limited Deathmatch or Team game summary shows `End of Game` at the window bottom. The notification is legible and separate from the score table. It does not obscure score content.
-- **AC-072** In a final limited Deathmatch or Team game summary, the final round counter and `SCORE` heading use the same character height. The counter backing contains all counter text. The counter and score panel remain separate and readable.
+- **AC-072** In a final limited Deathmatch or Team game summary, the final round counter and `SCORE` heading use the same character height. The counter backing contains all counter text. The layout separates the counter and score panel when the panel fits in the available middle height. An oversized panel may overlap the counter backing without obscuring the counter text or final score content.
 
 ## Source traceability
 
