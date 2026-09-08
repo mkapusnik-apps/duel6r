@@ -250,11 +250,13 @@ namespace Duel6::Server::Authoritative {
                 const auto cumulative = cumulativeStatistics.find(source.playerId);
                 if (cumulative == cumulativeStatistics.end()) return false;
                 score.cumulativePoints = cumulative->second.totalPoints();
-                score.shots = source.statistics.shots; score.hits = source.statistics.hits;
-                score.kills = source.statistics.kills; score.deaths = source.statistics.deaths;
-                score.assists = source.statistics.assists; score.wins = source.statistics.wins;
-                score.penalties = source.statistics.penalties; score.survivalTicks = source.statistics.survivalTicks;
-                score.damage = source.statistics.damage; score.assistedDamage = source.statistics.assistedDamage;
+                score.shots = cumulative->second.shots; score.hits = cumulative->second.hits;
+                score.kills = cumulative->second.kills; score.deaths = cumulative->second.deaths;
+                score.assists = cumulative->second.assists; score.wins = cumulative->second.wins;
+                score.penalties = cumulative->second.penalties;
+                score.survivalTicks = cumulative->second.survivalTicks;
+                score.damage = cumulative->second.damage;
+                score.assistedDamage = cumulative->second.assistedDamage;
                 state.score.players.push_back(score);
             }
             std::sort(state.score.players.begin(), state.score.players.end(), [&](const auto &left, const auto &right) {
