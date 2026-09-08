@@ -993,6 +993,8 @@ namespace {
         std::function<void(R::CanonicalState &)> alter;
         bool team = false;
         bool requiresImmutableOuterSettings = false;
+        bool completedOnly = false;
+        bool interruptedOnly = false;
     };
 
     std::vector<AvailableResultAttack> incompleteAvailableResultAttacks() {
@@ -1166,12 +1168,55 @@ namespace {
                 }, true},
                 {"zero-seed", [](auto &state) {
                     D6R_REQUIRE(replaceOnce(state.result.serialized, "\"seed\":1234", "\"seed\":0"));
+                }},
+                {"completed-before-configured-final-round", [](auto &state) {
+                    state.settings.roundLimit = 3;
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"roundLimit\":2", "\"roundLimit\":3"));
+                }, false, false, true},
+                {"interrupted-with-two-active-result-players", [](auto &state) {
+                    state.players[1].lifeState = R::LifeState::Alive;
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"departed\":true,\"rosterOrder\":1",
+                            "\"departed\":false,\"rosterOrder\":1"));
+                }, false, false, false, true},
+                {"deathmatch-final-multiple-winners", [](auto &state) {
+                    state.score.winner.winnerPlayerIds = {101, 102};
+                    state.round->outcome.winnerPlayerIds = {101, 102};
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"winnerPlayerIds\":[102]", "\"winnerPlayerIds\":[101,102]", 0));
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"finalWinnerPlayerIds\":[102]", "\"finalWinnerPlayerIds\":[101,102]"));
+                }, false, false, true},
+                {"round-winner-absent-from-round-roster", [](auto &state) {
+                    const std::size_t roundOccurrence = state.result.state == "Completed" ? 1 : 0;
+                    state.round->rosterOrder = {101};
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"rosterOrder\":[101,102]", "\"rosterOrder\":[101]", roundOccurrence));
+                }},
+                {"nonfinal-round-winner-absent-from-round-roster", [](auto &state) {
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"rosterOrder\":[101,102]", "\"rosterOrder\":[102]", 0));
+                }, false, false, true},
+                {"rounds-played-without-round-participation", [](auto &state) {
+                    const std::string played = state.result.state == "Completed" ? "2" : "1";
+                    const std::string reduced = state.result.state == "Completed" ? "1" : "0";
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"roundsPlayed\":" + played,
+                            "\"roundsPlayed\":" + reduced, 0));
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"roundsPlayed\":1", "\"roundsPlayed\":0", 0));
+                }},
+                {"optional-scripts-enabled", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"optionalScriptsEnabled\":false",
+                            "\"optionalScriptsEnabled\":true"));
                 }}
         };
     }
 
     R::CanonicalState completeAvailableResult(bool interrupted) {
-        return firstResultWithDepartureLabels(interrupted, false, false);
+        return firstResultWithDepartureLabels(interrupted, interrupted, interrupted);
     }
 
     R::CanonicalState completeAvailableTeamResult(bool interrupted) {
@@ -1185,7 +1230,7 @@ namespace {
         state.score.teamRanking = {1, 2};
         if (state.round) state.round->outcome.winningTeam = interrupted ? 1 : 2;
         if (!interrupted) state.score.winner.winningTeam = 2;
-        state.result.serialized = serializedTwoPlayerResult(interrupted, false, 0, true);
+        state.result.serialized = serializedTwoPlayerResult(interrupted, interrupted, 0, true);
         return state;
     }
 
@@ -1193,6 +1238,12 @@ namespace {
         state.phase = R::Phase::Lobby;
         state.participants[0].ready = false;
         state.participants[1].ready = false;
+        if (state.players[1].lifeState != R::LifeState::Departed) {
+            state.players[1].lifeState = R::LifeState::Departed;
+            D6R_REQUIRE(replaceOnce(state.result.serialized,
+                    "\"departed\":false,\"rosterOrder\":1",
+                    "\"departed\":true,\"rosterOrder\":1"));
+        }
         state.participants.pop_back();
         state.players.pop_back();
         state.messages.status = "Lobby";
@@ -1205,6 +1256,7 @@ namespace {
         for (const bool interrupted: {false, true}) {
             for (const auto &attack: incompleteAvailableResultAttacks()) {
                 if (interrupted && attack.requiresImmutableOuterSettings) continue;
+                if ((!interrupted && attack.interruptedOnly) || (interrupted && attack.completedOnly)) continue;
                 const auto valid = attack.team ? completeAvailableTeamResult(interrupted)
                                                : completeAvailableResult(interrupted);
                 auto malformed = valid;
@@ -1217,10 +1269,7 @@ namespace {
                     const bool validPreserved = publisher.initialize(valid)
                             && publisher.version() == 1 && publisher.fullSnapshot()
                             && publisher.fullSnapshot()->state.result.serialized == valid.result.serialized;
-                    const auto removed = retainedResultWithoutGuest(valid);
-                    const bool identityHistoryPreserved = validPreserved && publisher.publish(removed)
-                            && !publisher.publish(valid) && publisher.version() == 2;
-                    correct = rejected && validPreserved && identityHistoryPreserved;
+                    correct = rejected && validPreserved;
                 } else {
                     const auto active = activeState();
                     R::AuthoritativeStateReplicator publisher;
@@ -1235,10 +1284,7 @@ namespace {
                         const bool validPreserved = accepted && publisher.version() == 2
                                 && accepted->events.size() == 1 && accepted->events.front().eventId == event.eventId
                                 && publisher.fullSnapshot()->state.result.serialized == valid.result.serialized;
-                        const auto removed = retainedResultWithoutGuest(valid);
-                        const bool identityHistoryPreserved = validPreserved && publisher.publish(removed)
-                                && !publisher.publish(valid) && publisher.version() == 3;
-                        correct = rejected && validPreserved && identityHistoryPreserved;
+                        correct = rejected && validPreserved;
                     }
                 }
                 if (!correct) {
@@ -1255,6 +1301,7 @@ namespace {
         for (const bool interrupted: {false, true}) {
             for (const auto &attack: incompleteAvailableResultAttacks()) {
                 if (interrupted && attack.requiresImmutableOuterSettings) continue;
+                if ((!interrupted && attack.interruptedOnly) || (interrupted && attack.completedOnly)) continue;
                 const auto valid = attack.team ? completeAvailableTeamResult(interrupted)
                                                : completeAvailableResult(interrupted);
                 auto malformed = valid;
@@ -1269,13 +1316,7 @@ namespace {
                     const bool validPreserved = client.apply({1, valid}) == R::ApplyResult::Applied
                             && client.version() == 1 && client.current() && client.state()
                             && client.state()->result.serialized == valid.result.serialized;
-                    const auto removed = retainedResultWithoutGuest(valid);
-                    const bool identityHistoryPreserved = validPreserved
-                            && client.apply({2, removed}) == R::ApplyResult::Applied
-                            && client.apply({3, valid}) == R::ApplyResult::Invalid
-                            && client.version() == 2 && client.retainedState()
-                            && client.retainedState()->players.size() == 1;
-                    correct = atomic && validPreserved && identityHistoryPreserved;
+                    correct = atomic && validPreserved;
                 } else {
                     const auto active = activeState();
                     auto confirmed = active;
@@ -1307,13 +1348,7 @@ namespace {
                         const auto events = client.takePresentationEvents();
                         const bool pendingPreserved = events.size() == 1 && events.front().eventId == pending.eventId;
 
-                        const auto removed = retainedResultWithoutGuest(valid);
-                        const bool removedApplied = client.apply({4, removed}) == R::ApplyResult::Applied;
-                        const bool identityHistoryPreserved = removedApplied
-                                && client.apply({5, valid}) == R::ApplyResult::Invalid
-                                && client.version() == 4 && client.retainedState()
-                                && client.retainedState()->players.size() == 1;
-                        correct = atomic && recovered && pendingPreserved && identityHistoryPreserved;
+                        correct = atomic && recovered && pendingPreserved;
                     }
                 }
                 if (!correct) {
@@ -1366,6 +1401,208 @@ namespace {
                 || incremental.version() != 2 || !incremental.current()
                 || incremental.takePresentationEvents().size() != 1)
                 addFailure("client-incremental");
+        }
+        return failures;
+    }
+
+    struct CoordinatedSettingScenario {
+        const char *name;
+        R::CanonicalState active;
+        R::CanonicalState terminal;
+    };
+
+    R::CanonicalState activeTeamState(std::uint8_t teamCount, bool friendlyFire) {
+        auto state = activeState();
+        state.settings.mode = "Team deathmatch";
+        state.settings.teamCount = teamCount;
+        state.settings.friendlyFire = friendlyFire;
+        state.players[0].team = 1;
+        state.players[1].team = 2;
+        state.score.teamTotals.assign(teamCount, 0);
+        state.score.teamRanking.clear();
+        for (std::uint8_t team = 1; team <= teamCount; ++team)
+            state.score.teamRanking.push_back(team);
+        return state;
+    }
+
+    std::vector<CoordinatedSettingScenario> coordinatedSettingScenarios(bool interrupted) {
+        std::vector<CoordinatedSettingScenario> result;
+        const auto addChangedTerminal = [&](const char *name,
+                                            const std::function<void(R::CanonicalState &)> &alter) {
+            auto terminal = completeAvailableResult(interrupted);
+            alter(terminal);
+            result.push_back({name, activeState(), std::move(terminal)});
+        };
+
+        addChangedTerminal("mode", [](auto &state) {
+            state.settings.mode = "Predator";
+            D6R_REQUIRE(replaceOnce(state.result.serialized,
+                    "\"mode\":\"Deathmatch\"", "\"mode\":\"Predator\""));
+        });
+        addChangedTerminal("level-plan", [](auto &state) {
+            state.settings.levelPlan = "Random level";
+            D6R_REQUIRE(replaceOnce(state.result.serialized,
+                    "\"levelPlan\":\"Fixed level\"", "\"levelPlan\":\"Random level\""));
+        });
+        addChangedTerminal("assistance", [](auto &state) {
+            state.settings.assistance = true;
+            D6R_REQUIRE(replaceOnce(state.result.serialized,
+                    "\"assistance\":false", "\"assistance\":true"));
+        });
+        addChangedTerminal("quick-liquid", [](auto &state) {
+            state.settings.quickLiquid = true;
+            D6R_REQUIRE(replaceOnce(state.result.serialized,
+                    "\"quickLiquid\":false", "\"quickLiquid\":true"));
+        });
+        addChangedTerminal("burnable-trees", [](auto &state) {
+            state.settings.burnableTrees = false;
+            D6R_REQUIRE(replaceOnce(state.result.serialized,
+                    "\"burnableTrees\":true", "\"burnableTrees\":false"));
+        });
+
+        auto roundLimitActive = activeState();
+        roundLimitActive.settings.roundLimit = 3;
+        result.push_back({"round-limit", std::move(roundLimitActive),
+                          completeAvailableResult(interrupted)});
+
+        auto teamCountActive = activeTeamState(3, true);
+        result.push_back({"team-count", std::move(teamCountActive),
+                          completeAvailableTeamResult(interrupted)});
+
+        auto friendlyFireTerminal = completeAvailableTeamResult(interrupted);
+        result.push_back({"friendly-fire", activeTeamState(2, false),
+                          std::move(friendlyFireTerminal)});
+        return result;
+    }
+
+    std::string coordinatedSettingFreezeEvidence(bool interrupted) {
+        std::string failures;
+        for (const auto &scenario: coordinatedSettingScenarios(interrupted)) {
+            D6R_REQUIRE(R::validateCanonicalState(scenario.active));
+            D6R_REQUIRE(R::validateCanonicalState(scenario.terminal));
+            const auto addFailure = [&](const char *path) {
+                if (!failures.empty()) failures += ';';
+                failures += std::string(scenario.name) + '/' + path;
+            };
+
+            R::AuthoritativeStateReplicator initialized;
+            if (!initialized.initialize(scenario.terminal) || initialized.version() != 1)
+                addFailure("authoritative-initialize-self-consistency");
+
+            R::AuthoritativeStateReplicator publisher;
+            if (!publisher.initialize(scenario.active)) {
+                addFailure("authoritative-publish-baseline");
+            } else {
+                const auto before = publisher.fullSnapshot();
+                const bool rejected = !publisher.publish(scenario.terminal)
+                        && publisher.version() == 1 && before && publisher.fullSnapshot()
+                        && R::serializeReplicationSnapshot(*before)
+                           == R::serializeReplicationSnapshot(*publisher.fullSnapshot());
+                if (!rejected) addFailure("authoritative-publish");
+            }
+
+            R::ReplicatedState initial;
+            if (initial.apply({1, scenario.terminal}) != R::ApplyResult::Applied
+                || initial.version() != 1 || !initial.current())
+                addFailure("client-initial-self-consistency");
+
+            R::ReplicatedState resynchronized;
+            if (resynchronized.apply({1, scenario.active}) != R::ApplyResult::Applied) {
+                addFailure("client-resync-baseline");
+            } else {
+                resynchronized.requireResynchronization();
+                if (resynchronized.apply({2, scenario.terminal}) != R::ApplyResult::Invalid
+                    || resynchronized.version() != 1 || resynchronized.current()
+                    || !resynchronized.retainedState())
+                    addFailure("client-resync");
+            }
+
+            auto compatibleActive = scenario.terminal.settings.mode == "Team deathmatch"
+                    ? activeTeamState(scenario.terminal.settings.teamCount,
+                                      scenario.terminal.settings.friendlyFire)
+                    : activeState();
+            compatibleActive.settings = scenario.terminal.settings;
+            auto attack = validUpdate(compatibleActive, scenario.terminal);
+            attack.baseline = 1;
+            attack.version = 2;
+            R::ReplicatedState incremental;
+            if (incremental.apply({1, scenario.active}) != R::ApplyResult::Applied) {
+                addFailure("client-incremental-baseline");
+            } else if (incremental.apply(attack) != R::ApplyResult::ResynchronizationRequired
+                       || incremental.version() != 1 || incremental.current()
+                       || !incremental.retainedState()) {
+                addFailure("client-incremental");
+            }
+        }
+        return failures;
+    }
+
+    R::CanonicalState followingLobbyNewcomer(R::CanonicalState state) {
+        R::ParticipantState participant{22, false, R::ConnectionState::Connected, false, {103}};
+        R::PlayerState newcomer;
+        newcomer.playerId = 103;
+        newcomer.ownerParticipantId = 22;
+        newcomer.rosterPosition = 1;
+        newcomer.displayName = "Following-lobby newcomer";
+        newcomer.life = 100;
+        state.participants.push_back(participant);
+        state.players.push_back(newcomer);
+        return state;
+    }
+
+    std::string historicalResultRowEvidence(bool interrupted) {
+        const auto terminal = completeAvailableResult(interrupted);
+        const auto removed = retainedResultWithoutGuest(terminal);
+        const auto newcomer = followingLobbyNewcomer(removed);
+        D6R_REQUIRE(removed.result.serialized.find("\"playerId\":102") != std::string::npos);
+        D6R_REQUIRE(removed.result.serialized.find(
+                "\"playerId\":102,\"participantId\":21,\"displayName\":\"Guest\","
+                "\"team\":\"\",\"departed\":true") != std::string::npos);
+        D6R_REQUIRE(newcomer.result.serialized.find("\"playerId\":103") == std::string::npos);
+
+        std::string failures;
+        const auto addFailure = [&](const char *path) {
+            if (!failures.empty()) failures += ';';
+            failures += path;
+        };
+
+        R::AuthoritativeStateReplicator initialized;
+        if (!initialized.initialize(removed)) addFailure("authoritative-initialize");
+
+        R::AuthoritativeStateReplicator publisher;
+        if (!publisher.initialize(terminal) || !publisher.publish(removed)
+            || !publisher.publish(newcomer))
+            addFailure("authoritative-publish");
+
+        R::ReplicatedState initial;
+        if (initial.apply({1, removed}) != R::ApplyResult::Applied
+            || initial.apply({2, newcomer}) != R::ApplyResult::Applied)
+            addFailure("client-initial");
+
+        R::ReplicatedState resynchronized;
+        if (resynchronized.apply({1, terminal}) != R::ApplyResult::Applied) {
+            addFailure("client-resync-baseline");
+        } else {
+            resynchronized.requireResynchronization();
+            if (resynchronized.apply({2, removed}) != R::ApplyResult::Applied)
+                addFailure("client-resync");
+        }
+
+        auto removal = stateOnlyUpdate(1, 2, removed);
+        removal.participants = {{R::ChangeKind::Remove, 21, std::nullopt}};
+        removal.players = {{R::ChangeKind::Remove, 102, std::nullopt}};
+        R::ReplicatedState incremental;
+        if (incremental.apply({1, terminal}) != R::ApplyResult::Applied
+            || incremental.apply(removal) != R::ApplyResult::Applied) {
+            addFailure("client-incremental-removal");
+        } else {
+            const auto creation = lobbyCreationUpdate(2, 3, newcomer,
+                    newcomer.participants.back(), newcomer.players.back());
+            if (incremental.apply(creation) != R::ApplyResult::Applied
+                || !incremental.state()
+                || incremental.state()->result.serialized.find("\"playerId\":103")
+                   != std::string::npos)
+                addFailure("client-incremental-newcomer");
         }
         return failures;
     }
@@ -2346,6 +2583,30 @@ D6R_TEST_CASE("REP-017 REP-048..051 REP-066 malformed available retained results
 
 D6R_TEST_CASE("REP-017 REP-041 REP-049 complete canonical results remain accepted on every ingestion path") {
     D6R_REQUIRE_EQ(std::string(), validCompleteAvailableResultAcceptance());
+}
+
+D6R_TEST_CASE("AHM-AC-006 REP-014 REP-017 active match settings cannot change with a coordinated terminal result") {
+    std::string failures;
+    for (const bool interrupted: {false, true}) {
+        const auto evidence = coordinatedSettingFreezeEvidence(interrupted);
+        if (!evidence.empty()) {
+            if (!failures.empty()) failures += ';';
+            failures += std::string(interrupted ? "Interrupted{" : "Completed{") + evidence + '}';
+        }
+    }
+    D6R_REQUIRE_EQ(std::string(), failures);
+}
+
+D6R_TEST_CASE("AHM-AC-024 REP-013 REP-017 historical result rows depart before leaving the current lobby roster") {
+    std::string failures;
+    for (const bool interrupted: {false, true}) {
+        const auto evidence = historicalResultRowEvidence(interrupted);
+        if (!evidence.empty()) {
+            if (!failures.empty()) failures += ';';
+            failures += std::string(interrupted ? "Interrupted{" : "Completed{") + evidence + '}';
+        }
+    }
+    D6R_REQUIRE_EQ(std::string(), failures);
 }
 
 D6R_TEST_CASE("REP-017 AHM-AC-016 changed nonzero result seed remains valid on every ingestion path") {
