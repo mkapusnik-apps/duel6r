@@ -52,6 +52,28 @@ MatchConfig config() {
     return value;
 }
 
+#ifdef _WIN32
+class ScopedDirectoryCleanup {
+public:
+    explicit ScopedDirectoryCleanup(const std::filesystem::path &directory) noexcept : directory(directory) {}
+    ~ScopedDirectoryCleanup() {
+        if (owned) {
+            std::error_code ignored;
+            std::filesystem::remove_all(directory, ignored);
+        }
+    }
+
+    ScopedDirectoryCleanup(const ScopedDirectoryCleanup &) = delete;
+    ScopedDirectoryCleanup &operator=(const ScopedDirectoryCleanup &) = delete;
+
+    void release() noexcept { owned = false; }
+
+private:
+    const std::filesystem::path &directory;
+    bool owned = true;
+};
+#endif
+
 class ProductionCanonicalResourceRoot {
 public:
     ProductionCanonicalResourceRoot() {
@@ -63,23 +85,19 @@ public:
                     + std::to_string(stamp) + "-" + std::to_string(attempt));
             std::error_code error;
             if (std::filesystem::create_directory(candidate, error)) {
+                ScopedDirectoryCleanup pending(candidate);
                 root = std::filesystem::absolute(candidate);
-                break;
+                const auto source = std::filesystem::current_path();
+                const auto options = std::filesystem::copy_options::recursive
+                        | std::filesystem::copy_options::overwrite_existing;
+                std::filesystem::copy(source / "data", root / "data", options);
+                std::filesystem::copy(source / "levels", root / "levels", options);
+                pending.release();
+                return;
             }
             if (error) throw std::filesystem::filesystem_error("Cannot create canonical resource fixture", candidate, error);
         }
-        if (root.empty()) throw std::runtime_error("Cannot create unique canonical resource fixture");
-
-        try {
-            const auto source = std::filesystem::current_path();
-            const auto options = std::filesystem::copy_options::recursive
-                    | std::filesystem::copy_options::overwrite_existing;
-            std::filesystem::copy(source / "data", root / "data", options);
-            std::filesystem::copy(source / "levels", root / "levels", options);
-        } catch (...) {
-            cleanup();
-            throw;
-        }
+        throw std::runtime_error("Cannot create unique canonical resource fixture");
 #endif
     }
 
