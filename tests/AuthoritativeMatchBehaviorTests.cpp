@@ -1,8 +1,12 @@
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <cstdint>
+#include <filesystem>
 #include <limits>
+#include <stdexcept>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "source/server/AuthoritativeMatch.h"
@@ -48,7 +52,66 @@ MatchConfig config() {
     return value;
 }
 
+class ProductionCanonicalResourceRoot {
+public:
+    ProductionCanonicalResourceRoot() {
+#ifdef _WIN32
+        const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        const auto temporary = std::filesystem::temp_directory_path();
+        for (unsigned attempt = 0; attempt < 100; ++attempt) {
+            const auto candidate = temporary / ("duel6r-authoritative-match-"
+                    + std::to_string(stamp) + "-" + std::to_string(attempt));
+            std::error_code error;
+            if (std::filesystem::create_directory(candidate, error)) {
+                root = std::filesystem::absolute(candidate);
+                break;
+            }
+            if (error) throw std::filesystem::filesystem_error("Cannot create canonical resource fixture", candidate, error);
+        }
+        if (root.empty()) throw std::runtime_error("Cannot create unique canonical resource fixture");
+
+        try {
+            const auto source = std::filesystem::current_path();
+            const auto options = std::filesystem::copy_options::recursive
+                    | std::filesystem::copy_options::overwrite_existing;
+            std::filesystem::copy(source / "data", root / "data", options);
+            std::filesystem::copy(source / "levels", root / "levels", options);
+        } catch (...) {
+            cleanup();
+            throw;
+        }
+#endif
+    }
+
+    ~ProductionCanonicalResourceRoot() { cleanup(); }
+
+    ProductionCanonicalResourceRoot(const ProductionCanonicalResourceRoot &) = delete;
+    ProductionCanonicalResourceRoot &operator=(const ProductionCanonicalResourceRoot &) = delete;
+
+    std::string path() const {
+#ifdef _WIN32
+        return root.string();
+#else
+        return ".";
+#endif
+    }
+
+private:
+    void cleanup() noexcept {
+#ifdef _WIN32
+        if (!root.empty()) {
+            std::error_code ignored;
+            std::filesystem::remove_all(root, ignored);
+            root.clear();
+        }
+#endif
+    }
+
+    std::filesystem::path root;
+};
+
 struct ProductionCanonicalFixture {
+    ProductionCanonicalResourceRoot resources;
     MatchConfig requested;
     std::vector<PlayerDefinition> players = roster(2);
     Duel6::Network::ManifestBuildResult content;
@@ -59,9 +122,9 @@ struct ProductionCanonicalFixture {
     std::uint8_t observedRound = 0;
 
     explicit ProductionCanonicalFixture(std::uint8_t rounds, std::size_t playerCount = 2)
-            : requested(canonicalConfig(rounds)),
+            : requested(canonicalConfig(rounds, resources.path())),
               players(roster(playerCount)),
-              content(Duel6::Network::CompatibilityManifestBuilder(".", {}).build()),
+              content(Duel6::Network::CompatibilityManifestBuilder(resources.path(), {}).build()),
               controller(1, CanonicalMatchRuntime::createDependencies(requested, players, content)),
               previousInputs(players.size(), std::numeric_limits<std::uint32_t>::max()) {
         D6R_REQUIRE(content.valid());
@@ -80,8 +143,8 @@ struct ProductionCanonicalFixture {
         D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, content.manifest).code);
     }
 
-    static MatchConfig canonicalConfig(std::uint8_t rounds) {
-        const auto built = Duel6::Network::CompatibilityManifestBuilder(".", {}).build();
+    static MatchConfig canonicalConfig(std::uint8_t rounds, const std::string &resourceRoot) {
+        const auto built = Duel6::Network::CompatibilityManifestBuilder(resourceRoot, {}).build();
         D6R_REQUIRE(built.valid() && built.content);
         const auto source = built.content->find("data/config.script");
         D6R_REQUIRE(source != built.content->end());
