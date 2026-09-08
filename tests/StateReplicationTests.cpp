@@ -30,7 +30,7 @@ namespace {
                 {20, true, R::ConnectionState::Connected, true, {101}},
                 {21, false, R::ConnectionState::Connected, false, {102}}};
         state.settings.mode = "Deathmatch";
-        state.settings.levelPlan = "Fixed";
+        state.settings.levelPlan = "Fixed level";
         state.settings.levels = {"levels/a.json"};
         state.settings.roundLimit = 2;
         R::PlayerState first;
@@ -192,6 +192,7 @@ namespace {
             row.departed = departed;
             row.team = teams ? (playerId == 101 ? A::Team::Alpha : A::Team::Bravo) : A::Team::None;
             row.rounds.resize(result.completedRounds);
+            for (auto &round: row.rounds) round.roundsPlayed = 1;
             if (playerId != 101 && playerId != 102) {
                 row.rounds[0].kills = points;
             } else if (playerId == 101) {
@@ -204,6 +205,7 @@ namespace {
                 row.rounds[1].wins = 1;
             }
             for (const auto &round: row.rounds) {
+                row.statistics.roundsPlayed += round.roundsPlayed;
                 row.statistics.kills += round.kills;
                 row.statistics.wins += round.wins;
             }
@@ -392,21 +394,30 @@ namespace {
 
     A::SessionResult maximumCompletedResult(bool departed) {
         A::SessionResult result;
-        result.label = "Maximum canonical result";
+        result.label = "Session only";
         result.config.mode = A::Mode::TeamDeathmatch;
         result.config.teamCount = 4;
+        result.config.levelPlan = A::LevelPlan::Fixed;
+        result.config.fixedLevel = "levels/maximum.json";
+        result.config.playableLevels = {"levels/maximum.json"};
+        result.config.enabledWeapons = {"pistol"};
         result.config.roundLimit = 99;
+        result.config.hostParticipantId = 20;
+        result.config.seed = 1234;
         result.completedRounds = 99;
         std::vector<A::Identity> identities;
         for (std::size_t index = 0; index < A::MaxPlayers; ++index)
             identities.push_back(101 + index);
-        result.finalWinnerPlayerIds = identities;
+        std::vector<A::Identity> alphaPlayers;
+        for (std::size_t index = 0; index < identities.size(); index += 4)
+            alphaPlayers.push_back(identities[index]);
+        result.finalWinnerPlayerIds = alphaPlayers;
         result.finalWinningTeam = A::Team::Alpha;
         for (std::uint8_t roundNumber = 1; roundNumber <= 99; ++roundNumber) {
             A::RoundResult round;
             round.roundNumber = roundNumber;
             round.level = "levels/maximum.json";
-            round.winnerPlayerIds = identities;
+            round.winnerPlayerIds = alphaPlayers;
             round.winningTeam = A::Team::Alpha;
             round.rosterOrder = identities;
             result.rounds.push_back(std::move(round));
@@ -420,10 +431,16 @@ namespace {
             player.departed = departed && index + 1 == A::MaxPlayers;
             player.rosterOrder = static_cast<std::uint8_t>(index);
             player.rounds.resize(99);
+            for (auto &round: player.rounds) round.roundsPlayed = 1;
+            player.statistics.roundsPlayed = 99;
             result.players.push_back(std::move(player));
         }
-        for (std::uint8_t team = 1; team <= 4; ++team)
-            result.teams.push_back({static_cast<A::Team>(team), team, identities});
+        for (std::uint8_t team = 1; team <= 4; ++team) {
+            std::vector<A::Identity> teamPlayers;
+            for (std::size_t index = team - 1; index < identities.size(); index += 4)
+                teamPlayers.push_back(identities[index]);
+            result.teams.push_back({static_cast<A::Team>(team), 0, std::move(teamPlayers)});
+        }
         return result;
     }
 
@@ -435,12 +452,12 @@ namespace {
         state.phase = R::Phase::FinalSummary;
         state.currentRoundNumber = 99;
         state.completedRounds = 99;
-        state.settings.mode = "TeamDeathmatch";
+        state.settings.mode = "Team deathmatch";
         state.settings.teamCount = 4;
-        state.settings.levelPlan = "Fixed";
+        state.settings.levelPlan = "Fixed level";
         state.settings.levels = {"levels/maximum.json"};
         state.settings.roundLimit = 99;
-        state.score.teamTotals = {4, 3, 3, 3};
+        state.score.teamTotals = {0, 0, 0, 0};
         state.score.teamRanking = {1, 2, 3, 4};
         for (std::size_t index = 0; index < A::MaxPlayers; ++index) {
             const R::Identity playerId = 101 + index;
@@ -460,7 +477,7 @@ namespace {
             state.score.players.push_back({playerId});
             state.score.ranking.push_back(playerId);
         }
-        state.score.winner.winnerPlayerIds = {101};
+        state.score.winner.winnerPlayerIds = {101, 105, 109, 113};
         state.score.winner.winningTeam = 1;
         state.round = R::RoundState{128, 99, "levels/maximum.json", false,
                                     state.score.ranking, state.score.winner};
@@ -514,7 +531,6 @@ namespace {
         auto state = interrupted ? retainedResultWithDepartureLabels(true)
                                  : completedResultWithDepartureLabels();
         state.phaseTime = 14;
-        state.settings.levelPlan = "Fixed level";
         if (canonicalDeparture) state.players[1].lifeState = R::LifeState::Departed;
         if (resultDeparture) {
             const bool replaced = replaceOnce(state.result.serialized,
@@ -534,6 +550,8 @@ namespace {
         state.round->outcome.winnerPlayerIds = {101};
         state.score.winner = {};
         state.score.winner.noWinner = true;
+        state.score.players[1].kills = 2;
+        state.score.players[1].wins = 0;
         state.result.state = "Interrupted";
         state.result.serialized = serializedTwoPlayerResult(true);
         return state;
@@ -682,22 +700,24 @@ namespace {
 
     R::CanonicalState retainedTeamCompletedLobby() {
         auto state = retainedCompletedLobby();
+        state.settings.mode = "Team deathmatch";
         state.settings.teamCount = 2;
+        state.settings.friendlyFire = true;
         state.players[0].team = 1;
         state.players[1].team = 2;
-        state.score.players[1].cumulativePoints = 4;
-        std::swap(state.score.players[0], state.score.players[1]);
-        state.score.ranking = {102, 101};
-        state.score.teamTotals = {3, 4};
-        state.score.teamRanking = {2, 1};
+        state.score.teamTotals = {3, 2};
+        state.score.teamRanking = {1, 2};
         state.score.winner.winningTeam = 2;
         state.round->outcome.winningTeam = 2;
+        state.result.serialized = serializedTwoPlayerResult(false, false, 0, true);
         return state;
     }
 
     R::CanonicalState resetTeamFirstRound() {
         auto state = freshMatchAfterRetainedResult();
+        state.settings.mode = "Team deathmatch";
         state.settings.teamCount = 2;
+        state.settings.friendlyFire = true;
         state.players[0].team = 1;
         state.players[1].team = 2;
         state.score.teamTotals = {0, 0};
@@ -972,6 +992,7 @@ namespace {
         const char *name;
         std::function<void(R::CanonicalState &)> alter;
         bool team = false;
+        bool requiresImmutableOuterSettings = false;
     };
 
     std::vector<AvailableResultAttack> incompleteAvailableResultAttacks() {
@@ -1103,35 +1124,35 @@ namespace {
                 {"mode-mismatch", [](auto &state) {
                     D6R_REQUIRE(replaceOnce(state.result.serialized,
                             "\"mode\":\"Deathmatch\"", "\"mode\":\"Predator\""));
-                }},
+                }, false, true},
                 {"assistance-mismatch", [](auto &state) {
                     D6R_REQUIRE(replaceOnce(state.result.serialized,
                             "\"assistance\":false", "\"assistance\":true"));
-                }},
+                }, false, true},
                 {"quick-liquid-mismatch", [](auto &state) {
                     D6R_REQUIRE(replaceOnce(state.result.serialized,
                             "\"quickLiquid\":false", "\"quickLiquid\":true"));
-                }},
+                }, false, true},
                 {"burnable-trees-mismatch", [](auto &state) {
                     D6R_REQUIRE(replaceOnce(state.result.serialized,
                             "\"burnableTrees\":true", "\"burnableTrees\":false"));
-                }},
+                }, false, true},
                 {"level-plan-mismatch", [](auto &state) {
                     D6R_REQUIRE(replaceOnce(state.result.serialized,
                             "\"levelPlan\":\"Fixed level\"", "\"levelPlan\":\"Random level\""));
-                }},
+                }, false, true},
                 {"round-limit-mismatch", [](auto &state) {
                     D6R_REQUIRE(replaceOnce(state.result.serialized,
                             "\"roundLimit\":2", "\"roundLimit\":3"));
-                }},
+                }, false, true},
                 {"team-count-mismatch", [](auto &state) {
                     D6R_REQUIRE(replaceOnce(state.result.serialized,
                             "\"teamCount\":2", "\"teamCount\":3"));
-                }, true},
+                }, true, true},
                 {"friendly-fire-mismatch", [](auto &state) {
                     D6R_REQUIRE(replaceOnce(state.result.serialized,
                             "\"friendlyFire\":true", "\"friendlyFire\":false"));
-                }, true},
+                }, true, true},
                 {"team-outcome-mismatch", [](auto &state) {
                     const std::string prior = state.result.state == "Completed" ? "Bravo" : "";
                     const std::string altered = state.result.state == "Completed" ? "Alpha" : "Bravo";
@@ -1143,10 +1164,6 @@ namespace {
                     D6R_REQUIRE(replaceOccurrence(state.result.serialized,
                             "\"rank\":1", "\"rank\":2", 1));
                 }, true},
-                {"seed-mismatch", [](auto &state) {
-                    D6R_REQUIRE(replaceOnce(state.result.serialized,
-                            "\"seed\":1234", "\"seed\":4321"));
-                }},
                 {"zero-seed", [](auto &state) {
                     D6R_REQUIRE(replaceOnce(state.result.serialized, "\"seed\":1234", "\"seed\":0"));
                 }}
@@ -1187,6 +1204,7 @@ namespace {
         std::string failures;
         for (const bool interrupted: {false, true}) {
             for (const auto &attack: incompleteAvailableResultAttacks()) {
+                if (interrupted && attack.requiresImmutableOuterSettings) continue;
                 const auto valid = attack.team ? completeAvailableTeamResult(interrupted)
                                                : completeAvailableResult(interrupted);
                 auto malformed = valid;
@@ -1236,6 +1254,7 @@ namespace {
         std::string failures;
         for (const bool interrupted: {false, true}) {
             for (const auto &attack: incompleteAvailableResultAttacks()) {
+                if (interrupted && attack.requiresImmutableOuterSettings) continue;
                 const auto valid = attack.team ? completeAvailableTeamResult(interrupted)
                                                : completeAvailableResult(interrupted);
                 auto malformed = valid;
@@ -1723,21 +1742,12 @@ D6R_TEST_CASE("REP invalid stale duplicate out-of-order malformed and inconsiste
 D6R_TEST_CASE("REP one active resynchronization blocks deltas and restores every supported phase") {
     for (const auto phase: {R::Phase::Lobby, R::Phase::ActiveRound, R::Phase::RoundSummary,
                             R::Phase::FinalSummary, R::Phase::Ended}) {
-        auto state = phase == R::Phase::Lobby ? lobbyState() : activeState();
+        auto state = phase == R::Phase::Lobby ? lobbyState()
+                     : phase == R::Phase::FinalSummary ? distinctFinalSummary() : activeState();
         state.phase = phase;
         if (phase == R::Phase::RoundSummary) {
             state.round->outcome.winnerPlayerIds = {101};
             state.score.winner = state.round->outcome;
-        } else if (phase == R::Phase::FinalSummary) {
-            state.completedRounds = 1;
-            state.round->outcome.winnerPlayerIds = {101};
-            state.score.winner = state.round->outcome;
-            state.result.available = true;
-            state.result.sessionOnly = true;
-            state.result.state = "Completed";
-            state.result.serialized = serializedTwoPlayerResult(false);
-            state.entities.clear();
-            state.effects.clear();
         } else if (phase == R::Phase::Ended) {
             state.round.reset();
             state.entities.clear();
@@ -2088,20 +2098,7 @@ D6R_TEST_CASE("REP-017 REP-018 REP-025 final-round outcome and cumulative rankin
 }
 
 D6R_TEST_CASE("REP-017 REP-018 REP-025 interruption discards incomplete round and retains completed outcome in following lobby") {
-    auto interrupted = distinctFinalSummary();
-    interrupted.phase = R::Phase::Lobby;
-    interrupted.completedRounds = 1;
-    interrupted.currentRoundNumber = 1;
-    interrupted.result.state = "Interrupted";
-    interrupted.result.serialized = serializedTwoPlayerResult(true);
-    interrupted.round->roundNumber = 1;
-    interrupted.round->roundId = 40;
-    interrupted.round->outcome.winnerPlayerIds = {101};
-    interrupted.score.winner = {};
-    interrupted.score.winner.noWinner = true;
-    interrupted.participants[0].ready = false;
-    interrupted.participants[1].ready = false;
-    interrupted.messages.status = "Lobby";
+    const auto interrupted = retainedInterruptedLobby();
     D6R_REQUIRE(R::validateCanonicalState(interrupted));
     R::ReplicatedState restored;
     D6R_REQUIRE(restored.apply({12, interrupted}) == R::ApplyResult::Applied);
@@ -2177,7 +2174,7 @@ D6R_TEST_CASE("REP-017 REP-048 departed-only completed-result transitions are ex
                         "\"playerId\":101,\"participantId\":99"));
             }},
             {"score", [](auto &serialized) {
-                D6R_REQUIRE(replaceOnce(serialized, "\"totalPoints\":3", "\"totalPoints\":4"));
+                D6R_REQUIRE(replaceOccurrence(serialized, "\"totalPoints\":3", "\"totalPoints\":4", 0));
             }},
             {"round", [](auto &serialized) {
                 D6R_REQUIRE(replaceOnce(serialized, "\"completedRounds\":2", "\"completedRounds\":1"));
@@ -2351,8 +2348,34 @@ D6R_TEST_CASE("REP-017 REP-041 REP-049 complete canonical results remain accepte
     D6R_REQUIRE_EQ(std::string(), validCompleteAvailableResultAcceptance());
 }
 
+D6R_TEST_CASE("REP-017 AHM-AC-016 changed nonzero result seed remains valid on every ingestion path") {
+    for (const bool interrupted: {false, true}) {
+        auto result = completeAvailableResult(interrupted);
+        D6R_REQUIRE(replaceOnce(result.result.serialized, "\"seed\":1234", "\"seed\":4321"));
+
+        R::AuthoritativeStateReplicator initialized;
+        D6R_REQUIRE(initialized.initialize(result));
+
+        R::AuthoritativeStateReplicator published;
+        D6R_REQUIRE(published.initialize(activeState()));
+        D6R_REQUIRE(published.publish(result).has_value());
+
+        R::ReplicatedState initial;
+        D6R_REQUIRE(initial.apply({1, result}) == R::ApplyResult::Applied);
+
+        R::ReplicatedState resynchronized;
+        D6R_REQUIRE(resynchronized.apply({1, activeState()}) == R::ApplyResult::Applied);
+        resynchronized.requireResynchronization();
+        D6R_REQUIRE(resynchronized.apply({2, result}) == R::ApplyResult::Applied);
+
+        R::ReplicatedState incremental;
+        D6R_REQUIRE(incremental.apply({1, activeState()}) == R::ApplyResult::Applied);
+        D6R_REQUIRE(incremental.apply(validUpdate(activeState(), result)) == R::ApplyResult::Applied);
+    }
+}
+
 D6R_TEST_CASE("REP-017 REP-048 maximum canonical completed result accepts only departed transitions") {
-    constexpr std::size_t ExpectedMaximumParsedValues = 23512;
+    constexpr std::size_t ExpectedMaximumParsedValues = 22367;
     const auto initial = maximumCompletedReplicationState(false);
     const auto departed = maximumCompletedReplicationState(true);
     D6R_REQUIRE(R::validateCanonicalState(initial));
@@ -2434,7 +2457,7 @@ D6R_TEST_CASE("REP-017 REP-048 maximum canonical completed result accepts only d
 }
 
 D6R_TEST_CASE("REP-017 REP-048 near-limit twentieth result member is rejected before state mutation") {
-    constexpr std::size_t ExpectedMaximumParsedValues = 23512;
+    constexpr std::size_t ExpectedMaximumParsedValues = 22367;
     const auto initial = maximumCompletedReplicationState(false);
     const auto departed = maximumCompletedReplicationState(true);
 
@@ -2460,8 +2483,8 @@ D6R_TEST_CASE("REP-017 REP-048 near-limit twentieth result member is rejected be
 
     auto duplicate = departed;
     D6R_REQUIRE(replaceOnce(duplicate.result.serialized,
-            "\"label\":\"Maximum canonical result\"",
-            "\"state\":\"Maximum canonical result\""));
+            "\"label\":\"Session only\"",
+            "\"state\":\"Session only\""));
     JsonValueCounter duplicateShape(duplicate.result.serialized);
     const auto duplicateValues = duplicateShape.count();
     D6R_REQUIRE(duplicateValues.has_value());

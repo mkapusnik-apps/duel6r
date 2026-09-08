@@ -1521,10 +1521,15 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
         runtime.contentPreflight = [](const auto &) { return true; };
         runtime.worldSnapshot = [snapshot] { return *snapshot; };
         runtime.worldTick = [snapshot](Server::Authoritative::Tick, bool) {
+            const bool firstOutcomeTick = !snapshot->roundOver;
+            if (snapshot->players.front().alive)
+                ++snapshot->players.front().statistics.survivalTicks;
             for (std::size_t index = 1; index < snapshot->players.size(); ++index) {
+                if (firstOutcomeTick) ++snapshot->players[index].statistics.deaths;
                 snapshot->players[index].alive = false;
                 snapshot->players[index].life = 0;
             }
+            if (firstOutcomeTick) ++snapshot->players.front().statistics.wins;
             snapshot->roundOver = true;
             ++snapshot->worldTick;
             ++snapshot->stateDigest;
@@ -1545,12 +1550,18 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
     auto first = connectProductionPeer(hostConfig.listenEndpoint, hostedManifest);
     D6R_REQUIRE(pumpUntil(*first, [&] { return first->admitted; }, 2s));
     hostShouldReady = true;
-    D6R_REQUIRE(pumpUntil(*first, [&] {
+    const bool completedResultReceived = pumpUntil(*first, [&] {
         return std::any_of(first->states.begin(), first->states.end(), [](const auto &state) {
             return state.phase == Network::Replication::Phase::Lobby
                     && state.result.available && state.result.state == "Completed";
         });
-    }, 8s));
+    }, 8s);
+    if (!completedResultReceived) {
+        first->client->close();
+        cancelled = true;
+        host.join();
+        Duel6::Test::fail("completedResultReceived", __FILE__, __LINE__, hostOutput.str());
+    }
     first->client->close();
     std::this_thread::sleep_for(100ms);
 
