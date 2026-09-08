@@ -187,6 +187,19 @@ def assert_team_separators(data, label, left, width, separators):
             )
 
 
+def assert_no_team_separators(data, label, left, width, centers):
+    for index, (first, second) in enumerate(zip(centers, centers[1:]), 1):
+        strongest = 0.0
+        for y in range(first + 12, second - 11):
+            values = region_pixels(data, left, y, left + width, y + 1)
+            strongest = max(
+                strongest,
+                fraction(values, lambda rgb: min(rgb) >= 165 and max(rgb) - min(rgb) <= 85),
+            )
+        if strongest >= 0.85:
+            fail(f"{label}: Deathmatch has a Team-like separator after row {index}: coverage={strongest:.3f}")
+
+
 def assert_end_of_game_notice(data, label, font_path):
     if not font_path or not os.path.isfile(font_path):
         fail(f"{label}: --font must name the shipped font for final-score assertions")
@@ -249,6 +262,53 @@ def assert_end_of_game_notice(data, label, font_path):
     return similarity, (surface_left, surface_top, surface_right, surface_bottom)
 
 
+def assert_final_round_counter(data, label, font_path):
+    text = "Rounds:   1|  1"
+    text_width = len(text) * 16
+    text_height = 32
+    surface_left = WIDTH // 2 - (text_width + 16) // 2
+    surface_top = 2
+    surface_right = surface_left + text_width + 16
+    surface_bottom = surface_top + text_height + 4
+    text_left = surface_left + 8
+    text_top = surface_top + 2
+
+    # The 15-player/four-team panel is taller than the available middle region
+    # and intersects this backing. The counter must be redrawn above that panel,
+    # leaving its opaque backing and every glyph intact.
+    padding = (
+        (surface_left, surface_top, surface_right, text_top),
+        (surface_left, text_top + text_height, surface_right, surface_bottom),
+        (surface_left, text_top, text_left, text_top + text_height),
+        (text_left + text_width, text_top, surface_right, text_top + text_height),
+    )
+    for index, box in enumerate(padding, 1):
+        coverage = fraction(
+            region_pixels(data, *box),
+            lambda rgb: max(rgb) <= 10,
+        )
+        if coverage < 0.98:
+            fail(f"{label}: final round counter padding {index} is not opaque black: {coverage:.3f}")
+
+    expected = subprocess.check_output([
+        "convert", "-background", "black", "-fill", "white", "-font", font_path,
+        "-pointsize", "32", f"label:{text}", "-resize", f"{text_width}x{text_height}!",
+        "-depth", "8", "gray:-",
+    ])
+    expected_mask = [value >= 64 for value in expected]
+    observed_mask = [
+        min(pixel(data, text_left + x, text_top + y)) >= 205
+        for y in range(text_height)
+        for x in range(text_width)
+    ]
+    overlap = sum(a and b for a, b in zip(expected_mask, observed_mask))
+    total = sum(expected_mask) + sum(observed_mask)
+    similarity = 2.0 * overlap / total if total else 0.0
+    if similarity < 0.42:
+        fail(f"{label}: final round counter text is missing or illegible: similarity={similarity:.3f}")
+    return similarity, (surface_left, surface_top, surface_right, surface_bottom)
+
+
 def assert_score_overlay(data, label, players, teams, team_separators=True):
     geometry = score_geometry(players, teams, team_separators)
     left, width = geometry[:2]
@@ -263,6 +323,7 @@ def assert_score_overlay(data, label, players, teams, team_separators=True):
             if coverage < 0.25:
                 fail(f"{label}: score row {index + 1}/{rows} missing: blue={coverage:.3f}")
         header_y = centers[0] - 64
+        assert_no_team_separators(data, label, left, width, centers)
     else:
         first_y, height = geometry[2:]
         # Ranking order can change when team point totals tie, and a 15-player
@@ -292,7 +353,7 @@ def assert_score_overlay(data, label, players, teams, team_separators=True):
                            WIDTH // 2 + 80, header_y + 8)
     if blue_strength(header) < 80:
         fail(f"{label}: SCORE overlay header missing: rgb={header}")
-    return groups, header
+    return groups, header, header_y - 48
 
 
 def main():
@@ -314,13 +375,23 @@ def main():
         print(f"{args.label}: viewport dividers={horizontal}/{vertical} "
               f"edge={edge_count}/{edge_total}")
     elif args.score or args.final_score:
-        groups, header = assert_score_overlay(
+        groups, header, panel_top = assert_score_overlay(
             data, args.label, args.players, args.teams,
             team_separators=True)
         notice = ""
         if args.final_score:
             similarity, bounds = assert_end_of_game_notice(data, args.label, args.font)
-            notice = f" notice={bounds} text-similarity={similarity:.3f}"
+            counter_similarity, counter_bounds = assert_final_round_counter(data, args.label, args.font)
+            if not args.teams:
+                counter_gap = panel_top - counter_bounds[3]
+                if counter_gap < 16:
+                    fail(f"{args.label}: fitted Deathmatch counter-to-panel gap is {counter_gap}px, expected >=16px")
+            else:
+                counter_gap = None
+            notice = (f" notice={bounds} text-similarity={similarity:.3f}"
+                      f" counter={counter_bounds} counter-height=32"
+                      f" counter-similarity={counter_similarity:.3f}"
+                      f" counter-panel-gap={counter_gap}")
         print(f"{args.label}: score-rows={args.players + args.teams} groups={groups} "
               f"header={header}{notice} dividers={horizontal}/{vertical} "
               f"edge={edge_count}/{edge_total}")
