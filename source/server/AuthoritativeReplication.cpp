@@ -153,6 +153,7 @@ namespace Duel6::Server::Authoritative {
         state.round.reset();
         state.score = {};
         observedRound = 0;
+        roundIdentities.clear();
         worldIdentities.clear();
         highestObservedEventSequence = 0;
         highestObservedTransitionSequence = 0;
@@ -204,6 +205,7 @@ namespace Duel6::Server::Authoritative {
                 R::RoundState round;
                 round.roundId = identities.issue(R::IdentityCategory::Round);
                 if (round.roundId == 0) return false;
+                roundIdentities.emplace(observedRound, round.roundId);
                 round.roundNumber = observedRound; round.level = match.roundDecision().level;
                 round.mirrored = match.roundDecision().mirrored; round.rosterOrder = match.roundDecision().rosterOrder;
                 state.round = std::move(round);
@@ -433,10 +435,9 @@ namespace Duel6::Server::Authoritative {
                 else {
                     const auto &lastRound = match.publishedResult()->rounds.back();
                     R::RoundState retainedRound;
-                    retainedRound.roundId = state.round && state.round->roundNumber == lastRound.roundNumber
-                                            ? state.round->roundId
-                                            : identities.issue(R::IdentityCategory::Round);
-                    if (retainedRound.roundId == 0) return false;
+                    const auto retainedIdentity = roundIdentities.find(lastRound.roundNumber);
+                    if (retainedIdentity == roundIdentities.end()) return false;
+                    retainedRound.roundId = retainedIdentity->second;
                     retainedRound.roundNumber = lastRound.roundNumber;
                     retainedRound.level = lastRound.level; retainedRound.mirrored = lastRound.mirrored;
                     retainedRound.rosterOrder = lastRound.rosterOrder;
@@ -521,6 +522,7 @@ namespace Duel6::Server::Authoritative {
         state.messages.scoreSummaryVisible = false;
         state.effects.clear();
         state.result = {};
+        roundIdentities.clear();
         worldIdentities.clear();
         highestObservedEventSequence = 0;
         highestObservedTransitionSequence = 0;

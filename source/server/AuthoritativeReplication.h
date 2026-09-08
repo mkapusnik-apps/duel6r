@@ -40,6 +40,7 @@ namespace Duel6::Server::Authoritative {
         Network::Replication::AuthoritativeStateReplicator publisher;
         Network::Replication::CanonicalState state;
         std::optional<SessionResult> retainedResult;
+        std::map<std::uint8_t, Identity> roundIdentities;
         std::map<std::pair<Identity, std::uint64_t>, Identity> worldIdentities;
         std::uint64_t highestObservedEventSequence = 0;
         std::uint64_t highestObservedTransitionSequence = 0;

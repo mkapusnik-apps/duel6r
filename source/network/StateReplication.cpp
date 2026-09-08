@@ -1077,7 +1077,10 @@ namespace Duel6::Network::Replication {
                     if (state.score.ranking[index] != row.playerId
                         || state.score.players[index].playerId != row.playerId) return false;
                     const auto &score = state.score.players[index];
-                    if (score.cumulativePoints != row.cumulative.totalPoints
+                    const std::int64_t expectedRoundPoints = row.rounds.empty()
+                                                             ? 0 : row.rounds.back().totalPoints;
+                    if (score.roundPoints != expectedRoundPoints
+                        || score.cumulativePoints != row.cumulative.totalPoints
                         || score.shots != row.cumulative.shots || score.hits != row.cumulative.hits
                         || score.kills != row.cumulative.kills || score.deaths != row.cumulative.deaths
                         || score.assists != row.cumulative.assists || score.wins != row.cumulative.wins
