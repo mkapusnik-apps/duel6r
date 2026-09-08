@@ -32,6 +32,7 @@
 #include "Game.h"
 #include "GameMode.h"
 #include "Explosion.h"
+#include "gamemodes/DeathMatch.h"
 #include "gamemodes/TeamDeathMatch.h"
 
 namespace Duel6 {
@@ -118,8 +119,8 @@ namespace Duel6 {
         return posY - charHeight;
     }
 
-    void WorldRenderer::roundOverSummary(bool showRoundProgress, bool separateTeamGroups, bool clampPanelBottom,
-                                         Int32 minimumPanelBottom) const {
+    void WorldRenderer::roundOverSummary(bool showRoundProgress, bool separateTeamGroups, bool clampPanelBounds,
+                                          Int32 minimumPanelBottom, Int32 maximumPanelTop) const {
         Float32 fontSize = 32;
         Float32 fontWidth = fontSize / 2;
         Ranking ranking = game.getMode().getRanking(game.getPlayers());
@@ -153,8 +154,13 @@ namespace Duel6 {
         int x = video.getScreen().getClientWidth() / 2 - width / 2;
         int y = video.getScreen().getClientHeight() / 2 - height / 2;
         const Int32 panelBottom = y - Int32(fontSize);
-        if (clampPanelBottom && panelBottom < minimumPanelBottom) {
+        const Int32 panelHeight = height + 2 * Int32(fontSize);
+        if (clampPanelBounds && panelBottom < minimumPanelBottom) {
             y += minimumPanelBottom - panelBottom;
+        }
+        const Int32 panelTop = y + height + Int32(fontSize);
+        if (clampPanelBounds && panelHeight <= maximumPanelTop - minimumPanelBottom && panelTop > maximumPanelTop) {
+            y -= panelTop - maximumPanelTop;
         }
 
         renderer.setBlendFunc(BlendFunc::SrcAlpha);
@@ -194,7 +200,9 @@ namespace Duel6 {
     }
 
     void WorldRenderer::gameOverSummary() const {
-        if (dynamic_cast<const TeamDeathMatch *>(&game.getMode()) == nullptr) {
+        const bool teamDeathMatch = dynamic_cast<const TeamDeathMatch *>(&game.getMode()) != nullptr;
+        const bool deathMatch = dynamic_cast<const DeathMatch *>(&game.getMode()) != nullptr;
+        if (!deathMatch && !teamDeathMatch) {
             roundOverSummary(false, false);
             return;
         }
@@ -209,8 +217,9 @@ namespace Duel6 {
         const Float32 noticeTextWidth = font.getTextWidth(notice, fontSize);
         const Float32 noticeWidth = noticeTextWidth + 2 * horizontalPadding;
         const Float32 noticeX = video.getScreen().getClientWidth() / 2.0f - noticeWidth / 2.0f;
+        const Int32 counterBottom = finalRoundCounter();
 
-        roundOverSummary(false, true, true, bottomInset + noticeHeight + panelGap);
+        roundOverSummary(false, teamDeathMatch, true, bottomInset + noticeHeight + panelGap, counterBottom - panelGap);
 
         renderer.setBlendFunc(BlendFunc::SrcAlpha);
         renderer.quadXY(Vector(noticeX, Float32(bottomInset)), Vector(noticeWidth, Float32(noticeHeight)),
@@ -227,6 +236,23 @@ namespace Duel6 {
         renderer.quadXY(Vector(x - 1, y - 1), Vector(width + 2, 18), Color::BLACK);
         font.print(x + 8, y, Color::WHITE,
                    Format("Rounds: {0,3}|{1,3}") << game.getCurrentRound() + 1 << game.getSettings().getMaxRounds());
+    }
+
+    Int32 WorldRenderer::finalRoundCounter() const {
+        const std::string counter = Format("Rounds: {0,3}|{1,3}") << game.getCurrentRound() + 1
+                                                                  << game.getSettings().getMaxRounds();
+        const Int32 fontSize = 32;
+        const Int32 horizontalPadding = 8;
+        const Int32 verticalPadding = 2;
+        const Int32 topInset = 2;
+        const Int32 width = font.getTextWidth(counter, fontSize) + 2 * horizontalPadding;
+        const Int32 height = fontSize + 2 * verticalPadding;
+        const Int32 x = video.getScreen().getClientWidth() / 2 - width / 2;
+        const Int32 y = video.getScreen().getClientHeight() - topInset - height;
+
+        renderer.quadXY(Vector(x, y), Vector(width, height), Color::BLACK);
+        font.print(x + horizontalPadding, y + verticalPadding, 0.0f, Color::WHITE, counter, fontSize);
+        return y;
     }
 
     void WorldRenderer::fpsCounter() const {
@@ -571,7 +597,10 @@ namespace Duel6 {
             playerRankings();
         }
 
-        if (settings.isRoundLimit() && !showRoundSummaryProgress) {
+        const bool localizedFinalSummary = game.getRound().hasWinner() && game.getRound().isLast() &&
+                                           (dynamic_cast<const DeathMatch *>(&game.getMode()) != nullptr ||
+                                            dynamic_cast<const TeamDeathMatch *>(&game.getMode()) != nullptr);
+        if (settings.isRoundLimit() && !showRoundSummaryProgress && !localizedFinalSummary) {
             roundsPlayed();
         }
 
