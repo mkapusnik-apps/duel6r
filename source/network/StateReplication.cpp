@@ -357,6 +357,19 @@ namespace Duel6::Network::Replication {
                                  && sameOutcome(left->outcome, right->outcome)));
         }
 
+        bool sameMatchSettings(const MatchSettingsState &left, const MatchSettingsState &right) {
+            return left.mode == right.mode && left.teamCount == right.teamCount
+                   && left.friendlyFire == right.friendlyFire && left.levelPlan == right.levelPlan
+                   && left.fixedLevel == right.fixedLevel && left.levels == right.levels
+                   && left.roundLimit == right.roundLimit && left.assistance == right.assistance
+                   && left.quickLiquid == right.quickLiquid && left.burnableTrees == right.burnableTrees;
+        }
+
+        bool changesActiveMatchSettings(const CanonicalState &before, const CanonicalState &after) {
+            return before.matchId != 0 && before.matchId == after.matchId
+                   && before.phase != Phase::Lobby && !sameMatchSettings(before.settings, after.settings);
+        }
+
         bool sameScoreRow(const ScoreRowState &left, const ScoreRowState &right) {
             return left.playerId == right.playerId && left.roundPoints == right.roundPoints
                    && left.cumulativePoints == right.cumulativePoints && left.shots == right.shots
@@ -966,6 +979,14 @@ namespace Duel6::Network::Replication {
             return true;
         }
 
+        bool validResultOutcomeForMode(const CanonicalResultOutcome &outcome,
+                                       const std::string &mode,
+                                       const std::vector<CanonicalResultRowLabel> &players) {
+            return validResultOutcome(outcome, mode == "Team deathmatch", players)
+                   && (mode != "Deathmatch" || outcome.noWinner
+                       || outcome.winnerPlayerIds.size() == 1);
+        }
+
         bool resultRanksAhead(const CanonicalResultRowLabel &left, const CanonicalResultRowLabel &right) {
             if (left.cumulative.totalPoints != right.cumulative.totalPoints)
                 return left.cumulative.totalPoints > right.cumulative.totalPoints;
@@ -994,13 +1015,22 @@ namespace Duel6::Network::Replication {
                         || result->levelPlan != state.settings.levelPlan
                         || result->roundLimit != state.settings.roundLimit)) return false;
                 const bool teamMode = result->mode == "Team deathmatch";
-                if (!validResultOutcome(result->finalOutcome, teamMode, result->rows)
+                const auto activeResultPlayers = static_cast<std::size_t>(std::count_if(
+                        result->rows.begin(), result->rows.end(),
+                        [](const auto &row) { return !row.departed; }));
+                if (result->optionalScriptsEnabled
+                    || !validResultOutcomeForMode(result->finalOutcome, result->mode, result->rows)
                     || (result->state == "Interrupted" && !result->finalOutcome.noWinner)
+                    || (result->state == "Interrupted" && activeResultPlayers >= 2)
                     || (result->state == "Completed"
-                        && (result->rounds.empty()
+                        && (result->completedRounds != result->roundLimit || result->rounds.empty()
                             || !sameResultOutcome(result->finalOutcome, result->rounds.back().outcome)))) return false;
-                for (const auto &round: result->rounds)
-                    if (!validResultOutcome(round.outcome, teamMode, result->rows)) return false;
+                for (const auto &round: result->rounds) {
+                    if (!validResultOutcomeForMode(round.outcome, result->mode, result->rows)) return false;
+                    const std::set<Identity> roster(round.rosterOrder.begin(), round.rosterOrder.end());
+                    for (Identity winner: round.outcome.winnerPlayerIds)
+                        if (!roster.count(winner)) return false;
+                }
                 for (std::size_t index = 1; index < result->rows.size(); ++index)
                     if (resultRanksAhead(result->rows[index], result->rows[index - 1])) return false;
                 std::set<Identity> resultPlayerIds;
@@ -1020,12 +1050,19 @@ namespace Duel6::Network::Replication {
                         || score.assistedDamage != row.cumulative.assistedDamage) return false;
                     const auto player = std::find_if(state.players.begin(), state.players.end(),
                             [&](const auto &value) { return value.playerId == row.playerId; });
+                    if (player == state.players.end() && !row.departed) return false;
                     if (player != state.players.end()
                         && (row.participantId != player->ownerParticipantId
                             || row.departed != (player->lifeState == LifeState::Departed)
                             || (state.phase == Phase::FinalSummary
                                 && (row.displayName != player->displayName || row.team != player->team
                                     || row.rosterOrder != player->rosterPosition)))) return false;
+                    for (std::size_t roundIndex = 0; roundIndex < result->rounds.size(); ++roundIndex) {
+                        const auto &roundRoster = result->rounds[roundIndex].rosterOrder;
+                        const std::uint64_t expected = std::find(roundRoster.begin(), roundRoster.end(), row.playerId)
+                                == roundRoster.end() ? 0u : 1u;
+                        if (row.rounds[roundIndex].roundsPlayed != expected) return false;
+                    }
                 }
                 std::set<Identity> scorePlayerIds;
                 for (const auto &row: state.score.players) scorePlayerIds.insert(row.playerId);
@@ -1077,13 +1114,16 @@ namespace Duel6::Network::Replication {
 
         std::optional<std::set<Identity>> departedPlayerTransitions(
                 const CanonicalState &before, const CanonicalState &after) {
-            if (before.players.size() != after.players.size()) return std::nullopt;
+            if (after.players.size() > before.players.size()) return std::nullopt;
             std::set<Identity> changed;
             for (const auto &prior: before.players) {
                 const auto current = std::find_if(after.players.begin(), after.players.end(), [&](const auto &player) {
                     return player.playerId == prior.playerId;
                 });
-                if (current == after.players.end()) return std::nullopt;
+                if (current == after.players.end()) {
+                    changed.insert(prior.playerId);
+                    continue;
+                }
                 auto expected = prior;
                 if (prior.lifeState != current->lifeState) {
                     if (current->lifeState != LifeState::Departed) return std::nullopt;
@@ -1092,6 +1132,10 @@ namespace Duel6::Network::Replication {
                 }
                 if (!playerEqual(expected, *current)) return std::nullopt;
             }
+            for (const auto &current: after.players)
+                if (std::none_of(before.players.begin(), before.players.end(), [&](const auto &prior) {
+                    return prior.playerId == current.playerId;
+                })) return std::nullopt;
             return changed;
         }
 
@@ -1112,8 +1156,15 @@ namespace Duel6::Network::Replication {
                     const auto player = std::find_if(after.players.begin(), after.players.end(), [&](const auto &value) {
                         return value.playerId == right.playerId;
                     });
-                    if (player == after.players.end() || player->ownerParticipantId != right.participantId
-                        || player->lifeState != LifeState::Departed) return false;
+                    if (player != after.players.end()
+                        && (player->ownerParticipantId != right.participantId
+                            || player->lifeState != LifeState::Departed)) return false;
+                    if (player == after.players.end()) {
+                        const auto priorPlayer = std::find_if(before.players.begin(), before.players.end(),
+                                [&](const auto &value) { return value.playerId == right.playerId; });
+                        if (priorPlayer == before.players.end()
+                            || priorPlayer->ownerParticipantId != right.participantId) return false;
+                    }
                     resultTransitions.insert(right.playerId);
                 }
                 return !resultTransitions.empty() && resultTransitions == *playerTransitions;
@@ -1141,12 +1192,6 @@ namespace Duel6::Network::Replication {
         }
 
         bool sameCanonicalState(const CanonicalState &left, const CanonicalState &right) {
-            const auto sameSettings = [](const MatchSettingsState &a, const MatchSettingsState &b) {
-                return a.mode == b.mode && a.teamCount == b.teamCount && a.friendlyFire == b.friendlyFire
-                       && a.levelPlan == b.levelPlan && a.fixedLevel == b.fixedLevel && a.levels == b.levels
-                       && a.roundLimit == b.roundLimit && a.assistance == b.assistance
-                       && a.quickLiquid == b.quickLiquid && a.burnableTrees == b.burnableTrees;
-            };
             const auto sameRoundState = [](const std::optional<RoundState> &a,
                                            const std::optional<RoundState> &b) {
                 return a.has_value() == b.has_value()
@@ -1167,7 +1212,7 @@ namespace Duel6::Network::Replication {
                    && identifiedValuesEqual(left.participants, right.participants,
                                             [](const auto &value) { return value.participantId; },
                                             participantEqual)
-                   && sameSettings(left.settings, right.settings) && sameRoundState(left.round, right.round)
+                   && sameMatchSettings(left.settings, right.settings) && sameRoundState(left.round, right.round)
                    && identifiedValuesEqual(left.players, right.players,
                                             [](const auto &value) { return value.playerId; }, playerEqual)
                    && identifiedValuesEqual(left.entities, right.entities,
@@ -1489,6 +1534,7 @@ namespace Duel6::Network::Replication {
             || containsReusedCreation(current->players, state.players, issuedPlayerIdentities,
                                       [](const auto &value) { return value.playerId; })
             || introducesUnseenRetainedResultIdentity(*current, state, issuedPlayerIdentities)
+            || changesActiveMatchSettings(*current, state)
             || altersEstablishedResult(*current, state)
             || !validFollowingLobbyTransition(*current, state, issuedMatchIdentities,
                                                issuedRoundIdentities)
@@ -1604,6 +1650,7 @@ namespace Duel6::Network::Replication {
                 || containsNonMonotonicCreation(accepted->entities, snapshot.state.entities,
                                                 nextHighestEntities,
                                                 [](const auto &value) { return value.entityId; })
+                || changesActiveMatchSettings(*accepted, snapshot.state)
                 || altersEstablishedResult(*accepted, snapshot.state)
                 || !validFollowingLobbyTransition(*accepted, snapshot.state,
                                                    acceptedMatchIdentities,
@@ -1680,6 +1727,7 @@ namespace Duel6::Network::Replication {
             && sameRound(accepted->round, candidate.round)
             && candidate.phaseTime < accepted->phaseTime) return rejectIncremental();
         if (introducesUnseenRetainedResultIdentity(*accepted, candidate, acceptedPlayerIdentities)
+            || changesActiveMatchSettings(*accepted, candidate)
             || altersEstablishedResult(*accepted, candidate)
             || !validFollowingLobbyTransition(*accepted, candidate, acceptedMatchIdentities,
                                                acceptedRoundIdentities))
