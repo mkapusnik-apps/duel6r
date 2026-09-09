@@ -1303,7 +1303,8 @@ namespace Duel6 {
             const Float32 thumbWidth = std::max(24.0f, track * 94.0f / static_cast<Float32>(widest));
             const Float32 position = static_cast<Float32>(appliedHorizontal) /
                     static_cast<Float32>(maximumHorizontal) * (track - thumbWidth);
-            renderer.quadXY(Vector(90.0f + position, bottom + 9), Vector(thumbWidth, 12), Color(64, 96, 160));
+            renderer.quadXY(Vector(90.0f + position, static_cast<Float32>(bottom + 9)),
+                            Vector(thumbWidth, 12.0f), Color(64, 96, 160));
         }
         drawFocusKeyline(50, bottom + 4, 556, 22, focused);
         drawText(62, bottom + 8, "<"); drawText(586, bottom + 8, ">");
