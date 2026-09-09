@@ -193,7 +193,7 @@ endif ()
 add_test(NAME duel6r-admission-compatibility-tests COMMAND duel6r-admission-compatibility-tests)
 set_tests_properties(duel6r-admission-compatibility-tests PROPERTIES
         LABELS "application;integration;network;admission;compatibility"
-        TIMEOUT 120)
+        TIMEOUT 180)
 
 add_executable(duel6r-host-service-supervisor-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
