@@ -180,6 +180,17 @@ namespace Duel6::Server {
 #endif
     }
 
+    bool HostedServiceChannel::sendSessionPayload(const std::vector<std::uint8_t> &payload) noexcept {
+        if (!active()) return false;
+        std::vector<std::uint8_t> message;
+        try { message = Network::encodeHostServicePayload(payload); } catch (...) { return false; }
+#ifdef D6R_TRANSPORT_WINDOWS
+        return writeExact(static_cast<HANDLE>(statusHandle), message.data(), message.size());
+#else
+        return writeExact(statusDescriptor, message.data(), message.size());
+#endif
+    }
+
     void HostedServiceChannel::pollCommand() noexcept {
         if (stopped || intentionalEnd || !active()) return;
         std::array<std::uint8_t, 256> received{};
@@ -229,17 +240,42 @@ namespace Duel6::Server {
     }
 
     void HostedServiceChannel::decodeCommands() noexcept {
-        constexpr std::size_t MessageBytes = Network::HostServiceControlMessageBytes;
         std::size_t consumed = 0;
-        while (!stopped && !intentionalEnd && commandBytes.size() - consumed >= MessageBytes) {
+        while (!stopped && !intentionalEnd && commandBytes.size() - consumed >= 4) {
+            const auto *message = commandBytes.data() + consumed;
+            const std::uint32_t magic = (static_cast<std::uint32_t>(message[0]) << 24u)
+                                        | (static_cast<std::uint32_t>(message[1]) << 16u)
+                                        | (static_cast<std::uint32_t>(message[2]) << 8u)
+                                        | static_cast<std::uint32_t>(message[3]);
+            if (magic == Network::HostServicePayloadMagic) {
+                if (commandBytes.size() - consumed < Network::HostServicePayloadHeaderBytes) break;
+                std::size_t payloadBytes = 0;
+                if (!Network::decodeHostServicePayloadHeader(
+                        message, Network::HostServicePayloadHeaderBytes, payloadBytes)) {
+                    stopped = true; break;
+                }
+                const auto messageBytes = Network::HostServicePayloadHeaderBytes + payloadBytes;
+                if (commandBytes.size() - consumed < messageBytes) break;
+                try {
+                    sessionPayloads.emplace_back(
+                            commandBytes.begin() + static_cast<std::ptrdiff_t>(consumed
+                                    + Network::HostServicePayloadHeaderBytes),
+                            commandBytes.begin() + static_cast<std::ptrdiff_t>(consumed + messageBytes));
+                } catch (...) { stopped = true; break; }
+                consumed += messageBytes;
+                continue;
+            }
+            if (magic != Network::HostServiceControlMagic
+                || commandBytes.size() - consumed < Network::HostServiceControlMessageBytes) break;
             Network::HostServiceCommandCode command{};
-            if (!Network::decodeHostServiceCommand(commandBytes.data() + consumed, MessageBytes, command)) {
+            if (!Network::decodeHostServiceCommand(
+                    message, Network::HostServiceControlMessageBytes, command)) {
                 stopped = true;
                 intentionalEnd = false;
                 commandBytes.clear();
                 return;
             }
-            consumed += MessageBytes;
+            consumed += Network::HostServiceControlMessageBytes;
             if (command == Network::HostServiceCommandCode::Stop) stopped = true;
             else if (command == Network::HostServiceCommandCode::EndSession) intentionalEnd = true;
             else readinessChange = command == Network::HostServiceCommandCode::Ready;
@@ -263,6 +299,14 @@ namespace Duel6::Server {
         pollCommand();
         auto result = readinessChange;
         readinessChange.reset();
+        return result;
+    }
+
+    std::optional<std::vector<std::uint8_t>> HostedServiceChannel::takeSessionPayload() noexcept {
+        pollCommand();
+        if (sessionPayloads.empty()) return std::nullopt;
+        auto result = std::move(sessionPayloads.front());
+        sessionPayloads.erase(sessionPayloads.begin());
         return result;
     }
 }

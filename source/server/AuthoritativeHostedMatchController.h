@@ -16,6 +16,7 @@ namespace Duel6::Server::Authoritative {
         ServiceStarting,
         Lobby,
         MatchActive,
+        FinalSummary,
         ContentBlocked,
         UnexpectedStop,
         Ended
@@ -35,6 +36,7 @@ namespace Duel6::Server::Authoritative {
                               MatchRuntimeDependencies matchDependencies);
         TerminalOutcome end(Identity participantId);
         bool observeMatchOutcome();
+        bool returnToLobby(Identity participantId);
         bool initializeReplication(std::vector<Network::Replication::ParticipantState> participants,
                                    std::vector<PlayerDefinition> roster, MatchConfig settings);
         bool updateReplicationLobby(std::vector<Network::Replication::ParticipantState> participants,
@@ -65,6 +67,7 @@ namespace Duel6::Server::Authoritative {
         AuthoritativeMatch *match() noexcept;
         const AuthoritativeMatch *match() const noexcept;
         const std::optional<SessionResult> &currentSessionResult() const noexcept;
+        std::optional<Network::Replication::FullSnapshot> currentSnapshot() const;
         static constexpr bool resultsPersistenceEligible() noexcept {
             return NetworkMatchResultRetention::persistenceEligible();
         }

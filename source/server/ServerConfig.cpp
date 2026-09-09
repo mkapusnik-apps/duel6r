@@ -108,6 +108,8 @@ namespace Duel6::Server {
                 config.admissionClient = true;
             } else if (argument == "--host-service-ipc") {
                 config.hostedServiceIpc = true;
+            } else if (argument == "--graphical-host-composition") {
+                config.graphicalHostComposition = true;
             } else if (startsWith(argument, "--host-service-parent=")) {
                 config.hostedServiceParent = parsePositiveUint64(
                         "host service parent", valueAfter(argument, "--host-service-parent="));
@@ -149,6 +151,8 @@ namespace Duel6::Server {
         if (config.hostedServiceIpc && (!config.transportEnabled || config.transportEcho || config.admissionClient
                                        || config.hostedServiceParent == 0))
             throw std::invalid_argument("host service IPC requires a production transport listener and parent");
+        if (config.graphicalHostComposition && !config.hostedServiceIpc)
+            throw std::invalid_argument("graphical host composition requires host service IPC");
 #ifdef D6R_TRANSPORT_WINDOWS
         if (config.hostedServiceIpc
             && (config.hostedServiceStatusHandle == 0 || config.hostedServiceControlHandle == 0))
