@@ -85,6 +85,11 @@ namespace Duel6 {
 
         const WeaponSamples &getSamples() const;
 
+        Texture getNetworkProjectileTexture() const override;
+        Texture getNetworkExplosionTexture() const override;
+        void playNetworkShotSound() const override;
+        void playNetworkExplosionSound() const override;
+
         bool isChargeable() const override;
 
         virtual Float32 getBulletSpeed() const = 0;

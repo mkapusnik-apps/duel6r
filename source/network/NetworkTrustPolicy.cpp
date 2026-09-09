@@ -296,7 +296,7 @@ namespace Duel6::Network::Trust {
                           : LocalListenerBindDecision::InterfaceEnumerationFailed;
     }
 
-    std::optional<std::string> preferredLocalListenerAddress() {
+    std::optional<std::vector<std::string>> localListenerAddresses() {
         const auto interfaces = localIpv4Interfaces();
         if (!interfaces) return std::nullopt;
         std::vector<std::array<std::uint8_t, 4>> candidates;
@@ -306,15 +306,22 @@ namespace Duel6::Network::Trust {
                 candidates.push_back(record.address);
         std::sort(candidates.begin(), candidates.end());
         candidates.erase(std::unique(candidates.begin(), candidates.end()), candidates.end());
-        if (candidates.empty()) {
-            const std::array<std::uint8_t, 4> loopback{127, 0, 0, 1};
-            if (decideLocalListenerBind(loopback, *interfaces) != LocalListenerBindDecision::Allowed)
-                return std::nullopt;
+        const std::array<std::uint8_t, 4> loopback{127, 0, 0, 1};
+        if (decideLocalListenerBind(loopback, *interfaces) == LocalListenerBindDecision::Allowed)
             candidates.push_back(loopback);
+        std::vector<std::string> result;
+        for (const auto &candidate: candidates) {
+            const std::string value = std::to_string(candidate[0]) + "." + std::to_string(candidate[1]) + "."
+                                      + std::to_string(candidate[2]) + "." + std::to_string(candidate[3]);
+            if (std::find(result.begin(), result.end(), value) == result.end()) result.push_back(value);
         }
-        const auto &selected = candidates.front();
-        return std::to_string(selected[0]) + "." + std::to_string(selected[1]) + "."
-               + std::to_string(selected[2]) + "." + std::to_string(selected[3]);
+        if (result.empty()) return std::nullopt;
+        return result;
+    }
+
+    std::optional<std::string> preferredLocalListenerAddress() {
+        const auto candidates = localListenerAddresses();
+        return candidates && !candidates->empty() ? std::optional<std::string>(candidates->front()) : std::nullopt;
     }
 
     bool isLocalIpv4AddressAssigned(const std::array<std::uint8_t, 4> &address) {

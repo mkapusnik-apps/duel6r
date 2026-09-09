@@ -148,6 +148,8 @@ namespace Duel6::Server {
         std::function<std::optional<std::vector<std::uint8_t>>()> hostSessionPayload;
         std::function<bool(const std::vector<std::uint8_t> &)> hostSessionPresentation;
         std::function<std::optional<Network::Lifecycle::ParticipantActionKind>()> localParticipantAction;
+        std::function<std::optional<std::vector<std::string>>()> localParticipantPersons;
+        std::function<void(Network::AdmissionResultCode, bool)> guestAdmissionOutcome;
         std::shared_ptr<const Network::ManifestSource> manifestSource;
         Network::ManifestFilesystemObserver filesystemObserver;
         IdentitySource identitySource;

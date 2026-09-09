@@ -53,7 +53,11 @@ namespace Duel6 {
 
     CanonicalWorldPresenter::CanonicalWorldPresenter(AppService &value, GameResources &gameResources)
             : service(value), resources(gameResources), renderer(value.getVideo().getRenderer()),
-              animations(gameResources.getPlayerAnimation()) {
+              animations(gameResources.getPlayerAnimation()), explosions(gameResources, 4.0f),
+              playerHitSound(value.getSound().loadSample("sound/player/hit.wav")),
+              playerDeathSound(value.getSound().loadSample("sound/player/death.wav")),
+              bonusSound(value.getSound().loadSample("sound/player/pick-bonus.wav")),
+              waterSound(value.getSound().loadSample("sound/game/water-blue.wav")) {
         skins.emplace_back(std::make_unique<PlayerSkin>(PlayerSkinColors(teamColor(0)),
                                                         value.getTextureManager(), animations));
         for (std::uint8_t team = 1; team <= 4; ++team) {
@@ -78,9 +82,89 @@ namespace Duel6 {
     }
 
     void CanonicalWorldPresenter::update(
-            Float32 elapsedTime, const Network::Replication::CanonicalState *state) {
+            Float32 elapsedTime, const Network::Replication::CanonicalState *state,
+            const std::vector<Network::Replication::PresentationEvent> &events) {
         if (state && state->round && loadRound(*state->round) && levelRenderData)
             levelRenderData->update(elapsedTime);
+        explosions.update(elapsedTime);
+        if (!state) return;
+        if (presentedSession != state->sessionId) {
+            presentedSession = state->sessionId;
+            highestPresentedEvent = 0;
+            presentedEntities.clear();
+        }
+        for (const auto &event: events) {
+            if (event.eventId <= highestPresentedEvent) continue;
+            presentEvent(*state, event);
+            highestPresentedEvent = event.eventId;
+        }
+        presentedEntities.clear();
+        for (const auto &entity: state->entities) presentedEntities.emplace(entity.entityId, entity);
+    }
+
+    const Weapon *CanonicalWorldPresenter::weaponFor(const std::string &type) const {
+        const auto found = std::find_if(Weapon::values().begin(), Weapon::values().end(), [&](const Weapon &weapon) {
+            return weaponKey(weapon.getName()) == type;
+        });
+        return found == Weapon::values().end() ? nullptr : &*found;
+    }
+
+    const Network::Replication::WorldEntityState *CanonicalWorldPresenter::entityFor(
+            const Network::Replication::CanonicalState &state,
+            Network::Replication::Identity identity) const {
+        const auto found = std::find_if(state.entities.begin(), state.entities.end(), [identity](const auto &entity) {
+            return entity.entityId == identity;
+        });
+        if (found != state.entities.end()) return &*found;
+        const auto retained = presentedEntities.find(identity);
+        return retained == presentedEntities.end() ? nullptr : &retained->second;
+    }
+
+    void CanonicalWorldPresenter::presentEvent(
+            const Network::Replication::CanonicalState &state,
+            const Network::Replication::PresentationEvent &event) {
+        const auto *entity = entityFor(state, event.entityId);
+        const auto player = std::find_if(state.players.begin(), state.players.end(), [&](const auto &value) {
+            return value.playerId == (event.targetPlayerId ? event.targetPlayerId : event.playerId);
+        });
+        const Vector centre = entity ? Vector(worldValue(entity->positionX), worldValue(entity->positionY))
+                : player != state.players.end() ? Vector(worldValue(player->positionX), worldValue(player->positionY))
+                                                : Vector::ZERO;
+        if (event.type == "round-start") resources.getRoundStartSound().play();
+        else if (event.type == "round-outcome")
+            resources.getGameOverSound().play();
+        else if (event.type == "shot-fired") {
+            const auto source = std::find_if(state.players.begin(), state.players.end(), [&](const auto &value) {
+                return value.playerId == event.playerId;
+            });
+            const Weapon *weapon = entity ? weaponFor(entity->type)
+                    : source == state.players.end() ? nullptr : weaponFor(source->heldWeapon);
+            if (weapon) weapon->playNetworkShotSound();
+        } else if (event.type == "shot-hit" || event.type == "player-life-changed") {
+            playerHitSound.play();
+            explosions.add(centre, 0.1f, 0.35f, Color::RED);
+        } else if (event.type == "player-died") {
+            playerDeathSound.play();
+            explosions.add(centre, 0.2f, 0.8f, Color::RED);
+        } else if (event.type == "bonus-picked" || event.type == "weapon-picked") bonusSound.play();
+        else if (event.type == "water-entered" || event.type == "water-exited"
+                 || event.type == "water-level-changed" || event.type == "sudden-death-started")
+            waterSound.play();
+        else if (event.type == "explosion") {
+            const auto source = std::find_if(state.players.begin(), state.players.end(), [&](const auto &value) {
+                return value.playerId == event.playerId;
+            });
+            const Weapon *weapon = entity ? weaponFor(entity->type)
+                    : source == state.players.end() ? nullptr : weaponFor(source->heldWeapon);
+            if (weapon) weapon->playNetworkExplosionSound();
+            explosions.add(centre, 0.3f, 1.2f, Color(255, 176, 64));
+        } else if (event.type == "tree-burned") {
+            explosions.add(centre, 0.15f, 0.55f, Color(255, 96, 32));
+        } else if (event.type == "environmental-damage") {
+            playerHitSound.play();
+        } else if (event.type == "player-spawned") {
+            explosions.add(centre, 0.1f, 0.45f, Color::WHITE);
+        }
     }
 
     const PlayerSkin &CanonicalWorldPresenter::skinFor(
@@ -106,13 +190,18 @@ namespace Duel6 {
 
     void CanonicalWorldPresenter::renderEntity(
             const Network::Replication::WorldEntityState &entity) const {
-        if (!entity.active) return;
+        if (!entity.active && entity.kind != Network::Replication::EntityKind::Tree
+            && entity.kind != Network::Replication::EntityKind::Water) return;
         const Vector centre(worldValue(entity.positionX), worldValue(entity.positionY), 0.65f);
         using Kind = Network::Replication::EntityKind;
         switch (entity.kind) {
             case Kind::Shot:
             case Kind::Projectile:
-                renderer.point(centre, 4.0f, Color(255, 232, 128));
+                if (const Weapon *weapon = weaponFor(entity.type))
+                    renderer.quadXY(centre - Vector(0.18f, 0.12f), Vector(0.36f, 0.24f),
+                                    Vector(0, 1, 0), Vector(1, -1),
+                                    Material::makeMaskedTexture(weapon->getNetworkProjectileTexture()));
+                else renderer.point(centre, 4.0f, Color(255, 232, 128));
                 break;
             case Kind::WeaponPickup:
                 for (const auto &weapon: Weapon::values()) if (weaponKey(weapon.getName()) == entity.type) {
@@ -131,10 +220,12 @@ namespace Duel6 {
                 renderer.frame(centre - Vector(0.25f, 0.25f), Vector(0.5f, 0.5f), 3.0f, Color(96, 224, 128));
                 break;
             case Kind::Elevator:
-                renderer.quadXY(centre - Vector(0.5f, 0.12f), Vector(1.0f, 0.24f), Color(192, 144, 64));
+                renderer.quadXY(centre - Vector(0.5f, 0.12f), Vector(1.0f, 0.24f),
+                                Vector(0, 1, 0), Vector(1, -1),
+                                Material::makeMaskedTexture(resources.getElevatorTextures()));
                 break;
             case Kind::Water:
-                if (level && entity.active) {
+                if (level) {
                     renderer.setBlendFunc(BlendFunc::SrcAlpha);
                     renderer.quadXY(Vector(0.0f, 0.0f, 0.72f),
                                     Vector(static_cast<Float32>(level->getWidth()),
@@ -144,11 +235,22 @@ namespace Duel6 {
                 }
                 break;
             case Kind::Fire:
+                renderer.quadXY(centre - Vector(0.5f, 0.5f), Vector(1, 1), Vector(0, 1, 0),
+                                Vector(1, -1), Material::makeMaskedTexture(resources.getBurningTexture()));
+                break;
             case Kind::Explosion:
-                renderer.point(centre, entity.kind == Kind::Explosion ? 12.0f : 7.0f, Color(240, 96, 32));
+                renderer.quadXY(centre - Vector(0.6f, 0.6f), Vector(1.2f, 1.2f), Vector(0, 1, 0),
+                                Vector(1, -1), Material::makeMaskedTexture(resources.getExplosionTextures()));
                 break;
             case Kind::Tree:
-                renderer.quadXY(centre - Vector(0.25f, 0.5f), Vector(0.5f, 1.0f), Color(48, 128, 48));
+                try {
+                    const auto type = static_cast<Size>(std::stoul(entity.type));
+                    const auto found = resources.getFireTextures().find(type);
+                    if (found != resources.getFireTextures().end())
+                        renderer.quadXY(centre - Vector(0.5f, 0.5f), Vector(1, 1),
+                                        Vector(0, 1, entity.active ? 0 : 1), Vector(1, -1),
+                                        Material::makeMaskedTexture(found->second));
+                } catch (...) {}
                 break;
             case Kind::Hazard:
                 renderer.frame(centre - Vector(0.4f, 0.4f), Vector(0.8f, 0.8f), 2.0f, Color(224, 64, 64));
@@ -183,15 +285,12 @@ namespace Duel6 {
             const auto pose = std::find_if(presentedPlayers.begin(), presentedPlayers.end(), [&](const auto &value) {
                 return value.playerId == player.playerId;
             });
-            const Float32 px = pose == presentedPlayers.end() ? worldValue(player.positionX)
-                                                               : worldValue(pose->positionX);
-            const Float32 py = pose == presentedPlayers.end() ? worldValue(player.positionY)
-                                                               : worldValue(pose->positionY);
+            if (pose == presentedPlayers.end()) continue;
+            const Float32 px = worldValue(pose->positionX);
+            const Float32 py = worldValue(pose->positionY);
             auto visualState = player;
-            if (pose != presentedPlayers.end()) {
-                visualState.facingLeft = pose->facingLeft;
-                visualState.crouching = pose->crouching;
-            }
+            visualState.facingLeft = pose->facingLeft;
+            visualState.crouching = pose->crouching;
             const PlayerSkin &skin = skinFor(visualState);
             const Animation animation = animationFor(visualState);
             Sprite sprite(animation, skin.getTexture());
@@ -204,6 +303,7 @@ namespace Duel6 {
                 renderer.frame(Vector(px - 0.08f, py - 0.08f, 0.7f), Vector(1.16f, 1.16f), 2.0f, Color::RED);
         }
         levelRenderData->getWater().render(resources.getBlockTextures(), true);
+        explosions.render(renderer);
         renderer.enableDepthTest(false);
         renderer.setViewMatrix(Matrix::IDENTITY);
         (void) presentation;

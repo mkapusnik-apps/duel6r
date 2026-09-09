@@ -21,7 +21,8 @@ namespace Duel6::Network::HostComposition {
         PlayerInputOutcome = 7,
         UpdateSetup = 8,
         ConfigurationChanged = 9,
-        RosterMove = 10
+        RosterMove = 10,
+        UpdateOwnedPersons = 11
     };
 
     struct Setup {
@@ -41,6 +42,7 @@ namespace Duel6::Network::HostComposition {
         Kind kind = Kind::Setup;
         std::optional<Setup> setup;
         std::vector<std::uint8_t> payload;
+        std::vector<std::string> ownedPersonNames;
         std::uint64_t rosterPlayerId = 0;
         std::int8_t rosterDirection = 0;
     };
@@ -50,6 +52,7 @@ namespace Duel6::Network::HostComposition {
     std::vector<std::uint8_t> serializeAction(Kind kind);
     std::vector<std::uint8_t> serializePayload(Kind kind, const std::vector<std::uint8_t> &payload);
     std::vector<std::uint8_t> serializeRosterMove(std::uint64_t playerId, std::int8_t direction);
+    std::vector<std::uint8_t> serializeOwnedPersons(const std::vector<std::string> &names);
     std::optional<Message> deserialize(const std::vector<std::uint8_t> &payload) noexcept;
 }
 

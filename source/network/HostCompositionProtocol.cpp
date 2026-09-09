@@ -149,13 +149,26 @@ namespace Duel6::Network::HostComposition {
         writer.u8(static_cast<std::uint8_t>(direction)); return writer.take();
     }
 
+    std::vector<std::uint8_t> serializeOwnedPersons(const std::vector<std::string> &names) {
+        if (names.empty() || names.size() > Trust::MaxParticipants)
+            throw std::invalid_argument("Invalid owned person configuration");
+        Writer writer; envelope(writer, Kind::UpdateOwnedPersons);
+        writer.u8(static_cast<std::uint8_t>(names.size()));
+        for (const auto &name: names) {
+            if (name.empty() || name.size() > MaximumDisplayNameBytes || !Trust::validGeneralString(name))
+                throw std::invalid_argument("Invalid local player name");
+            writer.text(name, MaximumDisplayNameBytes);
+        }
+        return writer.take();
+    }
+
     std::optional<Message> deserialize(const std::vector<std::uint8_t> &payload) noexcept {
         try {
             Reader reader(payload);
             if (reader.u32() != ProtocolIdentifier || reader.u16() != ProtocolVersion) return std::nullopt;
             const auto rawKind = reader.u16();
             if (rawKind < static_cast<std::uint16_t>(Kind::Setup)
-                || rawKind > static_cast<std::uint16_t>(Kind::RosterMove)) return std::nullopt;
+                || rawKind > static_cast<std::uint16_t>(Kind::UpdateOwnedPersons)) return std::nullopt;
             Message message; message.kind = static_cast<Kind>(rawKind);
             if (message.kind == Kind::Setup || message.kind == Kind::UpdateSetup) {
                 Setup setup;
@@ -189,6 +202,15 @@ namespace Duel6::Network::HostComposition {
                 message.rosterDirection = rawDirection == 255 ? -1 : rawDirection == 1 ? 1 : 0;
                 if (!reader.done() || message.rosterPlayerId == 0
                     || (message.rosterDirection != -1 && message.rosterDirection != 1)) return std::nullopt;
+            } else if (message.kind == Kind::UpdateOwnedPersons) {
+                const auto count = reader.u8();
+                if (count == 0 || count > Trust::MaxParticipants) return std::nullopt;
+                for (std::uint8_t index = 0; index < count; ++index) {
+                    auto name = reader.text(MaximumDisplayNameBytes);
+                    if (name.empty() || !Trust::validGeneralString(name)) return std::nullopt;
+                    message.ownedPersonNames.push_back(std::move(name));
+                }
+                if (!reader.done()) return std::nullopt;
             } else {
                 message.payload = reader.rest();
                 if (message.payload.empty()) return std::nullopt;

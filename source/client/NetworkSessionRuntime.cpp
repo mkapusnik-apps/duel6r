@@ -1,6 +1,7 @@
 #include "NetworkSessionRuntime.h"
 
 #include <algorithm>
+#include <limits>
 #include <sstream>
 
 #include "../network/StateReplicationProtocol.h"
@@ -27,6 +28,14 @@ namespace Duel6::Client {
             if (result.find('=') != std::string::npos || result.find("-id") != std::string::npos
                 || (result.find('.') == std::string::npos && result.find('!') == std::string::npos)) return {};
             return result;
+        }
+
+        std::int64_t saturatedAdd(std::int64_t left, std::int64_t right) noexcept {
+            if (right > 0 && left > (std::numeric_limits<std::int64_t>::max)() - right)
+                return (std::numeric_limits<std::int64_t>::max)();
+            if (right < 0 && left < (std::numeric_limits<std::int64_t>::min)() - right)
+                return (std::numeric_limits<std::int64_t>::min)();
+            return left + right;
         }
     }
 
@@ -99,6 +108,17 @@ namespace Duel6::Client {
                 std::lock_guard<std::mutex> lock(mutex);
                 auto value = pendingGuestAction; pendingGuestAction.reset(); return value;
             };
+            dependencies.localParticipantPersons = [this]() {
+                std::lock_guard<std::mutex> lock(mutex);
+                auto value = pendingGuestConfiguration; pendingGuestConfiguration.reset(); return value;
+            };
+            dependencies.guestAdmissionOutcome = [this](auto outcome, bool local) {
+                std::lock_guard<std::mutex> lock(mutex);
+                if (local && outcome == Network::AdmissionResultCode::GameplayContentManifestInvalid) {
+                    current.retryAllowed = false;
+                    current.retryBlockReason = NetworkRetryBlockReason::RestartRequired;
+                }
+            };
             dependencies.guestPresentation = [this](const auto &state, const auto &presentation,
                                                      const auto &poses, const auto &events) {
                 applyCanonical(state, presentation, poses, events);
@@ -110,6 +130,8 @@ namespace Duel6::Client {
                     current.journey = NetworkJourney::HostEnded;
                 else if (journey == Network::Lifecycle::GuestJourney::ConnectionFailure) {
                     current.journey = NetworkJourney::Failure; current.failure = std::string(failure);
+                    current.retryAllowed = false;
+                    current.retryBlockReason = NetworkRetryBlockReason::TerminalReconnect;
                 } else if (journey == Network::Lifecycle::GuestJourney::Reconnecting)
                     current.journey = NetworkJourney::Reconnecting;
             };
@@ -123,7 +145,12 @@ namespace Duel6::Client {
                 current.journey = NetworkJourney::Failure;
                 if (current.failure.empty()) current.failure = finalLine(output.str());
                 if (current.failure.empty()) current.failure = result == 0 ? "Connection ended." : "Connection timed out.";
-                current.retryAllowed = current.reconnectSeconds.has_value() ? false : true;
+                if (current.retryBlockReason == NetworkRetryBlockReason::TerminalReconnect) {
+                    current.retryAllowed = false;
+                } else if (current.retryBlockReason != NetworkRetryBlockReason::RestartRequired) {
+                    current.retryAllowed = true;
+                    current.retryBlockReason = NetworkRetryBlockReason::None;
+                }
             }
         });
         return true;
@@ -135,9 +162,21 @@ namespace Duel6::Client {
             std::vector<Network::Responsiveness::PresentedPlayerPose> presentedPlayers,
             std::vector<Network::Replication::PresentationEvent> events) {
         std::lock_guard<std::mutex> lock(mutex);
+        applyCanonicalLocked(state, presentation, std::move(presentedPlayers), std::move(events));
+    }
+
+    void NetworkSessionRuntime::applyCanonicalLocked(
+            const Network::Replication::CanonicalState &state,
+            const Network::Responsiveness::ConnectionPresentationState &presentation,
+            std::vector<Network::Responsiveness::PresentedPlayerPose> presentedPlayers,
+            std::vector<Network::Replication::PresentationEvent> events) {
         current.canonical = state; current.presentation = presentation;
         current.presentedPlayers = std::move(presentedPlayers);
-        current.presentationEvents = std::move(events);
+        current.presentationEvents.insert(current.presentationEvents.end(), events.begin(), events.end());
+        if (current.presentationEvents.size() > Network::Replication::MaxReplicatedEvents) {
+            current.presentationEvents.erase(current.presentationEvents.begin(),
+                    current.presentationEvents.end() - Network::Replication::MaxReplicatedEvents);
+        }
         if (current.host) current.localParticipantId = state.hostParticipantId;
         current.journey = journeyFor(state); current.status = "Connected";
     }
@@ -146,8 +185,26 @@ namespace Duel6::Client {
         const auto message = Network::HostComposition::deserialize(payload);
         if (!message) return;
         if (message->kind == Network::HostComposition::Kind::CanonicalSnapshot) {
-            const auto frame = Network::Replication::deserializeReplicationFrame(message->payload);
-            if (frame && frame->snapshot) applyCanonical(frame->snapshot->state);
+            std::lock_guard<std::mutex> lock(mutex);
+            if (!hostPresentation) {
+                hostPresentation = std::make_unique<Network::Replication::ClientReplicationConnection>(
+                        [](std::vector<std::uint8_t>) { return Network::SendResult::Accepted; },
+                        Network::Responsiveness::Environment::SameMachine);
+            }
+            const auto acceptedAt = Network::Responsiveness::Clock::now();
+            const auto result = hostPresentation->receive(message->payload, acceptedAt);
+            if (result != Network::Replication::ClientReplicationResult::Applied) return;
+            (void) hostPresentation->observeNetworkSample({std::chrono::milliseconds::zero(), 1, 0}, acceptedAt);
+            const auto *state = hostPresentation->replicatedState().retainedState();
+            if (!state) return;
+            const auto host = std::find_if(state->participants.begin(), state->participants.end(),
+                    [state](const auto &participant) { return participant.participantId == state->hostParticipantId; });
+            if (host != state->participants.end()) {
+                hostPresentation->setLocallyControlledPlayers(
+                        std::set<Network::Replication::Identity>(host->ownedPlayerIds.begin(), host->ownedPlayerIds.end()));
+            }
+            applyCanonicalLocked(*state, hostPresentation->presentationState(acceptedAt),
+                    hostPresentation->presentedPlayers(acceptedAt), hostPresentation->takePresentationEvents());
         } else if (message->kind == Network::HostComposition::Kind::PlayerInputOutcome) {
             std::lock_guard<std::mutex> lock(mutex);
             if (hostInput) (void) hostInput->receive(message->payload);
@@ -157,10 +214,26 @@ namespace Duel6::Client {
     void NetworkSessionRuntime::observeHostLifecycle(const HostServiceSnapshot &value) {
         std::lock_guard<std::mutex> lock(mutex);
         if (value.state == HostServiceState::Stopping) {
-            current.journey = NetworkJourney::Cancelling; current.status = "Cancelling session…";
+            if (value.stopReason == HostServiceStopReason::StartupFailure
+                || value.stopReason == HostServiceStopReason::SessionFailure) {
+                current.journey = NetworkJourney::Failure;
+                current.failure = value.stopReason == HostServiceStopReason::SessionFailure
+                                  ? "Hosted session stopped unexpectedly."
+                                  : "Hosted session could not start.";
+                current.retryAllowed = false;
+                current.retryBlockReason = NetworkRetryBlockReason::CleanupInProgress;
+            } else {
+                current.journey = NetworkJourney::Cancelling; current.status = "Cancelling session…";
+            }
         } else if (value.state == HostServiceState::StartupFailed || value.state == HostServiceState::SessionFailed) {
             current.journey = NetworkJourney::Failure; current.failure = hostServiceOutcomeCopy(value.outcome);
             current.retryAllowed = value.retryAllowed;
+            current.retryBlockReason = value.retryAllowed ? NetworkRetryBlockReason::None
+                    : value.outcome == HostServiceOutcome::HostManifestInvalid
+                      ? NetworkRetryBlockReason::RestartRequired
+                      : value.state == HostServiceState::SessionFailed
+                        ? NetworkRetryBlockReason::EndedSession
+                        : NetworkRetryBlockReason::InvalidSetup;
         } else if (value.state == HostServiceState::NoService
                    && current.journey == NetworkJourney::Cancelling) {
             current = {};
@@ -186,6 +259,11 @@ namespace Duel6::Client {
             std::lock_guard<std::mutex> lock(mutex);
             for (std::size_t index = 0; index < players.size(); ++index)
                 sampledActions[index] = sampleActionsOnInputThread(index);
+            if (current.host && hostPresentation && current.canonical) {
+                const auto now = Network::Responsiveness::Clock::now();
+                current.presentation = hostPresentation->presentationState(now);
+                current.presentedPlayers = hostPresentation->presentedPlayers(now);
+            }
             if (!current.host || !current.canonical
                 || current.canonical->phase != Network::Replication::Phase::ActiveRound
                 || (submittedHostTick && *submittedHostTick == current.canonical->phaseTime)) return;
@@ -213,6 +291,21 @@ namespace Duel6::Client {
         for (const auto &binding: bindings) {
             std::lock_guard<std::mutex> lock(mutex);
             const auto actions = binding.second < sampledActions.size() ? sampledActions[binding.second] : 0u;
+            if (hostPresentation && current.canonical) {
+                const auto player = std::find_if(current.canonical->players.begin(), current.canonical->players.end(),
+                        [&](const auto &value) { return value.playerId == binding.first; });
+                if (player != current.canonical->players.end()) {
+                    Network::Responsiveness::PresentedPlayerPose predicted{
+                            player->playerId, saturatedAdd(player->positionX, player->velocityX),
+                            saturatedAdd(player->positionY, player->velocityY), player->facingLeft, player->crouching};
+                    const bool left = (actions & Network::Input::MoveLeft) != 0;
+                    const bool right = (actions & Network::Input::MoveRight) != 0;
+                    if (left != right) predicted.facingLeft = left;
+                    predicted.crouching = (actions & Network::Input::Crouch) != 0;
+                    (void) hostPresentation->predictLocalMovement(
+                            predicted, Network::Responsiveness::Clock::now());
+                }
+            }
             if (hostInput) (void) hostInput->submit(binding.first, tick, actions);
         }
     }
@@ -239,6 +332,19 @@ namespace Duel6::Client {
         if (localPlayers.size() != players.size()) return;
         players = std::move(localPlayers);
         sampledActions.assign(players.size(), 0);
+    }
+    void NetworkSessionRuntime::ownedPersonsChanged() {
+        std::vector<std::string> names;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            for (const auto &player: players) names.push_back(player.name);
+            if (!supervisor) {
+                pendingGuestConfiguration = std::move(names);
+                return;
+            }
+        }
+        try { if (supervisor) (void) supervisor->sendSessionPayload(
+                Network::HostComposition::serializeOwnedPersons(names)); } catch (...) {}
     }
     void NetworkSessionRuntime::localConfigurationChanged() {
         if (supervisor) sendHostAction(Network::HostComposition::Kind::ConfigurationChanged);
@@ -282,6 +388,7 @@ namespace Duel6::Client {
         if (supervisor) { supervisor->applicationExit(); supervisor.reset(); }
         std::lock_guard<std::mutex> lock(mutex);
         current = {}; players.clear(); sampledActions.clear(); ownedPlayerBindings.clear(); pendingGuestAction.reset();
-        hostInput.reset(); submittedHostTick.reset();
+        pendingGuestConfiguration.reset();
+        hostInput.reset(); hostPresentation.reset(); submittedHostTick.reset();
     }
 }

@@ -126,6 +126,11 @@ namespace Duel6 {
     bool Weapon::isChargeable() const {
         return impl->isChargeable();
     }
+
+    Texture Weapon::getNetworkProjectileTexture() const { return impl->getNetworkProjectileTexture(); }
+    Texture Weapon::getNetworkExplosionTexture() const { return impl->getNetworkExplosionTexture(); }
+    void Weapon::playNetworkShotSound() const { impl->playNetworkShotSound(); }
+    void Weapon::playNetworkExplosionSound() const { impl->playNetworkExplosionSound(); }
 #ifndef D6R_HEADLESS_CORE
     void Weapon::initialize(Sound &sound, TextureManager &textureManager) {
         add(std::make_unique<Pistol>(sound, textureManager));

@@ -44,6 +44,7 @@ namespace Duel6 {
         SetupScreen setupScreen = SetupScreen::Entry;
         std::string address = "127.0.0.1";
         std::string hostAddress;
+        std::vector<std::string> hostAddresses;
         std::string port = std::to_string(Network::DefaultServerPort);
         int focus = 0;
         int setupScroll = 0;
@@ -55,6 +56,7 @@ namespace Duel6 {
         bool controllerConfirm = false, controllerBack = false, controllerUp = false, controllerDown = false;
         bool controllerSessionBack = false;
         Client::NetworkJourney lastJourney = Client::NetworkJourney::Inactive;
+        bool previousRetryEligible = false;
 
         void beforeStart(Context *) override;
         void beforeClose(Context *) override;
@@ -63,16 +65,24 @@ namespace Duel6 {
         void moveFocus(int direction);
         void rescanControls();
         void cycleControl(std::size_t playerIndex, int direction = 1);
+        void cyclePerson(std::size_t playerIndex, int direction = 1);
         bool setupValid(std::string &reason) const;
+        bool retryEligible(const Client::NetworkRuntimeSnapshot &snapshot, std::string &reason) const;
         bool startEligible(const Client::NetworkRuntimeSnapshot &snapshot, std::string &reason) const;
         bool localReadyEligible(std::string &reason) const;
         bool endpoint(Network::Endpoint &result) const;
         std::string serverExecutable() const;
         void drawText(Int32 x, Int32 y, const std::string &text, Color color = Color::BLACK) const;
+        void drawClippedText(Int32 x, Int32 y, const std::string &text, std::size_t characters,
+                             Color color = Color::BLACK) const;
+        void drawWrappedText(Int32 x, Int32 y, const std::string &text,
+                             std::size_t charactersPerLine, std::size_t maximumLines,
+                             Color color = Color::BLACK) const;
         void drawAction(Int32 y, const std::string &text, bool selected) const;
         void drawPlayers(const Network::Replication::CanonicalState &state) const;
         void drawMatch(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;
         void drawReconnectPanel(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;
+        void drawHostEndedPanel(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;
         void drawResult(const Network::Replication::CanonicalState &state, bool retained) const;
         void drawConfirmation() const;
     };

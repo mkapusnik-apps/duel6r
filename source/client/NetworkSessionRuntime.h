@@ -17,10 +17,20 @@
 #include "../network/Protocol.h"
 #include "../network/SessionLifecycle.h"
 #include "../network/StateReplication.h"
+#include "../network/StateReplicationProtocol.h"
 
 namespace Duel6::Client {
     enum class NetworkJourney { Inactive, Starting, Cancelling, Lobby, Match, Summary,
                                 Reconnecting, Failure, HostEnded };
+
+    enum class NetworkRetryBlockReason {
+        None,
+        CleanupInProgress,
+        InvalidSetup,
+        RestartRequired,
+        EndedSession,
+        TerminalReconnect
+    };
 
     struct NetworkLocalPlayer {
         std::string name;
@@ -41,6 +51,7 @@ namespace Duel6::Client {
         std::string status;
         std::string failure;
         bool retryAllowed = false;
+        NetworkRetryBlockReason retryBlockReason = NetworkRetryBlockReason::None;
     };
 
     class NetworkSessionRuntime final {
@@ -62,6 +73,7 @@ namespace Duel6::Client {
         void advanceRound();
         void updateHostSetup(const Network::HostComposition::Setup &setup);
         void rebindLocalPlayers(std::vector<NetworkLocalPlayer> players);
+        void ownedPersonsChanged();
         void localConfigurationChanged();
         void moveRosterPlayer(Network::Replication::Identity playerId, int direction);
         void update();
@@ -75,7 +87,9 @@ namespace Duel6::Client {
         std::vector<std::uint32_t> sampledActions;
         std::map<Network::Replication::Identity, std::size_t> ownedPlayerBindings;
         std::optional<Network::Lifecycle::ParticipantActionKind> pendingGuestAction;
+        std::optional<std::vector<std::string>> pendingGuestConfiguration;
         std::unique_ptr<Network::Input::ClientCommandSession> hostInput;
+        std::unique_ptr<Network::Replication::ClientReplicationConnection> hostPresentation;
         std::optional<std::uint64_t> submittedHostTick;
         std::unique_ptr<HostServiceSupervisor> supervisor;
         std::thread guestWorker;
@@ -87,6 +101,10 @@ namespace Duel6::Client {
                             const Network::Responsiveness::ConnectionPresentationState &presentation = {},
                             std::vector<Network::Responsiveness::PresentedPlayerPose> presentedPlayers = {},
                             std::vector<Network::Replication::PresentationEvent> events = {});
+        void applyCanonicalLocked(const Network::Replication::CanonicalState &state,
+                                  const Network::Responsiveness::ConnectionPresentationState &presentation,
+                                  std::vector<Network::Responsiveness::PresentedPlayerPose> presentedPlayers,
+                                  std::vector<Network::Replication::PresentationEvent> events);
         std::uint32_t sampleActionsOnInputThread(std::size_t binding) const;
         void sendHostAction(Network::HostComposition::Kind kind);
         void stopGuest();

@@ -159,7 +159,8 @@ namespace Duel6 {
                            std::vector<std::string> levels) {
         runtime.reset(); localPlayers = std::move(players); hostSetup = std::move(setup);
         availablePersons = std::move(persons); availableLevels = std::move(levels);
-        hostAddress = Network::Trust::preferredLocalListenerAddress().value_or(std::string());
+        hostAddresses = Network::Trust::localListenerAddresses().value_or(std::vector<std::string>{});
+        hostAddress = hostAddresses.empty() ? std::string() : hostAddresses.front();
         for (auto &player: localPlayers)
             if (player.controlDescription.empty() && player.controls)
                 player.controlDescription = player.controls->getDescription();
@@ -222,6 +223,29 @@ namespace Duel6 {
         return true;
     }
 
+    bool NetworkMenu::retryEligible(
+            const Client::NetworkRuntimeSnapshot &snapshot, std::string &reason) const {
+        if (!snapshot.retryAllowed) {
+            reason = "Edit setup before you retry.";
+            if (snapshot.retryBlockReason == Client::NetworkRetryBlockReason::CleanupInProgress)
+                reason = "Cleanup in progress.";
+            else if (snapshot.retryBlockReason == Client::NetworkRetryBlockReason::RestartRequired)
+                reason = "Restart the application to try again.";
+            else if (snapshot.retryBlockReason == Client::NetworkRetryBlockReason::EndedSession)
+                reason = "This ended session cannot be restored. Edit setup to start a new session.";
+            else if (snapshot.retryBlockReason == Client::NetworkRetryBlockReason::TerminalReconnect)
+                reason = "This session cannot be restored.";
+            return false;
+        }
+        std::string setupReason;
+        if (!setupValid(setupReason)) {
+            reason = "Edit setup before you retry.";
+            return false;
+        }
+        reason.clear();
+        return true;
+    }
+
     bool NetworkMenu::startEligible(const Client::NetworkRuntimeSnapshot &snap, std::string &reason) const {
         if (!snap.canonical) { reason = "Waiting for authoritative lobby state."; return false; }
         const auto &state = *snap.canonical;
@@ -274,6 +298,28 @@ namespace Duel6 {
         }
     }
 
+    void NetworkMenu::cyclePerson(std::size_t playerIndex, int direction) {
+        if (playerIndex >= localPlayers.size() || availablePersons.empty()) return;
+        const auto current = std::find(availablePersons.begin(), availablePersons.end(), localPlayers[playerIndex].name);
+        std::size_t index = current == availablePersons.end() ? 0
+                : static_cast<std::size_t>(std::distance(availablePersons.begin(), current));
+        for (std::size_t attempt = 0; attempt < availablePersons.size(); ++attempt) {
+            index = static_cast<std::size_t>((static_cast<int>(index) + direction
+                    + static_cast<int>(availablePersons.size())) % static_cast<int>(availablePersons.size()));
+            const bool alreadySelected = std::any_of(localPlayers.begin(), localPlayers.end(), [&](const auto &player) {
+                return &player != &localPlayers[playerIndex] && player.name == availablePersons[index];
+            });
+            if (!alreadySelected) {
+                localPlayers[playerIndex].name = availablePersons[index];
+                hostSetup.localPlayerNames.clear();
+                for (const auto &player: localPlayers) hostSetup.localPlayerNames.push_back(player.name);
+                runtime.rebindLocalPlayers(localPlayers);
+                runtime.ownedPersonsChanged();
+                return;
+            }
+        }
+    }
+
     void NetworkMenu::rescanControls() {
         std::vector<std::string> retained;
         for (const auto &player: localPlayers) retained.push_back(player.controlDescription);
@@ -313,14 +359,17 @@ namespace Duel6 {
         if (confirmation != Confirmation::None) count = 2;
         else if (snap.journey == Client::NetworkJourney::Inactive) {
             if (setupScreen == SetupScreen::Entry) count = 3;
-            else count = (setupScreen == SetupScreen::Join ? 2 : 1)
-                         + static_cast<int>(availablePersons.size())
+            else count = 2
+                          + static_cast<int>(availablePersons.size())
                          + static_cast<int>(localPlayers.size()) * 2 + 2;
         } else if (snap.journey == Client::NetworkJourney::Lobby) {
-            count = static_cast<int>(localPlayers.size()) + 2;
+            count = static_cast<int>(localPlayers.size()) * 2 + 2;
             if (snap.host) count += 9 + static_cast<int>(snap.canonical ? snap.canonical->players.size() : 0) + 1;
         } else if (snap.journey == Client::NetworkJourney::Summary) count = snap.host ? 2 : 1;
-        else if (snap.journey == Client::NetworkJourney::Failure) count = snap.retryAllowed ? 3 : 2;
+        else if (snap.journey == Client::NetworkJourney::Failure) {
+            std::string reason;
+            count = retryEligible(snap, reason) ? 3 : 2;
+        }
         focus = (focus + direction + count) % count;
     }
 
@@ -341,7 +390,15 @@ namespace Duel6 {
                 else { close(); return; }
                 focus = 0; return;
             }
-            const int fields = setupScreen == SetupScreen::Join ? 2 : 1;
+            const int fields = 2;
+            if (setupScreen == SetupScreen::Host && focus == 0 && !hostAddresses.empty()) {
+                const auto selected = std::find(hostAddresses.begin(), hostAddresses.end(), hostAddress);
+                const auto index = selected == hostAddresses.end() ? 0u
+                        : (static_cast<std::size_t>(std::distance(hostAddresses.begin(), selected)) + 1u)
+                          % hostAddresses.size();
+                hostAddress = hostAddresses[index];
+                return;
+            }
             if (focus < fields) return;
             int action = focus - fields;
             if (action < static_cast<int>(availablePersons.size())) {
@@ -373,8 +430,12 @@ namespace Duel6 {
         }
         if (snap.journey == Client::NetworkJourney::Starting) { runtime.cancel(); return; }
         if (snap.journey == Client::NetworkJourney::Lobby) {
-            if (focus < static_cast<int>(localPlayers.size())) { cycleControl(static_cast<std::size_t>(focus)); return; }
-            int action = focus - static_cast<int>(localPlayers.size());
+            if (focus < static_cast<int>(localPlayers.size()) * 2) {
+                const auto player = static_cast<std::size_t>(focus / 2);
+                if (focus % 2 == 0) cyclePerson(player); else cycleControl(player);
+                return;
+            }
+            int action = focus - static_cast<int>(localPlayers.size()) * 2;
             bool ready = false;
             if (snap.canonical) {
                 const auto participant = std::find_if(snap.canonical->participants.begin(), snap.canonical->participants.end(),
@@ -437,8 +498,10 @@ namespace Duel6 {
         } else if (snap.journey == Client::NetworkJourney::HostEnded) {
             runtime.reset(); setupScreen = SetupScreen::Entry; focus = 0;
         } else if (snap.journey == Client::NetworkJourney::Failure) {
+            std::string retryReason;
+            const bool canRetry = retryEligible(snap, retryReason);
             int action = focus;
-            if (!snap.retryAllowed) ++action;
+            if (!canRetry) ++action;
             if (action == 0) {
                 Network::Endpoint target; if (!endpoint(target)) return;
                 runtime.reset();
@@ -461,7 +524,7 @@ namespace Duel6 {
         } else if (snap.journey == Client::NetworkJourney::HostEnded) {
             runtime.reset(); setupScreen = SetupScreen::Entry; focus = 0;
         } else if (snap.journey == Client::NetworkJourney::Lobby) {
-            focus = static_cast<int>(localPlayers.size()) + 1;
+            focus = static_cast<int>(localPlayers.size()) * 2 + 1;
             if (snap.host) focus += 10 + static_cast<int>(snap.canonical ? snap.canonical->players.size() : 0);
         } else if (snap.journey == Client::NetworkJourney::Match
                    || snap.journey == Client::NetworkJourney::Summary
@@ -503,7 +566,8 @@ namespace Duel6 {
         else if ((setupScreen == SetupScreen::Host || setupScreen == SetupScreen::Join)
                  && snap.journey == Client::NetworkJourney::Inactive) {
             std::string *field = setupScreen == SetupScreen::Join && focus == 0 ? &address : &port;
-            if ((focus == 0 || (setupScreen == SetupScreen::Join && focus == 1))
+            if (((setupScreen == SetupScreen::Join && (focus == 0 || focus == 1))
+                 || (setupScreen == SetupScreen::Host && focus == 1))
                 && event.getCode() == SDLK_BACKSPACE && !field->empty()) field->pop_back();
         }
     }
@@ -511,7 +575,7 @@ namespace Duel6 {
     void NetworkMenu::textInputEvent(const TextInputEvent &event) {
         if (runtime.snapshot().journey != Client::NetworkJourney::Inactive || setupScreen == SetupScreen::Entry) return;
         const bool addressField = setupScreen == SetupScreen::Join && focus == 0;
-        const bool portField = focus == (setupScreen == SetupScreen::Join ? 1 : 0);
+        const bool portField = focus == 1;
         if (!addressField && !portField) return;
         std::string *field = addressField ? &address : &port;
         for (char c: std::string(event.getText())) {
@@ -524,7 +588,8 @@ namespace Duel6 {
     void NetworkMenu::update(Float32 elapsedTime) {
         runtime.update();
         const auto currentSnapshot = runtime.snapshot();
-        worldPresenter.update(elapsedTime, currentSnapshot.canonical ? &*currentSnapshot.canonical : nullptr);
+        worldPresenter.update(elapsedTime, currentSnapshot.canonical ? &*currentSnapshot.canonical : nullptr,
+                              currentSnapshot.presentationEvents);
         for (auto iterator = playerStatusRemaining.begin(); iterator != playerStatusRemaining.end();) {
             iterator->second -= elapsedTime;
             if (iterator->second <= 0) iterator = playerStatusRemaining.erase(iterator); else ++iterator;
@@ -551,17 +616,50 @@ namespace Duel6 {
             controllerConfirm = confirmNow; controllerBack = backNow; controllerUp = up; controllerDown = down;
         }
         if (currentSnapshot.journey != lastJourney) {
-            focus = currentSnapshot.journey == Client::NetworkJourney::Failure
-                    && currentSnapshot.host && currentSnapshot.retryAllowed
-                    && currentSnapshot.failure == "The selected port is unavailable. Choose another port and try again."
-                    ? 1 : 0;
+            std::string retryReason;
+            const bool canRetry = currentSnapshot.journey == Client::NetworkJourney::Failure
+                                  && retryEligible(currentSnapshot, retryReason);
+            focus = canRetry && currentSnapshot.host
+                    && currentSnapshot.failure == "The selected port is unavailable. Choose another port and try again." ? 1 : 0;
             confirmation = Confirmation::None; scoreOverlay = false; summaryScroll = 0; summaryHorizontal = 0;
             if (currentSnapshot.journey != Client::NetworkJourney::Match) playerStatusRemaining.clear();
             lastJourney = currentSnapshot.journey;
+            previousRetryEligible = canRetry;
+        } else if (currentSnapshot.journey == Client::NetworkJourney::Failure) {
+            std::string retryReason;
+            const bool canRetry = retryEligible(currentSnapshot, retryReason);
+            if (canRetry != previousRetryEligible) {
+                focus = canRetry && currentSnapshot.host
+                        && currentSnapshot.failure == "The selected port is unavailable. Choose another port and try again." ? 1 : 0;
+                previousRetryEligible = canRetry;
+            } else if (focus >= (canRetry ? 3 : 2)) focus = 0;
+        } else {
+            previousRetryEligible = false;
         }
     }
 
     void NetworkMenu::drawText(Int32 x, Int32 y, const std::string &text, Color color) const { font.print(x, y, color, text); }
+    void NetworkMenu::drawClippedText(Int32 x, Int32 y, const std::string &text,
+                                      std::size_t characters, Color color) const {
+        if (text.size() <= characters) drawText(x, y, text, color);
+        else if (characters > 3) drawText(x, y, text.substr(0, characters - 3) + "...", color);
+    }
+    void NetworkMenu::drawWrappedText(Int32 x, Int32 y, const std::string &text,
+                                      std::size_t charactersPerLine, std::size_t maximumLines,
+                                      Color color) const {
+        std::size_t offset = 0;
+        for (std::size_t line = 0; line < maximumLines && offset < text.size(); ++line) {
+            std::size_t count = std::min(charactersPerLine, text.size() - offset);
+            if (offset + count < text.size()) {
+                const auto space = text.rfind(' ', offset + count);
+                if (space != std::string::npos && space >= offset) count = space - offset;
+            }
+            if (count == 0) count = std::min(charactersPerLine, text.size() - offset);
+            drawText(x, y - static_cast<Int32>(line) * 18, text.substr(offset, count), color);
+            offset += count;
+            while (offset < text.size() && text[offset] == ' ') ++offset;
+        }
+    }
     void NetworkMenu::drawAction(Int32 y, const std::string &text, bool selected) const {
         renderer.quadXY(Vector(275, y), Vector(300, 32), selected ? Color(64, 96, 160) : Color(192));
         drawText(425 - static_cast<Int32>(text.size()) * 4, y + 8, text, selected ? Color::WHITE : Color::BLACK);
@@ -569,18 +667,21 @@ namespace Duel6 {
 
     void NetworkMenu::drawPlayers(const Network::Replication::CanonicalState &state) const {
         Int32 y = 492;
+        const Int32 bottom = state.result.available ? 380 : 270;
         int row = 0;
-        for (std::size_t participantIndex = 0; participantIndex < state.participants.size() && y > 270; ++participantIndex) {
+        for (std::size_t participantIndex = 0; participantIndex < state.participants.size() && y > bottom; ++participantIndex) {
             const auto &participant = state.participants[participantIndex];
             if (row++ >= setupScroll) {
                 drawText(54, y, participantLabel(state, participant.participantId));
                 drawText(155, y, participant.connection == Network::Replication::ConnectionState::Connected ? "Connected" : "Reconnecting");
-                drawText(270, y, participant.ready ? "Ready" : "Not ready"); y -= 18;
+                drawText(270, y, participant.ready ? "Ready" : "Not ready");
+                drawText(350, y, std::to_string(participant.ownedPlayerIds.size())); y -= 18;
             }
             for (auto id: participant.ownedPlayerIds) {
                 const auto player = std::find_if(state.players.begin(), state.players.end(), [id](const auto &p) { return p.playerId == id; });
-                if (row++ >= setupScroll && y > 270) {
-                    if (player != state.players.end()) drawText(72, y, std::to_string(player->rosterPosition + 1) + ". " + player->displayName);
+                if (row++ >= setupScroll && y > bottom) {
+                    if (player != state.players.end()) drawClippedText(
+                            72, y, std::to_string(player->rosterPosition + 1) + ". " + player->displayName, 25);
                     y -= 16;
                 }
             }
@@ -605,7 +706,7 @@ namespace Duel6 {
             const auto player = std::find_if(state.players.begin(), state.players.end(), [id](const auto &p) { return p.playerId == id; });
             const auto score = std::find_if(state.score.players.begin(), state.score.players.end(), [id](const auto &p) { return p.playerId == id; });
             if (player != state.players.end()) {
-                const std::string line = std::to_string(rank + 1) + ". " + player->displayName + "  "
+                const std::string line = std::to_string(rank + 1) + ". " + player->displayName.substr(0, 24) + "  "
                         + (score == state.score.players.end() ? "0" : std::to_string(score->cumulativePoints));
                 drawText(width - 16 - static_cast<Int32>(line.size()) * 8, rankY, line, Color::WHITE); rankY -= 16;
             }
@@ -614,7 +715,7 @@ namespace Duel6 {
         for (const auto &player: state.players) {
             const auto status = playerStatusRemaining.find(player.playerId);
             if (status == playerStatusRemaining.end()) continue;
-            drawText(16, statusY, player.displayName + " • Life " + std::to_string(player.life)
+            drawText(16, statusY, player.displayName.substr(0, 24) + " • Life " + std::to_string(player.life)
                              + " • " + player.heldWeapon + " " + std::to_string(player.ammunition), Color::WHITE);
             statusY += 16;
         }
@@ -663,9 +764,27 @@ namespace Duel6 {
         drawText(x + panelWidth / 2 - 52, y + 32, "Leave session", Color::WHITE);
     }
 
+    void NetworkMenu::drawHostEndedPanel(
+            const Client::NetworkRuntimeSnapshot &snap, Int32 width, Int32 height) const {
+        const Int32 panelWidth = std::min<Int32>(640, width - 32);
+        const Int32 panelHeight = std::min<Int32>(260, height - 32);
+        const Int32 x = (width - panelWidth) / 2, y = (height - panelHeight) / 2;
+        renderer.setBlendFunc(BlendFunc::SrcAlpha);
+        renderer.quadXY(Vector(x, y), Vector(panelWidth, panelHeight), Color(224, 224, 224, 248));
+        renderer.setBlendFunc(BlendFunc::None);
+        drawText(x + 24, y + panelHeight - 40, "HOST ENDED SESSION");
+        drawText(x + 24, y + panelHeight - 76, "The host ended the session");
+        drawText(x + 24, y + panelHeight - 100, "This session cannot be resumed");
+        if (snap.canonical && snap.canonical->matchId != 0)
+            drawText(x + 24, y + panelHeight - 134,
+                     "Session-only results were not saved to local statistics or Elo");
+        renderer.quadXY(Vector(x + panelWidth / 2 - 110, y + 24), Vector(220, 34), Color(64, 96, 160));
+        drawText(x + panelWidth / 2 - 68, y + 32, "Return to Network", Color::WHITE);
+    }
+
     void NetworkMenu::drawResult(const Network::Replication::CanonicalState &state, bool retained) const {
         const Int32 top = retained ? 365 : 610;
-        const Int32 bottom = retained || state.phase == Network::Replication::Phase::FinalSummary ? 120 : 62;
+        const Int32 bottom = retained ? 190 : state.phase == Network::Replication::Phase::FinalSummary ? 120 : 62;
         renderer.setBlendFunc(BlendFunc::SrcAlpha);
         renderer.quadXY(Vector(32, bottom), Vector(786, top - bottom), Color(224, 224, 224, 240));
         renderer.setBlendFunc(BlendFunc::None);
@@ -716,6 +835,14 @@ namespace Duel6 {
         const auto width = service.getVideo().getScreen().getClientWidth();
         const auto height = service.getVideo().getScreen().getClientHeight();
         const auto snap = runtime.snapshot();
+        if (snap.journey == Client::NetworkJourney::HostEnded && snap.canonical
+            && (snap.canonical->phase == Network::Replication::Phase::ActiveRound
+                || snap.canonical->phase == Network::Replication::Phase::RoundSummary)) {
+            worldPresenter.render(*snap.canonical, snap.presentation, snap.presentedPlayers, width, height);
+            renderer.setViewMatrix(Matrix::IDENTITY);
+            drawHostEndedPanel(snap, width, height);
+            return;
+        }
         if (snap.journey == Client::NetworkJourney::Reconnecting && snap.canonical
             && (snap.canonical->phase == Network::Replication::Phase::ActiveRound
                 || snap.canonical->phase == Network::Replication::Phase::RoundSummary)) {
@@ -740,6 +867,10 @@ namespace Duel6 {
         else if (snap.journey == Client::NetworkJourney::Summary) title = "MATCH SUMMARY";
         else if (snap.journey == Client::NetworkJourney::Reconnecting) title = "RECONNECTING";
         else if (snap.journey == Client::NetworkJourney::Failure) title = snap.host ? "SESSION ENDED" : "CONNECTION FAILED";
+        else if (snap.journey == Client::NetworkJourney::HostEnded && snap.canonical
+                 && snap.canonical->phase == Network::Replication::Phase::Lobby) title = "NETWORK LOBBY";
+        else if (snap.journey == Client::NetworkJourney::HostEnded && snap.canonical
+                 && snap.canonical->phase == Network::Replication::Phase::FinalSummary) title = "MATCH SUMMARY";
         else if (snap.journey == Client::NetworkJourney::HostEnded) title = "HOST ENDED SESSION";
         drawText(425 - static_cast<Int32>(title.size()) * 4, 620, title);
 
@@ -749,12 +880,13 @@ namespace Duel6 {
             drawText(165, 465, "Player-hosted • Lobby 1–15 • Match 2–15 participants and players");
             drawAction(375, "Host", focus == 0); drawAction(330, "Join", focus == 1); drawAction(285, "Back", focus == 2);
         } else if (snap.journey == Client::NetworkJourney::Inactive) {
-            const int fields = setupScreen == SetupScreen::Join ? 2 : 1;
+            const int fields = 2;
             Int32 y = 570;
-            if (setupScreen == SetupScreen::Join) { drawText(50, y, "Address: " + address + (focus == 0 ? " <" : "")); y -= 24; }
-            drawText(50, y, "Port: " + port + (focus == fields - 1 ? " <" : ""));
-            if (setupScreen == SetupScreen::Host && !hostAddress.empty())
-                drawText(430, y, "Listening address: " + hostAddress);
+            if (setupScreen == SetupScreen::Join)
+                drawClippedText(50, y, "Address: " + address + (focus == 0 ? " <" : ""), 88);
+            else drawText(50, y, "Listening interface: " + hostAddress + (focus == 0 ? " < Enter selects" : ""));
+            y -= 24;
+            drawText(50, y, "Port: " + port + (focus == 1 ? " <" : ""));
             drawText(50, 512, "PERSONS"); drawText(430, 512, "LOCAL PLAYERS AND CONTROLS");
             const int focusedPerson = focus >= fields && focus < fields + static_cast<int>(availablePersons.size())
                                       ? focus - fields : 0;
@@ -762,17 +894,17 @@ namespace Duel6 {
             y = 490;
             for (std::size_t index = firstPerson; index < availablePersons.size() && index < firstPerson + 10; ++index, y -= 18) {
                 const bool selected = std::any_of(localPlayers.begin(), localPlayers.end(), [&](const auto &p) { return p.name == availablePersons[index]; });
-                drawText(54, y, (focus == fields + static_cast<int>(index) ? "> " : "  ") + availablePersons[index]
-                                + (selected ? " • Selected" : " • Add"));
+                drawClippedText(54, y, (focus == fields + static_cast<int>(index) ? "> " : "  ") + availablePersons[index]
+                                        + (selected ? " • Selected" : " • Add"), 42);
             }
             y = 490; const int playerBase = fields + static_cast<int>(availablePersons.size());
             const int focusedPlayer = focus >= playerBase && focus < playerBase + static_cast<int>(localPlayers.size()) * 2
                                       ? (focus - playerBase) / 2 : 0;
             const std::size_t firstPlayer = static_cast<std::size_t>(std::max(0, focusedPlayer - 9));
             for (std::size_t index = firstPlayer; index < localPlayers.size() && index < firstPlayer + 10; ++index, y -= 22) {
-                drawText(434, y, (focus == playerBase + static_cast<int>(index) * 2 ? "> " : "  ")
-                                + localPlayers[index].name + " • "
-                                + (localPlayers[index].controls ? localPlayers[index].controls->getDescription() : "No control"));
+                drawClippedText(434, y, (focus == playerBase + static_cast<int>(index) * 2 ? "> " : "  ")
+                                       + localPlayers[index].name + " • "
+                                       + (localPlayers[index].controls ? localPlayers[index].controls->getDescription() : "No control"), 35);
                 drawText(730, y, focus == playerBase + static_cast<int>(index) * 2 + 1 ? "> Remove" : "Remove");
             }
             std::string reason; const bool valid = setupValid(reason);
@@ -790,46 +922,65 @@ namespace Duel6 {
             }
         } else if (snap.canonical && snap.journey == Client::NetworkJourney::Lobby) {
             const auto &state = *snap.canonical;
-            drawText(50, 582, (snap.host ? "Host" : "Guest") + std::string(" • LAN session • ")
-                             + snap.endpoint.host + ":" + std::to_string(snap.endpoint.port) + " • "
-                             + std::to_string(state.participants.size()) + " participants • "
-                             + std::to_string(state.players.size()) + " players");
-            drawText(50, 552, "Role        Connection       Readiness"); drawPlayers(state);
+            drawClippedText(50, 582, (snap.host ? "Host" : "Guest") + std::string(" • LAN session • ")
+                                    + snap.endpoint.host + ":" + std::to_string(snap.endpoint.port) + " • "
+                                    + std::to_string(state.participants.size()) + " participants • "
+                                    + std::to_string(state.players.size()) + " players", 92);
+            drawText(50, 552, "Role        Connection       Readiness  Owned"); drawPlayers(state);
             drawText(410, 552, "HOST MATCH SETTINGS");
             drawText(410, 526, "Mode: " + state.settings.mode);
             drawText(410, 506, "Teams: " + std::to_string(state.settings.teamCount) + " • Friendly fire " + onOff(state.settings.friendlyFire));
-            drawText(410, 486, "Level plan: " + state.settings.levelPlan);
-            if (state.settings.levelPlan == "Fixed level") drawText(410, 466, "Level: " + state.settings.fixedLevel);
+            drawClippedText(410, 486, "Level plan: " + state.settings.levelPlan, 50);
+            if (state.settings.levelPlan == "Fixed level") drawClippedText(410, 466, "Level: " + state.settings.fixedLevel, 50);
             drawText(410, 446, "Rounds: " + std::to_string(state.settings.roundLimit));
             drawText(410, 426, "Assistance " + onOff(state.settings.assistance) + " • Quick Liquid " + onOff(state.settings.quickLiquid));
             drawText(410, 406, "Burnable Trees " + onOff(state.settings.burnableTrees));
-            const std::size_t firstControl = focus < static_cast<int>(localPlayers.size())
-                                             ? static_cast<std::size_t>(std::max(0, focus - 7)) : 0;
-            Int32 cy = 245;
-            for (std::size_t index = firstControl; index < localPlayers.size() && index < firstControl + 8; ++index, cy -= 18)
-                drawText(50, cy, (focus == static_cast<int>(index) ? "> " : "  ") + localPlayers[index].name
-                                + " control: " + (localPlayers[index].controls ? localPlayers[index].controls->getDescription() : "No control"));
-            const int readyIndex = static_cast<int>(localPlayers.size());
-            drawText(50, 192, focus == readyIndex ? "> Ready / Not ready" : "Ready / Not ready");
-            if (state.messages.status != "Lobby") drawText(50, 142, state.messages.status);
+            const bool retainedResult = state.result.available;
+            const std::size_t firstControl = focus < static_cast<int>(localPlayers.size()) * 2
+                                              ? static_cast<std::size_t>(std::max(0, focus / 2 - 7)) : 0;
+            Int32 cy = retainedResult ? 166 : 245;
+            const std::size_t visibleControls = retainedResult ? 1 : 8;
+            const std::size_t shownControl = retainedResult && focus < static_cast<int>(localPlayers.size()) * 2
+                                             ? static_cast<std::size_t>(focus / 2) : firstControl;
+            for (std::size_t index = shownControl; index < localPlayers.size() && index < shownControl + visibleControls; ++index, cy -= 18)
+                drawClippedText(50, cy,
+                        (focus == static_cast<int>(index) * 2 ? "> Person: " : "  Person: ") + localPlayers[index].name
+                        + (focus == static_cast<int>(index) * 2 + 1 ? "  > Control: " : "  Control: ")
+                        + (localPlayers[index].controls ? localPlayers[index].controls->getDescription() : "No control"), 43);
+            const int readyIndex = static_cast<int>(localPlayers.size()) * 2;
+            drawText(50, retainedResult ? 144 : 192,
+                     focus == readyIndex ? "> Ready / Not ready" : "Ready / Not ready");
+            if (state.messages.status != "Lobby" && (!snap.host || !retainedResult))
+                drawText(50, retainedResult ? 118 : 142, state.messages.status);
             if (snap.host) {
                 static const char *labels[] = {"Mode", "Team count", "Friendly fire", "Level plan", "Fixed level",
                                                "Round limit", "Assistance", "Quick Liquid", "Burnable Trees"};
-                for (int index = 0; index < 9; ++index)
-                    drawText(410, 370 - index * 18, focus == readyIndex + 1 + index ? std::string("> ") + labels[index] : labels[index]);
+                if (!retainedResult) {
+                    for (int index = 0; index < 9; ++index)
+                        drawText(410, 370 - index * 18, focus == readyIndex + 1 + index ? std::string("> ") + labels[index] : labels[index]);
+                } else if (focus >= readyIndex + 1 && focus < readyIndex + 10) {
+                    drawText(410, 166, std::string("> Change ") + labels[focus - readyIndex - 1]);
+                }
                 std::vector<Network::Replication::PlayerState> roster = state.players;
                 std::sort(roster.begin(), roster.end(), [](const auto &left, const auto &right) {
                     return left.rosterPosition < right.rosterPosition;
                 });
-                drawText(575, 370, "ROSTER ORDER • Enter reorders");
+                drawText(575, retainedResult ? 386 : 370, "ROSTER ORDER • Enter reorders");
                 const int focusedRoster = focus >= readyIndex + 10
                                           && focus < readyIndex + 10 + static_cast<int>(roster.size())
                                           ? focus - readyIndex - 10 : 0;
                 const std::size_t firstRoster = static_cast<std::size_t>(std::max(0, focusedRoster - 7));
-                for (std::size_t index = firstRoster; index < roster.size() && index < firstRoster + 8; ++index)
-                    drawText(575, 350 - static_cast<Int32>(index - firstRoster) * 18,
-                             (focus == readyIndex + 10 + static_cast<int>(index) ? "> " : "  ")
-                             + std::to_string(index + 1) + ". " + roster[index].displayName);
+                if (!retainedResult) {
+                    for (std::size_t index = firstRoster; index < roster.size() && index < firstRoster + 8; ++index)
+                        drawText(575, 350 - static_cast<Int32>(index - firstRoster) * 18,
+                                 (focus == readyIndex + 10 + static_cast<int>(index) ? "> " : "  ")
+                                 + std::to_string(index + 1) + ". " + roster[index].displayName.substr(0, 24));
+                } else if (focus >= readyIndex + 10
+                           && focus < readyIndex + 10 + static_cast<int>(roster.size())) {
+                    const auto selectedRoster = static_cast<std::size_t>(focus - readyIndex - 10);
+                    drawClippedText(410, 166, "> Reorder " + std::to_string(selectedRoster + 1) + ". "
+                                    + roster[selectedRoster].displayName, 47);
+                }
                 std::string reason; const bool eligible = startEligible(snap, reason);
                 drawText(50, 118, reason.empty() ? "All participants are ready." : reason);
                 drawText(50, 98, "Optional scripts are disabled for network play.");
@@ -859,19 +1010,30 @@ namespace Duel6 {
                 drawPlayers(*snap.canonical);
             drawReconnectPanel(snap, CanvasWidth, CanvasHeight);
         } else if (snap.journey == Client::NetworkJourney::Failure) {
-            drawText(130, 470, snap.failure.empty() ? "Connection could not be completed." : snap.failure);
-            if (!snap.host) drawText(130, 440, "Endpoint: " + snap.endpoint.host + ':' + std::to_string(snap.endpoint.port));
+            drawWrappedText(130, 470, snap.failure.empty() ? "Connection could not be completed." : snap.failure,
+                            72, 3);
+            if (!snap.host) drawClippedText(130, 404,
+                    "Endpoint: " + snap.endpoint.host + ':' + std::to_string(snap.endpoint.port), 72);
+            std::string retryReason;
+            const bool canRetry = retryEligible(snap, retryReason);
             int selected = 0;
-            drawAction(340, snap.retryAllowed ? "Retry" : "Retry unavailable", snap.retryAllowed && focus == selected++);
-            if (!snap.retryAllowed) {
-                const bool restart = snap.failure.find("gameplay content is invalid") != std::string::npos;
-                drawText(275, 320, restart ? "Restart the application to try again."
-                                           : "This session cannot be restored. Edit setup to start a new session.");
-            }
+            drawAction(340, canRetry ? "Retry" : "Retry unavailable", canRetry && focus == selected++);
+            if (!canRetry) drawText(275, 320, retryReason);
             drawAction(275, "Edit setup", focus == selected++); drawAction(230, "Return to Network", focus == selected);
         } else if (snap.journey == Client::NetworkJourney::HostEnded) {
-            drawText(175, 440, "The host ended this session. It cannot migrate or resume.");
-            drawText(245, 410, "Session-only scores were not saved."); drawAction(315, "Return to Network", true);
+            if (snap.canonical && snap.canonical->phase == Network::Replication::Phase::FinalSummary) {
+                drawResult(*snap.canonical, false);
+            } else if (snap.canonical) {
+                drawText(50, 582, "Guest • LAN session • Last confirmed lobby");
+                drawText(50, 552, "Role        Connection       Readiness  Owned");
+                drawPlayers(*snap.canonical);
+                drawText(410, 552, "HOST MATCH SETTINGS");
+                drawText(410, 526, "Mode: " + snap.canonical->settings.mode);
+                drawText(410, 506, "Level plan: " + snap.canonical->settings.levelPlan);
+                drawText(410, 486, "Rounds: " + std::to_string(snap.canonical->settings.roundLimit));
+                if (snap.canonical->result.available) drawResult(*snap.canonical, true);
+            }
+            drawHostEndedPanel(snap, CanvasWidth, CanvasHeight);
         }
         if (confirmation != Confirmation::None) drawConfirmation();
         renderer.setViewMatrix(Matrix::IDENTITY);
