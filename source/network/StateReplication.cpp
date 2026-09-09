@@ -5,6 +5,8 @@
 #include <string_view>
 #include <utility>
 
+#include "NetworkTrustPolicy.h"
+
 namespace Duel6::Network::Replication {
     namespace {
         bool validText(const std::string &value, std::size_t maximum = 64, bool emptyAllowed = false) {
@@ -12,6 +14,12 @@ namespace Duel6::Network::Replication {
             return std::none_of(value.begin(), value.end(), [](unsigned char character) {
                 return character < 0x20 || character == 0x7f;
             });
+        }
+
+        bool validLevelPath(std::string_view value) {
+            return value.size() > 12 && value.compare(0, 7, "levels/") == 0
+                   && value.compare(value.size() - 5, 5, ".json") == 0
+                   && Trust::validLogicalPath(value);
         }
 
         template<typename T, typename Id>
@@ -900,7 +908,7 @@ namespace Duel6::Network::Replication {
                 const auto cumulative = cumulativeValue ? resultStatistics(*cumulativeValue) : std::nullopt;
                 const auto *playerRounds = member(row, "\"rounds\"");
                 if (!rank || *rank != index + 1 || !playerId || !participantId || !displayName
-                    || !validText(*displayName) || !team || !departed || !rosterOrder
+                    || !Trust::validParticipantName(*displayName) || !team || !departed || !rosterOrder
                     || *rosterOrder >= MaxReplicatedPlayers || !cumulative
                     || !playerRounds || playerRounds->kind != ParsedJsonValue::Kind::Array
                     || playerRounds->array.size() != *completedRounds
@@ -1380,6 +1388,13 @@ namespace Duel6::Network::Replication {
                 if (state.result.available != (state.matchId != 0)) return false;
             } else if (state.matchId == 0) return false;
             if (state.settings.teamCount > MaxReplicatedPlayers) return false;
+            if (!validText(state.settings.mode) || !validText(state.settings.levelPlan)
+                || !validText(state.settings.fixedLevel, 240, true)
+                || state.settings.levels.empty() || state.settings.levels.size() > MaxReplicatedLevels) return false;
+            std::set<std::string> canonicalLevels;
+            for (const auto &level: state.settings.levels)
+                if (!validLevelPath(level) || !canonicalLevels.insert(level).second) return false;
+            if (!state.settings.fixedLevel.empty() && !canonicalLevels.count(state.settings.fixedLevel)) return false;
             std::set<Identity> participantIds;
             if (!uniqueNonzero(state.participants, [](const auto &value) { return value.participantId; },
                                &participantIds)) return false;
@@ -1399,7 +1414,7 @@ namespace Duel6::Network::Replication {
             if (!uniqueNonzero(state.players, [](const auto &value) { return value.playerId; }, &playerIds)) return false;
             for (const auto &player: state.players) {
                 if (!participantIds.count(player.ownerParticipantId) || !rosterPositions.insert(player.rosterPosition).second
-                    || !validText(player.displayName) || !validText(player.heldWeapon, 64, true)
+                    || !Trust::validParticipantName(player.displayName) || !validText(player.heldWeapon, 64, true)
                     || !validText(player.activeBonus, 64, true) || !validLifeState(player.lifeState)
                     || player.life < 0 || player.team > state.settings.teamCount
                     || (state.phase != Phase::Lobby && state.settings.teamCount != 0 && player.team == 0)) return false;
@@ -1419,7 +1434,8 @@ namespace Duel6::Network::Replication {
                     || !validText(entity.lifecycle, 64, true)) return false;
             }
             if (state.round) {
-                if (state.round->roundId == 0 || state.round->roundNumber == 0 || !validText(state.round->level, 240)
+                if (state.round->roundId == 0 || state.round->roundNumber == 0
+                    || !canonicalLevels.count(state.round->level)
                     || state.round->roundNumber != state.currentRoundNumber
                     || !uniqueNonzero(state.round->rosterOrder, [](Identity value) { return value; })
                     || !uniqueNonzero(state.round->outcome.winnerPlayerIds,
@@ -1430,10 +1446,6 @@ namespace Duel6::Network::Replication {
                         if (!playerIds.count(player)) return false;
                 }
             } else if (state.phase == Phase::ActiveRound || state.phase == Phase::RoundSummary) return false;
-            if (!validText(state.settings.mode) || !validText(state.settings.levelPlan)
-                || !validText(state.settings.fixedLevel, 240, true)
-                || state.settings.levels.size() > 256) return false;
-            for (const auto &level: state.settings.levels) if (!validText(level, 240)) return false;
             if (!uniqueNonzero(state.score.players, [](const auto &value) { return value.playerId; })) return false;
             const bool retainedLobbyResult = state.phase == Phase::Lobby && state.result.available;
             for (const auto &row: state.score.players)

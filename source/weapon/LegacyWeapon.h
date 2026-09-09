@@ -85,6 +85,7 @@ namespace Duel6 {
 
         const WeaponSamples &getSamples() const;
 
+        Texture getNetworkWeaponTexture() const override;
         Texture getNetworkProjectileTexture() const override;
         Texture getNetworkExplosionTexture() const override;
         void playNetworkShotSound() const override;

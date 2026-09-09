@@ -63,6 +63,7 @@ namespace Duel6 {
 
         virtual bool isChargeable() const = 0;
 
+        virtual Texture getNetworkWeaponTexture() const = 0;
         virtual Texture getNetworkProjectileTexture() const = 0;
         virtual Texture getNetworkExplosionTexture() const = 0;
         virtual void playNetworkShotSound() const = 0;
@@ -112,6 +113,7 @@ namespace Duel6 {
         bool operator!=(const Weapon &weapon) const;
 
         bool isChargeable() const;
+        Texture getNetworkWeaponTexture() const;
         Texture getNetworkProjectileTexture() const;
         Texture getNetworkExplosionTexture() const;
         void playNetworkShotSound() const;

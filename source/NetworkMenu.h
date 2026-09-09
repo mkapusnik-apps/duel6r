@@ -3,7 +3,6 @@
 
 #include <string>
 #include <vector>
-#include <map>
 
 #include "Context.h"
 #include "AppService.h"
@@ -20,7 +19,7 @@ namespace Duel6 {
                   std::vector<std::string> levels);
         void keyEvent(const KeyPressEvent &event) override;
         void textInputEvent(const TextInputEvent &event) override;
-        void mouseButtonEvent(const MouseButtonEvent &) override {}
+        void mouseButtonEvent(const MouseButtonEvent &event) override;
         void mouseMotionEvent(const MouseMotionEvent &) override {}
         void mouseWheelEvent(const MouseWheelEvent &event) override;
         void joyDeviceAddedEvent(const JoyDeviceAddedEvent &) override;
@@ -52,7 +51,6 @@ namespace Duel6 {
         int summaryHorizontal = 0;
         Confirmation confirmation = Confirmation::None;
         bool scoreOverlay = false;
-        std::map<Network::Replication::Identity, Float32> playerStatusRemaining;
         bool controllerConfirm = false, controllerBack = false, controllerUp = false, controllerDown = false;
         bool controllerSessionBack = false;
         Client::NetworkJourney lastJourney = Client::NetworkJourney::Inactive;
@@ -81,6 +79,7 @@ namespace Duel6 {
         void drawAction(Int32 y, const std::string &text, bool selected) const;
         void drawPlayers(const Network::Replication::CanonicalState &state) const;
         void drawMatch(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;
+        void drawRetainedContext(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;
         void drawReconnectPanel(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;
         void drawHostEndedPanel(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;
         void drawResult(const Network::Replication::CanonicalState &state, bool retained) const;

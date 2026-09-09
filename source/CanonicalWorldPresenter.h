@@ -8,6 +8,7 @@
 
 #include "GameResources.h"
 #include "Explosion.h"
+#include "Font.h"
 #include "Level.h"
 #include "LevelRenderData.h"
 #include "PlayerSkin.h"
@@ -32,6 +33,7 @@ namespace Duel6 {
         AppService &service;
         GameResources &resources;
         Renderer &renderer;
+        Font &font;
         PlayerAnimations animations;
         std::vector<std::unique_ptr<PlayerSkin>> skins;
         std::unique_ptr<Level> level;
@@ -43,10 +45,14 @@ namespace Duel6 {
         Sound::Sample waterSound;
         Network::Replication::Identity highestPresentedEvent = 0;
         Network::Replication::Identity presentedSession = 0;
+        Network::Replication::Identity presentedRound = 0;
+        std::uint64_t presentedRoundStartedAt = 0;
         std::map<Network::Replication::Identity, Network::Replication::WorldEntityState> presentedEntities;
+        std::map<Network::Replication::Identity, Float32> playerStatusRemaining;
         std::string loadedLevel;
         bool loadedMirror = false;
-        bool loadRound(const Network::Replication::RoundState &round);
+        bool loadRound(const Network::Replication::RoundState &round,
+                       const std::vector<std::string> &canonicalLevels);
         const PlayerSkin &skinFor(const Network::Replication::PlayerState &player) const;
         Animation animationFor(const Network::Replication::PlayerState &player) const;
         Texture backgroundTexture() const;
@@ -57,6 +63,14 @@ namespace Duel6 {
         void presentEvent(const Network::Replication::CanonicalState &state,
                           const Network::Replication::PresentationEvent &event);
         void renderEntity(const Network::Replication::WorldEntityState &entity) const;
+        void renderHeldWeapon(const Network::Replication::PlayerState &player,
+                              Float32 x, Float32 y) const;
+        void renderPlayerEffects(const Network::Replication::CanonicalState &state,
+                                 const Network::Replication::PlayerState &player,
+                                 Float32 x, Float32 y) const;
+        void renderPlayerStatus(const Network::Replication::CanonicalState &state,
+                                const Network::Replication::PlayerState &player,
+                                Float32 x, Float32 y) const;
     };
 }
 

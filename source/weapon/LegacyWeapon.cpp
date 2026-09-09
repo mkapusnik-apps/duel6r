@@ -104,6 +104,7 @@ namespace Duel6 {
         return samples;
     }
 
+    Texture LegacyWeapon::getNetworkWeaponTexture() const { return textures.gun; }
     Texture LegacyWeapon::getNetworkProjectileTexture() const { return textures.shot; }
     Texture LegacyWeapon::getNetworkExplosionTexture() const { return textures.boom; }
     void LegacyWeapon::playNetworkShotSound() const { samples.shot.play(); }

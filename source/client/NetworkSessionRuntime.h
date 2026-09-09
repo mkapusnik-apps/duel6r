@@ -2,6 +2,7 @@
 #define DUEL6_CLIENT_NETWORKSESSIONRUNTIME_H
 
 #include <atomic>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -86,7 +87,7 @@ namespace Duel6::Client {
         std::vector<NetworkLocalPlayer> players;
         std::vector<std::uint32_t> sampledActions;
         std::map<Network::Replication::Identity, std::size_t> ownedPlayerBindings;
-        std::optional<Network::Lifecycle::ParticipantActionKind> pendingGuestAction;
+        std::deque<Network::Lifecycle::ParticipantActionKind> pendingGuestActions;
         std::optional<std::vector<std::string>> pendingGuestConfiguration;
         std::unique_ptr<Network::Input::ClientCommandSession> hostInput;
         std::unique_ptr<Network::Replication::ClientReplicationConnection> hostPresentation;

@@ -6,9 +6,11 @@
 
 #include "AppService.h"
 #include "Bonus.h"
+#include "Defines.h"
 #include "Material.h"
 #include "Orientation.h"
 #include "Sprite.h"
+#include "network/NetworkTrustPolicy.h"
 
 namespace Duel6 {
     namespace {
@@ -20,12 +22,35 @@ namespace Duel6 {
 
         Color teamColor(std::uint8_t team) {
             switch (team) {
-                case 1: return Color(48, 104, 224);
-                case 2: return Color(216, 48, 48);
-                case 3: return Color(48, 176, 80);
-                case 4: return Color(224, 192, 48);
+                case 1: return Color(255, 0, 0);
+                case 2: return Color(0, 255, 0);
+                case 3: return Color(255, 255, 0);
+                case 4: return Color(255, 0, 255);
                 default: return Color(112, 112, 208);
             }
+        }
+
+        bool canonicalLevelId(const std::string &level, const std::vector<std::string> &manifestLevels) {
+            return level.size() > 12 && level.compare(0, 7, "levels/") == 0
+                   && level.compare(level.size() - 5, 5, ".json") == 0
+                   && Network::Trust::validLogicalPath(level)
+                   && std::find(manifestLevels.begin(), manifestLevels.end(), level) != manifestLevels.end();
+        }
+
+        Float32 unitRatio(std::int64_t value, Float32 maximum) {
+            return std::clamp(static_cast<Float32>(value) / maximum, 0.0f, 1.0f);
+        }
+
+        std::string utf8Prefix(const std::string &value, std::size_t maximumCodePoints) {
+            std::size_t offset = 0, count = 0;
+            while (offset < value.size() && count < maximumCodePoints) {
+                const auto lead = static_cast<unsigned char>(value[offset]);
+                const std::size_t bytes = lead < 0x80 ? 1 : (lead & 0xe0) == 0xc0 ? 2
+                        : (lead & 0xf0) == 0xe0 ? 3 : 4;
+                if (bytes > value.size() - offset) break;
+                offset += bytes; ++count;
+            }
+            return value.substr(0, offset);
         }
 
         std::string weaponKey(std::string value) {
@@ -52,7 +77,7 @@ namespace Duel6 {
     }
 
     CanonicalWorldPresenter::CanonicalWorldPresenter(AppService &value, GameResources &gameResources)
-            : service(value), resources(gameResources), renderer(value.getVideo().getRenderer()),
+            : service(value), resources(gameResources), renderer(value.getVideo().getRenderer()), font(value.getFont()),
               animations(gameResources.getPlayerAnimation()), explosions(gameResources, 4.0f),
               playerHitSound(value.getSound().loadSample("sound/player/hit.wav")),
               playerDeathSound(value.getSound().loadSample("sound/player/death.wav")),
@@ -66,14 +91,14 @@ namespace Duel6 {
         }
     }
 
-    bool CanonicalWorldPresenter::loadRound(const Network::Replication::RoundState &round) {
+    bool CanonicalWorldPresenter::loadRound(
+            const Network::Replication::RoundState &round,
+            const std::vector<std::string> &canonicalLevels) {
+        if (!canonicalLevelId(round.level, canonicalLevels)) return false;
         if (level && loadedLevel == round.level && loadedMirror == round.mirrored) return true;
         levelRenderData.reset();
         level.reset();
-        std::string path = round.level;
-        if (path.rfind("levels/", 0) != 0) path = "levels/" + path;
-        if (path.size() < 5 || path.substr(path.size() - 5) != ".json") path += ".json";
-        level = std::make_unique<Level>(path, round.mirrored, resources.getBlockMeta());
+        level = std::make_unique<Level>(round.level, round.mirrored, resources.getBlockMeta());
         levelRenderData = std::make_unique<LevelRenderData>(*level, renderer, 0.15f);
         levelRenderData->generateFaces();
         loadedLevel = round.level;
@@ -84,18 +109,33 @@ namespace Duel6 {
     void CanonicalWorldPresenter::update(
             Float32 elapsedTime, const Network::Replication::CanonicalState *state,
             const std::vector<Network::Replication::PresentationEvent> &events) {
-        if (state && state->round && loadRound(*state->round) && levelRenderData)
+        for (auto iterator = playerStatusRemaining.begin(); iterator != playerStatusRemaining.end();) {
+            iterator->second -= elapsedTime;
+            if (iterator->second <= 0) iterator = playerStatusRemaining.erase(iterator); else ++iterator;
+        }
+        if (state && state->round && loadRound(*state->round, state->settings.levels) && levelRenderData)
             levelRenderData->update(elapsedTime);
         explosions.update(elapsedTime);
         if (!state) return;
         if (presentedSession != state->sessionId) {
             presentedSession = state->sessionId;
             highestPresentedEvent = 0;
+            presentedRound = 0;
+            presentedRoundStartedAt = 0;
             presentedEntities.clear();
+            playerStatusRemaining.clear();
         }
+        if (state->round && presentedRound != state->round->roundId) {
+            presentedRound = state->round->roundId;
+            presentedRoundStartedAt = state->phaseTime;
+        }
+        for (const auto playerId: state->messages.currentPlayerIndicators)
+            playerStatusRemaining[playerId] = 5.0f;
         for (const auto &event: events) {
             if (event.eventId <= highestPresentedEvent) continue;
             presentEvent(*state, event);
+            const auto affected = event.targetPlayerId ? event.targetPlayerId : event.playerId;
+            if (affected) playerStatusRemaining[affected] = 5.0f;
             highestPresentedEvent = event.eventId;
         }
         presentedEntities.clear();
@@ -131,7 +171,8 @@ namespace Duel6 {
                 : player != state.players.end() ? Vector(worldValue(player->positionX), worldValue(player->positionY))
                                                 : Vector::ZERO;
         if (event.type == "round-start") resources.getRoundStartSound().play();
-        else if (event.type == "round-outcome")
+        else if (event.type == "round-ended" || event.type == "round-outcome"
+                 || event.type == "result-transition")
             resources.getGameOverSound().play();
         else if (event.type == "shot-fired") {
             const auto source = std::find_if(state.players.begin(), state.players.end(), [&](const auto &value) {
@@ -146,9 +187,16 @@ namespace Duel6 {
         } else if (event.type == "player-died") {
             playerDeathSound.play();
             explosions.add(centre, 0.2f, 0.8f, Color::RED);
+        } else if (event.type == "player-killed") {
+            explosions.add(centre, 0.12f, 0.48f, Color::BLUE);
         } else if (event.type == "bonus-picked" || event.type == "weapon-picked") bonusSound.play();
+        else if (event.type == "bonus-expired" || event.type == "temporary-slowdown-expired"
+                 || event.type == "reload-completed" || event.type == "weapon-charge-ready"
+                 || event.type == "weapon-charge-released" || event.type == "air-level-changed") {
+            // State-driven bars and labels below present these lifecycle transitions without prediction.
+        }
         else if (event.type == "water-entered" || event.type == "water-exited"
-                 || event.type == "water-level-changed" || event.type == "sudden-death-started")
+                  || event.type == "water-level-changed" || event.type == "sudden-death-started")
             waterSound.play();
         else if (event.type == "explosion") {
             const auto source = std::find_if(state.players.begin(), state.players.end(), [&](const auto &value) {
@@ -164,6 +212,8 @@ namespace Duel6 {
             playerHitSound.play();
         } else if (event.type == "player-spawned") {
             explosions.add(centre, 0.1f, 0.45f, Color::WHITE);
+        } else if (event.type == "elevator-velocity-changed") {
+            explosions.add(centre, 0.04f, 0.2f, Color(235, 235, 235));
         }
     }
 
@@ -258,6 +308,88 @@ namespace Duel6 {
         }
     }
 
+    void CanonicalWorldPresenter::renderHeldWeapon(
+            const Network::Replication::PlayerState &player, Float32 x, Float32 y) const {
+        if (player.lifeState != Network::Replication::LifeState::Alive || player.heldWeapon.empty()) return;
+        const Weapon *weapon = weaponFor(player.heldWeapon);
+        if (!weapon || !weapon->getNetworkWeaponTexture()) return;
+        const Float32 direction = player.facingLeft ? -1.0f : 1.0f;
+        renderer.quadXY(Vector(x + direction * 0.38f - 0.26f, y + 0.28f, 0.64f), Vector(0.52f, 0.28f),
+                        player.facingLeft ? Vector(1, 1, 0) : Vector(0, 1, 0),
+                        player.facingLeft ? Vector(-1, -1) : Vector(1, -1),
+                        Material::makeMaskedTexture(weapon->getNetworkWeaponTexture()));
+    }
+
+    void CanonicalWorldPresenter::renderPlayerEffects(
+            const Network::Replication::CanonicalState &state,
+            const Network::Replication::PlayerState &player, Float32 x, Float32 y) const {
+        if (player.lifeState != Network::Replication::LifeState::Alive) return;
+        const std::uint64_t roundAge = state.phaseTime >= presentedRoundStartedAt
+                                       ? state.phaseTime - presentedRoundStartedAt : 120;
+        if (state.round && state.round->roundId == presentedRound && roundAge < 120) {
+            const Float32 radius = 0.15f + 0.75f * static_cast<Float32>(roundAge) / 120.0f;
+            for (Int32 angle = 0; angle < 360; angle += 24) {
+                const Vector point = Vector(x, y) + radius * Vector::direction(angle);
+                renderer.point(Vector(point.x, point.y, 0.7f), 3.0f, Color::YELLOW);
+            }
+        }
+        if (player.invulnerable) {
+            const Int32 phase = static_cast<Int32>((state.phaseTime * 6u) % 360u);
+            for (Int32 angle = phase; angle < phase + 360; angle += 15) {
+                const Vector point = Vector(x + 0.5f, y + 0.5f) + 0.72f * Vector::direction(angle % 360);
+                renderer.point(Vector(point.x, point.y, 0.71f), 2.0f, Color::RED);
+            }
+        }
+        for (const auto &effect: state.effects) {
+            if (effect.playerId != player.playerId || effect.remaining <= 0) continue;
+            const Color color = effect.type == "invisibility" ? Color(192, 192, 192)
+                    : effect.type == "invulnerability" ? Color::RED : Color::MAGENTA;
+            renderer.point(Vector(x + 0.5f, y + 1.08f, 0.72f), 4.0f, color);
+        }
+    }
+
+    void CanonicalWorldPresenter::renderPlayerStatus(
+            const Network::Replication::CanonicalState &state,
+            const Network::Replication::PlayerState &player, Float32 x, Float32 y) const {
+        if (player.lifeState != Network::Replication::LifeState::Alive
+            || playerStatusRemaining.find(player.playerId) == playerStatusRemaining.end()) return;
+        constexpr Float32 TextHeight = 0.30f, BarWidth = 0.92f, BarHeight = 0.075f;
+        Float32 statusY = y + 1.2f;
+        const auto bar = [&](Color color, Float32 value) {
+            renderer.quadXY(Vector(x + 0.04f, statusY, 0.74f), Vector(BarWidth, BarHeight), Color(16, 16, 32, 190));
+            renderer.quadXY(Vector(x + 0.04f, statusY, 0.75f), Vector(BarWidth * std::clamp(value, 0.0f, 1.0f), BarHeight), color);
+            statusY += 0.10f;
+        };
+        if (player.reloadRemaining > 0) {
+            const Weapon *weapon = weaponFor(player.heldWeapon);
+            const Float32 total = weapon ? std::max(1.0f, weapon->getReloadInterval() * 60.0f) : 60.0f;
+            bar(Color::GREEN, 1.0f - unitRatio(player.reloadRemaining, total));
+        }
+        if (player.air < D6_MAX_AIR) bar(Color::BLUE, unitRatio(player.air, D6_MAX_AIR));
+        if (!player.activeBonus.empty() && player.bonusRemaining > 0)
+            bar(Color::MAGENTA, unitRatio(player.bonusRemaining, 600.0f));
+        bar(Color::RED, unitRatio(player.life, D6_MAX_LIFE));
+
+        const std::string name = utf8Prefix(player.displayName, 18);
+        const Float32 nameWidth = std::max(0.24f, font.getTextWidth(name, TextHeight) + 0.08f);
+        const std::string ammunition = std::to_string(player.ammunition);
+        const Float32 ammoWidth = std::max(0.24f, font.getTextWidth(ammunition, TextHeight) + 0.08f);
+        const Float32 left = x + 0.5f - (nameWidth + ammoWidth) * 0.5f;
+        renderer.quadXY(Vector(left, statusY, 0.74f), Vector(nameWidth, TextHeight), Color(0, 0, 200, 220));
+        font.print(left + 0.04f, statusY, 0.75f, Color::YELLOW, name, TextHeight);
+        renderer.quadXY(Vector(left + nameWidth, statusY, 0.74f), Vector(ammoWidth, TextHeight), Color::YELLOW);
+        font.print(left + nameWidth + 0.04f, statusY, 0.75f, Color::BLUE, ammunition, TextHeight);
+        statusY += TextHeight + 0.08f;
+        const auto score = std::find_if(state.score.players.begin(), state.score.players.end(), [&](const auto &row) {
+            return row.playerId == player.playerId;
+        });
+        const std::int64_t marks = score == state.score.players.end() ? 0
+                : std::clamp<std::int64_t>(score->roundPoints, 0, 15);
+        for (std::int64_t mark = 0; mark < marks; ++mark)
+            renderer.point(Vector(x + 0.5f - static_cast<Float32>(marks - 1) * 0.08f
+                                  + static_cast<Float32>(mark) * 0.16f, statusY, 0.75f), 5.0f, Color::BLUE);
+    }
+
     bool CanonicalWorldPresenter::render(
             const Network::Replication::CanonicalState &state,
             const Network::Responsiveness::ConnectionPresentationState &presentation,
@@ -299,8 +431,9 @@ namespace Duel6 {
                     .setOrientation(visualState.facingLeft ? Orientation::Left : Orientation::Right)
                     .setAlpha(static_cast<Float32>(player.presentationAlpha) / 255.0f);
             sprite.render(renderer);
-            if (player.invulnerable)
-                renderer.frame(Vector(px - 0.08f, py - 0.08f, 0.7f), Vector(1.16f, 1.16f), 2.0f, Color::RED);
+            renderHeldWeapon(visualState, px, py);
+            renderPlayerEffects(state, visualState, px, py);
+            renderPlayerStatus(state, visualState, px, py);
         }
         levelRenderData->getWater().render(resources.getBlockTextures(), true);
         explosions.render(renderer);

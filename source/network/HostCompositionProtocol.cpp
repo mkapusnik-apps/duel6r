@@ -103,7 +103,7 @@ namespace Duel6::Network::HostComposition {
         Writer writer; envelope(writer, Kind::Setup);
         writer.u8(static_cast<std::uint8_t>(setup.localPlayerNames.size()));
         for (const auto &name: setup.localPlayerNames) {
-            if (name.empty() || !Trust::validGeneralString(name) || name.size() > MaximumDisplayNameBytes)
+            if (!Trust::validParticipantName(name) || name.size() > MaximumDisplayNameBytes)
                 throw std::invalid_argument("Invalid host player name");
             writer.text(name, MaximumDisplayNameBytes);
         }
@@ -155,7 +155,7 @@ namespace Duel6::Network::HostComposition {
         Writer writer; envelope(writer, Kind::UpdateOwnedPersons);
         writer.u8(static_cast<std::uint8_t>(names.size()));
         for (const auto &name: names) {
-            if (name.empty() || name.size() > MaximumDisplayNameBytes || !Trust::validGeneralString(name))
+            if (!Trust::validParticipantName(name) || name.size() > MaximumDisplayNameBytes)
                 throw std::invalid_argument("Invalid local player name");
             writer.text(name, MaximumDisplayNameBytes);
         }
@@ -176,7 +176,7 @@ namespace Duel6::Network::HostComposition {
                 if (count == 0 || count > Trust::MaxParticipants) return std::nullopt;
                 for (std::uint8_t index = 0; index < count; ++index) {
                     auto name = reader.text(MaximumDisplayNameBytes);
-                    if (name.empty() || !Trust::validGeneralString(name)) return std::nullopt;
+                    if (!Trust::validParticipantName(name)) return std::nullopt;
                     setup.localPlayerNames.push_back(std::move(name));
                 }
                 setup.mode = reader.text(32);
@@ -207,7 +207,7 @@ namespace Duel6::Network::HostComposition {
                 if (count == 0 || count > Trust::MaxParticipants) return std::nullopt;
                 for (std::uint8_t index = 0; index < count; ++index) {
                     auto name = reader.text(MaximumDisplayNameBytes);
-                    if (name.empty() || !Trust::validGeneralString(name)) return std::nullopt;
+                    if (!Trust::validParticipantName(name)) return std::nullopt;
                     message.ownedPersonNames.push_back(std::move(name));
                 }
                 if (!reader.done()) return std::nullopt;

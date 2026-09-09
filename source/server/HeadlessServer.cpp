@@ -1647,7 +1647,11 @@ namespace Duel6::Server {
                     } else if (message->kind == Network::HostComposition::Kind::UpdateOwnedPersons
                                && hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                         const auto &host = admissionPolicy->allocation().hostParticipant();
-                        if (message->ownedPersonNames.size() != host.playerIds.size()) runtimeFailed = true;
+                        if (message->ownedPersonNames.size() != host.playerIds.size()
+                            || !std::all_of(message->ownedPersonNames.begin(), message->ownedPersonNames.end(),
+                                    [](const std::string &name) {
+                                        return Network::Trust::validParticipantName(name);
+                                    })) runtimeFailed = true;
                         else {
                             for (std::size_t index = 0; index < host.playerIds.size(); ++index)
                                 displayNames[host.playerIds[index]] = message->ownedPersonNames[index];
@@ -2046,6 +2050,10 @@ namespace Duel6::Server {
                                 const auto decision = admissionPolicy->authorizationDecision(
                                         runtime.connectionId, Network::Trust::AuthorityAction::OwnReadiness);
                                 if (!decision.allowed || configuration->ownedPersonNames.size() != runtime.offer.playerIds.size()
+                                    || !std::all_of(configuration->ownedPersonNames.begin(),
+                                            configuration->ownedPersonNames.end(), [](const std::string &name) {
+                                                return Network::Trust::validParticipantName(name);
+                                            })
                                     || !sessionLifecycle || hostedMatch->stage() != Authoritative::HostedMatchStage::Lobby) {
                                     connection->requestClose();
                                 } else {

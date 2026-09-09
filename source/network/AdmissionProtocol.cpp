@@ -188,7 +188,7 @@ namespace Duel6::Network {
         writer.byte(request.localPlayerCount);
         writer.byte(static_cast<std::uint8_t>(request.localPlayerNames.size()));
         for (const auto &name: request.localPlayerNames) {
-            if (name.empty() || name.size() > 64 || !Trust::validGeneralString(name))
+            if (!Trust::validParticipantName(name))
                 throw std::invalid_argument("Admission player name is invalid");
             writer.text(name, 64);
         }
@@ -226,7 +226,7 @@ namespace Duel6::Network {
             throw std::invalid_argument("Admission player names do not match local player count");
         for (std::size_t index = 0; index < playerNameCount; ++index) {
             auto name = reader.text(64);
-            if (name.empty() || !Trust::validGeneralString(name))
+            if (!Trust::validParticipantName(name))
                 throw std::invalid_argument("Admission player name is invalid");
             request.localPlayerNames.push_back(std::move(name));
         }
