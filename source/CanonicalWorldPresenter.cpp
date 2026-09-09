@@ -136,8 +136,9 @@ namespace Duel6 {
             case Kind::Water:
                 if (level && entity.active) {
                     renderer.setBlendFunc(BlendFunc::SrcAlpha);
-                    renderer.quadXY(Vector(0, 0, 0.72f),
-                                    Vector(level->getWidth(), static_cast<Float32>(entity.primaryValue + 1)),
+                    renderer.quadXY(Vector(0.0f, 0.0f, 0.72f),
+                                    Vector(static_cast<Float32>(level->getWidth()),
+                                           static_cast<Float32>(entity.primaryValue + 1)),
                                     Color(32, 96, 224, 128));
                     renderer.setBlendFunc(BlendFunc::None);
                 }
