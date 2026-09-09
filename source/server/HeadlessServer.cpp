@@ -360,7 +360,8 @@ namespace {
             closeClient();
             return 2;
         }
-        const auto request = Duel6::Network::makeLocalAdmissionRequest(config.localPlayers, std::move(manifest));
+        const auto request = Duel6::Network::makeLocalAdmissionRequest(
+                config.localPlayers, std::move(manifest), config.localPlayerNames);
         if (runtimeNow(runtimeDependencies) >= deadline) {
             if (cancelAttempt()) return 2;
             output << "Connection timed out.\n";
@@ -1429,6 +1430,7 @@ namespace Duel6::Server {
             std::chrono::steady_clock::time_point requestDeadline;
             std::chrono::steady_clock::time_point attemptDeadline;
             Network::AdmissionOfferPayload offer;
+            std::vector<std::string> requestedPlayerNames;
             std::uint64_t transactionId = 0;
             Network::Trust::ConnectionId connectionId = 0;
             bool requestReceived = false;
@@ -1600,6 +1602,40 @@ namespace Duel6::Server {
                         if (!frame || frame->kind != Network::Input::FrameKind::Command || !frame->command
                             || hostedMatch->receivePlayerInput(
                                     host.participantId, *frame->command, false).closeConnection) runtimeFailed = true;
+                    } else if (message->kind == Network::HostComposition::Kind::UpdateSetup
+                               && message->setup
+                               && hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
+                        const auto &setup = *message->setup;
+                        const auto &host = admissionPolicy->allocation().hostParticipant();
+                        if (setup.localPlayerNames.size() != host.playerIds.size()) runtimeFailed = true;
+                        else {
+                            hostedSettings->mode = setup.mode == "Predator" ? Authoritative::Mode::Predator
+                                                 : setup.mode == "Team deathmatch" ? Authoritative::Mode::TeamDeathmatch
+                                                                                  : Authoritative::Mode::Deathmatch;
+                            hostedSettings->teamCount = hostedSettings->mode == Authoritative::Mode::TeamDeathmatch
+                                                        ? setup.teamCount : 0;
+                            hostedSettings->friendlyFire = hostedSettings->mode == Authoritative::Mode::TeamDeathmatch
+                                                           && setup.friendlyFire;
+                            hostedSettings->levelPlan = setup.levelPlan == "Shuffle all levels"
+                                                        ? Authoritative::LevelPlan::ShuffleAll
+                                                        : setup.levelPlan == "Random level"
+                                                          ? Authoritative::LevelPlan::Random
+                                                          : Authoritative::LevelPlan::Fixed;
+                            hostedSettings->fixedLevel = setup.fixedLevel;
+                            hostedSettings->roundLimit = setup.roundLimit;
+                            hostedSettings->assistance = setup.assistance;
+                            hostedSettings->quickLiquid = setup.quickLiquid;
+                            hostedSettings->burnableTrees = setup.burnableTrees;
+                            for (std::size_t index = 0; index < host.playerIds.size(); ++index)
+                                displayNames[host.playerIds[index]] = setup.localPlayerNames[index];
+                            if (!sessionLifecycle->clearReadiness()) runtimeFailed = true;
+                            else {
+                                auto lobby = replicationLobbyState(admissionPolicy->allocation(),
+                                        connectedParticipants, *hostedSettings, &displayNames);
+                                if (!hostedMatch->updateReplicationLobby(std::move(lobby.participants),
+                                        std::move(lobby.players), std::move(lobby.settings))) runtimeFailed = true;
+                            }
+                        }
                     } else runtimeFailed = true;
                 }
             }
@@ -1765,6 +1801,10 @@ namespace Duel6::Server {
                             if (write(*connection, std::move(frame.payload)) != Network::SendResult::Accepted)
                                 connection->requestClose();
                         } else {
+                            try {
+                                runtime.requestedPlayerNames =
+                                        Network::deserializeAdmissionRequest(frame.payload).localPlayerNames;
+                            } catch (...) { runtime.requestedPlayerNames.clear(); }
                             AdmissionOffer offer = admissionPolicy->offerPayload(frame.payload);
                             if (offer.pending()) {
                                 runtime.transactionId = offer.transactionId;
@@ -1827,6 +1867,10 @@ namespace Duel6::Server {
                             }
                             bool replicationReady = observed && (!sessionLifecycle || lifecycleGrant.has_value());
                             if (replicationReady && hostedMatch) {
+                                for (std::size_t index = 0;
+                                     index < runtime.offer.playerIds.size()
+                                     && index < runtime.requestedPlayerNames.size(); ++index)
+                                    displayNames[runtime.offer.playerIds[index]] = runtime.requestedPlayerNames[index];
                                 connectedParticipants.insert(runtime.offer.participantId);
                                 auto lobby = replicationLobbyState(
                                         admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames);

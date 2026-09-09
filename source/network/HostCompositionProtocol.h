@@ -18,7 +18,8 @@ namespace Duel6::Network::HostComposition {
         AdvanceRound = 4,
         PlayerInput = 5,
         CanonicalSnapshot = 6,
-        PlayerInputOutcome = 7
+        PlayerInputOutcome = 7,
+        UpdateSetup = 8
     };
 
     struct Setup {
@@ -41,6 +42,7 @@ namespace Duel6::Network::HostComposition {
     };
 
     std::vector<std::uint8_t> serializeSetup(const Setup &setup);
+    std::vector<std::uint8_t> serializeSetupUpdate(const Setup &setup);
     std::vector<std::uint8_t> serializeAction(Kind kind);
     std::vector<std::uint8_t> serializePayload(Kind kind, const std::vector<std::uint8_t> &payload);
     std::optional<Message> deserialize(const std::vector<std::uint8_t> &payload) noexcept;

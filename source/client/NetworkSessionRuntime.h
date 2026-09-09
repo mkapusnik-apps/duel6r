@@ -30,6 +30,7 @@ namespace Duel6::Client {
     struct NetworkRuntimeSnapshot {
         NetworkJourney journey = NetworkJourney::Inactive;
         bool host = false;
+        Network::Replication::Identity localParticipantId = 0;
         Network::Endpoint endpoint;
         std::optional<Network::Replication::CanonicalState> canonical;
         Network::Responsiveness::ConnectionPresentationState presentation;
@@ -56,6 +57,7 @@ namespace Duel6::Client {
         void startMatch();
         void returnToLobby();
         void advanceRound();
+        void updateHostSetup(const Network::HostComposition::Setup &setup);
         void update();
         NetworkRuntimeSnapshot snapshot() const;
         void reset();
@@ -64,6 +66,7 @@ namespace Duel6::Client {
         mutable std::mutex mutex;
         NetworkRuntimeSnapshot current;
         std::vector<NetworkLocalPlayer> players;
+        std::vector<std::uint32_t> sampledActions;
         std::map<Network::Replication::Identity, std::size_t> ownedPlayerBindings;
         std::optional<Network::Lifecycle::ParticipantActionKind> pendingGuestAction;
         std::unique_ptr<Network::Input::ClientCommandSession> hostInput;
@@ -76,7 +79,7 @@ namespace Duel6::Client {
         void observeHostLifecycle(const HostServiceSnapshot &snapshot);
         void applyCanonical(const Network::Replication::CanonicalState &state,
                             const Network::Responsiveness::ConnectionPresentationState &presentation = {});
-        std::uint32_t sampleActions(std::size_t binding) const;
+        std::uint32_t sampleActionsOnInputThread(std::size_t binding) const;
         void sendHostAction(Network::HostComposition::Kind kind);
         void stopGuest();
     };

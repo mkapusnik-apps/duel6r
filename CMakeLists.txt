@@ -157,6 +157,8 @@ set(D6R_SOURCES
         source/Material.h
         source/Menu.cpp
         source/Menu.h
+        source/NetworkMenu.cpp
+        source/NetworkMenu.h
         source/msdir.c
         source/msdir.h
         source/Orientation.h

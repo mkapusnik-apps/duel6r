@@ -110,6 +110,12 @@ namespace Duel6::Network::HostComposition {
         return writer.take();
     }
 
+    std::vector<std::uint8_t> serializeSetupUpdate(const Setup &setup) {
+        auto message = serializeSetup(setup);
+        message[6] = 0; message[7] = static_cast<std::uint8_t>(Kind::UpdateSetup);
+        return message;
+    }
+
     std::vector<std::uint8_t> serializeAction(Kind kind) {
         if (kind != Kind::StartMatch && kind != Kind::ReturnToLobby && kind != Kind::AdvanceRound)
             throw std::invalid_argument("Invalid host composition action");
@@ -132,9 +138,9 @@ namespace Duel6::Network::HostComposition {
             if (reader.u32() != ProtocolIdentifier || reader.u16() != ProtocolVersion) return std::nullopt;
             const auto rawKind = reader.u16();
             if (rawKind < static_cast<std::uint16_t>(Kind::Setup)
-                || rawKind > static_cast<std::uint16_t>(Kind::PlayerInputOutcome)) return std::nullopt;
+                || rawKind > static_cast<std::uint16_t>(Kind::UpdateSetup)) return std::nullopt;
             Message message; message.kind = static_cast<Kind>(rawKind);
-            if (message.kind == Kind::Setup) {
+            if (message.kind == Kind::Setup || message.kind == Kind::UpdateSetup) {
                 Setup setup;
                 const auto count = reader.u8();
                 if (count == 0 || count > Trust::MaxParticipants) return std::nullopt;

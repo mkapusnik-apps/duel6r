@@ -46,6 +46,7 @@
 #include "gamemodes/TeamDeathMatch.h"
 #include "gamemodes/Predator.h"
 #include "Exception.h"
+#include "NetworkMenu.h"
 
 #define D6_ALL_CHR  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890 -=\\~!@#$%^&*()_+|[];',./<>?:{}"
 #define D6_NUM_CHR  "0123456789"
@@ -288,14 +289,19 @@ namespace Duel6 {
         });
 
         auto playButton = new Gui::Button(gui);
-        playButton->setPosition(50, 70, 150, 50);
+        playButton->setPosition(25, 70, 175, 50);
         playButton->setCaption("Play (F1)");
         playButton->onClick([this](Gui::Button &) {
             play();
         });
 
+        auto networkButton = new Gui::Button(gui);
+        networkButton->setPosition(225, 70, 175, 50);
+        networkButton->setCaption("Network (F2)");
+        networkButton->onClick([this](Gui::Button &) { openNetworkMenu(); });
+
         auto clearButton = new Gui::Button(gui);
-        clearButton->setPosition(350, 70, 150, 50);
+        clearButton->setPosition(425, 70, 175, 50);
         clearButton->setCaption("Clear (F3)");
         clearButton->onClick([this](Gui::Button &) {
             if (deleteQuestion()) {
@@ -304,7 +310,7 @@ namespace Duel6 {
         });
 
         auto quitButton = new Gui::Button(gui);
-        quitButton->setPosition(650, 70, 150, 50);
+        quitButton->setPosition(625, 70, 175, 50);
         quitButton->setCaption("Quit (ESC)");
         quitButton->onClick([this](Gui::Button &) {
             close();
@@ -413,6 +419,29 @@ namespace Duel6 {
 
         menuTrack = sound.loadModule("sound/undead.xm");
         startMenuBackgroundPreparation({}, true);
+        networkMenu = std::make_unique<NetworkMenu>(appService);
+    }
+
+    void Menu::openNetworkMenu() {
+        std::vector<Client::NetworkLocalPlayer> localPlayers;
+        for (Size index = 0; index < playerListBox->size(); ++index) {
+            const auto controlIndex = static_cast<Size>(controlSwitch[index]->currentValue().first);
+            localPlayers.push_back({playerListBox->getItem(index),
+                                    controlIndex < controlsManager.getSize() ? &controlsManager.get(controlIndex) : nullptr});
+        }
+        Network::HostComposition::Setup setup;
+        for (const auto &player: localPlayers) setup.localPlayerNames.push_back(player.name);
+        setup.mode = isTeamModeSelected() ? "Team deathmatch" : selectedGameMode().getName();
+        setup.teamCount = isTeamModeSelected() ? static_cast<std::uint8_t>(selectedTeamCount()) : 0;
+        setup.friendlyFire = isTeamModeSelected() && friendlyFireCheckBox->isChecked();
+        setup.levelPlan = game->getSettings().getLevelSelectionMode() == LevelSelectionMode::Shuffle
+                          ? "Shuffle all levels" : "Random level";
+        const auto maps = listMaps(); if (!maps.empty()) setup.fixedLevel = maps.front();
+        setup.roundLimit = static_cast<std::uint8_t>(std::max(1, std::min(99, game->getSettings().getMaxRounds())));
+        setup.assistance = globalAssistanceCheckBox->isChecked();
+        setup.quickLiquid = quickLiquidCheckBox->isChecked();
+        setup.burnableTrees = burnableTreesCheckBox->isChecked();
+        networkMenu->open(std::move(localPlayers), std::move(setup));
     }
 
     void Menu::initializePresentation() {
@@ -1111,6 +1140,7 @@ namespace Duel6 {
         if (event.getCode() == SDLK_F1) {
             play();
         }
+        if (event.getCode() == SDLK_F2) openNetworkMenu();
 
         if (event.getCode() == SDLK_F3) {
             if (deleteQuestion()) {
