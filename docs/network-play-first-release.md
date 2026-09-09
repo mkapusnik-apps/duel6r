@@ -64,11 +64,23 @@ Same-machine support means separate running instances communicating through the 
 - Host-owned settings are read-only for guests. Participant-owned player controls are editable only by that participant.
 - Every gameplay action and state transition is validated and applied by the authoritative host simulation.
 
+- **NET-OWN-001** Each participant must select its local player count before host startup or guest connection begins.
+- **NET-OWN-002** Admission must commit the participant's exact ordered player identities and ownership.
+- **NET-OWN-003** The set of player identities owned by an admitted participant must remain unchanged while that participant remains admitted.
+- **NET-OWN-004** An admitted participant must not add, remove, or transfer an individual player slot in `NET-04`.
+- **NET-OWN-005** An admitted participant may change the person or local control assigned to one of its existing player slots in `NET-04`.
+- **NET-OWN-006** A change under NET-OWN-005 must not change that slot's player identity or owner.
+- **NET-OWN-007** A host roster-order change must not change a player identity or owner.
+- **NET-OWN-008** Intentional participant Leave or authoritative reservation expiry must remove all player slots owned by that participant.
+- **NET-OWN-009** A removed player identity must not be reused during the session.
+
 ## Lobby, readiness, and admission
 
 - A host-alone lobby with one or more host-owned players is valid, but Start is blocked until the match-start invariants are met.
 - Every connected participant, including the host, must be ready before Start is enabled.
-- Adding, removing, admitting, or expiring a participant; intentionally leaving; adding, removing, or editing a player; changing a person, control, host match setting, or roster order clears every participant's readiness.
+- Admitting, intentionally removing, or expiring a participant clears every participant's readiness.
+- Changing a person, control, host match setting, or roster order in `NET-04` clears every participant's readiness.
+- A participant must add or remove local player slots before host startup or guest connection begins.
 - An admitted guest declared disconnected remains admitted as `Reconnecting`. Its prior Ready value is retained, but Start is blocked with `Waiting for <participant> to reconnect`.
 - A successful reconnect restores the retained Ready value unless another readiness-clearing mutation occurred after disconnect.
 - Reconnect expiry or intentional Leave removes the participant and players and clears every remaining participant's readiness.
@@ -238,7 +250,7 @@ The host application's local supervisor may detect that its own hosted service s
 
 ### Lobby, match, summary, and return
 
-1. Valid admitted participants configure owned fields in `NET-04`; every clearing mutation clears readiness.
+1. Valid admitted participants may change the person or control for an existing owned player slot in `NET-04`. They must not add, remove, or transfer an individual player slot. Every permitted configuration change clears readiness.
 2. Start is enabled only when all match-start cardinality, ownership, connection, compatibility, and readiness requirements hold.
 3. Start closes admission and enters authoritative shared-arena `NET-05`.
 4. Normal completion enters `NET-06`; host Return to lobby moves connected participants to `NET-04` with readiness cleared.
@@ -320,8 +332,8 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 - **NET-AC-002 — Endpoints:** Separate instances connect on one machine or LAN through a directly entered hostname or IP address plus port, with no Internet, NAT, discovery, or matchmaking affordance.
 - **NET-AC-003 — Host model:** The session is player-hosted and authoritative, with no dedicated-server product path or host migration.
 - **NET-AC-004 — Lifecycle cardinality:** A lobby admits 1–15 participants and players including a valid host-alone lobby; Start requires 2–15 connected participants and players with at least one player each; a degraded match may continue with one connected host while at least two roster players remain; fewer than two ends without winner.
-- **NET-AC-005 — Ownership:** The host controls match settings and roster order; each participant controls only its local persons and controls; authoritative input and state ownership are enforced.
-- **NET-AC-006 — Readiness:** Every participant must be connected, valid, and ready to start; clearing mutations clear all readiness; a disconnected admitted guest retains prior readiness as `Reconnecting` but blocks Start by name; reconnect restores retained readiness only when no later clearing mutation occurred.
+- **NET-AC-005 — Ownership:** The host controls match settings and roster order. Each participant controls only the persons and controls assigned to its immutable admitted player slots. A person, control, or roster-order change does not change player identity or ownership. Authoritative input and state ownership are enforced.
+- **NET-AC-006 — Readiness:** Every participant must be connected, valid, and ready to start. Participant admission or removal and each permitted lobby configuration change clear all readiness. A disconnected admitted guest retains prior readiness as `Reconnecting` but blocks Start by name. Reconnect restores retained readiness only when no later clearing mutation occurred.
 - **NET-AC-007 — Admission:** Admission occurs only before match start, and late attempts fail with explicit join-in-progress-prohibited behavior.
 - **NET-AC-008 — Compatibility:** Admission requires an exact case-sensitive non-empty network release ID and exact gameplay-content manifest whose logical paths satisfy every ASCII length, segment, character, separator, uniqueness, and unsigned-order rule; fixed user copy discloses no peer release ID, path, value, or raw payload, and diagnostics name only independently validated canonical paths.
 - **NET-AC-009 — Timing, admission, and host-local failure:** Host startup and complete initial guest connection must satisfy their 10-second boundaries. Production connection success must include predeadline final confirmation, valid clock calibration, and a complete valid initial snapshot. Missing calibration must produce timeout. Late initial-connection frames must not replace timeout or predeadline success. User Cancel and local validation must keep their defined precedence. The host application's local supervisor alone may route the host to `NET-08` with `Hosted session stopped unexpectedly.` This outcome is never guest evidence. Retained data, fixed copy, Retry, Edit setup, and Return destinations must match this specification.
@@ -340,6 +352,11 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 - **NET-VIS-AC-003 — Gameplay states:** Default network visuals preserve each authoritative Team color, Predator opacity, invisibility state, and other replicated visual gameplay state.
 - **NET-VIS-AC-004 — Profile exclusion:** Local and remote profiles do not change network visuals, do not affect admission, and do not provide a presentation fallback.
 - **NET-VIS-AC-005 — Required-resource failure:** A client with an unavailable required default network visual resource does not start network play and does not load peer content as a fallback.
+- **NET-OWN-AC-001 — Pre-admission player count:** A host or guest can add or remove local player slots only before its admission process begins.
+- **NET-OWN-AC-002 — Immutable admitted ownership:** Admission fixes each participant's exact player identities and ownership until that participant leaves, expires, or the session ends.
+- **NET-OWN-AC-003 — Lobby edits:** In `NET-04`, a participant can change the person or control for an existing owned slot. The change clears all readiness and preserves the slot's identity and owner.
+- **NET-OWN-AC-004 — Roster order:** A host roster-order change clears all readiness and preserves every player identity and owner.
+- **NET-OWN-AC-005 — Removal:** Participant Leave or expiry removes all of that participant's slots and permanently revokes their identities for the session.
 
 ## Exact downstream issue mapping
 
@@ -361,7 +378,7 @@ Each issue owns the listed criteria without changing their normative boundaries.
 | [#40](https://github.com/mkapusnik-apps/duel6r/issues/40) | Supported network packaging and deployment documentation | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-008`, `NET-AC-015`, `NET-AC-019` |
 | [#41](https://github.com/mkapusnik-apps/duel6r/issues/41) | Complete release-candidate validation | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-006`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-010`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018`, `NET-AC-019` |
 
-Issue #38 owns `NET-VIS-001` through `NET-VIS-011` and `NET-VIS-AC-001` through `NET-VIS-AC-005`. Issue #41 owns final validation of those requirements.
+Issue #38 owns `NET-VIS-001` through `NET-VIS-011`, `NET-VIS-AC-001` through `NET-VIS-AC-005`, `NET-OWN-001` through `NET-OWN-009`, and `NET-OWN-AC-001` through `NET-OWN-AC-005`. Issue #41 owns final validation of those requirements.
 
 Issue #28 approves this target but does not satisfy parent issue #27's implementation or release evidence. In-process loopback, documentation, or planned screenshots are insufficient to claim playable networking.
 

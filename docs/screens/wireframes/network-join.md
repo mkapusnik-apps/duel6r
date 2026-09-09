@@ -31,5 +31,8 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 - The endpoint header and connecting footer remain fixed. Local-player rows use the flexible middle region and scroll under fixed headings.
 - Local setup provides person selection and control assignment without a profile selector, profile column, profile value, or profile-editing action.
 - Profile and cosmetic differences do not produce compatibility copy or block Connect.
+- Editable setup provides Add and Remove controls for the pre-admission local-player count.
+- Connect finalizes the displayed count and ordered slot set for the attempt.
+- Connecting locks the slot count and order and shows no active Add, Remove, or Transfer action.
 
 Planned representative screenshot: [`SS-017`](../../screenshots/README.md#ss-017).

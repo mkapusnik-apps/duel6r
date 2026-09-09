@@ -25,5 +25,8 @@ Target representative viewport: 1280 by 900 px with active arena context. This w
 - The state offers no Pause or host-migration action.
 - The centered panel is no wider than 640 px, keeps a 16 px client-edge clearance, wraps prose, and keeps the countdown and Leave session action visible.
 - The retained arena keeps the default network visuals from the last complete accepted state and does not switch to selected-profile appearances.
+- The reservation retains the same admitted player slots, identities, and ownership.
+- Successful reconnect restores those same slots and ownership without add, remove, replacement, reorder, or transfer.
+- Leave or authoritative expiry removes all slots owned by the participant, and their identities are not reused during the session.
 
 Planned representative screenshot: [`SS-021`](../../screenshots/README.md#ss-021).

@@ -50,6 +50,9 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 - **REP-015** Replicated match state must identify the current phase as lobby, active round, round summary, final summary, or ended.
 - **REP-016** Replicated progression must include the current round number, completed-round count, phase timing, and applicable round-end countdown.
 - **REP-017** Replicated result state must keep result state, match outcome, last completed-round outcome, and cumulative rankings as distinct values. It must include all session-only result data required by [`network-authoritative-headless-match.md`](network-authoritative-headless-match.md).
+- **REP-OWN-001** A replicated person change for an existing player slot must keep that player's admitted identity and ownership unchanged.
+- **REP-OWN-002** A replicated roster-order change must keep every admitted player identity and ownership unchanged.
+- **REP-OWN-003** Participant removal must remove all player slots owned by that participant from current replicated state.
 
 ### Round and world state
 
@@ -173,6 +176,7 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 - **REP-PRES-AC-001 — Deterministic default visuals:** A full snapshot and equivalent incremental state select the same built-in player skin, animation, and entity visuals on each client of the supported release.
 - **REP-PRES-AC-002 — Profile exclusion:** Replication does not require or provide profile, skin, animation-resource, or visual-resource identities for selected-profile appearance parity.
 - **REP-PRES-AC-003 — Read-only presentation:** A client presents replicated state without mutating it or creating another gameplay simulation.
+- **REP-OWN-AC-001 — Immutable ownership:** Lobby person and roster-order changes preserve admitted player identities and ownership. A participant-local control change also preserves identity and ownership. Participant removal removes all player slots owned by that participant.
 
 ## Downstream boundaries
 

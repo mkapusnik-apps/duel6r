@@ -301,6 +301,20 @@ The following values come from renderer and GUI source.
 - Network match setup must not expose weapon enablement, ammunition ranges, level data, or gameplay definitions as settings.
 - Network match status must state that optional Lua and profile scripts are disabled for network play.
 - Network setup must provide local person selection and local control assignment without a profile selector, profile column, or profile-editing action.
+- Network setup must let a participant add or remove local player slots only before host startup or guest Connect begins.
+- Start session and Connect must lock the displayed local-player count and ordered slot set for that attempt.
+- Cancel or a recoverable pre-admission failure may return to editable setup with the retained slot set.
+- Successful host startup or guest admission must fix the participant's ordered player slots, identities, and ownership for the admitted lifetime.
+- `NET-04` must not show or provide an action to add, remove, or transfer one player slot.
+- An admitted participant may edit the person and local control only for an existing owned player slot.
+- A person or control edit must retain the slot position, player identity, and owner.
+- Only the host may reorder the authoritative roster.
+- A host roster reorder must retain every player identity and owner.
+- A person edit, control edit, or host roster reorder must clear every participant's readiness.
+- Intentional participant Leave or authoritative expiry must remove every slot owned by that participant as one participant-level outcome.
+- A removed player identity must not be reused during the same session.
+- Reconnect must restore the same reserved participant, player slots, player identities, and ownership.
+- Reconnect must not create, remove, replace, reorder, or transfer a reserved player slot.
 - A network player name must identify the selected local person without implying selected-profile appearance parity.
 - First-release network play must use one built-in default network visual set for every local and remote player.
 - The default network visual set must provide the built-in player skin, animation mapping, and entity-resource mapping.

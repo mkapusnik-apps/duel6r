@@ -5,6 +5,7 @@
 This is a target screen for downstream issue #38; it is not implemented. It collects the direct listening port and host local players before creating a player-hosted session. It implements `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-009`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 It preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
 It implements `NET-VIS-001`, `NET-VIS-002`, `NET-VIS-009` through `NET-VIS-011`, `NET-VIS-AC-001`, `NET-VIS-AC-004`, and `NET-VIS-AC-005`. It also consumes `CMP-VIS-001` through `CMP-VIS-004`, `CMP-VIS-AC-001`, and updated `AC-012` from [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
+It implements `NET-OWN-001` and `NET-OWN-AC-001`. Successful startup consumes `ADM-OWN-001` and `ADM-OWN-AC-001` from the compatibility and admission specification.
 Issue #30 defines the host compatibility result for this planned flow in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 Issue #30 must not implement this graphical screen.
 Issue #31 defines the hosted-service lifecycle for this planned flow in [`docs/network-host-service-lifecycle.md`](../network-host-service-lifecycle.md).
@@ -35,6 +36,9 @@ Entry is `NET-01` → Host. Successful confirmed startup enters `NET-04`; startu
 ## Navigation and significant variants
 
 - Editable setup is the representative state. Start session remains disabled until the port is valid and the host owns at least one valid local player.
+- Editable setup must let the host add or remove local player slots before Start session begins.
+- Start session must finalize the displayed local-player count and ordered slot set for the startup attempt.
+- Starting and Cancelling must not permit a local player slot to be added, removed, transferred, or reordered.
 - Starting must show exactly `Starting session…` and `Startup can take up to 10 seconds.`.
 - Starting must lock every setup control.
 - Starting must replace Start session and Back with Cancel.
@@ -43,8 +47,10 @@ Entry is `NET-01` → Host. Successful confirmed startup enters `NET-04`; startu
 - Accepted Cancel must show exactly `Cancelling session…` until cleanup completes.
 - Cancelling must keep every setup control locked and must not accept another Cancel.
 - Completed Cancel must return to editable `NET-02` with the port and local-player setup retained.
+- Completed Cancel may permit the host to change the retained local-player count before a new attempt.
 - Completed Cancel must not show a success or failure message.
 - Confirmed startup enters `NET-04` and identifies this participant as Host.
+- Confirmed startup must commit the exact ordered host player identities and ownership for the displayed slot count.
 - Confirmed readiness strictly before 10 seconds enters `NET-04`; at or after 10 seconds startup fails and leaves no listener.
 - A port conflict or transport startup failure that is confirmed before timeout enters `NET-08` with the specific supported reason.
 - A hosted-service exit before readiness enters `NET-08` with `Hosted session stopped before it was ready.`.

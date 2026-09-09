@@ -5,6 +5,7 @@
 This is a target screen for downstream issue #38; it is not implemented. It exposes participant ownership, local-player configuration, host-owned match settings, authoritative roster order, readiness, and retained session results. Issue #32 defines its authoritative setup and result states in [`docs/network-authoritative-headless-match.md`](../network-authoritative-headless-match.md).
 Local-player configuration preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
 It implements `NET-VIS-001`, `NET-VIS-002`, `NET-VIS-009` through `NET-VIS-011`, `NET-VIS-AC-001`, `NET-VIS-AC-004`, and `NET-VIS-AC-005`. It consumes `CMP-VIS-001` through `CMP-VIS-004`, `CMP-VIS-AC-001`, and updated `AC-012` from [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
+It implements `NET-OWN-002` through `NET-OWN-009` and `NET-OWN-AC-002` through `NET-OWN-AC-005`. It consumes `ADM-OWN-001` through `ADM-OWN-006`, `ADM-OWN-AC-001`, `REP-OWN-001` through `REP-OWN-003`, `REP-OWN-AC-001`, `NIN-OWN-008`, `NIN-OWN-009`, `NIN-OWN-AC-001`, `NIN-OWN-AC-002`, and `TRU-OWN-001` through `TRU-OWN-007`.
 
 Host admission enters from `NET-02`. A guest enters from `NET-03` only after complete validated production admission. Host Start match enters `NET-05`; final-summary Return to lobby enters here with readiness cleared. Confirmed guest Leave sends that guest to `NET-01`. Confirmed host End session sends the host to `NET-01` and guests to `NET-09`. Any unexpected host contact failure enters guest `NET-07`; only a valid End session notice accepted through the current established session enters guest `NET-09`.
 
@@ -13,7 +14,13 @@ A complete validated production admission must contain an exact final confirmati
 ## Representative layout
 
 - Use the scaled retro canvas with session endpoint, `Host` or `Guest`, and exact participant/player totals as text.
-- Group players under each participant row. Use separate Role, Connection, and Readiness columns, such as `Guest | Reconnecting | Ready`; do not combine these states into one ambiguous label.
+- Show participant Role, Connection, Readiness, and owned-player count in separate columns, such as `Guest | Reconnecting | Ready | 2`; do not combine these states into one ambiguous label.
+- Show each admitted player as one existing slot in authoritative roster order.
+- Label every roster slot with its roster position and owner.
+- Show person and local-control editing only for slots owned by the current participant.
+- Show another participant's person and ownership as read-only.
+- Do not show an Add, Remove, or Transfer player-slot action.
+- Show host roster-order controls next to the authoritative roster without changing an owner label.
 - Show host match settings and authoritative roster order. Guests see host-owned controls as read-only.
 - The representative host state shows 3 participants, 6 players, and one named unready guest.
 - Footer shows Ready/Not ready, host-only Start match, and Leave or End session as appropriate.
@@ -30,7 +37,7 @@ A complete validated production admission must contain an exact final confirmati
 - Allocate the remaining body width to host match settings.
 - Keep an 8-logical-pixel gap between the body columns.
 - Keep participant and roster column headings visible while up to 15 participant or player rows scroll vertically.
-- Keep each participant and player on one row.
+- Keep each participant on one row and each authoritative roster slot on one row.
 - Clip long names inside the applicable column without hiding Role, Connection, or Readiness.
 - Keep the Start disabled reason and script-policy text above the footer actions.
 - Present a retained result in a bounded result region below the session header and above the footer.
@@ -39,10 +46,18 @@ A complete validated production admission must contain an exact final confirmati
 ## Navigation and significant variants
 
 - A participant edits only its own persons and controls; the host edits match settings and roster order.
+- A person or control edit must apply only to one existing slot owned by that participant.
+- A person or control edit must preserve the slot's player identity and owner.
+- A host roster-order change must preserve every player identity and owner.
+- A person edit, control edit, or host roster-order change must clear every participant's readiness.
+- `NET-04` must not permit an admitted participant to add, remove, or transfer one player slot.
 - A host-alone lobby is valid with `1 <= admitted participants <= players <= 15`, but Start remains disabled until 2–15 participants are connected, 2–15 players exist, each participant owns at least one, and all are ready.
 - Any configuration, roster, admission, expiry, or intentional-leave mutation clears every participant's readiness and displays the reason.
 - A disconnected admitted guest row changes Connection to `Reconnecting`, retains its prior readiness text, and blocks Start with `Waiting for <participant> to reconnect`.
 - Reconnect restores prior readiness unless another clearing mutation occurred. Expiry or intentional Leave removes that participant and players and clears every remaining readiness value.
+- Reconnect must restore the same reserved player identities and ownership.
+- Intentional Leave or authoritative expiry must remove all slots owned by the participant.
+- A removed player identity must not be reused for another player in the session.
 - Lobby removals are one atomic batch: clear every remaining readiness value, perform no winner evaluation, retain the `Session only` result, and label affected retained rows `Departed`.
 - Guest Leave opens `Leave session? Your players will be removed and you will return to Network.` Confirm removes the guest and enters guest `NET-01`; Cancel returns to the lobby.
 - Host End session opens `End session for everyone?` Confirm sends host to `NET-01` and guests to host-ended `NET-09`; Cancel returns to the lobby.
@@ -70,6 +85,7 @@ A complete validated production admission must contain an exact final confirmati
 - Validation copy must not disclose a peer-supplied name, release value, capability, path, hash, count, credential, address, threshold, payload, or raw filesystem value.
 - Example Start reason: `Waiting for Guest 2 to be ready`. Example Ready reason: `Assign a control to Cora`.
 - Focus order follows participant-owned controls, Ready, host-owned settings where applicable, Start match, and Leave/End session. Read-only controls are skipped.
+- Focus order must not include a hidden or disabled Add, Remove, or Transfer player-slot target because those actions do not exist after admission.
 - Keyboard Tab or directional controller input traverses; Enter/Space/controller Confirm activates; Escape/controller Back focuses Leave/End session rather than silently abandoning the session.
 - Each participant must be able to assign established keyboard and detected supported controller presets only to that participant's owned local players.
 - The lobby must permit the same local control preset for more than one player owned by the same participant.

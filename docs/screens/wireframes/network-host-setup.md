@@ -32,5 +32,8 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 - The setup body is flexible between fixed header and footer regions. Both lists scroll vertically under fixed headings, and status grows upward without covering the setup or actions.
 - Persons and Local Players provide person selection and control assignment without a profile selector, profile column, profile value, or profile-editing action.
 - A profile or cosmetic difference does not create a setup warning or prevent Start session.
+- Add and Remove change the local-player count only in editable setup.
+- Start session finalizes the displayed count and ordered slot set for the attempt.
+- Starting and Cancelling lock slot count and order.
 
 Planned representative screenshot: [`SS-016`](../../screenshots/README.md#ss-016).
