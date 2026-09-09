@@ -52,7 +52,6 @@ namespace Duel6::Client {
         std::string status;
         std::string failure;
         bool retryAllowed = false;
-        bool retainReconnectContext = false;
         NetworkRetryBlockReason retryBlockReason = NetworkRetryBlockReason::None;
     };
 

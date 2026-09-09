@@ -245,6 +245,81 @@ namespace Duel6 {
             }
             return lines;
         }
+
+        struct VisibleWindow {
+            std::size_t first = 0;
+            std::size_t count = 0;
+        };
+
+        VisibleWindow localControlWindow(int focus, std::size_t playerCount, bool retained) {
+            if (playerCount == 0) return {};
+            const bool focused = focus >= 0 && focus < static_cast<int>(playerCount) * 2;
+            const std::size_t selected = focused ? static_cast<std::size_t>(focus / 2) : 0;
+            if (retained) return {selected, 1};
+            const std::size_t first = selected > 7 ? selected - 7 : 0;
+            return {first, std::min<std::size_t>(8, playerCount - first)};
+        }
+
+        VisibleWindow rosterWindow(int focus, std::size_t rosterCount, int focusBase, bool retained) {
+            if (rosterCount == 0) return {};
+            const bool focused = focus >= focusBase && focus < focusBase + static_cast<int>(rosterCount);
+            if (retained) return focused
+                    ? VisibleWindow{static_cast<std::size_t>(focus - focusBase), 1} : VisibleWindow{};
+            const std::size_t selected = focused ? static_cast<std::size_t>(focus - focusBase) : 0;
+            const std::size_t first = selected > 7 ? selected - 7 : 0;
+            return {first, std::min<std::size_t>(8, rosterCount - first)};
+        }
+
+        struct ResultScrollBounds {
+            std::size_t vertical = 0;
+            std::size_t horizontal = 0;
+            std::size_t visibleRows = 1;
+            std::size_t widest = 0;
+        };
+
+        ResultScrollBounds resultScrollBounds(
+                const Network::Replication::CanonicalState &state, bool retained) {
+            const auto lines = resultLines(state);
+            const Int32 top = retained ? 365 : 610;
+            const Int32 bottom = retained ? 190
+                    : state.phase == Network::Replication::Phase::FinalSummary ? 120 : 62;
+            const Int32 bodyTop = top - 136;
+            const Int32 bodyBottom = bottom + 32;
+            const std::size_t visible = bodyTop < bodyBottom ? 1
+                    : static_cast<std::size_t>((bodyTop - bodyBottom) / 18 + 1);
+            std::size_t widest = 0;
+            for (const auto &line: lines) widest = std::max(widest, utf8Length(line));
+            return {lines.size() > visible ? lines.size() - visible : 0,
+                    widest > 94 ? widest - 94 : 0, visible, widest};
+        }
+
+        bool retainedResult(const Client::NetworkRuntimeSnapshot &snapshot) {
+            return snapshot.journey == Client::NetworkJourney::Lobby && snapshot.canonical
+                    && snapshot.canonical->result.available;
+        }
+
+        int resultFocusIndex(const Client::NetworkRuntimeSnapshot &snapshot, std::size_t localPlayerCount) {
+            if (snapshot.journey == Client::NetworkJourney::Summary) return snapshot.host ? 2 : 1;
+            if (retainedResult(snapshot)) {
+                const std::size_t roster = snapshot.host && snapshot.canonical
+                        ? snapshot.canonical->players.size() : 0;
+                return static_cast<int>(localPlayerCount) * 2
+                        + (snapshot.host ? 12 + static_cast<int>(roster) : 2);
+            }
+            return -1;
+        }
+
+        std::size_t rankingMaximumScroll(
+                const Network::Replication::CanonicalState &state, Int32 height, bool roundSummary) {
+            const auto count = rankingLines(state).size();
+            std::size_t visible = static_cast<std::size_t>(std::max<Int32>(1, (height - 160) / 16));
+            if (roundSummary) {
+                const Int32 panelHeight = std::min<Int32>(
+                        128 + static_cast<Int32>(count) * 18, height - 200);
+                visible = static_cast<std::size_t>(std::max<Int32>(1, (panelHeight - 118) / 18));
+            }
+            return count > visible ? count - visible : 0;
+        }
     }
 
     NetworkMenu::NetworkMenu(AppService &value, GameResources &resources)
@@ -536,17 +611,23 @@ namespace Duel6 {
             if (pointerInside(x, y, 275, 300, 300, 32)) { focus = 0; activate(); return; }
         } else if (snap.journey == Client::NetworkJourney::Lobby && snap.canonical) {
             const bool retained = snap.canonical->result.available;
+            const auto resultBounds = resultScrollBounds(*snap.canonical, true);
             if (retained && pointerInside(x, y, 50, 194, 32, 22)) {
-                summaryHorizontal = std::max(0, summaryHorizontal - 8);
+                summaryHorizontal = std::clamp(summaryHorizontal - 8, 0,
+                                               static_cast<int>(resultBounds.horizontal));
+                focus = resultFocusIndex(snap, localPlayers.size());
                 return;
             }
             if (retained && pointerInside(x, y, 574, 194, 32, 22)) {
-                summaryHorizontal += 8;
+                summaryHorizontal = std::min<int>(static_cast<int>(resultBounds.horizontal), summaryHorizontal + 8);
+                focus = resultFocusIndex(snap, localPlayers.size());
                 return;
             }
+            const auto controls = localControlWindow(focus, localPlayers.size(), retained);
             const Int32 baseY = retained ? 162 : 241;
-            for (std::size_t index = 0; index < localPlayers.size(); ++index) {
-                const Int32 rowY = baseY - static_cast<Int32>(index) * 18;
+            for (std::size_t offset = 0; offset < controls.count; ++offset) {
+                const std::size_t index = controls.first + offset;
+                const Int32 rowY = baseY - static_cast<Int32>(offset) * 18;
                 if (!pointerInside(x, y, 48, rowY, 350, 18)) continue;
                 focus = static_cast<int>(index) * 2 + (x >= 230 ? 1 : 0); activate(); return;
             }
@@ -564,10 +645,16 @@ namespace Duel6 {
                 std::sort(roster.begin(), roster.end(), [](const auto &left, const auto &right) {
                     return left.rosterPosition < right.rosterPosition;
                 });
-                for (std::size_t index = 0; !retained && index < roster.size() && index < 8; ++index)
-                    if (pointerInside(x, y, 573, 346 - static_cast<Int32>(index) * 18, 245, 18)) {
+                const int rosterBase = readyIndex + 10;
+                const auto visibleRoster = rosterWindow(focus, roster.size(), rosterBase, retained);
+                for (std::size_t offset = 0; offset < visibleRoster.count; ++offset) {
+                    const std::size_t index = visibleRoster.first + offset;
+                    const Int32 rowY = retained ? 162 : 346 - static_cast<Int32>(offset) * 18;
+                    if (pointerInside(x, y, retained ? 408 : 573, rowY,
+                                      retained ? 376 : 245, retained ? 20 : 18)) {
                         focus = readyIndex + 10 + static_cast<int>(index); activate(); return;
                     }
+                }
                 const int startIndex = readyIndex + 10 + static_cast<int>(roster.size());
                 std::string reason;
                 if (startEligible(snap, reason) && pointerInside(x, y, 408, 94, 210, 20)) {
@@ -578,11 +665,15 @@ namespace Duel6 {
                 focus = readyIndex + 1; activate(); return;
             }
         } else if (snap.journey == Client::NetworkJourney::Summary) {
+            const auto bounds = snap.canonical ? resultScrollBounds(*snap.canonical, false) : ResultScrollBounds{};
             if (pointerInside(x, y, 50, 124, 32, 22)) {
-                summaryHorizontal = std::max(0, summaryHorizontal - 8); focus = snap.host ? 2 : 1; return;
+                summaryHorizontal = std::clamp(summaryHorizontal - 8, 0,
+                                               static_cast<int>(bounds.horizontal));
+                focus = snap.host ? 2 : 1; return;
             }
             if (pointerInside(x, y, 574, 124, 32, 22)) {
-                summaryHorizontal += 8; focus = snap.host ? 2 : 1; return;
+                summaryHorizontal = std::min<int>(static_cast<int>(bounds.horizontal), summaryHorizontal + 8);
+                focus = snap.host ? 2 : 1; return;
             }
             if (snap.host && pointerInside(x, y, 275, 72, 300, 32)) { focus = 0; activate(); return; }
             if (pointerInside(x, y, 275, 30, 300, 32)) { focus = snap.host ? 1 : 0; activate(); return; }
@@ -598,7 +689,10 @@ namespace Duel6 {
     void NetworkMenu::mouseWheelEvent(const MouseWheelEvent &event) {
         const auto snap = runtime.snapshot();
         if (snap.journey == Client::NetworkJourney::Match && !scoreOverlay) {
-            rankingScroll = std::max(0, rankingScroll - event.getAmountY());
+            const auto maximum = snap.canonical ? rankingMaximumScroll(
+                    *snap.canonical, service.getVideo().getScreen().getClientHeight(),
+                    snap.canonical->phase == Network::Replication::Phase::RoundSummary) : 0;
+            rankingScroll = std::clamp(rankingScroll - event.getAmountY(), 0, static_cast<int>(maximum));
             return;
         }
         if (snap.journey == Client::NetworkJourney::Lobby
@@ -608,8 +702,11 @@ namespace Duel6 {
         }
         if (snap.journey != Client::NetworkJourney::Summary
             && !(snap.journey == Client::NetworkJourney::Lobby && snap.canonical && snap.canonical->result.available)) return;
-        summaryScroll = std::max(0, summaryScroll - event.getAmountY());
-        summaryHorizontal = std::max(0, summaryHorizontal + event.getAmountX() * 8);
+        const bool retained = retainedResult(snap);
+        const auto bounds = snap.canonical ? resultScrollBounds(*snap.canonical, retained) : ResultScrollBounds{};
+        summaryScroll = std::clamp(summaryScroll - event.getAmountY(), 0, static_cast<int>(bounds.vertical));
+        summaryHorizontal = std::clamp(summaryHorizontal + event.getAmountX() * 8,
+                                       0, static_cast<int>(bounds.horizontal));
     }
 
     void NetworkMenu::moveFocus(int direction) {
@@ -624,8 +721,11 @@ namespace Duel6 {
         } else if (snap.journey == Client::NetworkJourney::Lobby) {
             count = static_cast<int>(localPlayers.size()) * 2 + 2;
             if (snap.host) count += 9 + static_cast<int>(snap.canonical ? snap.canonical->players.size() : 0) + 1;
+            if (retainedResult(snap)) ++count;
         } else if (snap.journey == Client::NetworkJourney::Match && snap.canonical) {
-            count = snap.host && snap.canonical->phase == Network::Replication::Phase::RoundSummary ? 2 : 1;
+            if (snap.canonical->phase == Network::Replication::Phase::RoundSummary)
+                count = snap.host ? 3 : 2;
+            else count = 1;
         } else if (snap.journey == Client::NetworkJourney::Summary) count = snap.host ? 3 : 2;
         else if (snap.journey == Client::NetworkJourney::Failure) {
             std::string reason;
@@ -691,6 +791,7 @@ namespace Duel6 {
         }
         if (snap.journey == Client::NetworkJourney::Starting) { runtime.cancel(); return; }
         if (snap.journey == Client::NetworkJourney::Lobby) {
+            if (focus == resultFocusIndex(snap, localPlayers.size())) { focus = 0; return; }
             if (focus < static_cast<int>(localPlayers.size()) * 2) {
                 const auto player = static_cast<std::size_t>(focus / 2);
                 if (focus % 2 == 0) cyclePerson(player); else cycleControl(player);
@@ -752,6 +853,9 @@ namespace Duel6 {
                 else { confirmation = Confirmation::End; focus = 0; }
             } else { confirmation = Confirmation::Leave; focus = 0; }
         } else if (snap.journey == Client::NetworkJourney::Match) {
+            const int rankingFocus = snap.host ? 2 : 1;
+            if (snap.canonical && snap.canonical->phase == Network::Replication::Phase::RoundSummary
+                && focus == rankingFocus) { focus = 0; return; }
             const bool advance = snap.host && snap.canonical
                     && snap.canonical->phase == Network::Replication::Phase::RoundSummary && focus == 0;
             if (advance) runtime.advanceRound();
@@ -760,7 +864,7 @@ namespace Duel6 {
             if (snap.host && focus == 0) runtime.returnToLobby();
             else if ((!snap.host && focus == 0) || (snap.host && focus == 1)) {
                 confirmation = snap.host ? Confirmation::End : Confirmation::Leave; focus = 0;
-            }
+            } else if (focus == resultFocusIndex(snap, localPlayers.size())) focus = 0;
         } else if (snap.journey == Client::NetworkJourney::Reconnecting) {
             confirmation = Confirmation::Leave; focus = 0;
         } else if (snap.journey == Client::NetworkJourney::HostEnded) {
@@ -818,18 +922,28 @@ namespace Duel6 {
         if ((snap.journey == Client::NetworkJourney::Summary
              || (snap.journey == Client::NetworkJourney::Lobby && snap.canonical && snap.canonical->result.available))
             && (event.getCode() == SDLK_PAGEUP || event.getCode() == SDLK_PAGEDOWN)) {
-            summaryScroll = std::max(0, summaryScroll + (event.getCode() == SDLK_PAGEDOWN ? 8 : -8));
+            const bool retained = retainedResult(snap);
+            const auto bounds = snap.canonical ? resultScrollBounds(*snap.canonical, retained) : ResultScrollBounds{};
+            summaryScroll = std::clamp(summaryScroll + (event.getCode() == SDLK_PAGEDOWN ? 8 : -8),
+                                       0, static_cast<int>(bounds.vertical));
             return;
         }
         if (snap.journey == Client::NetworkJourney::Match && !scoreOverlay
             && (event.getCode() == SDLK_PAGEUP || event.getCode() == SDLK_PAGEDOWN)) {
-            rankingScroll = std::max(0, rankingScroll + (event.getCode() == SDLK_PAGEDOWN ? 1 : -1));
+            const auto maximum = snap.canonical ? rankingMaximumScroll(
+                    *snap.canonical, service.getVideo().getScreen().getClientHeight(),
+                    snap.canonical->phase == Network::Replication::Phase::RoundSummary) : 0;
+            rankingScroll = std::clamp(rankingScroll + (event.getCode() == SDLK_PAGEDOWN ? 1 : -1),
+                                       0, static_cast<int>(maximum));
             return;
         }
         if ((snap.journey == Client::NetworkJourney::Summary
              || (snap.journey == Client::NetworkJourney::Lobby && snap.canonical && snap.canonical->result.available))
             && (event.getCode() == SDLK_LEFT || event.getCode() == SDLK_RIGHT)) {
-            summaryHorizontal = std::max(0, summaryHorizontal + (event.getCode() == SDLK_RIGHT ? 8 : -8));
+            const bool retained = retainedResult(snap);
+            const auto bounds = snap.canonical ? resultScrollBounds(*snap.canonical, retained) : ResultScrollBounds{};
+            summaryHorizontal = std::clamp(summaryHorizontal + (event.getCode() == SDLK_RIGHT ? 8 : -8),
+                                           0, static_cast<int>(bounds.horizontal));
             return;
         }
         if (event.getCode() == SDLK_ESCAPE) back();
@@ -863,31 +977,79 @@ namespace Duel6 {
         const auto currentSnapshot = runtime.snapshot();
         worldPresenter.update(elapsedTime, currentSnapshot.canonical ? &*currentSnapshot.canonical : nullptr,
                               currentSnapshot.presentationEvents);
-        bool sessionBack = false;
-        for (const auto &controller: service.getInput().getJoys())
-            if (controller.isPressed(GameController::CONTROLLER_BUTTON_BACK)) {
-                sessionBack = true; break;
-            }
+        bool sessionBack = false, uiConfirm = false, uiBack = false;
+        bool uiUp = false, uiDown = false, uiLeft = false, uiRight = false;
+        for (const auto &controller: service.getInput().getJoys()) {
+            sessionBack = sessionBack || controller.isPressed(GameController::CONTROLLER_BUTTON_BACK);
+            uiConfirm = uiConfirm || controller.isPressed(GameController::CONTROLLER_BUTTON_A);
+            uiBack = uiBack || controller.isPressed(GameController::CONTROLLER_BUTTON_B);
+            uiUp = uiUp || controller.isPressed(GameController::CONTROLLER_BUTTON_DPAD_UP)
+                    || controller.getAxis(GameController::CONTROLLER_AXIS_LEFTY) < -16000;
+            uiDown = uiDown || controller.isPressed(GameController::CONTROLLER_BUTTON_DPAD_DOWN)
+                    || controller.getAxis(GameController::CONTROLLER_AXIS_LEFTY) > 16000;
+            uiLeft = uiLeft || controller.isPressed(GameController::CONTROLLER_BUTTON_DPAD_LEFT)
+                    || controller.getAxis(GameController::CONTROLLER_AXIS_LEFTX) < -16000;
+            uiRight = uiRight || controller.isPressed(GameController::CONTROLLER_BUTTON_DPAD_RIGHT)
+                    || controller.getAxis(GameController::CONTROLLER_AXIS_LEFTX) > 16000;
+        }
         if (sessionBack && !controllerSessionBack) back();
         controllerSessionBack = sessionBack;
-        if (!localPlayers.empty() && localPlayers[0].controls
-            && (currentSnapshot.journey != Client::NetworkJourney::Match || confirmation != Confirmation::None)) {
-            const auto &c = *localPlayers[0].controls;
-            const bool confirmNow = c.getShoot().isPressed(), backNow = c.getPick().isPressed();
-            const bool up = c.getUp().isPressed(), down = c.getDown().isPressed();
-            const bool left = c.getLeft().isPressed(), right = c.getRight().isPressed();
-            if (confirmNow && !controllerConfirm) activate();
-            if (backNow && !controllerBack) back();
-            if (up && !controllerUp) moveFocus(-1);
-            if (down && !controllerDown) moveFocus(1);
-            if ((currentSnapshot.journey == Client::NetworkJourney::Summary
-                 || (currentSnapshot.journey == Client::NetworkJourney::Lobby && currentSnapshot.canonical
-                     && currentSnapshot.canonical->result.available))) {
-                if (left && !controllerLeft) summaryHorizontal = std::max(0, summaryHorizontal - 8);
-                if (right && !controllerRight) summaryHorizontal += 8;
+        const bool roundSummary = currentSnapshot.journey == Client::NetworkJourney::Match
+                && currentSnapshot.canonical
+                && currentSnapshot.canonical->phase == Network::Replication::Phase::RoundSummary;
+        if ((currentSnapshot.journey != Client::NetworkJourney::Match
+             || confirmation != Confirmation::None || roundSummary)) {
+            if (!localPlayers.empty() && localPlayers[0].controls) {
+                const auto &c = *localPlayers[0].controls;
+                uiConfirm = uiConfirm || c.getShoot().isPressed();
+                uiBack = uiBack || c.getPick().isPressed();
+                uiUp = uiUp || c.getUp().isPressed(); uiDown = uiDown || c.getDown().isPressed();
+                uiLeft = uiLeft || c.getLeft().isPressed(); uiRight = uiRight || c.getRight().isPressed();
             }
-            controllerConfirm = confirmNow; controllerBack = backNow; controllerUp = up; controllerDown = down;
-            controllerLeft = left; controllerRight = right;
+            const int resultFocus = resultFocusIndex(currentSnapshot, localPlayers.size());
+            const bool resultFocused = confirmation == Confirmation::None && resultFocus >= 0 && focus == resultFocus;
+            const int rankingFocus = currentSnapshot.host ? 2 : 1;
+            const bool rankingFocused = confirmation == Confirmation::None && roundSummary && focus == rankingFocus;
+            if (uiConfirm && !controllerConfirm) activate();
+            if (uiBack && !controllerBack) back();
+            if (resultFocused && currentSnapshot.canonical) {
+                const bool retained = retainedResult(currentSnapshot);
+                const auto bounds = resultScrollBounds(*currentSnapshot.canonical, retained);
+                if (uiUp && !controllerUp)
+                    summaryScroll = std::clamp(summaryScroll - 1, 0, static_cast<int>(bounds.vertical));
+                if (uiDown && !controllerDown)
+                    summaryScroll = std::min<int>(static_cast<int>(bounds.vertical), summaryScroll + 1);
+                if (uiLeft && !controllerLeft)
+                    summaryHorizontal = std::clamp(summaryHorizontal - 8, 0,
+                                                   static_cast<int>(bounds.horizontal));
+                if (uiRight && !controllerRight)
+                    summaryHorizontal = std::min<int>(static_cast<int>(bounds.horizontal), summaryHorizontal + 8);
+            } else if (rankingFocused && currentSnapshot.canonical) {
+                const auto maximum = rankingMaximumScroll(*currentSnapshot.canonical,
+                        service.getVideo().getScreen().getClientHeight(), true);
+                if (uiUp && !controllerUp)
+                    rankingScroll = std::clamp(rankingScroll - 1, 0, static_cast<int>(maximum));
+                if (uiDown && !controllerDown)
+                    rankingScroll = std::min<int>(static_cast<int>(maximum), rankingScroll + 1);
+                if (uiLeft && !controllerLeft) moveFocus(-1);
+                if (uiRight && !controllerRight) moveFocus(1);
+            } else {
+                if (uiUp && !controllerUp) moveFocus(-1);
+                if (uiDown && !controllerDown) moveFocus(1);
+                if ((roundSummary || currentSnapshot.journey == Client::NetworkJourney::Summary)
+                    && uiLeft && !controllerLeft) moveFocus(-1);
+                if ((roundSummary || currentSnapshot.journey == Client::NetworkJourney::Summary)
+                    && uiRight && !controllerRight) moveFocus(1);
+            }
+            controllerConfirm = uiConfirm; controllerBack = uiBack;
+            controllerUp = uiUp; controllerDown = uiDown;
+            controllerLeft = uiLeft; controllerRight = uiRight;
+        } else {
+            // Track held gameplay controls without treating them as session actions. This prevents
+            // an already-held button from activating a control when a round summary first appears.
+            controllerConfirm = uiConfirm; controllerBack = uiBack;
+            controllerUp = uiUp; controllerDown = uiDown;
+            controllerLeft = uiLeft; controllerRight = uiRight;
         }
         if (currentSnapshot.journey != lastJourney) {
             std::string retryReason;
@@ -1073,6 +1235,9 @@ namespace Duel6 {
         const std::size_t visibleRows = static_cast<std::size_t>(std::max<Int32>(1, (panelHeight - 118) / 18));
         const std::size_t maximumFirst = lines.size() > visibleRows ? lines.size() - visibleRows : 0;
         const std::size_t first = std::min<std::size_t>(rankingScroll, maximumFirst);
+        const int rankingFocus = snap.host ? 2 : 1;
+        drawFocusKeyline(left + 24, bottom + 52, panelWidth - 48, panelHeight - 124,
+                         focus == rankingFocus);
         Int32 rowY = top - 88;
         for (std::size_t index = first; index < lines.size() && index < first + visibleRows; ++index, rowY -= 18)
             drawText(left + 32, rowY, lines[index].text, lines[index].color);
@@ -1149,13 +1314,10 @@ namespace Duel6 {
         drawText(410, 426, "Assistance " + onOff(state.settings.assistance) + " • Quick Liquid " + onOff(state.settings.quickLiquid));
         drawText(410, 406, "Burnable Trees " + onOff(state.settings.burnableTrees));
         const bool retainedResult = state.result.available;
-        const std::size_t firstControl = focus < static_cast<int>(localPlayers.size()) * 2
-                                          ? static_cast<std::size_t>(std::max(0, focus / 2 - 7)) : 0;
         Int32 cy = retainedResult ? 166 : 245;
-        const std::size_t visibleControls = retainedResult ? 1 : 8;
-        const std::size_t shownControl = retainedResult && focus < static_cast<int>(localPlayers.size()) * 2
-                                         ? static_cast<std::size_t>(focus / 2) : firstControl;
-        for (std::size_t index = shownControl; index < localPlayers.size() && index < shownControl + visibleControls; ++index, cy -= 18) {
+        const auto controls = localControlWindow(focus, localPlayers.size(), retainedResult);
+        for (std::size_t offset = 0; offset < controls.count; ++offset, cy -= 18) {
+            const std::size_t index = controls.first + offset;
             drawClippedText(50, cy,
                     (focus == static_cast<int>(index) * 2 ? "> Person: " : "  Person: ") + localPlayers[index].name
                     + (focus == static_cast<int>(index) * 2 + 1 ? "  > Control: " : "  Control: ")
@@ -1187,21 +1349,19 @@ namespace Duel6 {
                 return left.rosterPosition < right.rosterPosition;
             });
             drawText(575, retainedResult ? 386 : 370, "ROSTER ORDER • Enter reorders");
-            const int focusedRoster = focus >= readyIndex + 10
-                                      && focus < readyIndex + 10 + static_cast<int>(roster.size())
-                                      ? focus - readyIndex - 10 : 0;
-            const std::size_t firstRoster = static_cast<std::size_t>(std::max(0, focusedRoster - 7));
+            const int rosterBase = readyIndex + 10;
+            const auto visibleRoster = rosterWindow(focus, roster.size(), rosterBase, retainedResult);
             if (!retainedResult) {
-                for (std::size_t index = firstRoster; index < roster.size() && index < firstRoster + 8; ++index) {
-                    drawText(575, 350 - static_cast<Int32>(index - firstRoster) * 18,
+                for (std::size_t offset = 0; offset < visibleRoster.count; ++offset) {
+                    const std::size_t index = visibleRoster.first + offset;
+                    drawText(575, 350 - static_cast<Int32>(offset) * 18,
                              (focus == readyIndex + 10 + static_cast<int>(index) ? "> " : "  ")
                              + std::to_string(index + 1) + ". " + utf8Clipped(roster[index].displayName, 24));
-                    drawFocusKeyline(573, 346 - static_cast<Int32>(index - firstRoster) * 18, 245, 18,
+                    drawFocusKeyline(573, 346 - static_cast<Int32>(offset) * 18, 245, 18,
                                      focus == readyIndex + 10 + static_cast<int>(index));
                 }
-            } else if (focus >= readyIndex + 10
-                       && focus < readyIndex + 10 + static_cast<int>(roster.size())) {
-                const auto selectedRoster = static_cast<std::size_t>(focus - readyIndex - 10);
+            } else if (visibleRoster.count != 0) {
+                const auto selectedRoster = visibleRoster.first;
                 drawClippedText(410, 166, "> Reorder " + std::to_string(selectedRoster + 1) + ". "
                                 + roster[selectedRoster].displayName, 47);
                 drawFocusKeyline(408, 162, 376, 20, true);
@@ -1276,40 +1436,55 @@ namespace Duel6 {
         renderer.setBlendFunc(BlendFunc::SrcAlpha);
         renderer.quadXY(Vector(32, bottom), Vector(786, top - bottom), Color(224, 224, 224, 240));
         renderer.setBlendFunc(BlendFunc::None);
-        drawText(50, top - 28, retained ? "RETAINED RESULT • SESSION ONLY" : "AUTHORITATIVE SCORE • SESSION ONLY");
-        drawText(50, top - 52, "State: " + (state.result.available ? state.result.state : "In progress"));
-        drawText(50, top - 74, "Match outcome: " + outcome(state, state.score.winner));
-        if (state.round) drawText(50, top - 96, "Last completed round " + std::to_string(state.completedRounds)
+        drawText(50, top - 22, retained ? "RETAINED RESULT • SESSION ONLY" : "AUTHORITATIVE SCORE • SESSION ONLY");
+        drawText(50, top - 42, "State: " + (state.result.available ? state.result.state : "In progress"));
+        drawText(50, top - 62, "Match outcome: " + outcome(state, state.score.winner));
+        if (state.round) drawText(50, top - 80, "Last completed round " + std::to_string(state.completedRounds)
                                           + ": " + outcome(state, state.round->outcome));
         auto lines = resultLines(state);
-        std::size_t widest = 0;
-        for (const auto &line: lines) widest = std::max(widest, utf8Length(line));
-        const std::size_t maximumHorizontal = widest > 94 ? widest - 94 : 0;
-        const std::size_t appliedHorizontal = std::min<std::size_t>(summaryHorizontal, maximumHorizontal);
-        Int32 y = top - 128;
-        const std::size_t first = std::min<std::size_t>(summaryScroll, lines.size());
-        for (std::size_t index = first; index < lines.size() && y > bottom + 38; ++index, y -= 18) {
+        const auto bounds = resultScrollBounds(state, retained);
+        const std::size_t appliedHorizontal = std::min<std::size_t>(summaryHorizontal, bounds.horizontal);
+        const std::size_t first = std::min<std::size_t>(summaryScroll, bounds.vertical);
+        std::string section = "MATCH SETTINGS";
+        for (std::size_t index = 0; index <= first && index < lines.size(); ++index) {
+            if (lines[index] == "MATCH SETTINGS" || lines[index] == "ROUND RESULTS"
+                || lines[index] == "CUMULATIVE PLAYER RESULTS" || lines[index] == "TEAM TOTALS")
+                section = lines[index];
+        }
+        const std::string columns = section == "ROUND RESULTS"
+                ? "Round  Level  Orientation  Outcome  Roster"
+                : section == "CUMULATIVE PLAYER RESULTS"
+                  ? "Rank  Player / owner / team / state  R Sh Hi K D A W P Survival Damage Assist dmg Points"
+                  : section == "TEAM TOTALS" ? "Rank  Team  Points" : "Setting  Value";
+        renderer.quadXY(Vector(42, top - 122), Vector(766, 42), Color(208));
+        drawText(50, top - 98, section);
+        drawText(50, top - 116, utf8Clipped(columns, 94));
+        Int32 y = top - 136;
+        for (std::size_t index = first; index < lines.size() && index < first + bounds.visibleRows; ++index, y -= 18) {
             const std::size_t horizontal = std::min<std::size_t>(appliedHorizontal, utf8Length(lines[index]));
             drawText(50, y, utf8Slice(lines[index], horizontal, 94));
         }
         const auto snap = runtime.snapshot();
-        const int scrollFocus = snap.host ? 2 : 1;
-        const bool focused = (snap.journey == Client::NetworkJourney::Summary && focus == scrollFocus);
+        const bool focused = focus == resultFocusIndex(snap, localPlayers.size());
         renderer.quadXY(Vector(50, bottom + 4), Vector(32, 22), Color(192));
         renderer.quadXY(Vector(82, bottom + 4), Vector(492, 22), Color(208));
         renderer.quadXY(Vector(574, bottom + 4), Vector(32, 22), Color(192));
-        if (maximumHorizontal != 0) {
+        if (bounds.horizontal != 0) {
             const Float32 track = 476.0f;
-            const Float32 thumbWidth = std::max(24.0f, track * 94.0f / static_cast<Float32>(widest));
+            const Float32 thumbWidth = std::max(24.0f, track * 94.0f / static_cast<Float32>(bounds.widest));
             const Float32 position = static_cast<Float32>(appliedHorizontal) /
-                    static_cast<Float32>(maximumHorizontal) * (track - thumbWidth);
+                    static_cast<Float32>(bounds.horizontal) * (track - thumbWidth);
             renderer.quadXY(Vector(90.0f + position, static_cast<Float32>(bottom + 9)),
                             Vector(thumbWidth, 12.0f), Color(64, 96, 160));
         }
         drawFocusKeyline(50, bottom + 4, 556, 22, focused);
         drawText(62, bottom + 8, "<"); drawText(586, bottom + 8, ">");
-        const std::string position = "Columns " + std::to_string(appliedHorizontal + 1) + "–"
-                + std::to_string(std::min(widest, appliedHorizontal + 94)) + "/" + std::to_string(widest);
+        const std::string position = "Columns " + std::to_string(bounds.widest == 0 ? 0 : appliedHorizontal + 1) + "–"
+                + std::to_string(std::min(bounds.widest, appliedHorizontal + 94)) + "/"
+                + std::to_string(bounds.widest) + " • Rows "
+                + std::to_string(lines.empty() ? 0 : first + 1) + "–"
+                + std::to_string(std::min(lines.size(), first + bounds.visibleRows)) + "/"
+                + std::to_string(lines.size());
         drawText(330 - static_cast<Int32>(position.size()) * 4, bottom + 8, position);
         drawText(620, bottom + 8, "PgUp/PgDn • ←/→");
     }
@@ -1350,7 +1525,6 @@ namespace Duel6 {
         const auto snap = runtime.snapshot();
         if (snap.journey == Client::NetworkJourney::HostEnded) {
             drawRetainedContext(snap, width, height);
-            if (snap.retainReconnectContext) drawReconnectPanel(snap, width, height);
             drawHostEndedPanel(snap, width, height);
             return;
         }

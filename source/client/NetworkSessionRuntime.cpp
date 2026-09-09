@@ -138,13 +138,13 @@ namespace Duel6::Client {
                 std::lock_guard<std::mutex> lock(mutex);
                 current.reconnectSeconds = seconds;
                 if (journey == Network::Lifecycle::GuestJourney::HostEnded) {
-                    current.retainReconnectContext = current.journey == NetworkJourney::Reconnecting;
                     current.journey = NetworkJourney::HostEnded;
                 } else if (journey == Network::Lifecycle::GuestJourney::ConnectionFailure) {
                     current.journey = NetworkJourney::Failure; current.failure = std::string(failure);
                     current.retryAllowed = false;
                     current.retryBlockReason = NetworkRetryBlockReason::TerminalReconnect;
-                } else if (journey == Network::Lifecycle::GuestJourney::Reconnecting)
+                } else if (journey == Network::Lifecycle::GuestJourney::Reconnecting
+                           && current.journey != NetworkJourney::Cancelling)
                     current.journey = NetworkJourney::Reconnecting;
             };
             std::ostringstream output;
@@ -400,8 +400,11 @@ namespace Duel6::Client {
     }
     void NetworkSessionRuntime::leave() {
         if (supervisor) return;
-        enqueueGuestAction(Network::Lifecycle::ParticipantActionKind::Leave);
         std::lock_guard<std::mutex> lock(mutex);
+        if (current.journey == NetworkJourney::Reconnecting) pendingGuestCommands.clear();
+        pendingGuestCommands.push_back(Network::Lifecycle::serializeParticipantAction({
+                current.canonical ? current.canonical->sessionId : 0, current.localParticipantId,
+                Network::Lifecycle::ParticipantActionKind::Leave}));
         current.journey = NetworkJourney::Cancelling; current.status = "Leaving session…";
     }
     void NetworkSessionRuntime::endSession() {
