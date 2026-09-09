@@ -647,6 +647,8 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/server/AuthoritativeMatchValidation.h
         source/server/AuthoritativeHostedMatchController.cpp
         source/server/AuthoritativeHostedMatchController.h
+        source/server/NetworkMatchResultRetention.cpp
+        source/server/NetworkMatchResultRetention.h
         source/server/AuthoritativeReplication.cpp
         source/server/AuthoritativeReplication.h
         source/server/FrozenGameplayConfig.cpp

@@ -2005,6 +2005,7 @@ namespace Duel6::Server {
             Authoritative::TerminalOutcome failure = Authoritative::terminalOutcome(
                     Authoritative::OutcomeCode::RuntimeFailed);
             if (hostedMatch && hostedMatch->match()) {
+                hostedMatch->discardSessionResults();
                 const auto stopped = hostedMatch->match()->shutdown();
                 if (stopped.code == Authoritative::OutcomeCode::ShutdownFailed
                     || stopped.code == Authoritative::OutcomeCode::RuntimeFailed) failure = stopped;
@@ -2012,6 +2013,7 @@ namespace Duel6::Server {
             exitStatus = failure.exitStatus;
             runtimeFailure = failure;
         }
+        if (hostedMatch) hostedMatch->discardSessionResults();
         const bool listenerCleaned = cleanupListener(false);
         if (!listenerCleaned) {
             const auto failure = Authoritative::terminalOutcome(Authoritative::OutcomeCode::ShutdownFailed);

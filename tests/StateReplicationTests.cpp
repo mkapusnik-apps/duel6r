@@ -30,7 +30,7 @@ namespace {
                 {20, true, R::ConnectionState::Connected, true, {101}},
                 {21, false, R::ConnectionState::Connected, false, {102}}};
         state.settings.mode = "Deathmatch";
-        state.settings.levelPlan = "Fixed";
+        state.settings.levelPlan = "Fixed level";
         state.settings.levels = {"levels/a.json"};
         state.settings.roundLimit = 2;
         R::PlayerState first;
@@ -146,6 +146,86 @@ namespace {
         return update;
     }
 
+    std::string serializedTwoPlayerResult(bool interrupted, bool guestDeparted = false,
+                                          R::Identity resultOnlyPlayerId = 0, bool teams = false) {
+        A::SessionResult result;
+        result.label = "Session only";
+        result.state = interrupted ? A::ResultState::Interrupted : A::ResultState::Completed;
+        result.config.mode = teams ? A::Mode::TeamDeathmatch : A::Mode::Deathmatch;
+        result.config.teamCount = teams ? 2 : 0;
+        result.config.friendlyFire = teams;
+        result.config.levelPlan = A::LevelPlan::Fixed;
+        result.config.fixedLevel = "levels/a.json";
+        result.config.playableLevels = {"levels/a.json"};
+        result.config.enabledWeapons = {"pistol"};
+        result.config.roundLimit = 2;
+        result.config.hostParticipantId = 20;
+        result.config.seed = 1234;
+        result.completedRounds = interrupted ? 1 : 2;
+
+        result.rounds.push_back({1, "levels/a.json", false, {101},
+                                 teams ? A::Team::Alpha : A::Team::None,
+                                 false, {101, 102}});
+        if (interrupted) {
+            result.finalNoWinner = true;
+        } else {
+            result.rounds.push_back({2, "levels/a.json", false,
+                                     {resultOnlyPlayerId ? resultOnlyPlayerId : 102}, A::Team::None,
+                                     false, resultOnlyPlayerId
+                                            ? std::vector<A::Identity>{101, 102, resultOnlyPlayerId}
+                                            : std::vector<A::Identity>{101, 102}});
+            result.finalWinnerPlayerIds = {resultOnlyPlayerId ? resultOnlyPlayerId : 102};
+            if (teams) {
+                result.rounds.back().winningTeam = A::Team::Bravo;
+                result.finalWinningTeam = A::Team::Bravo;
+            }
+        }
+
+        const auto addPlayer = [&](A::Identity playerId, A::Identity participantId,
+                                   const char *name, std::uint8_t rosterOrder,
+                                   std::uint64_t points, bool departed) {
+            A::PlayerResultRow row;
+            row.playerId = playerId;
+            row.participantId = participantId;
+            row.displayName = name;
+            row.rosterOrder = rosterOrder;
+            row.departed = departed;
+            row.team = teams ? (playerId == 101 ? A::Team::Alpha : A::Team::Bravo) : A::Team::None;
+            row.rounds.resize(result.completedRounds);
+            for (auto &round: row.rounds) round.roundsPlayed = 1;
+            if (playerId != 101 && playerId != 102) {
+                row.rounds[0].kills = points;
+            } else if (playerId == 101) {
+                row.rounds[0].kills = 2;
+                row.rounds[0].wins = 1;
+            } else if (interrupted) {
+                row.rounds[0].kills = 2;
+            } else {
+                row.rounds[1].kills = 1;
+                row.rounds[1].wins = 1;
+            }
+            for (const auto &round: row.rounds) {
+                row.statistics.roundsPlayed += round.roundsPlayed;
+                row.statistics.kills += round.kills;
+                row.statistics.wins += round.wins;
+            }
+            D6R_REQUIRE_EQ(static_cast<std::int64_t>(points), row.statistics.totalPoints());
+            result.players.push_back(std::move(row));
+        };
+        if (resultOnlyPlayerId)
+            addPlayer(resultOnlyPlayerId, 20, "Result-only", 2, 4, false);
+        addPlayer(101, 20, "Host", 0, 3, false);
+        addPlayer(102, 21, "Guest", 1, 2, guestDeparted);
+        if (teams) {
+            result.teams.push_back({A::Team::Alpha, 3, {101}});
+            result.teams.push_back({A::Team::Bravo, 2, {102}});
+        }
+
+        const auto serialized = A::serializeSessionResult(result);
+        D6R_REQUIRE(serialized.has_value());
+        return *serialized;
+    }
+
     R::CanonicalState distinctFinalSummary() {
         auto state = activeState();
         state.phase = R::Phase::FinalSummary;
@@ -156,8 +236,12 @@ namespace {
         state.round->outcome.winnerPlayerIds = {102};
         state.score.players[0].roundPoints = 0;
         state.score.players[0].cumulativePoints = 3;
+        state.score.players[0].kills = 2;
+        state.score.players[0].wins = 1;
         state.score.players[1].roundPoints = 2;
         state.score.players[1].cumulativePoints = 2;
+        state.score.players[1].kills = 1;
+        state.score.players[1].wins = 1;
         state.score.ranking = {101, 102};
         state.score.winner.winnerPlayerIds = {102};
         state.entities.clear();
@@ -167,7 +251,7 @@ namespace {
         state.result.available = true;
         state.result.sessionOnly = true;
         state.result.state = "Completed";
-        state.result.serialized = "completed-round-1=101;completed-round-2=102;match-outcome=102;cumulative-leader=101";
+        state.result.serialized = serializedTwoPlayerResult(false);
         return state;
     }
 
@@ -182,13 +266,7 @@ namespace {
     }
 
     R::CanonicalState completedResultWithDepartureLabels() {
-        auto state = distinctFinalSummary();
-        state.result.serialized =
-                "{\"label\":\"match\",\"state\":\"Completed\",\"outcome\":\"player-102\","
-                "\"winner\":102,\"ranking\":[101,102],\"score\":[3,2],\"round\":2,\"players\":["
-                "{\"rank\":1,\"playerId\":101,\"participantId\":20,\"departed\":false,\"points\":3},"
-                "{\"rank\":2,\"playerId\":102,\"participantId\":21,\"departed\":false,\"points\":2}]}";
-        return state;
+        return distinctFinalSummary();
     }
 
     bool replaceOnce(std::string &value, const std::string &before, const std::string &after) {
@@ -196,6 +274,52 @@ namespace {
         if (position == std::string::npos || value.find(before, position + before.size()) != std::string::npos)
             return false;
         value.replace(position, before.size(), after);
+        return true;
+    }
+
+    bool replaceOccurrence(std::string &value, const std::string &before,
+                           const std::string &after, std::size_t occurrence) {
+        std::size_t position = 0;
+        for (std::size_t index = 0; index <= occurrence; ++index) {
+            position = value.find(before, position);
+            if (position == std::string::npos) return false;
+            if (index != occurrence) position += before.size();
+        }
+        value.replace(position, before.size(), after);
+        return true;
+    }
+
+    bool removeJsonMember(std::string &json, const std::string &key, std::size_t occurrence = 0) {
+        const std::string marker = "\"" + key + "\":";
+        std::size_t keyStart = 0;
+        for (std::size_t index = 0; index <= occurrence; ++index) {
+            keyStart = json.find(marker, keyStart);
+            if (keyStart == std::string::npos) return false;
+            if (index != occurrence) keyStart += marker.size();
+        }
+        std::size_t valueEnd = keyStart + marker.size();
+        bool inString = false;
+        bool escaped = false;
+        int nesting = 0;
+        for (; valueEnd < json.size(); ++valueEnd) {
+            const char character = json[valueEnd];
+            if (inString) {
+                if (escaped) escaped = false;
+                else if (character == '\\') escaped = true;
+                else if (character == '"') inString = false;
+                continue;
+            }
+            if (character == '"') inString = true;
+            else if (character == '[' || character == '{') ++nesting;
+            else if (character == ']' || character == '}') {
+                if (nesting == 0) break;
+                --nesting;
+            } else if (character == ',' && nesting == 0) break;
+        }
+        if (valueEnd == json.size()) return false;
+        if (keyStart > 0 && json[keyStart - 1] == ',') json.erase(keyStart - 1, valueEnd - keyStart + 1);
+        else if (json[valueEnd] == ',') json.erase(keyStart, valueEnd - keyStart + 1);
+        else json.erase(keyStart, valueEnd - keyStart);
         return true;
     }
 
@@ -270,21 +394,30 @@ namespace {
 
     A::SessionResult maximumCompletedResult(bool departed) {
         A::SessionResult result;
-        result.label = "Maximum canonical result";
+        result.label = "Session only";
         result.config.mode = A::Mode::TeamDeathmatch;
         result.config.teamCount = 4;
+        result.config.levelPlan = A::LevelPlan::Fixed;
+        result.config.fixedLevel = "levels/maximum.json";
+        result.config.playableLevels = {"levels/maximum.json"};
+        result.config.enabledWeapons = {"pistol"};
         result.config.roundLimit = 99;
+        result.config.hostParticipantId = 20;
+        result.config.seed = 1234;
         result.completedRounds = 99;
         std::vector<A::Identity> identities;
         for (std::size_t index = 0; index < A::MaxPlayers; ++index)
             identities.push_back(101 + index);
-        result.finalWinnerPlayerIds = identities;
+        std::vector<A::Identity> alphaPlayers;
+        for (std::size_t index = 0; index < identities.size(); index += 4)
+            alphaPlayers.push_back(identities[index]);
+        result.finalWinnerPlayerIds = alphaPlayers;
         result.finalWinningTeam = A::Team::Alpha;
         for (std::uint8_t roundNumber = 1; roundNumber <= 99; ++roundNumber) {
             A::RoundResult round;
             round.roundNumber = roundNumber;
             round.level = "levels/maximum.json";
-            round.winnerPlayerIds = identities;
+            round.winnerPlayerIds = alphaPlayers;
             round.winningTeam = A::Team::Alpha;
             round.rosterOrder = identities;
             result.rounds.push_back(std::move(round));
@@ -298,10 +431,16 @@ namespace {
             player.departed = departed && index + 1 == A::MaxPlayers;
             player.rosterOrder = static_cast<std::uint8_t>(index);
             player.rounds.resize(99);
+            for (auto &round: player.rounds) round.roundsPlayed = 1;
+            player.statistics.roundsPlayed = 99;
             result.players.push_back(std::move(player));
         }
-        for (std::uint8_t team = 1; team <= 4; ++team)
-            result.teams.push_back({static_cast<A::Team>(team), team, identities});
+        for (std::uint8_t team = 1; team <= 4; ++team) {
+            std::vector<A::Identity> teamPlayers;
+            for (std::size_t index = team - 1; index < identities.size(); index += 4)
+                teamPlayers.push_back(identities[index]);
+            result.teams.push_back({static_cast<A::Team>(team), 0, std::move(teamPlayers)});
+        }
         return result;
     }
 
@@ -313,12 +452,12 @@ namespace {
         state.phase = R::Phase::FinalSummary;
         state.currentRoundNumber = 99;
         state.completedRounds = 99;
-        state.settings.mode = "TeamDeathmatch";
+        state.settings.mode = "Team deathmatch";
         state.settings.teamCount = 4;
-        state.settings.levelPlan = "Fixed";
+        state.settings.levelPlan = "Fixed level";
         state.settings.levels = {"levels/maximum.json"};
         state.settings.roundLimit = 99;
-        state.score.teamTotals = {4, 3, 3, 3};
+        state.score.teamTotals = {0, 0, 0, 0};
         state.score.teamRanking = {1, 2, 3, 4};
         for (std::size_t index = 0; index < A::MaxPlayers; ++index) {
             const R::Identity playerId = 101 + index;
@@ -338,7 +477,7 @@ namespace {
             state.score.players.push_back({playerId});
             state.score.ranking.push_back(playerId);
         }
-        state.score.winner.winnerPlayerIds = {101};
+        state.score.winner.winnerPlayerIds = {101, 105, 109, 113};
         state.score.winner.winningTeam = 1;
         state.round = R::RoundState{128, 99, "levels/maximum.json", false,
                                     state.score.ranking, state.score.winner};
@@ -356,9 +495,54 @@ namespace {
     R::CanonicalState completedResultDeparture(R::CanonicalState state) {
         state.players[1].lifeState = R::LifeState::Departed;
         const bool replaced = replaceOnce(state.result.serialized,
-                "\"participantId\":21,\"departed\":false",
-                "\"participantId\":21,\"departed\":true");
+                "\"departed\":false,\"rosterOrder\":1",
+                "\"departed\":true,\"rosterOrder\":1");
         D6R_REQUIRE(replaced);
+        return state;
+    }
+
+    R::CanonicalState retainedResultWithDepartureLabels(bool interrupted) {
+        auto state = completedResultWithDepartureLabels();
+        state.phase = R::Phase::Lobby;
+        state.participants[0].ready = false;
+        state.participants[1].ready = false;
+        state.messages.status = "Lobby";
+        state.messages.scoreSummaryVisible = false;
+        if (!interrupted) return state;
+
+        state.currentRoundNumber = 1;
+        state.completedRounds = 1;
+        state.round->roundId = 40;
+        state.round->roundNumber = 1;
+        state.round->outcome.winnerPlayerIds = {101};
+        state.score.winner = {};
+        state.score.winner.noWinner = true;
+        state.score.players[0].roundPoints = 3;
+        state.score.players[1].kills = 2;
+        state.score.players[1].wins = 0;
+        state.score.players[1].roundPoints = 2;
+        state.result.state = "Interrupted";
+        state.players[1].lifeState = R::LifeState::Departed;
+        state.result.serialized = serializedTwoPlayerResult(true, true);
+        return state;
+    }
+
+    R::CanonicalState firstResultWithDepartureLabels(bool interrupted,
+                                                       bool canonicalDeparture,
+                                                       bool resultDeparture) {
+        auto state = interrupted ? retainedResultWithDepartureLabels(true)
+                                 : completedResultWithDepartureLabels();
+        state.phaseTime = 14;
+        state.players[1].lifeState = canonicalDeparture
+                ? R::LifeState::Departed : R::LifeState::Alive;
+        if (resultDeparture != interrupted) {
+            const bool replaced = replaceOnce(state.result.serialized,
+                    interrupted ? "\"departed\":true,\"rosterOrder\":1"
+                                : "\"departed\":false,\"rosterOrder\":1",
+                    interrupted ? "\"departed\":false,\"rosterOrder\":1"
+                                : "\"departed\":true,\"rosterOrder\":1");
+            D6R_REQUIRE(replaced);
+        }
         return state;
     }
 
@@ -371,8 +555,13 @@ namespace {
         state.round->outcome.winnerPlayerIds = {101};
         state.score.winner = {};
         state.score.winner.noWinner = true;
+        state.score.players[0].roundPoints = 3;
+        state.score.players[1].kills = 2;
+        state.score.players[1].wins = 0;
+        state.score.players[1].roundPoints = 2;
         state.result.state = "Interrupted";
-        state.result.serialized = "interrupted;completed-round-1=101;match-outcome=no-winner";
+        state.players[1].lifeState = R::LifeState::Departed;
+        state.result.serialized = serializedTwoPlayerResult(true, true);
         return state;
     }
 
@@ -434,6 +623,7 @@ namespace {
 
     R::IncrementalUpdate validUpdate(const R::CanonicalState &before, R::CanonicalState after,
                                      std::vector<R::PresentationEvent> events);
+    R::CanonicalState activeTeamState(std::uint8_t teamCount, bool friendlyFire);
 
     std::vector<RetainedPhaseMutation> finalSummaryPhaseMutations() {
         const auto final = distinctFinalSummary();
@@ -476,7 +666,7 @@ namespace {
         }
         auto interrupted = followingLobby;
         interrupted.result.state = "Interrupted";
-        interrupted.result.serialized = "interrupted;completed-rounds=2;match-outcome=no-winner";
+        interrupted.result.serialized = serializedTwoPlayerResult(true);
         interrupted.score.winner = {};
         interrupted.score.winner.noWinner = true;
         result.push_back({"FinalSummary-to-Lobby/result-state", final, followingLobby, interrupted});
@@ -505,8 +695,7 @@ namespace {
         state.participants[1].connection = R::ConnectionState::Reconnecting;
         state.players[0].rosterPosition = 1;
         state.players[1].rosterPosition = 0;
-        state.players[1].displayName = "Guest (Departed)";
-        state.players[1].lifeState = R::LifeState::Departed;
+        state.players[1].displayName = "Guest (Edited)";
         return state;
     }
 
@@ -520,22 +709,24 @@ namespace {
 
     R::CanonicalState retainedTeamCompletedLobby() {
         auto state = retainedCompletedLobby();
+        state.settings.mode = "Team deathmatch";
         state.settings.teamCount = 2;
+        state.settings.friendlyFire = true;
         state.players[0].team = 1;
         state.players[1].team = 2;
-        state.score.players[1].cumulativePoints = 4;
-        std::swap(state.score.players[0], state.score.players[1]);
-        state.score.ranking = {102, 101};
-        state.score.teamTotals = {3, 4};
-        state.score.teamRanking = {2, 1};
+        state.score.teamTotals = {3, 2};
+        state.score.teamRanking = {1, 2};
         state.score.winner.winningTeam = 2;
         state.round->outcome.winningTeam = 2;
+        state.result.serialized = serializedTwoPlayerResult(false, false, 0, true);
         return state;
     }
 
     R::CanonicalState resetTeamFirstRound() {
         auto state = freshMatchAfterRetainedResult();
+        state.settings.mode = "Team deathmatch";
         state.settings.teamCount = 2;
+        state.settings.friendlyFire = true;
         state.players[0].team = 1;
         state.players[1].team = 2;
         state.score.teamTotals = {0, 0};
@@ -676,6 +867,1082 @@ namespace {
         const auto update = publisher.publish(std::move(after), std::move(events));
         D6R_REQUIRE(update.has_value());
         return *update;
+    }
+
+    enum class FirstResultDelivery { InitialSnapshot, ResynchronizationSnapshot, IncrementalUpdate };
+
+    bool firstResultDepartureScenario(bool interrupted, bool canonicalDeparture,
+                                      bool resultDeparture, FirstResultDelivery delivery) {
+        const auto terminal = firstResultWithDepartureLabels(
+                interrupted, canonicalDeparture, resultDeparture);
+        const auto synchronized = firstResultWithDepartureLabels(interrupted, true, true);
+        const bool shouldAccept = canonicalDeparture && resultDeparture;
+        D6R_REQUIRE(R::validateCanonicalState(terminal));
+        D6R_REQUIRE(R::validateCanonicalState(synchronized));
+
+        R::ReplicatedState client;
+        R::StateVersion retainedVersion = 0;
+        std::optional<R::CanonicalState> retained;
+        const R::PresentationEvent pendingEvent{991, "result-transition", 0, 0, 0, 0};
+        const R::PresentationEvent rejectedEvent{992, "result-transition", 0, 0, 0, 0};
+        bool applicationCorrect = false;
+
+        if (delivery == FirstResultDelivery::InitialSnapshot) {
+            const auto result = client.apply({1, terminal});
+            applicationCorrect = shouldAccept
+                    ? result == R::ApplyResult::Applied && client.version() == 1
+                      && client.current() && client.state()
+                    : result == R::ApplyResult::Invalid && client.version() == 0
+                      && !client.current() && client.retainedState() == nullptr
+                      && client.takePresentationEvents().empty();
+            if (!shouldAccept && client.apply({1, synchronized}) != R::ApplyResult::Applied) return false;
+        } else {
+            const auto active = activeState();
+            auto beforeTerminal = active;
+            beforeTerminal.phaseTime++;
+            D6R_REQUIRE(client.apply({1, active}) == R::ApplyResult::Applied);
+            D6R_REQUIRE(client.apply(validUpdate(active, beforeTerminal, {pendingEvent}))
+                        == R::ApplyResult::Applied);
+            retainedVersion = client.version();
+            retained = *client.retainedState();
+
+            R::ApplyResult result = R::ApplyResult::Invalid;
+            if (delivery == FirstResultDelivery::ResynchronizationSnapshot) {
+                client.requireResynchronization();
+                result = client.apply({3, terminal});
+            } else {
+                auto update = validUpdate(beforeTerminal, synchronized, {rejectedEvent});
+                update.result = terminal.result;
+                if (!canonicalDeparture) update.players.clear();
+                update.baseline = 2;
+                update.version = 3;
+                result = client.apply(update);
+            }
+
+            if (shouldAccept) {
+                applicationCorrect = result == R::ApplyResult::Applied && client.version() == 3
+                        && client.current() && client.state();
+            } else {
+                const auto expectedResult = delivery == FirstResultDelivery::IncrementalUpdate
+                        ? R::ApplyResult::ResynchronizationRequired : R::ApplyResult::Invalid;
+                applicationCorrect = result == expectedResult && client.version() == retainedVersion
+                        && !client.current() && client.state() == nullptr && client.retainedState()
+                        && R::serializeReplicationSnapshot({retainedVersion, *client.retainedState()})
+                           == R::serializeReplicationSnapshot({retainedVersion, *retained});
+                if (client.apply({3, synchronized}) != R::ApplyResult::Applied) return false;
+            }
+        }
+
+        if (!applicationCorrect || !client.state()
+            || client.state()->players[1].lifeState != R::LifeState::Departed
+            || client.state()->result.serialized != synchronized.result.serialized) return false;
+
+        auto followingLobby = synchronized;
+        followingLobby.phase = R::Phase::Lobby;
+        followingLobby.participants[0].ready = false;
+        followingLobby.participants[1].ready = false;
+        followingLobby.messages.status = "Lobby";
+        followingLobby.messages.scoreSummaryVisible = false;
+
+        // Completed settings remain frozen through the terminal-to-lobby
+        // transition. Lobby-owned edits are valid only after that result has
+        // already been established in the following lobby.
+        bool followingApplied = true;
+        if (synchronized.phase != R::Phase::Lobby) {
+            const auto followingVersion = client.version() + 1;
+            if (delivery == FirstResultDelivery::IncrementalUpdate) {
+                auto update = validUpdate(synchronized, followingLobby);
+                update.baseline = client.version();
+                update.version = followingVersion;
+                followingApplied = client.apply(update) == R::ApplyResult::Applied;
+            } else {
+                followingApplied = client.apply({followingVersion, followingLobby}) == R::ApplyResult::Applied;
+            }
+        }
+
+        const auto editableLobby = legitimateFollowingLobbyChange(followingLobby);
+        const auto editedVersion = client.version() + 1;
+        if (followingApplied && delivery == FirstResultDelivery::IncrementalUpdate) {
+            auto update = validUpdate(followingLobby, editableLobby);
+            update.baseline = client.version();
+            update.version = editedVersion;
+            followingApplied = client.apply(update) == R::ApplyResult::Applied;
+        } else if (followingApplied) {
+            followingApplied = client.apply({editedVersion, editableLobby}) == R::ApplyResult::Applied;
+        }
+        followingLobby = editableLobby;
+        if (!followingApplied || !client.state()
+            || client.state()->settings.assistance != followingLobby.settings.assistance
+            || !client.state()->participants[0].ready
+            || client.state()->players[1].displayName != "Guest (Edited)") return false;
+
+        auto removed = followingLobby;
+        removed.participants.pop_back();
+        removed.players.pop_back();
+        const auto removalVersion = client.version() + 1;
+        if (client.apply({removalVersion, removed}) != R::ApplyResult::Applied) return false;
+        const auto retainedAfterRemoval = R::serializeReplicationSnapshot(
+                {client.version(), *client.retainedState()});
+        const bool identityHistoryPreserved = client.apply({client.version() + 1, followingLobby})
+                                              == R::ApplyResult::Invalid
+                && client.version() == removalVersion && client.retainedState()
+                && R::serializeReplicationSnapshot({client.version(), *client.retainedState()})
+                   == retainedAfterRemoval;
+
+        const auto events = client.takePresentationEvents();
+        const bool pendingEventsPreserved = delivery == FirstResultDelivery::InitialSnapshot
+                ? events.empty()
+                : shouldAccept && delivery == FirstResultDelivery::IncrementalUpdate
+                  ? events.size() == 2 && events[0].eventId == pendingEvent.eventId
+                    && events[1].eventId == rejectedEvent.eventId
+                  : events.size() == 1 && events.front().eventId == pendingEvent.eventId;
+        return identityHistoryPreserved && pendingEventsPreserved;
+    }
+
+    std::string firstResultDepartureMatrix(FirstResultDelivery delivery) {
+        std::string evidence;
+        for (const bool interrupted: {false, true}) {
+            if (!evidence.empty()) evidence += ';';
+            evidence += std::string(interrupted ? "Interrupted" : "Completed")
+                    + "/synchronized="
+                    + (firstResultDepartureScenario(interrupted, true, true, delivery) ? "true" : "false")
+                    + ",result-only="
+                    + (firstResultDepartureScenario(interrupted, false, true, delivery) ? "true" : "false")
+                    + ",canonical-only="
+                    + (firstResultDepartureScenario(interrupted, true, false, delivery) ? "true" : "false");
+        }
+        return evidence;
+    }
+
+    struct AvailableResultAttack {
+        const char *name;
+        std::function<void(R::CanonicalState &)> alter;
+        bool team = false;
+        bool requiresImmutableOuterSettings = false;
+        bool completedOnly = false;
+        bool interruptedOnly = false;
+    };
+
+    std::vector<AvailableResultAttack> incompleteAvailableResultAttacks() {
+        return {
+                {"state-and-players-only", [](auto &state) {
+                    state.result.serialized = "{\"state\":\"" + state.result.state
+                            + "\",\"players\":["
+                              "{\"playerId\":101,\"participantId\":20,\"departed\":false},"
+                              "{\"playerId\":102,\"participantId\":21,\"departed\":false}]}";
+                }},
+                {"missing-state", [](auto &state) {
+                    state.result.serialized = "{\"players\":[{\"playerId\":101,\"participantId\":20,\"departed\":false}]}";
+                }},
+                {"invalid-state", [](auto &state) {
+                    state.result.serialized = "{\"state\":17,\"players\":[{\"playerId\":101,\"participantId\":20,\"departed\":false}]}";
+                }},
+                {"missing-players", [](auto &state) {
+                    state.result.serialized = "{\"state\":\"" + state.result.state + "\"}";
+                }},
+                {"invalid-players", [](auto &state) {
+                    state.result.serialized = "{\"state\":\"" + state.result.state + "\",\"players\":{}}";
+                }},
+                {"mismatched-state", [](auto &state) {
+                    const std::string other = state.result.state == "Completed" ? "Interrupted" : "Completed";
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"state\":\"" + state.result.state + "\"",
+                            "\"state\":\"" + other + "\""));
+                }},
+                {"invalid-player-row", [](auto &state) {
+                    state.result.serialized = "{\"state\":\"" + state.result.state
+                            + "\",\"players\":[{\"playerId\":\"101\",\"participantId\":20,\"departed\":false}]}";
+                }},
+                {"unowned-player-row", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"playerId\":101,\"participantId\":20",
+                            "\"playerId\":101,\"participantId\":99"));
+                }},
+                {"duplicate-player-row", [](auto &state) {
+                    state.result.serialized = "{\"state\":\"" + state.result.state
+                            + "\",\"players\":["
+                              "{\"playerId\":101,\"participantId\":20,\"departed\":false},"
+                              "{\"playerId\":101,\"participantId\":20,\"departed\":false}]}";
+                }},
+                {"missing-label", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "label"));
+                }},
+                {"missing-mode", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "mode"));
+                }},
+                {"missing-assistance", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "assistance"));
+                }},
+                {"missing-quick-liquid", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "quickLiquid"));
+                }},
+                {"missing-burnable-trees", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "burnableTrees"));
+                }},
+                {"missing-level-plan", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "levelPlan"));
+                }},
+                {"missing-round-limit", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "roundLimit"));
+                }},
+                {"missing-team-count", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "teamCount"));
+                }, true},
+                {"missing-friendly-fire", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "friendlyFire"));
+                }, true},
+                {"missing-seed", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "seed"));
+                }},
+                {"missing-completed-rounds", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "completedRounds"));
+                }},
+                {"missing-final-winner-identities", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "finalWinnerPlayerIds"));
+                }},
+                {"missing-final-winning-team", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "finalWinningTeam"));
+                }},
+                {"missing-final-no-winner", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "finalNoWinner"));
+                }},
+                {"missing-completed-round-rows", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "rounds"));
+                }},
+                {"missing-player-rank", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "rank"));
+                }},
+                {"missing-player-cumulative-statistics", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "cumulative"));
+                }},
+                {"missing-player-round-statistics", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "rounds", 1));
+                }},
+                {"missing-team-rankings", [](auto &state) {
+                    D6R_REQUIRE(removeJsonMember(state.result.serialized, "teams"));
+                }, true},
+                {"winner-no-winner-conflict", [](auto &state) {
+                    const std::string prior = std::string("\"finalNoWinner\":")
+                            + (state.result.state == "Completed" ? "false" : "true");
+                    const std::string altered = std::string("\"finalNoWinner\":")
+                            + (state.result.state == "Completed" ? "true" : "false");
+                    D6R_REQUIRE(replaceOnce(state.result.serialized, prior, altered));
+                }},
+                {"completed-round-count-mismatch", [](auto &state) {
+                    const std::string count = state.result.state == "Completed" ? "2" : "1";
+                    const std::string other = state.result.state == "Completed" ? "1" : "2";
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"completedRounds\":" + count, "\"completedRounds\":" + other));
+                }},
+                {"last-completed-round-outcome-mismatch", [](auto &state) {
+                    if (state.result.state == "Completed")
+                        D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                                "\"winnerPlayerIds\":[102]", "\"winnerPlayerIds\":[101]", 0));
+                    else D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"winnerPlayerIds\":[101]", "\"winnerPlayerIds\":[102]"));
+                }},
+                {"player-score-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"totalPoints\":3", "\"totalPoints\":4", 0));
+                }},
+                {"player-ranking-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"rank\":1,\"playerId\":101", "\"rank\":2,\"playerId\":101"));
+                }},
+                {"mode-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"mode\":\"Deathmatch\"", "\"mode\":\"Predator\""));
+                }, false, true},
+                {"assistance-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"assistance\":false", "\"assistance\":true"));
+                }, false, true},
+                {"quick-liquid-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"quickLiquid\":false", "\"quickLiquid\":true"));
+                }, false, true},
+                {"burnable-trees-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"burnableTrees\":true", "\"burnableTrees\":false"));
+                }, false, true},
+                {"level-plan-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"levelPlan\":\"Fixed level\"", "\"levelPlan\":\"Random level\""));
+                }, false, true},
+                {"round-limit-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"roundLimit\":2", "\"roundLimit\":3"));
+                }, false, true},
+                {"team-count-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"teamCount\":2", "\"teamCount\":3"));
+                }, true, true},
+                {"friendly-fire-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"friendlyFire\":true", "\"friendlyFire\":false"));
+                }, true, true},
+                {"team-outcome-mismatch", [](auto &state) {
+                    const std::string prior = state.result.state == "Completed" ? "Bravo" : "";
+                    const std::string altered = state.result.state == "Completed" ? "Alpha" : "Bravo";
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"finalWinningTeam\":\"" + prior + "\"",
+                            "\"finalWinningTeam\":\"" + altered + "\""));
+                }, true},
+                {"team-ranking-mismatch", [](auto &state) {
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"rank\":1", "\"rank\":2", 1));
+                }, true},
+                {"zero-seed", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized, "\"seed\":1234", "\"seed\":0"));
+                }},
+                {"completed-before-configured-final-round", [](auto &state) {
+                    state.settings.roundLimit = 3;
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"roundLimit\":2", "\"roundLimit\":3"));
+                }, false, false, true},
+                {"interrupted-with-two-active-result-players", [](auto &state) {
+                    state.players[1].lifeState = R::LifeState::Alive;
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"departed\":true,\"rosterOrder\":1",
+                            "\"departed\":false,\"rosterOrder\":1"));
+                }, false, false, false, true},
+                {"deathmatch-final-multiple-winners", [](auto &state) {
+                    state.score.winner.winnerPlayerIds = {101, 102};
+                    state.round->outcome.winnerPlayerIds = {101, 102};
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"winnerPlayerIds\":[102]", "\"winnerPlayerIds\":[101,102]", 0));
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"finalWinnerPlayerIds\":[102]", "\"finalWinnerPlayerIds\":[101,102]"));
+                }, false, false, true},
+                {"round-winner-absent-from-round-roster", [](auto &state) {
+                    const std::size_t roundOccurrence = state.result.state == "Completed" ? 1 : 0;
+                    state.round->rosterOrder = {101};
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"rosterOrder\":[101,102]", "\"rosterOrder\":[101]", roundOccurrence));
+                }},
+                {"nonfinal-round-winner-absent-from-round-roster", [](auto &state) {
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"rosterOrder\":[101,102]", "\"rosterOrder\":[102]", 0));
+                }, false, false, true},
+                {"nonfinal-round-roster-sequence-conflicts-with-player-roster-order", [](auto &state) {
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"rosterOrder\":[101,102]", "\"rosterOrder\":[102,101]", 0));
+                }, false, false, true},
+                {"team-assignment-conflicts-with-roster-position-modulo", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"rosterOrder\":0,\"cumulative\"",
+                            "\"rosterOrder\":15,\"cumulative\""));
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"rosterOrder\":1,\"cumulative\"",
+                            "\"rosterOrder\":0,\"cumulative\""));
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"rosterOrder\":15,\"cumulative\"",
+                            "\"rosterOrder\":1,\"cumulative\""));
+                }, true},
+                {"rounds-played-without-round-participation", [](auto &state) {
+                    const std::string played = state.result.state == "Completed" ? "2" : "1";
+                    const std::string reduced = state.result.state == "Completed" ? "1" : "0";
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"roundsPlayed\":" + played,
+                            "\"roundsPlayed\":" + reduced, 0));
+                    D6R_REQUIRE(replaceOccurrence(state.result.serialized,
+                            "\"roundsPlayed\":1", "\"roundsPlayed\":0", 0));
+                }},
+                {"optional-scripts-enabled", [](auto &state) {
+                    D6R_REQUIRE(replaceOnce(state.result.serialized,
+                            "\"optionalScriptsEnabled\":false",
+                            "\"optionalScriptsEnabled\":true"));
+                }}
+        };
+    }
+
+    R::CanonicalState completeAvailableResult(bool interrupted) {
+        return firstResultWithDepartureLabels(interrupted, interrupted, interrupted);
+    }
+
+    R::CanonicalState completeAvailableTeamResult(bool interrupted) {
+        auto state = completeAvailableResult(interrupted);
+        state.settings.mode = "Team deathmatch";
+        state.settings.teamCount = 2;
+        state.settings.friendlyFire = true;
+        state.players[0].team = 1;
+        state.players[1].team = 2;
+        state.score.teamTotals = {3, 2};
+        state.score.teamRanking = {1, 2};
+        if (state.round) state.round->outcome.winningTeam = interrupted ? 1 : 2;
+        if (!interrupted) state.score.winner.winningTeam = 2;
+        state.result.serialized = serializedTwoPlayerResult(interrupted, interrupted, 0, true);
+        return state;
+    }
+
+    R::CanonicalState rosterHistoryResult(
+            const std::vector<std::uint8_t> &positions,
+            const std::vector<std::vector<R::Identity>> &roundRosters,
+            std::uint8_t teamCount = 0, bool interrupted = false,
+            const std::vector<R::Identity> &departed = {}) {
+        D6R_REQUIRE(!positions.empty());
+        D6R_REQUIRE(!roundRosters.empty());
+        D6R_REQUIRE(roundRosters.size() < 99);
+
+        A::SessionResult result;
+        result.label = "Session only";
+        result.state = interrupted ? A::ResultState::Interrupted : A::ResultState::Completed;
+        result.config.mode = teamCount ? A::Mode::TeamDeathmatch : A::Mode::Deathmatch;
+        result.config.teamCount = teamCount;
+        result.config.levelPlan = A::LevelPlan::Fixed;
+        result.config.fixedLevel = "levels/a.json";
+        result.config.playableLevels = {"levels/a.json"};
+        result.config.enabledWeapons = {"pistol"};
+        result.config.roundLimit = static_cast<std::uint8_t>(
+                roundRosters.size() + (interrupted ? 1u : 0u));
+        result.config.hostParticipantId = 20;
+        result.config.seed = 1234;
+        result.completedRounds = static_cast<std::uint8_t>(roundRosters.size());
+        result.finalNoWinner = true;
+        for (std::size_t index = 0; index < roundRosters.size(); ++index) {
+            A::RoundResult round;
+            round.roundNumber = static_cast<std::uint8_t>(index + 1);
+            round.level = "levels/a.json";
+            round.noWinner = true;
+            round.rosterOrder = roundRosters[index];
+            result.rounds.push_back(std::move(round));
+        }
+
+        R::CanonicalState state;
+        state.sessionId = 10;
+        state.hostParticipantId = 20;
+        state.matchId = 30;
+        state.phase = interrupted ? R::Phase::Lobby : R::Phase::FinalSummary;
+        state.currentRoundNumber = result.completedRounds;
+        state.completedRounds = result.completedRounds;
+        state.settings.mode = teamCount ? "Team deathmatch" : "Deathmatch";
+        state.settings.teamCount = teamCount;
+        state.settings.levelPlan = "Fixed level";
+        state.settings.levels = {"levels/a.json"};
+        state.settings.roundLimit = result.config.roundLimit;
+        state.score.winner.noWinner = true;
+        state.round = R::RoundState{static_cast<R::Identity>(40u + result.completedRounds),
+                                    result.completedRounds,
+                                    "levels/a.json", false, roundRosters.back(), state.score.winner};
+        state.messages.status = interrupted ? "Lobby" : "FinalSummary";
+        state.messages.scoreSummaryVisible = !interrupted;
+
+        for (std::size_t index = 0; index < positions.size(); ++index) {
+            const R::Identity playerId = 101 + index;
+            const R::Identity participantId = 20 + index;
+            const bool isDeparted = std::find(departed.begin(), departed.end(), playerId) != departed.end();
+            const auto team = teamCount
+                    ? static_cast<A::Team>(positions[index] % teamCount + 1u) : A::Team::None;
+
+            A::PlayerResultRow row;
+            row.playerId = playerId;
+            row.participantId = participantId;
+            row.displayName = "Player " + std::to_string(index + 1);
+            row.team = team;
+            row.departed = isDeparted;
+            row.rosterOrder = positions[index];
+            for (const auto &roundRoster: roundRosters) {
+                A::PlayerStatistics statistics;
+                statistics.roundsPlayed = std::find(roundRoster.begin(), roundRoster.end(), playerId)
+                        == roundRoster.end() ? 0u : 1u;
+                row.statistics.roundsPlayed += statistics.roundsPlayed;
+                row.rounds.push_back(statistics);
+            }
+            result.players.push_back(std::move(row));
+
+            state.participants.push_back({participantId, index == 0,
+                    R::ConnectionState::Connected, false, {playerId}});
+            R::PlayerState player;
+            player.playerId = playerId;
+            player.ownerParticipantId = participantId;
+            player.rosterPosition = positions[index];
+            player.displayName = "Player " + std::to_string(index + 1);
+            player.team = static_cast<std::uint8_t>(team);
+            player.lifeState = isDeparted ? R::LifeState::Departed : R::LifeState::Alive;
+            player.life = isDeparted ? 0 : 100;
+            state.players.push_back(std::move(player));
+            state.score.players.push_back({playerId});
+            state.score.ranking.push_back(playerId);
+        }
+        if (teamCount) {
+            state.score.teamTotals.assign(teamCount, 0);
+            for (std::uint8_t team = 1; team <= teamCount; ++team) {
+                std::vector<R::Identity> teamPlayers;
+                for (std::size_t index = 0; index < positions.size(); ++index)
+                    if (positions[index] % teamCount + 1u == team) teamPlayers.push_back(101 + index);
+                result.teams.push_back({static_cast<A::Team>(team), 0, teamPlayers});
+                state.score.teamRanking.push_back(team);
+            }
+        }
+        state.result.available = true;
+        state.result.sessionOnly = true;
+        state.result.state = interrupted ? "Interrupted" : "Completed";
+        const auto serialized = A::serializeSessionResult(result);
+        D6R_REQUIRE(serialized.has_value());
+        state.result.serialized = *serialized;
+        return state;
+    }
+
+    bool availableResultInitialValidation(const R::CanonicalState &state, bool expectedValid) {
+        R::AuthoritativeStateReplicator publisher;
+        R::ReplicatedState client;
+        const bool published = publisher.initialize(state);
+        const auto applied = client.apply({1, state});
+        if (expectedValid)
+            return published && publisher.version() == 1 && publisher.fullSnapshot()
+                    && applied == R::ApplyResult::Applied && client.version() == 1 && client.current();
+        return !published && publisher.version() == 0 && !publisher.fullSnapshot()
+                && applied == R::ApplyResult::Invalid && client.version() == 0 && !client.current();
+    }
+
+    struct ResultRosterScenario {
+        const char *name;
+        R::CanonicalState state;
+        bool expectedValid;
+    };
+
+    R::CanonicalState retainedResultLobby(R::CanonicalState state) {
+        state.phase = R::Phase::Lobby;
+        state.messages.status = "Lobby";
+        state.messages.scoreSummaryVisible = false;
+        return state;
+    }
+
+    std::string resultRosterValidationMatrix() {
+        const std::vector<R::Identity> threePlayers{101, 102, 103};
+        std::vector<ResultRosterScenario> scenarios;
+        for (std::uint8_t teamCount: {2, 3, 4}) {
+            std::vector<std::uint8_t> contiguous;
+            std::vector<R::Identity> players;
+            for (std::uint8_t index = 0; index < teamCount; ++index) {
+                contiguous.push_back(index);
+                players.push_back(101 + index);
+            }
+            scenarios.push_back({teamCount == 2 ? "two-team-contiguous"
+                                                : teamCount == 3 ? "three-team-contiguous"
+                                                                 : "four-team-contiguous",
+                                 rosterHistoryResult(contiguous, {players}, teamCount), true});
+            contiguous.back() = teamCount;
+            scenarios.push_back({teamCount == 2 ? "two-team-position-gap"
+                                                : teamCount == 3 ? "three-team-position-gap"
+                                                                 : "four-team-position-gap",
+                                 rosterHistoryResult(contiguous, {players}, teamCount), false});
+        }
+        scenarios.push_back({"first-round-original-roster", rosterHistoryResult(
+                {0, 1, 2}, {threePlayers, threePlayers, threePlayers}), true});
+        scenarios.push_back({"first-round-omits-nondeparted-original", retainedResultLobby(
+                rosterHistoryResult({0, 1, 2}, {{101, 102}, {101, 102}, {101, 102}})), false});
+        scenarios.push_back({"player-disappears-then-reappears", rosterHistoryResult(
+                {0, 1, 2}, {threePlayers, {101, 102}, threePlayers}), false});
+        scenarios.push_back({"monotonic-roster-reduction", rosterHistoryResult(
+                {0, 1, 2}, {threePlayers, {101, 102}, {101, 102}}, 0, false, {103}), true});
+        scenarios.push_back({"interrupted-preserves-completed-reductions", rosterHistoryResult(
+                {0, 1, 2}, {threePlayers, {101, 102}}, 0, true, {102, 103}), true});
+        scenarios.push_back({"first-round-omits-original-player-departed-later", rosterHistoryResult(
+                {0, 1, 2}, {{101, 102}, {101, 102}}, 0, true, {102, 103}), false});
+        scenarios.push_back({"post-result-departure-label", rosterHistoryResult(
+                {0, 1, 2}, {threePlayers, threePlayers, threePlayers}, 0, false, {103}), true});
+
+        std::string failures;
+        for (const auto &scenario: scenarios)
+            if (!availableResultInitialValidation(scenario.state, scenario.expectedValid)) {
+                if (!failures.empty()) failures += ';';
+                failures += scenario.name;
+            }
+        return failures;
+    }
+
+    R::CanonicalState retainedResultWithoutGuest(R::CanonicalState state) {
+        state.phase = R::Phase::Lobby;
+        state.participants[0].ready = false;
+        state.participants[1].ready = false;
+        if (state.players[1].lifeState != R::LifeState::Departed) {
+            state.players[1].lifeState = R::LifeState::Departed;
+            D6R_REQUIRE(replaceOnce(state.result.serialized,
+                    "\"departed\":false,\"rosterOrder\":1",
+                    "\"departed\":true,\"rosterOrder\":1"));
+        }
+        state.participants.pop_back();
+        state.players.pop_back();
+        state.messages.status = "Lobby";
+        state.messages.scoreSummaryVisible = false;
+        return state;
+    }
+
+    std::string authoritativeAvailableResultValidation(bool initialize) {
+        std::string failures;
+        for (const bool interrupted: {false, true}) {
+            for (const auto &attack: incompleteAvailableResultAttacks()) {
+                if (interrupted && attack.requiresImmutableOuterSettings) continue;
+                if ((!interrupted && attack.interruptedOnly) || (interrupted && attack.completedOnly)) continue;
+                const auto valid = attack.team ? completeAvailableTeamResult(interrupted)
+                                               : completeAvailableResult(interrupted);
+                auto malformed = valid;
+                attack.alter(malformed);
+                bool correct = false;
+                if (initialize) {
+                    R::AuthoritativeStateReplicator publisher;
+                    const bool rejected = !publisher.initialize(malformed)
+                            && publisher.version() == 0 && !publisher.fullSnapshot();
+                    const bool validPreserved = publisher.initialize(valid)
+                            && publisher.version() == 1 && publisher.fullSnapshot()
+                            && publisher.fullSnapshot()->state.result.serialized == valid.result.serialized;
+                    correct = rejected && validPreserved;
+                } else {
+                    auto active = attack.team ? activeTeamState(valid.settings.teamCount,
+                                                                 valid.settings.friendlyFire)
+                                              : activeState();
+                    active.settings = valid.settings;
+                    R::AuthoritativeStateReplicator publisher;
+                    const R::PresentationEvent event{993, "result-transition", 0, 0, 0, 0};
+                    if (publisher.initialize(active)) {
+                        const auto before = publisher.fullSnapshot();
+                        const bool rejected = !publisher.publish(malformed, {event})
+                                && publisher.version() == 1 && before && publisher.fullSnapshot()
+                                && R::serializeReplicationSnapshot(*before)
+                                   == R::serializeReplicationSnapshot(*publisher.fullSnapshot());
+                        const auto accepted = publisher.publish(valid, {event});
+                        const bool validPreserved = accepted && publisher.version() == 2
+                                && accepted->events.size() == 1 && accepted->events.front().eventId == event.eventId
+                                && publisher.fullSnapshot()->state.result.serialized == valid.result.serialized;
+                        correct = rejected && validPreserved;
+                    }
+                }
+                if (!correct) {
+                    if (!failures.empty()) failures += ';';
+                    failures += std::string(interrupted ? "Interrupted/" : "Completed/") + attack.name;
+                }
+            }
+        }
+        return failures;
+    }
+
+    std::string clientAvailableResultValidation(FirstResultDelivery delivery) {
+        std::string failures;
+        for (const bool interrupted: {false, true}) {
+            for (const auto &attack: incompleteAvailableResultAttacks()) {
+                if (interrupted && attack.requiresImmutableOuterSettings) continue;
+                if ((!interrupted && attack.interruptedOnly) || (interrupted && attack.completedOnly)) continue;
+                const auto valid = attack.team ? completeAvailableTeamResult(interrupted)
+                                               : completeAvailableResult(interrupted);
+                auto malformed = valid;
+                attack.alter(malformed);
+                R::ReplicatedState client;
+                bool correct = false;
+                if (delivery == FirstResultDelivery::InitialSnapshot) {
+                    const auto rejected = client.apply({1, malformed});
+                    const bool atomic = rejected == R::ApplyResult::Invalid && client.version() == 0
+                            && !client.current() && client.retainedState() == nullptr
+                            && client.takePresentationEvents().empty();
+                    const bool validPreserved = client.apply({1, valid}) == R::ApplyResult::Applied
+                            && client.version() == 1 && client.current() && client.state()
+                            && client.state()->result.serialized == valid.result.serialized;
+                    correct = atomic && validPreserved;
+                } else {
+                    auto active = attack.team ? activeTeamState(valid.settings.teamCount,
+                                                                 valid.settings.friendlyFire)
+                                              : activeState();
+                    active.settings = valid.settings;
+                    auto confirmed = active;
+                    confirmed.phaseTime++;
+                    const R::PresentationEvent pending{994, "confirmed-event", 101, 0, 0, 0};
+                    if (client.apply({1, active}) == R::ApplyResult::Applied
+                        && client.apply(validUpdate(active, confirmed, {pending})) == R::ApplyResult::Applied) {
+                        const auto retainedBytes = R::serializeReplicationSnapshot({2, *client.retainedState()});
+                        R::ApplyResult rejected = R::ApplyResult::Applied;
+                        if (delivery == FirstResultDelivery::ResynchronizationSnapshot) {
+                            client.requireResynchronization();
+                            rejected = client.apply({3, malformed});
+                        } else {
+                            auto update = validUpdate(confirmed, valid);
+                            update.result = malformed.result;
+                            update.baseline = 2;
+                            update.version = 3;
+                            update.events = {{995, "rejected-event", 101, 0, 0, 0}};
+                            rejected = client.apply(update);
+                        }
+                        const auto expected = delivery == FirstResultDelivery::IncrementalUpdate
+                                              ? R::ApplyResult::ResynchronizationRequired : R::ApplyResult::Invalid;
+                        const bool atomic = rejected == expected && client.version() == 2
+                                && !client.current() && client.state() == nullptr && client.retainedState()
+                                && R::serializeReplicationSnapshot({2, *client.retainedState()}) == retainedBytes;
+                        const bool recovered = client.apply({3, valid}) == R::ApplyResult::Applied
+                                && client.version() == 3 && client.current() && client.state()
+                                && client.state()->result.serialized == valid.result.serialized;
+                        const auto events = client.takePresentationEvents();
+                        const bool pendingPreserved = events.size() == 1 && events.front().eventId == pending.eventId;
+
+                        correct = atomic && recovered && pendingPreserved;
+                    }
+                }
+                if (!correct) {
+                    if (!failures.empty()) failures += ';';
+                    failures += std::string(interrupted ? "Interrupted/" : "Completed/") + attack.name;
+                }
+            }
+        }
+        return failures;
+    }
+
+    std::string validCompleteAvailableResultAcceptance() {
+        std::string failures;
+        for (const bool interrupted: {false, true}) for (const bool team: {false, true}) {
+            const auto valid = team ? completeAvailableTeamResult(interrupted)
+                                    : completeAvailableResult(interrupted);
+            const auto addFailure = [&](const char *path) {
+                if (!failures.empty()) failures += ';';
+                failures += std::string(interrupted ? "Interrupted/" : "Completed/")
+                        + (team ? "Teams/" : "Deathmatch/") + path;
+            };
+
+            R::AuthoritativeStateReplicator initialized;
+            if (!initialized.initialize(valid) || initialized.version() != 1
+                || !initialized.fullSnapshot()) addFailure("authoritative-initialize");
+
+            auto active = team ? activeTeamState(valid.settings.teamCount, valid.settings.friendlyFire)
+                               : activeState();
+            active.settings = valid.settings;
+
+            R::AuthoritativeStateReplicator published;
+            if (!published.initialize(active) || !published.publish(valid)
+                || published.version() != 2) addFailure("authoritative-publish");
+
+            R::ReplicatedState initial;
+            if (initial.apply({1, valid}) != R::ApplyResult::Applied || initial.version() != 1
+                || !initial.current()) addFailure("client-initial");
+
+            R::ReplicatedState resynchronized;
+            if (resynchronized.apply({1, active}) != R::ApplyResult::Applied) {
+                addFailure("client-resync-baseline");
+            } else {
+                resynchronized.requireResynchronization();
+                if (resynchronized.apply({2, valid}) != R::ApplyResult::Applied
+                    || resynchronized.version() != 2 || !resynchronized.current())
+                    addFailure("client-resync");
+            }
+
+            R::ReplicatedState incremental;
+            const auto update = validUpdate(active, valid,
+                    {{996, "result-transition", 0, 0, 0, 0}});
+            if (incremental.apply({1, active}) != R::ApplyResult::Applied
+                || incremental.apply(update) != R::ApplyResult::Applied
+                || incremental.version() != 2 || !incremental.current()
+                || incremental.takePresentationEvents().size() != 1)
+                addFailure("client-incremental");
+        }
+        return failures;
+    }
+
+    R::CanonicalState zeroCompletedInterruptedResult() {
+        A::SessionResult result;
+        result.label = "Session only";
+        result.state = A::ResultState::Interrupted;
+        result.config.mode = A::Mode::Deathmatch;
+        result.config.levelPlan = A::LevelPlan::Fixed;
+        result.config.fixedLevel = "levels/a.json";
+        result.config.playableLevels = {"levels/a.json"};
+        result.config.enabledWeapons = {"pistol"};
+        result.config.roundLimit = 2;
+        result.config.hostParticipantId = 20;
+        result.config.seed = 1234;
+        result.finalNoWinner = true;
+
+        A::PlayerResultRow host;
+        host.playerId = 101;
+        host.participantId = 20;
+        host.displayName = "Host";
+        host.rosterOrder = 0;
+        result.players.push_back(host);
+        A::PlayerResultRow guest;
+        guest.playerId = 102;
+        guest.participantId = 21;
+        guest.displayName = "Guest";
+        guest.rosterOrder = 1;
+        guest.departed = true;
+        result.players.push_back(guest);
+
+        auto state = lobbyState();
+        state.matchId = 30;
+        state.participants[0].ready = false;
+        state.participants[1].ready = false;
+        state.players[1].lifeState = R::LifeState::Departed;
+        state.players[1].life = 0;
+        state.score.players = {{101}, {102}};
+        state.score.winner.noWinner = true;
+        state.messages.status = "Lobby";
+        state.result.available = true;
+        state.result.sessionOnly = true;
+        state.result.state = "Interrupted";
+        const auto serialized = A::serializeSessionResult(result);
+        D6R_REQUIRE(serialized.has_value());
+        state.result.serialized = *serialized;
+        return state;
+    }
+
+    void requireTerminalRoundPointsIngestion(R::CanonicalState valid) {
+        D6R_REQUIRE(R::validateCanonicalState(valid));
+        D6R_REQUIRE(!valid.score.players.empty());
+        auto malformed = valid;
+        const auto priorRoundPoints = malformed.score.players.front().roundPoints;
+        malformed.score.players.front().roundPoints = priorRoundPoints + 1;
+
+        auto active = activeState();
+        active.settings = valid.settings;
+        const R::PresentationEvent event{997, "result-transition", 0, 0, 0, 0};
+
+        R::AuthoritativeStateReplicator publisher;
+        D6R_REQUIRE(publisher.initialize(active));
+        const auto publisherBefore = R::serializeReplicationSnapshot(*publisher.fullSnapshot());
+        D6R_REQUIRE(!publisher.publish(malformed, {event}));
+        D6R_REQUIRE_EQ(1u, publisher.version());
+        D6R_REQUIRE_EQ(publisherBefore, R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+        D6R_REQUIRE(publisher.publish(valid, {event}).has_value());
+        D6R_REQUIRE_EQ(2u, publisher.version());
+
+        R::ReplicatedState initial;
+        D6R_REQUIRE(initial.apply({1, malformed}) == R::ApplyResult::Invalid);
+        D6R_REQUIRE_EQ(0u, initial.version());
+        D6R_REQUIRE(!initial.current());
+        D6R_REQUIRE(initial.retainedState() == nullptr);
+        D6R_REQUIRE(initial.takePresentationEvents().empty());
+        D6R_REQUIRE(initial.apply({1, valid}) == R::ApplyResult::Applied);
+
+        R::ReplicatedState resync;
+        D6R_REQUIRE(resync.apply({1, active}) == R::ApplyResult::Applied);
+        const auto resyncBefore = R::serializeReplicationSnapshot({1, *resync.state()});
+        resync.requireResynchronization();
+        D6R_REQUIRE(resync.apply({2, malformed}) == R::ApplyResult::Invalid);
+        D6R_REQUIRE_EQ(1u, resync.version());
+        D6R_REQUIRE(!resync.current());
+        D6R_REQUIRE(resync.retainedState() != nullptr);
+        D6R_REQUIRE_EQ(resyncBefore,
+                       R::serializeReplicationSnapshot({1, *resync.retainedState()}));
+        D6R_REQUIRE(resync.takePresentationEvents().empty());
+        D6R_REQUIRE(resync.apply({2, valid}) == R::ApplyResult::Applied);
+
+        const auto validIncremental = validUpdate(active, valid, {event});
+        auto malformedIncremental = validIncremental;
+        malformedIncremental.score = malformed.score;
+        R::ReplicatedState incremental;
+        D6R_REQUIRE(incremental.apply({1, active}) == R::ApplyResult::Applied);
+        D6R_REQUIRE(incremental.apply(malformedIncremental)
+                    == R::ApplyResult::ResynchronizationRequired);
+        D6R_REQUIRE_EQ(1u, incremental.version());
+        D6R_REQUIRE(!incremental.current());
+        D6R_REQUIRE(incremental.retainedState() != nullptr);
+        D6R_REQUIRE_EQ(resyncBefore,
+                       R::serializeReplicationSnapshot({1, *incremental.retainedState()}));
+        D6R_REQUIRE(incremental.takePresentationEvents().empty());
+        D6R_REQUIRE(incremental.apply({2, valid}) == R::ApplyResult::Applied);
+
+        R::ReplicatedState acceptedIncremental;
+        D6R_REQUIRE(acceptedIncremental.apply({1, active}) == R::ApplyResult::Applied);
+        D6R_REQUIRE(acceptedIncremental.apply(validIncremental) == R::ApplyResult::Applied);
+        D6R_REQUIRE_EQ(priorRoundPoints,
+                       scoreRow(*acceptedIncremental.state(),
+                                valid.score.players.front().playerId)->roundPoints);
+    }
+
+    struct CoordinatedSettingScenario {
+        const char *name;
+        R::CanonicalState active;
+        R::CanonicalState terminal;
+    };
+
+    R::CanonicalState activeTeamState(std::uint8_t teamCount, bool friendlyFire) {
+        auto state = activeState();
+        state.settings.mode = "Team deathmatch";
+        state.settings.teamCount = teamCount;
+        state.settings.friendlyFire = friendlyFire;
+        state.players[0].team = 1;
+        state.players[1].team = 2;
+        state.score.teamTotals.assign(teamCount, 0);
+        state.score.teamRanking.clear();
+        for (std::uint8_t team = 1; team <= teamCount; ++team)
+            state.score.teamRanking.push_back(team);
+        return state;
+    }
+
+    std::vector<CoordinatedSettingScenario> coordinatedSettingScenarios(bool interrupted) {
+        std::vector<CoordinatedSettingScenario> result;
+        const auto addChangedTerminal = [&](const char *name,
+                                            const std::function<void(R::CanonicalState &)> &alter) {
+            auto terminal = completeAvailableResult(interrupted);
+            alter(terminal);
+            result.push_back({name, activeState(), std::move(terminal)});
+        };
+
+        addChangedTerminal("mode", [](auto &state) {
+            state.settings.mode = "Predator";
+            D6R_REQUIRE(replaceOnce(state.result.serialized,
+                    "\"mode\":\"Deathmatch\"", "\"mode\":\"Predator\""));
+        });
+        addChangedTerminal("level-plan", [](auto &state) {
+            state.settings.levelPlan = "Random level";
+            D6R_REQUIRE(replaceOnce(state.result.serialized,
+                    "\"levelPlan\":\"Fixed level\"", "\"levelPlan\":\"Random level\""));
+        });
+        addChangedTerminal("assistance", [](auto &state) {
+            state.settings.assistance = true;
+            D6R_REQUIRE(replaceOnce(state.result.serialized,
+                    "\"assistance\":false", "\"assistance\":true"));
+        });
+        addChangedTerminal("quick-liquid", [](auto &state) {
+            state.settings.quickLiquid = true;
+            D6R_REQUIRE(replaceOnce(state.result.serialized,
+                    "\"quickLiquid\":false", "\"quickLiquid\":true"));
+        });
+        addChangedTerminal("burnable-trees", [](auto &state) {
+            state.settings.burnableTrees = false;
+            D6R_REQUIRE(replaceOnce(state.result.serialized,
+                    "\"burnableTrees\":true", "\"burnableTrees\":false"));
+        });
+
+        auto roundLimitActive = activeState();
+        roundLimitActive.settings.roundLimit = 3;
+        result.push_back({"round-limit", std::move(roundLimitActive),
+                          completeAvailableResult(interrupted)});
+
+        auto teamCountActive = activeTeamState(3, true);
+        result.push_back({"team-count", std::move(teamCountActive),
+                          completeAvailableTeamResult(interrupted)});
+
+        auto friendlyFireTerminal = completeAvailableTeamResult(interrupted);
+        result.push_back({"friendly-fire", activeTeamState(2, false),
+                          std::move(friendlyFireTerminal)});
+        return result;
+    }
+
+    std::string coordinatedSettingFreezeEvidence(bool interrupted) {
+        std::string failures;
+        for (const auto &scenario: coordinatedSettingScenarios(interrupted)) {
+            D6R_REQUIRE(R::validateCanonicalState(scenario.active));
+            D6R_REQUIRE(R::validateCanonicalState(scenario.terminal));
+            const auto addFailure = [&](const char *path) {
+                if (!failures.empty()) failures += ';';
+                failures += std::string(scenario.name) + '/' + path;
+            };
+
+            R::AuthoritativeStateReplicator initialized;
+            if (!initialized.initialize(scenario.terminal) || initialized.version() != 1)
+                addFailure("authoritative-initialize-self-consistency");
+
+            R::AuthoritativeStateReplicator publisher;
+            if (!publisher.initialize(scenario.active)) {
+                addFailure("authoritative-publish-baseline");
+            } else {
+                const auto before = publisher.fullSnapshot();
+                const bool rejected = !publisher.publish(scenario.terminal)
+                        && publisher.version() == 1 && before && publisher.fullSnapshot()
+                        && R::serializeReplicationSnapshot(*before)
+                           == R::serializeReplicationSnapshot(*publisher.fullSnapshot());
+                if (!rejected) addFailure("authoritative-publish");
+            }
+
+            R::ReplicatedState initial;
+            if (initial.apply({1, scenario.terminal}) != R::ApplyResult::Applied
+                || initial.version() != 1 || !initial.current())
+                addFailure("client-initial-self-consistency");
+
+            R::ReplicatedState resynchronized;
+            if (resynchronized.apply({1, scenario.active}) != R::ApplyResult::Applied) {
+                addFailure("client-resync-baseline");
+            } else {
+                resynchronized.requireResynchronization();
+                if (resynchronized.apply({2, scenario.terminal}) != R::ApplyResult::Invalid
+                    || resynchronized.version() != 1 || resynchronized.current()
+                    || !resynchronized.retainedState())
+                    addFailure("client-resync");
+            }
+
+            auto compatibleActive = scenario.terminal.settings.mode == "Team deathmatch"
+                    ? activeTeamState(scenario.terminal.settings.teamCount,
+                                      scenario.terminal.settings.friendlyFire)
+                    : activeState();
+            compatibleActive.settings = scenario.terminal.settings;
+            auto attack = validUpdate(compatibleActive, scenario.terminal);
+            attack.baseline = 1;
+            attack.version = 2;
+            R::ReplicatedState incremental;
+            if (incremental.apply({1, scenario.active}) != R::ApplyResult::Applied) {
+                addFailure("client-incremental-baseline");
+            } else if (incremental.apply(attack) != R::ApplyResult::ResynchronizationRequired
+                       || incremental.version() != 1 || incremental.current()
+                       || !incremental.retainedState()) {
+                addFailure("client-incremental");
+            }
+        }
+        return failures;
+    }
+
+    R::CanonicalState followingLobbyNewcomer(R::CanonicalState state) {
+        R::ParticipantState participant{22, false, R::ConnectionState::Connected, false, {103}};
+        R::PlayerState newcomer;
+        newcomer.playerId = 103;
+        newcomer.ownerParticipantId = 22;
+        newcomer.rosterPosition = 1;
+        newcomer.displayName = "Following-lobby newcomer";
+        newcomer.life = 100;
+        state.participants.push_back(participant);
+        state.players.push_back(newcomer);
+        return state;
+    }
+
+    std::string historicalResultRowEvidence(bool interrupted) {
+        const auto terminal = completeAvailableResult(interrupted);
+        const auto removed = retainedResultWithoutGuest(terminal);
+        const auto newcomer = followingLobbyNewcomer(removed);
+        D6R_REQUIRE(removed.result.serialized.find("\"playerId\":102") != std::string::npos);
+        D6R_REQUIRE(removed.result.serialized.find(
+                "\"playerId\":102,\"participantId\":21,\"displayName\":\"Guest\","
+                "\"team\":\"\",\"departed\":true") != std::string::npos);
+        D6R_REQUIRE(newcomer.result.serialized.find("\"playerId\":103") == std::string::npos);
+
+        std::string failures;
+        const auto addFailure = [&](const char *path) {
+            if (!failures.empty()) failures += ';';
+            failures += path;
+        };
+
+        R::AuthoritativeStateReplicator initialized;
+        if (!initialized.initialize(removed)) addFailure("authoritative-initialize");
+
+        R::AuthoritativeStateReplicator publisher;
+        if (!publisher.initialize(terminal) || !publisher.publish(removed)
+            || !publisher.publish(newcomer))
+            addFailure("authoritative-publish");
+
+        R::ReplicatedState initial;
+        if (initial.apply({1, removed}) != R::ApplyResult::Applied
+            || initial.apply({2, newcomer}) != R::ApplyResult::Applied)
+            addFailure("client-initial");
+
+        R::ReplicatedState resynchronized;
+        if (resynchronized.apply({1, terminal}) != R::ApplyResult::Applied) {
+            addFailure("client-resync-baseline");
+        } else {
+            resynchronized.requireResynchronization();
+            if (resynchronized.apply({2, removed}) != R::ApplyResult::Applied)
+                addFailure("client-resync");
+        }
+
+        auto removal = stateOnlyUpdate(1, 2, removed);
+        removal.participants = {{R::ChangeKind::Remove, 21, std::nullopt}};
+        removal.players = {{R::ChangeKind::Remove, 102, std::nullopt}};
+        R::ReplicatedState incremental;
+        if (incremental.apply({1, terminal}) != R::ApplyResult::Applied
+            || incremental.apply(removal) != R::ApplyResult::Applied) {
+            addFailure("client-incremental-removal");
+        } else {
+            const auto creation = lobbyCreationUpdate(2, 3, newcomer,
+                    newcomer.participants.back(), newcomer.players.back());
+            if (incremental.apply(creation) != R::ApplyResult::Applied
+                || !incremental.state()
+                || incremental.state()->result.serialized.find("\"playerId\":103")
+                   != std::string::npos)
+                addFailure("client-incremental-newcomer");
+        }
+        return failures;
     }
 
     void requireRejectedWithoutVersionMutation(const R::IncrementalUpdate &invalid) {
@@ -992,36 +2259,61 @@ D6R_TEST_CASE("REP-005 REP-006 REP-048 mid-match match identity replacement resy
 }
 
 D6R_TEST_CASE("REP-005 REP-007 REP-010 REP-048 removed round identity cannot return in update or resync snapshot") {
-    const auto initial = activeState();
-    auto secondRound = initial;
-    secondRound.currentRoundNumber = 2;
-    secondRound.completedRounds = 1;
-    secondRound.phaseTime++;
-    secondRound.round->roundId = 41;
-    secondRound.round->roundNumber = 2;
-    secondRound.entities.clear();
-    const auto transition = validUpdate(initial, secondRound);
+    A::MatchConfig requested = matchConfig();
+    requested.roundLimit = 3;
+    A::AuthoritativeMatch match;
+    D6R_REQUIRE(match.start(requested, roster(), manifest()).code == A::OutcomeCode::None);
+    A::AuthoritativeReplication replication(902);
+    const std::vector<R::ParticipantState> participants = {
+            {20, true, R::ConnectionState::Connected, true, {101}},
+            {21, false, R::ConnectionState::Connected, true, {102}}};
+    D6R_REQUIRE(replication.setLobby(20, participants, roster(), requested));
+    D6R_REQUIRE(replication.beginMatch(match).has_value());
+    const auto firstRound = replication.fullSnapshot();
+    D6R_REQUIRE(firstRound.has_value() && firstRound->state.round.has_value());
+    const R::Identity removedRoundIdentity = firstRound->state.round->roundId;
 
-    auto reused = secondRound;
-    reused.phaseTime++;
-    reused.round->roundId = 40;
-    const auto reuse = validUpdate(secondRound, reused);
+    D6R_REQUIRE(match.submit({match.currentTick(), 1, 20, 101, A::ActionKind::ShotDamage,
+                              102, 0, A::MaximumLife}) == A::ActionResult::Accepted);
+    const auto summary = replication.capture(match);
+    const auto summaryFull = replication.fullSnapshot();
+    D6R_REQUIRE(summary.has_value() && summaryFull.has_value());
+    for (std::uint32_t tick = 0; tick < A::RoundEndTotalTicks; ++tick)
+        D6R_REQUIRE(match.advanceOneTick());
+    const auto secondRound = replication.capture(match);
+    const auto secondRoundFull = replication.fullSnapshot();
+    D6R_REQUIRE(secondRound.has_value() && secondRound->round.has_value());
+    D6R_REQUIRE(secondRoundFull.has_value() && secondRoundFull->state.round.has_value());
+    const R::Identity currentRoundIdentity = secondRound->round->roundId;
+    D6R_REQUIRE(currentRoundIdentity != removedRoundIdentity);
+
+    D6R_REQUIRE(match.advanceOneTick());
+    const auto currentUpdate = replication.capture(match);
+    const auto currentFull = replication.fullSnapshot();
+    D6R_REQUIRE(currentUpdate.has_value() && currentUpdate->round.has_value());
+    D6R_REQUIRE(currentFull.has_value() && currentFull->state.round.has_value());
+    auto reusedUpdate = *currentUpdate;
+    reusedUpdate.round->roundId = removedRoundIdentity;
+    auto reusedSnapshot = *currentFull;
+    reusedSnapshot.state.round->roundId = removedRoundIdentity;
 
     R::ReplicatedState incremental;
-    D6R_REQUIRE(incremental.apply({1, initial}) == R::ApplyResult::Applied);
-    D6R_REQUIRE(incremental.apply(transition) == R::ApplyResult::Applied);
-    D6R_REQUIRE_EQ(41u, incremental.state()->round->roundId);
-    D6R_REQUIRE(incremental.apply(reuse) == R::ApplyResult::ResynchronizationRequired);
-    D6R_REQUIRE_EQ(2u, incremental.version());
-    D6R_REQUIRE(incremental.apply({3, secondRound}) == R::ApplyResult::Applied);
-    D6R_REQUIRE_EQ(41u, incremental.state()->round->roundId);
+    D6R_REQUIRE(incremental.apply(*firstRound) == R::ApplyResult::Applied);
+    D6R_REQUIRE(incremental.apply(*summary) == R::ApplyResult::Applied);
+    D6R_REQUIRE(incremental.apply(*secondRound) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(currentRoundIdentity, incremental.state()->round->roundId);
+    D6R_REQUIRE(incremental.apply(reusedUpdate) == R::ApplyResult::ResynchronizationRequired);
+    D6R_REQUIRE_EQ(secondRound->version, incremental.version());
+    D6R_REQUIRE(incremental.apply(*currentFull) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(currentRoundIdentity, incremental.state()->round->roundId);
 
     R::ReplicatedState snapshot;
-    D6R_REQUIRE(snapshot.apply({1, initial}) == R::ApplyResult::Applied);
-    D6R_REQUIRE(snapshot.apply({2, secondRound}) == R::ApplyResult::Applied);
-    D6R_REQUIRE(snapshot.apply({3, reused}) == R::ApplyResult::Invalid);
-    D6R_REQUIRE_EQ(2u, snapshot.version());
-    D6R_REQUIRE_EQ(41u, snapshot.state()->round->roundId);
+    D6R_REQUIRE(snapshot.apply(*firstRound) == R::ApplyResult::Applied);
+    D6R_REQUIRE(snapshot.apply(*summaryFull) == R::ApplyResult::Applied);
+    D6R_REQUIRE(snapshot.apply(*secondRoundFull) == R::ApplyResult::Applied);
+    D6R_REQUIRE(snapshot.apply(reusedSnapshot) == R::ApplyResult::Invalid);
+    D6R_REQUIRE_EQ(secondRoundFull->version, snapshot.version());
+    D6R_REQUIRE_EQ(currentRoundIdentity, snapshot.state()->round->roundId);
 }
 
 D6R_TEST_CASE("REP invalid stale duplicate out-of-order malformed and inconsistent deltas do not mutate") {
@@ -1050,21 +2342,12 @@ D6R_TEST_CASE("REP invalid stale duplicate out-of-order malformed and inconsiste
 D6R_TEST_CASE("REP one active resynchronization blocks deltas and restores every supported phase") {
     for (const auto phase: {R::Phase::Lobby, R::Phase::ActiveRound, R::Phase::RoundSummary,
                             R::Phase::FinalSummary, R::Phase::Ended}) {
-        auto state = phase == R::Phase::Lobby ? lobbyState() : activeState();
+        auto state = phase == R::Phase::Lobby ? lobbyState()
+                     : phase == R::Phase::FinalSummary ? distinctFinalSummary() : activeState();
         state.phase = phase;
         if (phase == R::Phase::RoundSummary) {
             state.round->outcome.winnerPlayerIds = {101};
             state.score.winner = state.round->outcome;
-        } else if (phase == R::Phase::FinalSummary) {
-            state.completedRounds = 1;
-            state.round->outcome.winnerPlayerIds = {101};
-            state.score.winner = state.round->outcome;
-            state.result.available = true;
-            state.result.sessionOnly = true;
-            state.result.state = "Completed";
-            state.result.serialized = "canonical-session-result";
-            state.entities.clear();
-            state.effects.clear();
         } else if (phase == R::Phase::Ended) {
             state.round.reset();
             state.entities.clear();
@@ -1415,20 +2698,7 @@ D6R_TEST_CASE("REP-017 REP-018 REP-025 final-round outcome and cumulative rankin
 }
 
 D6R_TEST_CASE("REP-017 REP-018 REP-025 interruption discards incomplete round and retains completed outcome in following lobby") {
-    auto interrupted = distinctFinalSummary();
-    interrupted.phase = R::Phase::Lobby;
-    interrupted.completedRounds = 1;
-    interrupted.currentRoundNumber = 1;
-    interrupted.result.state = "Interrupted";
-    interrupted.result.serialized = "interrupted;completed-round-1=101;match-outcome=no-winner";
-    interrupted.round->roundNumber = 1;
-    interrupted.round->roundId = 40;
-    interrupted.round->outcome.winnerPlayerIds = {101};
-    interrupted.score.winner = {};
-    interrupted.score.winner.noWinner = true;
-    interrupted.participants[0].ready = false;
-    interrupted.participants[1].ready = false;
-    interrupted.messages.status = "Lobby";
+    const auto interrupted = retainedInterruptedLobby();
     D6R_REQUIRE(R::validateCanonicalState(interrupted));
     R::ReplicatedState restored;
     D6R_REQUIRE(restored.apply({12, interrupted}) == R::ApplyResult::Applied);
@@ -1485,25 +2755,29 @@ D6R_TEST_CASE("REP-017 REP-048 departed-only completed-result transitions are ex
 
     const std::vector<std::pair<std::string, std::function<void(std::string &)>>> attacks = {
             {"outcome", [](auto &serialized) {
-                D6R_REQUIRE(replaceOnce(serialized, "\"outcome\":\"player-102\"",
-                                        "\"outcome\":\"player-101\""));
+                D6R_REQUIRE(replaceOnce(serialized, "\"winnerPlayerIds\":[102]",
+                                         "\"winnerPlayerIds\":[101]"));
             }},
             {"winner", [](auto &serialized) {
-                D6R_REQUIRE(replaceOnce(serialized, "\"winner\":102", "\"winner\":101"));
+                D6R_REQUIRE(replaceOnce(serialized, "\"finalWinnerPlayerIds\":[102]",
+                                         "\"finalWinnerPlayerIds\":[101]"));
             }},
             {"ranking", [](auto &serialized) {
-                D6R_REQUIRE(replaceOnce(serialized, "\"ranking\":[101,102]", "\"ranking\":[102,101]"));
+                D6R_REQUIRE(replaceOnce(serialized, "\"rank\":1,\"playerId\":101",
+                                         "\"rank\":2,\"playerId\":101"));
+                D6R_REQUIRE(replaceOnce(serialized, "\"rank\":2,\"playerId\":102",
+                                         "\"rank\":1,\"playerId\":102"));
             }},
             {"unrelated-row", [](auto &serialized) {
                 D6R_REQUIRE(replaceOnce(serialized,
-                        "\"participantId\":20,\"departed\":false",
-                        "\"participantId\":20,\"departed\":true"));
+                        "\"playerId\":101,\"participantId\":20",
+                        "\"playerId\":101,\"participantId\":99"));
             }},
             {"score", [](auto &serialized) {
-                D6R_REQUIRE(replaceOnce(serialized, "\"score\":[3,2]", "\"score\":[4,2]"));
+                D6R_REQUIRE(replaceOccurrence(serialized, "\"totalPoints\":3", "\"totalPoints\":4", 0));
             }},
             {"round", [](auto &serialized) {
-                D6R_REQUIRE(replaceOnce(serialized, "\"round\":2", "\"round\":1"));
+                D6R_REQUIRE(replaceOnce(serialized, "\"completedRounds\":2", "\"completedRounds\":1"));
             }},
             {"malformed", [](auto &serialized) { serialized.pop_back(); }}};
 
@@ -1538,8 +2812,228 @@ D6R_TEST_CASE("REP-017 REP-048 departed-only completed-result transitions are ex
                                "round=true;malformed=true"), evidence);
 }
 
+D6R_TEST_CASE("REP-017 REP-048 retained result departure consistency publisher validation") {
+    std::string evidence;
+    for (const bool interrupted: {false, true}) {
+        const auto initial = retainedResultWithDepartureLabels(interrupted);
+        auto synchronized = interrupted ? initial : completedResultDeparture(initial);
+        if (interrupted) synchronized.phaseTime++;
+        auto resultOnly = synchronized;
+        auto canonicalOnly = synchronized;
+        if (interrupted) {
+            D6R_REQUIRE(replaceOnce(resultOnly.result.serialized,
+                    "\"departed\":true,\"rosterOrder\":1",
+                    "\"departed\":false,\"rosterOrder\":1"));
+            canonicalOnly.players[1].lifeState = R::LifeState::Alive;
+        } else {
+            resultOnly.players[1].lifeState = R::LifeState::Alive;
+            canonicalOnly = initial;
+            canonicalOnly.players[1].lifeState = R::LifeState::Departed;
+        }
+        auto unauthorizedRevival = synchronized;
+        unauthorizedRevival.players[1].lifeState = R::LifeState::Alive;
+        D6R_REQUIRE(R::validateCanonicalState(initial));
+        D6R_REQUIRE(R::validateCanonicalState(synchronized));
+        D6R_REQUIRE(R::validateCanonicalState(resultOnly));
+        D6R_REQUIRE(R::validateCanonicalState(canonicalOnly));
+        D6R_REQUIRE(R::validateCanonicalState(unauthorizedRevival));
+
+        const auto accepted = [&] {
+            R::AuthoritativeStateReplicator publisher;
+            return publisher.initialize(initial) && publisher.publish(synchronized).has_value()
+                    && publisher.version() == 2;
+        }();
+        const auto rejected = [&](const R::CanonicalState &candidate,
+                                  const R::CanonicalState &baseline) {
+            R::AuthoritativeStateReplicator publisher;
+            if (!publisher.initialize(baseline)) return false;
+            const auto before = publisher.fullSnapshot();
+            const bool result = !publisher.publish(candidate).has_value();
+            const auto after = publisher.fullSnapshot();
+            return result && publisher.version() == 1 && before && after
+                    && R::serializeReplicationSnapshot(*before)
+                       == R::serializeReplicationSnapshot(*after);
+        };
+        const std::string prefix = interrupted ? "Interrupted" : "Completed";
+        if (!evidence.empty()) evidence += ';';
+        evidence += prefix + "/synchronized=" + (accepted ? "true" : "false")
+                + ",result-only=" + (rejected(resultOnly, initial) ? "true" : "false")
+                + ",canonical-only=" + (rejected(canonicalOnly, initial) ? "true" : "false")
+                + ",departed-to-alive=" + (rejected(unauthorizedRevival, synchronized) ? "true" : "false");
+    }
+    D6R_REQUIRE_EQ(std::string(
+            "Completed/synchronized=true,result-only=true,canonical-only=true,departed-to-alive=true;"
+            "Interrupted/synchronized=true,result-only=true,canonical-only=true,departed-to-alive=true"), evidence);
+}
+
+D6R_TEST_CASE("REP-017 REP-048 REP-066 retained result departure consistency client update validation") {
+    std::string evidence;
+    for (const bool interrupted: {false, true}) {
+        const auto initial = retainedResultWithDepartureLabels(interrupted);
+        auto synchronized = interrupted ? initial : completedResultDeparture(initial);
+        if (interrupted) synchronized.phaseTime++;
+        const auto synchronizedUpdate = validUpdate(initial, synchronized);
+
+        R::ReplicatedState acceptedClient;
+        const bool accepted = acceptedClient.apply({1, initial}) == R::ApplyResult::Applied
+                && acceptedClient.apply(synchronizedUpdate) == R::ApplyResult::Applied
+                && acceptedClient.version() == 2 && acceptedClient.current() && acceptedClient.state()
+                && acceptedClient.state()->players[1].lifeState == R::LifeState::Departed
+                && acceptedClient.state()->result.serialized == synchronized.result.serialized;
+
+        const auto rejected = [&](const R::IncrementalUpdate &candidate,
+                                  const R::CanonicalState &baseline) {
+            R::ReplicatedState client;
+            return client.apply({1, baseline}) == R::ApplyResult::Applied
+                    && client.apply(candidate) == R::ApplyResult::ResynchronizationRequired
+                    && client.version() == 1 && !client.current() && client.state() == nullptr
+                    && client.takePresentationEvents().empty();
+        };
+
+        auto resultOnly = synchronizedUpdate;
+        if (interrupted) {
+            D6R_REQUIRE(replaceOnce(resultOnly.result.serialized,
+                    "\"departed\":true,\"rosterOrder\":1",
+                    "\"departed\":false,\"rosterOrder\":1"));
+        } else {
+            resultOnly.players.clear();
+        }
+        auto canonicalOnly = synchronizedUpdate;
+        if (interrupted) {
+            auto alive = initial.players[1];
+            alive.lifeState = R::LifeState::Alive;
+            canonicalOnly.players.push_back({R::ChangeKind::Update, alive.playerId, alive});
+        } else {
+            canonicalOnly.result = initial.result;
+        }
+
+        auto benignAfterDeparture = synchronized;
+        benignAfterDeparture.phaseTime++;
+        auto unauthorizedRevival = validUpdate(synchronized, benignAfterDeparture);
+        auto revived = initial.players[1];
+        revived.lifeState = R::LifeState::Alive;
+        unauthorizedRevival.players.push_back(
+                {R::ChangeKind::Update, revived.playerId, revived});
+
+        const std::string prefix = interrupted ? "Interrupted" : "Completed";
+        if (!evidence.empty()) evidence += ';';
+        evidence += prefix + "/synchronized=" + (accepted ? "true" : "false")
+                + ",result-only=" + (rejected(resultOnly, initial) ? "true" : "false")
+                + ",canonical-only=" + (rejected(canonicalOnly, initial) ? "true" : "false")
+                + ",departed-to-alive=" + (rejected(unauthorizedRevival, synchronized) ? "true" : "false");
+    }
+    D6R_REQUIRE_EQ(std::string(
+            "Completed/synchronized=true,result-only=true,canonical-only=true,departed-to-alive=true;"
+            "Interrupted/synchronized=true,result-only=true,canonical-only=true,departed-to-alive=true"), evidence);
+}
+
+D6R_TEST_CASE("REP-017 REP-041 REP-042 REP-066 initial first-result snapshot departure consistency") {
+    D6R_REQUIRE_EQ(std::string(
+            "Completed/synchronized=true,result-only=true,canonical-only=true;"
+            "Interrupted/synchronized=true,result-only=true,canonical-only=true"),
+            firstResultDepartureMatrix(FirstResultDelivery::InitialSnapshot));
+}
+
+D6R_TEST_CASE("REP-017 REP-040..044 REP-066 resynchronized first-result snapshot departure consistency") {
+    D6R_REQUIRE_EQ(std::string(
+            "Completed/synchronized=true,result-only=true,canonical-only=true;"
+            "Interrupted/synchronized=true,result-only=true,canonical-only=true"),
+            firstResultDepartureMatrix(FirstResultDelivery::ResynchronizationSnapshot));
+}
+
+D6R_TEST_CASE("REP-017 REP-048..051 REP-066 first-result active-to-terminal update departure consistency") {
+    D6R_REQUIRE_EQ(std::string(
+            "Completed/synchronized=true,result-only=true,canonical-only=true;"
+            "Interrupted/synchronized=true,result-only=true,canonical-only=true"),
+            firstResultDepartureMatrix(FirstResultDelivery::IncrementalUpdate));
+}
+
+D6R_TEST_CASE("REP-017 REP-040 REP-048 malformed available retained results fail authoritative initialization atomically") {
+    D6R_REQUIRE_EQ(std::string(), authoritativeAvailableResultValidation(true));
+}
+
+D6R_TEST_CASE("REP-017 REP-040 REP-048 malformed available retained results fail authoritative publication atomically") {
+    D6R_REQUIRE_EQ(std::string(), authoritativeAvailableResultValidation(false));
+}
+
+D6R_TEST_CASE("REP-017 REP-041 REP-042 REP-066 malformed available retained results fail initial snapshot atomically") {
+    D6R_REQUIRE_EQ(std::string(), clientAvailableResultValidation(FirstResultDelivery::InitialSnapshot));
+}
+
+D6R_TEST_CASE("REP-017 REP-041 REP-044 REP-066 malformed available retained results fail higher-version resync atomically") {
+    D6R_REQUIRE_EQ(std::string(), clientAvailableResultValidation(FirstResultDelivery::ResynchronizationSnapshot));
+}
+
+D6R_TEST_CASE("REP-017 REP-048..051 REP-066 malformed available retained results fail first active-to-terminal update atomically") {
+    D6R_REQUIRE_EQ(std::string(), clientAvailableResultValidation(FirstResultDelivery::IncrementalUpdate));
+}
+
+D6R_TEST_CASE("REP-017 REP-041 REP-049 complete canonical results remain accepted on every ingestion path") {
+    D6R_REQUIRE_EQ(std::string(), validCompleteAvailableResultAcceptance());
+}
+
+D6R_TEST_CASE("REP-017 REP-041 REP-048 REP-066 terminal round points match the last completed round on every ingestion path") {
+    requireTerminalRoundPointsIngestion(completeAvailableResult(false));
+    requireTerminalRoundPointsIngestion(completeAvailableResult(true));
+    requireTerminalRoundPointsIngestion(zeroCompletedInterruptedResult());
+}
+
+D6R_TEST_CASE("AHM-AC-020 AHM-AC-024 REP-009 REP-017 REP-041 REP-042 REP-066 canonical result roster history is contiguous and monotonic") {
+    D6R_REQUIRE_EQ(std::string(), resultRosterValidationMatrix());
+}
+
+D6R_TEST_CASE("AHM-AC-006 REP-014 REP-017 active match settings cannot change with a coordinated terminal result") {
+    std::string failures;
+    for (const bool interrupted: {false, true}) {
+        const auto evidence = coordinatedSettingFreezeEvidence(interrupted);
+        if (!evidence.empty()) {
+            if (!failures.empty()) failures += ';';
+            failures += std::string(interrupted ? "Interrupted{" : "Completed{") + evidence + '}';
+        }
+    }
+    D6R_REQUIRE_EQ(std::string(), failures);
+}
+
+D6R_TEST_CASE("AHM-AC-024 REP-013 REP-017 historical result rows depart before leaving the current lobby roster") {
+    std::string failures;
+    for (const bool interrupted: {false, true}) {
+        const auto evidence = historicalResultRowEvidence(interrupted);
+        if (!evidence.empty()) {
+            if (!failures.empty()) failures += ';';
+            failures += std::string(interrupted ? "Interrupted{" : "Completed{") + evidence + '}';
+        }
+    }
+    D6R_REQUIRE_EQ(std::string(), failures);
+}
+
+D6R_TEST_CASE("REP-017 AHM-AC-016 changed nonzero result seed remains valid on every ingestion path") {
+    for (const bool interrupted: {false, true}) {
+        auto result = completeAvailableResult(interrupted);
+        D6R_REQUIRE(replaceOnce(result.result.serialized, "\"seed\":1234", "\"seed\":4321"));
+
+        R::AuthoritativeStateReplicator initialized;
+        D6R_REQUIRE(initialized.initialize(result));
+
+        R::AuthoritativeStateReplicator published;
+        D6R_REQUIRE(published.initialize(activeState()));
+        D6R_REQUIRE(published.publish(result).has_value());
+
+        R::ReplicatedState initial;
+        D6R_REQUIRE(initial.apply({1, result}) == R::ApplyResult::Applied);
+
+        R::ReplicatedState resynchronized;
+        D6R_REQUIRE(resynchronized.apply({1, activeState()}) == R::ApplyResult::Applied);
+        resynchronized.requireResynchronization();
+        D6R_REQUIRE(resynchronized.apply({2, result}) == R::ApplyResult::Applied);
+
+        R::ReplicatedState incremental;
+        D6R_REQUIRE(incremental.apply({1, activeState()}) == R::ApplyResult::Applied);
+        D6R_REQUIRE(incremental.apply(validUpdate(activeState(), result)) == R::ApplyResult::Applied);
+    }
+}
+
 D6R_TEST_CASE("REP-017 REP-048 maximum canonical completed result accepts only departed transitions") {
-    constexpr std::size_t ExpectedMaximumParsedValues = 23512;
+    constexpr std::size_t ExpectedMaximumParsedValues = 22367;
     const auto initial = maximumCompletedReplicationState(false);
     const auto departed = maximumCompletedReplicationState(true);
     D6R_REQUIRE(R::validateCanonicalState(initial));
@@ -1621,7 +3115,7 @@ D6R_TEST_CASE("REP-017 REP-048 maximum canonical completed result accepts only d
 }
 
 D6R_TEST_CASE("REP-017 REP-048 near-limit twentieth result member is rejected before state mutation") {
-    constexpr std::size_t ExpectedMaximumParsedValues = 23512;
+    constexpr std::size_t ExpectedMaximumParsedValues = 22367;
     const auto initial = maximumCompletedReplicationState(false);
     const auto departed = maximumCompletedReplicationState(true);
 
@@ -1647,8 +3141,8 @@ D6R_TEST_CASE("REP-017 REP-048 near-limit twentieth result member is rejected be
 
     auto duplicate = departed;
     D6R_REQUIRE(replaceOnce(duplicate.result.serialized,
-            "\"label\":\"Maximum canonical result\"",
-            "\"state\":\"Maximum canonical result\""));
+            "\"label\":\"Session only\"",
+            "\"state\":\"Session only\""));
     JsonValueCounter duplicateShape(duplicate.result.serialized);
     const auto duplicateValues = duplicateShape.count();
     D6R_REQUIRE(duplicateValues.has_value());
@@ -1722,13 +3216,12 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 publisher freezes retained result while f
                     && publisher.fullSnapshot()->state.participants[1].connection == R::ConnectionState::Reconnecting
                     && publisher.fullSnapshot()->state.players[0].rosterPosition == 1
                     && publisher.fullSnapshot()->state.players[1].rosterPosition == 0
-                    && publisher.fullSnapshot()->state.players[1].displayName == "Guest (Departed)"
-                    && publisher.fullSnapshot()->state.players[1].lifeState == R::LifeState::Departed;
+                    && publisher.fullSnapshot()->state.players[1].displayName == "Guest (Edited)"
+                    && publisher.fullSnapshot()->state.players[1].lifeState
+                       == legitimate.players[1].lifeState;
             if (legitimateChangesApplied) {
                 requireRetainedResultEqual(scenario.before, publisher.fullSnapshot()->state);
-                auto departed = legitimate;
-                departed.participants.pop_back();
-                departed.players.pop_back();
+                auto departed = retainedResultWithoutGuest(legitimate);
                 const auto removal = publisher.publish(departed);
                 const bool rosterRemovalApplied = removal && publisher.version() == 3
                         && publisher.fullSnapshot()->state.participants.size() == 1
@@ -1790,14 +3283,12 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 REP-066 client rejects retained result al
                     && client.state()->participants[1].connection == R::ConnectionState::Reconnecting
                     && client.state()->players[0].rosterPosition == 1
                     && client.state()->players[1].rosterPosition == 0
-                    && client.state()->players[1].displayName == "Guest (Departed)"
-                    && client.state()->players[1].lifeState == R::LifeState::Departed;
+                    && client.state()->players[1].displayName == "Guest (Edited)"
+                    && client.state()->players[1].lifeState == legitimate.players[1].lifeState;
             if (legitimateChangesApplied) {
                 const auto delivered = client.takePresentationEvents();
                 requireRetainedResultEqual(scenario.before, *client.state());
-                auto departed = legitimate;
-                departed.participants.pop_back();
-                departed.players.pop_back();
+                auto departed = retainedResultWithoutGuest(legitimate);
                 auto removal = validUpdate(legitimate, departed);
                 removal.baseline = 2;
                 removal.version = 3;
@@ -1838,19 +3329,20 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 publisher freezes Final Summary result th
         const bool stateAndVersionUnchanged = rejected && before && after && publisher.version() == 1
                 && R::serializeReplicationSnapshot(*before) == R::serializeReplicationSnapshot(*after);
 
-        const auto legitimate = legitimateFollowingLobbyChange(retainedCompletedLobby());
-        const auto accepted = stateAndVersionUnchanged ? publisher.publish(legitimate, {event}) : std::nullopt;
-        const bool eventHistoryUnchanged = accepted && accepted->events.size() == 1
-                && accepted->events.front().eventId == event.eventId;
+        const auto retainedLobby = retainedCompletedLobby();
+        const auto lobbyTransition = stateAndVersionUnchanged
+                ? publisher.publish(retainedLobby, {event}) : std::nullopt;
+        const auto legitimate = legitimateFollowingLobbyChange(retainedLobby);
+        const auto accepted = lobbyTransition ? publisher.publish(legitimate) : std::nullopt;
+        const bool eventHistoryUnchanged = accepted && lobbyTransition->events.size() == 1
+                && lobbyTransition->events.front().eventId == event.eventId;
         bool identityHistoryUnchanged = false;
         if (eventHistoryUnchanged) {
-            auto removed = legitimate;
-            removed.participants.pop_back();
-            removed.players.pop_back();
+            auto removed = retainedResultWithoutGuest(legitimate);
             const auto removal = publisher.publish(removed);
             const auto beforeReuse = publisher.fullSnapshot();
-            identityHistoryUnchanged = removal && publisher.version() == 3
-                    && !publisher.publish(legitimate).has_value() && publisher.version() == 3
+            identityHistoryUnchanged = removal && publisher.version() == 4
+                    && !publisher.publish(legitimate).has_value() && publisher.version() == 4
                     && beforeReuse && publisher.fullSnapshot()
                     && R::serializeReplicationSnapshot(*beforeReuse)
                        == R::serializeReplicationSnapshot(*publisher.fullSnapshot());
@@ -1881,26 +3373,31 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 REP-066 client freezes Final Summary resu
                 && R::serializeReplicationSnapshot({1, scenario.before})
                    == R::serializeReplicationSnapshot({client.version(), *client.state()});
 
-        const auto legitimate = legitimateFollowingLobbyChange(retainedCompletedLobby());
-        const auto acceptedUpdate = validUpdate(scenario.before, legitimate, {event});
-        const bool legitimateApplied = restored && client.apply(acceptedUpdate) == R::ApplyResult::Applied
-                && client.version() == 2 && client.state()
+        const auto retainedLobby = retainedCompletedLobby();
+        const auto lobbyTransition = validUpdate(scenario.before, retainedLobby, {event});
+        const bool lobbyEstablished = restored
+                && client.apply(lobbyTransition) == R::ApplyResult::Applied;
+        const auto legitimate = legitimateFollowingLobbyChange(retainedLobby);
+        auto acceptedUpdate = validUpdate(retainedLobby, legitimate);
+        acceptedUpdate.baseline = 2;
+        acceptedUpdate.version = 3;
+        const bool legitimateApplied = lobbyEstablished
+                && client.apply(acceptedUpdate) == R::ApplyResult::Applied
+                && client.version() == 3 && client.state()
                 && client.state()->settings.assistance == legitimate.settings.assistance;
         const auto delivered = client.takePresentationEvents();
         bool identityHistoryUnchanged = false;
         if (legitimateApplied && delivered.size() == 1 && delivered.front().eventId == event.eventId) {
-            auto removed = legitimate;
-            removed.participants.pop_back();
-            removed.players.pop_back();
+            auto removed = retainedResultWithoutGuest(legitimate);
             auto removal = validUpdate(legitimate, removed);
-            removal.baseline = 2;
-            removal.version = 3;
+            removal.baseline = 3;
+            removal.version = 4;
             const bool removedApplied = client.apply(removal) == R::ApplyResult::Applied;
-            const auto reuse = lobbyCreationUpdate(3, 4, legitimate,
+            const auto reuse = lobbyCreationUpdate(4, 5, legitimate,
                     legitimate.participants.back(), legitimate.players.back());
             identityHistoryUnchanged = removedApplied
                     && client.apply(reuse) == R::ApplyResult::ResynchronizationRequired
-                    && client.version() == 3 && client.takePresentationEvents().empty();
+                    && client.version() == 4 && client.takePresentationEvents().empty();
         }
         if (!(rejected && restored && legitimateApplied && delivered.size() == 1
               && delivered.front().eventId == event.eventId && identityHistoryUnchanged)) {
@@ -2325,26 +3822,27 @@ D6R_TEST_CASE("REP-013 REP-014 REP-017 legitimate following Lobby mutations pres
         D6R_REQUIRE(client.state()->participants[1].connection == R::ConnectionState::Reconnecting);
         D6R_REQUIRE_EQ(1u, client.state()->players[0].rosterPosition);
         D6R_REQUIRE_EQ(0u, client.state()->players[1].rosterPosition);
-        D6R_REQUIRE_EQ(std::string("Guest (Departed)"), client.state()->players[1].displayName);
-        D6R_REQUIRE(client.state()->players[1].lifeState == R::LifeState::Departed);
+        D6R_REQUIRE_EQ(std::string("Guest (Edited)"), client.state()->players[1].displayName);
+        D6R_REQUIRE(client.state()->players[1].lifeState == legitimate.players[1].lifeState);
         requireRetainedResultEqual(initial, *client.state());
 
-        auto rosterReduced = legitimate;
-        rosterReduced.participants.pop_back();
-        rosterReduced.players.pop_back();
+        auto rosterReduced = retainedResultWithoutGuest(legitimate);
         const auto removal = publisher.publish(rosterReduced);
         D6R_REQUIRE(removal.has_value());
         D6R_REQUIRE(client.apply(*removal) == R::ApplyResult::Applied);
         D6R_REQUIRE_EQ(1u, client.state()->participants.size());
         D6R_REQUIRE_EQ(1u, client.state()->players.size());
         D6R_REQUIRE_EQ(2u, client.state()->score.players.size());
-        requireRetainedResultEqual(initial, *client.state());
+        requireRetainedResultEqual(rosterReduced, *client.state());
     }
 }
 
 D6R_TEST_CASE("REP-005 REP-017 reconnect snapshot reserves player identities retained only in prior result rows") {
     auto followingLobby = distinctFinalSummary();
     followingLobby.phase = R::Phase::Lobby;
+    D6R_REQUIRE(replaceOnce(followingLobby.result.serialized,
+            "\"departed\":false,\"rosterOrder\":1",
+            "\"departed\":true,\"rosterOrder\":1"));
     followingLobby.participants.erase(followingLobby.participants.begin() + 1);
     followingLobby.participants.front().ownedPlayerIds = {101};
     followingLobby.players.erase(followingLobby.players.begin() + 1);
@@ -2405,7 +3903,7 @@ D6R_TEST_CASE("REP-006 REP-007 REP-042 authoritative retained result rejects a n
     resultOnly.score.winner.winnerPlayerIds = {resultOnlyIdentity};
     resultOnly.round->rosterOrder.push_back(resultOnlyIdentity);
     resultOnly.round->outcome.winnerPlayerIds = {resultOnlyIdentity};
-    resultOnly.result.serialized = "completed;match-outcome=777;cumulative-ranking=777,101,102";
+    resultOnly.result.serialized = serializedTwoPlayerResult(false, false, resultOnlyIdentity);
     D6R_REQUIRE(R::validateCanonicalState(initial));
     D6R_REQUIRE(R::validateCanonicalState(resultOnly));
     D6R_REQUIRE(player(resultOnly, resultOnlyIdentity) == nullptr);
@@ -2461,7 +3959,7 @@ D6R_TEST_CASE("REP-006 REP-007 REP-048 REP-AC-001/006/007 client rejects a new r
     resultOnly.score.winner.winnerPlayerIds = {resultOnlyIdentity};
     resultOnly.round->rosterOrder.push_back(resultOnlyIdentity);
     resultOnly.round->outcome.winnerPlayerIds = {resultOnlyIdentity};
-    resultOnly.result.serialized = "completed;match-outcome=778;cumulative-ranking=778,101,102";
+    resultOnly.result.serialized = serializedTwoPlayerResult(false, false, resultOnlyIdentity);
     D6R_REQUIRE(R::validateCanonicalState(initial));
     D6R_REQUIRE(R::validateCanonicalState(resultOnly));
     D6R_REQUIRE(player(resultOnly, resultOnlyIdentity) == nullptr);
@@ -2507,12 +4005,87 @@ D6R_TEST_CASE("REP-006 REP-007 REP-048 REP-AC-001/006/007 client rejects a new r
     D6R_REQUIRE_EQ(attemptedEvent.eventId, deliveredEvents.front().eventId);
 }
 
-D6R_TEST_CASE("REP-017 REP-018 REP-025 production interruption after a completed round survives update and reconnect") {
+D6R_TEST_CASE("REP-017 REP-018 REP-025 production interruption retains the original completed round identity across canonical full incremental and reconnect views") {
+    A::MatchConfig requested = matchConfig();
+    requested.roundLimit = 3;
+    auto players = roster();
+    players.push_back({22, 103, "Third", 2});
+    A::AuthoritativeMatch match;
+    D6R_REQUIRE(match.start(requested, players, manifest()).code == A::OutcomeCode::None);
+    A::AuthoritativeReplication replication(900);
+    const std::vector<R::ParticipantState> participants = {
+            {20, true, R::ConnectionState::Connected, true, {101}},
+            {21, false, R::ConnectionState::Connected, true, {102}},
+            {22, false, R::ConnectionState::Connected, true, {103}}};
+    D6R_REQUIRE(replication.setLobby(20, participants, players, requested));
+    R::ReplicatedState incremental;
+    D6R_REQUIRE(incremental.apply(*replication.fullSnapshot()) == R::ApplyResult::Applied);
+    const auto begin = replication.beginMatch(match);
+    D6R_REQUIRE(begin.has_value());
+    D6R_REQUIRE(incremental.apply(*begin) == R::ApplyResult::Applied);
+
+    std::uint64_t sequence = 1;
+    D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 20, 101, A::ActionKind::ShotDamage,
+                              102, 0, A::MaximumLife}) == A::ActionResult::Accepted);
+    D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 20, 101, A::ActionKind::ShotDamage,
+                              103, 0, A::MaximumLife}) == A::ActionResult::Accepted);
+    const auto firstSummary = replication.capture(match);
+    D6R_REQUIRE(firstSummary.has_value());
+    D6R_REQUIRE(firstSummary->round.has_value());
+    const R::Identity completedRoundIdentity = firstSummary->round->roundId;
+    D6R_REQUIRE(completedRoundIdentity != 0);
+    const auto firstSummaryFull = replication.fullSnapshot();
+    D6R_REQUIRE(firstSummaryFull.has_value() && firstSummaryFull->state.round.has_value());
+    D6R_REQUIRE_EQ(completedRoundIdentity, firstSummaryFull->state.round->roundId);
+    D6R_REQUIRE(incremental.apply(*firstSummary) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(completedRoundIdentity, incremental.state()->round->roundId);
+    for (std::uint32_t tick = 0; tick < A::RoundEndTotalTicks; ++tick) D6R_REQUIRE(match.advanceOneTick());
+    const auto secondRound = replication.capture(match);
+    D6R_REQUIRE(secondRound.has_value());
+    D6R_REQUIRE(secondRound->round.has_value());
+    D6R_REQUIRE(secondRound->round->roundId != completedRoundIdentity);
+    D6R_REQUIRE(incremental.apply(*secondRound) == R::ApplyResult::Applied);
+    D6R_REQUIRE(match.phase() == A::MatchPhase::ActiveRound);
+
+    D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 20, 0, A::ActionKind::RemovePlayer,
+                              102, 0, 0}) == A::ActionResult::Accepted);
+    D6R_REQUIRE(match.phase() == A::MatchPhase::ActiveRound);
+    D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 20, 0, A::ActionKind::RemovePlayer,
+                              103, 0, 0}) == A::ActionResult::Accepted);
+    D6R_REQUIRE(match.outcome().code == A::OutcomeCode::InterruptedNoWinner);
+    const auto interruption = replication.capture(match);
+    D6R_REQUIRE(interruption.has_value());
+    D6R_REQUIRE(interruption->round.has_value());
+    D6R_REQUIRE_EQ(completedRoundIdentity, interruption->round->roundId);
+    D6R_REQUIRE(incremental.apply(*interruption) == R::ApplyResult::Applied);
+    const auto terminalFull = replication.fullSnapshot();
+    D6R_REQUIRE(terminalFull.has_value() && terminalFull->state.round.has_value());
+    D6R_REQUIRE_EQ(completedRoundIdentity, terminalFull->state.round->roundId);
+    R::ReplicatedState reconnect;
+    D6R_REQUIRE(reconnect.apply(*terminalFull) == R::ApplyResult::Applied);
+
+    for (const R::CanonicalState *state: {incremental.state(), reconnect.state()}) {
+        D6R_REQUIRE(state != nullptr);
+        D6R_REQUIRE(state->phase == R::Phase::Lobby);
+        D6R_REQUIRE_EQ(1u, state->completedRounds);
+        D6R_REQUIRE_EQ(std::string("Interrupted"), state->result.state);
+        D6R_REQUIRE(state->score.winner.noWinner);
+        D6R_REQUIRE(state->round.has_value());
+        D6R_REQUIRE_EQ(completedRoundIdentity, state->round->roundId);
+        D6R_REQUIRE_EQ(std::vector<R::Identity>({101}), state->round->outcome.winnerPlayerIds);
+        D6R_REQUIRE_EQ(101u, state->score.ranking.front());
+        D6R_REQUIRE(scoreRow(*state, 101)->cumulativePoints > scoreRow(*state, 102)->cumulativePoints);
+        D6R_REQUIRE(state->result.serialized.find("\"completedRounds\":1") != std::string::npos);
+        D6R_REQUIRE(state->result.serialized.find("\"winnerPlayerIds\":[101]") != std::string::npos);
+    }
+}
+
+D6R_TEST_CASE("REP-017 REP-018 REP-025 zero-completed-round interruption exposes no retained round identity") {
     A::MatchConfig requested = matchConfig();
     requested.roundLimit = 3;
     A::AuthoritativeMatch match;
     D6R_REQUIRE(match.start(requested, roster(), manifest()).code == A::OutcomeCode::None);
-    A::AuthoritativeReplication replication(900);
+    A::AuthoritativeReplication replication(901);
     const std::vector<R::ParticipantState> participants = {
             {20, true, R::ConnectionState::Connected, true, {101}},
             {21, false, R::ConnectionState::Connected, true, {102}}};
@@ -2523,39 +4096,19 @@ D6R_TEST_CASE("REP-017 REP-018 REP-025 production interruption after a completed
     D6R_REQUIRE(begin.has_value());
     D6R_REQUIRE(incremental.apply(*begin) == R::ApplyResult::Applied);
 
-    std::uint64_t sequence = 1;
-    D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 20, 101, A::ActionKind::ShotDamage,
-                              102, 0, A::MaximumLife}) == A::ActionResult::Accepted);
-    const auto firstSummary = replication.capture(match);
-    D6R_REQUIRE(firstSummary.has_value());
-    D6R_REQUIRE(incremental.apply(*firstSummary) == R::ApplyResult::Applied);
-    for (std::uint32_t tick = 0; tick < A::RoundEndTotalTicks; ++tick) D6R_REQUIRE(match.advanceOneTick());
-    const auto secondRound = replication.capture(match);
-    D6R_REQUIRE(secondRound.has_value());
-    D6R_REQUIRE(incremental.apply(*secondRound) == R::ApplyResult::Applied);
-
-    D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 20, 0, A::ActionKind::RemovePlayer,
+    D6R_REQUIRE(match.submit({match.currentTick(), 1, 20, 0, A::ActionKind::RemovePlayer,
                               102, 0, 0}) == A::ActionResult::Accepted);
     D6R_REQUIRE(match.outcome().code == A::OutcomeCode::InterruptedNoWinner);
     const auto interruption = replication.capture(match);
     D6R_REQUIRE(interruption.has_value());
+    D6R_REQUIRE(!interruption->round.has_value());
     D6R_REQUIRE(incremental.apply(*interruption) == R::ApplyResult::Applied);
+    D6R_REQUIRE(incremental.state() != nullptr && !incremental.state()->round.has_value());
+    const auto terminalFull = replication.fullSnapshot();
+    D6R_REQUIRE(terminalFull.has_value() && !terminalFull->state.round.has_value());
     R::ReplicatedState reconnect;
-    D6R_REQUIRE(reconnect.apply(*replication.fullSnapshot()) == R::ApplyResult::Applied);
-
-    for (const R::CanonicalState *state: {incremental.state(), reconnect.state()}) {
-        D6R_REQUIRE(state != nullptr);
-        D6R_REQUIRE(state->phase == R::Phase::Lobby);
-        D6R_REQUIRE_EQ(1u, state->completedRounds);
-        D6R_REQUIRE_EQ(std::string("Interrupted"), state->result.state);
-        D6R_REQUIRE(state->score.winner.noWinner);
-        D6R_REQUIRE(state->round.has_value());
-        D6R_REQUIRE_EQ(std::vector<R::Identity>({101}), state->round->outcome.winnerPlayerIds);
-        D6R_REQUIRE_EQ(101u, state->score.ranking.front());
-        D6R_REQUIRE(scoreRow(*state, 101)->cumulativePoints > scoreRow(*state, 102)->cumulativePoints);
-        D6R_REQUIRE(state->result.serialized.find("\"completedRounds\":1") != std::string::npos);
-        D6R_REQUIRE(state->result.serialized.find("\"winnerPlayerIds\":[101]") != std::string::npos);
-    }
+    D6R_REQUIRE(reconnect.apply(*terminalFull) == R::ApplyResult::Applied);
+    D6R_REQUIRE(reconnect.state() != nullptr && !reconnect.state()->round.has_value());
 }
 
 D6R_TEST_CASE("REP-017 REP-018 REP-025 production multi-round capture keeps cumulative leader out of match outcome") {

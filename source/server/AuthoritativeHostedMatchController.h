@@ -7,6 +7,7 @@
 #include "AuthoritativeMatch.h"
 #include "AuthoritativeReplication.h"
 #include "AuthoritativePlayerInput.h"
+#include "NetworkMatchResultRetention.h"
 #include "../network/NetworkResponsiveness.h"
 #include "../network/StateReplicationProtocol.h"
 
@@ -55,6 +56,7 @@ namespace Duel6::Server::Authoritative {
         AuthoritativePlayerInput::ReceiveResult receivePlayerInput(
                 Identity participantId, const Network::Input::Command &command, bool remote = true);
         bool advanceOneTick();
+        void discardSessionResults() noexcept;
 
         HostedMatchStage stage() const noexcept;
         bool contentStartBlocked() const noexcept;
@@ -62,6 +64,10 @@ namespace Duel6::Server::Authoritative {
         bool participantReady(Identity participantId) const noexcept;
         AuthoritativeMatch *match() noexcept;
         const AuthoritativeMatch *match() const noexcept;
+        const std::optional<SessionResult> &currentSessionResult() const noexcept;
+        static constexpr bool resultsPersistenceEligible() noexcept {
+            return NetworkMatchResultRetention::persistenceEligible();
+        }
 
     private:
         MatchRuntimeDependencies dependencies;
@@ -73,6 +79,8 @@ namespace Duel6::Server::Authoritative {
         AuthoritativeReplication replication;
         Network::Replication::AuthoritativeReplicationConnections replicationConnections;
         AuthoritativePlayerInput playerInput;
+        NetworkMatchResultRetention resultRetention;
+        std::uint64_t activeResultGeneration = 0;
         Network::Responsiveness::CanonicalUpdatePacer replicationPacer;
         MatchPhase lastReplicatedPhase = MatchPhase::Lobby;
 

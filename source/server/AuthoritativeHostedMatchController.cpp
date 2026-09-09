@@ -77,10 +77,14 @@ namespace Duel6::Server::Authoritative {
         std::set<Identity> removals(participantIds.begin(), participantIds.end());
         clearReadiness();
         if (!activeMatch || currentStage != HostedMatchStage::MatchActive) {
-            if (!replication.retainsCompletedResult()) return true;
+            if (!replication.retainsSessionResult()) return true;
             if (!replication.resultDepartureUpdateRequired(participantIds)) return true;
             const auto update = replication.markResultParticipantsDeparted(participantIds);
             if (!update) return false;
+            if (!resultRetention.markParticipantsDeparted(participantIds)) {
+                discardSessionResults();
+                return false;
+            }
             (void) replicationConnections.broadcastCurrentSnapshot();
             return true;
         }
@@ -203,9 +207,19 @@ namespace Duel6::Server::Authoritative {
         activeMatch = std::make_unique<AuthoritativeMatch>(std::move(matchDependencies));
         const TerminalOutcome started = activeMatch->start(config, roster, manifest);
         if (started.code == OutcomeCode::None) {
+            const auto resultGeneration = resultRetention.beginMatch();
+            if (!resultGeneration) {
+                activeMatch->shutdown();
+                activeMatch.reset();
+                discardSessionResults();
+                currentStage = HostedMatchStage::UnexpectedStop;
+                return terminalOutcome(OutcomeCode::RuntimeFailed);
+            }
+            activeResultGeneration = *resultGeneration;
             if (!playerInput.beginMatch(*activeMatch, roster)) {
                 activeMatch->shutdown();
                 activeMatch.reset();
+                discardSessionResults();
                 currentStage = HostedMatchStage::UnexpectedStop;
                 return terminalOutcome(OutcomeCode::RuntimeFailed);
             }
@@ -215,6 +229,7 @@ namespace Duel6::Server::Authoritative {
                     activeMatch->shutdown();
                     playerInput.clear();
                     activeMatch.reset();
+                    discardSessionResults();
                     currentStage = HostedMatchStage::UnexpectedStop;
                     return terminalOutcome(OutcomeCode::RuntimeFailed);
                 }
@@ -225,13 +240,20 @@ namespace Duel6::Server::Authoritative {
             currentStage = HostedMatchStage::MatchActive;
             explicitReadinessRequired = false;
         }
-        else if (started.code == OutcomeCode::RuntimeFailed) currentStage = HostedMatchStage::UnexpectedStop;
+        else if (started.code == OutcomeCode::RuntimeFailed) {
+            discardSessionResults();
+            currentStage = HostedMatchStage::UnexpectedStop;
+        }
         else if (started.code == OutcomeCode::ContentUnavailable) {
             clearReadiness();
             currentStage = HostedMatchStage::ContentBlocked;
         }
         else currentStage = HostedMatchStage::Lobby;
-        if (currentStage != HostedMatchStage::MatchActive) activeMatch.reset();
+        if (currentStage != HostedMatchStage::MatchActive) {
+            activeMatch.reset();
+            if (started.code != OutcomeCode::SettingsInvalid
+                && started.code != OutcomeCode::ContentUnavailable) discardSessionResults();
+        }
         return started;
     }
 
@@ -243,11 +265,13 @@ namespace Duel6::Server::Authoritative {
             if (accepted != ActionResult::Accepted) return activeMatch->outcome();
             const TerminalOutcome stopped = activeMatch->shutdown();
             playerInput.clear();
+            discardSessionResults();
             currentStage = stopped.code == OutcomeCode::ShutdownFailed
                            ? HostedMatchStage::UnexpectedStop : HostedMatchStage::Ended;
             return stopped;
         }
         if (currentStage == HostedMatchStage::Lobby || currentStage == HostedMatchStage::ContentBlocked) {
+            discardSessionResults();
             currentStage = HostedMatchStage::Ended;
             return terminalOutcome(OutcomeCode::EndedIntentionally);
         }
@@ -260,24 +284,35 @@ namespace Duel6::Server::Authoritative {
             || activeMatch->outcome().code == OutcomeCode::ShutdownFailed) {
             activeMatch->shutdown();
             playerInput.clear();
+            discardSessionResults();
             currentStage = HostedMatchStage::UnexpectedStop;
             return false;
         } else if (activeMatch->outcome().code != OutcomeCode::None) {
             const TerminalOutcome stopped = activeMatch->shutdown();
             playerInput.clear();
             if (stopped.code == OutcomeCode::ShutdownFailed) {
+                discardSessionResults();
                 currentStage = HostedMatchStage::UnexpectedStop;
                 return false;
             }
             else {
+                const auto published = activeMatch->publishedResult();
+                if (!published || resultRetention.retain(activeResultGeneration, *published)
+                                  == ResultRetentionStatus::Rejected) {
+                    discardSessionResults();
+                    currentStage = HostedMatchStage::UnexpectedStop;
+                    return false;
+                }
                 const auto result = replication.capture(*activeMatch);
                 if (!result) {
+                    discardSessionResults();
                     currentStage = HostedMatchStage::UnexpectedStop;
                     return false;
                 }
                 (void) replicationConnections.broadcast(*result);
                 const auto lobby = replication.enterFollowingLobby();
                 if (!lobby) {
+                    discardSessionResults();
                     currentStage = HostedMatchStage::UnexpectedStop;
                     return false;
                 }
@@ -303,6 +338,12 @@ namespace Duel6::Server::Authoritative {
         return activeMatch && currentStage == HostedMatchStage::MatchActive && playerInput.processTick();
     }
 
+    void AuthoritativeHostedMatchController::discardSessionResults() noexcept {
+        activeResultGeneration = 0;
+        resultRetention.discard();
+        replication.discardSessionResults();
+    }
+
     HostedMatchStage AuthoritativeHostedMatchController::stage() const noexcept { return currentStage; }
     bool AuthoritativeHostedMatchController::contentStartBlocked() const noexcept {
         return currentStage == HostedMatchStage::ContentBlocked;
@@ -316,4 +357,7 @@ namespace Duel6::Server::Authoritative {
     }
     AuthoritativeMatch *AuthoritativeHostedMatchController::match() noexcept { return activeMatch.get(); }
     const AuthoritativeMatch *AuthoritativeHostedMatchController::match() const noexcept { return activeMatch.get(); }
+    const std::optional<SessionResult> &AuthoritativeHostedMatchController::currentSessionResult() const noexcept {
+        return resultRetention.current();
+    }
 }
