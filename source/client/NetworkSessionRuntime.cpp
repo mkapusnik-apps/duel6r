@@ -139,7 +139,8 @@ namespace Duel6::Client {
                 current.reconnectSeconds = seconds;
                 if (journey == Network::Lifecycle::GuestJourney::HostEnded) {
                     current.journey = NetworkJourney::HostEnded;
-                } else if (journey == Network::Lifecycle::GuestJourney::ConnectionFailure) {
+                } else if (journey == Network::Lifecycle::GuestJourney::ConnectionFailure
+                           && current.journey != NetworkJourney::Cancelling) {
                     current.journey = NetworkJourney::Failure; current.failure = std::string(failure);
                     current.retryAllowed = false;
                     current.retryBlockReason = NetworkRetryBlockReason::TerminalReconnect;
@@ -182,6 +183,7 @@ namespace Duel6::Client {
             const Network::Responsiveness::ConnectionPresentationState &presentation,
             std::vector<Network::Responsiveness::PresentedPlayerPose> presentedPlayers,
             std::vector<Network::Replication::PresentationEvent> events) {
+        const bool cancelling = current.journey == NetworkJourney::Cancelling;
         current.canonical = state; current.presentation = presentation;
         current.presentedPlayers = std::move(presentedPlayers);
         current.presentationEvents.insert(current.presentationEvents.end(), events.begin(), events.end());
@@ -190,7 +192,9 @@ namespace Duel6::Client {
                     current.presentationEvents.end() - Network::Replication::MaxReplicatedEvents);
         }
         if (current.host) current.localParticipantId = state.hostParticipantId;
-        current.journey = journeyFor(state); current.status = "Connected";
+        if (!cancelling) {
+            current.journey = journeyFor(state); current.status = "Connected";
+        }
     }
 
     void NetworkSessionRuntime::receiveHostPayload(const std::vector<std::uint8_t> &payload) {
