@@ -66,9 +66,18 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 ### Presentation events
 
 - **REP-027** The authoritative service must identify events that represent round start, round outcome, shot, hit, damage, death, kill, assist, weapon change, pickup, bonus, water entry, hazard, explosion, fire, and result transitions.
-- **REP-028** A client may select presentation-only sound, animation, and background details. Those choices must not change canonical state.
+- **REP-028** A client may select presentation-only sound and background details. Those choices must not change canonical state.
 - **REP-029** A full snapshot must include each current continuing effect and its current remaining state.
 - **REP-030** A full snapshot must not cause a client to replay an expired presentation event.
+
+### Default network presentation
+
+- **REP-PRES-001** Replicated canonical state must contain the gameplay type and state values required by `NET-VIS-004`.
+- **REP-PRES-002** Replicated canonical state must not contain a profile identity, skin identity, animation-resource identity, or visual-resource identity for selected-profile appearance parity.
+- **REP-PRES-003** A client must map replicated movement, action, entity type, and visual gameplay state to the default network visual set.
+- **REP-PRES-004** Presentation code must treat replicated canonical state as read-only input.
+- **REP-PRES-005** Presentation code must not create or advance another gameplay simulation.
+- **REP-PRES-006** A full snapshot and an equivalent incremental state must select the same default network visuals.
 
 ## Entity lifecycle
 
@@ -85,7 +94,7 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 - **REP-038** After host commit, the authoritative service must provide the initial full snapshot before the guest admission deadline. The guest must validate it before it reports success or enters the lobby as connected.
 - **REP-039** The authoritative service must provide a full snapshot after a successful reconnect and before restoration completes.
 - **REP-040** The authoritative service must provide a full snapshot when a connected client requires resynchronization.
-- **REP-041** A full snapshot must contain all applicable state in REP-013 through REP-030 at one state version. Its result values must follow the completed or interrupted semantics in REP-017.
+- **REP-041** A full snapshot must contain all applicable state in REP-013 through REP-030 and REP-PRES-001 through REP-PRES-003 at one state version. Its result values must follow the completed or interrupted semantics in REP-017.
 - **REP-042** A client must validate a complete full snapshot before it replaces the prior replicated state. Validation must include the production-time rule in NRP-BUD-009.
 - **REP-043** A client must not present a partial snapshot as current authoritative state.
 - **REP-044** A successfully restored client must present the current authoritative state. It must not rewind the match or make an older snapshot current.
@@ -147,7 +156,7 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 ## Acceptance criteria
 
 - **REP-AC-001 — Stable identities:** Every replicated match, round, player, world entity, and event follows REP-005 through REP-012.
-- **REP-AC-002 — Complete state:** A full snapshot contains all applicable session, lobby, match, round, world, score, message, effect, and result state. It keeps the result values in REP-017 distinct.
+- **REP-AC-002 — Complete state:** A full snapshot contains all applicable session, lobby, match, round, world, score, message, effect, result, and default-network-presentation input state. It keeps the result values in REP-017 distinct. It does not require a selected-profile appearance identity.
 - **REP-AC-003 — Initial construction:** Before admission success, a client validates one complete lobby snapshot against current clock calibration. The snapshot must contain the exact confirmed participant and ordered owned-player identities.
 - **REP-AC-004 — Reconnect restoration:** A reconnected client receives the current complete lobby, match, round-summary, or final-summary state without rewind.
 - **REP-AC-005 — Lifecycle:** Entity creation, update, removal, round transition, and full-snapshot replacement follow REP-031 through REP-037.
@@ -157,10 +166,13 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 - **REP-AC-009 — Recovery failure:** A failed resynchronization affects only that client and follows the existing reconnect journey without pausing the match.
 - **REP-AC-010 — Read-only authority:** A client cannot change canonical score, hit, pickup, death, winner, random, or progression state through replication.
 - **REP-AC-011 — Transport truth:** Replication uses the approved reliable ordered transport and makes no unsupported loss, duplication, or reordering claim.
-- **REP-AC-012 — Presentation continuity:** Replicated state can present the shared arena, live status, score overlays, round transitions, final summary, and retained lobby result. It must not invent a cumulative-ranking champion.
+- **REP-AC-012 — Presentation continuity:** Replicated state can present the shared arena with deterministic default network visuals, live status, score overlays, round transitions, final summary, and retained lobby result. Presentation uses no second gameplay simulation. It must not invent a cumulative-ranking champion.
 - **REP-AC-013 — Safety:** Replication respects existing payload, queue, bandwidth, progress, redaction, and connection-isolation limits.
 - **REP-AC-014 — Local independence:** Local Play remains unchanged and does not start or require replication.
 - **REP-AC-015 — Scope truth:** Completion of issue #34 alone must not support a playable-network or release-readiness claim.
+- **REP-PRES-AC-001 — Deterministic default visuals:** A full snapshot and equivalent incremental state select the same built-in player skin, animation, and entity visuals on each client of the supported release.
+- **REP-PRES-AC-002 — Profile exclusion:** Replication does not require or provide profile, skin, animation-resource, or visual-resource identities for selected-profile appearance parity.
+- **REP-PRES-AC-003 — Read-only presentation:** A client presents replicated state without mutating it or creating another gameplay simulation.
 
 ## Downstream boundaries
 

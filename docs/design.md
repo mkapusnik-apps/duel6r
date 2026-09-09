@@ -185,7 +185,7 @@ The following values come from renderer and GUI source.
 - Gameplay must use `resources/textures/blocks/`, `resources/textures/man/`, `resources/textures/weapon/`, `resources/textures/bonus/`, and `resources/textures/elevator/` for visible world objects.
 - The game must preserve nearest or linear filtering choices from each loader call.
 - A missing required texture, level, or font may stop initialization in the current implementation.
-- A missing person profile must fall back to random player colors and default player sounds.
+- In Local Play, a missing person profile must fall back to random player colors and default player sounds.
 - Documentation must not define a visual placeholder for a missing required world asset because the implementation has no visual placeholder.
 
 ## Motion and temporal feedback
@@ -300,6 +300,22 @@ The following values come from renderer and GUI source.
 - Network round limit must accept only integers from 1 through 99.
 - Network match setup must not expose weapon enablement, ammunition ranges, level data, or gameplay definitions as settings.
 - Network match status must state that optional Lua and profile scripts are disabled for network play.
+- Network setup must provide local person selection and local control assignment without a profile selector, profile column, or profile-editing action.
+- A network player name must identify the selected local person without implying selected-profile appearance parity.
+- First-release network play must use one built-in default network visual set for every local and remote player.
+- The default network visual set must provide the built-in player skin, animation mapping, and entity-resource mapping.
+- The same supported release and the same complete replicated canonical state must select the same network player animation and entity visual on each client.
+- Presentation must derive movement, action, entity type, and visual gameplay state from read-only replicated canonical state.
+- Presentation must not create or advance a second gameplay simulation.
+- A local or remote profile must not change a network player's skin, animation, or visual resource.
+- The default network visual set must preserve authoritative Team colors, Predator opacity, invisibility, and each other replicated visual gameplay state.
+- A missing, changed, or additional profile or cosmetic asset must not block network admission.
+- A client must not load a peer-selected profile, file, or script as a visual fallback.
+- A client that cannot load a required default network visual resource must not start network play.
+- A required default network visual resource failure must keep the existing required-resource failure behavior.
+- `NET-07` and `NET-09` must retain the default network visuals from the last complete accepted network state when they retain arena context.
+- A retained arena context must not switch to a selected-profile appearance while it is non-current or blocked.
+- Selected-profile appearance parity is deferred to issue #84 and must not appear as first-release behavior or evidence.
 - Only the host may show an enabled early-advance action after a round outcome exists.
 - Guests must not see an enabled round-advance action.
 - Network round-end presentation must distinguish the first-second active phase from the final-five-second frozen phase.

@@ -8,8 +8,8 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 │ Hostname or address [192.168.1.24____]  Port [27015]                 │
 │                                                                      │
 │ ┌──────── LOCAL PLAYERS 2 ─────────────────────────────────────────┐ │
-│ │ Ada   profile A   Keyboard                                      │ │
-│ │ Bruno profile B   Controller 1                                  │ │
+│ │ Ada             Keyboard                                        │ │
+│ │ Bruno           Controller 1                                    │ │
 │ └──────────────────────────────────────────────────────────────────┘ │
 │                                                                      │
 │                 Connecting to 192.168.1.24:27015…                    │
@@ -29,5 +29,7 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 - User copy is fixed and never displays peer-supplied release IDs, manifest paths, credentials, policy values, or payloads.
 - Retry, Edit setup, Return to Network, and other failure variants remain in the screen specification.
 - The endpoint header and connecting footer remain fixed. Local-player rows use the flexible middle region and scroll under fixed headings.
+- Local setup provides person selection and control assignment without a profile selector, profile column, profile value, or profile-editing action.
+- Profile and cosmetic differences do not produce compatibility copy or block Connect.
 
 Planned representative screenshot: [`SS-017`](../../screenshots/README.md#ss-017).

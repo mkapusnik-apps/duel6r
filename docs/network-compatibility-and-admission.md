@@ -98,6 +98,11 @@ The manifest must exclude:
 
 Participant profile data must not affect compatibility. The network session must not load or execute a participant profile script.
 
+- **CMP-VIS-001** Admission must not compare a profile, skin, animation resource, visual resource, or other cosmetic asset.
+- **CMP-VIS-002** A missing, changed, or additional profile or cosmetic asset must not cause an admission rejection.
+- **CMP-VIS-003** A supported client must use the built-in default network visual set after admission.
+- **CMP-VIS-004** A client must not obtain a profile or cosmetic fallback from a peer.
+
 First-release network matches must not enable or execute an optional gameplay script. The authoritative policy is in [`network-authoritative-headless-match.md`](network-authoritative-headless-match.md).
 
 ### Entry fields and canonical paths
@@ -390,7 +395,7 @@ These commands provide process-level protocol evidence only. Successful output r
 - **AC-009:** An invalid path, duplicate path, invalid order, missing field, or excessive manifest must fail as invalid manifest.
 - **AC-010:** A changed, missing, additional, or case-different valid entry must fail as gameplay-content mismatch.
 - **AC-011:** A changed gameplay level or level metadata file must fail as gameplay-content mismatch.
-- **AC-012:** Cosmetic assets, profiles, people, controls, statistics, and saves must not affect compatibility.
+- **AC-012:** Cosmetic assets, profiles, people, controls, statistics, and saves must not affect compatibility. Missing, changed, or additional profile or cosmetic material must not cause an admission rejection.
 - **AC-013:** The network session must not load or execute a participant profile script.
 - **AC-014:** An optional gameplay script must not enter or execute through a supported first-release network match.
 - **AC-015:** Admission must reject a request that would exceed 15 participants or 15 roster players.
@@ -404,3 +409,4 @@ These commands provide process-level protocol evidence only. Successful output r
 - **AC-023:** An admission attempt after match start must receive the fixed join-in-progress rejection.
 - **AC-024:** Local Play must start and complete without starting or requiring a network service.
 - **AC-025:** Completion of issue #30 alone must not justify a claim that network play is available or ready for release.
+- **CMP-VIS-AC-001:** Admission ignores profile, skin, animation-resource, visual-resource, and cosmetic-asset differences. After admission, each supported client uses the built-in default network visual set without loading peer content as a fallback.

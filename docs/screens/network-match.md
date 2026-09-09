@@ -4,6 +4,7 @@
 
 This is a target screen for downstream issue #38; it is not implemented. It presents the authoritative network match in the existing undivided shared arena. It implements `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-009` through `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md) alongside unchanged local gameplay presentation requirements. Its degraded-network, visible-correction, and recovery variants implement `NRP-BUD-001` through `NRP-BUD-007`, `NRP-PRS-001` through `NRP-PRS-011`, `NRP-REC-001` through `NRP-REC-012`, `NRP-AUT-001` through `NRP-AUT-006`, and `NRP-AC-001` through `NRP-AC-014` in [`docs/network-responsiveness-and-recovery.md`](../network-responsiveness-and-recovery.md).
 It preserves `INP-011` through `INP-016` and implements `NIN-OWN-006`, `NIN-BOUND-003`, and `NIN-COMP-AC-001` through `NIN-COMP-AC-004` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
+It implements `NET-VIS-003` through `NET-VIS-011` and `NET-VIS-AC-002` through `NET-VIS-AC-005`. It consumes updated `REP-028`, `REP-041`, `REP-AC-002`, `REP-AC-012`, `REP-PRES-001` through `REP-PRES-006`, and `REP-PRES-AC-001` through `REP-PRES-AC-003` from [`docs/network-state-replication.md`](../network-state-replication.md). It also consumes `CMP-VIS-001` through `CMP-VIS-004`, `CMP-VIS-AC-001`, and updated `AC-012` from [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 
 The host starts this screen from `NET-04` after all participants are ready and clears any prior retained result. Match completion enters `NET-06`; unexpected host contact failure enters guest `NET-07`. Only a valid End session notice accepted through the current established session enters guest `NET-09`.
 
@@ -14,6 +15,9 @@ The host starts this screen from `NET-04` after all participants are ready and c
 - Add only compact textual session status that does not obscure required play: session role, LAN scope, connection state, result scope, and script policy.
 - The representative state is a six-player LAN Deathmatch at 1280 by 900 during a sustained degraded-network condition while complete canonical updates continue.
 - Network status must state `Optional scripts disabled` without obscuring play.
+- Every local and remote player must use the built-in default network visual set.
+- The screen must not use a selected local or remote profile for player skin, animation, or visual-resource selection.
+- Player names must remain distinct from player appearance selection.
 
 ## Status hierarchy and allocation
 
@@ -129,11 +133,22 @@ The host starts this screen from `NET-04` after all participants are ready and c
 - Double-jump, weapon-pick eligibility and drop-first behavior, five-second status display, and dead-player input behavior must remain unchanged.
 - A controller connection change during the round must not reassign a player automatically.
 - The graphical client must collect local device input, but the authoritative service must not initialize a renderer, audio, or local input device.
+- The client must derive player animation and entity visuals from complete read-only replicated canonical state and the default network visual set.
+- The client must not create or advance a second gameplay simulation for presentation.
+- A full snapshot and equivalent incremental state must select the same default network visuals.
+- Equal supported releases presenting the same replicated canonical state must select the same player skin, animation, and entity visual.
+- Authoritative Team colors, Predator opacity, invisibility, and other replicated visual gameplay states must modify the default network visuals as defined by canonical state.
+- A local or remote profile must not change the network player's visible skin, animation, or visual resource.
+- A client must not load a peer profile, file, or script as a visual fallback.
+- Selected-profile appearance parity remains outside first-release scope and is tracked by issue #84.
 
 ## Observable acceptance and evidence
 
 - A static artifact must show one complete 1280 by 900 client without external window chrome.
 - The artifact must show six living players in one complete LAN Deathmatch arena.
+- The artifact must show the built-in default network player skin for all six local and remote players.
+- The artifact setup must include local persons whose available profile appearances differ from the default network player skin.
+- The artifact must not show a profile-selected player appearance or a profile-selection control.
 - The artifact must show ranking, round progress, event text, and player status without status overlap.
 - The artifact must show `Host`, `LAN session`, `Connected`, `Session only scores`, and `Optional scripts disabled`.
 - The artifact must show the exact text `Network connection degraded.` during a sustained budget breach.

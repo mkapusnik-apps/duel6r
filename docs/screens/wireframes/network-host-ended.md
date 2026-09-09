@@ -22,5 +22,6 @@ Target representative viewport: 1280 by 900 px with the last authoritative arena
 - Lobby, summary, and reconnect-context variants remain in the specification.
 - Return to Network is the only action and is keyboard/controller focused by default.
 - The centered panel is no wider than 640 px, keeps a 16 px client-edge clearance, wraps its fixed copy, and keeps its heading and only action visible.
+- The retained arena keeps the default network visuals from the last complete accepted state and does not switch to selected-profile appearances.
 
 Planned representative screenshot: [`SS-023`](../../screenshots/README.md#ss-023).

@@ -3,6 +3,7 @@
 ## Status, purpose, and requirements
 
 This is a target screen for downstream issue #38; it is not implemented. It truthfully presents a guest's host-clock 30-second reconnect reservation and active-session behavior. It implements `NET-AC-006`, `NET-AC-009`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-016`, and `NET-AC-017` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+Its retained arena context implements `NET-VIS-003` through `NET-VIS-010`, `NET-VIS-AC-002` through `NET-VIS-AC-004`, `REP-PRES-001` through `REP-PRES-006`, and `REP-PRES-AC-001` through `REP-PRES-AC-003`.
 
 An unintentional guest disconnect from `NET-04`, `NET-05`, or `NET-06` enters this state. Accepted restore returns to current authoritative lobby, match, or summary. Only a valid intentional host End notice accepted through the current established session enters `NET-09`; terminal rejection or deadline expiry enters `NET-08`.
 
@@ -20,6 +21,8 @@ An unintentional guest disconnect from `NET-04`, `NET-05`, or `NET-06` enters th
 - Break an endpoint at a character boundary only when it cannot fit on one line.
 - Grow the panel downward for representative copy and use an internal body scroll only when the available client height cannot contain it.
 - Keep the last confirmed context visible around the panel without presenting that context as current.
+- A retained arena context must keep the default network visuals from the last complete accepted state.
+- A retained arena context must not switch any player to a selected-profile appearance.
 
 ## Navigation and significant variants
 
