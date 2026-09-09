@@ -113,17 +113,15 @@ namespace Duel6::Client {
                 return found == ownedPlayerBindings.end() || found->second >= sampledActions.size()
                        ? 0u : sampledActions[found->second];
             };
-            dependencies.localParticipantAction = [this]() {
+            dependencies.localParticipantCommand = [this]() {
                 std::lock_guard<std::mutex> lock(mutex);
-                if (pendingGuestActions.empty())
-                    return std::optional<Network::Lifecycle::ParticipantActionKind>{};
-                const auto value = pendingGuestActions.front();
-                pendingGuestActions.pop_front();
-                return std::optional<Network::Lifecycle::ParticipantActionKind>{value};
+                return pendingGuestCommands.empty()
+                       ? std::optional<std::vector<std::uint8_t>>{}
+                       : std::optional<std::vector<std::uint8_t>>{pendingGuestCommands.front()};
             };
-            dependencies.localParticipantPersons = [this]() {
+            dependencies.localParticipantCommandAccepted = [this]() {
                 std::lock_guard<std::mutex> lock(mutex);
-                auto value = pendingGuestConfiguration; pendingGuestConfiguration.reset(); return value;
+                if (!pendingGuestCommands.empty()) pendingGuestCommands.pop_front();
             };
             dependencies.guestAdmissionOutcome = [this](auto outcome, bool local) {
                 std::lock_guard<std::mutex> lock(mutex);
@@ -139,9 +137,10 @@ namespace Duel6::Client {
             dependencies.guestRecoveryPresentation = [this](auto journey, auto seconds, std::string_view failure) {
                 std::lock_guard<std::mutex> lock(mutex);
                 current.reconnectSeconds = seconds;
-                if (journey == Network::Lifecycle::GuestJourney::HostEnded)
+                if (journey == Network::Lifecycle::GuestJourney::HostEnded) {
+                    current.retainReconnectContext = current.journey == NetworkJourney::Reconnecting;
                     current.journey = NetworkJourney::HostEnded;
-                else if (journey == Network::Lifecycle::GuestJourney::ConnectionFailure) {
+                } else if (journey == Network::Lifecycle::GuestJourney::ConnectionFailure) {
                     current.journey = NetworkJourney::Failure; current.failure = std::string(failure);
                     current.retryAllowed = false;
                     current.retryBlockReason = NetworkRetryBlockReason::TerminalReconnect;
@@ -266,6 +265,7 @@ namespace Duel6::Client {
     }
 
     void NetworkSessionRuntime::update() {
+        drainHostCommands();
         std::vector<std::pair<Network::Replication::Identity, std::size_t>> bindings;
         std::uint64_t tick = 0; Network::Replication::Identity participant = 0;
         {
@@ -324,21 +324,39 @@ namespace Duel6::Client {
     }
 
     void NetworkSessionRuntime::sendHostAction(Network::HostComposition::Kind kind) {
-        try { if (supervisor) (void) supervisor->sendSessionPayload(Network::HostComposition::serializeAction(kind)); }
+        try { if (supervisor) enqueueHostCommand(Network::HostComposition::serializeAction(kind)); }
         catch (...) {}
     }
+    void NetworkSessionRuntime::enqueueGuestAction(Network::Lifecycle::ParticipantActionKind kind) {
+        std::lock_guard<std::mutex> lock(mutex);
+        pendingGuestCommands.push_back(Network::Lifecycle::serializeParticipantAction({
+                current.canonical ? current.canonical->sessionId : 0, current.localParticipantId, kind}));
+    }
+    void NetworkSessionRuntime::enqueueHostCommand(std::vector<std::uint8_t> payload) {
+        std::lock_guard<std::mutex> lock(mutex);
+        pendingHostCommands.push_back(std::move(payload));
+    }
+    void NetworkSessionRuntime::drainHostCommands() {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (!supervisor) return;
+        if (!pendingHostCommands.empty()) {
+            if (supervisor->sendSessionPayload(pendingHostCommands.front())) pendingHostCommands.pop_front();
+            return;
+        }
+        if (pendingHostEnd && supervisor->endSession()) pendingHostEnd = false;
+    }
     void NetworkSessionRuntime::setReady(bool ready) {
-        if (supervisor) (void) supervisor->setSessionReady(ready);
-        else { std::lock_guard<std::mutex> lock(mutex); pendingGuestActions.push_back(ready
-                ? Network::Lifecycle::ParticipantActionKind::Ready
-                : Network::Lifecycle::ParticipantActionKind::NotReady); }
+        if (supervisor) sendHostAction(ready ? Network::HostComposition::Kind::Ready
+                                            : Network::HostComposition::Kind::NotReady);
+        else enqueueGuestAction(ready ? Network::Lifecycle::ParticipantActionKind::Ready
+                                      : Network::Lifecycle::ParticipantActionKind::NotReady);
     }
     void NetworkSessionRuntime::startMatch() { sendHostAction(Network::HostComposition::Kind::StartMatch); }
     void NetworkSessionRuntime::returnToLobby() { sendHostAction(Network::HostComposition::Kind::ReturnToLobby); }
     void NetworkSessionRuntime::advanceRound() { sendHostAction(Network::HostComposition::Kind::AdvanceRound); }
     void NetworkSessionRuntime::updateHostSetup(const Network::HostComposition::Setup &setup) {
-        try { if (supervisor) (void) supervisor->sendSessionPayload(
-                Network::HostComposition::serializeSetupUpdate(setup)); } catch (...) {}
+        try { if (supervisor) enqueueHostCommand(Network::HostComposition::serializeSetupUpdate(setup)); }
+        catch (...) {}
     }
     void NetworkSessionRuntime::rebindLocalPlayers(std::vector<NetworkLocalPlayer> localPlayers) {
         std::lock_guard<std::mutex> lock(mutex);
@@ -358,25 +376,21 @@ namespace Duel6::Client {
                 names.push_back(player.name);
             }
             if (!supervisor) {
-                pendingGuestConfiguration = std::move(names);
+                pendingGuestCommands.push_back(Network::HostComposition::serializeOwnedPersons(names));
                 return;
             }
         }
-        try { if (supervisor) (void) supervisor->sendSessionPayload(
-                Network::HostComposition::serializeOwnedPersons(names)); } catch (...) {}
+        try { if (supervisor) enqueueHostCommand(Network::HostComposition::serializeOwnedPersons(names)); }
+        catch (...) {}
     }
     void NetworkSessionRuntime::localConfigurationChanged() {
         if (supervisor) sendHostAction(Network::HostComposition::Kind::ConfigurationChanged);
-        else {
-            std::lock_guard<std::mutex> lock(mutex);
-            pendingGuestActions.push_back(Network::Lifecycle::ParticipantActionKind::ConfigurationChanged);
-        }
+        else enqueueGuestAction(Network::Lifecycle::ParticipantActionKind::ConfigurationChanged);
     }
     void NetworkSessionRuntime::moveRosterPlayer(Network::Replication::Identity playerId, int direction) {
         try {
-            if (supervisor) (void) supervisor->sendSessionPayload(
-                    Network::HostComposition::serializeRosterMove(
-                            playerId, static_cast<std::int8_t>(direction)));
+            if (supervisor) enqueueHostCommand(Network::HostComposition::serializeRosterMove(
+                    playerId, static_cast<std::int8_t>(direction)));
         } catch (...) {}
     }
     void NetworkSessionRuntime::cancel() {
@@ -386,15 +400,13 @@ namespace Duel6::Client {
     }
     void NetworkSessionRuntime::leave() {
         if (supervisor) return;
+        enqueueGuestAction(Network::Lifecycle::ParticipantActionKind::Leave);
         std::lock_guard<std::mutex> lock(mutex);
-        pendingGuestActions.clear();
-        pendingGuestActions.push_back(Network::Lifecycle::ParticipantActionKind::Leave);
         current.journey = NetworkJourney::Cancelling; current.status = "Leaving session…";
     }
     void NetworkSessionRuntime::endSession() {
         { std::lock_guard<std::mutex> lock(mutex); current.journey = NetworkJourney::Cancelling;
-          current.status = "Ending session…"; }
-        if (supervisor) (void) supervisor->endSession();
+          current.status = "Ending session…"; pendingHostEnd = supervisor != nullptr; }
     }
     NetworkRuntimeSnapshot NetworkSessionRuntime::snapshot() const {
         std::lock_guard<std::mutex> lock(mutex); return current;
@@ -407,8 +419,9 @@ namespace Duel6::Client {
         stopGuest();
         if (supervisor) { supervisor->applicationExit(); supervisor.reset(); }
         std::lock_guard<std::mutex> lock(mutex);
-        current = {}; players.clear(); sampledActions.clear(); ownedPlayerBindings.clear(); pendingGuestActions.clear();
-        pendingGuestConfiguration.reset();
+        current = {}; players.clear(); sampledActions.clear(); ownedPlayerBindings.clear();
+        pendingGuestCommands.clear(); pendingHostCommands.clear();
+        pendingHostEnd = false;
         hostInput.reset(); hostPresentation.reset(); submittedHostTick.reset();
     }
 }

@@ -87,8 +87,12 @@ namespace Duel6 {
         skins.emplace_back(std::make_unique<PlayerSkin>(PlayerSkinColors(teamColor(0)),
                                                         value.getTextureManager(), animations));
         for (std::uint8_t team = 1; team <= 4; ++team) {
-            skins.emplace_back(std::make_unique<PlayerSkin>(PlayerSkinColors(teamColor(team)),
-                                                            value.getTextureManager(), animations));
+            PlayerSkinColors colors(teamColor(team));
+            colors.set(PlayerSkinColors::HairTop, teamColor(team))
+                    .set(PlayerSkinColors::Trousers, teamColor(team))
+                    .set(PlayerSkinColors::HeadBand, teamColor(team))
+                    .setHeadBand(true);
+            skins.emplace_back(std::make_unique<PlayerSkin>(colors, value.getTextureManager(), animations));
         }
     }
 

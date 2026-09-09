@@ -761,33 +761,54 @@ namespace {
 
         establishedSession:
         while (!cancelled()) {
-            std::optional<std::vector<std::string>> participantPersons;
-            try {
-                if (runtimeDependencies.localParticipantPersons)
-                    participantPersons = runtimeDependencies.localParticipantPersons();
-            } catch (...) { break; }
-            if (participantPersons) {
-                Duel6::Network::SendResult sent = Duel6::Network::SendResult::NotConnected;
-                try { sent = connection->send(
-                        Duel6::Network::HostComposition::serializeOwnedPersons(*participantPersons)); }
-                catch (...) {}
-                if (sent != Duel6::Network::SendResult::Accepted) break;
-            }
-            std::optional<Duel6::Network::Lifecycle::ParticipantActionKind> participantAction;
-            try {
-                if (runtimeDependencies.localParticipantAction)
-                    participantAction = runtimeDependencies.localParticipantAction();
-            } catch (...) { break; }
-            if (participantAction) {
-                auto payload = Duel6::Network::Lifecycle::serializeParticipantAction({
-                        admittedSessionId, admittedParticipantId, *participantAction});
-                Duel6::Network::SendResult sent = Duel6::Network::SendResult::NotConnected;
-                try { sent = connection->send(std::move(payload)); } catch (...) {}
-                if (sent != Duel6::Network::SendResult::Accepted) break;
-                if (*participantAction == Duel6::Network::Lifecycle::ParticipantActionKind::Leave) {
-                    if (sessionRecovery) sessionRecovery->leave();
-                    closeClient();
-                    return 0;
+            if (runtimeDependencies.localParticipantCommand) {
+                std::optional<std::vector<std::uint8_t>> command;
+                try { command = runtimeDependencies.localParticipantCommand(); }
+                catch (...) { break; }
+                if (command) {
+                    Duel6::Network::SendResult sent = Duel6::Network::SendResult::NotConnected;
+                    try { sent = connection->send(*command); } catch (...) {}
+                    if (sent != Duel6::Network::SendResult::Accepted) break;
+                    try {
+                        if (runtimeDependencies.localParticipantCommandAccepted)
+                            runtimeDependencies.localParticipantCommandAccepted();
+                    } catch (...) { break; }
+                    const auto action = Duel6::Network::Lifecycle::deserializeParticipantAction(*command);
+                    if (action && action->kind == Duel6::Network::Lifecycle::ParticipantActionKind::Leave) {
+                        if (sessionRecovery) sessionRecovery->leave();
+                        closeClient();
+                        return 0;
+                    }
+                }
+            } else {
+                std::optional<std::vector<std::string>> participantPersons;
+                try {
+                    if (runtimeDependencies.localParticipantPersons)
+                        participantPersons = runtimeDependencies.localParticipantPersons();
+                } catch (...) { break; }
+                if (participantPersons) {
+                    Duel6::Network::SendResult sent = Duel6::Network::SendResult::NotConnected;
+                    try { sent = connection->send(
+                            Duel6::Network::HostComposition::serializeOwnedPersons(*participantPersons)); }
+                    catch (...) {}
+                    if (sent != Duel6::Network::SendResult::Accepted) break;
+                }
+                std::optional<Duel6::Network::Lifecycle::ParticipantActionKind> participantAction;
+                try {
+                    if (runtimeDependencies.localParticipantAction)
+                        participantAction = runtimeDependencies.localParticipantAction();
+                } catch (...) { break; }
+                if (participantAction) {
+                    auto payload = Duel6::Network::Lifecycle::serializeParticipantAction({
+                            admittedSessionId, admittedParticipantId, *participantAction});
+                    Duel6::Network::SendResult sent = Duel6::Network::SendResult::NotConnected;
+                    try { sent = connection->send(std::move(payload)); } catch (...) {}
+                    if (sent != Duel6::Network::SendResult::Accepted) break;
+                    if (*participantAction == Duel6::Network::Lifecycle::ParticipantActionKind::Leave) {
+                        if (sessionRecovery) sessionRecovery->leave();
+                        closeClient();
+                        return 0;
+                    }
                 }
             }
             if (!replicatedConnection.sampleNetwork(runtimeNow(runtimeDependencies))) {
@@ -928,7 +949,15 @@ namespace {
         while (!cancelled()) {
             bool reservedLeaveRequested = false;
             try {
-                if (runtimeDependencies.localParticipantAction) {
+                if (runtimeDependencies.localParticipantCommand) {
+                    const auto command = runtimeDependencies.localParticipantCommand();
+                    const auto action = command
+                            ? Duel6::Network::Lifecycle::deserializeParticipantAction(*command) : std::nullopt;
+                    reservedLeaveRequested = action
+                            && action->kind == Duel6::Network::Lifecycle::ParticipantActionKind::Leave;
+                    if (reservedLeaveRequested && runtimeDependencies.localParticipantCommandAccepted)
+                        runtimeDependencies.localParticipantCommandAccepted();
+                } else if (runtimeDependencies.localParticipantAction) {
                     const auto action = runtimeDependencies.localParticipantAction();
                     reservedLeaveRequested = action
                             && *action == Duel6::Network::Lifecycle::ParticipantActionKind::Leave;
@@ -1683,6 +1712,20 @@ namespace Duel6::Server {
                     } else if (message->kind == Network::HostComposition::Kind::ConfigurationChanged) {
                         if (!sessionLifecycle->clearReadiness()
                             || !hostedMatch->clearReadinessForConfiguration()) runtimeFailed = true;
+                    } else if (message->kind == Network::HostComposition::Kind::Ready
+                               || message->kind == Network::HostComposition::Kind::NotReady) {
+                        if (!sessionLifecycle || !hostedMatch || !admissionPolicy
+                            || hostedMatch->stage() != Authoritative::HostedMatchStage::Lobby) {
+                            runtimeFailed = true;
+                        } else {
+                            const auto &host = admissionPolicy->allocation().hostParticipant();
+                            const bool ready = message->kind == Network::HostComposition::Kind::Ready;
+                            if (!sessionLifecycle->setReady(
+                                    host.participantId,
+                                    (std::numeric_limits<Network::Lifecycle::ConnectionId>::max)(), ready)
+                                || !hostedMatch->setParticipantReady(host.participantId, ready)
+                                || !startMatchIfReady()) runtimeFailed = true;
+                        }
                     } else if (message->kind == Network::HostComposition::Kind::UpdateOwnedPersons
                                && hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                         const auto &host = admissionPolicy->allocation().hostParticipant();

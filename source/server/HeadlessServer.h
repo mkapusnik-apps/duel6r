@@ -149,6 +149,10 @@ namespace Duel6::Server {
         std::function<bool(const std::vector<std::uint8_t> &)> hostSessionPresentation;
         std::function<std::optional<Network::Lifecycle::ParticipantActionKind>()> localParticipantAction;
         std::function<std::optional<std::vector<std::string>>()> localParticipantPersons;
+        // Graphical guests use this single peek/ack channel so every local composition,
+        // readiness, and leave command keeps its UI production order until accepted.
+        std::function<std::optional<std::vector<std::uint8_t>>()> localParticipantCommand;
+        std::function<void()> localParticipantCommandAccepted;
         std::function<void(Network::AdmissionResultCode, bool)> guestAdmissionOutcome;
         std::shared_ptr<const Network::ManifestSource> manifestSource;
         Network::ManifestFilesystemObserver filesystemObserver;

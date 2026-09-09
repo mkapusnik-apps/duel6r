@@ -49,11 +49,14 @@ namespace Duel6 {
         int setupScroll = 0;
         int summaryScroll = 0;
         int summaryHorizontal = 0;
+        int rankingScroll = 0;
         Confirmation confirmation = Confirmation::None;
         bool scoreOverlay = false;
         bool controllerConfirm = false, controllerBack = false, controllerUp = false, controllerDown = false;
+        bool controllerLeft = false, controllerRight = false;
         bool controllerSessionBack = false;
         Client::NetworkJourney lastJourney = Client::NetworkJourney::Inactive;
+        Client::NetworkJourney lastStableJourney = Client::NetworkJourney::Inactive;
         bool previousRetryEligible = false;
 
         void beforeStart(Context *) override;
@@ -77,8 +80,14 @@ namespace Duel6 {
                              std::size_t charactersPerLine, std::size_t maximumLines,
                              Color color = Color::BLACK) const;
         void drawAction(Int32 y, const std::string &text, bool selected) const;
+        void drawFocusKeyline(Int32 x, Int32 y, Int32 width, Int32 height, bool selected) const;
         void drawPlayers(const Network::Replication::CanonicalState &state) const;
-        void drawMatch(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;
+        void drawMatch(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height,
+                       bool interactive = true) const;
+        void drawLobby(const Client::NetworkRuntimeSnapshot &snapshot) const;
+        void drawSummary(const Client::NetworkRuntimeSnapshot &snapshot) const;
+        void drawRoundSummary(const Client::NetworkRuntimeSnapshot &snapshot,
+                              Int32 width, Int32 height) const;
         void drawRetainedContext(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;
         void drawReconnectPanel(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;
         void drawHostEndedPanel(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;

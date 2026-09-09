@@ -127,7 +127,7 @@ namespace Duel6::Network::HostComposition {
 
     std::vector<std::uint8_t> serializeAction(Kind kind) {
         if (kind != Kind::StartMatch && kind != Kind::ReturnToLobby && kind != Kind::AdvanceRound
-            && kind != Kind::ConfigurationChanged)
+            && kind != Kind::ConfigurationChanged && kind != Kind::Ready && kind != Kind::NotReady)
             throw std::invalid_argument("Invalid host composition action");
         Writer writer; envelope(writer, kind); return writer.take();
     }
@@ -168,7 +168,7 @@ namespace Duel6::Network::HostComposition {
             if (reader.u32() != ProtocolIdentifier || reader.u16() != ProtocolVersion) return std::nullopt;
             const auto rawKind = reader.u16();
             if (rawKind < static_cast<std::uint16_t>(Kind::Setup)
-                || rawKind > static_cast<std::uint16_t>(Kind::UpdateOwnedPersons)) return std::nullopt;
+                || rawKind > static_cast<std::uint16_t>(Kind::NotReady)) return std::nullopt;
             Message message; message.kind = static_cast<Kind>(rawKind);
             if (message.kind == Kind::Setup || message.kind == Kind::UpdateSetup) {
                 Setup setup;
@@ -194,7 +194,8 @@ namespace Duel6::Network::HostComposition {
                     return std::nullopt;
                 message.setup = std::move(setup);
             } else if (message.kind == Kind::StartMatch || message.kind == Kind::ReturnToLobby
-                       || message.kind == Kind::AdvanceRound || message.kind == Kind::ConfigurationChanged) {
+                       || message.kind == Kind::AdvanceRound || message.kind == Kind::ConfigurationChanged
+                       || message.kind == Kind::Ready || message.kind == Kind::NotReady) {
                 if (!reader.done()) return std::nullopt;
             } else if (message.kind == Kind::RosterMove) {
                 message.rosterPlayerId = reader.u64();

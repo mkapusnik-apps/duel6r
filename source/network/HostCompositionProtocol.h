@@ -22,7 +22,9 @@ namespace Duel6::Network::HostComposition {
         UpdateSetup = 8,
         ConfigurationChanged = 9,
         RosterMove = 10,
-        UpdateOwnedPersons = 11
+        UpdateOwnedPersons = 11,
+        Ready = 12,
+        NotReady = 13
     };
 
     struct Setup {

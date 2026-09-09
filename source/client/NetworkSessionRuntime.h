@@ -52,6 +52,7 @@ namespace Duel6::Client {
         std::string status;
         std::string failure;
         bool retryAllowed = false;
+        bool retainReconnectContext = false;
         NetworkRetryBlockReason retryBlockReason = NetworkRetryBlockReason::None;
     };
 
@@ -87,8 +88,9 @@ namespace Duel6::Client {
         std::vector<NetworkLocalPlayer> players;
         std::vector<std::uint32_t> sampledActions;
         std::map<Network::Replication::Identity, std::size_t> ownedPlayerBindings;
-        std::deque<Network::Lifecycle::ParticipantActionKind> pendingGuestActions;
-        std::optional<std::vector<std::string>> pendingGuestConfiguration;
+        std::deque<std::vector<std::uint8_t>> pendingGuestCommands;
+        std::deque<std::vector<std::uint8_t>> pendingHostCommands;
+        bool pendingHostEnd = false;
         std::unique_ptr<Network::Input::ClientCommandSession> hostInput;
         std::unique_ptr<Network::Replication::ClientReplicationConnection> hostPresentation;
         std::optional<std::uint64_t> submittedHostTick;
@@ -108,6 +110,9 @@ namespace Duel6::Client {
                                   std::vector<Network::Replication::PresentationEvent> events);
         std::uint32_t sampleActionsOnInputThread(std::size_t binding) const;
         void sendHostAction(Network::HostComposition::Kind kind);
+        void enqueueGuestAction(Network::Lifecycle::ParticipantActionKind kind);
+        void enqueueHostCommand(std::vector<std::uint8_t> payload);
+        void drainHostCommands();
         void stopGuest();
     };
 }
