@@ -41,7 +41,8 @@ namespace Duel6 {
                  RandomSource &randomSource)
             : game(game), randomSource(randomSource), roundNumber(roundNumber),
               world(game, levelPath, mirror, randomSource),
-              suddenDeathMode(false), waterFillWait(0), showYouAreHere(D6_YOU_ARE_HERE_DURATION), gameOverWait(0),
+              suddenDeathMode(false), waterFillWait(0), waterFillInterval(D6_RAISE_WATER_WAIT),
+              showYouAreHere(D6_YOU_ARE_HERE_DURATION), gameOverWait(0),
               winner(false)
 #ifndef D6R_HEADLESS_CORE
               , scriptContext(world)
@@ -55,6 +56,16 @@ namespace Duel6 {
         startTime = game.isHeadless() ? 0 : SDL_GetTicks();
 #endif
         auto &players = world.getPlayers();
+        if (game.getSettings().isQuickLiquid()) {
+            Level::StartingPositionList startingPositions;
+            world.getLevel().findStartingPositions(startingPositions);
+            const Size preferredPositionCount = std::count_if(startingPositions.begin(), startingPositions.end(),
+                    [this](const auto &position) {
+                        return world.getLevel().isQuickLiquidPreferredStartingPosition(position);
+                    });
+            if (preferredPositionCount < players.size())
+                waterFillInterval = D6_QUICK_LIQUID_FIRST_RAISE_WAIT;
+        }
         game.getMode().initializePlayerPositions(game, players, world, randomSource);
         setPlayerViews();
         game.getMode().initializeRound(game, players, world, randomSource);
@@ -198,8 +209,9 @@ namespace Duel6 {
 
         if (suddenDeathMode) {
             waterFillWait += elapsedTime;
-            if (waterFillWait > D6_RAISE_WATER_WAIT) {
+            if (waterFillWait > waterFillInterval) {
                 waterFillWait = 0;
+                waterFillInterval = D6_RAISE_WATER_WAIT;
                 world.raiseWater();
             }
         }

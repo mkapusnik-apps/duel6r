@@ -1,25 +1,27 @@
 # OVER-03 wireframe — Game-over summary
 
 Representative viewport: 1280 by 900 debug client.
-The representative visual table is the final four-team variant over the undivided shared arena.
+The representative visual table is the oversized final limited four-team, 15-player variant over the undivided shared arena.
 The workflow is final and does not start another round.
 This material exit state has its own wireframe and evidence entry.
 The screen has no mobile layout, so this single desktop wireframe covers the target overlay.
 
 ```text
 ┌───────────────── undivided shared arena under dark red curtain ────────────────┐
-│ final outcome event                [ Rounds: 1| 1 ] 32 px, top-centered         │
-│                                                                                │
-│              ┌────────────────────────────────────────────┐                    │
-│              │                 ---SCORE---                 │                    │
+│ final outcome event                ┌───────────────────┐                        │
+│                                    │   Rounds: 1|1     │ ← 32 px final counter │
+│                                    └─────────┬─────────┘   measured backing     │
+│              ┌───────────────────────────────┴────────────┐ ← backing-only      │
+│              │                 ---SCORE---                 │   overlap allowed   │
 │              │                   K   A   D  K/D  PTS       │                    │
-│              │ Alpha + four aligned nested player rows     │ ← one group         │
+│              │ Alpha          | team totals               │ ← team row         │
+│              │ four aligned nested player rows             │ ← one group         │
 │              │ ────────────────────────────────────────── │ ← 2 px rule / 8 px band
-│              │ Delta + three aligned nested player rows    │                    │
-│              │ ────────────────────────────────────────── │ ← group boundary    │
 │              │ Bravo + four aligned nested player rows     │                    │
 │              │ ────────────────────────────────────────── │ ← group boundary    │
-│              │ Charlie + four aligned nested player rows   │ ← no trailing band  │
+│              │ Charlie + four aligned nested player rows   │                    │
+│              │ ────────────────────────────────────────── │ ← group boundary    │
+│              │ Delta + three aligned nested player rows    │ ← no trailing band  │
 │              └────────────────────────────────────────────┘                    │
 │                                                                                │
 │                              clear gap ≥ 16 px                                  │
@@ -29,11 +31,16 @@ The screen has no mobile layout, so this single desktop wireframe covers the tar
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The representative state uses four teams and 15 nested players in 19 score rows.
-The final round counter uses the same 32 px character height as the `SCORE` heading.
-The counter remains horizontally centered at the top client edge.
-The counter backing contains the complete text without clipping.
-The counter backing does not overlap the score panel.
+The representative state uses a one-round limited Team match with 15 players across four teams.
+Alpha, Bravo, and Charlie each have four nested player rows.
+Delta has three nested player rows.
+The top-center final round counter and `---SCORE---` use the same 32 px character height.
+The counter keeps its current content and final-round values.
+The opaque black counter backing grows from the measured complete text width, including multi-digit final values.
+The backing keeps visible inner space around the counter and contains every character.
+The oversized representative panel uses the complete available middle height before it overlaps the counter backing.
+The overlap uses only the minimum required vertical depth.
+The overlap does not reach or reduce the contrast of any counter character or score content.
 Each team row touches its nested player rows without an internal gap.
 Each adjacent group boundary uses the same 8 px band as non-final `OVER-02`.
 Each band contains a 2 px white rule at 70% opacity with 3 px of clear space above and below it.
@@ -45,9 +52,15 @@ The notice aligns to the horizontal center of the client.
 The notice bottom edge is 16 px above the bottom client edge.
 At least 16 px of clear space separates the notice from the score panel.
 The notice does not overlap, clip, cover, replace, or reduce score content.
-The score panel stays client-centered when the clear-space requirement fits.
-The score panel moves upward only as needed when the preferred position does not fit.
-The final non-Team variant keeps the existing separator-free score structure.
+The fitted variant keeps the score panel client-centered when that position provides at least 16 px between the panel and counter backing.
+The fitted variant does not overlap the counter backing.
+The oversized variant may overlap the counter backing after it uses the complete available middle height.
+The oversized variant keeps the counter text visually above intersecting backing surfaces.
+The oversized variant does not wrap, truncate, scale down, clip, or remove counter text or score content.
+The final limited Deathmatch variant uses the same top counter, middle score panel, and bottom `End of Game` notice regions.
+The Deathmatch score table remains separator-free.
+Only the Team variant uses team-group separator bands.
+Predator, non-final, unlimited, and active-round overlays do not use this changed final-summary presentation.
 The final state does not show `Game Over`, `Exit`, or `Return to menu`.
 
 Representative screenshot: [`SS-012`](../../screenshots/README.md#ss-012).

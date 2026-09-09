@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Real SDL/OpenGL regression coverage for the limited Team game-over summary.
-# Each roster has one stationary Alpha team; every other profile walks off its
-# isolated spawn block into water, producing a deterministic one-round result.
+# Real SDL/OpenGL regression coverage for limited Deathmatch and Team game-over
+# summaries. Each roster has one stationary player or Alpha team; every other
+# profile walks off its isolated spawn block into water, producing a
+# deterministic one-round result.
 
 workspace_dir="${WORKSPACE_DIR:-/workspace}"
 build_dir="${BUILD_DIR:-${workspace_dir}/build}"
@@ -70,16 +71,18 @@ with open(os.path.join(root, "data", "persons.json"), "w", encoding="utf-8") as 
     }, output)
 
 # Four isolated one-block platforms provide one deterministic spawn layer per
-# possible team. Water below kills moving profiles quickly; Alpha profiles stay.
+# possible team, or per player in the two-player Deathmatch. Water below kills
+# moving profiles quickly; the first player or Alpha profiles stay.
 width, height = 13, 7
 platform_x = (1, 4, 7, 10)
+platform_count = team_count if team_count else player_count
 blocks = []
 for stored_y in range(height):
     y = height - stored_y - 1
     for x in range(width):
         if y <= 1:
             blocks.append(4)
-        elif y == 3 and x in platform_x[:team_count]:
+        elif y == 3 and x in platform_x[:platform_count]:
             blocks.append(1)
         else:
             blocks.append(0)
@@ -87,7 +90,7 @@ levels = os.path.join(root, "levels")
 for filename in os.listdir(levels):
     if filename.endswith(".json"):
         os.remove(os.path.join(levels, filename))
-with open(os.path.join(levels, "qa_final_team.json"), "w", encoding="utf-8") as output:
+with open(os.path.join(levels, "qa_final_summary.json"), "w", encoding="utf-8") as output:
     json.dump({"width": width, "height": height, "blocks": blocks, "elevators": []}, output)
 
 sample = os.path.join(root, "profiles", "sample")
@@ -96,7 +99,8 @@ for index, name in enumerate(names):
     os.makedirs(profile, exist_ok=True)
     shutil.copy(os.path.join(sample, "skin.json"), os.path.join(profile, "skin.json"))
     shutil.copy(os.path.join(sample, "sounds.json"), os.path.join(profile, "sounds.json"))
-    movement = "" if index % team_count == 0 else "context.player.pressLeft()"
+    survivor = index == 0 if team_count == 0 else index % team_count == 0
+    movement = "" if survivor else "context.player.pressLeft()"
     with open(os.path.join(profile, "script.lua"), "w", encoding="utf-8") as output:
         output.write(
             "function roundStart(context) end\n"
@@ -108,8 +112,8 @@ PY
 }
 
 run_scenario() {
-    local team_count="$1" player_count="$2"
-    local label="team${team_count}-${player_count}"
+    local mode="$1" team_count="$2" player_count="$3"
+    local label="${mode}-${player_count}"
     local scenario_dir="${test_root}/${label}"
     local runtime_dir="${scenario_dir}/runtime"
     mkdir -p "$runtime_dir"
@@ -138,12 +142,14 @@ run_scenario() {
     xdotool windowfocus "$window_id" windowactivate "$window_id" >/dev/null 2>&1 || true
     sleep 1
 
-    # Teams is the third primary mode. Advance the team count from its default 2.
-    xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
-    xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
-    for ((count = 2; count < team_count; count++)); do
-        xdotool mousemove 1157 244 mousedown 1 sleep 0.08 mouseup 1
-    done
+    if [[ "$mode" == team* ]]; then
+        # Teams is the third primary mode. Advance the team count from its default 2.
+        xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
+        xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
+        for ((count = 2; count < team_count; count++)); do
+            xdotool mousemove 1157 244 mousedown 1 sleep 0.08 mouseup 1
+        done
+    fi
     xdotool key --window "$window_id" F1
 
     local assertion="" ready=false
@@ -177,8 +183,9 @@ run_scenario() {
     fi
 }
 
-run_scenario 2 4
-run_scenario 3 6
-run_scenario 4 15
+run_scenario deathmatch 0 2
+run_scenario team2 2 4
+run_scenario team3 3 6
+run_scenario team4 4 15
 
-echo "Final Team summary behavior test passed. Artifacts: ${test_root}"
+echo "Final Deathmatch and Team summary behavior test passed. Artifacts: ${test_root}"

@@ -47,6 +47,7 @@ namespace Duel6 {
         World world;
         bool suddenDeathMode;
         Float32 waterFillWait;
+        Float32 waterFillInterval;
         Float32 showYouAreHere;
         Float32 gameOverWait;
         Uint32 startTime;

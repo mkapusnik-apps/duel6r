@@ -238,6 +238,7 @@ namespace Duel6::Network::Replication {
         std::optional<IncrementalUpdate> publish(CanonicalState state,
                                                  std::vector<PresentationEvent> events = {});
         std::optional<FullSnapshot> fullSnapshot() const;
+        void discard() noexcept;
         StateVersion version() const noexcept;
     private:
         StateVersion currentVersion = 0;
@@ -247,6 +248,7 @@ namespace Duel6::Network::Replication {
         std::set<Identity> issuedPlayerIdentities;
         std::set<Identity> issuedMatchIdentities;
         std::set<Identity> issuedRoundIdentities;
+        std::map<Identity, std::uint8_t> issuedRoundNumbers;
         std::map<Identity, EntityKind> transientEntityIdentities;
         Identity highestEntityIdentity = 0;
     };
@@ -270,6 +272,7 @@ namespace Duel6::Network::Replication {
         std::set<Identity> acceptedPlayerIdentities;
         std::set<Identity> acceptedMatchIdentities;
         std::set<Identity> acceptedRoundIdentities;
+        std::map<Identity, std::uint8_t> acceptedRoundNumbers;
         std::map<Identity, EntityKind> acceptedTransientEntityIdentities;
         Identity highestEntityIdentity = 0;
         Identity highestPresentedEvent = 0;

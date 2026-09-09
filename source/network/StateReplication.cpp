@@ -253,11 +253,20 @@ namespace Duel6::Network::Replication {
         }
 
         bool validRoundTransition(const CanonicalState &before, const CanonicalState &after,
-                                   const std::set<Identity> &issued) {
+                                   const std::set<Identity> &issued,
+                                   const std::map<Identity, std::uint8_t> &roundNumbers) {
             if (sameRound(before.round, after.round)) return true;
             if (before.matchId == after.matchId && before.round && after.round
                 && before.round->roundNumber == after.round->roundNumber) return false;
-            return !after.round || !issued.count(after.round->roundId);
+            if (!after.round || !issued.count(after.round->roundId)) return true;
+            const auto original = roundNumbers.find(after.round->roundId);
+            return original != roundNumbers.end() && original->second == after.round->roundNumber
+                   && before.matchId == after.matchId && before.phase == Phase::ActiveRound
+                   && before.round && before.round->roundNumber > after.round->roundNumber
+                   && after.phase == Phase::Lobby && after.result.available
+                   && after.result.state == "Interrupted" && after.completedRounds != 0
+                   && after.currentRoundNumber == after.completedRounds
+                   && after.round->roundNumber == after.completedRounds;
         }
 
         bool validFollowingLobbyTransition(const CanonicalState &before,
@@ -355,6 +364,19 @@ namespace Duel6::Network::Replication {
                                  && left->mirrored == right->mirrored
                                  && left->rosterOrder == right->rosterOrder
                                  && sameOutcome(left->outcome, right->outcome)));
+        }
+
+        bool sameMatchSettings(const MatchSettingsState &left, const MatchSettingsState &right) {
+            return left.mode == right.mode && left.teamCount == right.teamCount
+                   && left.friendlyFire == right.friendlyFire && left.levelPlan == right.levelPlan
+                   && left.fixedLevel == right.fixedLevel && left.levels == right.levels
+                   && left.roundLimit == right.roundLimit && left.assistance == right.assistance
+                   && left.quickLiquid == right.quickLiquid && left.burnableTrees == right.burnableTrees;
+        }
+
+        bool changesActiveMatchSettings(const CanonicalState &before, const CanonicalState &after) {
+            return before.matchId != 0 && before.matchId == after.matchId
+                   && before.phase != Phase::Lobby && !sameMatchSettings(before.settings, after.settings);
         }
 
         bool sameScoreRow(const ScoreRowState &left, const ScoreRowState &right) {
@@ -538,39 +560,404 @@ namespace Duel6::Network::Replication {
             return result == 0 ? std::nullopt : std::optional<Identity>(result);
         }
 
+        std::optional<std::string> jsonString(const ParsedJsonValue *value) {
+            if (!value || value->kind != ParsedJsonValue::Kind::String || value->token.size() < 2) return std::nullopt;
+            std::string result;
+            for (std::size_t index = 1; index + 1 < value->token.size(); ++index) {
+                unsigned char character = static_cast<unsigned char>(value->token[index]);
+                if (character != '\\') { result.push_back(static_cast<char>(character)); continue; }
+                if (++index + 1 >= value->token.size()) return std::nullopt;
+                const char escaped = value->token[index];
+                if (escaped == '"' || escaped == '\\' || escaped == '/') result.push_back(escaped);
+                else if (escaped == 'b') result.push_back('\b');
+                else if (escaped == 'f') result.push_back('\f');
+                else if (escaped == 'n') result.push_back('\n');
+                else if (escaped == 'r') result.push_back('\r');
+                else if (escaped == 't') result.push_back('\t');
+                else if (escaped == 'u') {
+                    if (index + 4 >= value->token.size()) return std::nullopt;
+                    unsigned codepoint = 0;
+                    for (std::size_t digit = 0; digit < 4; ++digit) {
+                        const char hexadecimal = value->token[++index];
+                        codepoint = codepoint * 16u + static_cast<unsigned>(
+                                hexadecimal >= '0' && hexadecimal <= '9' ? hexadecimal - '0'
+                                : hexadecimal >= 'a' && hexadecimal <= 'f' ? hexadecimal - 'a' + 10
+                                : hexadecimal - 'A' + 10);
+                    }
+                    if (codepoint >= 0xd800u && codepoint <= 0xdbffu) {
+                        if (index + 6 >= value->token.size() || value->token[index + 1] != '\\'
+                            || value->token[index + 2] != 'u') return std::nullopt;
+                        index += 2;
+                        unsigned low = 0;
+                        for (std::size_t digit = 0; digit < 4; ++digit) {
+                            const char hexadecimal = value->token[++index];
+                            low = low * 16u + static_cast<unsigned>(
+                                    hexadecimal >= '0' && hexadecimal <= '9' ? hexadecimal - '0'
+                                    : hexadecimal >= 'a' && hexadecimal <= 'f' ? hexadecimal - 'a' + 10
+                                    : hexadecimal - 'A' + 10);
+                        }
+                        if (low < 0xdc00u || low > 0xdfffu) return std::nullopt;
+                        codepoint = 0x10000u + ((codepoint - 0xd800u) << 10u) + low - 0xdc00u;
+                    } else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) return std::nullopt;
+                    if (codepoint <= 0x7fu) result.push_back(static_cast<char>(codepoint));
+                    else if (codepoint <= 0x7ffu) {
+                        result.push_back(static_cast<char>(0xc0u | codepoint >> 6u));
+                        result.push_back(static_cast<char>(0x80u | (codepoint & 0x3fu)));
+                    } else if (codepoint <= 0xffffu) {
+                        result.push_back(static_cast<char>(0xe0u | codepoint >> 12u));
+                        result.push_back(static_cast<char>(0x80u | ((codepoint >> 6u) & 0x3fu)));
+                        result.push_back(static_cast<char>(0x80u | (codepoint & 0x3fu)));
+                    } else {
+                        result.push_back(static_cast<char>(0xf0u | codepoint >> 18u));
+                        result.push_back(static_cast<char>(0x80u | ((codepoint >> 12u) & 0x3fu)));
+                        result.push_back(static_cast<char>(0x80u | ((codepoint >> 6u) & 0x3fu)));
+                        result.push_back(static_cast<char>(0x80u | (codepoint & 0x3fu)));
+                    }
+                } else return std::nullopt;
+            }
+            return result;
+        }
+
+        std::optional<std::uint64_t> unsignedNumber(const ParsedJsonValue *value, bool nonzero = false) {
+            if (!value || value->kind != ParsedJsonValue::Kind::Number || value->token.empty()
+                || value->token.front() == '-' || (value->token.size() > 1 && value->token.front() == '0'))
+                return std::nullopt;
+            std::uint64_t result = 0;
+            for (const char digit: value->token) {
+                const std::uint64_t next = static_cast<std::uint64_t>(digit - '0');
+                if (digit < '0' || digit > '9'
+                    || result > (std::numeric_limits<std::uint64_t>::max() - next) / 10u) return std::nullopt;
+                result = result * 10u + next;
+            }
+            return nonzero && result == 0 ? std::nullopt : std::optional<std::uint64_t>(result);
+        }
+
+        std::optional<std::int64_t> signedNumber(const ParsedJsonValue *value) {
+            if (!value || value->kind != ParsedJsonValue::Kind::Number || value->token.empty()) return std::nullopt;
+            const bool negative = value->token.front() == '-';
+            std::uint64_t magnitude = 0;
+            for (std::size_t index = negative ? 1 : 0; index < value->token.size(); ++index) {
+                const char digit = value->token[index];
+                const std::uint64_t next = static_cast<std::uint64_t>(digit - '0');
+                if (digit < '0' || digit > '9'
+                    || magnitude > (std::numeric_limits<std::uint64_t>::max() - next) / 10u) return std::nullopt;
+                magnitude = magnitude * 10u + next;
+            }
+            const std::uint64_t limit = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+            if ((!negative && magnitude > limit) || (negative && magnitude > limit + 1u)) return std::nullopt;
+            if (negative && magnitude == limit + 1u) return std::numeric_limits<std::int64_t>::min();
+            return negative ? -static_cast<std::int64_t>(magnitude) : static_cast<std::int64_t>(magnitude);
+        }
+
+        bool exactMembers(const ParsedJsonValue &object, std::initializer_list<std::string_view> names) {
+            if (object.kind != ParsedJsonValue::Kind::Object || object.object.size() != names.size()) return false;
+            return std::all_of(names.begin(), names.end(), [&](std::string_view name) {
+                return member(object, name) != nullptr;
+            });
+        }
+
+        std::optional<bool> booleanValue(const ParsedJsonValue *value) {
+            if (!value || value->kind != ParsedJsonValue::Kind::Boolean) return std::nullopt;
+            return value->boolean;
+        }
+
+        std::optional<std::uint8_t> teamValue(const ParsedJsonValue *value) {
+            const auto name = jsonString(value);
+            if (!name) return std::nullopt;
+            if (name->empty()) return 0;
+            if (*name == "Alpha") return 1;
+            if (*name == "Bravo") return 2;
+            if (*name == "Charlie") return 3;
+            if (*name == "Delta") return 4;
+            return std::nullopt;
+        }
+
+        struct CanonicalResultStatistics {
+            std::uint64_t roundsPlayed = 0, shots = 0, hits = 0, kills = 0, deaths = 0, assists = 0;
+            std::uint64_t wins = 0, penalties = 0, survivalTicks = 0, damage = 0, assistedDamage = 0;
+            std::int64_t totalPoints = 0;
+        };
+
+        std::optional<CanonicalResultStatistics> resultStatistics(const ParsedJsonValue &value) {
+            if (!exactMembers(value, {"\"roundsPlayed\"", "\"shots\"", "\"hits\"", "\"kills\"",
+                                      "\"deaths\"", "\"assists\"", "\"wins\"", "\"penalties\"",
+                                      "\"survivalTicks\"", "\"damage\"", "\"assistedDamage\"",
+                                      "\"totalPoints\""})) return std::nullopt;
+            CanonicalResultStatistics result;
+            const auto roundsPlayed = unsignedNumber(member(value, "\"roundsPlayed\""));
+            const auto shots = unsignedNumber(member(value, "\"shots\""));
+            const auto hits = unsignedNumber(member(value, "\"hits\""));
+            const auto kills = unsignedNumber(member(value, "\"kills\""));
+            const auto deaths = unsignedNumber(member(value, "\"deaths\""));
+            const auto assists = unsignedNumber(member(value, "\"assists\""));
+            const auto wins = unsignedNumber(member(value, "\"wins\""));
+            const auto penalties = unsignedNumber(member(value, "\"penalties\""));
+            const auto survivalTicks = unsignedNumber(member(value, "\"survivalTicks\""));
+            const auto damage = unsignedNumber(member(value, "\"damage\""));
+            const auto assistedDamage = unsignedNumber(member(value, "\"assistedDamage\""));
+            const auto totalPoints = signedNumber(member(value, "\"totalPoints\""));
+            if (!roundsPlayed || !shots || !hits || !kills || !deaths || !assists || !wins || !penalties
+                || !survivalTicks || !damage || !assistedDamage || !totalPoints) return std::nullopt;
+            result = {*roundsPlayed, *shots, *hits, *kills, *deaths, *assists, *wins, *penalties,
+                      *survivalTicks, *damage, *assistedDamage, *totalPoints};
+            const std::uint64_t positive = result.kills > std::numeric_limits<std::uint64_t>::max() - result.wins
+                                           ? std::numeric_limits<std::uint64_t>::max()
+                                           : result.kills + result.wins;
+            const std::uint64_t completePositive = positive > std::numeric_limits<std::uint64_t>::max() - result.assists
+                                                   ? std::numeric_limits<std::uint64_t>::max()
+                                                   : positive + result.assists;
+            std::int64_t calculated = std::numeric_limits<std::int64_t>::max();
+            if (completePositive <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+                if (result.penalties > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+                    calculated = std::numeric_limits<std::int64_t>::min();
+                else calculated = static_cast<std::int64_t>(completePositive)
+                                  - static_cast<std::int64_t>(result.penalties);
+            }
+            return calculated == result.totalPoints ? std::optional<CanonicalResultStatistics>(result) : std::nullopt;
+        }
+
+        bool sameStatistics(const CanonicalResultStatistics &left, const CanonicalResultStatistics &right) {
+            return left.roundsPlayed == right.roundsPlayed && left.shots == right.shots && left.hits == right.hits
+                   && left.kills == right.kills && left.deaths == right.deaths && left.assists == right.assists
+                   && left.wins == right.wins && left.penalties == right.penalties
+                   && left.survivalTicks == right.survivalTicks && left.damage == right.damage
+                   && left.assistedDamage == right.assistedDamage && left.totalPoints == right.totalPoints;
+        }
+
+        bool addStatistics(CanonicalResultStatistics &total, const CanonicalResultStatistics &value) {
+            const auto add = [](std::uint64_t &target, std::uint64_t addition) {
+                if (target > std::numeric_limits<std::uint64_t>::max() - addition) return false;
+                target += addition; return true;
+            };
+            return add(total.roundsPlayed, value.roundsPlayed) && add(total.shots, value.shots)
+                   && add(total.hits, value.hits) && add(total.kills, value.kills)
+                   && add(total.deaths, value.deaths) && add(total.assists, value.assists)
+                   && add(total.wins, value.wins) && add(total.penalties, value.penalties)
+                   && add(total.survivalTicks, value.survivalTicks) && add(total.damage, value.damage)
+                   && add(total.assistedDamage, value.assistedDamage);
+        }
+
+        struct CanonicalResultOutcome {
+            std::vector<Identity> winnerPlayerIds;
+            std::uint8_t winningTeam = 0;
+            bool noWinner = false;
+        };
+
+        std::optional<std::vector<Identity>> resultIdentities(const ParsedJsonValue *value) {
+            if (!value || value->kind != ParsedJsonValue::Kind::Array
+                || value->array.size() > MaxReplicatedPlayers) return std::nullopt;
+            std::vector<Identity> result;
+            std::set<Identity> seen;
+            for (const auto &entry: value->array) {
+                const auto identity = positiveIdentity(&entry);
+                if (!identity || !seen.insert(*identity).second) return std::nullopt;
+                result.push_back(*identity);
+            }
+            return result;
+        }
+
+        struct CanonicalResultRound {
+            std::uint8_t number = 0;
+            std::string level;
+            bool mirrored = false;
+            CanonicalResultOutcome outcome;
+            std::vector<Identity> rosterOrder;
+        };
+
         struct CanonicalResultRowLabel {
             Identity playerId = 0;
             Identity participantId = 0;
+            std::size_t rank = 0;
+            std::string displayName;
+            std::uint8_t team = 0;
             bool departed = false;
+            std::uint8_t rosterOrder = 0;
+            CanonicalResultStatistics cumulative;
+            std::vector<CanonicalResultStatistics> rounds;
             std::size_t labelStart = 0;
             std::size_t labelEnd = 0;
         };
 
+        struct CanonicalResultTeam {
+            std::size_t rank = 0;
+            std::uint8_t team = 0;
+            std::int64_t totalPoints = 0;
+            std::vector<Identity> rankedPlayerIds;
+        };
+
         struct CanonicalResultLabels {
+            std::string label;
+            std::string state;
+            std::string mode;
+            std::uint8_t teamCount = 0;
+            bool friendlyFire = false;
+            bool assistance = false;
+            bool quickLiquid = false;
+            bool burnableTrees = true;
+            bool optionalScriptsEnabled = false;
+            std::string levelPlan;
+            std::uint8_t roundLimit = 0;
+            std::uint64_t seed = 0;
+            std::uint8_t completedRounds = 0;
+            CanonicalResultOutcome finalOutcome;
+            std::vector<CanonicalResultRound> rounds;
             std::string normalized;
             std::vector<CanonicalResultRowLabel> rows;
+            std::vector<CanonicalResultTeam> teams;
         };
 
         std::optional<CanonicalResultLabels> canonicalResultLabels(const std::string &serialized) {
             ParsedJsonValue root;
             if (!CanonicalJsonParser(serialized).parse(root) || root.kind != ParsedJsonValue::Kind::Object) return std::nullopt;
-            const auto *state = member(root, "\"state\"");
+            if (!exactMembers(root, {"\"label\"", "\"state\"", "\"mode\"", "\"teamCount\"",
+                                     "\"friendlyFire\"", "\"assistance\"", "\"quickLiquid\"",
+                                     "\"burnableTrees\"", "\"optionalScriptsEnabled\"", "\"levelPlan\"",
+                                     "\"roundLimit\"", "\"seed\"", "\"completedRounds\"",
+                                     "\"finalWinnerPlayerIds\"", "\"finalWinningTeam\"", "\"finalNoWinner\"",
+                                     "\"rounds\"", "\"players\"", "\"teams\""})) return std::nullopt;
+            const auto label = jsonString(member(root, "\"label\""));
+            const auto state = jsonString(member(root, "\"state\""));
+            const auto mode = jsonString(member(root, "\"mode\""));
+            const auto teamCount = unsignedNumber(member(root, "\"teamCount\""));
+            const auto friendlyFire = booleanValue(member(root, "\"friendlyFire\""));
+            const auto assistance = booleanValue(member(root, "\"assistance\""));
+            const auto quickLiquid = booleanValue(member(root, "\"quickLiquid\""));
+            const auto burnableTrees = booleanValue(member(root, "\"burnableTrees\""));
+            const auto optionalScriptsEnabled = booleanValue(member(root, "\"optionalScriptsEnabled\""));
+            const auto levelPlan = jsonString(member(root, "\"levelPlan\""));
+            const auto roundLimit = unsignedNumber(member(root, "\"roundLimit\""));
+            const auto seed = unsignedNumber(member(root, "\"seed\""), true);
+            const auto completedRounds = unsignedNumber(member(root, "\"completedRounds\""));
+            const auto finalWinnerPlayerIds = resultIdentities(member(root, "\"finalWinnerPlayerIds\""));
+            const auto finalWinningTeam = teamValue(member(root, "\"finalWinningTeam\""));
+            const auto finalNoWinner = booleanValue(member(root, "\"finalNoWinner\""));
+            const auto *rounds = member(root, "\"rounds\"");
             const auto *players = member(root, "\"players\"");
-            if (!state || state->kind != ParsedJsonValue::Kind::String || state->token != "\"Completed\""
-                || !players || players->kind != ParsedJsonValue::Kind::Array) return std::nullopt;
+            const auto *teams = member(root, "\"teams\"");
+            if (!label || *label != "Session only" || !state
+                || (*state != "Completed" && *state != "Interrupted") || !mode
+                || (*mode != "Deathmatch" && *mode != "Predator" && *mode != "Team deathmatch")
+                || !teamCount || *teamCount > 4 || !friendlyFire || !assistance || !quickLiquid
+                || !burnableTrees || !optionalScriptsEnabled || !levelPlan
+                || (*levelPlan != "Fixed level" && *levelPlan != "Shuffle all levels"
+                    && *levelPlan != "Random level")
+                || !roundLimit || *roundLimit == 0 || *roundLimit > MaxCanonicalResultRounds
+                || !seed || !completedRounds || *completedRounds > *roundLimit
+                || !finalWinnerPlayerIds || !finalWinningTeam || !finalNoWinner
+                || !rounds || rounds->kind != ParsedJsonValue::Kind::Array
+                || rounds->array.size() != *completedRounds
+                || !players || players->kind != ParsedJsonValue::Kind::Array || players->array.empty()
+                || players->array.size() > MaxReplicatedPlayers
+                || !teams || teams->kind != ParsedJsonValue::Kind::Array) return std::nullopt;
+            const bool teamMode = *mode == "Team deathmatch";
+            if ((teamMode && (*teamCount < 2 || *teamCount > 4))
+                || (!teamMode && *teamCount != 0) || (!teamMode && *friendlyFire)) return std::nullopt;
             CanonicalResultLabels result;
+            result.label = *label; result.state = *state; result.mode = *mode;
+            result.teamCount = static_cast<std::uint8_t>(*teamCount); result.friendlyFire = *friendlyFire;
+            result.assistance = *assistance; result.quickLiquid = *quickLiquid;
+            result.burnableTrees = *burnableTrees; result.optionalScriptsEnabled = *optionalScriptsEnabled;
+            result.levelPlan = *levelPlan; result.roundLimit = static_cast<std::uint8_t>(*roundLimit);
+            result.seed = *seed; result.completedRounds = static_cast<std::uint8_t>(*completedRounds);
+            result.finalOutcome = {*finalWinnerPlayerIds, *finalWinningTeam, *finalNoWinner};
+
+            for (std::size_t index = 0; index < rounds->array.size(); ++index) {
+                const auto &row = rounds->array[index];
+                if (!exactMembers(row, {"\"roundNumber\"", "\"level\"", "\"orientation\"",
+                                        "\"winnerPlayerIds\"", "\"winningTeam\"", "\"noWinner\"",
+                                        "\"rosterOrder\""})) return std::nullopt;
+                const auto number = unsignedNumber(member(row, "\"roundNumber\""), true);
+                const auto level = jsonString(member(row, "\"level\""));
+                const auto orientation = jsonString(member(row, "\"orientation\""));
+                const auto winners = resultIdentities(member(row, "\"winnerPlayerIds\""));
+                const auto winningTeam = teamValue(member(row, "\"winningTeam\""));
+                const auto noWinner = booleanValue(member(row, "\"noWinner\""));
+                const auto roster = resultIdentities(member(row, "\"rosterOrder\""));
+                if (!number || *number != index + 1 || !level || !validText(*level, 240)
+                    || !orientation || (*orientation != "Normal" && *orientation != "Mirrored")
+                    || !winners || !winningTeam || !noWinner || !roster || roster->empty()) return std::nullopt;
+                result.rounds.push_back({static_cast<std::uint8_t>(*number), *level,
+                                         *orientation == "Mirrored", {*winners, *winningTeam, *noWinner}, *roster});
+            }
+
             std::set<Identity> playerIds;
-            for (const auto &row: players->array) {
-                if (row.kind != ParsedJsonValue::Kind::Object) return std::nullopt;
+            std::set<std::uint8_t> rosterOrders;
+            for (std::size_t index = 0; index < players->array.size(); ++index) {
+                const auto &row = players->array[index];
+                if (!exactMembers(row, {"\"rank\"", "\"playerId\"", "\"participantId\"",
+                                        "\"displayName\"", "\"team\"", "\"departed\"",
+                                        "\"rosterOrder\"", "\"cumulative\"", "\"rounds\""}))
+                    return std::nullopt;
+                const auto rank = unsignedNumber(member(row, "\"rank\""), true);
                 const auto playerId = positiveIdentity(member(row, "\"playerId\""));
                 const auto participantId = positiveIdentity(member(row, "\"participantId\""));
-                const auto *departed = member(row, "\"departed\"");
-                if (!playerId || !participantId || !departed
-                    || departed->kind != ParsedJsonValue::Kind::Boolean || !playerIds.insert(*playerId).second)
+                const auto displayName = jsonString(member(row, "\"displayName\""));
+                const auto team = teamValue(member(row, "\"team\""));
+                const auto departed = booleanValue(member(row, "\"departed\""));
+                const auto rosterOrder = unsignedNumber(member(row, "\"rosterOrder\""));
+                const auto *cumulativeValue = member(row, "\"cumulative\"");
+                const auto cumulative = cumulativeValue ? resultStatistics(*cumulativeValue) : std::nullopt;
+                const auto *playerRounds = member(row, "\"rounds\"");
+                if (!rank || *rank != index + 1 || !playerId || !participantId || !displayName
+                    || !validText(*displayName) || !team || !departed || !rosterOrder
+                    || *rosterOrder >= MaxReplicatedPlayers || !cumulative
+                    || !playerRounds || playerRounds->kind != ParsedJsonValue::Kind::Array
+                    || playerRounds->array.size() != *completedRounds
+                    || !playerIds.insert(*playerId).second
+                    || !rosterOrders.insert(static_cast<std::uint8_t>(*rosterOrder)).second)
                     return std::nullopt;
-                result.rows.push_back({*playerId, *participantId, departed->boolean,
-                                       departed->start, departed->end});
+                if ((teamMode && (*team == 0 || *team > *teamCount)) || (!teamMode && *team != 0))
+                    return std::nullopt;
+                CanonicalResultRowLabel parsed;
+                parsed.playerId = *playerId; parsed.participantId = *participantId; parsed.rank = *rank;
+                parsed.displayName = *displayName; parsed.team = *team; parsed.departed = *departed;
+                parsed.rosterOrder = static_cast<std::uint8_t>(*rosterOrder); parsed.cumulative = *cumulative;
+                parsed.labelStart = member(row, "\"departed\"")->start;
+                parsed.labelEnd = member(row, "\"departed\"")->end;
+                CanonicalResultStatistics calculated;
+                for (const auto &round: playerRounds->array) {
+                    const auto statistics = resultStatistics(round);
+                    if (!statistics || !addStatistics(calculated, *statistics)) return std::nullopt;
+                    parsed.rounds.push_back(*statistics);
+                }
+                const std::uint64_t positive = calculated.kills > std::numeric_limits<std::uint64_t>::max() - calculated.wins
+                                               ? std::numeric_limits<std::uint64_t>::max()
+                                               : calculated.kills + calculated.wins;
+                const std::uint64_t completePositive = positive > std::numeric_limits<std::uint64_t>::max() - calculated.assists
+                                                       ? std::numeric_limits<std::uint64_t>::max()
+                                                       : positive + calculated.assists;
+                if (completePositive > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+                    calculated.totalPoints = std::numeric_limits<std::int64_t>::max();
+                else if (calculated.penalties > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+                    calculated.totalPoints = std::numeric_limits<std::int64_t>::min();
+                else calculated.totalPoints = static_cast<std::int64_t>(completePositive)
+                                              - static_cast<std::int64_t>(calculated.penalties);
+                if (!sameStatistics(calculated, parsed.cumulative)) return std::nullopt;
+                result.rows.push_back(std::move(parsed));
             }
+            for (const auto &round: result.rounds) {
+                for (Identity identity: round.rosterOrder) if (!playerIds.count(identity)) return std::nullopt;
+                for (Identity identity: round.outcome.winnerPlayerIds) if (!playerIds.count(identity)) return std::nullopt;
+            }
+            for (Identity identity: result.finalOutcome.winnerPlayerIds)
+                if (!playerIds.count(identity)) return std::nullopt;
+
+            std::set<std::uint8_t> rankedTeams;
+            for (std::size_t index = 0; index < teams->array.size(); ++index) {
+                const auto &row = teams->array[index];
+                if (!exactMembers(row, {"\"rank\"", "\"team\"", "\"totalPoints\"",
+                                        "\"rankedPlayerIds\""})) return std::nullopt;
+                const auto rank = unsignedNumber(member(row, "\"rank\""), true);
+                const auto team = teamValue(member(row, "\"team\""));
+                const auto totalPoints = signedNumber(member(row, "\"totalPoints\""));
+                const auto rankedPlayers = resultIdentities(member(row, "\"rankedPlayerIds\""));
+                if (!rank || *rank != index + 1 || !team || *team == 0 || *team > *teamCount
+                    || !totalPoints || !rankedPlayers || !rankedTeams.insert(*team).second) return std::nullopt;
+                result.teams.push_back({*rank, *team, *totalPoints, *rankedPlayers});
+            }
+            if ((teamMode && (result.teams.size() != *teamCount || rankedTeams.size() != *teamCount))
+                || (!teamMode && !result.teams.empty())) return std::nullopt;
+
             std::size_t copied = 0;
             for (const auto &row: result.rows) {
                 result.normalized.append(serialized, copied, row.labelStart - copied);
@@ -581,15 +968,211 @@ namespace Duel6::Network::Replication {
             return result;
         }
 
+        bool sameResultOutcome(const CanonicalResultOutcome &left, const CanonicalResultOutcome &right) {
+            return left.winnerPlayerIds == right.winnerPlayerIds && left.winningTeam == right.winningTeam
+                   && left.noWinner == right.noWinner;
+        }
+
+        bool validResultOutcome(const CanonicalResultOutcome &outcome, bool teamMode,
+                                const std::vector<CanonicalResultRowLabel> &players) {
+            if (outcome.noWinner)
+                return outcome.winnerPlayerIds.empty() && outcome.winningTeam == 0;
+            if (outcome.winnerPlayerIds.empty() || (teamMode ? outcome.winningTeam == 0
+                                                             : outcome.winningTeam != 0)) return false;
+            for (Identity identity: outcome.winnerPlayerIds) {
+                const auto player = std::find_if(players.begin(), players.end(), [&](const auto &value) {
+                    return value.playerId == identity;
+                });
+                if (player == players.end() || (teamMode && player->team != outcome.winningTeam)) return false;
+            }
+            return true;
+        }
+
+        bool validResultOutcomeForMode(const CanonicalResultOutcome &outcome,
+                                       const std::string &mode,
+                                       const std::vector<CanonicalResultRowLabel> &players) {
+            return validResultOutcome(outcome, mode == "Team deathmatch", players)
+                   && (mode != "Deathmatch" || outcome.noWinner
+                       || outcome.winnerPlayerIds.size() == 1);
+        }
+
+        bool validResultRosterSemantics(const CanonicalResultLabels &result) {
+            std::vector<const CanonicalResultRowLabel *> roster(result.rows.size(), nullptr);
+            for (const auto &player: result.rows) {
+                if (player.rosterOrder >= roster.size() || roster[player.rosterOrder]) return false;
+                roster[player.rosterOrder] = &player;
+                if (result.mode == "Team deathmatch"
+                    && player.team != static_cast<std::uint8_t>(
+                            player.rosterOrder % result.teamCount + 1u)) return false;
+            }
+
+            std::set<Identity> priorRoster;
+            bool firstRound = true;
+            for (const auto &round: result.rounds) {
+                std::set<Identity> currentRoster;
+                std::uint8_t priorPosition = 0;
+                bool first = true;
+                for (Identity identity: round.rosterOrder) {
+                    const auto player = std::find_if(result.rows.begin(), result.rows.end(),
+                            [&](const auto &value) { return value.playerId == identity; });
+                    if (player == result.rows.end()
+                        || !currentRoster.insert(identity).second
+                        || (!first && player->rosterOrder <= priorPosition)
+                        || (!priorRoster.empty() && !priorRoster.count(identity))) return false;
+                    first = false;
+                    priorPosition = player->rosterOrder;
+                }
+                if (firstRound) {
+                    for (const auto *player: roster)
+                        if (!currentRoster.count(player->playerId)) return false;
+                }
+                priorRoster = std::move(currentRoster);
+                firstRound = false;
+            }
+            return true;
+        }
+
+        bool resultRanksAhead(const CanonicalResultRowLabel &left, const CanonicalResultRowLabel &right) {
+            if (left.cumulative.totalPoints != right.cumulative.totalPoints)
+                return left.cumulative.totalPoints > right.cumulative.totalPoints;
+            if (left.cumulative.wins != right.cumulative.wins)
+                return left.cumulative.wins > right.cumulative.wins;
+            if (left.cumulative.damage != right.cumulative.damage)
+                return left.cumulative.damage > right.cumulative.damage;
+            return left.rosterOrder < right.rosterOrder;
+        }
+
+        bool validAvailableTerminalResult(const CanonicalState &state) noexcept {
+            try {
+                if (!state.result.available) return true;
+                const auto result = canonicalResultLabels(state.result.serialized);
+                if (!result || !state.result.sessionOnly || result->state != state.result.state
+                    || result->completedRounds != state.completedRounds
+                    || result->rounds.size() != state.completedRounds
+                    || result->rows.size() != state.score.players.size()
+                    || result->rows.size() != state.score.ranking.size()) return false;
+                if (state.phase == Phase::FinalSummary
+                    && (result->mode != state.settings.mode || result->teamCount != state.settings.teamCount
+                        || result->friendlyFire != state.settings.friendlyFire
+                        || result->assistance != state.settings.assistance
+                        || result->quickLiquid != state.settings.quickLiquid
+                        || result->burnableTrees != state.settings.burnableTrees
+                        || result->levelPlan != state.settings.levelPlan
+                        || result->roundLimit != state.settings.roundLimit)) return false;
+                const bool teamMode = result->mode == "Team deathmatch";
+                const auto activeResultPlayers = static_cast<std::size_t>(std::count_if(
+                        result->rows.begin(), result->rows.end(),
+                        [](const auto &row) { return !row.departed; }));
+                if (result->optionalScriptsEnabled
+                    || !validResultRosterSemantics(*result)
+                    || !validResultOutcomeForMode(result->finalOutcome, result->mode, result->rows)
+                    || (result->state == "Interrupted" && !result->finalOutcome.noWinner)
+                    || (result->state == "Interrupted" && activeResultPlayers >= 2)
+                    || (result->state == "Completed"
+                        && (result->completedRounds != result->roundLimit || result->rounds.empty()
+                            || !sameResultOutcome(result->finalOutcome, result->rounds.back().outcome)))) return false;
+                for (const auto &round: result->rounds) {
+                    if (!validResultOutcomeForMode(round.outcome, result->mode, result->rows)) return false;
+                    const std::set<Identity> roster(round.rosterOrder.begin(), round.rosterOrder.end());
+                    for (Identity winner: round.outcome.winnerPlayerIds)
+                        if (!roster.count(winner)) return false;
+                }
+                for (std::size_t index = 1; index < result->rows.size(); ++index)
+                    if (resultRanksAhead(result->rows[index], result->rows[index - 1])) return false;
+                std::set<Identity> resultPlayerIds;
+                for (std::size_t index = 0; index < result->rows.size(); ++index) {
+                    const auto &row = result->rows[index];
+                    resultPlayerIds.insert(row.playerId);
+                    if (state.score.ranking[index] != row.playerId
+                        || state.score.players[index].playerId != row.playerId) return false;
+                    const auto &score = state.score.players[index];
+                    const std::int64_t expectedRoundPoints = row.rounds.empty()
+                                                             ? 0 : row.rounds.back().totalPoints;
+                    if (score.roundPoints != expectedRoundPoints
+                        || score.cumulativePoints != row.cumulative.totalPoints
+                        || score.shots != row.cumulative.shots || score.hits != row.cumulative.hits
+                        || score.kills != row.cumulative.kills || score.deaths != row.cumulative.deaths
+                        || score.assists != row.cumulative.assists || score.wins != row.cumulative.wins
+                        || score.penalties != row.cumulative.penalties
+                        || score.survivalTicks != row.cumulative.survivalTicks
+                        || score.damage != row.cumulative.damage
+                        || score.assistedDamage != row.cumulative.assistedDamage) return false;
+                    const auto player = std::find_if(state.players.begin(), state.players.end(),
+                            [&](const auto &value) { return value.playerId == row.playerId; });
+                    if (player == state.players.end() && !row.departed) return false;
+                    if (player != state.players.end()
+                        && (row.participantId != player->ownerParticipantId
+                            || row.departed != (player->lifeState == LifeState::Departed)
+                            || (state.phase == Phase::FinalSummary
+                                && (row.displayName != player->displayName || row.team != player->team
+                                    || row.rosterOrder != player->rosterPosition)))) return false;
+                    for (std::size_t roundIndex = 0; roundIndex < result->rounds.size(); ++roundIndex) {
+                        const auto &roundRoster = result->rounds[roundIndex].rosterOrder;
+                        const std::uint64_t expected = std::find(roundRoster.begin(), roundRoster.end(), row.playerId)
+                                == roundRoster.end() ? 0u : 1u;
+                        if (row.rounds[roundIndex].roundsPlayed != expected) return false;
+                    }
+                }
+                std::set<Identity> scorePlayerIds;
+                for (const auto &row: state.score.players) scorePlayerIds.insert(row.playerId);
+                if (resultPlayerIds != scorePlayerIds) return false;
+
+                const CanonicalResultOutcome scoreOutcome{state.score.winner.winnerPlayerIds,
+                        state.score.winner.winningTeam, state.score.winner.noWinner};
+                if (!sameResultOutcome(result->finalOutcome, scoreOutcome)) return false;
+                if (result->completedRounds == 0) {
+                    if (state.round) return false;
+                } else {
+                    if (!state.round) return false;
+                    const auto &last = result->rounds.back();
+                    const CanonicalResultOutcome roundOutcome{state.round->outcome.winnerPlayerIds,
+                            state.round->outcome.winningTeam, state.round->outcome.noWinner};
+                    if (last.number != state.round->roundNumber || last.level != state.round->level
+                        || last.mirrored != state.round->mirrored
+                        || last.rosterOrder != state.round->rosterOrder
+                        || !sameResultOutcome(last.outcome, roundOutcome)) return false;
+                }
+
+                if (!teamMode) return result->teams.empty() && state.score.teamTotals.empty()
+                                      && state.score.teamRanking.empty();
+                if (result->teams.size() != state.score.teamRanking.size()
+                    || state.score.teamTotals.size() != result->teamCount) return false;
+                for (std::size_t index = 0; index < result->teams.size(); ++index) {
+                    const auto &team = result->teams[index];
+                    if (state.score.teamRanking[index] != team.team
+                        || state.score.teamTotals[team.team - 1] != team.totalPoints
+                        || (index && (result->teams[index - 1].totalPoints < team.totalPoints
+                                     || (result->teams[index - 1].totalPoints == team.totalPoints
+                                         && result->teams[index - 1].team > team.team)))) return false;
+                    std::vector<Identity> expectedPlayers;
+                    std::int64_t total = 0;
+                    for (const auto &player: result->rows) if (player.team == team.team) {
+                        if ((player.cumulative.totalPoints > 0
+                             && total > std::numeric_limits<std::int64_t>::max() - player.cumulative.totalPoints)
+                            || (player.cumulative.totalPoints < 0
+                                && total < std::numeric_limits<std::int64_t>::min() - player.cumulative.totalPoints))
+                            return false;
+                        total += player.cumulative.totalPoints;
+                        expectedPlayers.push_back(player.playerId);
+                    }
+                    if (total != team.totalPoints || expectedPlayers != team.rankedPlayerIds) return false;
+                }
+                return true;
+            } catch (...) { return false; }
+        }
+
         std::optional<std::set<Identity>> departedPlayerTransitions(
                 const CanonicalState &before, const CanonicalState &after) {
-            if (before.players.size() != after.players.size()) return std::nullopt;
+            if (after.players.size() > before.players.size()) return std::nullopt;
             std::set<Identity> changed;
             for (const auto &prior: before.players) {
                 const auto current = std::find_if(after.players.begin(), after.players.end(), [&](const auto &player) {
                     return player.playerId == prior.playerId;
                 });
-                if (current == after.players.end()) return std::nullopt;
+                if (current == after.players.end()) {
+                    changed.insert(prior.playerId);
+                    continue;
+                }
                 auto expected = prior;
                 if (prior.lifeState != current->lifeState) {
                     if (current->lifeState != LifeState::Departed) return std::nullopt;
@@ -598,6 +1181,10 @@ namespace Duel6::Network::Replication {
                 }
                 if (!playerEqual(expected, *current)) return std::nullopt;
             }
+            for (const auto &current: after.players)
+                if (std::none_of(before.players.begin(), before.players.end(), [&](const auto &prior) {
+                    return prior.playerId == current.playerId;
+                })) return std::nullopt;
             return changed;
         }
 
@@ -618,21 +1205,42 @@ namespace Duel6::Network::Replication {
                     const auto player = std::find_if(after.players.begin(), after.players.end(), [&](const auto &value) {
                         return value.playerId == right.playerId;
                     });
-                    if (player == after.players.end() || player->ownerParticipantId != right.participantId
-                        || player->lifeState != LifeState::Departed) return false;
+                    if (player != after.players.end()
+                        && (player->ownerParticipantId != right.participantId
+                            || player->lifeState != LifeState::Departed)) return false;
+                    if (player == after.players.end()) {
+                        const auto priorPlayer = std::find_if(before.players.begin(), before.players.end(),
+                                [&](const auto &value) { return value.playerId == right.playerId; });
+                        if (priorPlayer == before.players.end()
+                            || priorPlayer->ownerParticipantId != right.participantId) return false;
+                    }
                     resultTransitions.insert(right.playerId);
                 }
                 return !resultTransitions.empty() && resultTransitions == *playerTransitions;
             } catch (...) { return false; }
         }
 
+        bool changesRetainedResultPlayerDeparture(
+                const CanonicalState &before, const CanonicalState &after) noexcept {
+            try {
+                const auto result = canonicalResultLabels(before.result.serialized);
+                if (!result) return false;
+                for (const auto &row: result->rows) {
+                    const auto prior = std::find_if(before.players.begin(), before.players.end(), [&](const auto &player) {
+                        return player.playerId == row.playerId;
+                    });
+                    const auto current = std::find_if(after.players.begin(), after.players.end(), [&](const auto &player) {
+                        return player.playerId == row.playerId;
+                    });
+                    if (prior != before.players.end() && current != after.players.end()
+                        && (prior->lifeState == LifeState::Departed)
+                           != (current->lifeState == LifeState::Departed)) return true;
+                }
+                return false;
+            } catch (...) { return true; }
+        }
+
         bool sameCanonicalState(const CanonicalState &left, const CanonicalState &right) {
-            const auto sameSettings = [](const MatchSettingsState &a, const MatchSettingsState &b) {
-                return a.mode == b.mode && a.teamCount == b.teamCount && a.friendlyFire == b.friendlyFire
-                       && a.levelPlan == b.levelPlan && a.fixedLevel == b.fixedLevel && a.levels == b.levels
-                       && a.roundLimit == b.roundLimit && a.assistance == b.assistance
-                       && a.quickLiquid == b.quickLiquid && a.burnableTrees == b.burnableTrees;
-            };
             const auto sameRoundState = [](const std::optional<RoundState> &a,
                                            const std::optional<RoundState> &b) {
                 return a.has_value() == b.has_value()
@@ -653,7 +1261,7 @@ namespace Duel6::Network::Replication {
                    && identifiedValuesEqual(left.participants, right.participants,
                                             [](const auto &value) { return value.participantId; },
                                             participantEqual)
-                   && sameSettings(left.settings, right.settings) && sameRoundState(left.round, right.round)
+                   && sameMatchSettings(left.settings, right.settings) && sameRoundState(left.round, right.round)
                    && identifiedValuesEqual(left.players, right.players,
                                             [](const auto &value) { return value.playerId; }, playerEqual)
                    && identifiedValuesEqual(left.entities, right.entities,
@@ -686,9 +1294,9 @@ namespace Duel6::Network::Replication {
                     || before.result.available != after.result.available
                     || before.result.sessionOnly != after.result.sessionOnly
                     || before.result.state != after.result.state) return true;
-            if (before.result.serialized == after.result.serialized) return false;
-            return before.result.state != "Completed" || after.result.state != "Completed"
-                   || !validDepartedResultTransition(before, after);
+            if (before.result.serialized == after.result.serialized)
+                return changesRetainedResultPlayerDeparture(before, after);
+            return !validDepartedResultTransition(before, after);
         }
 
         bool validResolvedOutcome(const RoundOutcomeState &outcome, const CanonicalState &state) {
@@ -944,12 +1552,15 @@ namespace Duel6::Network::Replication {
     }
 
     bool AuthoritativeStateReplicator::initialize(CanonicalState state) {
-        if (current || !validateCanonicalState(state)) return false;
+        if (current || !validateCanonicalState(state) || !validAvailableTerminalResult(state)) return false;
         for (const auto &participant: state.participants)
             issuedParticipantIdentities.insert(participant.participantId);
         issuedPlayerIdentities = referencedPlayerIdentities(state);
         if (state.matchId) issuedMatchIdentities.insert(state.matchId);
-        if (state.round) issuedRoundIdentities.insert(state.round->roundId);
+        if (state.round) {
+            issuedRoundIdentities.insert(state.round->roundId);
+            issuedRoundNumbers.emplace(state.round->roundId, state.round->roundNumber);
+        }
         highestEntityIdentity = highestIdentity(state.entities, [](const auto &value) { return value.entityId; });
         current = std::move(state);
         currentVersion = 1;
@@ -965,7 +1576,8 @@ namespace Duel6::Network::Replication {
             for (const auto &entity: state.entities) if (priorEntities.count(entity.entityId)) return std::nullopt;
         }
         if (!current || currentVersion == std::numeric_limits<StateVersion>::max()
-            || !validateCanonicalState(state) || state.sessionId != current->sessionId
+            || !validateCanonicalState(state) || !validAvailableTerminalResult(state)
+            || state.sessionId != current->sessionId
             || (current->matchId != 0 && state.matchId == current->matchId
                 && sameRound(current->round, state.round) && state.phaseTime < current->phaseTime)
             || containsReusedCreation(current->participants, state.participants,
@@ -974,7 +1586,10 @@ namespace Duel6::Network::Replication {
             || containsReusedCreation(current->players, state.players, issuedPlayerIdentities,
                                       [](const auto &value) { return value.playerId; })
             || introducesUnseenRetainedResultIdentity(*current, state, issuedPlayerIdentities)
+            || changesActiveMatchSettings(*current, state)
             || altersEstablishedResult(*current, state)
+            || !validRoundTransition(*current, state, issuedRoundIdentities,
+                                     issuedRoundNumbers)
             || !validFollowingLobbyTransition(*current, state, issuedMatchIdentities,
                                                issuedRoundIdentities)
             || containsNonMonotonicCreation(current->entities, state.entities, highestEntityIdentity,
@@ -1029,7 +1644,10 @@ namespace Duel6::Network::Replication {
             issuedParticipantIdentities.insert(participant.participantId);
         issuedPlayerIdentities.insert(referencedPlayers.begin(), referencedPlayers.end());
         if (state.matchId) issuedMatchIdentities.insert(state.matchId);
-        if (state.round) issuedRoundIdentities.insert(state.round->roundId);
+        if (state.round) {
+            issuedRoundIdentities.insert(state.round->roundId);
+            issuedRoundNumbers.emplace(state.round->roundId, state.round->roundNumber);
+        }
         highestEntityIdentity = std::max(highestEntityIdentity,
                 highestIdentity(state.entities, [](const auto &value) { return value.entityId; }));
         transientEntityIdentities = std::move(nextTransientIdentities);
@@ -1044,10 +1662,24 @@ namespace Duel6::Network::Replication {
         return FullSnapshot{currentVersion, *current};
     }
 
+    void AuthoritativeStateReplicator::discard() noexcept {
+        currentVersion = 0;
+        current.reset();
+        highestEmittedEvent = 0;
+        issuedParticipantIdentities.clear();
+        issuedPlayerIdentities.clear();
+        issuedMatchIdentities.clear();
+        issuedRoundIdentities.clear();
+        issuedRoundNumbers.clear();
+        transientEntityIdentities.clear();
+        highestEntityIdentity = 0;
+    }
+
     StateVersion AuthoritativeStateReplicator::version() const noexcept { return currentVersion; }
 
     ApplyResult ReplicatedState::apply(const FullSnapshot &snapshot) {
         if (snapshot.version == 0 || !validateCanonicalState(snapshot.state)
+            || !validAvailableTerminalResult(snapshot.state)
             || (accepted && snapshot.state.sessionId != accepted->sessionId)
             || (accepted && accepted->matchId != 0 && snapshot.state.matchId == accepted->matchId
                 && sameRound(accepted->round, snapshot.state.round)
@@ -1076,6 +1708,7 @@ namespace Duel6::Network::Replication {
                 || containsNonMonotonicCreation(accepted->entities, snapshot.state.entities,
                                                 nextHighestEntities,
                                                 [](const auto &value) { return value.entityId; })
+                || changesActiveMatchSettings(*accepted, snapshot.state)
                 || altersEstablishedResult(*accepted, snapshot.state)
                 || !validFollowingLobbyTransition(*accepted, snapshot.state,
                                                    acceptedMatchIdentities,
@@ -1087,12 +1720,18 @@ namespace Duel6::Network::Replication {
         nextAcceptedPlayers.insert(snapshotPlayerIdentities.begin(), snapshotPlayerIdentities.end());
         auto nextAcceptedMatches = acceptedMatchIdentities;
         auto nextAcceptedRounds = acceptedRoundIdentities;
+        auto nextAcceptedRoundNumbers = acceptedRoundNumbers;
         auto nextAcceptedTransientEntities = acceptedTransientEntityIdentities;
         if (accepted && (!validMatchTransition(*accepted, snapshot.state, nextAcceptedMatches)
-                         || !validRoundTransition(*accepted, snapshot.state, nextAcceptedRounds)))
+                         || !validRoundTransition(*accepted, snapshot.state, nextAcceptedRounds,
+                                                  nextAcceptedRoundNumbers)))
             return ApplyResult::Invalid;
         if (snapshot.state.matchId) nextAcceptedMatches.insert(snapshot.state.matchId);
-        if (snapshot.state.round) nextAcceptedRounds.insert(snapshot.state.round->roundId);
+        if (snapshot.state.round) {
+            nextAcceptedRounds.insert(snapshot.state.round->roundId);
+            nextAcceptedRoundNumbers.emplace(snapshot.state.round->roundId,
+                                             snapshot.state.round->roundNumber);
+        }
         if (nextAcceptedParticipants.size() > MaxReplicatedIdentityHistory
             || nextAcceptedPlayers.size() > MaxReplicatedIdentityHistory
             || nextAcceptedMatches.size() > MaxReplicatedIdentityHistory
@@ -1106,6 +1745,7 @@ namespace Duel6::Network::Replication {
         acceptedPlayerIdentities = std::move(nextAcceptedPlayers);
         acceptedMatchIdentities = std::move(nextAcceptedMatches);
         acceptedRoundIdentities = std::move(nextAcceptedRounds);
+        acceptedRoundNumbers = std::move(nextAcceptedRoundNumbers);
         acceptedTransientEntityIdentities = std::move(nextAcceptedTransientEntities);
         highestEntityIdentity = nextHighestEntities;
         resynchronizing = false;
@@ -1132,6 +1772,7 @@ namespace Duel6::Network::Replication {
         auto nextAcceptedPlayers = acceptedPlayerIdentities;
         auto nextAcceptedMatches = acceptedMatchIdentities;
         auto nextAcceptedRounds = acceptedRoundIdentities;
+        auto nextAcceptedRoundNumbers = acceptedRoundNumbers;
         auto nextAcceptedTransientEntities = acceptedTransientEntityIdentities;
         auto nextHighestEntities = highestEntityIdentity;
         if (!applyChanges(candidate.participants, update.participants, nextAcceptedParticipants,
@@ -1152,6 +1793,7 @@ namespace Duel6::Network::Replication {
             && sameRound(accepted->round, candidate.round)
             && candidate.phaseTime < accepted->phaseTime) return rejectIncremental();
         if (introducesUnseenRetainedResultIdentity(*accepted, candidate, acceptedPlayerIdentities)
+            || changesActiveMatchSettings(*accepted, candidate)
             || altersEstablishedResult(*accepted, candidate)
             || !validFollowingLobbyTransition(*accepted, candidate, acceptedMatchIdentities,
                                                acceptedRoundIdentities))
@@ -1159,9 +1801,13 @@ namespace Duel6::Network::Replication {
         const auto referencedPlayers = referencedPlayerIdentities(candidate);
         nextAcceptedPlayers.insert(referencedPlayers.begin(), referencedPlayers.end());
         if (!validMatchTransition(*accepted, candidate, nextAcceptedMatches)
-            || !validRoundTransition(*accepted, candidate, nextAcceptedRounds)) return rejectIncremental();
+            || !validRoundTransition(*accepted, candidate, nextAcceptedRounds,
+                                     nextAcceptedRoundNumbers)) return rejectIncremental();
         if (candidate.matchId) nextAcceptedMatches.insert(candidate.matchId);
-        if (candidate.round) nextAcceptedRounds.insert(candidate.round->roundId);
+        if (candidate.round) {
+            nextAcceptedRounds.insert(candidate.round->roundId);
+            nextAcceptedRoundNumbers.emplace(candidate.round->roundId, candidate.round->roundNumber);
+        }
         if (nextAcceptedPlayers.size() > MaxReplicatedIdentityHistory
             || nextAcceptedMatches.size() > MaxReplicatedIdentityHistory
             || nextAcceptedRounds.size() > MaxReplicatedIdentityHistory) return rejectIncremental();
@@ -1181,13 +1827,14 @@ namespace Duel6::Network::Replication {
                 return rejectIncremental();
             eventTextBytes += event.type.size();
         }
-        if (!validateCanonicalState(candidate)
+        if (!validateCanonicalState(candidate) || !validAvailableTerminalResult(candidate)
             || !withinPayloadLimit(candidate, update.events.size(), eventTextBytes)) return rejectIncremental();
         accepted = std::move(candidate); acceptedVersion = update.version;
         acceptedParticipantIdentities = std::move(nextAcceptedParticipants);
         acceptedPlayerIdentities = std::move(nextAcceptedPlayers);
         acceptedMatchIdentities = std::move(nextAcceptedMatches);
         acceptedRoundIdentities = std::move(nextAcceptedRounds);
+        acceptedRoundNumbers = std::move(nextAcceptedRoundNumbers);
         acceptedTransientEntityIdentities = std::move(nextAcceptedTransientEntities);
         highestEntityIdentity = nextHighestEntities;
         for (const auto &event: update.events) highestPresentedEvent = std::max(highestPresentedEvent, event.eventId);

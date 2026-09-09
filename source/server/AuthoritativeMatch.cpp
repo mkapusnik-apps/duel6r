@@ -121,8 +121,14 @@ namespace Duel6::Server::Authoritative {
 
     AuthoritativeMatch::AuthoritativeMatch(MatchRuntimeDependencies dependencies)
             : dependencies(std::move(dependencies)) {
+        const bool defaultWorld = !this->dependencies.worldStart && !this->dependencies.worldStartWithRandom
+                && !this->dependencies.worldTick && !this->dependencies.worldTickWithRandom
+                && !this->dependencies.worldInput && !this->dependencies.worldRemove
+                && !this->dependencies.worldRemoveBatch && !this->dependencies.worldSnapshot
+                && !this->dependencies.worldEnd && !this->dependencies.worldEndWithRandom;
         if (!this->dependencies.worldStart) this->dependencies.worldStart = [](const auto &) { return true; };
         if (!this->dependencies.worldTick) this->dependencies.worldTick = [](Tick, bool) { return true; };
+        if (defaultWorld) this->dependencies.worldRemoveBatch = [](const auto &) { return true; };
         if (!this->dependencies.worldEnd) this->dependencies.worldEnd = [] {};
         if (!this->dependencies.cleanup) this->dependencies.cleanup = [] { return true; };
         if (!this->dependencies.actionSource) this->dependencies.actionSource = [](Tick) {

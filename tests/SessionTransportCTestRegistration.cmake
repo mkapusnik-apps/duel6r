@@ -16,7 +16,8 @@ add_executable(duel6r-authoritative-match-behavior-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
         ${CMAKE_SOURCE_DIR}/tests/AuthoritativeMatchBehaviorTests.cpp)
 target_include_directories(duel6r-authoritative-match-behavior-tests PRIVATE ${CMAKE_SOURCE_DIR})
-target_link_libraries(duel6r-authoritative-match-behavior-tests duel6r-network-scaffold)
+target_link_libraries(duel6r-authoritative-match-behavior-tests
+        duel6r-network-scaffold duel6r-canonical-gameplay-core)
 if (MINGW)
     set_property(TARGET duel6r-authoritative-match-behavior-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
 endif ()
@@ -24,6 +25,20 @@ add_test(NAME duel6r-authoritative-match-behavior-tests COMMAND duel6r-authorita
 set_tests_properties(duel6r-authoritative-match-behavior-tests PROPERTIES
         LABELS "application;integration;network;authoritative-match;determinism"
         TIMEOUT 180)
+
+add_executable(duel6r-quick-liquid-sparse-team-tests
+        ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+        ${CMAKE_SOURCE_DIR}/tests/QuickLiquidSparseTeamTests.cpp)
+target_include_directories(duel6r-quick-liquid-sparse-team-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(duel6r-quick-liquid-sparse-team-tests PRIVATE
+        D6R_HEADLESS_CORE
+        D6R_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(duel6r-quick-liquid-sparse-team-tests
+        duel6r-canonical-gameplay-core duel6r-network-scaffold)
+add_test(NAME duel6r-quick-liquid-sparse-team-tests COMMAND duel6r-quick-liquid-sparse-team-tests)
+set_tests_properties(duel6r-quick-liquid-sparse-team-tests PROPERTIES
+        LABELS "application;integration;gameplay;quick-liquid;team;regression"
+        TIMEOUT 30)
 
 add_executable(duel6r-authoritative-player-input-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
@@ -215,6 +230,17 @@ if (UNIX OR WIN32)
             WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
             LABELS "application;integration;network;authoritative-match;headless;process;native-semantics"
             TIMEOUT 180)
+
+    add_test(
+            NAME duel6r-quick-liquid-behavior-tests
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/QuickLiquidBehaviorTests.py
+                    $<TARGET_FILE:${D6R_SERVER_APP_NAME}>
+    )
+    set_tests_properties(duel6r-quick-liquid-behavior-tests PROPERTIES
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            LABELS "application;integration;gameplay;quick-liquid;regression"
+            TIMEOUT 60)
 
     add_test(
             NAME duel6r-session-transport-process-tests
