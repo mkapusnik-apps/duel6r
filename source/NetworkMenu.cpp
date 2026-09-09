@@ -210,6 +210,7 @@ namespace Duel6 {
                            std::vector<std::string> levels) {
         runtime.reset(); localPlayers = std::move(players); hostSetup = std::move(setup);
         availablePersons = std::move(persons); availableLevels = std::move(levels);
+        worldPresenter.setCanonicalLevels(availableLevels);
         hostAddresses = Network::Trust::localListenerAddresses().value_or(std::vector<std::string>{});
         hostAddress = hostAddresses.empty() ? std::string() : hostAddresses.front();
         for (auto &player: localPlayers)

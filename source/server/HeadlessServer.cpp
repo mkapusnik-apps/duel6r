@@ -282,6 +282,23 @@ namespace {
         return result;
     }
 
+    bool replicatedLevelsMatchManifest(
+            const Duel6::Network::Replication::MatchSettingsState &settings,
+            const std::optional<Duel6::Network::Replication::RoundState> &round,
+            const Duel6::Network::GameplayManifest &manifest) {
+        std::set<std::string> manifestLevels;
+        for (const auto &entry: manifest) {
+            const auto &path = entry.logicalPath;
+            if (path.size() > 12 && path.compare(0, 7, "levels/") == 0
+                && path.compare(path.size() - 5, 5, ".json") == 0
+                && Duel6::Network::Trust::validLogicalPath(path)) manifestLevels.insert(path);
+        }
+        const std::set<std::string> replicatedLevels(settings.levels.begin(), settings.levels.end());
+        return !manifestLevels.empty() && replicatedLevels == manifestLevels
+               && (settings.fixedLevel.empty() || manifestLevels.count(settings.fixedLevel) != 0)
+               && (!round || manifestLevels.count(round->level) != 0);
+    }
+
     Duel6::Network::Lifecycle::ReconnectCompatibility reconnectCompatibility(
             const Duel6::Network::AdmissionRequest &request,
             const Duel6::Network::GameplayManifest &hostManifest) {
@@ -453,6 +470,9 @@ namespace {
                 return GuestFrameDecision();
             if (initial->phase != Duel6::Network::Replication::Phase::Lobby)
                 return GuestFrameDecision(GuestDecision::InvalidHost);
+            if (!replicatedLevelsMatchManifest(initial->settings, initial->round,
+                                               request.gameplayManifest))
+                return GuestFrameDecision(GuestDecision::InvalidHost);
             if (!acceptedIdentityIsCurrent(*initial))
                 return GuestFrameDecision(GuestDecision::InvalidHost);
             initialCanonicalIdentityValidated = true;
@@ -515,6 +535,14 @@ namespace {
                            != Duel6::Network::Replication::ReplicationFrameKind::IncrementalUpdate
                         && replication->kind != Duel6::Network::Replication::ReplicationFrameKind::QualityResponse)
                         throw std::invalid_argument("Invalid initial replication snapshot");
+                    if (replication->snapshot
+                        && !replicatedLevelsMatchManifest(replication->snapshot->state.settings,
+                                replication->snapshot->state.round, request.gameplayManifest))
+                        throw std::invalid_argument("Invalid replicated level selection");
+                    if (replication->update
+                        && !replicatedLevelsMatchManifest(replication->update->settings,
+                                replication->update->round, request.gameplayManifest))
+                        throw std::invalid_argument("Invalid replicated level selection");
                     const auto result = replicatedConnection.receiveInitialAdmissionFrame(
                             frame.payload, frame.receivedAt, allowOutboundExchange);
                     if (((replication->kind == Duel6::Network::Replication::ReplicationFrameKind::FullSnapshot
@@ -863,6 +891,17 @@ namespace {
                         break;
                     }
                     continue;
+                }
+                const auto replication = Duel6::Network::Replication::deserializeReplicationFrame(frame.payload);
+                if (!replication
+                    || (replication->snapshot
+                        && !replicatedLevelsMatchManifest(replication->snapshot->state.settings,
+                                replication->snapshot->state.round, request.gameplayManifest))
+                    || (replication->update
+                        && !replicatedLevelsMatchManifest(replication->update->settings,
+                                replication->update->round, request.gameplayManifest))) {
+                    try { connection->requestClose(); } catch (...) {}
+                    break;
                 }
                 const auto result = replicatedConnection.receive(frame.payload, frame.receivedAt);
                 if (result == Duel6::Network::Replication::ClientReplicationResult::Reconnecting

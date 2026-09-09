@@ -47,7 +47,6 @@ namespace Duel6::Client {
             const Network::Endpoint &endpoint, const std::string &serverExecutable,
             const std::string &resourcePath, const Network::HostComposition::Setup &setup,
             std::vector<NetworkLocalPlayer> localPlayers) {
-        reset();
         std::vector<std::uint8_t> setupPayload;
         try { setupPayload = Network::HostComposition::serializeSetup(setup); }
         catch (...) { return false; }
@@ -55,6 +54,7 @@ namespace Duel6::Client {
             || !std::all_of(localPlayers.begin(), localPlayers.end(), [](const auto &player) {
                 return Network::Trust::validParticipantName(player.name);
             })) return false;
+        reset();
         HostServiceDependencies dependencies;
         dependencies.lifecycleObserver = [this](const auto &value) { observeHostLifecycle(value); };
         dependencies.sessionPayloadObserver = [this](const auto &payload) { receiveHostPayload(payload); };
@@ -80,11 +80,11 @@ namespace Duel6::Client {
 
     bool NetworkSessionRuntime::join(const Network::Endpoint &endpoint, const std::string &resourcePath,
                                      std::vector<NetworkLocalPlayer> localPlayers) {
-        reset();
         if (localPlayers.empty() || localPlayers.size() > Network::MaxNetworkPlayers
             || !std::all_of(localPlayers.begin(), localPlayers.end(), [](const auto &player) {
                 return Network::Trust::validParticipantName(player.name);
             })) return false;
+        reset();
         {
             std::lock_guard<std::mutex> lock(mutex);
             players = std::move(localPlayers); current = {}; current.endpoint = endpoint;

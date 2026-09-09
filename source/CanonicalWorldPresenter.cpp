@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <set>
 
 #include "AppService.h"
 #include "Bonus.h"
@@ -91,10 +92,21 @@ namespace Duel6 {
         }
     }
 
+    void CanonicalWorldPresenter::setCanonicalLevels(std::vector<std::string> levels) {
+        std::set<std::string> unique;
+        for (const auto &entry: levels) if (!canonicalLevelId(entry, levels) || !unique.insert(entry).second) {
+            canonicalLevels.clear();
+            return;
+        }
+        canonicalLevels = std::move(levels);
+    }
+
     bool CanonicalWorldPresenter::loadRound(
             const Network::Replication::RoundState &round,
-            const std::vector<std::string> &canonicalLevels) {
-        if (!canonicalLevelId(round.level, canonicalLevels)) return false;
+            const std::vector<std::string> &replicatedLevels) {
+        const std::set<std::string> local(canonicalLevels.begin(), canonicalLevels.end());
+        const std::set<std::string> replicated(replicatedLevels.begin(), replicatedLevels.end());
+        if (local.empty() || local != replicated || !canonicalLevelId(round.level, canonicalLevels)) return false;
         if (level && loadedLevel == round.level && loadedMirror == round.mirrored) return true;
         levelRenderData.reset();
         level.reset();

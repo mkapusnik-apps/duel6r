@@ -21,6 +21,7 @@ namespace Duel6 {
     class CanonicalWorldPresenter final {
     public:
         CanonicalWorldPresenter(AppService &service, GameResources &resources);
+        void setCanonicalLevels(std::vector<std::string> levels);
         void update(Float32 elapsedTime,
                     const Network::Replication::CanonicalState *state,
                     const std::vector<Network::Replication::PresentationEvent> &events);
@@ -50,6 +51,7 @@ namespace Duel6 {
         std::map<Network::Replication::Identity, Network::Replication::WorldEntityState> presentedEntities;
         std::map<Network::Replication::Identity, Float32> playerStatusRemaining;
         std::string loadedLevel;
+        std::vector<std::string> canonicalLevels;
         bool loadedMirror = false;
         bool loadRound(const Network::Replication::RoundState &round,
                        const std::vector<std::string> &canonicalLevels);
