@@ -93,6 +93,7 @@ namespace Duel6::Server::Authoritative {
         if (publisher.version() == 0 || state.phase != R::Phase::Lobby) return std::nullopt;
         const AuthoritativeReplication before = *this;
         state.participants = std::move(participants); state.settings = replicatedSettings(settings);
+        state.messages.status = "Lobby";
         state.players.clear();
         for (const auto &entry: roster) {
             R::PlayerState player;
@@ -124,6 +125,16 @@ namespace Duel6::Server::Authoritative {
                 [participantId](const auto &participant) { return participant.participantId == participantId; });
         if (found == state.participants.end()) return std::nullopt;
         found->ready = ready;
+        auto update = publisher.publish(state);
+        if (!update) *this = before;
+        return update;
+    }
+
+    std::optional<R::IncrementalUpdate> AuthoritativeReplication::setLobbyFailure(const std::string &message) {
+        if (publisher.version() == 0 || state.phase != R::Phase::Lobby || message.empty()) return std::nullopt;
+        const AuthoritativeReplication before = *this;
+        for (auto &participant: state.participants) participant.ready = false;
+        state.messages.status = message;
         auto update = publisher.publish(state);
         if (!update) *this = before;
         return update;
@@ -245,6 +256,7 @@ namespace Duel6::Server::Authoritative {
                 player.reloadRemaining = source.reload; player.charge = source.charge;
                 player.temporaryMovementRemaining = source.temporarySlowdownRemaining;
                 player.visible = source.visible; player.invulnerable = source.invulnerable;
+                player.presentationAlpha = source.presentationAlpha;
                 state.players.push_back(std::move(player));
                 if ((source.actionMask & ShowStatus) != 0) state.messages.currentPlayerIndicators.push_back(source.playerId);
                 R::ScoreRowState score;

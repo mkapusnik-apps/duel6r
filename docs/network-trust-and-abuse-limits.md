@@ -34,12 +34,22 @@ Trust boundaries are:
 - **Local host authority:** created only by trusted local session setup. It is never granted by a remote message.
 - **Transport peer:** every remote connection, frame, message, count, string, name, profile field, and source address is untrusted until its applicable bounded validation succeeds.
 - **Admission:** a transport connection has no committed participant identity, player slot, readiness, or host authority. It may submit exactly one bounded initial request within three seconds. A successful compatibility decision creates only a private provisional reservation. The guest must repeat the exact ordered identity offer in one acceptance before the single total 10-second Connect deadline; the host then commits atomically and sends a final exact `admitted` confirmation.
-- **Participant authority:** after admission, one immutable connection-to-participant binding controls only that participant's readiness, proposals, leave action, and owned player slots. Host-only actions require the locally created host participant. Disconnect removes the connection's authority while reservation ownership may remain for #36; intentional/expired participant removal clears ownership.
+- **Participant authority:** after admission, one immutable connection-to-participant binding controls only that participant's readiness, proposals, leave action, person values for existing owned player slots, and those owned player slots. Local control assignments remain participant-local. Host-only actions require the locally created host participant. Disconnect removes the connection's authority while reservation ownership may remain for #36; intentional or expired participant removal clears ownership.
 - **Content and scripting:** Guest Lua, content files, profile files, and profile-selected scripts must not load or execute. First-release network matches must disable all optional gameplay scripts, as specified for issue #32.
 - **Resolver helper:** the packaged helper is started by an explicit executable path with direct arguments and no shell, bounded output, restricted inherited handles, fail-closed supervision, and the existing process-global cap of 32 active or delayed helpers.
 - **Diagnostics:** peer-facing copy and trusted local diagnostics are separate. The diagnostic API accepts only a trusted timestamp, local connection number, enumerated stage/category/limit name, and bounded counters.
 
 This model limits accidental exposure and straightforward resource abuse by reachable peers. It does not provide confidentiality, peer identity, anti-cheat, resistance to a malicious local administrator, or public-service hardening.
+
+### Admitted player-slot authority
+
+- **TRU-OWN-001** Admission must bind one immutable set of player identities and owned player slots to the participant.
+- **TRU-OWN-002** A participant may change a person only for an existing player slot that it owns.
+- **TRU-OWN-003** A participant may change its local control assignment only for an existing player slot that it owns.
+- **TRU-OWN-004** A person or control change must not replace the player identity or transfer ownership.
+- **TRU-OWN-005** The service must reject a post-admission request to add, remove, or transfer one player slot.
+- **TRU-OWN-006** Participant Leave or authoritative expiry must revoke all authority for that participant and its owned player slots.
+- **TRU-OWN-007** A reconnect must restore only the same reserved participant and player-slot ownership.
 
 ## Admission and connection quotas
 

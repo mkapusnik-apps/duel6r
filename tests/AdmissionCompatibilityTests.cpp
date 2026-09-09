@@ -19,6 +19,7 @@
 #include "tests/TestHarness.h"
 #include "source/network/AdmissionProtocol.h"
 #include "source/network/CompatibilityManifest.h"
+#include "source/network/HostCompositionProtocol.h"
 #include "source/network/NetworkTrustPolicy.h"
 #include "source/network/PlayerInputProtocol.h"
 #include "source/network/SessionLifecycle.h"
@@ -1494,6 +1495,8 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
     std::atomic<bool> cancelled{false};
     std::atomic<unsigned> matchStarts{0};
     std::atomic<bool> hostShouldReady{false};
+    std::atomic<bool> returnToLobbyRequested{false};
+    std::atomic<bool> returnToLobbySent{false};
     hostDependencies.cancelled = [&] { return cancelled.load(); };
     hostDependencies.hostedServiceStatus = [&](Network::HostServiceStatusCode status) {
         if (status == Network::HostServiceStatusCode::Ready) ready = true;
@@ -1503,6 +1506,10 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
     hostDependencies.hostReadinessChange = [&] {
         return !hostShouldReady.load() || hostReadySent.exchange(true)
                ? std::optional<bool>{} : std::optional<bool>(true);
+    };
+    hostDependencies.hostSessionPayload = [&]() -> std::optional<std::vector<std::uint8_t>> {
+        if (!returnToLobbyRequested.load() || returnToLobbySent.exchange(true)) return std::nullopt;
+        return Network::HostComposition::serializeAction(Network::HostComposition::Kind::ReturnToLobby);
     };
     hostDependencies.authoritativeRuntimeFactory = [&](const auto &, const auto &players, const auto &) {
         ++matchStarts;
@@ -1550,6 +1557,31 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
     auto first = connectProductionPeer(hostConfig.listenEndpoint, hostedManifest);
     D6R_REQUIRE(pumpUntil(*first, [&] { return first->admitted; }, 2s));
     hostShouldReady = true;
+    const bool finalSummaryReceived = pumpUntil(*first, [&] {
+        return std::any_of(first->states.begin(), first->states.end(), [](const auto &state) {
+            return state.phase == Network::Replication::Phase::FinalSummary
+                    && state.result.available && state.result.state == "Completed";
+        });
+    }, 8s);
+    if (!finalSummaryReceived) {
+        first->client->close();
+        cancelled = true;
+        host.join();
+        Duel6::Test::fail("finalSummaryReceived", __FILE__, __LINE__, hostOutput.str());
+    }
+
+    Server::ServerConfig blockedConfig = runtimeGuestConfig();
+    blockedConfig.listenEndpoint.port = hostConfig.listenEndpoint.port;
+    blockedConfig.localPlayers = 1;
+    Server::AdmissionRuntimeDependencies blockedDependencies;
+    blockedDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+    std::ostringstream blockedOutput;
+    Server::HeadlessServer blocked(blockedConfig, std::move(blockedDependencies));
+    const int blockedStatus = blocked.run(blockedOutput);
+    const bool finalSummaryAdmissionClosed = blockedStatus == 2
+            && blockedOutput.str().find("match-already-started\n") != std::string::npos;
+
+    returnToLobbyRequested = true;
     const bool completedResultReceived = pumpUntil(*first, [&] {
         return std::any_of(first->states.begin(), first->states.end(), [](const auto &state) {
             return state.phase == Network::Replication::Phase::Lobby
@@ -1603,14 +1635,217 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
     cancelled = true;
     host.join();
     const std::string evidence = "reconnecting=" + std::string(reconnectingPresent ? "true" : "false")
+            + ";final-summary-admission-closed=" + (finalSummaryAdmissionClosed ? "true" : "false")
             + ";newcomer=" + (newcomerPresent ? "true" : "false")
             + ";readiness-false=" + (readinessFalse ? "true" : "false")
             + ";prior-ranking-excludes=" + (!newcomerInPriorRanking ? "true" : "false")
             + ";no-autostart=" + (noAutoStart ? "true" : "false")
             + ";host-status=" + std::to_string(hostStatus);
     D6R_REQUIRE_EQ(std::string(
-            "reconnecting=true;newcomer=true;readiness-false=true;prior-ranking-excludes=true;"
+            "reconnecting=true;final-summary-admission-closed=true;newcomer=true;readiness-false=true;prior-ranking-excludes=true;"
             "no-autostart=true;host-status=0"), evidence);
+}
+
+D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reopens fresh admission and resets the next match") {
+    const auto hostedManifest = manifest({
+            {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+    auto content = std::make_shared<Network::FrozenGameplayContent>();
+    (*content)["data/blocks.json"] = {'{', '}'};
+    (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+    (*content)["levels/a.json"] = {'{', '}'};
+    const Network::ManifestBuildResult built{
+            Network::ManifestStatus::Valid, hostedManifest, content};
+
+    Server::ServerConfig hostConfig = runtimeServerConfig();
+    hostConfig.listenEndpoint.port = unusedLoopbackPort();
+    D6R_REQUIRE(hostConfig.listenEndpoint.port != 0);
+    Server::AdmissionRuntimeDependencies hostDependencies;
+    hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+    std::atomic<bool> ready{false};
+    std::atomic<bool> cancelled{false};
+    std::atomic<bool> hostShouldReady{false};
+    std::atomic<bool> hostReadySent{false};
+    std::atomic<bool> accelerateReconnectExpiry{false};
+    std::atomic<std::int64_t> hostClockOffsetMilliseconds{0};
+    std::atomic<unsigned> matchStarts{0};
+    std::atomic<Network::Replication::Identity> firstMatchId{0};
+    std::atomic<Network::Replication::Identity> firstGuestParticipantId{0};
+    std::atomic<bool> reconnectingObserved{false};
+    std::atomic<bool> interruptedResultObserved{false};
+    std::atomic<bool> interruptedReadinessResetObserved{false};
+    std::atomic<bool> expiredGuestRemovedObserved{false};
+    std::atomic<bool> nextMatchResetObserved{false};
+    hostDependencies.cancelled = [&] { return cancelled.load(); };
+    hostDependencies.now = [&] {
+        return std::chrono::steady_clock::now()
+                + std::chrono::milliseconds(hostClockOffsetMilliseconds.load());
+    };
+    hostDependencies.wait = [&](std::chrono::milliseconds amount) {
+        if (accelerateReconnectExpiry.load()) {
+            hostClockOffsetMilliseconds.fetch_add(1000);
+            std::this_thread::sleep_for(1ms);
+        } else {
+            std::this_thread::sleep_for(amount);
+        }
+    };
+    hostDependencies.hostedServiceStatus = [&](Network::HostServiceStatusCode status) {
+        if (status == Network::HostServiceStatusCode::Ready) ready = true;
+        return true;
+    };
+    hostDependencies.hostReadinessChange = [&] {
+        return !hostShouldReady.load() || hostReadySent.exchange(true)
+               ? std::optional<bool>{} : std::optional<bool>(true);
+    };
+    hostDependencies.authoritativeRuntimeFactory = [&](const auto &, const auto &players, const auto &) {
+        ++matchStarts;
+        auto snapshot = std::make_shared<Server::Authoritative::CanonicalWorldSnapshot>();
+        snapshot->valid = true;
+        snapshot->stateDigest = 1;
+        for (const auto &definition: players) {
+            Server::Authoritative::CanonicalPlayerSnapshot player;
+            player.playerId = definition.playerId;
+            player.rosterSlot = definition.rosterOrder;
+            player.alive = true;
+            player.life = Server::Authoritative::MaximumLife;
+            snapshot->players.push_back(player);
+        }
+        Server::Authoritative::MatchRuntimeDependencies runtime;
+        runtime.contentPreflight = [](const auto &) { return true; };
+        runtime.worldSnapshot = [snapshot] { return *snapshot; };
+        runtime.worldTick = [snapshot](Server::Authoritative::Tick, bool) {
+            ++snapshot->worldTick;
+            ++snapshot->stateDigest;
+            return true;
+        };
+        runtime.worldRemoveBatch = [snapshot](const std::vector<Server::Authoritative::Identity> &removals) {
+            if (!std::all_of(removals.begin(), removals.end(), [&](const auto playerId) {
+                    return std::any_of(snapshot->players.begin(), snapshot->players.end(),
+                            [playerId](const auto &player) { return player.playerId == playerId; });
+                })) return false;
+            snapshot->players.erase(std::remove_if(snapshot->players.begin(), snapshot->players.end(),
+                    [&](const auto &player) {
+                        return std::find(removals.begin(), removals.end(), player.playerId) != removals.end();
+                    }), snapshot->players.end());
+            ++snapshot->stateDigest;
+            return true;
+        };
+        return runtime;
+    };
+    hostDependencies.hostSessionPresentation = [&](const std::vector<std::uint8_t> &payload) {
+        const auto message = Network::HostComposition::deserialize(payload);
+        if (!message || message->kind != Network::HostComposition::Kind::CanonicalSnapshot) return false;
+        const auto replication = Network::Replication::deserializeReplicationFrame(message->payload);
+        if (!replication || !replication->snapshot) return false;
+        const auto &state = replication->snapshot->state;
+        if (state.phase == Network::Replication::Phase::ActiveRound) {
+            Network::Replication::Identity expected = 0;
+            firstMatchId.compare_exchange_strong(expected, state.matchId);
+            if (state.matchId == firstMatchId.load()
+                && std::any_of(state.participants.begin(), state.participants.end(), [](const auto &participant) {
+                    return participant.connection == Network::Replication::ConnectionState::Reconnecting;
+                })) reconnectingObserved = true;
+            if (firstMatchId.load() != 0 && state.matchId != firstMatchId.load()
+                && !state.result.available && state.completedRounds == 0 && state.currentRoundNumber == 1
+                && std::all_of(state.score.players.begin(), state.score.players.end(), [](const auto &row) {
+                    return row.roundPoints == 0 && row.cumulativePoints == 0;
+                })) nextMatchResetObserved = true;
+        }
+        if (state.phase == Network::Replication::Phase::Lobby
+            && state.result.available && state.result.state == "Interrupted") {
+            interruptedResultObserved = true;
+            if (std::all_of(state.participants.begin(), state.participants.end(), [](const auto &participant) {
+                    return !participant.ready;
+                })) interruptedReadinessResetObserved = true;
+            const auto expired = firstGuestParticipantId.load();
+            if (expired != 0 && std::none_of(state.participants.begin(), state.participants.end(),
+                    [expired](const auto &participant) { return participant.participantId == expired; }))
+                expiredGuestRemovedObserved = true;
+        }
+        return true;
+    };
+
+    std::ostringstream hostOutput;
+    int hostStatus = -1;
+    std::thread host([&] {
+        Server::HeadlessServer server(hostConfig, std::move(hostDependencies));
+        hostStatus = server.run(hostOutput);
+    });
+    for (unsigned attempt = 0; attempt < 400 && !ready; ++attempt) std::this_thread::sleep_for(5ms);
+    D6R_REQUIRE(ready);
+
+    auto first = connectProductionPeer(hostConfig.listenEndpoint, hostedManifest);
+    const bool firstAdmitted = pumpUntil(*first, [&] { return first->admitted; }, 2s);
+    if (first->offer) firstGuestParticipantId = first->offer->participantId;
+    hostShouldReady = true;
+    const bool firstMatchActive = pumpUntil(*first, [&] {
+        return std::any_of(first->states.begin(), first->states.end(), [](const auto &state) {
+            return state.phase == Network::Replication::Phase::ActiveRound;
+        });
+    }, 4s);
+    first->client->close();
+    for (unsigned attempt = 0; attempt < 600 && !reconnectingObserved; ++attempt)
+        std::this_thread::sleep_for(5ms);
+    accelerateReconnectExpiry = true;
+    for (unsigned attempt = 0; attempt < 1000 && !interruptedResultObserved; ++attempt)
+        std::this_thread::sleep_for(5ms);
+    accelerateReconnectExpiry = false;
+    hostClockOffsetMilliseconds = 0;
+
+    std::unique_ptr<ProductionAdmissionPeer> newcomer;
+    bool newcomerAdmitted = false;
+    bool retainedInterruptedResult = false;
+    bool retainedReadinessReset = false;
+    bool priorGuestAbsent = false;
+    bool nextMatchActive = false;
+    if (interruptedResultObserved) {
+        newcomer = connectProductionPeer(hostConfig.listenEndpoint, hostedManifest);
+        newcomerAdmitted = pumpUntil(*newcomer, [&] { return newcomer->admitted; }, 2s);
+        const auto retained = std::find_if(newcomer->states.rbegin(), newcomer->states.rend(), [](const auto &state) {
+            return state.phase == Network::Replication::Phase::Lobby
+                    && state.result.available && state.result.state == "Interrupted";
+        });
+        if (retained != newcomer->states.rend()) {
+            retainedInterruptedResult = !retained->result.serialized.empty();
+            retainedReadinessReset = std::all_of(
+                    retained->participants.begin(), retained->participants.end(),
+                    [](const auto &participant) { return !participant.ready; });
+            priorGuestAbsent = std::none_of(retained->participants.begin(), retained->participants.end(),
+                    [&](const auto &participant) {
+                        return participant.participantId == firstGuestParticipantId.load();
+                    });
+        }
+        hostReadySent = false;
+        nextMatchActive = pumpUntil(*newcomer, [&] {
+            return std::any_of(newcomer->states.begin(), newcomer->states.end(), [&](const auto &state) {
+                return state.phase == Network::Replication::Phase::ActiveRound
+                        && state.matchId != firstMatchId.load() && !state.result.available
+                        && state.completedRounds == 0 && state.currentRoundNumber == 1;
+            });
+        }, 4s);
+        newcomer->client->close();
+    }
+    cancelled = true;
+    host.join();
+
+    const std::string evidence = "first-admitted=" + std::string(firstAdmitted ? "true" : "false")
+            + ";first-active=" + (firstMatchActive ? "true" : "false")
+            + ";reconnecting=" + (reconnectingObserved ? "true" : "false")
+            + ";interrupted-result=" + (interruptedResultObserved ? "true" : "false")
+            + ";interrupted-readiness-reset=" + (interruptedReadinessResetObserved ? "true" : "false")
+            + ";expired-guest-removed=" + (expiredGuestRemovedObserved ? "true" : "false")
+            + ";fresh-admitted=" + (newcomerAdmitted ? "true" : "false")
+            + ";retained-result=" + (retainedInterruptedResult ? "true" : "false")
+            + ";retained-readiness-reset=" + (retainedReadinessReset ? "true" : "false")
+            + ";prior-guest-absent=" + (priorGuestAbsent ? "true" : "false")
+            + ";next-active=" + (nextMatchActive ? "true" : "false")
+            + ";next-reset=" + (nextMatchResetObserved ? "true" : "false")
+            + ";match-starts=" + std::to_string(matchStarts.load())
+            + ";host-status=" + std::to_string(hostStatus);
+    D6R_REQUIRE_EQ(std::string(
+            "first-admitted=true;first-active=true;reconnecting=true;interrupted-result=true;"
+            "interrupted-readiness-reset=true;expired-guest-removed=true;fresh-admitted=true;"
+            "retained-result=true;retained-readiness-reset=true;prior-guest-absent=true;"
+            "next-active=true;next-reset=true;match-starts=2;host-status=0"), evidence);
 }
 
 D6R_TEST_CASE("NET-09 production Headless sends one intentional End notice and none for Stop or failure") {

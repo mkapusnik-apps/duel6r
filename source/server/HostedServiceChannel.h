@@ -15,9 +15,11 @@ namespace Duel6::Server {
         ~HostedServiceChannel();
         bool active() const noexcept;
         bool send(Network::HostServiceStatusCode status) noexcept;
+        bool sendSessionPayload(const std::vector<std::uint8_t> &payload) noexcept;
         bool stopRequested() noexcept;
         bool intentionalEndRequested() noexcept;
         std::optional<bool> takeReadinessChange() noexcept;
+        std::optional<std::vector<std::uint8_t>> takeSessionPayload() noexcept;
 
     private:
         HostedServiceChannel();
@@ -33,6 +35,7 @@ namespace Duel6::Server {
         bool intentionalEnd = false;
         std::optional<bool> readinessChange;
         std::vector<std::uint8_t> commandBytes;
+        std::vector<std::vector<std::uint8_t>> sessionPayloads;
 
         void pollCommand() noexcept;
         void decodeCommands() noexcept;

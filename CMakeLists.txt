@@ -97,10 +97,14 @@ set(D6R_SOURCES
         source/Bonus.h
         source/BonusList.cpp
         source/BonusList.h
+        source/CanonicalWorldPresenter.cpp
+        source/CanonicalWorldPresenter.h
         source/Color.cpp
         source/Color.h
         source/client/LocalPlayerInputSession.cpp
         source/client/LocalPlayerInputSession.h
+        source/client/NetworkSessionRuntime.cpp
+        source/client/NetworkSessionRuntime.h
         source/ConsoleCommands.cpp
         source/ConsoleCommands.h
         source/Context.cpp
@@ -155,6 +159,8 @@ set(D6R_SOURCES
         source/Material.h
         source/Menu.cpp
         source/Menu.h
+        source/NetworkMenu.cpp
+        source/NetworkMenu.h
         source/msdir.c
         source/msdir.h
         source/Orientation.h
@@ -618,6 +624,8 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/network/CompatibilityManifest.h
         source/network/HostServiceControlProtocol.cpp
         source/network/HostServiceControlProtocol.h
+        source/network/HostCompositionProtocol.cpp
+        source/network/HostCompositionProtocol.h
         source/network/NetworkTrustPolicy.cpp
         source/network/NetworkTrustPolicy.h
         source/network/NetworkResponsiveness.cpp

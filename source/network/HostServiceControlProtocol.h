@@ -4,12 +4,17 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace Duel6::Network {
     constexpr std::uint32_t HostServiceControlMagic = 0x44364853u; // D6HS
     constexpr std::uint8_t HostServiceControlVersion = 1;
     constexpr std::size_t HostServiceControlMessageBytes = 8;
     constexpr std::size_t HostServiceStatusMessageBytes = 16;
+    constexpr std::uint32_t HostServicePayloadMagic = 0x44364850u; // D6HP
+    constexpr std::uint8_t HostServicePayloadVersion = 1;
+    constexpr std::size_t HostServicePayloadHeaderBytes = 12;
+    constexpr std::size_t HostServiceMaximumPayloadBytes = 1024 * 1024;
 
     enum class HostServiceStatusCode : std::uint8_t {
         HostManifestInvalid = 1,
@@ -33,7 +38,10 @@ namespace Duel6::Network {
                                  HostServiceStatusCode &status,
                                  std::uint64_t &monotonicNanoseconds) noexcept;
     bool decodeHostServiceCommand(const std::uint8_t *message, std::size_t size,
-                                  HostServiceCommandCode &command) noexcept;
+                                   HostServiceCommandCode &command) noexcept;
+    std::vector<std::uint8_t> encodeHostServicePayload(const std::vector<std::uint8_t> &payload);
+    bool decodeHostServicePayloadHeader(const std::uint8_t *message, std::size_t size,
+                                        std::size_t &payloadBytes) noexcept;
 }
 
 #endif

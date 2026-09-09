@@ -21,6 +21,14 @@ Host startup or initial Join failure enters from `NET-02` or `NET-03`; terminal 
 - The representative state is `Host unreachable.` for the preserved direct endpoint.
 - Show a short recovery instruction, then Retry when valid, `Edit setup`, and `Return to Network`.
 - Keep unsupported-feature marketing or speculative diagnostic controls out of the screen.
+- Keep the failure panel inside the shared 24-logical-pixel canvas margin.
+- Use a fixed state heading, a flexible reason and instruction region, and a fixed recovery-action region.
+- Keep the complete confirmed reason visible and wrap it at word boundaries.
+- Keep an entered guest endpoint inside a bounded context row.
+- Break an unspaced endpoint at a character boundary when it does not fit.
+- Keep Retry, Edit setup, and Return to Network in one row when they fit.
+- Wrap recovery actions to a second row in reading order before captions clip or actions overlap.
+- Keep every enabled recovery action visible when the reason region scrolls.
 
 ## Significant variants
 

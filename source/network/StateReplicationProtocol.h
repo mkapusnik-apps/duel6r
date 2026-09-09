@@ -15,7 +15,7 @@
 
 namespace Duel6::Network::Replication {
     constexpr std::uint32_t ReplicationProtocolIdentifier = 0x44365250; // D6RP
-    constexpr std::uint16_t ReplicationProtocolVersion = 2;
+    constexpr std::uint16_t ReplicationProtocolVersion = 3;
 
     enum class ReplicationFrameKind : std::uint16_t {
         FullSnapshot = 1,

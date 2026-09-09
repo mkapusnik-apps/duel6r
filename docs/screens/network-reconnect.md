@@ -3,6 +3,8 @@
 ## Status, purpose, and requirements
 
 This is a target screen for downstream issue #38; it is not implemented. It truthfully presents a guest's host-clock 30-second reconnect reservation and active-session behavior. It implements `NET-AC-006`, `NET-AC-009`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-016`, and `NET-AC-017` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+Its retained arena context implements `NET-VIS-003` through `NET-VIS-010`, `NET-VIS-AC-002` through `NET-VIS-AC-004`, `REP-PRES-001` through `REP-PRES-006`, and `REP-PRES-AC-001` through `REP-PRES-AC-003`.
+Its reservation and restoration behavior implements `NET-OWN-002`, `NET-OWN-003`, `NET-OWN-008`, `NET-OWN-009`, `NET-OWN-AC-002`, and `NET-OWN-AC-005`. It consumes `REP-AC-004` and `TRU-OWN-007`.
 
 An unintentional guest disconnect from `NET-04`, `NET-05`, or `NET-06` enters this state. Accepted restore returns to current authoritative lobby, match, or summary. Only a valid intentional host End notice accepted through the current established session enters `NET-09`; terminal rejection or deadline expiry enters `NET-08`.
 
@@ -13,18 +15,31 @@ An unintentional guest disconnect from `NET-04`, `NET-05`, or `NET-06` enters th
 - The representative state shows `24 seconds remaining` at 1280 by 900.
 - During an active round, show `Match continues while you reconnect` and `Reserved players receive no input and remain in play`.
 - Offer `Leave session` with supporting consequence `Your reserved players will be removed now and reconnect will stop`.
+- Center the reconnect panel in the client and keep at least 16 px from every client edge.
+- Limit the panel width to 640 px or the available client width, whichever is smaller.
+- Keep the heading, countdown, and Leave session action visible.
+- Wrap supporting prose at word boundaries.
+- Break an endpoint at a character boundary only when it cannot fit on one line.
+- Grow the panel downward for representative copy and use an internal body scroll only when the available client height cannot contain it.
+- Keep the last confirmed context visible around the panel without presenting that context as current.
+- A retained arena context must keep the default network visuals from the last complete accepted state.
+- A retained arena context must not switch any player to a selected-profile appearance.
 
 ## Navigation and significant variants
 
 - The host starts one deadline at declared disconnect `D`. Automatic and manual attempts accept only strictly before `D + 30 seconds`, retain that deadline across repeats, and never claim success until current authoritative state is restored.
+- The reservation must retain the participant's exact admitted player slots, player identities, and ownership.
+- Reconnect must not add, remove, replace, reorder, or transfer a reserved slot.
 - Display `ceil(deadline - now)` while positive, so active values are `30` through `1`, never `0`. A later disconnect after successful restore creates a new reservation.
 - Apply the fixed outcome order: accepted intentional host End notice; accepted reconnect before deadline; terminal rejection; retryable ambiguity; deadline expiry.
 - Resolution failure, refusal, unreachable, reset, timeout, host crash, host-machine/listener loss, temporary transport failure, and no response are retryable ambiguous outcomes. Show their retry status but remain here through the original deadline.
 - Invalid or expired reconnect credential, missing reservation or removed participant, and compatibility/trust rejection are terminal only when established by an authoritative response. They enter `NET-08` with Retry disabled.
 - Match simulation, timers, hazards, connected input, combat, winner checks, and round progression continue behind this state.
 - Success replaces this screen with the current `NET-04`, `NET-05`, or `NET-06` state; missed time is not rewound.
+- Success must restore the same reserved player identities and ownership before it replaces this screen.
 - Guest-side expiry states exactly `Reconnect time expired. The session could not be restored.` and enters `NET-08` with Retry disabled. It does not claim host end, reservation removal, or player removal.
 - Authoritative host-side expiry follows the lifecycle-specific lobby, active-round, non-final-summary, or final-summary batch rules.
+- Authoritative expiry must remove all slots owned by the expired participant, and those player identities must not be reused during the session.
 
 ## Truthful copy, disabled reasons, and input
 

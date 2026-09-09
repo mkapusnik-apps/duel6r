@@ -67,6 +67,12 @@ namespace Duel6 {
                 return 0;
             }
 
+            Texture getNetworkWeaponTexture() const override { return Texture(); }
+            Texture getNetworkProjectileTexture() const override { return Texture(); }
+            Texture getNetworkExplosionTexture() const override { return Texture(); }
+            void playNetworkShotSound() const override {}
+            void playNetworkExplosionSound() const override {}
+
             bool isChargeable() const override {
                 return false;
             }
@@ -126,6 +132,12 @@ namespace Duel6 {
     bool Weapon::isChargeable() const {
         return impl->isChargeable();
     }
+
+    Texture Weapon::getNetworkWeaponTexture() const { return impl->getNetworkWeaponTexture(); }
+    Texture Weapon::getNetworkProjectileTexture() const { return impl->getNetworkProjectileTexture(); }
+    Texture Weapon::getNetworkExplosionTexture() const { return impl->getNetworkExplosionTexture(); }
+    void Weapon::playNetworkShotSound() const { impl->playNetworkShotSound(); }
+    void Weapon::playNetworkExplosionSound() const { impl->playNetworkExplosionSound(); }
 #ifndef D6R_HEADLESS_CORE
     void Weapon::initialize(Sound &sound, TextureManager &textureManager) {
         add(std::make_unique<Pistol>(sound, textureManager));

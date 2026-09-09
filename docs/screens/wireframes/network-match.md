@@ -46,5 +46,10 @@ Target representative viewport: 1280 by 900 px. The gameplay renderer fills the 
 - Recovery removes the degraded indication only after the approved supported-condition interval.
 - The network status region is non-interactive and does not receive focus or capture gameplay input.
 - The exact degraded text supplies a non-color status cue.
+- All six local and remote players use the built-in default network player skin and deterministic default animation and entity mappings.
+- Replicated Team color, Predator opacity, invisibility, and other visual gameplay states modify the default network visuals when applicable.
+- No selected local or remote profile changes a network player appearance.
+- The client derives presentation from complete read-only replicated canonical state and does not advance a second gameplay simulation.
+- Selected-profile appearance parity is deferred to issue #84.
 
 Planned representative screenshot: [`SS-019`](../../screenshots/README.md#ss-019).

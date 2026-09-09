@@ -40,6 +40,8 @@ Transport, admission, and trust limits are in [`networking.md`](networking.md), 
 - **NIN-OWN-005** Host-player commands must follow the same validation and authoritative tick rules as guest-player commands.
 - **NIN-OWN-006** Graphical network-session composition must preserve the actions and local device behavior in `INP-001` through `INP-016`.
 - **NIN-OWN-007** Network input must not add a player action or change an existing action meaning.
+- **NIN-OWN-008** A local-control change in the lobby must keep the admitted player identity and ownership unchanged.
+- **NIN-OWN-009** A participant must not create input authority for an additional player after admission.
 
 ## Runtime boundary
 
@@ -88,7 +90,7 @@ Transport, admission, and trust limits are in [`networking.md`](networking.md), 
 - **NIN-LIFE-006** During a disconnect reservation, the service must not accept input for a reserved player.
 - **NIN-LIFE-007** Reconnect must not restore a held input state from before disconnect.
 - **NIN-LIFE-008** After reconnect restoration, the participant may send new input only for its restored owned players.
-- **NIN-LIFE-009** Intentional leave, reservation expiry, or player removal must permanently revoke input authority for the removed player identity.
+- **NIN-LIFE-009** Intentional participant Leave, reservation expiry, or session end must permanently revoke input authority for each removed player identity.
 - **NIN-LIFE-010** A later connection must not restore authority for a removed player identity.
 
 ## Validation, limits, and outcomes
@@ -143,7 +145,7 @@ Transport, admission, and trust limits are in [`networking.md`](networking.md), 
 - **NIN-AC-008 — One state per tick:** Only the highest valid pending sequence for one player and effective tick can affect that tick.
 - **NIN-AC-009 — Acknowledgment:** Applied input is acknowledged only after its effective tick. The acknowledgment identifies the command and effective tick.
 - **NIN-AC-010 — Phase and player state:** Input applies only in an updating round phase for a living, owned, present player.
-- **NIN-AC-011 — Disconnect and revocation:** Disconnect clears held input. Reserved or removed players receive no input until approved authority is restored.
+- **NIN-AC-011 — Disconnect and revocation:** Disconnect clears held input. Reserved players receive no input until approved authority is restored. Removed player identities never receive input again during the session.
 - **NIN-AC-012 — Unauthorized input:** Input for another participant's player changes no state and closes only the offending connection with the fixed policy outcome.
 - **NIN-AC-013 — Rejected input:** Each stale, duplicate, future, invalid, unavailable, superseded, or over-limit input changes no pending or canonical state.
 - **NIN-AC-014 — Rate limits:** Per-player and host-wide input limits apply. Two consecutive remote-participant over-limit windows close only the offender.
@@ -157,6 +159,8 @@ Transport, admission, and trust limits are in [`networking.md`](networking.md), 
 - **NIN-COMP-AC-002 — Control parity:** The graphical network session must preserve `INP-001` through `INP-016` for host and guest participants.
 - **NIN-COMP-AC-003 — Mixed journey:** A supported mixed local and remote roster must complete an authoritative round through graphical host and guest sessions without ownership crossover.
 - **NIN-COMP-AC-004 — Headless boundary:** Graphical network-session composition must not require the authoritative service to initialize a renderer, audio, or local input devices.
+- **NIN-OWN-AC-001 — Lobby control change:** A lobby control change applies only to an existing owned player slot and preserves its admitted identity and ownership.
+- **NIN-OWN-AC-002 — Fixed authority set:** A participant cannot gain input authority for an additional player after admission.
 
 ## Downstream boundaries
 

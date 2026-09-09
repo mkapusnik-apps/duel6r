@@ -169,6 +169,19 @@ set_tests_properties(duel6r-session-lifecycle-tests PROPERTIES
         LABELS "application;integration;network;reconnect;lifecycle;security;regression"
         TIMEOUT 30)
 
+if (NOT D6R_TRANSPORT_ONLY)
+    add_executable(duel6r-network-session-runtime-tests
+            ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+            ${CMAKE_SOURCE_DIR}/tests/NetworkSessionRuntimeTests.cpp)
+    target_include_directories(duel6r-network-session-runtime-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-network-session-runtime-tests
+            duel6r-game-engine duel6r-network-scaffold)
+    add_test(NAME duel6r-network-session-runtime-tests COMMAND duel6r-network-session-runtime-tests)
+    set_tests_properties(duel6r-network-session-runtime-tests PROPERTIES
+            LABELS "application;integration;network;runtime;presentation;reconnect;regression"
+            TIMEOUT 30)
+endif ()
+
 add_executable(duel6r-admission-compatibility-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
         ${CMAKE_SOURCE_DIR}/tests/AdmissionCompatibilityTests.cpp)
@@ -180,7 +193,7 @@ endif ()
 add_test(NAME duel6r-admission-compatibility-tests COMMAND duel6r-admission-compatibility-tests)
 set_tests_properties(duel6r-admission-compatibility-tests PROPERTIES
         LABELS "application;integration;network;admission;compatibility"
-        TIMEOUT 120)
+        TIMEOUT 180)
 
 add_executable(duel6r-host-service-supervisor-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp

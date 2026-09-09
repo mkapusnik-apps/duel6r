@@ -49,6 +49,7 @@ namespace Duel6::Client {
     struct HostServiceStatusEvent {
         Network::HostServiceStatusCode code = Network::HostServiceStatusCode::StartFailed;
         HostServiceTimePoint receivedAt{};
+        std::vector<std::uint8_t> sessionPayload;
     };
 
     struct HostServiceExitEvent {
@@ -61,6 +62,7 @@ namespace Duel6::Client {
         std::string resourcePath;
         std::vector<std::string> enabledGameplayScripts;
         std::uint8_t localPlayers = 1;
+        bool graphicalComposition = false;
     };
 
     struct HostServiceSnapshot {
@@ -113,6 +115,7 @@ namespace Duel6::Client {
         virtual void requestStop() = 0;
         virtual void requestEndSession() { requestStop(); }
         virtual bool requestReadiness(bool) { return false; }
+        virtual bool requestSessionPayload(const std::vector<std::uint8_t> &) { return false; }
         virtual bool waitForExit(std::chrono::milliseconds timeout) = 0;
         virtual void forceTerminate() = 0;
         virtual bool cleanupConfirmed() { return hasExited(); }
@@ -134,6 +137,7 @@ namespace Duel6::Client {
         std::function<HostServiceTimePoint()> now;
         HostServiceLauncher launcher;
         std::function<void(const HostServiceSnapshot &)> lifecycleObserver;
+        std::function<void(const std::vector<std::uint8_t> &)> sessionPayloadObserver;
         std::function<void(const char *)> intentionalEndHandoff;
         std::function<std::thread(std::function<void()>)> monitorLauncher;
     };
@@ -154,6 +158,7 @@ namespace Duel6::Client {
         bool cancelStartup();
         bool endSession();
         bool setSessionReady(bool ready);
+        bool sendSessionPayload(const std::vector<std::uint8_t> &payload);
         void applicationExit();
         bool retainedSetup(HostServiceStartConfig &config) const;
         bool dismissFailure();

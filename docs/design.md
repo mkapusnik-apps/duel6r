@@ -185,7 +185,7 @@ The following values come from renderer and GUI source.
 - Gameplay must use `resources/textures/blocks/`, `resources/textures/man/`, `resources/textures/weapon/`, `resources/textures/bonus/`, and `resources/textures/elevator/` for visible world objects.
 - The game must preserve nearest or linear filtering choices from each loader call.
 - A missing required texture, level, or font may stop initialization in the current implementation.
-- A missing person profile must fall back to random player colors and default player sounds.
+- In Local Play, a missing person profile must fall back to random player colors and default player sounds.
 - Documentation must not define a visual placeholder for a missing required world asset because the implementation has no visual placeholder.
 
 ## Motion and temporal feedback
@@ -300,6 +300,36 @@ The following values come from renderer and GUI source.
 - Network round limit must accept only integers from 1 through 99.
 - Network match setup must not expose weapon enablement, ammunition ranges, level data, or gameplay definitions as settings.
 - Network match status must state that optional Lua and profile scripts are disabled for network play.
+- Network setup must provide local person selection and local control assignment without a profile selector, profile column, or profile-editing action.
+- Network setup must let a participant add or remove local player slots only before host startup or guest Connect begins.
+- Start session and Connect must lock the displayed local-player count and ordered slot set for that attempt.
+- Cancel or a recoverable pre-admission failure may return to editable setup with the retained slot set.
+- Successful host startup or guest admission must fix the participant's ordered player slots, identities, and ownership for the admitted lifetime.
+- `NET-04` must not show or provide an action to add, remove, or transfer one player slot.
+- An admitted participant may edit the person and local control only for an existing owned player slot.
+- A person or control edit must retain the slot position, player identity, and owner.
+- Only the host may reorder the authoritative roster.
+- A host roster reorder must retain every player identity and owner.
+- A person edit, control edit, or host roster reorder must clear every participant's readiness.
+- Intentional participant Leave or authoritative expiry must remove every slot owned by that participant as one participant-level outcome.
+- A removed player identity must not be reused during the same session.
+- Reconnect must restore the same reserved participant, player slots, player identities, and ownership.
+- Reconnect must not create, remove, replace, reorder, or transfer a reserved player slot.
+- A network player name must identify the selected local person without implying selected-profile appearance parity.
+- First-release network play must use one built-in default network visual set for every local and remote player.
+- The default network visual set must provide the built-in player skin, animation mapping, and entity-resource mapping.
+- The same supported release and the same complete replicated canonical state must select the same network player animation and entity visual on each client.
+- Presentation must derive movement, action, entity type, and visual gameplay state from read-only replicated canonical state.
+- Presentation must not create or advance a second gameplay simulation.
+- A local or remote profile must not change a network player's skin, animation, or visual resource.
+- The default network visual set must preserve authoritative Team colors, Predator opacity, invisibility, and each other replicated visual gameplay state.
+- A missing, changed, or additional profile or cosmetic asset must not block network admission.
+- A client must not load a peer-selected profile, file, or script as a visual fallback.
+- A client that cannot load a required default network visual resource must not start network play.
+- A required default network visual resource failure must keep the existing required-resource failure behavior.
+- `NET-07` and `NET-09` must retain the default network visuals from the last complete accepted network state when they retain arena context.
+- A retained arena context must not switch to a selected-profile appearance while it is non-current or blocked.
+- Selected-profile appearance parity is deferred to issue #84 and must not appear as first-release behavior or evidence.
 - Only the host may show an enabled early-advance action after a round outcome exists.
 - Guests must not see an enabled round-advance action.
 - Network round-end presentation must distinguish the first-second active phase from the final-five-second frozen phase.
@@ -333,6 +363,25 @@ The following values come from renderer and GUI source.
 - A movement correction must move that sprite toward one latest accepted canonical position.
 - A movement correction must not use a duplicate sprite, ghost trail, flashing marker, camera shift, or outcome effect.
 - A movement correction must not change another player's visible state or an authoritative outcome.
+- A menu-canvas network screen must keep a 24-logical-pixel inner margin around its primary panel.
+- A menu-canvas network screen must use a fixed header region, a flexible body region, and a fixed action region.
+- Adjacent network controls must keep at least 8 logical px of clear space.
+- A primary network action must precede Back, Cancel, Leave, End session, Edit setup, and Return actions in reading order.
+- A focused network control must add a continuous 2-logical-pixel black outer keyline outside its normal frame.
+- The focus keyline must not change the control size or move adjacent content.
+- A disabled network control must keep readable text, use a flat frame instead of the raised actionable frame, and show one persistent nearby reason.
+- A disabled network control must not receive focus or pointer activation.
+- A network text field must show its complete value when the value fits.
+- A focused text field may scroll its text horizontally to keep the insertion position visible.
+- An unfocused text field must clip an overlong value inside the field and must not draw into an adjacent region.
+- A network list or table must keep its heading visible while its body scrolls vertically.
+- A network list or table must not increase row height to fit a long participant or player name.
+- A long participant or player value must clip inside its column.
+- A horizontally wide result table must provide an explicit horizontal scroll control inside the result region.
+- A scroll control must remain keyboard- and controller-operable and must show visible position feedback.
+- A blocking network panel must keep at least 16 px between its outer edge and each client edge.
+- A blocking network panel must wrap prose at word boundaries and may break an unspaced endpoint at a character boundary.
+- A blocking network panel must keep its heading, current status, and primary recovery action visible when body content scrolls.
 
 ### Gameplay presentation
 

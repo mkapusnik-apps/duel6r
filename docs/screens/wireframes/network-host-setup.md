@@ -9,8 +9,8 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 │ Port [27015____]                                                     │
 │                                                                      │
 │ ┌──────── PERSONS ────────┐  ┌──────── LOCAL PLAYERS 2 ───────────┐ │
-│ │ available persons       │  │ Ada   profile A   Keyboard         │ │
-│ │ person/profile choices  │  │ Bruno profile B   Controller 1     │ │
+│ │ available persons       │  │ Ada             Keyboard           │ │
+│ │ person choices          │  │ Bruno           Controller 1       │ │
 │ │ [Add]                   │  │ [Remove] [Reorder]                  │ │
 │ └─────────────────────────┘  └────────────────────────────────────┘ │
 │ Local players: 2 • Lobby 1–15 • Match 2–15 participants/players    │
@@ -29,5 +29,11 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 - Failure variants and Retry/Edit setup/Return destinations remain in the screen specification rather than separate wireframes.
 - An invalid host manifest uses the exact blocking reason in the screen specification, disables Retry for the application session, and leaves no listener or session.
 - Keyboard/controller focus follows fields, roster controls, Start session, then Back.
+- The setup body is flexible between fixed header and footer regions. Both lists scroll vertically under fixed headings, and status grows upward without covering the setup or actions.
+- Persons and Local Players provide person selection and control assignment without a profile selector, profile column, profile value, or profile-editing action.
+- A profile or cosmetic difference does not create a setup warning or prevent Start session.
+- Add and Remove change the local-player count only in editable setup.
+- Start session finalizes the displayed count and ordered slot set for the attempt.
+- Starting and Cancelling lock slot count and order.
 
 Planned representative screenshot: [`SS-016`](../../screenshots/README.md#ss-016).

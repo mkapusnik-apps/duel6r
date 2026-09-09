@@ -14,6 +14,11 @@ Entry is `MENU-01` → `Network (F2)`. Host continues to `NET-02`, Join continue
 - Show concise scope copy: `Same machine or LAN`, `Direct address and port`, and `Linux / Windows x86-64`.
 - Show `Player-hosted • Lobby 1–15 • Match 2–15 participants and players` as textual constraints.
 - Do not show endpoint fields until Join or host settings until Host.
+- Keep the `NETWORK PLAY` panel inside the shared 24-logical-pixel canvas margin.
+- Allocate the panel as a fixed title and scope region above one centered action column.
+- Give Host, Join, and Back one common width and height.
+- Keep at least 8 logical px between adjacent actions.
+- Wrap the scope copy at word boundaries before it reaches an action or panel edge.
 
 ## Navigation and state variants
 
