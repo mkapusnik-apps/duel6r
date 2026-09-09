@@ -73,7 +73,8 @@ D6R_TEST_CASE("lifecycle protocol rejects malformed zero and cross-kind credenti
 D6R_TEST_CASE("participant actions round trip exactly and reject malformed or unknown framing") {
     for (const auto kind: {ParticipantActionKind::Ready,
                            ParticipantActionKind::NotReady,
-                           ParticipantActionKind::Leave}) {
+                           ParticipantActionKind::Leave,
+                           ParticipantActionKind::ConfigurationChanged}) {
         const ParticipantAction action{91, 7, kind};
         const auto payload = serializeParticipantAction(action);
         D6R_REQUIRE_EQ(26u, payload.size());
@@ -87,7 +88,7 @@ D6R_TEST_CASE("participant actions round trip exactly and reject malformed or un
     D6R_REQUIRE(serializeParticipantAction({0, 7, ParticipantActionKind::Ready}).empty());
     D6R_REQUIRE(serializeParticipantAction({91, 0, ParticipantActionKind::Ready}).empty());
     D6R_REQUIRE(serializeParticipantAction(
-            {91, 7, static_cast<ParticipantActionKind>(4)}).empty());
+            {91, 7, static_cast<ParticipantActionKind>(5)}).empty());
     auto malformed = serializeParticipantAction({91, 7, ParticipantActionKind::Ready});
     malformed.push_back(0);
     D6R_REQUIRE(!deserializeParticipantAction(malformed).has_value());

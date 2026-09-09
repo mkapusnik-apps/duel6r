@@ -331,8 +331,13 @@ namespace Duel6::Server::Authoritative {
                     return false;
                 }
                 (void) replicationConnections.broadcast(*result);
+                const bool interrupted = published->state == ResultState::Interrupted;
                 activeMatch.reset();
-                currentStage = HostedMatchStage::FinalSummary;
+                if (interrupted) {
+                    clearReadiness();
+                    explicitReadinessRequired = true;
+                    currentStage = HostedMatchStage::Lobby;
+                } else currentStage = HostedMatchStage::FinalSummary;
             }
         } else {
             const bool lifecycleTransition = activeMatch->phase() != lastReplicatedPhase;
