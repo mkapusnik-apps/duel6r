@@ -739,10 +739,11 @@ namespace {
                     participantPersons = runtimeDependencies.localParticipantPersons();
             } catch (...) { break; }
             if (participantPersons) {
-                Network::SendResult sent = Network::SendResult::NotConnected;
-                try { sent = connection->send(Network::HostComposition::serializeOwnedPersons(*participantPersons)); }
+                Duel6::Network::SendResult sent = Duel6::Network::SendResult::NotConnected;
+                try { sent = connection->send(
+                        Duel6::Network::HostComposition::serializeOwnedPersons(*participantPersons)); }
                 catch (...) {}
-                if (sent != Network::SendResult::Accepted) break;
+                if (sent != Duel6::Network::SendResult::Accepted) break;
             }
             std::optional<Duel6::Network::Lifecycle::ParticipantActionKind> participantAction;
             try {

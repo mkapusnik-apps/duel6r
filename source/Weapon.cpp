@@ -67,6 +67,11 @@ namespace Duel6 {
                 return 0;
             }
 
+            Texture getNetworkProjectileTexture() const override { return Texture(); }
+            Texture getNetworkExplosionTexture() const override { return Texture(); }
+            void playNetworkShotSound() const override {}
+            void playNetworkExplosionSound() const override {}
+
             bool isChargeable() const override {
                 return false;
             }
