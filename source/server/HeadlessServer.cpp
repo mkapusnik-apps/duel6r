@@ -946,23 +946,31 @@ namespace {
         publishPresentation();
         closeClient();
         if (!sessionRecovery) return 2;
+        const auto takeReservedLeave = [&]() {
+            bool requested = false;
+            if (runtimeDependencies.localParticipantCommand) {
+                const auto command = runtimeDependencies.localParticipantCommand();
+                const auto action = command
+                        ? Duel6::Network::Lifecycle::deserializeParticipantAction(*command) : std::nullopt;
+                requested = action && action->kind == Duel6::Network::Lifecycle::ParticipantActionKind::Leave;
+                if (requested && runtimeDependencies.localParticipantCommandAccepted)
+                    runtimeDependencies.localParticipantCommandAccepted();
+            } else if (runtimeDependencies.localParticipantAction) {
+                const auto action = runtimeDependencies.localParticipantAction();
+                requested = action && *action == Duel6::Network::Lifecycle::ParticipantActionKind::Leave;
+            }
+            return requested;
+        };
+        const auto sendReservedLeave = [](const Duel6::Network::Lifecycle::ReconnectRequest &request,
+                                          const std::shared_ptr<Duel6::Server::AdmissionRuntimeConnection> &target) {
+            if (!target) return;
+            auto payload = Duel6::Network::Lifecycle::serializeReconnectRequest(request);
+            try { (void) target->sendSensitive(payload); } catch (...) {}
+            Duel6::Network::Lifecycle::eraseLifecycleCredentialPayload(payload);
+        };
         while (!cancelled()) {
             bool reservedLeaveRequested = false;
-            try {
-                if (runtimeDependencies.localParticipantCommand) {
-                    const auto command = runtimeDependencies.localParticipantCommand();
-                    const auto action = command
-                            ? Duel6::Network::Lifecycle::deserializeParticipantAction(*command) : std::nullopt;
-                    reservedLeaveRequested = action
-                            && action->kind == Duel6::Network::Lifecycle::ParticipantActionKind::Leave;
-                    if (reservedLeaveRequested && runtimeDependencies.localParticipantCommandAccepted)
-                        runtimeDependencies.localParticipantCommandAccepted();
-                } else if (runtimeDependencies.localParticipantAction) {
-                    const auto action = runtimeDependencies.localParticipantAction();
-                    reservedLeaveRequested = action
-                            && *action == Duel6::Network::Lifecycle::ParticipantActionKind::Leave;
-                }
-            } catch (...) { return 2; }
+            try { reservedLeaveRequested = takeReservedLeave(); } catch (...) { return 2; }
             const auto now = runtimeNow(runtimeDependencies);
             sessionRecovery->update(now);
             if (runtimeDependencies.guestRecoveryPresentation) {
@@ -999,38 +1007,60 @@ namespace {
             }
             bool reconnected = false;
             while (!cancelled()) {
+                try { reservedLeaveRequested = reservedLeaveRequested || takeReservedLeave(); }
+                catch (...) { try { retryClient->close(); } catch (...) {} return 2; }
+                if (reservedLeaveRequested) {
+                    std::shared_ptr<Duel6::Server::AdmissionRuntimeConnection> leaveConnection;
+                    try { leaveConnection = retryClient->connection(); } catch (...) {}
+                    sendReservedLeave(*retryRequest, leaveConnection);
+                    sessionRecovery->leave();
+                    try { retryClient->close(); } catch (...) {}
+                    return 0;
+                }
                 sessionRecovery->update(runtimeNow(runtimeDependencies));
                 if (sessionRecovery->journey() != Duel6::Network::Lifecycle::GuestJourney::Reconnecting)
                     break;
                 try { reconnected = retryClient->waitForConnected(std::chrono::milliseconds(5)); }
                 catch (...) { break; }
+                try { reservedLeaveRequested = takeReservedLeave(); }
+                catch (...) { try { retryClient->close(); } catch (...) {} return 2; }
+                if (reservedLeaveRequested) {
+                    std::shared_ptr<Duel6::Server::AdmissionRuntimeConnection> leaveConnection;
+                    try { leaveConnection = retryClient->connection(); } catch (...) {}
+                    sendReservedLeave(*retryRequest, leaveConnection);
+                    sessionRecovery->leave();
+                    try { retryClient->close(); } catch (...) {}
+                    return 0;
+                }
                 if (reconnected) break;
                 Duel6::Network::ClientState retryState = Duel6::Network::ClientState::Failed;
                 try { retryState = retryClient->state(); } catch (...) {}
                 if (isTerminal(retryState)) break;
             }
+            try { reservedLeaveRequested = reservedLeaveRequested || takeReservedLeave(); }
+            catch (...) { try { retryClient->close(); } catch (...) {} return 2; }
+            if (reservedLeaveRequested) {
+                std::shared_ptr<Duel6::Server::AdmissionRuntimeConnection> leaveConnection;
+                try { leaveConnection = retryClient->connection(); } catch (...) {}
+                sendReservedLeave(*retryRequest, leaveConnection);
+                sessionRecovery->leave();
+                try { retryClient->close(); } catch (...) {}
+                return 0;
+            }
             if (!reconnected) {
                 try { retryClient->close(); } catch (...) {}
-                if (reservedLeaveRequested) {
-                    sessionRecovery->leave();
-                    return 0;
-                }
                 continue;
             }
             std::shared_ptr<Duel6::Server::AdmissionRuntimeConnection> retryConnection;
             try { retryConnection = retryClient->connection(); } catch (...) {}
             if (!retryConnection) {
                 try { retryClient->close(); } catch (...) {}
-                if (reservedLeaveRequested) {
-                    sessionRecovery->leave();
-                    return 0;
-                }
                 continue;
             }
+            try { reservedLeaveRequested = takeReservedLeave(); }
+            catch (...) { try { retryClient->close(); } catch (...) {} return 2; }
             if (reservedLeaveRequested) {
-                auto leavePayload = Duel6::Network::Lifecycle::serializeReconnectRequest(*retryRequest);
-                try { (void) retryConnection->sendSensitive(leavePayload); } catch (...) {}
-                Duel6::Network::Lifecycle::eraseLifecycleCredentialPayload(leavePayload);
+                sendReservedLeave(*retryRequest, retryConnection);
                 sessionRecovery->leave();
                 try { retryClient->close(); } catch (...) {}
                 return 0;
@@ -1048,10 +1078,26 @@ namespace {
             std::optional<Duel6::Network::Lifecycle::ReconnectResponse> response;
             while (!cancelled() && sessionRecovery->journey()
                     == Duel6::Network::Lifecycle::GuestJourney::Reconnecting) {
+                try { reservedLeaveRequested = takeReservedLeave(); }
+                catch (...) { try { retryClient->close(); } catch (...) {} return 2; }
+                if (reservedLeaveRequested) {
+                    sendReservedLeave(*retryRequest, retryConnection);
+                    sessionRecovery->leave();
+                    try { retryClient->close(); } catch (...) {}
+                    return 0;
+                }
                 sessionRecovery->update(runtimeNow(runtimeDependencies));
                 Duel6::Network::TransportFrame frame;
                 bool received = false;
                 try { received = retryConnection->receive(frame); } catch (...) { break; }
+                try { reservedLeaveRequested = takeReservedLeave(); }
+                catch (...) { try { retryClient->close(); } catch (...) {} return 2; }
+                if (reservedLeaveRequested) {
+                    sendReservedLeave(*retryRequest, retryConnection);
+                    sessionRecovery->leave();
+                    try { retryClient->close(); } catch (...) {}
+                    return 0;
+                }
                 if (received) {
                     LifecycleCredentialPayloadGuard credentialPayload(frame.payload);
                     if (auto parsed = Duel6::Network::Lifecycle::deserializeReconnectResponse(frame.payload)) {
@@ -1101,6 +1147,14 @@ namespace {
                 try { retryState = retryConnection->state(); } catch (...) {}
                 if (isTerminal(retryState)) break;
                 try { runtimeDependencies.wait(std::chrono::milliseconds(5)); } catch (...) { break; }
+            }
+            try { reservedLeaveRequested = takeReservedLeave(); }
+            catch (...) { try { retryClient->close(); } catch (...) {} return 2; }
+            if (reservedLeaveRequested) {
+                sendReservedLeave(*retryRequest, retryConnection);
+                sessionRecovery->leave();
+                try { retryClient->close(); } catch (...) {}
+                return 0;
             }
             if (sessionRecovery->journey() == Duel6::Network::Lifecycle::GuestJourney::ConnectionFailure) {
                 const auto copy = sessionRecovery->failureCopy();

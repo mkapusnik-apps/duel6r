@@ -251,6 +251,20 @@ namespace Duel6 {
             std::size_t count = 0;
         };
 
+        struct LobbyControlRectangles {
+            Int32 bottom = 0;
+        };
+
+        constexpr Int32 LobbyPersonLeft = 48;
+        constexpr Int32 LobbyPersonWidth = 176;
+        constexpr Int32 LobbyControlLeft = 228;
+        constexpr Int32 LobbyControlWidth = 170;
+        constexpr Int32 LobbyControlRowHeight = 18;
+
+        LobbyControlRectangles lobbyControlRectangles(std::size_t offset, bool retained) {
+            return {(retained ? 164 : 243) - static_cast<Int32>(offset) * LobbyControlRowHeight};
+        }
+
         VisibleWindow localControlWindow(int focus, std::size_t playerCount, bool retained) {
             if (playerCount == 0) return {};
             const bool focused = focus >= 0 && focus < static_cast<int>(playerCount) * 2;
@@ -624,12 +638,17 @@ namespace Duel6 {
                 return;
             }
             const auto controls = localControlWindow(focus, localPlayers.size(), retained);
-            const Int32 baseY = retained ? 162 : 241;
             for (std::size_t offset = 0; offset < controls.count; ++offset) {
                 const std::size_t index = controls.first + offset;
-                const Int32 rowY = baseY - static_cast<Int32>(offset) * 18;
-                if (!pointerInside(x, y, 48, rowY, 350, 18)) continue;
-                focus = static_cast<int>(index) * 2 + (x >= 230 ? 1 : 0); activate(); return;
+                const auto rectangles = lobbyControlRectangles(offset, retained);
+                if (pointerInside(x, y, LobbyPersonLeft, rectangles.bottom,
+                                  LobbyPersonWidth, LobbyControlRowHeight)) {
+                    focus = static_cast<int>(index) * 2; activate(); return;
+                }
+                if (pointerInside(x, y, LobbyControlLeft, rectangles.bottom,
+                                  LobbyControlWidth, LobbyControlRowHeight)) {
+                    focus = static_cast<int>(index) * 2 + 1; activate(); return;
+                }
             }
             const int readyIndex = static_cast<int>(localPlayers.size()) * 2;
             if (pointerInside(x, y, 48, retained ? 140 : 188, 220, 20)) {
@@ -1314,17 +1333,23 @@ namespace Duel6 {
         drawText(410, 426, "Assistance " + onOff(state.settings.assistance) + " • Quick Liquid " + onOff(state.settings.quickLiquid));
         drawText(410, 406, "Burnable Trees " + onOff(state.settings.burnableTrees));
         const bool retainedResult = state.result.available;
-        Int32 cy = retainedResult ? 166 : 245;
         const auto controls = localControlWindow(focus, localPlayers.size(), retainedResult);
-        for (std::size_t offset = 0; offset < controls.count; ++offset, cy -= 18) {
+        for (std::size_t offset = 0; offset < controls.count; ++offset) {
             const std::size_t index = controls.first + offset;
-            drawClippedText(50, cy,
-                    (focus == static_cast<int>(index) * 2 ? "> Person: " : "  Person: ") + localPlayers[index].name
-                    + (focus == static_cast<int>(index) * 2 + 1 ? "  > Control: " : "  Control: ")
-                    + (localPlayers[index].controls ? localPlayers[index].controls->getDescription() : "No control"), 43);
-            drawFocusKeyline(focus == static_cast<int>(index) * 2 ? 48 : 228, cy - 2,
-                             focus == static_cast<int>(index) * 2 ? 176 : 170, 18,
-                             focus == static_cast<int>(index) * 2 || focus == static_cast<int>(index) * 2 + 1);
+            const auto rectangles = lobbyControlRectangles(offset, retainedResult);
+            const bool personFocused = focus == static_cast<int>(index) * 2;
+            const bool controlFocused = focus == static_cast<int>(index) * 2 + 1;
+            drawClippedText(LobbyPersonLeft + 2, rectangles.bottom + 2,
+                    (personFocused ? "> Person: " : "  Person: ") + localPlayers[index].name,
+                    static_cast<std::size_t>((LobbyPersonWidth - 4) / 8));
+            drawClippedText(LobbyControlLeft + 2, rectangles.bottom + 2,
+                    (controlFocused ? "> Control: " : "  Control: ")
+                    + (localPlayers[index].controls ? localPlayers[index].controls->getDescription() : "No control"),
+                    static_cast<std::size_t>((LobbyControlWidth - 4) / 8));
+            drawFocusKeyline(LobbyPersonLeft, rectangles.bottom, LobbyPersonWidth, LobbyControlRowHeight,
+                             personFocused);
+            drawFocusKeyline(LobbyControlLeft, rectangles.bottom, LobbyControlWidth, LobbyControlRowHeight,
+                             controlFocused);
         }
         const int readyIndex = static_cast<int>(localPlayers.size()) * 2;
         drawText(50, retainedResult ? 144 : 192, focus == readyIndex ? "> Ready / Not ready" : "Ready / Not ready");
