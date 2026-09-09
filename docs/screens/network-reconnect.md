@@ -13,6 +13,13 @@ An unintentional guest disconnect from `NET-04`, `NET-05`, or `NET-06` enters th
 - The representative state shows `24 seconds remaining` at 1280 by 900.
 - During an active round, show `Match continues while you reconnect` and `Reserved players receive no input and remain in play`.
 - Offer `Leave session` with supporting consequence `Your reserved players will be removed now and reconnect will stop`.
+- Center the reconnect panel in the client and keep at least 16 px from every client edge.
+- Limit the panel width to 640 px or the available client width, whichever is smaller.
+- Keep the heading, countdown, and Leave session action visible.
+- Wrap supporting prose at word boundaries.
+- Break an endpoint at a character boundary only when it cannot fit on one line.
+- Grow the panel downward for representative copy and use an internal body scroll only when the available client height cannot contain it.
+- Keep the last confirmed context visible around the panel without presenting that context as current.
 
 ## Navigation and significant variants
 

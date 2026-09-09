@@ -333,6 +333,25 @@ The following values come from renderer and GUI source.
 - A movement correction must move that sprite toward one latest accepted canonical position.
 - A movement correction must not use a duplicate sprite, ghost trail, flashing marker, camera shift, or outcome effect.
 - A movement correction must not change another player's visible state or an authoritative outcome.
+- A menu-canvas network screen must keep a 24-logical-pixel inner margin around its primary panel.
+- A menu-canvas network screen must use a fixed header region, a flexible body region, and a fixed action region.
+- Adjacent network controls must keep at least 8 logical px of clear space.
+- A primary network action must precede Back, Cancel, Leave, End session, Edit setup, and Return actions in reading order.
+- A focused network control must add a continuous 2-logical-pixel black outer keyline outside its normal frame.
+- The focus keyline must not change the control size or move adjacent content.
+- A disabled network control must keep readable text, use a flat frame instead of the raised actionable frame, and show one persistent nearby reason.
+- A disabled network control must not receive focus or pointer activation.
+- A network text field must show its complete value when the value fits.
+- A focused text field may scroll its text horizontally to keep the insertion position visible.
+- An unfocused text field must clip an overlong value inside the field and must not draw into an adjacent region.
+- A network list or table must keep its heading visible while its body scrolls vertically.
+- A network list or table must not increase row height to fit a long participant or player name.
+- A long participant or player value must clip inside its column.
+- A horizontally wide result table must provide an explicit horizontal scroll control inside the result region.
+- A scroll control must remain keyboard- and controller-operable and must show visible position feedback.
+- A blocking network panel must keep at least 16 px between its outer edge and each client edge.
+- A blocking network panel must wrap prose at word boundaries and may break an unspaced endpoint at a character boundary.
+- A blocking network panel must keep its heading, current status, and primary recovery action visible when body content scrolls.
 
 ### Gameplay presentation
 

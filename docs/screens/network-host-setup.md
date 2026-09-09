@@ -3,6 +3,7 @@
 ## Status, purpose, and requirements
 
 This is a target screen for downstream issue #38; it is not implemented. It collects the direct listening port and host local players before creating a player-hosted session. It implements `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-009`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+It preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
 Issue #30 defines the host compatibility result for this planned flow in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 Issue #30 must not implement this graphical screen.
 Issue #31 defines the hosted-service lifecycle for this planned flow in [`docs/network-host-service-lifecycle.md`](../network-host-service-lifecycle.md).
@@ -18,6 +19,16 @@ Entry is `NET-01` → Host. Successful confirmed startup enters `NET-04`; startu
 - Show the host's local Persons and Local Players panels with person, profile, and control assignment for each selected player.
 - Show a capacity line such as `Local players: 2 • Lobby 1–15 • Match 2–15 participants and players`.
 - Footer actions are `Start session` and `Back`, with a persistent reason line below or adjacent to Start session.
+- Keep the screen content inside the shared 24-logical-pixel canvas margin.
+- Use a fixed title and support-note region, a flexible setup region, and a fixed status and action region.
+- Split the flexible setup region between Persons and Local Players with one 8-logical-pixel gap.
+- Keep the two setup regions equal in height.
+- Let each setup list scroll vertically without moving its title or actions.
+- Keep each person, profile, and control assignment on one row.
+- Clip an overlong row value inside its column.
+- Keep the Port field wide enough for five digits and keep the full value visible.
+- Keep the persistent validation or lifecycle status above the footer actions.
+- Wrap a long status at word boundaries and grow the status region upward without covering setup controls.
 
 ## Navigation and significant variants
 
@@ -61,6 +72,9 @@ Entry is `NET-01` → Host. Successful confirmed startup enters `NET-04`; startu
 - Escape or controller Back must activate Back in editable setup.
 - Escape or controller Back must activate Cancel while Starting.
 - Every selected local player and control assignment must be operable by keyboard and controller, with a visible textual focus state.
+- The host must be able to select any established keyboard preset or detected supported controller preset for each owned local player.
+- The setup must permit the same control preset for more than one owned local player.
+- Controller detection and connection changes must preserve the established local device behavior.
 - The invalid host-manifest reason and disabled Retry reason must remain readable without color, sound, or transient motion.
 
 Planned representative screenshot: [`SS-016`](../screenshots/README.md#ss-016).

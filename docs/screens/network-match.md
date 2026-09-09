@@ -3,6 +3,7 @@
 ## Status, purpose, and requirements
 
 This is a target screen for downstream issue #38; it is not implemented. It presents the authoritative network match in the existing undivided shared arena. It implements `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-009` through `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md) alongside unchanged local gameplay presentation requirements. Its degraded-network, visible-correction, and recovery variants implement `NRP-BUD-001` through `NRP-BUD-007`, `NRP-PRS-001` through `NRP-PRS-011`, `NRP-REC-001` through `NRP-REC-012`, `NRP-AUT-001` through `NRP-AUT-006`, and `NRP-AC-001` through `NRP-AC-014` in [`docs/network-responsiveness-and-recovery.md`](../network-responsiveness-and-recovery.md).
+It preserves `INP-011` through `INP-016` and implements `NIN-OWN-006`, `NIN-BOUND-003`, and `NIN-COMP-AC-001` through `NIN-COMP-AC-004` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
 
 The host starts this screen from `NET-04` after all participants are ready and clears any prior retained result. Match completion enters `NET-06`; unexpected host contact failure enters guest `NET-07`. Only a valid End session notice accepted through the current established session enters guest `NET-09`.
 
@@ -123,6 +124,11 @@ The host starts this screen from `NET-04` after all participants are ready and c
 - Phase and countdown text must remain visible without reliance on curtain motion or color.
 - Only the host may receive focus on `Advance round` or `End session`.
 - Local Play advancement, scripting, presentation, and persistence behavior must remain unchanged.
+- Each established keyboard or controller action must affect only an owned player through the network session.
+- Move left, move right, jump, crouch, shoot, pick a weapon, and show status must keep their established meanings.
+- Double-jump, weapon-pick eligibility and drop-first behavior, five-second status display, and dead-player input behavior must remain unchanged.
+- A controller connection change during the round must not reassign a player automatically.
+- The graphical client must collect local device input, but the authoritative service must not initialize a renderer, audio, or local input device.
 
 ## Observable acceptance and evidence
 

@@ -28,5 +28,6 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 - Without a complete response, name-resolution failure, unreachable or refusal, incomplete admission, and timeout use the exact order and copy in the screen specification.
 - User copy is fixed and never displays peer-supplied release IDs, manifest paths, credentials, policy values, or payloads.
 - Retry, Edit setup, Return to Network, and other failure variants remain in the screen specification.
+- The endpoint header and connecting footer remain fixed. Local-player rows use the flexible middle region and scroll under fixed headings.
 
 Planned representative screenshot: [`SS-017`](../../screenshots/README.md#ss-017).

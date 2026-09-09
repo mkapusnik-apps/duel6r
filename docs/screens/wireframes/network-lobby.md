@@ -31,5 +31,7 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 - The settings area offers only the supported mode matrix, level plan, round limit 1–99, Assistance, Quick Liquid, and Burnable Trees.
 - Invalid settings remain here with exact corrective copy and cleared readiness.
 - Unavailable content blocks another Start match and leaves host-only End session available.
+- The body gives approximately two thirds of its width to participants and roster content and one third to settings, with an 8-logical-pixel gap.
+- Participant, roster, and retained-result rows scroll under fixed headings while the session header, disabled reason, script policy, and footer actions remain visible.
 
 Planned representative screenshot: [`SS-018`](../../screenshots/README.md#ss-018).

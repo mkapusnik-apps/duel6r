@@ -30,5 +30,7 @@ Target representative viewport: 1280 by 900 px. The final arena context remains 
 - An interrupted result enters `NET-04` directly and never appears here.
 - The result provides all completed match, round, player, and applicable team fields from issue #32.
 - Ranking uses labeled columns and textual rank, team, winner, No winner, and Departed values.
+- The panel keeps a fixed identity header and action footer around a vertically scrolling result viewport.
+- Wide result tables provide an internal horizontal scroll control and keep their column headings visible.
 
 Planned representative screenshot: [`SS-020`](../../screenshots/README.md#ss-020).

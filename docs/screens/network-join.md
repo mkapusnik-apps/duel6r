@@ -3,6 +3,7 @@
 ## Status, purpose, and requirements
 
 This is a target screen for downstream issue #38; it is not implemented. It configures a guest's direct endpoint and local players, then truthfully reports connection progress. It implements `NET-AC-001`, `NET-AC-002`, `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+It preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
 Issue #30 defines the compatibility and admission outcomes for this planned flow in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 Issue #30 must not implement this graphical screen.
 
@@ -14,6 +15,13 @@ Entry is `NET-01` → Join. Complete validated production admission enters `NET-
 - Show Hostname or address and Port fields, plus the guest's Local Persons and Local Players configuration.
 - The representative state is `Connecting to 192.168.1.24:27015…` with two configured local players and a visible Cancel action.
 - Preserve the entered endpoint and local configuration while connecting and after a recoverable failure.
+- Keep the screen content inside the shared 24-logical-pixel canvas margin.
+- Use a fixed title and endpoint region, a flexible local-player region, and a fixed status and action region.
+- Give Hostname or address the remaining width after the Port field and the 8-logical-pixel field gap.
+- Keep local-player headings fixed while local-player rows scroll vertically.
+- Keep each person, profile, and control assignment on one row and clip it inside its column.
+- Keep connecting status above Cancel and wrap it at word boundaries.
+- Keep Cancel visible when retained setup or connecting copy is longer than the representative values.
 
 ## Navigation and significant variants
 
@@ -43,5 +51,8 @@ Entry is `NET-01` → Join. Complete validated production admission enters `NET-
 - Focus order is Hostname/address → Port → local-player controls → Connect → Back. During connection, focus is Cancel.
 - Keyboard Tab/Shift+Tab and controller directions traverse controls; Enter/Space/controller Confirm activates; Escape/controller Back cancels an attempt or returns to `NET-01` from editable setup.
 - A result must remain visible as text until the user selects a recovery action.
+- The guest must be able to select any established keyboard preset or detected supported controller preset for each owned local player.
+- The setup must permit the same control preset for more than one owned local player.
+- Controller detection and connection changes must preserve the established local device behavior.
 
 Planned representative screenshot: [`SS-017`](../screenshots/README.md#ss-017).

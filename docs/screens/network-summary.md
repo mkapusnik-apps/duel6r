@@ -20,6 +20,16 @@ Normal match completion enters from `NET-05`. An interrupted match enters `NET-0
 - Show team totals when the mode uses teams.
 - Place the exact label `Session only` beside the heading or result table and show `Not saved to local statistics or Elo` as supporting copy.
 - Show host-only `Return to lobby` and `End session`; guests see a waiting status and `Leave`.
+- Keep the summary panel at least 16 px from every client edge.
+- Limit the summary panel to the available client width and height.
+- Use a fixed summary heading and result-identity region, a flexible result viewport, and a fixed status and action region.
+- Keep `Session only`, `Completed`, match outcome, and last completed-round outcome visible above the scrolling result viewport.
+- Group match settings, round results, and cumulative results as separately labeled sections in reading order.
+- Let the result viewport scroll vertically when all sections do not fit.
+- Keep table headings visible while table rows scroll.
+- Provide horizontal scrolling inside a table when all required columns do not fit.
+- Keep action controls visible while result content scrolls.
+- Clip long display names inside their columns and do not increase row height.
 
 ## Navigation and significant variants
 

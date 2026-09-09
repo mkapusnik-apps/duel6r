@@ -3,6 +3,7 @@
 ## Status, purpose, and requirements
 
 This is a target screen for downstream issue #38; it is not implemented. It exposes participant ownership, local-player configuration, host-owned match settings, authoritative roster order, readiness, and retained session results. Issue #32 defines its authoritative setup and result states in [`docs/network-authoritative-headless-match.md`](../network-authoritative-headless-match.md).
+Local-player configuration preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
 
 Host admission enters from `NET-02`. A guest enters from `NET-03` only after complete validated production admission. Host Start match enters `NET-05`; final-summary Return to lobby enters here with readiness cleared. Confirmed guest Leave sends that guest to `NET-01`. Confirmed host End session sends the host to `NET-01` and guests to `NET-09`. Any unexpected host contact failure enters guest `NET-07`; only a valid End session notice accepted through the current established session enters guest `NET-09`.
 
@@ -21,6 +22,17 @@ A complete validated production admission must contain an exact final confirmati
 - Level plan must offer Fixed level, Shuffle all levels, and Random level.
 - The screen must state `Optional scripts are disabled for network play.`
 - The screen must not expose weapon enablement, ammunition ranges, level data, or gameplay definitions as host settings.
+- Keep the screen content inside the shared 24-logical-pixel canvas margin.
+- Use a fixed session header, a flexible two-column body, and a fixed status and action region.
+- Allocate approximately two thirds of the body width to participants and authoritative roster content.
+- Allocate the remaining body width to host match settings.
+- Keep an 8-logical-pixel gap between the body columns.
+- Keep participant and roster column headings visible while up to 15 participant or player rows scroll vertically.
+- Keep each participant and player on one row.
+- Clip long names inside the applicable column without hiding Role, Connection, or Readiness.
+- Keep the Start disabled reason and script-policy text above the footer actions.
+- Present a retained result in a bounded result region below the session header and above the footer.
+- Let retained-result rows scroll without moving the result labels or footer actions.
 
 ## Navigation and significant variants
 
@@ -57,5 +69,8 @@ A complete validated production admission must contain an exact final confirmati
 - Example Start reason: `Waiting for Guest 2 to be ready`. Example Ready reason: `Assign a control to Cora`.
 - Focus order follows participant-owned controls, Ready, host-owned settings where applicable, Start match, and Leave/End session. Read-only controls are skipped.
 - Keyboard Tab or directional controller input traverses; Enter/Space/controller Confirm activates; Escape/controller Back focuses Leave/End session rather than silently abandoning the session.
+- Each participant must be able to assign established keyboard and detected supported controller presets only to that participant's owned local players.
+- The lobby must permit the same local control preset for more than one player owned by the same participant.
+- A control change must keep the established controller-rescan, detection, and in-round non-reassignment behavior.
 
 Planned representative screenshot: [`SS-018`](../screenshots/README.md#ss-018).

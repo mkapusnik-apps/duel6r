@@ -23,5 +23,6 @@ Target representative viewport: 1280 by 900 px with active arena context. This w
 - Outcome order is accepted intentional host End notice, accepted restore, terminal rejection, retryable ambiguity, then deadline expiry.
 - Expiry enters `NET-08` with `Reconnect time expired. The session could not be restored.` and never claims host end or player removal. Lifecycle-specific host-side batching and terminal variants remain in the specification.
 - The state offers no Pause or host-migration action.
+- The centered panel is no wider than 640 px, keeps a 16 px client-edge clearance, wraps prose, and keeps the countdown and Leave session action visible.
 
 Planned representative screenshot: [`SS-021`](../../screenshots/README.md#ss-021).

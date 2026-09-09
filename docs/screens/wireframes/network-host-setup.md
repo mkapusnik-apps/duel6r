@@ -29,5 +29,6 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 - Failure variants and Retry/Edit setup/Return destinations remain in the screen specification rather than separate wireframes.
 - An invalid host manifest uses the exact blocking reason in the screen specification, disables Retry for the application session, and leaves no listener or session.
 - Keyboard/controller focus follows fields, roster controls, Start session, then Back.
+- The setup body is flexible between fixed header and footer regions. Both lists scroll vertically under fixed headings, and status grows upward without covering the setup or actions.
 
 Planned representative screenshot: [`SS-016`](../../screenshots/README.md#ss-016).
