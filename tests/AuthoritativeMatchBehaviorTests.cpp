@@ -247,6 +247,8 @@ struct ProductionCanonicalFixture {
     bool driveToTerminal() {
         for (std::size_t tick = 0; tick < 60000 && controller.match(); ++tick)
             if (!driveOneTick()) return false;
+        if (controller.stage() == HostedMatchStage::FinalSummary)
+            D6R_REQUIRE(controller.returnToLobby(1));
         return controller.match() == nullptr && controller.stage() == HostedMatchStage::Lobby;
     }
 };
@@ -411,6 +413,7 @@ std::string followingLobbyMembershipEvidence(bool interrupted) {
                 *controller.match(), sequence++, 1, 0, ActionKind::RemovePlayer, 102)));
     }
     D6R_REQUIRE(controller.observeMatchOutcome());
+    if (!interrupted) D6R_REQUIRE(controller.returnToLobby(1));
 
     controller.disconnectReplication(2);
     D6R_REQUIRE(controller.updateReplicationConnection(2, R::ConnectionState::Reconnecting));
@@ -485,6 +488,7 @@ std::string followingLobbySettingsEvidence(bool interrupted) {
                 *controller.match(), sequence++, 1, 0, ActionKind::RemovePlayer, 102)));
     }
     D6R_REQUIRE(controller.observeMatchOutcome());
+    if (!interrupted) D6R_REQUIRE(controller.returnToLobby(1));
 
     const auto outcomeStates = deliveredStates(payloads);
     const auto *prior = lastPhase(outcomeStates, R::Phase::Lobby);
@@ -943,6 +947,7 @@ D6R_TEST_CASE("REP-017 NET-AC-018 completed hosted match publishes final summary
     eliminate(*controller.match(), sequence, players[0], players[1]);
     finishDelay(*controller.match());
     D6R_REQUIRE(controller.observeMatchOutcome());
+    D6R_REQUIRE(controller.returnToLobby(1));
     D6R_REQUIRE(controller.currentSessionResult().has_value());
     D6R_REQUIRE(controller.currentSessionResult()->state == ResultState::Completed);
 
@@ -1061,6 +1066,7 @@ D6R_TEST_CASE("REP-017 NET-AC-018 completed following lobby permits reconnect an
     eliminate(*controller.match(), sequence, players[0], players[1]);
     finishDelay(*controller.match());
     D6R_REQUIRE(controller.observeMatchOutcome());
+    D6R_REQUIRE(controller.returnToLobby(1));
     D6R_REQUIRE_EQ(HostedMatchStage::Lobby, controller.stage());
 
     controller.disconnectReplication(2);
@@ -1227,6 +1233,7 @@ D6R_TEST_CASE("AHM-AC-020 REP-017 REP-025 cumulative tie-break order survives fi
     D6R_REQUIRE(controller.match()->advanceOneTick());
     finishDelay(*controller.match());
     D6R_REQUIRE(controller.observeMatchOutcome());
+    D6R_REQUIRE(controller.returnToLobby(1));
 
     const auto incrementalStates = deliveredStates(incrementalPayloads);
     const auto *finalSummary = lastPhase(incrementalStates, R::Phase::FinalSummary);
@@ -1435,6 +1442,7 @@ D6R_TEST_CASE("REP-013 following-lobby removal clears all lifecycle and replicat
     eliminate(*controller.match(), sequence, players[0], players[2]);
     finishDelay(*controller.match());
     D6R_REQUIRE(controller.observeMatchOutcome());
+    D6R_REQUIRE(controller.returnToLobby(1));
     D6R_REQUIRE(controller.stage() == HostedMatchStage::Lobby);
     D6R_REQUIRE(controller.retainsCompletedResult());
     D6R_REQUIRE(controller.setParticipantReady(1, true));
@@ -1473,6 +1481,7 @@ D6R_TEST_CASE("REP-013 REP-017 post-result newcomer Leave and expiry preserve re
         eliminate(*controller.match(), sequence, players[0], players[1]);
         finishDelay(*controller.match());
         D6R_REQUIRE(controller.observeMatchOutcome());
+        D6R_REQUIRE(controller.returnToLobby(1));
         D6R_REQUIRE(controller.stage() == HostedMatchStage::Lobby);
         D6R_REQUIRE(controller.retainsCompletedResult());
 
@@ -1700,6 +1709,7 @@ D6R_TEST_CASE("NET-AC-013 NET-AC-018 completed and interrupted following-lobby d
             D6R_REQUIRE_EQ(OutcomeCode::InterruptedNoWinner, controller.match()->outcome().code);
         }
         D6R_REQUIRE(controller.observeMatchOutcome());
+        if (!interrupted) D6R_REQUIRE(controller.returnToLobby(1));
         D6R_REQUIRE(controller.currentSessionResult().has_value());
         D6R_REQUIRE(controller.currentSessionResult()->state
                     == (interrupted ? ResultState::Interrupted : ResultState::Completed));
@@ -1909,6 +1919,7 @@ D6R_TEST_CASE("NET-AC-014 NET-AC-018 shutdown and runtime failure discard all re
         D6R_REQUIRE(controller.retainsCompletedResult());
 
         if (runtimeFailure) {
+            D6R_REQUIRE(controller.returnToLobby(1));
             D6R_REQUIRE(controller.setParticipantReady(1, true));
             D6R_REQUIRE(controller.setParticipantReady(2, true));
             MatchRuntimeDependencies failure;

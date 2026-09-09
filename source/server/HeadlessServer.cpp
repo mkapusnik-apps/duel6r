@@ -2341,11 +2341,13 @@ namespace Duel6::Server {
                 } else if (hostedMatch->stage() == Authoritative::HostedMatchStage::Ended) {
                     lifecyclePhase = Network::Lifecycle::Phase::Ended;
                 }
-                if (sessionLifecycle->processLifecycleBatch(lifecyclePhase)
-                    == Network::Lifecycle::RemovalOutcome::Failed) {
+                const auto lifecycleOutcome = sessionLifecycle->processLifecycleBatch(lifecyclePhase);
+                if (lifecycleOutcome == Network::Lifecycle::RemovalOutcome::Failed) {
                     runtimeFailed = true;
                     break;
                 }
+                if (lifecycleOutcome == Network::Lifecycle::RemovalOutcome::InterruptedToLobby)
+                    admissionPolicy->setMatchStarted(false);
             }
             if (runtimeDependencies.hostSessionPresentation && hostedMatch) {
                 const auto snapshot = hostedMatch->currentSnapshot();

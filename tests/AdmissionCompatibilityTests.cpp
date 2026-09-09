@@ -19,6 +19,7 @@
 #include "tests/TestHarness.h"
 #include "source/network/AdmissionProtocol.h"
 #include "source/network/CompatibilityManifest.h"
+#include "source/network/HostCompositionProtocol.h"
 #include "source/network/NetworkTrustPolicy.h"
 #include "source/network/PlayerInputProtocol.h"
 #include "source/network/SessionLifecycle.h"
@@ -1494,6 +1495,8 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
     std::atomic<bool> cancelled{false};
     std::atomic<unsigned> matchStarts{0};
     std::atomic<bool> hostShouldReady{false};
+    std::atomic<bool> returnToLobbyRequested{false};
+    std::atomic<bool> returnToLobbySent{false};
     hostDependencies.cancelled = [&] { return cancelled.load(); };
     hostDependencies.hostedServiceStatus = [&](Network::HostServiceStatusCode status) {
         if (status == Network::HostServiceStatusCode::Ready) ready = true;
@@ -1503,6 +1506,10 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
     hostDependencies.hostReadinessChange = [&] {
         return !hostShouldReady.load() || hostReadySent.exchange(true)
                ? std::optional<bool>{} : std::optional<bool>(true);
+    };
+    hostDependencies.hostSessionPayload = [&]() -> std::optional<std::vector<std::uint8_t>> {
+        if (!returnToLobbyRequested.load() || returnToLobbySent.exchange(true)) return std::nullopt;
+        return Network::HostComposition::serializeAction(Network::HostComposition::Kind::ReturnToLobby);
     };
     hostDependencies.authoritativeRuntimeFactory = [&](const auto &, const auto &players, const auto &) {
         ++matchStarts;
@@ -1551,6 +1558,10 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
     D6R_REQUIRE(pumpUntil(*first, [&] { return first->admitted; }, 2s));
     hostShouldReady = true;
     const bool completedResultReceived = pumpUntil(*first, [&] {
+        if (std::any_of(first->states.begin(), first->states.end(), [](const auto &state) {
+                return state.phase == Network::Replication::Phase::FinalSummary
+                        && state.result.available && state.result.state == "Completed";
+            })) returnToLobbyRequested = true;
         return std::any_of(first->states.begin(), first->states.end(), [](const auto &state) {
             return state.phase == Network::Replication::Phase::Lobby
                     && state.result.available && state.result.state == "Completed";

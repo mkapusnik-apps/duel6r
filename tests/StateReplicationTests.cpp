@@ -146,8 +146,8 @@ namespace {
         return update;
     }
 
-    std::string serializedTwoPlayerResult(bool interrupted, bool guestDeparted = false,
-                                          R::Identity resultOnlyPlayerId = 0, bool teams = false) {
+    A::SessionResult twoPlayerResult(bool interrupted, bool guestDeparted = false,
+                                     R::Identity resultOnlyPlayerId = 0, bool teams = false) {
         A::SessionResult result;
         result.label = "Session only";
         result.state = interrupted ? A::ResultState::Interrupted : A::ResultState::Completed;
@@ -221,9 +221,61 @@ namespace {
             result.teams.push_back({A::Team::Bravo, 2, {102}});
         }
 
+        return result;
+    }
+
+    std::string serializedResult(const A::SessionResult &result) {
         const auto serialized = A::serializeSessionResult(result);
         D6R_REQUIRE(serialized.has_value());
         return *serialized;
+    }
+
+    std::string serializedTwoPlayerResult(bool interrupted, bool guestDeparted = false,
+                                          R::Identity resultOnlyPlayerId = 0, bool teams = false) {
+        return serializedResult(twoPlayerResult(interrupted, guestDeparted, resultOnlyPlayerId, teams));
+    }
+
+    void applyCoherentResult(R::CanonicalState &state, const A::SessionResult &result) {
+        state.result.state = result.state == A::ResultState::Completed ? "Completed" : "Interrupted";
+        state.result.serialized = serializedResult(result);
+        state.currentRoundNumber = result.completedRounds;
+        state.completedRounds = result.completedRounds;
+        D6R_REQUIRE(!result.rounds.empty());
+        D6R_REQUIRE(state.round.has_value());
+        const auto &lastRound = result.rounds.back();
+        state.round->roundNumber = lastRound.roundNumber;
+        state.round->level = lastRound.level;
+        state.round->mirrored = lastRound.mirrored;
+        state.round->rosterOrder = lastRound.rosterOrder;
+        state.round->outcome.winnerPlayerIds = lastRound.winnerPlayerIds;
+        state.round->outcome.winningTeam = static_cast<std::uint8_t>(lastRound.winningTeam);
+        state.round->outcome.noWinner = lastRound.noWinner;
+        state.score.winner.winnerPlayerIds = result.finalWinnerPlayerIds;
+        state.score.winner.winningTeam = static_cast<std::uint8_t>(result.finalWinningTeam);
+        state.score.winner.noWinner = result.finalNoWinner;
+        state.score.ranking.clear();
+        std::vector<R::ScoreRowState> rankedScore;
+        for (const auto &resultRow: result.players) {
+            state.score.ranking.push_back(resultRow.playerId);
+            auto row = std::find_if(state.score.players.begin(), state.score.players.end(), [&](const auto &value) {
+                return value.playerId == resultRow.playerId;
+            });
+            D6R_REQUIRE(row != state.score.players.end());
+            row->roundPoints = resultRow.rounds.back().totalPoints();
+            row->cumulativePoints = resultRow.statistics.totalPoints();
+            row->shots = resultRow.statistics.shots;
+            row->hits = resultRow.statistics.hits;
+            row->kills = resultRow.statistics.kills;
+            row->deaths = resultRow.statistics.deaths;
+            row->assists = resultRow.statistics.assists;
+            row->wins = resultRow.statistics.wins;
+            row->penalties = resultRow.statistics.penalties;
+            row->survivalTicks = resultRow.statistics.survivalTicks;
+            row->damage = resultRow.statistics.damage;
+            row->assistedDamage = resultRow.statistics.assistedDamage;
+            rankedScore.push_back(*row);
+        }
+        state.score.players = std::move(rankedScore);
     }
 
     R::CanonicalState distinctFinalSummary() {
@@ -574,43 +626,85 @@ namespace {
     std::vector<RetainedResultMutation> retainedResultMutations() {
         return {
                 {"score-values", retainedCompletedLobby(), [](auto &state) {
-                    state.score.players[0].cumulativePoints++;
+                    auto result = twoPlayerResult(false);
+                    ++result.players[0].rounds[0].kills;
+                    ++result.players[0].statistics.kills;
+                    applyCoherentResult(state, result);
                 }},
                 {"ranking-order", retainedCompletedLobby(), [](auto &state) {
-                    std::swap(state.score.players[0], state.score.players[1]);
-                    std::swap(state.score.ranking[0], state.score.ranking[1]);
+                    auto result = twoPlayerResult(false);
+                    result.players[1].rounds[0].kills += 2;
+                    result.players[1].statistics.kills += 2;
+                    std::swap(result.players[0], result.players[1]);
+                    applyCoherentResult(state, result);
                 }},
                 {"result-state", retainedCompletedLobby(), [](auto &state) {
-                    state.result.state = "Interrupted";
-                    state.score.winner = {};
-                    state.score.winner.noWinner = true;
+                    state = retainedInterruptedLobby();
                 }},
                 {"match-outcome", retainedCompletedLobby(), [](auto &state) {
-                    state.score.winner.winnerPlayerIds = {101};
-                    state.round->outcome = state.score.winner;
+                    auto result = twoPlayerResult(false);
+                    result.rounds.back().winnerPlayerIds = {101};
+                    result.finalWinnerPlayerIds = {101};
+                    result.players[0].rounds[1].wins = 1;
+                    ++result.players[0].statistics.wins;
+                    result.players[1].rounds[1].kills = 0;
+                    result.players[1].rounds[1].wins = 0;
+                    result.players[1].statistics.kills = 0;
+                    result.players[1].statistics.wins = 0;
+                    applyCoherentResult(state, result);
                 }},
                 {"completed-round-outcome", retainedInterruptedLobby(), [](auto &state) {
-                    state.round->outcome.winnerPlayerIds = {102};
+                    auto result = twoPlayerResult(true, true);
+                    result.rounds[0].winnerPlayerIds = {102};
+                    result.players[0].rounds[0].kills = 0;
+                    result.players[0].rounds[0].wins = 0;
+                    result.players[0].statistics.kills = 0;
+                    result.players[0].statistics.wins = 0;
+                    result.players[1].rounds[0].kills = 1;
+                    result.players[1].rounds[0].wins = 1;
+                    result.players[1].statistics.kills = 1;
+                    result.players[1].statistics.wins = 1;
+                    applyCoherentResult(state, result);
                 }},
                 {"serialized-result", retainedInterruptedLobby(), [](auto &state) {
-                    state.result.serialized += ";altered=true";
+                    auto result = twoPlayerResult(true, true);
+                    ++result.config.seed;
+                    state.result.serialized = serializedResult(result);
                 }},
                 {"round-counters-and-number", retainedCompletedLobby(), [](auto &state) {
-                    state.currentRoundNumber = 1;
-                    state.completedRounds = 1;
-                    state.round->roundNumber = 1;
+                    auto result = twoPlayerResult(false);
+                    result.config.roundLimit = 1;
+                    result.completedRounds = 1;
+                    result.rounds.resize(1);
+                    result.finalWinnerPlayerIds = {101};
+                    for (auto &row: result.players) {
+                        row.rounds.resize(1);
+                        row.statistics = row.rounds[0];
+                    }
+                    state.settings.roundLimit = 1;
+                    applyCoherentResult(state, result);
                 }},
                 {"round-id", retainedCompletedLobby(), [](auto &state) {
                     state.round->roundId = 42;
                 }},
                 {"round-level", retainedCompletedLobby(), [](auto &state) {
-                    state.round->level = "levels/altered.json";
+                    auto result = twoPlayerResult(false);
+                    result.config.fixedLevel = "levels/altered.json";
+                    result.config.playableLevels = {"levels/altered.json"};
+                    for (auto &round: result.rounds) round.level = "levels/altered.json";
+                    state.settings.fixedLevel = "levels/altered.json";
+                    state.settings.levels = {"levels/altered.json"};
+                    applyCoherentResult(state, result);
                 }},
                 {"round-orientation", retainedCompletedLobby(), [](auto &state) {
-                    state.round->mirrored = !state.round->mirrored;
+                    auto result = twoPlayerResult(false);
+                    result.rounds.back().mirrored = true;
+                    applyCoherentResult(state, result);
                 }},
                 {"round-roster-order", retainedCompletedLobby(), [](auto &state) {
-                    std::swap(state.round->rosterOrder[0], state.round->rosterOrder[1]);
+                    auto result = twoPlayerResult(false);
+                    std::swap(result.rounds.back().rosterOrder[0], result.rounds.back().rosterOrder[1]);
+                    applyCoherentResult(state, result);
                 }}};
     }
 
@@ -636,26 +730,68 @@ namespace {
             result.push_back({name, final, benign, std::move(altered)});
         };
         const std::vector<std::pair<std::string, std::function<void(R::CanonicalState &)>>> mutations = {
-                {"score-values", [](auto &state) { state.score.players[0].cumulativePoints++; }},
+                {"score-values", [](auto &state) {
+                    auto result = twoPlayerResult(false);
+                    ++result.players[0].rounds[0].kills;
+                    ++result.players[0].statistics.kills;
+                    applyCoherentResult(state, result);
+                }},
                 {"ranking-order", [](auto &state) {
-                    std::swap(state.score.players[0], state.score.players[1]);
-                    std::swap(state.score.ranking[0], state.score.ranking[1]);
+                    auto result = twoPlayerResult(false);
+                    result.players[1].rounds[0].kills += 2;
+                    result.players[1].statistics.kills += 2;
+                    std::swap(result.players[0], result.players[1]);
+                    applyCoherentResult(state, result);
                 }},
                 {"match-outcome", [](auto &state) {
-                    state.score.winner.winnerPlayerIds = {101};
-                    state.round->outcome = state.score.winner;
+                    auto result = twoPlayerResult(false);
+                    result.rounds.back().winnerPlayerIds = {101};
+                    result.finalWinnerPlayerIds = {101};
+                    result.players[0].rounds[1].wins = 1;
+                    ++result.players[0].statistics.wins;
+                    result.players[1].rounds[1] = {};
+                    result.players[1].rounds[1].roundsPlayed = 1;
+                    result.players[1].statistics.kills = 0;
+                    result.players[1].statistics.wins = 0;
+                    applyCoherentResult(state, result);
                 }},
-                {"serialized-result", [](auto &state) { state.result.serialized += ";altered=true"; }},
+                {"serialized-result", [](auto &state) {
+                    auto result = twoPlayerResult(false);
+                    ++result.config.seed;
+                    state.result.serialized = serializedResult(result);
+                }},
                 {"round-counters-and-number", [](auto &state) {
-                    state.currentRoundNumber = 1;
-                    state.completedRounds = 1;
-                    state.round->roundNumber = 1;
+                    auto result = twoPlayerResult(false);
+                    result.config.roundLimit = 1;
+                    result.completedRounds = 1;
+                    result.rounds.resize(1);
+                    result.finalWinnerPlayerIds = {101};
+                    for (auto &row: result.players) {
+                        row.rounds.resize(1);
+                        row.statistics = row.rounds[0];
+                    }
+                    state.settings.roundLimit = 1;
+                    applyCoherentResult(state, result);
                 }},
                 {"round-id", [](auto &state) { state.round->roundId = 42; }},
-                {"round-level", [](auto &state) { state.round->level = "levels/altered.json"; }},
-                {"round-orientation", [](auto &state) { state.round->mirrored = !state.round->mirrored; }},
+                {"round-level", [](auto &state) {
+                    auto result = twoPlayerResult(false);
+                    result.config.fixedLevel = "levels/altered.json";
+                    result.config.playableLevels = {"levels/altered.json"};
+                    for (auto &round: result.rounds) round.level = "levels/altered.json";
+                    state.settings.fixedLevel = "levels/altered.json";
+                    state.settings.levels = {"levels/altered.json"};
+                    applyCoherentResult(state, result);
+                }},
+                {"round-orientation", [](auto &state) {
+                    auto result = twoPlayerResult(false);
+                    result.rounds.back().mirrored = true;
+                    applyCoherentResult(state, result);
+                }},
                 {"round-roster-order", [](auto &state) {
-                    std::swap(state.round->rosterOrder[0], state.round->rosterOrder[1]);
+                    auto result = twoPlayerResult(false);
+                    std::swap(result.rounds.back().rosterOrder[0], result.rounds.back().rosterOrder[1]);
+                    applyCoherentResult(state, result);
                     std::swap(state.players[0].rosterPosition, state.players[1].rosterPosition);
                 }}};
         for (const auto &[name, alter]: mutations) {
@@ -3193,7 +3329,8 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 publisher freezes retained result while f
         auto altered = scenario.before;
         scenario.alter(altered);
         D6R_REQUIRE(R::validateCanonicalState(scenario.before));
-        D6R_REQUIRE(R::validateCanonicalState(altered));
+        if (!R::validateCanonicalState(altered))
+            throw std::runtime_error("invalid coherent retained-result alternate: " + scenario.name);
 
         R::AuthoritativeStateReplicator publisher;
         D6R_REQUIRE(publisher.initialize(scenario.before));
@@ -3251,7 +3388,8 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 REP-066 client rejects retained result al
         auto altered = scenario.before;
         scenario.alter(altered);
         D6R_REQUIRE(R::validateCanonicalState(scenario.before));
-        D6R_REQUIRE(R::validateCanonicalState(altered));
+        if (!R::validateCanonicalState(altered))
+            throw std::runtime_error("invalid coherent retained-result alternate: " + scenario.name);
 
         auto benign = scenario.before;
         benign.phaseTime++;
@@ -3319,7 +3457,8 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 publisher freezes Final Summary result th
     for (const auto &scenario: finalSummaryPhaseMutations()) {
         D6R_REQUIRE(R::validateCanonicalState(scenario.before));
         D6R_REQUIRE(R::validateCanonicalState(scenario.benign));
-        D6R_REQUIRE(R::validateCanonicalState(scenario.altered));
+        if (!R::validateCanonicalState(scenario.altered))
+            throw std::runtime_error("invalid coherent final-summary alternate: " + scenario.name);
         R::AuthoritativeStateReplicator publisher;
         D6R_REQUIRE(publisher.initialize(scenario.before));
         const auto before = publisher.fullSnapshot();
@@ -3360,7 +3499,8 @@ D6R_TEST_CASE("REP-017 REP-025 REP-048 REP-066 client freezes Final Summary resu
     for (const auto &scenario: finalSummaryPhaseMutations()) {
         D6R_REQUIRE(R::validateCanonicalState(scenario.before));
         D6R_REQUIRE(R::validateCanonicalState(scenario.benign));
-        D6R_REQUIRE(R::validateCanonicalState(scenario.altered));
+        if (!R::validateCanonicalState(scenario.altered))
+            throw std::runtime_error("invalid coherent final-summary alternate: " + scenario.name);
         const R::PresentationEvent event{973, "result-transition", 0, 0, 0, 0};
         const auto attack = retainedAttackUpdate(scenario, event);
         R::ReplicatedState client;
