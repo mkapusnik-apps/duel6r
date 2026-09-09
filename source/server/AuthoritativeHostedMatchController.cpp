@@ -163,6 +163,16 @@ namespace Duel6::Server::Authoritative {
         return true;
     }
 
+    bool AuthoritativeHostedMatchController::clearReadinessForConfiguration(const std::string &reason) {
+        if (currentStage != HostedMatchStage::Lobby || reason.empty()) return false;
+        clearReadiness();
+        if (replication.replicator().version() == 0) return true;
+        const auto update = replication.setLobbyFailure(reason);
+        if (!update) return false;
+        (void) replicationConnections.broadcast(*update);
+        return true;
+    }
+
     void AuthoritativeHostedMatchController::clearReadiness() noexcept {
         for (auto &entry: readiness) entry.second = false;
     }
@@ -196,12 +206,22 @@ namespace Duel6::Server::Authoritative {
         const ValidationResult settings = validateMatchConfig(config, roster);
         if (!settings.valid || !allParticipantsReady(roster)) {
             clearReadiness();
+            if (replication.replicator().version() != 0) {
+                const auto update = replication.setLobbyFailure(
+                        "Match settings are invalid. Correct the settings and try again.");
+                if (update) (void) replicationConnections.broadcast(*update);
+            }
             return terminalOutcome(OutcomeCode::SettingsInvalid);
         }
         const ValidationResult content = validateFrozenContent(config, manifest);
         if (!content.valid) {
             clearReadiness();
             currentStage = HostedMatchStage::ContentBlocked;
+            if (replication.replicator().version() != 0) {
+                const auto update = replication.setLobbyFailure(
+                        "The match cannot start with the supported gameplay content. Restore the supported gameplay content and restart the application.");
+                if (update) (void) replicationConnections.broadcast(*update);
+            }
             return terminalOutcome(OutcomeCode::ContentUnavailable);
         }
         activeMatch = std::make_unique<AuthoritativeMatch>(std::move(matchDependencies));

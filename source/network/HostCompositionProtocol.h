@@ -8,7 +8,7 @@
 
 namespace Duel6::Network::HostComposition {
     constexpr std::uint32_t ProtocolIdentifier = 0x44364843u; // D6HC
-    constexpr std::uint16_t ProtocolVersion = 1;
+    constexpr std::uint16_t ProtocolVersion = 2;
     constexpr std::size_t MaximumDisplayNameBytes = 64;
 
     enum class Kind : std::uint16_t {
@@ -19,7 +19,9 @@ namespace Duel6::Network::HostComposition {
         PlayerInput = 5,
         CanonicalSnapshot = 6,
         PlayerInputOutcome = 7,
-        UpdateSetup = 8
+        UpdateSetup = 8,
+        ConfigurationChanged = 9,
+        RosterMove = 10
     };
 
     struct Setup {
@@ -39,12 +41,15 @@ namespace Duel6::Network::HostComposition {
         Kind kind = Kind::Setup;
         std::optional<Setup> setup;
         std::vector<std::uint8_t> payload;
+        std::uint64_t rosterPlayerId = 0;
+        std::int8_t rosterDirection = 0;
     };
 
     std::vector<std::uint8_t> serializeSetup(const Setup &setup);
     std::vector<std::uint8_t> serializeSetupUpdate(const Setup &setup);
     std::vector<std::uint8_t> serializeAction(Kind kind);
     std::vector<std::uint8_t> serializePayload(Kind kind, const std::vector<std::uint8_t> &payload);
+    std::vector<std::uint8_t> serializeRosterMove(std::uint64_t playerId, std::int8_t direction);
     std::optional<Message> deserialize(const std::vector<std::uint8_t> &payload) noexcept;
 }
 

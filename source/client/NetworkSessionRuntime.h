@@ -25,6 +25,7 @@ namespace Duel6::Client {
     struct NetworkLocalPlayer {
         std::string name;
         const PlayerControls *controls = nullptr;
+        std::string controlDescription;
     };
 
     struct NetworkRuntimeSnapshot {
@@ -34,6 +35,8 @@ namespace Duel6::Client {
         Network::Endpoint endpoint;
         std::optional<Network::Replication::CanonicalState> canonical;
         Network::Responsiveness::ConnectionPresentationState presentation;
+        std::vector<Network::Responsiveness::PresentedPlayerPose> presentedPlayers;
+        std::vector<Network::Replication::PresentationEvent> presentationEvents;
         std::optional<unsigned> reconnectSeconds;
         std::string status;
         std::string failure;
@@ -58,6 +61,9 @@ namespace Duel6::Client {
         void returnToLobby();
         void advanceRound();
         void updateHostSetup(const Network::HostComposition::Setup &setup);
+        void rebindLocalPlayers(std::vector<NetworkLocalPlayer> players);
+        void localConfigurationChanged();
+        void moveRosterPlayer(Network::Replication::Identity playerId, int direction);
         void update();
         NetworkRuntimeSnapshot snapshot() const;
         void reset();
@@ -78,7 +84,9 @@ namespace Duel6::Client {
         void receiveHostPayload(const std::vector<std::uint8_t> &payload);
         void observeHostLifecycle(const HostServiceSnapshot &snapshot);
         void applyCanonical(const Network::Replication::CanonicalState &state,
-                            const Network::Responsiveness::ConnectionPresentationState &presentation = {});
+                            const Network::Responsiveness::ConnectionPresentationState &presentation = {},
+                            std::vector<Network::Responsiveness::PresentedPlayerPose> presentedPlayers = {},
+                            std::vector<Network::Replication::PresentationEvent> events = {});
         std::uint32_t sampleActionsOnInputThread(std::size_t binding) const;
         void sendHostAction(Network::HostComposition::Kind kind);
         void stopGuest();

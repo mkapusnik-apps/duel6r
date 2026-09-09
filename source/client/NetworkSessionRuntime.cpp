@@ -100,8 +100,8 @@ namespace Duel6::Client {
                 auto value = pendingGuestAction; pendingGuestAction.reset(); return value;
             };
             dependencies.guestPresentation = [this](const auto &state, const auto &presentation,
-                                                     const auto &, const auto &) {
-                applyCanonical(state, presentation);
+                                                     const auto &poses, const auto &events) {
+                applyCanonical(state, presentation, poses, events);
             };
             dependencies.guestRecoveryPresentation = [this](auto journey, auto seconds, std::string_view failure) {
                 std::lock_guard<std::mutex> lock(mutex);
@@ -131,9 +131,13 @@ namespace Duel6::Client {
 
     void NetworkSessionRuntime::applyCanonical(
             const Network::Replication::CanonicalState &state,
-            const Network::Responsiveness::ConnectionPresentationState &presentation) {
+            const Network::Responsiveness::ConnectionPresentationState &presentation,
+            std::vector<Network::Responsiveness::PresentedPlayerPose> presentedPlayers,
+            std::vector<Network::Replication::PresentationEvent> events) {
         std::lock_guard<std::mutex> lock(mutex);
         current.canonical = state; current.presentation = presentation;
+        current.presentedPlayers = std::move(presentedPlayers);
+        current.presentationEvents = std::move(events);
         if (current.host) current.localParticipantId = state.hostParticipantId;
         current.journey = journeyFor(state); current.status = "Connected";
     }
@@ -229,6 +233,26 @@ namespace Duel6::Client {
     void NetworkSessionRuntime::updateHostSetup(const Network::HostComposition::Setup &setup) {
         try { if (supervisor) (void) supervisor->sendSessionPayload(
                 Network::HostComposition::serializeSetupUpdate(setup)); } catch (...) {}
+    }
+    void NetworkSessionRuntime::rebindLocalPlayers(std::vector<NetworkLocalPlayer> localPlayers) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (localPlayers.size() != players.size()) return;
+        players = std::move(localPlayers);
+        sampledActions.assign(players.size(), 0);
+    }
+    void NetworkSessionRuntime::localConfigurationChanged() {
+        if (supervisor) sendHostAction(Network::HostComposition::Kind::ConfigurationChanged);
+        else {
+            std::lock_guard<std::mutex> lock(mutex);
+            pendingGuestAction = Network::Lifecycle::ParticipantActionKind::ConfigurationChanged;
+        }
+    }
+    void NetworkSessionRuntime::moveRosterPlayer(Network::Replication::Identity playerId, int direction) {
+        try {
+            if (supervisor) (void) supervisor->sendSessionPayload(
+                    Network::HostComposition::serializeRosterMove(
+                            playerId, static_cast<std::int8_t>(direction)));
+        } catch (...) {}
     }
     void NetworkSessionRuntime::cancel() {
         { std::lock_guard<std::mutex> lock(mutex); current.journey = NetworkJourney::Cancelling;

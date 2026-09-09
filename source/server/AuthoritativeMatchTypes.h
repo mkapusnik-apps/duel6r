@@ -146,6 +146,7 @@ namespace Duel6::Server::Authoritative {
         bool facingLeft = false;
         bool invulnerable = false;
         bool visible = true;
+        std::uint8_t presentationAlpha = 255;
         std::uint32_t actionMask = 0;
         PlayerStatistics statistics;
         bool departed = false;

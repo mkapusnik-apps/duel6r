@@ -89,7 +89,9 @@ namespace Duel6::Network::Lifecycle {
         std::optional<ReconnectGrant> nextGrant;
     };
 
-    enum class ParticipantActionKind : std::uint16_t { Ready = 1, NotReady = 2, Leave = 3 };
+    enum class ParticipantActionKind : std::uint16_t {
+        Ready = 1, NotReady = 2, Leave = 3, ConfigurationChanged = 4
+    };
     struct ParticipantAction {
         std::uint64_t sessionId = 0;
         ParticipantId participantId = 0;

@@ -82,6 +82,7 @@ namespace Duel6::Network::Trust {
     LocalListenerBindDecision decideLocalListenerBind(
             const std::array<std::uint8_t, 4> &address, const std::vector<Ipv4InterfaceRecord> &interfaces);
     LocalListenerBindDecision localListenerBindDecision(const std::array<std::uint8_t, 4> &address);
+    std::optional<std::string> preferredLocalListenerAddress();
     bool isLocalIpv4AddressAssigned(const std::array<std::uint8_t, 4> &address);
     bool validHostname(std::string_view value);
     bool validGuestEndpointName(std::string_view value);

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <iterator>
 #include <limits>
@@ -228,23 +229,21 @@ namespace Duel6::Network::Trust {
         return LocalListenerBindDecision::NotAssigned;
     }
 
-    LocalListenerBindDecision localListenerBindDecision(const std::array<std::uint8_t, 4> &address) {
-        const auto scope = classifyIpv4(address);
-        if (scope != EndpointScope::Loopback && scope != EndpointScope::PrivateLan)
-            return LocalListenerBindDecision::UnsupportedAddress;
+    namespace {
+    std::optional<std::vector<Ipv4InterfaceRecord>> localIpv4Interfaces() {
         std::vector<Ipv4InterfaceRecord> interfaces;
 #ifdef D6R_TRANSPORT_WINDOWS
         ULONG size = 0;
         constexpr ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST
                                 | GAA_FLAG_SKIP_DNS_SERVER | GAA_FLAG_SKIP_FRIENDLY_NAME;
         if (GetAdaptersAddresses(AF_INET, flags, nullptr, nullptr, &size) != ERROR_BUFFER_OVERFLOW
-            || size == 0 || size > 1024 * 1024) return LocalListenerBindDecision::InterfaceEnumerationFailed;
+            || size == 0 || size > 1024 * 1024) return std::nullopt;
         try {
             std::vector<std::max_align_t> storage(
                     (size + sizeof(std::max_align_t) - 1) / sizeof(std::max_align_t));
             auto *adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(storage.data());
             if (GetAdaptersAddresses(AF_INET, flags, nullptr, adapters, &size) != NO_ERROR)
-                return LocalListenerBindDecision::InterfaceEnumerationFailed;
+                return std::nullopt;
             for (auto *adapter = adapters; adapter; adapter = adapter->Next) {
                 for (auto *entry = adapter->FirstUnicastAddress; entry; entry = entry->Next) {
                     if (!entry->Address.lpSockaddr || entry->Address.lpSockaddr->sa_family != AF_INET) continue;
@@ -253,11 +252,11 @@ namespace Duel6::Network::Trust {
                 }
             }
         } catch (const std::bad_alloc &) {
-            return LocalListenerBindDecision::InterfaceEnumerationFailed;
+            return std::nullopt;
         }
 #else
         ifaddrs *interfaceList = nullptr;
-        if (getifaddrs(&interfaceList) != 0) return LocalListenerBindDecision::InterfaceEnumerationFailed;
+        if (getifaddrs(&interfaceList) != 0) return std::nullopt;
         try {
             for (auto *entry = interfaceList; entry; entry = entry->ifa_next) {
                 if (!entry->ifa_addr || entry->ifa_addr->sa_family != AF_INET) continue;
@@ -280,11 +279,42 @@ namespace Duel6::Network::Trust {
             }
         } catch (const std::bad_alloc &) {
             freeifaddrs(interfaceList);
-            return LocalListenerBindDecision::InterfaceEnumerationFailed;
+            return std::nullopt;
         }
         freeifaddrs(interfaceList);
 #endif
-        return decideLocalListenerBind(address, interfaces);
+        return interfaces;
+    }
+    }
+
+    LocalListenerBindDecision localListenerBindDecision(const std::array<std::uint8_t, 4> &address) {
+        const auto scope = classifyIpv4(address);
+        if (scope != EndpointScope::Loopback && scope != EndpointScope::PrivateLan)
+            return LocalListenerBindDecision::UnsupportedAddress;
+        const auto interfaces = localIpv4Interfaces();
+        return interfaces ? decideLocalListenerBind(address, *interfaces)
+                          : LocalListenerBindDecision::InterfaceEnumerationFailed;
+    }
+
+    std::optional<std::string> preferredLocalListenerAddress() {
+        const auto interfaces = localIpv4Interfaces();
+        if (!interfaces) return std::nullopt;
+        std::vector<std::array<std::uint8_t, 4>> candidates;
+        for (const auto &record: *interfaces)
+            if (classifyIpv4(record.address) == EndpointScope::PrivateLan
+                && decideLocalListenerBind(record.address, *interfaces) == LocalListenerBindDecision::Allowed)
+                candidates.push_back(record.address);
+        std::sort(candidates.begin(), candidates.end());
+        candidates.erase(std::unique(candidates.begin(), candidates.end()), candidates.end());
+        if (candidates.empty()) {
+            const std::array<std::uint8_t, 4> loopback{127, 0, 0, 1};
+            if (decideLocalListenerBind(loopback, *interfaces) != LocalListenerBindDecision::Allowed)
+                return std::nullopt;
+            candidates.push_back(loopback);
+        }
+        const auto &selected = candidates.front();
+        return std::to_string(selected[0]) + "." + std::to_string(selected[1]) + "."
+               + std::to_string(selected[2]) + "." + std::to_string(selected[3]);
     }
 
     bool isLocalIpv4AddressAssigned(const std::array<std::uint8_t, 4> &address) {

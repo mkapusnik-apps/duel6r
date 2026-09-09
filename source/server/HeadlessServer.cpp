@@ -205,9 +205,10 @@ namespace {
     };
 
     ReplicationLobbyState replicationLobbyState(const Duel6::Server::SessionAllocation &allocation,
-                                                  const std::set<std::uint64_t> &connected,
-                                                  Duel6::Server::Authoritative::MatchConfig settings,
-                                                  const std::map<std::uint64_t, std::string> *displayNames = nullptr) {
+                                                   const std::set<std::uint64_t> &connected,
+                                                   Duel6::Server::Authoritative::MatchConfig settings,
+                                                   const std::map<std::uint64_t, std::string> *displayNames = nullptr,
+                                                   std::vector<std::uint64_t> *rosterOrder = nullptr) {
         ReplicationLobbyState result;
         const auto admitted = allocation.admittedParticipants();
         std::uint8_t roster = 0;
@@ -231,6 +232,22 @@ namespace {
                                      : "Player " + std::to_string(static_cast<unsigned int>(player.rosterOrder) + 1u);
                 result.players.push_back(std::move(player));
             }
+        }
+        if (rosterOrder) {
+            std::set<std::uint64_t> currentPlayers;
+            for (const auto &player: result.players) currentPlayers.insert(player.playerId);
+            rosterOrder->erase(std::remove_if(rosterOrder->begin(), rosterOrder->end(), [&](auto playerId) {
+                return currentPlayers.count(playerId) == 0;
+            }), rosterOrder->end());
+            for (const auto &player: result.players)
+                if (std::find(rosterOrder->begin(), rosterOrder->end(), player.playerId) == rosterOrder->end())
+                    rosterOrder->push_back(player.playerId);
+            std::stable_sort(result.players.begin(), result.players.end(), [&](const auto &left, const auto &right) {
+                return std::find(rosterOrder->begin(), rosterOrder->end(), left.playerId)
+                       < std::find(rosterOrder->begin(), rosterOrder->end(), right.playerId);
+            });
+            for (std::size_t index = 0; index < result.players.size(); ++index)
+                result.players[index].rosterOrder = static_cast<std::uint8_t>(index);
         }
         settings.hostParticipantId = allocation.hostParticipant().participantId;
         result.settings = std::move(settings);
@@ -1230,6 +1247,7 @@ namespace Duel6::Server {
         std::set<std::uint64_t> connectedParticipants;
         std::optional<Network::HostComposition::Setup> graphicalHostSetup;
         std::map<std::uint64_t, std::string> displayNames;
+        std::vector<std::uint64_t> rosterOrder;
         if (config.graphicalHostComposition && runtimeDependencies.hostSessionPayload && !config.transportEcho) {
             while (runtimeNow(runtimeDependencies) < startupDeadline && !stopRequested) {
                 std::optional<std::vector<std::uint8_t>> payload;
@@ -1321,7 +1339,7 @@ namespace Duel6::Server {
                     return 2;
                 }
                 auto lobby = replicationLobbyState(
-                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames);
+                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
                 if (!hostedMatch->initializeReplication(std::move(lobby.participants),
                                                         std::move(lobby.players), std::move(lobby.settings))) {
                     reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
@@ -1514,7 +1532,7 @@ namespace Duel6::Server {
                 }
                 if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                     auto lobby = replicationLobbyState(
-                            admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames);
+                            admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
                     return hostedMatch->updateReplicationLobby(std::move(lobby.participants),
                             std::move(lobby.players), std::move(lobby.settings));
                 }
@@ -1552,7 +1570,7 @@ namespace Duel6::Server {
             if (graphicalHostSetup) hostStartRequested = false;
             if (!sessionLifecycle->allConnectedAndReady()) return true;
             auto current = replicationLobbyState(
-                    admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames);
+                    admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
             if (current.participants.size() < 2 || current.participants.size() > Network::MaxNetworkPlayers
                 || current.players.size() < 2 || current.players.size() > Network::MaxNetworkPlayers
                 || !std::all_of(current.participants.begin(), current.participants.end(), [](const auto &participant) {
@@ -1602,6 +1620,30 @@ namespace Duel6::Server {
                         if (!frame || frame->kind != Network::Input::FrameKind::Command || !frame->command
                             || hostedMatch->receivePlayerInput(
                                     host.participantId, *frame->command, false).closeConnection) runtimeFailed = true;
+                    } else if (message->kind == Network::HostComposition::Kind::ConfigurationChanged) {
+                        if (!sessionLifecycle->clearReadiness()
+                            || !hostedMatch->clearReadinessForConfiguration()) runtimeFailed = true;
+                    } else if (message->kind == Network::HostComposition::Kind::RosterMove
+                               && hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
+                        const auto selected = std::find(rosterOrder.begin(), rosterOrder.end(), message->rosterPlayerId);
+                        if (selected == rosterOrder.end()) runtimeFailed = true;
+                        else {
+                            const auto index = static_cast<std::ptrdiff_t>(std::distance(rosterOrder.begin(), selected));
+                            const auto target = index + message->rosterDirection;
+                            if (target >= 0 && target < static_cast<std::ptrdiff_t>(rosterOrder.size())) {
+                                std::iter_swap(rosterOrder.begin() + index, rosterOrder.begin() + target);
+                                if (!sessionLifecycle->clearReadiness()) runtimeFailed = true;
+                                else {
+                                    auto lobby = replicationLobbyState(admissionPolicy->allocation(),
+                                            connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
+                                    if (!hostedMatch->updateReplicationLobby(std::move(lobby.participants),
+                                            std::move(lobby.players), std::move(lobby.settings))
+                                        || !hostedMatch->clearReadinessForConfiguration(
+                                                "Host changed roster order. Everyone must confirm readiness again."))
+                                        runtimeFailed = true;
+                                }
+                            }
+                        }
                     } else if (message->kind == Network::HostComposition::Kind::UpdateSetup
                                && message->setup
                                && hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
@@ -1631,9 +1673,12 @@ namespace Duel6::Server {
                             if (!sessionLifecycle->clearReadiness()) runtimeFailed = true;
                             else {
                                 auto lobby = replicationLobbyState(admissionPolicy->allocation(),
-                                        connectedParticipants, *hostedSettings, &displayNames);
+                                        connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
                                 if (!hostedMatch->updateReplicationLobby(std::move(lobby.participants),
                                         std::move(lobby.players), std::move(lobby.settings))) runtimeFailed = true;
+                                else if (!hostedMatch->clearReadinessForConfiguration(
+                                        "Host changed match settings. Everyone must confirm readiness again."))
+                                    runtimeFailed = true;
                             }
                         }
                     } else runtimeFailed = true;
@@ -1873,7 +1918,7 @@ namespace Duel6::Server {
                                     displayNames[runtime.offer.playerIds[index]] = runtime.requestedPlayerNames[index];
                                 connectedParticipants.insert(runtime.offer.participantId);
                                 auto lobby = replicationLobbyState(
-                                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames);
+                                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
                                 replicationReady = hostedMatch->updateReplicationLobby(std::move(lobby.participants),
                                         std::move(lobby.players), std::move(lobby.settings));
                                 if (replicationReady) {
@@ -1897,7 +1942,7 @@ namespace Duel6::Server {
                                     hostedMatch->disconnectReplication(runtime.offer.participantId);
                                     hostedMatch->disconnectPlayerInput(runtime.offer.participantId);
                                     auto isolated = replicationLobbyState(
-                                            admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames);
+                                            admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
                                     (void) hostedMatch->updateReplicationLobby(std::move(isolated.participants),
                                             std::move(isolated.players), std::move(isolated.settings));
                                 }
@@ -1969,6 +2014,8 @@ namespace Duel6::Server {
                                     || !sessionLifecycle->applyParticipantAction(*action, runtime.connectionId)) {
                                     if (!decision.allowed && decision.closeConnection) connection->requestClose();
                                     else connection->requestClose();
+                                } else if (action->kind == Network::Lifecycle::ParticipantActionKind::ConfigurationChanged) {
+                                    if (!hostedMatch->clearReadinessForConfiguration()) runtimeFailed = true;
                                 } else if (action->kind != Network::Lifecycle::ParticipantActionKind::Leave) {
                                     const bool ready = action->kind
                                             == Network::Lifecycle::ParticipantActionKind::Ready;
@@ -2032,7 +2079,7 @@ namespace Duel6::Server {
                         hostedMatch->disconnectPlayerInput(runtime.offer.participantId);
                         if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                             auto lobby = replicationLobbyState(
-                                    admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames);
+                                    admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
                             (void) hostedMatch->updateReplicationLobby(std::move(lobby.participants),
                                     std::move(lobby.players), std::move(lobby.settings));
                         } else {
@@ -2063,7 +2110,7 @@ namespace Duel6::Server {
                         try {
                             if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                                 auto lobby = replicationLobbyState(
-                                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames);
+                                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
                                 (void) hostedMatch->updateReplicationLobby(std::move(lobby.participants),
                                         std::move(lobby.players), std::move(lobby.settings));
                             } else {

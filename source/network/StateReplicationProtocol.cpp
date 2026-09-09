@@ -199,6 +199,7 @@ namespace Duel6::Network::Replication {
             w.integer(v.velocityX); w.integer(v.velocityY); w.boolean(v.facingLeft); w.boolean(v.crouching);
             w.integer(v.life); w.integer(v.air); w.string(v.heldWeapon); w.integer(v.ammunition); w.integer(v.actionMask);
             w.string(v.activeBonus); w.integer(v.bonusRemaining); w.boolean(v.invulnerable); w.boolean(v.visible);
+            w.integer(v.presentationAlpha);
             w.integer(v.reloadRemaining); w.integer(v.charge); w.integer(v.temporaryMovementRemaining);
         }
         PlayerState readPlayer(Reader &r) {
@@ -210,7 +211,8 @@ namespace Duel6::Network::Replication {
             v.life = r.integer<std::int32_t>(); v.air = r.integer<std::int64_t>(); v.heldWeapon = r.string();
             v.ammunition = r.integer<std::int32_t>(); v.actionMask = r.integer<std::uint32_t>();
             v.activeBonus = r.string(); v.bonusRemaining = r.integer<std::int64_t>(); v.invulnerable = r.boolean();
-            v.visible = r.boolean(); v.reloadRemaining = r.integer<std::int64_t>(); v.charge = r.integer<std::int64_t>();
+            v.visible = r.boolean(); v.presentationAlpha = r.integer<std::uint8_t>();
+            v.reloadRemaining = r.integer<std::int64_t>(); v.charge = r.integer<std::int64_t>();
             v.temporaryMovementRemaining = r.integer<std::int64_t>(); return v;
         }
         void writeEntity(Writer &w, const WorldEntityState &v) {

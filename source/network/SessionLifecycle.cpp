@@ -144,7 +144,8 @@ namespace Duel6::Network::Lifecycle {
     }
     std::vector<std::uint8_t> serializeParticipantAction(const ParticipantAction &action) {
         if (action.sessionId == 0 || action.participantId == 0
-            || action.kind < ParticipantActionKind::Ready || action.kind > ParticipantActionKind::Leave)
+            || action.kind < ParticipantActionKind::Ready
+            || action.kind > ParticipantActionKind::ConfigurationChanged)
             return {};
         std::vector<std::uint8_t> out;
         out.reserve(26);
@@ -233,7 +234,7 @@ namespace Duel6::Network::Lifecycle {
                 || !read64(payload, at, action.participantId) || magic != Magic || version != Version
                 || kind != ParticipantActionKindValue || action.sessionId == 0 || action.participantId == 0
                 || actionKind < static_cast<std::uint16_t>(ParticipantActionKind::Ready)
-                || actionKind > static_cast<std::uint16_t>(ParticipantActionKind::Leave)) return std::nullopt;
+                 || actionKind > static_cast<std::uint16_t>(ParticipantActionKind::ConfigurationChanged)) return std::nullopt;
             action.kind = static_cast<ParticipantActionKind>(actionKind);
             return action;
         } catch (...) { return std::nullopt; }
@@ -421,6 +422,8 @@ namespace Duel6::Network::Lifecycle {
             if (action.sessionId != sessionId) return false;
             if (action.kind == ParticipantActionKind::Leave)
                 return queueIntentionalLeave(action.participantId, connectionId);
+            if (action.kind == ParticipantActionKind::ConfigurationChanged)
+                return setReady(action.participantId, connectionId, false) && clearReadiness();
             return setReady(action.participantId, connectionId,
                             action.kind == ParticipantActionKind::Ready);
         } catch (...) { return false; }

@@ -501,6 +501,8 @@ namespace Duel6::Server::Authoritative {
             player.facingLeft = players[index].getOrientation() == Orientation::Left;
             player.invulnerable = players[index].isInvulnerable();
             player.visible = players[index].getBonus() != BonusType::INVISIBILITY;
+            player.presentationAlpha = static_cast<std::uint8_t>(
+                    std::max(0.0f, std::min(255.0f, players[index].getBodyAlpha() * 255.0f)));
             player.actionMask = heldInputsByPlayerId[definition.playerId];
             if (players[index].getBonus()) player.timedBonus = players[index].getBonus()->getName();
             player.statistics = statistics(players[index].getPerson());
@@ -535,6 +537,7 @@ namespace Duel6::Server::Authoritative {
             digestValue(digest, static_cast<std::uint64_t>(velocityY));
             digestValue(digest, static_cast<std::uint64_t>(result.players.back().ammo));
             digestValue(digest, static_cast<std::uint64_t>(std::max(players[index].getLife(), 0.0f) * 256.0f));
+            digestValue(digest, result.players.back().presentationAlpha);
             digestValue(digest, static_cast<std::uint64_t>(reload));
             digestValue(digest, static_cast<std::uint64_t>(air));
             if (slowdownRemaining != 0)

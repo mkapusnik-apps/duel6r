@@ -42,6 +42,7 @@ namespace Duel6::Network::Replication {
                    && left.ammunition == right.ammunition && left.actionMask == right.actionMask
                    && left.activeBonus == right.activeBonus && left.bonusRemaining == right.bonusRemaining
                    && left.invulnerable == right.invulnerable && left.visible == right.visible
+                   && left.presentationAlpha == right.presentationAlpha
                    && left.reloadRemaining == right.reloadRemaining && left.charge == right.charge
                    && left.temporaryMovementRemaining == right.temporaryMovementRemaining;
         }

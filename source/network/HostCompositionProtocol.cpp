@@ -18,6 +18,10 @@ namespace Duel6::Network::HostComposition {
                 for (unsigned shift: {24u, 16u, 8u, 0u})
                     bytes.push_back(static_cast<std::uint8_t>(value >> shift));
             }
+            void u64(std::uint64_t value) {
+                for (unsigned shift: {56u, 48u, 40u, 32u, 24u, 16u, 8u, 0u})
+                    bytes.push_back(static_cast<std::uint8_t>(value >> shift));
+            }
             void boolean(bool value) { u8(value ? 1 : 0); }
             void text(const std::string &value, std::size_t maximum) {
                 if (value.size() > maximum || value.size() > std::numeric_limits<std::uint16_t>::max())
@@ -43,6 +47,11 @@ namespace Duel6::Network::HostComposition {
             std::uint32_t u32() {
                 require(4); std::uint32_t value = 0;
                 for (unsigned index = 0; index < 4; ++index) value = value << 8u | bytes[offset++];
+                return value;
+            }
+            std::uint64_t u64() {
+                require(8); std::uint64_t value = 0;
+                for (unsigned index = 0; index < 8; ++index) value = value << 8u | bytes[offset++];
                 return value;
             }
             bool boolean() {
@@ -117,7 +126,8 @@ namespace Duel6::Network::HostComposition {
     }
 
     std::vector<std::uint8_t> serializeAction(Kind kind) {
-        if (kind != Kind::StartMatch && kind != Kind::ReturnToLobby && kind != Kind::AdvanceRound)
+        if (kind != Kind::StartMatch && kind != Kind::ReturnToLobby && kind != Kind::AdvanceRound
+            && kind != Kind::ConfigurationChanged)
             throw std::invalid_argument("Invalid host composition action");
         Writer writer; envelope(writer, kind); return writer.take();
     }
@@ -132,13 +142,20 @@ namespace Duel6::Network::HostComposition {
         return result;
     }
 
+    std::vector<std::uint8_t> serializeRosterMove(std::uint64_t playerId, std::int8_t direction) {
+        if (playerId == 0 || (direction != -1 && direction != 1))
+            throw std::invalid_argument("Invalid roster move");
+        Writer writer; envelope(writer, Kind::RosterMove); writer.u64(playerId);
+        writer.u8(static_cast<std::uint8_t>(direction)); return writer.take();
+    }
+
     std::optional<Message> deserialize(const std::vector<std::uint8_t> &payload) noexcept {
         try {
             Reader reader(payload);
             if (reader.u32() != ProtocolIdentifier || reader.u16() != ProtocolVersion) return std::nullopt;
             const auto rawKind = reader.u16();
             if (rawKind < static_cast<std::uint16_t>(Kind::Setup)
-                || rawKind > static_cast<std::uint16_t>(Kind::UpdateSetup)) return std::nullopt;
+                || rawKind > static_cast<std::uint16_t>(Kind::RosterMove)) return std::nullopt;
             Message message; message.kind = static_cast<Kind>(rawKind);
             if (message.kind == Kind::Setup || message.kind == Kind::UpdateSetup) {
                 Setup setup;
@@ -164,8 +181,14 @@ namespace Duel6::Network::HostComposition {
                     return std::nullopt;
                 message.setup = std::move(setup);
             } else if (message.kind == Kind::StartMatch || message.kind == Kind::ReturnToLobby
-                       || message.kind == Kind::AdvanceRound) {
+                       || message.kind == Kind::AdvanceRound || message.kind == Kind::ConfigurationChanged) {
                 if (!reader.done()) return std::nullopt;
+            } else if (message.kind == Kind::RosterMove) {
+                message.rosterPlayerId = reader.u64();
+                const auto rawDirection = reader.u8();
+                message.rosterDirection = rawDirection == 255 ? -1 : rawDirection == 1 ? 1 : 0;
+                if (!reader.done() || message.rosterPlayerId == 0
+                    || (message.rosterDirection != -1 && message.rosterDirection != 1)) return std::nullopt;
             } else {
                 message.payload = reader.rest();
                 if (message.payload.empty()) return std::nullopt;

@@ -96,6 +96,7 @@ namespace Duel6::Network::Replication {
         std::int64_t bonusRemaining = 0;
         bool invulnerable = false;
         bool visible = true;
+        std::uint8_t presentationAlpha = 255;
         std::int64_t reloadRemaining = 0;
         std::int64_t charge = 0;
         std::int64_t temporaryMovementRemaining = 0;

@@ -419,15 +419,17 @@ namespace Duel6 {
 
         menuTrack = sound.loadModule("sound/undead.xm");
         startMenuBackgroundPreparation({}, true);
-        networkMenu = std::make_unique<NetworkMenu>(appService);
+        networkMenu = std::make_unique<NetworkMenu>(appService, game->getResources());
     }
 
     void Menu::openNetworkMenu() {
         std::vector<Client::NetworkLocalPlayer> localPlayers;
         for (Size index = 0; index < playerListBox->size(); ++index) {
             const auto controlIndex = static_cast<Size>(controlSwitch[index]->currentValue().first);
-            localPlayers.push_back({playerListBox->getItem(index),
-                                    controlIndex < controlsManager.getSize() ? &controlsManager.get(controlIndex) : nullptr});
+            const PlayerControls *controls = controlIndex < controlsManager.getSize()
+                                             ? &controlsManager.get(controlIndex) : nullptr;
+            localPlayers.push_back({playerListBox->getItem(index), controls,
+                                    controls ? controls->getDescription() : std::string()});
         }
         Network::HostComposition::Setup setup;
         for (const auto &player: localPlayers) setup.localPlayerNames.push_back(player.name);
@@ -441,7 +443,10 @@ namespace Duel6 {
         setup.assistance = globalAssistanceCheckBox->isChecked();
         setup.quickLiquid = quickLiquidCheckBox->isChecked();
         setup.burnableTrees = burnableTreesCheckBox->isChecked();
-        networkMenu->open(std::move(localPlayers), std::move(setup));
+        std::vector<std::string> personNames;
+        for (const auto &person: persons.list()) personNames.push_back(person.getName());
+        networkMenu->open(std::move(localPlayers), std::move(setup),
+                          std::move(personNames), listMaps());
     }
 
     void Menu::initializePresentation() {

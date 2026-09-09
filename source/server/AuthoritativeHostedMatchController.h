@@ -3,6 +3,7 @@
 
 #include <map>
 #include <memory>
+#include <string>
 
 #include "AuthoritativeMatch.h"
 #include "AuthoritativeReplication.h"
@@ -29,6 +30,8 @@ namespace Duel6::Server::Authoritative {
 
         bool markServiceReady();
         bool setParticipantReady(Identity participantId, bool ready);
+        bool clearReadinessForConfiguration(const std::string &reason =
+                "Local player controls changed. Everyone must confirm readiness again.");
         TerminalOutcome start(const MatchConfig &config, const std::vector<PlayerDefinition> &roster,
                                const Network::GameplayManifest &manifest);
         TerminalOutcome start(const MatchConfig &config, const std::vector<PlayerDefinition> &roster,

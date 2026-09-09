@@ -97,6 +97,8 @@ set(D6R_SOURCES
         source/Bonus.h
         source/BonusList.cpp
         source/BonusList.h
+        source/CanonicalWorldPresenter.cpp
+        source/CanonicalWorldPresenter.h
         source/Color.cpp
         source/Color.h
         source/client/LocalPlayerInputSession.cpp
