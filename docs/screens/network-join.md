@@ -16,7 +16,11 @@ Entry is `NET-01` → Join. Complete validated production admission enters `NET-
 - Use the scaled retro canvas with a `JOIN NETWORK SESSION` title.
 - Show Hostname or address and Port fields, plus the guest's Local Persons and Local Players configuration.
 - Do not show a profile selector, profile column, profile value, or profile-editing action.
-- The representative state is `Connecting to 192.168.1.24:27015…` with two configured local players and a visible Cancel action.
+- The representative state is `Connecting to 127.0.0.1:26660…` with two finalized local-player slots and a visible Cancel action.
+- The representative capture must use a project-local loopback host process bound to `127.0.0.1:26660`.
+- The loopback host must accept the connection and keep the admission exchange incomplete until after the Connecting capture.
+- The capture setup must not change a host interface, route, firewall, Docker network, NAT rule, port-forwarding rule, or other network infrastructure.
+- The loopback representative state covers same-machine connection behavior. `SS-016` retains separate explicit private-LAN address coverage.
 - Preserve the entered endpoint and local configuration while connecting and after a recoverable failure.
 - Keep the screen content inside the shared 24-logical-pixel canvas margin.
 - Use a fixed title and endpoint region, a flexible local-player region, and a fixed status and action region.
@@ -33,6 +37,9 @@ Entry is `NET-01` → Join. Complete validated production admission enters `NET-
 - Connect must finalize the displayed local-player count and ordered slot set for the connection attempt.
 - Connecting must not permit a local player slot to be added, removed, transferred, or reordered.
 - Connect starts the single 10-second attempt. Guest-local gameplay-manifest validation, resolution, connection, request, admission offer, exact guest acceptance, atomic host commit, host-clock calibration, final `admitted` confirmation, initial full snapshot validation, and lobby handoff all share that boundary. There is no separate offer timer.
+- The controlled loopback capture host must not send a complete success or rejection before the representative screenshot is captured.
+- A Cancel revalidation run must stop the loopback attempt and restore editable setup with `127.0.0.1`, Port `26660`, and both local-player slots retained.
+- A timeout revalidation run must withhold every complete terminal result through the original deadline and enter `NET-08` with `Connection timed out.`
 - Guest-local manifest validation must finish before resolution. An invalid result established before the deadline uses `guest-gameplay-content-manifest-invalid` and the exact `NET-08` copy, performs no connection, disables Retry until restart, and retains endpoint and local players for Edit setup.
 - Cancel stops the attempt and returns to editable setup with endpoint and local-player configuration retained; it does not show Disconnected as though a session existed.
 - After Cancel, editable setup may permit the guest to change the retained local-player count before a new attempt.
