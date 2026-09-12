@@ -24,7 +24,7 @@ The authoritative responsiveness and recovery target is in [`network-responsiven
 - **Roster player:** One combatant in the authoritative session roster. Every roster player belongs to exactly one participant until removal.
 - **Host:** The participant that creates the session, owns the authoritative server process, configures the match, and controls session progression.
 - **Guest:** A participant admitted through the host's direct endpoint.
-- **Endpoint:** A directly entered hostname or IP address plus port.
+- **Endpoint:** A host address plus port. The host selects an eligible local listening address. A guest directly enters the host address or hostname.
 - **Lobby:** The pre-match and between-match state showing admission, connection, ownership, roster, readiness, and host settings.
 - **Ready:** A participant's confirmation of the current configuration. Clearing mutations invalidate every participant's readiness.
 - **Session:** The period from confirmed host startup until intentional host End session, host-local supervised service failure, or application shutdown.
@@ -40,7 +40,7 @@ All normative deadlines and precedence rules in this document are evaluated on t
 | Platforms | Linux x86-64 and Windows x86-64 | Other operating systems and architectures |
 | Cross-platform play | Linux and Windows x86-64 participants in one session | Other targets |
 | Network environments | Separate instances on one machine; LAN direct connection | Internet support, NAT traversal, relays, public hosting claims |
-| Connection method | Direct hostname or IP address plus port | Discovery, server browser, matchmaking |
+| Connection method | Host selection of an eligible local listening address; guest entry of a direct hostname or IP address plus port | Discovery, server browser, matchmaking |
 | Hosting | Player-hosted authoritative session | Dedicated server deployment and host migration |
 | Identity and access | Session-local participant identity | Accounts, passwords, cloud identity, ranked identity |
 | Lobby cardinality | 1–15 admitted participants and 1–15 roster players; a host-alone lobby is valid | Empty or over-capacity admitted lobby |
@@ -54,6 +54,23 @@ All normative deadlines and precedence rules in this document are evaluated on t
 Lobby invariants are `1 <= admitted participants <= roster players <= 15`. Match start invariants are `2 <= connected participants <= roster players <= 15`, with every participant owning at least one player. A started match may degrade to one connected host if reservations or retained roster ownership leave at least two roster players. Fewer than two roster players ends the match without a winner.
 
 Same-machine support means separate running instances communicating through the production transport. It does not wrap or alter the local-only Play journey.
+
+## Host listening address
+
+- **NET-HOST-IF-001** `NET-02` must provide an explicit host control labeled `Listening interface`.
+- **NET-HOST-IF-002** `Listening interface` must list IPv4 loopback and each eligible assigned private RFC1918 IPv4 address that is available on the host.
+- **NET-HOST-IF-003** `Listening interface` must not list a wildcard, unspecified, public, multicast, link-local, unassigned, network, or broadcast address.
+- **NET-HOST-IF-004** On first entry to `NET-02`, `Listening interface` must select IPv4 loopback by default.
+- **NET-HOST-IF-005** The application must retain the selected listening address with the other retained host setup.
+- **NET-HOST-IF-006** On a multihomed host, the application must not automatically select one private LAN address instead of another.
+- **NET-HOST-IF-007** The application must validate the selected listening address again before it starts the hosted service.
+- **NET-HOST-IF-008** If the selected listening address is no longer eligible, the application must keep the host in editable `NET-02` and require another eligible selection.
+- **NET-HOST-IF-009** Selecting a listening address must not change a host interface, route, firewall, Docker network, port forwarding, or other network infrastructure.
+- **NET-HOST-IF-010** The Port field must keep initial focus in editable `NET-02`.
+- **NET-HOST-IF-011** `Listening interface` must follow Port in the keyboard and controller focus order.
+- **NET-HOST-IF-012** Local interface enumeration must not discover or list another host or session.
+
+Loopback supports same-machine play. An explicitly selected eligible private address supports direct private-LAN play.
 
 ## Ownership and configuration
 
@@ -329,7 +346,7 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 ## Acceptance criteria
 
 - **NET-AC-001 — Platform:** Linux x86-64 and Windows x86-64 instances can participate together, and no other platform or architecture is claimed.
-- **NET-AC-002 — Endpoints:** Separate instances connect on one machine or LAN through a directly entered hostname or IP address plus port, with no Internet, NAT, discovery, or matchmaking affordance.
+- **NET-AC-002 — Endpoints:** A host selects IPv4 loopback or an eligible assigned private RFC1918 IPv4 listening address. A guest connects on the same machine or LAN through a directly entered hostname or IP address plus port. The product provides no Internet, NAT, discovery, or matchmaking affordance.
 - **NET-AC-003 — Host model:** The session is player-hosted and authoritative, with no dedicated-server product path or host migration.
 - **NET-AC-004 — Lifecycle cardinality:** A lobby admits 1–15 participants and players including a valid host-alone lobby; Start requires 2–15 connected participants and players with at least one player each; a degraded match may continue with one connected host while at least two roster players remain; fewer than two ends without winner.
 - **NET-AC-005 — Ownership:** The host controls match settings and roster order. Each participant controls only the persons and controls assigned to its immutable admitted player slots. A person, control, or roster-order change does not change player identity or ownership. Authoritative input and state ownership are enforced.
@@ -357,6 +374,12 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 - **NET-OWN-AC-003 — Lobby edits:** In `NET-04`, a participant can change the person or control for an existing owned slot. The change clears all readiness and preserves the slot's identity and owner.
 - **NET-OWN-AC-004 — Roster order:** A host roster-order change clears all readiness and preserves every player identity and owner.
 - **NET-OWN-AC-005 — Removal:** Participant Leave or expiry removes all of that participant's slots and permanently revokes their identities for the session.
+- **NET-HOST-IF-AC-001 — Same-machine host:** A host can select IPv4 loopback and start a same-machine session without changing network infrastructure.
+- **NET-HOST-IF-AC-002 — Multihomed LAN host:** A multihomed host can explicitly select each eligible assigned private RFC1918 IPv4 address and start a direct LAN session on the selected address.
+- **NET-HOST-IF-AC-003 — Address exclusion:** The host selector omits every wildcard, unspecified, public, multicast, link-local, unassigned, network, and broadcast address.
+- **NET-HOST-IF-AC-004 — Stale selection:** An address that becomes ineligible before Start blocks startup in editable `NET-02` until the host selects an eligible address.
+- **NET-HOST-IF-AC-005 — Focus and retention:** Port has initial focus. `Listening interface` follows Port in focus order. Cancel, Edit setup, and eligible Retry retain the selected address.
+- **NET-HOST-IF-AC-006 — Scope:** Address selection does not reconfigure host or Docker networking and does not provide discovery, public Internet, NAT traversal, or port forwarding.
 
 ## Exact downstream issue mapping
 
@@ -378,7 +401,7 @@ Each issue owns the listed criteria without changing their normative boundaries.
 | [#40](https://github.com/mkapusnik-apps/duel6r/issues/40) | Supported network packaging and deployment documentation | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-008`, `NET-AC-015`, `NET-AC-019` |
 | [#41](https://github.com/mkapusnik-apps/duel6r/issues/41) | Complete release-candidate validation | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-006`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-010`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018`, `NET-AC-019` |
 
-Issue #38 owns `NET-VIS-001` through `NET-VIS-011`, `NET-VIS-AC-001` through `NET-VIS-AC-005`, `NET-OWN-001` through `NET-OWN-009`, and `NET-OWN-AC-001` through `NET-OWN-AC-005`. Issue #41 owns final validation of those requirements.
+Issue #38 owns `NET-VIS-001` through `NET-VIS-011`, `NET-VIS-AC-001` through `NET-VIS-AC-005`, `NET-OWN-001` through `NET-OWN-009`, `NET-OWN-AC-001` through `NET-OWN-AC-005`, `NET-HOST-IF-001` through `NET-HOST-IF-012`, and `NET-HOST-IF-AC-001` through `NET-HOST-IF-AC-006`. Issue #41 owns final validation of those requirements.
 
 Issue #28 approves this target but does not satisfy parent issue #27's implementation or release evidence. In-process loopback, documentation, or planned screenshots are insufficient to claim playable networking.
 

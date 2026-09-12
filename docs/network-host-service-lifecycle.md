@@ -22,7 +22,7 @@ Local Play remains subject to [`features.md`](features.md). This document does n
 - **Startup attempt:** The period from Start session activation until readiness, cancellation, or a startup failure.
 - **Readiness:** Confirmation that all readiness conditions in this document are true.
 - **Stop request:** A request to end an owned service and release all service resources.
-- **Retained setup:** The valid host endpoint, local-player setup, and other editable values from `NET-02`.
+- **Retained setup:** The valid selected listening address, port, local-player setup, and other editable values from `NET-02`.
 
 ## Ownership model
 
@@ -58,6 +58,10 @@ The state names are product states. They do not prescribe implementation names o
 ### Start
 
 Start session must be available only when the retained setup is valid. The host must own from 1 through 15 valid local players.
+
+- **HSL-IF-001** Retained setup must include one listening address allowed by the trust policy.
+- **HSL-IF-002** Start session must validate the selected listening address before service creation.
+- **HSL-IF-003** A locally invalid selected address must keep the host in editable `NET-02` and must not start a service attempt.
 
 Start session must move `No service` or an eligible `Startup failed` state to `Starting`. It must start one new startup deadline.
 
@@ -149,7 +153,7 @@ Trusted local diagnostics may contain an enumerated failure category. They must 
 
 ## Retained setup, Retry, and destinations
 
-Cancel, startup failure, and startup timeout must retain all editable `NET-02` setup. This setup includes the endpoint and local-player configuration.
+Cancel, startup failure, and startup timeout must retain all editable `NET-02` setup. This setup includes the selected listening address, port, and local-player configuration.
 
 Retry must repeat the retained startup attempt only after final cleanup. Retry must use the same 10-second startup deadline rules.
 
@@ -292,6 +296,7 @@ The affected target states are `NET-02` and `NET-08`. This document does not cha
 - **HSL-AC-016 — Redaction:** Startup configuration and all outcomes must satisfy the secret and non-disclosure rules.
 - **HSL-AC-017 — Local independence:** Local Play must start and complete without any hosted service or network availability.
 - **HSL-AC-018 — Scope truth:** Completion of issue #31 alone must not create or support a playable-networking claim.
+- **HSL-AC-019 — Listening address:** Start validates and binds only the selected eligible local listening address. Cancel, failure, timeout, Edit setup, and eligible Retry retain that selection without changing network infrastructure.
 
 ## Future acceptance evidence
 

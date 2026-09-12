@@ -25,6 +25,16 @@ Network session cannot use a public or wildcard address. Use loopback or a priva
 
 An unsupported, unassigned, network, or broadcast listener address emits only the applicable rejection line and exits before constructing a listener. In that fixed copy, “private LAN address” means an assigned private unicast address valid for the host interface prefix; the copy remains non-disclosing and does not reveal interface details. The pure `decideLocalListenerBind` helper accepts explicit address/prefix/optional-broadcast records so platform-shaped policy cases are deterministic, while `localListenerBindDecision` enumerates real interfaces and fails closed when metadata is invalid or unavailable. Normal `duel6r` startup and local-only Play still start no network service.
 
+### Host listening-address selection
+
+- **TRU-BIND-001** The host application must offer only IPv4 loopback and eligible assigned private RFC1918 IPv4 addresses for listener selection.
+- **TRU-BIND-002** The host application must require an explicit selection before it binds a private LAN address.
+- **TRU-BIND-003** The host application must validate the selected address against current local interface information before listener creation.
+- **TRU-BIND-004** The host application must not create a listener when the selected address is no longer eligible.
+- **TRU-BIND-005** Address enumeration and selection must not change an interface, route, firewall, Docker network, NAT rule, port-forwarding rule, or other network infrastructure.
+- **TRU-BIND-006** Local interface enumeration must not perform peer, host, or session discovery.
+- **TRU-BIND-007** Address selection must not weaken the trusted loopback and private-LAN exposure boundary.
+
 ## Assets, actors, and boundaries
 
 Protected assets are host authority, participant and player-slot ownership, canonical future simulation state, session availability, process memory and CPU, local files and scripts, reconnect identity, and non-disclosing diagnostics.

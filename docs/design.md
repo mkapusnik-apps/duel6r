@@ -301,6 +301,30 @@ The following values come from renderer and GUI source.
 - Network match setup must not expose weapon enablement, ammunition ranges, level data, or gameplay definitions as settings.
 - Network match status must state that optional Lua and profile scripts are disabled for network play.
 - Network setup must provide local person selection and local control assignment without a profile selector, profile column, or profile-editing action.
+- `NET-02` must show a control labeled `Listening interface` directly after Port in the endpoint hierarchy.
+- Port must keep initial focus in editable `NET-02`.
+- `Listening interface` must follow Port in the keyboard and controller focus order.
+- `Listening interface` must show IPv4 loopback and each currently eligible assigned private RFC1918 IPv4 address.
+- The selector should show the IPv4 literal first and the scope as `Same machine` or `Private LAN`.
+- The selector must not show wildcard, unspecified, public, multicast, link-local, unassigned, network, or broadcast addresses.
+- The selector must select IPv4 loopback on first entry to `NET-02`.
+- The interface list must show each eligible IPv4 literal once.
+- The collapsed selector must keep the complete selected IPv4 literal visible.
+- An expanded interface list must use one line per address.
+- An expanded interface list must scroll vertically when all eligible addresses do not fit without changing the canvas or moving the split setup panels.
+- A long option label must clip after the complete IPv4 literal and must not wrap or change row height.
+- The selector pointer region must include the complete collapsed control and each complete visible option row.
+- The selected option and selector focus must remain identifiable without color.
+- Confirm must open the collapsed selector or accept the highlighted option.
+- Keyboard or controller directional input must move through visible interface options while the selector is open.
+- Escape or controller Back must close the expanded selector without leaving `NET-02`.
+- `NET-02` must retain an eligible selected listening address through Cancel, failure, Edit setup, and eligible Retry.
+- Start session must revalidate the selected listening address before startup begins.
+- An ineligible retained address must leave `Listening interface` without a valid selection and keep `NET-02` editable.
+- An ineligible retained address must show `Selected listening interface is no longer available. Choose another interface.`
+- The application must not automatically replace an ineligible address with a private LAN address.
+- Interface enumeration and selection must not discover another host or session.
+- Interface enumeration and selection must not change an interface, route, firewall, Docker network, NAT rule, port-forwarding rule, or other network infrastructure.
 - Network setup must let a participant add or remove local player slots only before host startup or guest Connect begins.
 - Start session and Connect must lock the displayed local-player count and ordered slot set for that attempt.
 - Cancel or a recoverable pre-admission failure may return to editable setup with the retained slot set.
