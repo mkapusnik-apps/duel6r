@@ -4,7 +4,7 @@
 
 This is a target screen for downstream issue #38; it is not implemented. It presents the authoritative network match in the existing undivided shared arena. It implements `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-009` through `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md) alongside unchanged local gameplay presentation requirements. Its degraded-network, visible-correction, and recovery variants implement `NRP-BUD-001` through `NRP-BUD-007`, `NRP-PRS-001` through `NRP-PRS-011`, `NRP-REC-001` through `NRP-REC-012`, `NRP-AUT-001` through `NRP-AUT-006`, and `NRP-AC-001` through `NRP-AC-014` in [`docs/network-responsiveness-and-recovery.md`](../network-responsiveness-and-recovery.md).
 It preserves `INP-011` through `INP-016` and implements `NIN-OWN-006`, `NIN-BOUND-003`, and `NIN-COMP-AC-001` through `NIN-COMP-AC-004` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
-It implements `NET-VIS-003` through `NET-VIS-011` and `NET-VIS-AC-002` through `NET-VIS-AC-005`. It consumes updated `REP-028`, `REP-041`, `REP-AC-002`, `REP-AC-012`, `REP-PRES-001` through `REP-PRES-006`, and `REP-PRES-AC-001` through `REP-PRES-AC-003` from [`docs/network-state-replication.md`](../network-state-replication.md). It also consumes `CMP-VIS-001` through `CMP-VIS-004`, `CMP-VIS-AC-001`, and updated `AC-012` from [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
+It implements `NET-VIS-003` through `NET-VIS-017` and `NET-VIS-AC-002` through `NET-VIS-AC-008`. It consumes updated `REP-028`, `REP-041`, `REP-AC-002`, `REP-AC-012`, `REP-PRES-001` through `REP-PRES-009`, and `REP-PRES-AC-001` through `REP-PRES-AC-004` from [`docs/network-state-replication.md`](../network-state-replication.md). It consumes `AHM-PRES-001` through `AHM-PRES-003` and `AHM-PRES-AC-001` from [`docs/network-authoritative-headless-match.md`](../network-authoritative-headless-match.md). It also consumes `CMP-VIS-001` through `CMP-VIS-004`, `CMP-VIS-AC-001`, and updated `AC-012` from [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 
 The host starts this screen from `NET-04` after all participants are ready and clears any prior retained result. Match completion enters `NET-06`; unexpected host contact failure enters guest `NET-07`. Only a valid End session notice accepted through the current established session enters guest `NET-09`.
 
@@ -18,6 +18,9 @@ The host starts this screen from `NET-04` after all participants are ready and c
 - Every local and remote player must use the built-in default network visual set.
 - The screen must not use a selected local or remote profile for player skin, animation, or visual-resource selection.
 - Player names must remain distinct from player appearance selection.
+- Use the level's named background when it is locally usable.
+- When the named background is not locally usable, show the deterministic built-in fallback selected from the stable ordered eligible background list.
+- Do not add fallback status copy, a fallback control, or layout space for fallback selection.
 
 ## Status hierarchy and allocation
 
@@ -136,6 +139,12 @@ The host starts this screen from `NET-04` after all participants are ready and c
 - The client must derive player animation and entity visuals from complete read-only replicated canonical state and the default network visual set.
 - The client must not create or advance a second gameplay simulation for presentation.
 - A full snapshot and equivalent incremental state must select the same default network visuals.
+- A full snapshot and equivalent incremental state must select the same fallback background when the replicated session, match, round, and level logical identities and eligible background list are equal.
+- Reconnect and resynchronization must restore that same fallback background when those inputs remain equal.
+- The authoritative gameplay seed must not select or change the fallback background.
+- The authoritative service must not select, seed, or replicate the fallback as canonical state or include it in the session-only result.
+- A profile or peer resource must not provide the fallback background.
+- Network fallback selection must not change gameplay, results, or Local Play background behavior.
 - Equal supported releases presenting the same replicated canonical state must select the same player skin, animation, and entity visual.
 - Authoritative Team colors, Predator opacity, invisibility, and other replicated visual gameplay states must modify the default network visuals as defined by canonical state.
 - A local or remote profile must not change the network player's visible skin, animation, or visual resource.
@@ -152,13 +161,20 @@ The host starts this screen from `NET-04` after all participants are ready and c
 - The artifact must show ranking, round progress, event text, and player status without status overlap.
 - The artifact must show `Host`, `LAN session`, `Connected`, `Session only scores`, and `Optional scripts disabled`.
 - The artifact must show the exact text `Network connection degraded.` during a sustained budget breach.
+- The artifact must use a level with no locally usable named background and must visibly show the expected built-in fallback for the recorded identity tuple and eligible background list.
 - The artifact must not show reconnect, disconnect, pause, or host-end copy.
 - The artifact must keep the degraded indication fully readable without clipping or truncation.
 - The canonical screenshot matrix must keep exactly one representative artifact for this wireframe.
+- The evidence packet must record the replicated session, match, round, and level logical identities, the stable ordered eligible background list, named-background usability, and selected local background filename without adding that data to the UI.
 - A supplementary recording should show supported remote motion, one visible local correction, degraded entry, and recovery clearance.
+- The recording must show two supported clients with equal identity inputs and equal eligible lists presenting the same fallback background.
+- The recording must show the same fallback after equivalent incremental state, reconnect, and resynchronization.
+- A separate named-background segment must show every client using the locally usable named background instead of fallback.
 - The recording should show that correction converges within 150 ms.
 - The recording should show that degraded text clears only after three continuous supported seconds.
 - The recording should show current canonical presentation without the degraded indication within five seconds of restored supported conditions.
 - Functional evidence must measure all non-static timing, authority, state-integrity, player-count, and Local Play requirements.
+- Functional evidence must vary controlled identity tuples and show that every item in the eligible background list can be selected.
+- Functional evidence must show that fallback selection uses no gameplay RNG, canonical background field, profile fallback, or peer content and does not change canonical state or results.
 
 Planned representative screenshot: [`SS-019`](../screenshots/README.md#ss-019).

@@ -347,6 +347,17 @@ The following values come from renderer and GUI source.
 - Presentation must not create or advance a second gameplay simulation.
 - A local or remote profile must not change a network player's skin, animation, or visual resource.
 - The default network visual set must preserve authoritative Team colors, Predator opacity, invisibility, and each other replicated visual gameplay state.
+- A network client must use the level's named background when that background is locally usable.
+- A network client must use a deterministic pseudo-random built-in fallback when the level has no locally usable named background.
+- The fallback mapping must use only the existing replicated session, match, round, and level logical identities and the client's stable ordered eligible background list.
+- Equal logical identities and equal eligible background lists must select the same fallback background on every client of the supported release.
+- A fixed identity tuple and eligible background list must keep the selected fallback unchanged across a full snapshot, equivalent incremental state, reconnect, and resynchronization.
+- Controlled varied identity tuples must give every item in the eligible background list a selection opportunity.
+- Fallback selection must not use or advance authoritative gameplay random state.
+- Fallback selection must not add or consume a canonical background-selection field.
+- Fallback selection must not change canonical state, gameplay, results, or Local Play behavior.
+- Fallback selection must not load a profile background or peer content.
+- Background fallback must not add visible copy, controls, status, or layout allocation.
 - A missing, changed, or additional profile or cosmetic asset must not block network admission.
 - A client must not load a peer-selected profile, file, or script as a visual fallback.
 - A client that cannot load a required default network visual resource must not start network play.

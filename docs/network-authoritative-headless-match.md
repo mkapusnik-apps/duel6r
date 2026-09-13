@@ -186,6 +186,10 @@ The service must not start a new time-based random sequence after the match star
 
 Presentation-only choices do not use the authoritative seed. This exclusion includes cosmetic backgrounds and sounds.
 
+- **AHM-PRES-001** The authoritative service must not select a fallback background as a canonical decision.
+- **AHM-PRES-002** The authoritative service must not add a fallback-background selection to canonical state or the session-only result.
+- **AHM-PRES-003** Each client must apply the presentation-only background rules in `NET-VIS-012` through `NET-VIS-017`.
+
 ## Linux and Windows semantic determinism
 
 Linux x86-64 and Windows x86-64 hosts must provide semantic determinism.
@@ -587,6 +591,7 @@ It must document the process exit meanings without claiming playable networking 
 - **AHM-AC-024 — Approved interruption:** A roster reduction below two players must preserve completed rounds and their last outcome. It must discard the incomplete round and produce the interrupted `No winner` match outcome.
 - **AHM-AC-025 — Settings failure:** Invalid settings must use the exact identifier, copy, readiness behavior, and retry boundary in this specification.
 - **AHM-AC-026 — Content failure:** Unavailable gameplay prerequisites must use the exact identifier, copy, readiness behavior, and restart boundary in this specification.
+- **AHM-PRES-AC-001 — Background authority boundary:** The authoritative service does not select, seed, or replicate a fallback background as canonical state. Client fallback selection follows `NET-VIS-012` through `NET-VIS-017` and cannot affect gameplay or results.
 - **AHM-AC-027 — Runtime failure:** An authoritative runtime failure must stop progression, discard all results, and use the exact failure identifier and copy.
 - **AHM-AC-028 — Outcome precedence:** Competing start and match outcomes must follow the applicable precedence order.
 - **AHM-AC-029 — Result integrity:** Each result must keep result state, match outcome, last completed-round outcome, and cumulative rankings semantically consistent. Invalid setup, runtime failure, Host End session, and cleanup failure must not publish a partial result.

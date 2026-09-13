@@ -81,6 +81,9 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 - **REP-PRES-004** Presentation code must treat replicated canonical state as read-only input.
 - **REP-PRES-005** Presentation code must not create or advance another gameplay simulation.
 - **REP-PRES-006** A full snapshot and an equivalent incremental state must select the same default network visuals.
+- **REP-PRES-007** Replicated state must not contain a canonical fallback-background selection field.
+- **REP-PRES-008** A client must derive a fallback background under `NET-VIS-012` through `NET-VIS-017` from existing replicated identities and its eligible background list.
+- **REP-PRES-009** Reconnect and resynchronization must restore the same fallback background when the replicated identities and eligible background list remain equal.
 
 ## Entity lifecycle
 
@@ -176,6 +179,7 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 - **REP-PRES-AC-001 — Deterministic default visuals:** A full snapshot and equivalent incremental state select the same built-in player skin, animation, and entity visuals on each client of the supported release.
 - **REP-PRES-AC-002 — Profile exclusion:** Replication does not require or provide profile, skin, animation-resource, or visual-resource identities for selected-profile appearance parity.
 - **REP-PRES-AC-003 — Read-only presentation:** A client presents replicated state without mutating it or creating another gameplay simulation.
+- **REP-PRES-AC-004 — Background derivation:** Equal replicated session, match, round, and level logical identities and equal eligible background lists select the same presentation-only fallback background from a full snapshot, equivalent incremental state, reconnect, or resynchronization. Replication adds no canonical background-selection field.
 - **REP-OWN-AC-001 — Immutable ownership:** Lobby person and roster-order changes preserve admitted player identities and ownership. A participant-local control change also preserves identity and ownership. Participant removal removes all player slots owned by that participant.
 
 ## Downstream boundaries

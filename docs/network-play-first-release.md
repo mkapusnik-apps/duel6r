@@ -160,7 +160,9 @@ Issue #30 owns canonical serialization, content digest choice, exchange, compari
 
 ## Default network visuals
 
-The **default network visual set** is the built-in player skin, animation mapping, and entity-resource mapping for first-release network play.
+The **default network visual set** is the built-in player skin, animation mapping, entity-resource mapping, and background-selection behavior for first-release network play.
+
+The **eligible background list** is the stable ordered list of locally available built-in backgrounds that can satisfy the existing fallback behavior in `LIF-009`.
 
 - **NET-VIS-001** First-release network setup must let each participant select local persons and controls.
 - **NET-VIS-002** First-release network setup must not offer profile selection for a network player.
@@ -173,6 +175,12 @@ The **default network visual set** is the built-in player skin, animation mappin
 - **NET-VIS-009** A missing, changed, or additional profile or cosmetic asset must not block admission.
 - **NET-VIS-010** A client must not load a peer-selected profile, file, or script as a network-visual fallback.
 - **NET-VIS-011** If a client cannot load a required default network visual resource, the client must not start network play and must retain the existing required-resource failure behavior.
+- **NET-VIS-012** A client must use the level's named background when that background is locally usable.
+- **NET-VIS-013** When the level has no locally usable named background, the client must select one background from the eligible background list by a deterministic pseudo-random mapping.
+- **NET-VIS-014** The mapping in `NET-VIS-013` must use only the replicated session, match, round, and level logical identities and the eligible background list.
+- **NET-VIS-015** Equal identities and equal eligible background lists must select the same fallback background on each client of the supported release.
+- **NET-VIS-016** The mapping must give each background in an eligible background list a selection opportunity as the identity inputs change.
+- **NET-VIS-017** The fallback selection must remain presentation-only and must not use the authoritative gameplay seed, change canonical state, require a replicated background field, or load peer content.
 
 Selected-profile appearance parity between network participants is outside first-release scope.
 
@@ -369,6 +377,9 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 - **NET-VIS-AC-003 — Gameplay states:** Default network visuals preserve each authoritative Team color, Predator opacity, invisibility state, and other replicated visual gameplay state.
 - **NET-VIS-AC-004 — Profile exclusion:** Local and remote profiles do not change network visuals, do not affect admission, and do not provide a presentation fallback.
 - **NET-VIS-AC-005 — Required-resource failure:** A client with an unavailable required default network visual resource does not start network play and does not load peer content as a fallback.
+- **NET-VIS-AC-006 — Named background precedence:** Every client uses a locally usable named level background before it considers fallback selection.
+- **NET-VIS-AC-007 — Deterministic background fallback:** For a level without a locally usable named background, two clients of the supported release select the same fallback when their replicated session, match, round, and level logical identities and their eligible background lists are equal. A full snapshot, equivalent incremental state, reconnect, and resynchronization produce that same selection. Controlled varied identity inputs demonstrate that every item in an eligible background list can be selected.
+- **NET-VIS-AC-008 — Presentation-only background:** Fallback background selection uses no authoritative gameplay seed, canonical background field, second gameplay simulation, profile fallback, or peer content. It does not change canonical state or match outcomes.
 - **NET-OWN-AC-001 — Pre-admission player count:** A host or guest can add or remove local player slots only before its admission process begins.
 - **NET-OWN-AC-002 — Immutable admitted ownership:** Admission fixes each participant's exact player identities and ownership until that participant leaves, expires, or the session ends.
 - **NET-OWN-AC-003 — Lobby edits:** In `NET-04`, a participant can change the person or control for an existing owned slot. The change clears all readiness and preserves the slot's identity and owner.
@@ -401,7 +412,7 @@ Each issue owns the listed criteria without changing their normative boundaries.
 | [#40](https://github.com/mkapusnik-apps/duel6r/issues/40) | Supported network packaging and deployment documentation | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-008`, `NET-AC-015`, `NET-AC-019` |
 | [#41](https://github.com/mkapusnik-apps/duel6r/issues/41) | Complete release-candidate validation | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-006`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-010`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018`, `NET-AC-019` |
 
-Issue #38 owns `NET-VIS-001` through `NET-VIS-011`, `NET-VIS-AC-001` through `NET-VIS-AC-005`, `NET-OWN-001` through `NET-OWN-009`, `NET-OWN-AC-001` through `NET-OWN-AC-005`, `NET-HOST-IF-001` through `NET-HOST-IF-012`, and `NET-HOST-IF-AC-001` through `NET-HOST-IF-AC-006`. Issue #41 owns final validation of those requirements.
+Issue #38 owns `NET-VIS-001` through `NET-VIS-017`, `NET-VIS-AC-001` through `NET-VIS-AC-008`, `NET-OWN-001` through `NET-OWN-009`, `NET-OWN-AC-001` through `NET-OWN-AC-005`, `NET-HOST-IF-001` through `NET-HOST-IF-012`, and `NET-HOST-IF-AC-001` through `NET-HOST-IF-AC-006`. Issue #41 owns final validation of those requirements.
 
 Issue #28 approves this target but does not satisfy parent issue #27's implementation or release evidence. In-process loopback, documentation, or planned screenshots are insufficient to claim playable networking.
 
@@ -411,6 +422,7 @@ Issue #28 approves this target but does not satisfy parent issue #27's implement
 - UX review traces `MENU-01`, `MENU-02`, `CONS-01`, and `NET-01`–`NET-09` to applicable criteria and assesses one representative wireframe per affected screen.
 - Issue #38 must supply one implementation screenshot for each of the 11 planned entries in [`docs/screenshots/README.md`](screenshots/README.md): `SS-002`, `SS-013`, and `SS-015`–`SS-023`. These entries remain planned, and no current screenshot is valid for the changed target UI.
 - Issue #38 evidence must show default network visuals without profile selection or selected-profile appearance parity.
+- Issue #38 evidence must show named-background precedence and deterministic fallback convergence for equal eligible background lists.
 - Reviewer evidence checks lifecycle cardinality, initial admission order, full-deadline ambiguity for every unexpected host failure, intentional-end-only `NET-09`, host-local-only supervision, reconnect precedence, lifecycle-specific removal, exact compatibility fixtures/copy, destinations, and local-only preservation.
 - Tester evidence independently verifies at downstream implementation SHAs that every guest-observed host crash, machine/listener loss, silence, reset, refusal, timeout, and no-response case stays `NET-07` through the fixed deadline; that only an accepted intentional End notice enters guest `NET-09`; and that host-local supervision routes only the host to `NET-08`. Issue #28 itself is documentation-only and requires no automated test implementation.
 - DevOps evidence confirms supported Linux and Windows x86-64 artifacts and hosted checks at the applicable release-candidate SHA.
