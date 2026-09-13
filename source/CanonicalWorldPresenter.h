@@ -12,6 +12,7 @@
 #include "Level.h"
 #include "LevelRenderData.h"
 #include "PlayerSkin.h"
+#include "math/RandomSource.h"
 #include "network/NetworkResponsiveness.h"
 #include "network/StateReplication.h"
 
@@ -30,6 +31,7 @@ namespace Duel6 {
                     const std::vector<Network::Responsiveness::PresentedPlayerPose> &presentedPlayers,
                     Int32 width, Int32 height) const;
         const std::string &backgroundIdentity() const noexcept { return loadedBackground; }
+        Texture backgroundTexture() const;
 
     private:
         AppService &service;
@@ -38,6 +40,7 @@ namespace Duel6 {
         Font &font;
         PlayerAnimations animations;
         std::vector<std::unique_ptr<PlayerSkin>> skins;
+        std::unique_ptr<RandomSource> levelRandomSource;
         std::unique_ptr<Level> level;
         std::unique_ptr<LevelRenderData> levelRenderData;
         ExplosionList explosions;
@@ -61,7 +64,6 @@ namespace Duel6 {
         bool loadRound(const Network::Replication::CanonicalState &state);
         const PlayerSkin &skinFor(const Network::Replication::PlayerState &player) const;
         Animation animationFor(const Network::Replication::PlayerState &player) const;
-        Texture backgroundTexture() const;
         const Weapon *weaponFor(const std::string &type) const;
         const Network::Replication::WorldEntityState *entityFor(
                 const Network::Replication::CanonicalState &state,

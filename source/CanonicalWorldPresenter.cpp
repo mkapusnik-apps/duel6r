@@ -65,6 +65,38 @@ namespace Duel6 {
             return value ^ (value >> 31u);
         }
 
+        class PresentationRandomSource final : public RandomSource {
+        public:
+            explicit PresentationRandomSource(std::uint64_t seed) : state(seed) {}
+
+            std::uint64_t next(std::string_view) override {
+                return nextPresentationRandom(state);
+            }
+
+            std::uint64_t bounded(std::uint64_t upperBound, std::string_view) override {
+                if (upperBound == 0) D6_THROW(DataException, "Presentation random bound is invalid");
+                const std::uint64_t threshold = (0u - upperBound) % upperBound;
+                for (;;) {
+                    const std::uint64_t value = nextPresentationRandom(state);
+                    if (value >= threshold) return value % upperBound;
+                }
+            }
+
+        private:
+            std::uint64_t state;
+        };
+
+        std::uint64_t levelPresentationSeed(const Network::Replication::CanonicalState &state) {
+            constexpr std::uint64_t Offset = 14695981039346656037ull;
+            std::uint64_t hash = Offset;
+            hashString(hash, "duel6r-network-level-presentation-v1");
+            hashIdentity(hash, state.sessionId);
+            hashIdentity(hash, state.matchId);
+            hashIdentity(hash, state.round->roundId);
+            hashString(hash, state.round->level);
+            return hash;
+        }
+
         std::string selectBackground(const Network::Replication::CanonicalState &state,
                                      const Level &level, const GameResources &resources) {
             const auto &available = resources.getBcgTextures().getTextures();
@@ -172,7 +204,9 @@ namespace Duel6 {
             && loadedRound == round.roundId) return true;
         levelRenderData.reset();
         level.reset();
-        level = std::make_unique<Level>(round.level, round.mirrored, resources.getBlockMeta());
+        levelRandomSource = std::make_unique<PresentationRandomSource>(levelPresentationSeed(state));
+        level = std::make_unique<Level>(round.level, round.mirrored, resources.getBlockMeta(),
+                                        *levelRandomSource);
         loadedBackground = selectBackground(state, *level, resources);
         levelRenderData = std::make_unique<LevelRenderData>(*level, renderer, 0.15f);
         levelRenderData->generateFaces();

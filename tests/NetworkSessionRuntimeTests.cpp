@@ -3,6 +3,8 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <map>
 #include <memory>
@@ -23,6 +25,7 @@
 
 #include "tests/TestHarness.h"
 #include "source/client/HostServiceSupervisor.h"
+#include "source/DataException.h"
 #include "source/input/PlayerControls.h"
 #include "source/network/HostCompositionProtocol.h"
 #include "source/network/NetworkResponsiveness.h"
@@ -106,6 +109,46 @@ namespace {
                 });
         return found != snapshot.canonical->participants.end() && found->ready;
     }
+
+    class ScopedLevelVariant final {
+    public:
+        explicit ScopedLevelVariant(const std::string &sourceLevel)
+                : prior(std::filesystem::current_path()),
+                  root(std::filesystem::temp_directory_path()
+                       / ("duel6r-background-test-" + std::to_string(::getpid()))) {
+            std::filesystem::remove_all(root);
+            std::filesystem::create_directories(root / "levels");
+            const auto resourceRoot = std::filesystem::path(sourceLevel).parent_path().parent_path();
+            std::filesystem::create_directory_symlink(resourceRoot / "sound", root / "sound");
+            std::ifstream input(sourceLevel);
+            original.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+            D6R_REQUIRE(!original.empty());
+            write("");
+            std::filesystem::current_path(root);
+        }
+
+        ~ScopedLevelVariant() {
+            std::filesystem::current_path(prior);
+            std::filesystem::remove_all(root);
+        }
+
+        void write(const std::string &background) const {
+            std::string value = original;
+            if (!background.empty()) {
+                const auto opening = value.find('{');
+                D6R_REQUIRE(opening != std::string::npos);
+                value.insert(opening + 1, "\n  \"background\" : \"" + background + "\",");
+            }
+            std::ofstream output(root / "levels/duel_01.json", std::ios::trunc);
+            output << value;
+            D6R_REQUIRE(output.good());
+        }
+
+    private:
+        std::filesystem::path prior;
+        std::filesystem::path root;
+        std::string original;
+    };
 #endif
 }
 
@@ -462,12 +505,29 @@ D6R_TEST_CASE("NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionRuntime part
     char applicationName[] = "duel6r-network-session-runtime-tests";
     char *arguments[] = {applicationName};
     Application application(1, arguments);
+    ScopedLevelVariant levelVariant(std::string(D6R_TEST_RESOURCE_DIR) + "/levels/duel_01.json");
+    const auto &backgroundMap = application.gameResources.getBcgTextures().getTextures();
+    std::vector<std::string> eligibleBackgrounds;
+    for (const auto &entry: backgroundMap) eligibleBackgrounds.push_back(entry.first);
+    std::sort(eligibleBackgrounds.begin(), eligibleBackgrounds.end());
+    D6R_REQUIRE(!eligibleBackgrounds.empty());
+
     std::vector<std::unique_ptr<CanonicalWorldPresenter>> presenters;
     for (unsigned index = 0; index < 3; ++index)
         presenters.emplace_back(std::make_unique<CanonicalWorldPresenter>(
                 *application.service, application.gameResources));
     const std::array<Client::NetworkRuntimeSnapshot, 3> active{
             host.snapshot(), first.snapshot(), second.snapshot()};
+    for (std::size_t index = 1; index < active.size(); ++index) {
+        D6R_REQUIRE_EQ(active[0].canonical->sessionId, active[index].canonical->sessionId);
+        D6R_REQUIRE_EQ(active[0].canonical->matchId, active[index].canonical->matchId);
+        D6R_REQUIRE_EQ(active[0].canonical->round->roundId, active[index].canonical->round->roundId);
+        D6R_REQUIRE_EQ(active[0].canonical->round->level, active[index].canonical->round->level);
+        D6R_REQUIRE(active[0].canonical->settings.levels == active[index].canonical->settings.levels);
+    }
+
+    const auto canonicalBeforePresentation = Network::Replication::serializeReplicationSnapshot(
+            {1, *active[0].canonical, active[0].canonical->phaseTime});
     for (std::size_t index = 0; index < active.size(); ++index) {
         const auto &snapshot = active[index];
         D6R_REQUIRE(snapshot.canonical.has_value());
@@ -475,7 +535,77 @@ D6R_TEST_CASE("NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionRuntime part
         presenters[index]->update(1.0f / 60.0f, &*snapshot.canonical, snapshot.presentationEvents);
         D6R_REQUIRE(presenters[index]->render(*snapshot.canonical, snapshot.presentation,
                                               snapshot.presentedPlayers, 1024, 768));
+        D6R_REQUIRE(std::binary_search(eligibleBackgrounds.begin(), eligibleBackgrounds.end(),
+                                      presenters[index]->backgroundIdentity()));
+        D6R_REQUIRE_EQ(presenters[0]->backgroundIdentity(), presenters[index]->backgroundIdentity());
     }
+    D6R_REQUIRE(canonicalBeforePresentation == Network::Replication::serializeReplicationSnapshot(
+            {1, *active[0].canonical, active[0].canonical->phaseTime}));
+
+    auto &mutableBackgrounds = const_cast<GameResources::BackgroundList::Container &>(backgroundMap);
+    std::vector<std::pair<std::string, Texture>> backgroundEntries(
+            mutableBackgrounds.begin(), mutableBackgrounds.end());
+    mutableBackgrounds.clear();
+    for (auto entry = backgroundEntries.rbegin(); entry != backgroundEntries.rend(); ++entry)
+        mutableBackgrounds.emplace(entry->first, entry->second);
+    CanonicalWorldPresenter reordered(*application.service, application.gameResources);
+    reordered.setCanonicalLevels(active[0].canonical->settings.levels);
+    reordered.update(1.0f / 60.0f, &*active[0].canonical, {});
+    D6R_REQUIRE_EQ(presenters[0]->backgroundIdentity(), reordered.backgroundIdentity());
+
+    Network::Replication::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(*active[0].canonical));
+    const auto full = publisher.fullSnapshot();
+    D6R_REQUIRE(full.has_value());
+    Network::Replication::ReplicatedState replicated;
+    D6R_REQUIRE(replicated.apply(*full) == Network::Replication::ApplyResult::Applied);
+    auto incrementalState = *active[0].canonical;
+    ++incrementalState.phaseTime;
+    const auto incremental = publisher.publish(incrementalState);
+    D6R_REQUIRE(incremental.has_value());
+    D6R_REQUIRE(replicated.apply(*incremental) == Network::Replication::ApplyResult::Applied);
+    replicated.requireResynchronization();
+    D6R_REQUIRE(replicated.apply(*publisher.fullSnapshot()) == Network::Replication::ApplyResult::Applied);
+    CanonicalWorldPresenter resynchronized(*application.service, application.gameResources);
+    resynchronized.setCanonicalLevels(replicated.state()->settings.levels);
+    resynchronized.update(1.0f / 60.0f, replicated.state(), {});
+    D6R_REQUIRE_EQ(presenters[0]->backgroundIdentity(), resynchronized.backgroundIdentity());
+
+    std::set<std::string> roundSelections;
+    for (std::size_t index = 0; index < eligibleBackgrounds.size(); ++index) {
+        auto varied = *active[0].canonical;
+        varied.round->roundId = static_cast<Network::Replication::Identity>(index);
+        CanonicalWorldPresenter variedPresenter(*application.service, application.gameResources);
+        variedPresenter.setCanonicalLevels(varied.settings.levels);
+        variedPresenter.update(1.0f / 60.0f, &varied, {});
+        roundSelections.insert(variedPresenter.backgroundIdentity());
+    }
+    D6R_REQUIRE_EQ(eligibleBackgrounds.size(), roundSelections.size());
+
+    levelVariant.write(eligibleBackgrounds.back());
+    auto namedState = *active[0].canonical;
+    ++namedState.round->roundId;
+    CanonicalWorldPresenter named(*application.service, application.gameResources);
+    named.setCanonicalLevels(namedState.settings.levels);
+    named.update(1.0f / 60.0f, &namedState, {});
+    D6R_REQUIRE_EQ(eligibleBackgrounds.back(), named.backgroundIdentity());
+    D6R_REQUIRE(named.render(namedState, active[0].presentation, active[0].presentedPlayers, 1024, 768));
+
+    levelVariant.write("not-a-local-background");
+    ++namedState.round->roundId;
+    CanonicalWorldPresenter unavailable(*application.service, application.gameResources);
+    unavailable.setCanonicalLevels(namedState.settings.levels);
+    unavailable.update(1.0f / 60.0f, &namedState, {});
+    D6R_REQUIRE(std::binary_search(eligibleBackgrounds.begin(), eligibleBackgrounds.end(),
+                                  unavailable.backgroundIdentity()));
+    D6R_REQUIRE(unavailable.render(namedState, active[0].presentation,
+                                   active[0].presentedPlayers, 1024, 768));
+
+    const std::string removedIdentity = unavailable.backgroundIdentity();
+    const Texture removedTexture = mutableBackgrounds.at(removedIdentity);
+    mutableBackgrounds.erase(removedIdentity);
+    D6R_REQUIRE_THROW(unavailable.backgroundTexture(), DataException);
+    mutableBackgrounds.emplace(removedIdentity, removedTexture);
 
     first.leave(); second.leave();
     (void) pumpRuntimes(host, first, second, 3s, [&] {
