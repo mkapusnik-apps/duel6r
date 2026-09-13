@@ -291,6 +291,25 @@ namespace Duel6 {
         constexpr Int32 LobbyControlWidth = 170;
         constexpr Int32 LobbyControlRowHeight = 18;
 
+        struct LobbySettingRectangle {
+            Int32 left = 0;
+            Int32 bottom = 0;
+            Int32 width = 0;
+            Int32 height = 0;
+        };
+
+        constexpr Int32 LobbySettingLeft = 584;
+        constexpr Int32 LobbySettingTop = 430;
+        constexpr Int32 LobbySettingWidth = 226;
+        constexpr Int32 LobbySettingHeight = 19;
+        constexpr Int32 LobbySettingStride = 20;
+        constexpr int LobbySettingCount = 9;
+
+        LobbySettingRectangle lobbySettingRectangle(int index) {
+            return {LobbySettingLeft, LobbySettingTop - index * LobbySettingStride,
+                    LobbySettingWidth, LobbySettingHeight};
+        }
+
         LobbyControlRectangles lobbyControlRectangles(std::size_t offset, bool retained) {
             return {(retained ? 164 : 243) - static_cast<Int32>(offset) * LobbyControlRowHeight};
         }
@@ -769,10 +788,13 @@ namespace Duel6 {
                 return;
             }
             if (snap.host) {
-                if (!retained) for (int index = 0; index < 9; ++index)
-                    if (pointerInside(x, y, 568, 316 - index * 18, 240, 18)) {
+                if (!retained) for (int index = 0; index < LobbySettingCount; ++index) {
+                    const auto rectangle = lobbySettingRectangle(index);
+                    if (pointerInside(x, y, rectangle.left, rectangle.bottom,
+                                      rectangle.width, rectangle.height)) {
                         focus = readyIndex + 1 + index; activate(); return;
                     }
+                }
                 std::vector<Network::Replication::PlayerState> roster = snap.canonical->players;
                 std::sort(roster.begin(), roster.end(), [](const auto &left, const auto &right) {
                     return left.rosterPosition < right.rosterPosition;
@@ -1538,10 +1560,9 @@ namespace Duel6 {
                                 + std::to_string(state.players.size()) + " players", 96);
         drawText(42, 482, "Role        Connection     Readiness   Owned");
         drawPlayers(state);
-        constexpr Int32 settingsLeft = 584, settingsWidth = 226;
-        renderer.quadXY(Vector(settingsLeft - 6, 250), Vector(settingsWidth + 12, 232), Color(216));
-        renderer.frame(Vector(settingsLeft - 6, 250), Vector(settingsWidth + 12, 232), 1.0f, Color::BLACK);
-        drawText(settingsLeft, 458, "HOST MATCH SETTINGS");
+        renderer.quadXY(Vector(LobbySettingLeft - 6, 250), Vector(LobbySettingWidth + 12, 232), Color(216));
+        renderer.frame(Vector(LobbySettingLeft - 6, 250), Vector(LobbySettingWidth + 12, 232), 1.0f, Color::BLACK);
+        drawText(LobbySettingLeft, 458, "HOST MATCH SETTINGS");
         const std::vector<std::string> settingRows{
                 "Mode: " + state.settings.mode,
                 "Team count: " + std::to_string(state.settings.teamCount),
@@ -1609,11 +1630,13 @@ namespace Duel6 {
         }
         const int readyIndex = static_cast<int>(localPlayers.size()) * 2;
         for (int index = 0; index < static_cast<int>(settingRows.size()); ++index) {
-            const Int32 rowY = 430 - index * 20;
+            const auto rectangle = lobbySettingRectangle(index);
             const bool selected = snap.host && !retainedResult && focus == readyIndex + 1 + index;
-            drawClippedText(settingsLeft + 4, rowY, (selected ? "> " : "  ") + settingRows[index], 26);
+            drawClippedText(rectangle.left + 4, rectangle.bottom,
+                            (selected ? "> " : "  ") + settingRows[index], 26);
             if (snap.host && !retainedResult)
-                drawFocusKeyline(settingsLeft, rowY - 3, settingsWidth, 19, selected);
+                drawFocusKeyline(rectangle.left, rectangle.bottom,
+                                 rectangle.width, rectangle.height, selected);
         }
         drawText(42, retainedResult ? 144 : 172, focus == readyIndex ? "> Ready / Not ready" : "Ready / Not ready");
         drawFocusKeyline(40, retainedResult ? 140 : 168, 220, 20, focus == readyIndex);
