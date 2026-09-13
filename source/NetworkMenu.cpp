@@ -29,6 +29,24 @@ namespace Duel6 {
             return address + (address == "127.0.0.1" ? " (Same machine)" : " (Private LAN)");
         }
 
+        std::string levelDisplayName(std::string value) {
+            const auto slash = value.find_last_of("/\\");
+            if (slash != std::string::npos) value.erase(0, slash + 1);
+            const auto extension = value.rfind('.');
+            if (extension != std::string::npos) value.erase(extension);
+            bool capitalize = true;
+            for (char &character: value) {
+                if (character == '_' || character == '-') {
+                    character = ' ';
+                    capitalize = true;
+                } else if (capitalize && std::isalpha(static_cast<unsigned char>(character))) {
+                    character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+                    capitalize = false;
+                } else capitalize = character == ' ';
+            }
+            return value.empty() ? "Unknown level" : value;
+        }
+
         std::size_t utf8CharacterBytes(unsigned char lead) {
             return lead < 0x80 ? 1 : (lead & 0xe0) == 0xc0 ? 2 : (lead & 0xf0) == 0xe0 ? 3 : 4;
         }
@@ -202,7 +220,7 @@ namespace Duel6 {
                         roster += resultPlayerName(id);
                     }
                     lines.push_back("Round " + std::to_string(round.get("roundNumber").asInt()) + " • "
-                                    + round.get("level").asString() + " • "
+                                    + levelDisplayName(round.get("level").asString()) + " • "
                                     + round.get("orientation").asString() + " • " + winner
                                     + " • Roster: " + roster);
                 }
@@ -309,7 +327,8 @@ namespace Duel6 {
             const Int32 top = retained ? 365 : 450;
             const Int32 bottom = retained ? 190
                     : state.phase == Network::Replication::Phase::FinalSummary ? 120 : 62;
-            const Int32 bodyTop = top - 136;
+            const bool finalSummary = !retained && state.phase == Network::Replication::Phase::FinalSummary;
+            const Int32 bodyTop = finalSummary ? top - 68 : top - 136;
             const Int32 bodyBottom = bottom + 32;
             const std::size_t visible = bodyTop < bodyBottom ? 1
                     : static_cast<std::size_t>((bodyTop - bodyBottom) / 18 + 1);
@@ -1348,7 +1367,8 @@ namespace Duel6 {
     }
 
     void NetworkMenu::drawMatch(
-            const Client::NetworkRuntimeSnapshot &snap, Int32 width, Int32 height, bool interactive) const {
+            const Client::NetworkRuntimeSnapshot &snap, Int32 width, Int32 height, bool interactive,
+            const std::string &connectionState, bool showLiveNetworkState) const {
         if (!snap.canonical) return;
         worldPresenter.render(*snap.canonical, snap.presentation, snap.presentedPlayers, width, height);
         renderer.setViewMatrix(Matrix::IDENTITY);
@@ -1384,12 +1404,12 @@ namespace Duel6 {
             }
         }
         std::vector<std::string> statusRows;
-        statusRows.push_back(std::string(snap.host ? "Host" : "Guest") + " • LAN session • Connected");
+        statusRows.push_back(std::string(snap.host ? "Host" : "Guest") + " • LAN session • " + connectionState);
         const std::string right = "Session only scores • Optional scripts disabled";
         const bool rightFits = static_cast<Int32>((utf8Length(statusRows.front()) + utf8Length(right)) * 8 + 56) <= width;
         std::string networkState;
-        if (snap.presentation.degraded) networkState = "Network connection degraded.";
-        if (snap.presentation.resynchronizing) {
+        if (showLiveNetworkState && snap.presentation.degraded) networkState = "Network connection degraded.";
+        if (showLiveNetworkState && snap.presentation.resynchronizing) {
             if (!networkState.empty()) networkState += " • ";
             networkState += "Last confirmed state • Synchronizing current state…";
         }
@@ -1518,20 +1538,24 @@ namespace Duel6 {
                                 + std::to_string(state.players.size()) + " players", 96);
         drawText(42, 482, "Role        Connection     Readiness   Owned");
         drawPlayers(state);
-        drawText(570, 482, "HOST MATCH SETTINGS");
-        drawClippedText(570, 456, "Mode: " + state.settings.mode, 31);
-        drawClippedText(570, 438, "Teams: " + std::to_string(state.settings.teamCount)
-                + " • Friendly fire " + onOff(state.settings.friendlyFire), 31);
-        drawClippedText(570, 420, "Level plan: " + state.settings.levelPlan, 31);
-        if (state.settings.levelPlan == "Fixed level")
-            drawClippedText(570, 402, "Level: " + state.settings.fixedLevel, 31);
-        drawText(570, 384, "Rounds: " + std::to_string(state.settings.roundLimit));
-        drawClippedText(570, 366, "Assistance " + onOff(state.settings.assistance)
-                + " • Quick Liquid " + onOff(state.settings.quickLiquid), 31);
-        drawText(570, 348, "Burnable Trees " + onOff(state.settings.burnableTrees));
+        constexpr Int32 settingsLeft = 584, settingsWidth = 226;
+        renderer.quadXY(Vector(settingsLeft - 6, 250), Vector(settingsWidth + 12, 232), Color(216));
+        renderer.frame(Vector(settingsLeft - 6, 250), Vector(settingsWidth + 12, 232), 1.0f, Color::BLACK);
+        drawText(settingsLeft, 458, "HOST MATCH SETTINGS");
+        const std::vector<std::string> settingRows{
+                "Mode: " + state.settings.mode,
+                "Team count: " + std::to_string(state.settings.teamCount),
+                "Friendly fire: " + onOff(state.settings.friendlyFire),
+                "Level plan: " + state.settings.levelPlan,
+                "Fixed level: " + levelDisplayName(state.settings.fixedLevel),
+                "Round limit: " + std::to_string(state.settings.roundLimit),
+                "Assistance: " + onOff(state.settings.assistance),
+                "Quick Liquid: " + onOff(state.settings.quickLiquid),
+                "Burnable Trees: " + onOff(state.settings.burnableTrees)};
         const bool retainedResult = state.result.available;
         if (!retainedResult) {
-            drawText(42, 378, "Pos  Owner       Person                  Control                 Order");
+            drawText(42, 378, "Pos  Owner       Person                  Control");
+            drawText(526, 378, "Order");
             std::vector<Network::Replication::PlayerState> visiblePlayers = state.players;
             std::sort(visiblePlayers.begin(), visiblePlayers.end(), [](const auto &left, const auto &right) {
                 return left.rosterPosition < right.rosterPosition;
@@ -1558,16 +1582,16 @@ namespace Duel6 {
                         && localPlayers[*localIndex].controls
                         ? localPlayers[*localIndex].controls->getDescription()
                         : localIndex ? "No control" : "Read-only";
-                drawClippedText(354, rowY, control, 20);
+                drawClippedText(354, rowY, control, 19);
                 if (localIndex && *localIndex < localPlayers.size()) {
                     drawFocusKeyline(166, rowY - 3, 180, 20, focus == static_cast<int>(*localIndex) * 2);
-                    drawFocusKeyline(350, rowY - 3, 170, 20, focus == static_cast<int>(*localIndex) * 2 + 1);
+                    drawFocusKeyline(350, rowY - 3, 164, 20, focus == static_cast<int>(*localIndex) * 2 + 1);
                 }
                 if (snap.host) {
                     const int rosterFocus = static_cast<int>(localPlayers.size()) * 2 + 10
                             + static_cast<int>(first + row);
-                    drawText(532, rowY, focus == rosterFocus ? "> ↕" : "  ↕");
-                    drawFocusKeyline(528, rowY - 3, 34, 20, focus == rosterFocus);
+                    drawText(528, rowY, focus == rosterFocus ? "> ↕" : "  ↕");
+                    drawFocusKeyline(524, rowY - 3, 38, 20, focus == rosterFocus);
                 }
             }
         } else {
@@ -1584,6 +1608,13 @@ namespace Duel6 {
             }
         }
         const int readyIndex = static_cast<int>(localPlayers.size()) * 2;
+        for (int index = 0; index < static_cast<int>(settingRows.size()); ++index) {
+            const Int32 rowY = 430 - index * 20;
+            const bool selected = snap.host && !retainedResult && focus == readyIndex + 1 + index;
+            drawClippedText(settingsLeft + 4, rowY, (selected ? "> " : "  ") + settingRows[index], 26);
+            if (snap.host && !retainedResult)
+                drawFocusKeyline(settingsLeft, rowY - 3, settingsWidth, 19, selected);
+        }
         drawText(42, retainedResult ? 144 : 172, focus == readyIndex ? "> Ready / Not ready" : "Ready / Not ready");
         drawFocusKeyline(40, retainedResult ? 140 : 168, 220, 20, focus == readyIndex);
         if (state.messages.status != "Lobby" && (!snap.host || !retainedResult))
@@ -1591,13 +1622,7 @@ namespace Duel6 {
         if (snap.host) {
             static const char *labels[] = {"Mode", "Team count", "Friendly fire", "Level plan", "Fixed level",
                                            "Round limit", "Assistance", "Quick Liquid", "Burnable Trees"};
-            if (!retainedResult) {
-                for (int index = 0; index < 9; ++index) {
-                    drawText(570, 320 - index * 18,
-                              focus == readyIndex + 1 + index ? std::string("> ") + labels[index] : labels[index]);
-                    drawFocusKeyline(568, 316 - index * 18, 240, 18, focus == readyIndex + 1 + index);
-                }
-            } else if (focus >= readyIndex + 1 && focus < readyIndex + 10) {
+            if (retainedResult && focus >= readyIndex + 1 && focus < readyIndex + 10) {
                 drawText(410, 166, std::string("> Change ") + labels[focus - readyIndex - 1]);
                 drawFocusKeyline(408, 162, 200, 20, true);
             }
@@ -1652,7 +1677,7 @@ namespace Duel6 {
         if (snap.canonical && snap.canonical->round
             && (snap.canonical->phase == Network::Replication::Phase::ActiveRound
                 || snap.canonical->phase == Network::Replication::Phase::RoundSummary)) {
-            drawMatch(snap, width, height, false);
+            drawMatch(snap, width, height, false, "Last confirmed state", false);
             return;
         }
         drawMenuCanvas(width, height);
@@ -1675,14 +1700,17 @@ namespace Duel6 {
     void NetworkMenu::drawResult(const Network::Replication::CanonicalState &state, bool retained) const {
         const Int32 top = retained ? 365 : 450;
         const Int32 bottom = retained ? 190 : state.phase == Network::Replication::Phase::FinalSummary ? 120 : 62;
+        const bool finalSummary = !retained && state.phase == Network::Replication::Phase::FinalSummary;
         renderer.setBlendFunc(BlendFunc::SrcAlpha);
         renderer.quadXY(Vector(32, bottom), Vector(786, top - bottom), Color(224, 224, 224, 240));
         renderer.setBlendFunc(BlendFunc::None);
-        drawText(50, top - 22, retained ? "RETAINED RESULT • SESSION ONLY" : "AUTHORITATIVE SCORE • SESSION ONLY");
-        drawText(50, top - 42, "State: " + (state.result.available ? state.result.state : "In progress"));
-        drawText(50, top - 62, "Match outcome: " + outcome(state, state.score.winner));
-        if (state.round) drawText(50, top - 80, "Last completed round " + std::to_string(state.completedRounds)
-                                          + ": " + outcome(state, state.round->outcome));
+        if (!finalSummary) {
+            drawText(50, top - 22, retained ? "RETAINED RESULT • SESSION ONLY" : "AUTHORITATIVE SCORE • SESSION ONLY");
+            drawText(50, top - 42, "State: " + (state.result.available ? state.result.state : "In progress"));
+            drawText(50, top - 62, "Match outcome: " + outcome(state, state.score.winner));
+            if (state.round) drawText(50, top - 80, "Last completed round " + std::to_string(state.completedRounds)
+                                              + ": " + outcome(state, state.round->outcome));
+        }
         auto lines = resultLines(state);
         const auto bounds = resultScrollBounds(state, retained);
         const std::size_t appliedHorizontal = std::min<std::size_t>(summaryHorizontal, bounds.horizontal);
@@ -1698,11 +1726,17 @@ namespace Duel6 {
                 : section == "CUMULATIVE PLAYER RESULTS"
                   ? "Rank  Player / owner / team / state  R Sh Hi K D A W P Survival Damage Assist dmg Points"
                   : section == "TEAM TOTALS" ? "Rank  Team  Points" : "Setting  Value";
-        renderer.quadXY(Vector(42, top - 122), Vector(766, 42), Color(208));
-        drawText(50, top - 98, section);
-        drawText(50, top - 116, utf8Clipped(columns, 94));
-        Int32 y = top - 136;
-        for (std::size_t index = first; index < lines.size() && index < first + bounds.visibleRows; ++index, y -= 18) {
+        const Int32 stickyBottom = finalSummary ? top - 50 : top - 122;
+        const Int32 stickyHeadingY = finalSummary ? top - 26 : top - 98;
+        const Int32 stickyColumnsY = finalSummary ? top - 44 : top - 116;
+        renderer.quadXY(Vector(42, stickyBottom), Vector(766, 42), Color(208));
+        drawText(50, stickyHeadingY, section);
+        drawText(50, stickyColumnsY, utf8Clipped(columns, 94));
+        Int32 y = finalSummary ? top - 68 : top - 136;
+        std::size_t start = first;
+        if (start < lines.size() && lines[start] == section) ++start;
+        std::size_t shown = 0;
+        for (std::size_t index = start; index < lines.size() && shown < bounds.visibleRows; ++index, ++shown, y -= 18) {
             const std::size_t horizontal = std::min<std::size_t>(appliedHorizontal, utf8Length(lines[index]));
             drawText(50, y, utf8Slice(lines[index], horizontal, 94));
         }

@@ -525,7 +525,12 @@ namespace Duel6 {
                                         Vector(1, -1), Material(background));
         else renderer.quadXY(Vector(0, 0), Vector(width, height), Color(24, 28, 40));
 
-        renderer.setViewMatrix(Matrix::translate(x, y, 0) * Matrix::scale(scale, scale, 1));
+        // Level faces use the same top-down orientation as Local Play's camera.
+        // Flipping the level Y axis also preserves their front-face winding;
+        // drawing them with the menu's unflipped pixel transform culled the
+        // complete arena and left only the photographic background visible.
+        renderer.setViewMatrix(Matrix::translate(x, y + level->getHeight() * scale, 0)
+                               * Matrix::scale(scale, -scale, 1));
         renderer.enableDepthTest(true);
         levelRenderData->getWalls().render(resources.getBlockTextures(), false);
         levelRenderData->getSprites().render(resources.getBlockTextures(), true);
@@ -535,12 +540,18 @@ namespace Duel6 {
             const auto pose = std::find_if(presentedPlayers.begin(), presentedPlayers.end(), [&](const auto &value) {
                 return value.playerId == player.playerId;
             });
-            if (pose == presentedPlayers.end()) continue;
-            const Float32 px = worldValue(pose->positionX);
-            const Float32 py = worldValue(pose->positionY);
+            // A retained full snapshot can outlive the responsiveness pose
+            // cache during reconnect and host-end presentation. Canonical
+            // positions remain complete and are the truthful fallback.
+            const Float32 px = worldValue(pose == presentedPlayers.end()
+                                          ? player.positionX : pose->positionX);
+            const Float32 py = worldValue(pose == presentedPlayers.end()
+                                          ? player.positionY : pose->positionY);
             auto visualState = player;
-            visualState.facingLeft = pose->facingLeft;
-            visualState.crouching = pose->crouching;
+            if (pose != presentedPlayers.end()) {
+                visualState.facingLeft = pose->facingLeft;
+                visualState.crouching = pose->crouching;
+            }
             const PlayerSkin &skin = skinFor(visualState);
             const Animation animation = animationFor(visualState);
             Sprite sprite(animation, skin.getTexture());

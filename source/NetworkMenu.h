@@ -94,7 +94,8 @@ namespace Duel6 {
         void drawMenuCanvas(Int32 width, Int32 height) const;
         void drawPlayers(const Network::Replication::CanonicalState &state) const;
         void drawMatch(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height,
-                       bool interactive = true) const;
+                       bool interactive = true, const std::string &connectionState = "Connected",
+                       bool showLiveNetworkState = true) const;
         void drawLobby(const Client::NetworkRuntimeSnapshot &snapshot) const;
         void drawSummary(const Client::NetworkRuntimeSnapshot &snapshot) const;
         void drawRoundSummary(const Client::NetworkRuntimeSnapshot &snapshot,
