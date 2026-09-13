@@ -72,6 +72,7 @@ namespace Duel6 {
         void activate();
         void back();
         void moveFocus(int direction);
+        void syncLobbyScroll(const Client::NetworkRuntimeSnapshot &snapshot);
         void rescanControls();
         void cycleControl(std::size_t playerIndex, int direction = 1);
         void cyclePerson(std::size_t playerIndex, int direction = 1);

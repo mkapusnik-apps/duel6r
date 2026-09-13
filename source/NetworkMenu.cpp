@@ -346,6 +346,13 @@ namespace Duel6 {
             }
             return count > visible ? count - visible : 0;
         }
+
+        std::size_t lobbyMaximumScroll(const Network::Replication::CanonicalState &state) {
+            const std::size_t participantMaximum = state.participants.size() > 3
+                    ? state.participants.size() - 3 : 0;
+            const std::size_t rosterMaximum = state.players.size() > 6 ? state.players.size() - 6 : 0;
+            return std::max(participantMaximum, rosterMaximum);
+        }
     }
 
     NetworkMenu::NetworkMenu(AppService &value, GameResources &resources,
@@ -753,8 +760,10 @@ namespace Duel6 {
                 const int rosterBase = readyIndex + 10;
                 const auto visibleRoster = retained ? rosterWindow(focus, roster.size(), rosterBase, true)
                         : VisibleWindow{std::min<std::size_t>(setupScroll,
-                                roster.size() > 6 ? roster.size() - 6 : 0), std::min<std::size_t>(6, roster.size())};
-                for (std::size_t offset = 0; offset < visibleRoster.count; ++offset) {
+                                roster.size() > 6 ? roster.size() - 6 : 0), 0};
+                const std::size_t visibleRosterCount = retained ? visibleRoster.count
+                        : std::min<std::size_t>(6, roster.size() - visibleRoster.first);
+                for (std::size_t offset = 0; offset < visibleRosterCount; ++offset) {
                     const std::size_t index = visibleRoster.first + offset;
                     const Int32 rowY = retained ? 162 : 351 - static_cast<Int32>(offset) * 24;
                     if (pointerInside(x, y, retained ? 408 : 528, rowY,
@@ -804,7 +813,9 @@ namespace Duel6 {
         }
         if (snap.journey == Client::NetworkJourney::Lobby
             && (!snap.canonical || !snap.canonical->result.available)) {
-            setupScroll = std::max(0, setupScroll - event.getAmountY());
+            const auto maximum = snap.canonical ? lobbyMaximumScroll(*snap.canonical) : 0;
+            setupScroll = std::clamp(setupScroll - event.getAmountY(), 0, static_cast<int>(maximum));
+            focus = static_cast<int>(localPlayers.size()) * 2;
             return;
         }
         if (snap.journey != Client::NetworkJourney::Summary
@@ -839,6 +850,40 @@ namespace Duel6 {
             count = retryEligible(snap, reason) ? 3 : 2;
         }
         focus = (focus + direction + count) % count;
+        syncLobbyScroll(snap);
+    }
+
+    void NetworkMenu::syncLobbyScroll(const Client::NetworkRuntimeSnapshot &snap) {
+        if (snap.journey != Client::NetworkJourney::Lobby || !snap.canonical
+            || snap.canonical->result.available) return;
+        std::vector<Network::Replication::PlayerState> roster = snap.canonical->players;
+        std::sort(roster.begin(), roster.end(), [](const auto &left, const auto &right) {
+            return left.rosterPosition < right.rosterPosition;
+        });
+        std::optional<std::size_t> selected;
+        if (focus >= 0 && focus < static_cast<int>(localPlayers.size()) * 2) {
+            const auto participant = std::find_if(snap.canonical->participants.begin(), snap.canonical->participants.end(),
+                    [&snap](const auto &value) { return value.participantId == snap.localParticipantId; });
+            const std::size_t localIndex = static_cast<std::size_t>(focus / 2);
+            if (participant != snap.canonical->participants.end()
+                && localIndex < participant->ownedPlayerIds.size()) {
+                const auto player = std::find_if(roster.begin(), roster.end(), [&](const auto &value) {
+                    return value.playerId == participant->ownedPlayerIds[localIndex];
+                });
+                if (player != roster.end()) selected = static_cast<std::size_t>(std::distance(roster.begin(), player));
+            }
+        } else if (snap.host) {
+            const int rosterBase = static_cast<int>(localPlayers.size()) * 2 + 10;
+            if (focus >= rosterBase && focus < rosterBase + static_cast<int>(roster.size()))
+                selected = static_cast<std::size_t>(focus - rosterBase);
+        }
+        const int maximum = static_cast<int>(lobbyMaximumScroll(*snap.canonical));
+        setupScroll = std::clamp(setupScroll, 0, maximum);
+        if (!selected) return;
+        if (*selected < static_cast<std::size_t>(setupScroll)) setupScroll = static_cast<int>(*selected);
+        else if (*selected >= static_cast<std::size_t>(setupScroll) + 6)
+            setupScroll = static_cast<int>(*selected - 5);
+        setupScroll = std::clamp(setupScroll, 0, maximum);
     }
 
     void NetworkMenu::activate() {
@@ -1286,7 +1331,10 @@ namespace Duel6 {
     void NetworkMenu::drawPlayers(const Network::Replication::CanonicalState &state) const {
         Int32 y = 456;
         const Int32 bottom = 402;
-        for (std::size_t participantIndex = 0; participantIndex < state.participants.size() && y > bottom; ++participantIndex) {
+        const std::size_t first = std::min<std::size_t>(setupScroll,
+                state.participants.size() > 3 ? state.participants.size() - 3 : 0);
+        for (std::size_t participantIndex = first;
+             participantIndex < state.participants.size() && y > bottom; ++participantIndex) {
             const auto &participant = state.participants[participantIndex];
             drawClippedText(42, y, participantLabel(state, participant.participantId), 12);
             drawClippedText(142, y,
@@ -1436,7 +1484,7 @@ namespace Duel6 {
     }
 
     void NetworkMenu::drawHostEndedPanel(
-            const Client::NetworkRuntimeSnapshot &, Int32 width, Int32 height) const {
+            const Client::NetworkRuntimeSnapshot &snap, Int32 width, Int32 height) const {
         const Int32 panelWidth = std::min<Int32>(640, width - 32);
         const Int32 panelHeight = std::min<Int32>(260, height - 32);
         const Int32 x = (width - panelWidth) / 2, y = (height - panelHeight) / 2;
@@ -1445,10 +1493,17 @@ namespace Duel6 {
         renderer.setBlendFunc(BlendFunc::None);
         drawText(x + 24, y + panelHeight - 40, "HOST ENDED SESSION");
         const auto columns = static_cast<std::size_t>(std::max<Int32>(12, (panelWidth - 48) / 8));
-        drawWrappedText(x + 24, y + panelHeight - 76, "The host ended the session.", columns, 2);
-        drawWrappedText(x + 24, y + panelHeight - 112, "This session cannot be resumed.", columns, 2);
-        drawWrappedText(x + 24, y + panelHeight - 150,
-                "Session-only results were not saved to local statistics or Elo.", columns, 2);
+        drawWrappedText(x + 24, y + panelHeight - 76, "The host ended the session", columns, 2);
+        drawWrappedText(x + 24, y + panelHeight - 112, "This session cannot be resumed", columns, 2);
+        const bool matchActivityBegan = snap.canonical
+                && (snap.canonical->round.has_value() || snap.canonical->result.available
+                    || snap.canonical->completedRounds != 0
+                    || snap.canonical->phase == Network::Replication::Phase::ActiveRound
+                    || snap.canonical->phase == Network::Replication::Phase::RoundSummary
+                    || snap.canonical->phase == Network::Replication::Phase::FinalSummary);
+        if (matchActivityBegan)
+            drawWrappedText(x + 24, y + panelHeight - 150,
+                    "Session-only results were not saved to local statistics or Elo", columns, 2);
         renderer.quadXY(Vector(x + panelWidth / 2 - 110, y + 24), Vector(220, 34), Color(64, 96, 160));
         drawFocusKeyline(x + panelWidth / 2 - 110, y + 24, 220, 34, true);
         drawText(x + panelWidth / 2 - 68, y + 32, "Return to Network", Color::WHITE);

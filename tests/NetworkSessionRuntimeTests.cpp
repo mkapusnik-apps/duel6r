@@ -1,11 +1,22 @@
 #include <atomic>
+#include <chrono>
 #include <deque>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
+
+#ifndef _WIN32
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 #include "tests/TestHarness.h"
 #include "source/client/HostServiceSupervisor.h"
@@ -40,6 +51,57 @@ namespace {
         value.name = std::move(name);
         return value;
     }
+
+#ifndef _WIN32
+    std::uint16_t unusedLoopbackPort() {
+        const int descriptor = ::socket(AF_INET, SOCK_STREAM, 0);
+        D6R_REQUIRE(descriptor >= 0);
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        address.sin_port = 0;
+        D6R_REQUIRE(::bind(descriptor, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) == 0);
+        socklen_t size = sizeof(address);
+        D6R_REQUIRE(::getsockname(descriptor, reinterpret_cast<sockaddr *>(&address), &size) == 0);
+        const auto port = ntohs(address.sin_port);
+        ::close(descriptor);
+        D6R_REQUIRE(port != 0);
+        return port;
+    }
+
+    template<typename Predicate>
+    bool pumpRuntimes(Client::NetworkSessionRuntime &host,
+                      Client::NetworkSessionRuntime &first,
+                      Client::NetworkSessionRuntime &second,
+                      std::chrono::milliseconds timeout,
+                      Predicate predicate) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        do {
+            host.update(); first.update(); second.update();
+            if (predicate()) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        } while (std::chrono::steady_clock::now() < deadline);
+        host.update(); first.update(); second.update();
+        return predicate();
+    }
+
+    bool sixPlayerLobby(const Client::NetworkRuntimeSnapshot &snapshot) {
+        return snapshot.journey == Client::NetworkJourney::Lobby && snapshot.canonical
+               && snapshot.canonical->phase == Network::Replication::Phase::Lobby
+               && snapshot.canonical->participants.size() == 3
+               && snapshot.canonical->players.size() == 6;
+    }
+
+    bool participantReady(const Client::NetworkRuntimeSnapshot &snapshot,
+                          Network::Replication::Identity participantId) {
+        if (!snapshot.canonical) return false;
+        const auto found = std::find_if(snapshot.canonical->participants.begin(),
+                snapshot.canonical->participants.end(), [participantId](const auto &participant) {
+                    return participant.participantId == participantId;
+                });
+        return found != snapshot.canonical->participants.end() && found->ready;
+    }
+#endif
 }
 
 D6R_TEST_CASE("issue-38 guest participant commands preserve order and reconnect Leave preempts queued work") {
@@ -200,3 +262,176 @@ D6R_TEST_CASE("issue-38 host composition framing is deterministic for every UI a
     unknown[7] = 14;
     D6R_REQUIRE(!Network::HostComposition::deserialize(unknown).has_value());
 }
+
+#ifndef _WIN32
+D6R_TEST_CASE("NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionRuntime participants converge Ready and survive authenticated reconnect probes") {
+    using namespace std::chrono_literals;
+    Client::NetworkSessionRuntime host;
+    Client::NetworkSessionRuntime first;
+    Client::NetworkSessionRuntime second;
+    const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
+
+    const std::vector<Client::NetworkLocalPlayer> hostPlayers{player("Håkon"), player("Zoë")};
+    const std::vector<Client::NetworkLocalPlayer> firstPlayers{player("Jiří"), player("Renée")};
+    const std::vector<Client::NetworkLocalPlayer> secondPlayers{player("Søren"), player("Łukasz")};
+    Network::HostComposition::Setup setup;
+    setup.localPlayerNames = {hostPlayers[0].name, hostPlayers[1].name};
+    setup.fixedLevel = "levels/duel_01.json";
+    setup.roundLimit = 1;
+
+    D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR,
+                               setup, hostPlayers));
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 10s, [&] {
+        const auto snapshot = host.snapshot();
+        return snapshot.journey == Client::NetworkJourney::Lobby && snapshot.canonical
+               && snapshot.canonical->players.size() == 2;
+    }));
+    D6R_REQUIRE(first.join(endpoint, D6R_TEST_RESOURCE_DIR, firstPlayers));
+    D6R_REQUIRE(second.join(endpoint, D6R_TEST_RESOURCE_DIR, secondPlayers));
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 10s, [&] {
+        return sixPlayerLobby(host.snapshot()) && sixPlayerLobby(first.snapshot())
+               && sixPlayerLobby(second.snapshot());
+    }));
+
+    const auto hostLobby = host.snapshot();
+    const auto firstLobby = first.snapshot();
+    const auto secondLobby = second.snapshot();
+    D6R_REQUIRE(hostLobby.canonical->sessionId != 0);
+    D6R_REQUIRE_EQ(hostLobby.canonical->sessionId, firstLobby.canonical->sessionId);
+    D6R_REQUIRE_EQ(hostLobby.canonical->sessionId, secondLobby.canonical->sessionId);
+    D6R_REQUIRE(firstLobby.localParticipantId != 0);
+    D6R_REQUIRE(secondLobby.localParticipantId != 0);
+    D6R_REQUIRE(firstLobby.localParticipantId != secondLobby.localParticipantId);
+
+    first.setReady(true);
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 5s, [&] {
+        return participantReady(host.snapshot(), firstLobby.localParticipantId)
+               && participantReady(first.snapshot(), firstLobby.localParticipantId)
+               && participantReady(second.snapshot(), firstLobby.localParticipantId);
+    }));
+    D6R_REQUIRE(first.snapshot().journey == Client::NetworkJourney::Lobby);
+    D6R_REQUIRE(second.snapshot().journey == Client::NetworkJourney::Lobby);
+
+    second.setReady(true);
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 5s, [&] {
+        for (const auto *runtime: {&host, &first, &second}) {
+            const auto snapshot = runtime->snapshot();
+            if (!sixPlayerLobby(snapshot)
+                || !participantReady(snapshot, firstLobby.localParticipantId)
+                || !participantReady(snapshot, secondLobby.localParticipantId)) return false;
+        }
+        return true;
+    }));
+
+    const auto readyProbeDeadline = std::chrono::steady_clock::now() + 1200ms;
+    while (std::chrono::steady_clock::now() < readyProbeDeadline) {
+        host.update(); first.update(); second.update();
+        D6R_REQUIRE(sixPlayerLobby(first.snapshot()));
+        D6R_REQUIRE(sixPlayerLobby(second.snapshot()));
+        std::this_thread::sleep_for(5ms);
+    }
+
+    // A correctly framed action authenticated to the wrong session must close only
+    // the offender. The runtime must consume its reconnect grant, restore the same
+    // participant and canonical session, and continue beyond several 250 ms probes.
+    const auto wrongSession = hostLobby.canonical->sessionId
+                              == (std::numeric_limits<std::uint64_t>::max)()
+                              ? hostLobby.canonical->sessionId - 1
+                              : hostLobby.canonical->sessionId + 1;
+    {
+        std::lock_guard<std::mutex> lock(first.mutex);
+        first.pendingGuestCommands.push_back(Network::Lifecycle::serializeParticipantAction({
+                wrongSession, firstLobby.localParticipantId,
+                Network::Lifecycle::ParticipantActionKind::Ready}));
+    }
+    bool reconnectObserved = false;
+    bool hostObservedReservedParticipant = false;
+    std::vector<unsigned> countdown;
+    bool countdownMonotonic = true;
+    std::ostringstream reconnectTrace;
+    std::optional<Client::NetworkJourney> lastJourney;
+    const bool restored = pumpRuntimes(host, first, second, 5s, [&] {
+        const auto firstNow = first.snapshot();
+        const auto hostNow = host.snapshot();
+        const auto secondNow = second.snapshot();
+        if (!lastJourney || *lastJourney != firstNow.journey) {
+            reconnectTrace << "journey=" << static_cast<unsigned>(firstNow.journey);
+            if (firstNow.reconnectSeconds) reconnectTrace << ":seconds=" << *firstNow.reconnectSeconds;
+            reconnectTrace << ';';
+            lastJourney = firstNow.journey;
+        }
+        if (firstNow.journey == Client::NetworkJourney::Reconnecting) {
+            reconnectObserved = true;
+            if (firstNow.reconnectSeconds) {
+                if (!countdown.empty() && *firstNow.reconnectSeconds > countdown.back()) {
+                    countdownMonotonic = false;
+                    reconnectTrace << "increase=" << countdown.back() << "->"
+                                   << *firstNow.reconnectSeconds << ';';
+                }
+                countdown.push_back(*firstNow.reconnectSeconds);
+            }
+        }
+        if (hostNow.canonical) {
+            const auto participant = std::find_if(hostNow.canonical->participants.begin(),
+                    hostNow.canonical->participants.end(), [&](const auto &value) {
+                        return value.participantId == firstLobby.localParticipantId;
+                    });
+            hostObservedReservedParticipant = hostObservedReservedParticipant
+                    || (participant != hostNow.canonical->participants.end()
+                        && participant->connection == Network::Replication::ConnectionState::Reconnecting);
+        }
+        if (secondNow.journey != Client::NetworkJourney::Lobby)
+            reconnectTrace << "peer-journey=" << static_cast<unsigned>(secondNow.journey) << ';';
+        return reconnectObserved && sixPlayerLobby(firstNow)
+               && firstNow.localParticipantId == firstLobby.localParticipantId
+               && firstNow.canonical->sessionId == hostLobby.canonical->sessionId;
+    });
+    if (!restored) {
+        const auto failed = first.snapshot();
+        reconnectTrace << "final-journey=" << static_cast<unsigned>(failed.journey);
+        if (failed.reconnectSeconds) reconnectTrace << ":seconds=" << *failed.reconnectSeconds;
+        reconnectTrace << ":failure=" << failed.failure;
+        if (failed.canonical)
+            reconnectTrace << ":participants=" << failed.canonical->participants.size()
+                           << ":players=" << failed.canonical->players.size();
+        Duel6::Test::fail("restored", __FILE__, __LINE__, reconnectTrace.str());
+    }
+    D6R_REQUIRE(reconnectObserved);
+    D6R_REQUIRE(hostObservedReservedParticipant);
+    D6R_REQUIRE(!countdown.empty());
+    if (!countdownMonotonic)
+        Duel6::Test::fail("countdownMonotonic", __FILE__, __LINE__, reconnectTrace.str());
+
+    const auto probeDeadline = std::chrono::steady_clock::now() + 1200ms;
+    const auto probeStarted = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() < probeDeadline) {
+        host.update(); first.update(); second.update();
+        const auto restored = first.snapshot();
+        if (!sixPlayerLobby(restored)) {
+            std::ostringstream details;
+            details << "elapsed-ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - probeStarted).count()
+                    << ";journey=" << static_cast<unsigned>(restored.journey)
+                    << ";seconds=";
+            if (restored.reconnectSeconds) details << *restored.reconnectSeconds;
+            else details << "none";
+            details << ";participants="
+                    << (restored.canonical ? restored.canonical->participants.size() : 0)
+                    << ";players=" << (restored.canonical ? restored.canonical->players.size() : 0)
+                    << ";failure=" << restored.failure;
+            Duel6::Test::fail("restored six-player lobby survives quality probes",
+                              __FILE__, __LINE__, details.str());
+        }
+        D6R_REQUIRE(sixPlayerLobby(second.snapshot()));
+        D6R_REQUIRE(participantReady(first.snapshot(), firstLobby.localParticipantId));
+        std::this_thread::sleep_for(5ms);
+    }
+
+    first.leave(); second.leave();
+    (void) pumpRuntimes(host, first, second, 3s, [&] {
+        return first.snapshot().journey == Client::NetworkJourney::Inactive
+               && second.snapshot().journey == Client::NetworkJourney::Inactive;
+    });
+    host.endSession();
+}
+#endif

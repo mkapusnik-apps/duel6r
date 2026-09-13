@@ -2281,7 +2281,11 @@ namespace Duel6::Server {
                         runtimeFailed = true;
                     if (runtime.admitted && !config.transportEcho && !lifecycleHandled)
                         admissionPolicy->disconnect(runtime.connectionId);
-                    if (runtime.admitted && hostedMatch && !lifecycleHandled) {
+                    const auto currentBinding = participantConnections.find(runtime.offer.participantId);
+                    const bool ownsParticipantBinding = currentBinding != participantConnections.end()
+                            && currentBinding->second == runtime.connectionId;
+                    if (runtime.admitted && hostedMatch && !lifecycleHandled && ownsParticipantBinding) {
+                        participantConnections.erase(currentBinding);
                         connectedParticipants.erase(runtime.offer.participantId);
                         hostedMatch->disconnectReplication(runtime.offer.participantId);
                         hostedMatch->disconnectPlayerInput(runtime.offer.participantId);
@@ -2311,7 +2315,11 @@ namespace Duel6::Server {
                     if (runtime.admitted && !config.transportEcho && !lifecycleHandled) {
                         try { admissionPolicy->disconnect(runtime.connectionId); } catch (...) {}
                     }
-                    if (runtime.admitted && hostedMatch && !lifecycleHandled) {
+                    const auto currentBinding = participantConnections.find(runtime.offer.participantId);
+                    const bool ownsParticipantBinding = currentBinding != participantConnections.end()
+                            && currentBinding->second == runtime.connectionId;
+                    if (runtime.admitted && hostedMatch && !lifecycleHandled && ownsParticipantBinding) {
+                        participantConnections.erase(currentBinding);
                         connectedParticipants.erase(runtime.offer.participantId);
                         hostedMatch->disconnectReplication(runtime.offer.participantId);
                         hostedMatch->disconnectPlayerInput(runtime.offer.participantId);

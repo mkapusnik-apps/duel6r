@@ -176,9 +176,32 @@ if (NOT D6R_TRANSPORT_ONLY)
     target_include_directories(duel6r-network-session-runtime-tests PRIVATE ${CMAKE_SOURCE_DIR})
     target_link_libraries(duel6r-network-session-runtime-tests
             duel6r-game-engine duel6r-network-scaffold)
+    target_compile_definitions(duel6r-network-session-runtime-tests PRIVATE
+            D6R_RUNTIME_TEST_SERVER="$<TARGET_FILE:${D6R_SERVER_APP_NAME}>"
+            D6R_TEST_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/resources")
+    add_dependencies(duel6r-network-session-runtime-tests ${D6R_SERVER_APP_NAME})
     add_test(NAME duel6r-network-session-runtime-tests COMMAND duel6r-network-session-runtime-tests)
     set_tests_properties(duel6r-network-session-runtime-tests PROPERTIES
             LABELS "application;integration;network;runtime;presentation;reconnect;regression"
+            TIMEOUT 30)
+endif ()
+
+if (NOT D6R_TRANSPORT_ONLY)
+    find_library(D6R_TEST_LIB_SDL2 SDL2 REQUIRED)
+    find_library(D6R_TEST_LIB_SDL2_TTF SDL2_ttf REQUIRED)
+    find_library(D6R_TEST_LIB_SDL2_IMAGE SDL2_image REQUIRED)
+    add_executable(duel6r-font-utf8-tests
+            ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+            ${CMAKE_SOURCE_DIR}/tests/FontUtf8Tests.cpp)
+    target_include_directories(duel6r-font-utf8-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-font-utf8-tests
+            duel6r-game-engine duel6r-network-scaffold
+            ${D6R_TEST_LIB_SDL2} ${D6R_TEST_LIB_SDL2_TTF} ${D6R_TEST_LIB_SDL2_IMAGE})
+    target_compile_definitions(duel6r-font-utf8-tests PRIVATE
+            D6R_TEST_FONT_PATH="${CMAKE_SOURCE_DIR}/resources/data/font.ttf")
+    add_test(NAME duel6r-font-utf8-tests COMMAND duel6r-font-utf8-tests)
+    set_tests_properties(duel6r-font-utf8-tests PROPERTIES
+            LABELS "application;network;presentation;font;utf8;regression"
             TIMEOUT 30)
 endif ()
 

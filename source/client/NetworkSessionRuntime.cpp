@@ -137,7 +137,12 @@ namespace Duel6::Client {
             dependencies.guestRecoveryPresentation = [this](auto journey, auto seconds, std::string_view failure) {
                 std::lock_guard<std::mutex> lock(mutex);
                 if (current.journey == NetworkJourney::Cancelling) return;
-                current.reconnectSeconds = seconds;
+                if (journey == Network::Lifecycle::GuestJourney::Reconnecting) {
+                    if (current.journey == NetworkJourney::Reconnecting
+                        && current.reconnectSeconds && seconds)
+                        current.reconnectSeconds = std::min(*current.reconnectSeconds, *seconds);
+                    else current.reconnectSeconds = seconds;
+                } else current.reconnectSeconds.reset();
                 if (journey == Network::Lifecycle::GuestJourney::HostEnded) {
                     current.journey = NetworkJourney::HostEnded;
                 } else if (journey == Network::Lifecycle::GuestJourney::ConnectionFailure) {
@@ -193,6 +198,7 @@ namespace Duel6::Client {
         if (current.host) current.localParticipantId = state.hostParticipantId;
         if (!cancelling) {
             current.journey = journeyFor(state); current.status = "Connected";
+            current.reconnectSeconds.reset();
         }
     }
 
