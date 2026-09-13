@@ -251,7 +251,18 @@ namespace Duel6 {
     }
 
     Texture CanonicalWorldPresenter::backgroundTexture() const {
-        return level ? resources.getBcgTextures().at(level->getBackground()) : Texture();
+        if (!level) return Texture();
+
+        const auto &backgrounds = resources.getBcgTextures().getTextures();
+        const std::string &configured = level->getBackground();
+        if (!configured.empty()) {
+            const auto found = backgrounds.find(configured);
+            return found == backgrounds.end() ? Texture() : found->second;
+        }
+
+        const auto fallback = std::min_element(backgrounds.begin(), backgrounds.end(),
+                [](const auto &left, const auto &right) { return left.first < right.first; });
+        return fallback == backgrounds.end() ? Texture() : fallback->second;
     }
 
     void CanonicalWorldPresenter::renderEntity(
