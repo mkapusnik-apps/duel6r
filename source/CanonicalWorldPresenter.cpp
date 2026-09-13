@@ -57,6 +57,14 @@ namespace Duel6 {
             }
         }
 
+        std::uint64_t nextPresentationRandom(std::uint64_t &state) {
+            state += 0x9e3779b97f4a7c15ull;
+            std::uint64_t value = state;
+            value = (value ^ (value >> 30u)) * 0xbf58476d1ce4e5b9ull;
+            value = (value ^ (value >> 27u)) * 0x94d049bb133111ebull;
+            return value ^ (value >> 31u);
+        }
+
         std::string selectBackground(const Network::Replication::CanonicalState &state,
                                      const Level &level, const GameResources &resources) {
             const auto &available = resources.getBcgTextures().getTextures();
@@ -78,9 +86,12 @@ namespace Duel6 {
             hashString(hash, state.round->level);
             hashIdentity(hash, eligible.size());
             for (const auto &entry: eligible) hashString(hash, entry);
-            const std::size_t offset = static_cast<std::size_t>(hash % eligible.size());
-            const std::size_t round = static_cast<std::size_t>(state.round->roundId % eligible.size());
-            return eligible[(offset + round) % eligible.size()];
+            for (std::size_t remaining = eligible.size(); remaining > 1; --remaining) {
+                const std::size_t selected = static_cast<std::size_t>(
+                        nextPresentationRandom(hash) % remaining);
+                std::swap(eligible[remaining - 1], eligible[selected]);
+            }
+            return eligible[static_cast<std::size_t>(state.round->roundId % eligible.size())];
         }
 
         Float32 unitRatio(std::int64_t value, Float32 maximum) {
