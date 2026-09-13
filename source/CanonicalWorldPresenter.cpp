@@ -532,7 +532,10 @@ namespace Duel6 {
         renderer.setViewMatrix(Matrix::translate(x + level->getWidth() * scale,
                                                  y + level->getHeight() * scale, 0)
                                * Matrix::scale(-scale, -scale, 1));
-        renderer.enableDepthTest(true);
+        // This is a flattened orthographic presentation with an explicit
+        // painter order. Do not test against depth left by the underlying menu
+        // background; that can reject the complete canonical arena.
+        renderer.enableDepthTest(false);
         levelRenderData->getWalls().render(resources.getBlockTextures(), false);
         levelRenderData->getSprites().render(resources.getBlockTextures(), true);
         for (const auto &entity: state.entities) renderEntity(entity);
@@ -567,7 +570,6 @@ namespace Duel6 {
         }
         levelRenderData->getWater().render(resources.getBlockTextures(), true);
         explosions.render(renderer);
-        renderer.enableDepthTest(false);
         renderer.setViewMatrix(Matrix::IDENTITY);
         (void) presentation;
         return true;
