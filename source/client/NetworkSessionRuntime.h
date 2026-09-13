@@ -92,6 +92,14 @@ namespace Duel6::Client {
         bool pendingHostEnd = false;
         std::unique_ptr<Network::Input::ClientCommandSession> hostInput;
         std::unique_ptr<Network::Replication::ClientReplicationConnection> hostPresentation;
+        struct DeferredHostPresentation {
+            Network::Replication::CanonicalState state;
+            Network::Responsiveness::ConnectionPresentationState presentation;
+            std::vector<Network::Responsiveness::PresentedPlayerPose> presentedPlayers;
+            std::vector<Network::Replication::PresentationEvent> events;
+        };
+        std::optional<DeferredHostPresentation> deferredHostPresentation;
+        unsigned deferredHostPresentationUpdates = 0;
         std::optional<std::uint64_t> submittedHostTick;
         std::unique_ptr<HostServiceSupervisor> supervisor;
         std::thread guestWorker;

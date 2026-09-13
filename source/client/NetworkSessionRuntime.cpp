@@ -224,8 +224,31 @@ namespace Duel6::Client {
                 hostPresentation->setLocallyControlledPlayers(
                         std::set<Network::Replication::Identity>(host->ownedPlayerIds.begin(), host->ownedPlayerIds.end()));
             }
-            applyCanonicalLocked(*state, hostPresentation->presentationState(acceptedAt),
-                    hostPresentation->presentedPlayers(acceptedAt), hostPresentation->takePresentationEvents());
+            const auto revealsRestoredParticipant = current.canonical
+                    && std::any_of(current.canonical->participants.begin(), current.canonical->participants.end(),
+                            [&](const auto &previous) {
+                                if (previous.connection != Network::Replication::ConnectionState::Reconnecting)
+                                    return false;
+                                const auto restored = std::find_if(state->participants.begin(), state->participants.end(),
+                                        [&](const auto &next) {
+                                            return next.participantId == previous.participantId
+                                                    && next.connection == Network::Replication::ConnectionState::Connected;
+                                        });
+                                return restored != state->participants.end();
+                            });
+            auto presentation = hostPresentation->presentationState(acceptedAt);
+            auto presentedPlayers = hostPresentation->presentedPlayers(acceptedAt);
+            auto events = hostPresentation->takePresentationEvents();
+            if (revealsRestoredParticipant) {
+                const bool firstDeferredRestore = !deferredHostPresentation.has_value();
+                deferredHostPresentation = DeferredHostPresentation{
+                        *state, std::move(presentation), std::move(presentedPlayers), std::move(events)};
+                if (firstDeferredRestore) deferredHostPresentationUpdates = 1;
+            } else {
+                deferredHostPresentation.reset();
+                deferredHostPresentationUpdates = 0;
+                applyCanonicalLocked(*state, presentation, std::move(presentedPlayers), std::move(events));
+            }
         } else if (message->kind == Network::HostComposition::Kind::PlayerInputOutcome) {
             std::lock_guard<std::mutex> lock(mutex);
             if (hostInput) (void) hostInput->receive(message->payload);
@@ -279,6 +302,15 @@ namespace Duel6::Client {
         std::uint64_t tick = 0; Network::Replication::Identity participant = 0;
         {
             std::lock_guard<std::mutex> lock(mutex);
+            if (deferredHostPresentation) {
+                if (deferredHostPresentationUpdates != 0) --deferredHostPresentationUpdates;
+                else {
+                    auto deferred = std::move(*deferredHostPresentation);
+                    deferredHostPresentation.reset();
+                    applyCanonicalLocked(deferred.state, deferred.presentation,
+                            std::move(deferred.presentedPlayers), std::move(deferred.events));
+                }
+            }
             for (std::size_t index = 0; index < players.size(); ++index)
                 sampledActions[index] = sampleActionsOnInputThread(index);
             if (current.host && hostPresentation && current.canonical) {
@@ -434,6 +466,7 @@ namespace Duel6::Client {
         current = {}; players.clear(); sampledActions.clear(); ownedPlayerBindings.clear();
         pendingGuestCommands.clear(); pendingHostCommands.clear();
         pendingHostEnd = false;
-        hostInput.reset(); hostPresentation.reset(); submittedHostTick.reset();
+        hostInput.reset(); hostPresentation.reset(); deferredHostPresentation.reset();
+        deferredHostPresentationUpdates = 0; submittedHostTick.reset();
     }
 }
