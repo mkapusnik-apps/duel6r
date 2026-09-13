@@ -2301,6 +2301,9 @@ namespace Duel6::Server {
                     }
                     observe(AdmissionLifecycleStage::ConnectionClosed, runtime.connectionId);
                     iterator = connections.erase(iterator);
+                    // Publish the disconnected participant before a pending reconnect can
+                    // restore it later in this event-loop iteration.
+                    break;
                 } else {
                     ++iterator;
                 }
@@ -2337,6 +2340,7 @@ namespace Duel6::Server {
                     }
                     observe(AdmissionLifecycleStage::ConnectionClosed, runtime.connectionId);
                     iterator = connections.erase(iterator);
+                    break;
                 }
             }
             if (runtimeFailed) break;

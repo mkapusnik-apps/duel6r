@@ -984,7 +984,7 @@ namespace Duel6::Network {
 
             if (writer.joinable() && writer.get_id() != std::this_thread::get_id()) writer.join();
             stop.store(true);
-            shutdownSocket(socket);
+            if (!socketClosed.load()) shutdownSocket(socket);
             if (reader.joinable() && reader.get_id() != std::this_thread::get_id()) reader.join();
             closeSocketOnce();
             releaseQueuedBytes();
