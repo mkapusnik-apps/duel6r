@@ -1,8 +1,11 @@
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <deque>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -33,6 +36,8 @@
 // adding a production diagnostic API solely for QA.
 #define private public
 #include "source/client/NetworkSessionRuntime.h"
+#include "source/Application.h"
+#include "source/CanonicalWorldPresenter.h"
 #undef private
 
 namespace {
@@ -277,7 +282,7 @@ D6R_TEST_CASE("NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionRuntime part
     Network::HostComposition::Setup setup;
     setup.localPlayerNames = {hostPlayers[0].name, hostPlayers[1].name};
     setup.fixedLevel = "levels/duel_01.json";
-    setup.roundLimit = 1;
+    setup.roundLimit = 3;
 
     D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR,
                                setup, hostPlayers));
@@ -425,6 +430,51 @@ D6R_TEST_CASE("NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionRuntime part
         D6R_REQUIRE(sixPlayerLobby(second.snapshot()));
         D6R_REQUIRE(participantReady(first.snapshot(), firstLobby.localParticipantId));
         std::this_thread::sleep_for(5ms);
+    }
+
+    host.setReady(true);
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 5s, [&] {
+        for (const auto *runtime: {&host, &first, &second}) {
+            const auto snapshot = runtime->snapshot();
+            if (!snapshot.canonical || snapshot.canonical->participants.size() != 3
+                || snapshot.canonical->players.size() != 6
+                || !std::all_of(snapshot.canonical->participants.begin(),
+                                snapshot.canonical->participants.end(),
+                                [](const auto &participant) { return participant.ready; })) return false;
+        }
+        return true;
+    }));
+
+    host.startMatch();
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 10s, [&] {
+        for (const auto *runtime: {&host, &first, &second}) {
+            const auto snapshot = runtime->snapshot();
+            if (snapshot.journey != Client::NetworkJourney::Match || !snapshot.canonical
+                || snapshot.canonical->phase != Network::Replication::Phase::ActiveRound
+                || !snapshot.canonical->round || snapshot.canonical->round->roundNumber != 1
+                || snapshot.canonical->round->level != "levels/duel_01.json"
+                || snapshot.canonical->settings.roundLimit != 3
+                || snapshot.canonical->players.size() != 6) return false;
+        }
+        return true;
+    }));
+
+    char applicationName[] = "duel6r-network-session-runtime-tests";
+    char *arguments[] = {applicationName};
+    Application application(1, arguments);
+    std::vector<std::unique_ptr<CanonicalWorldPresenter>> presenters;
+    for (unsigned index = 0; index < 3; ++index)
+        presenters.emplace_back(std::make_unique<CanonicalWorldPresenter>(
+                *application.service, application.gameResources));
+    const std::array<Client::NetworkRuntimeSnapshot, 3> active{
+            host.snapshot(), first.snapshot(), second.snapshot()};
+    for (std::size_t index = 0; index < active.size(); ++index) {
+        const auto &snapshot = active[index];
+        D6R_REQUIRE(snapshot.canonical.has_value());
+        presenters[index]->setCanonicalLevels(snapshot.canonical->settings.levels);
+        presenters[index]->update(1.0f / 60.0f, &*snapshot.canonical, snapshot.presentationEvents);
+        D6R_REQUIRE(presenters[index]->render(*snapshot.canonical, snapshot.presentation,
+                                              snapshot.presentedPlayers, 1024, 768));
     }
 
     first.leave(); second.leave();

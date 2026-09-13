@@ -176,13 +176,38 @@ if (NOT D6R_TRANSPORT_ONLY)
     target_include_directories(duel6r-network-session-runtime-tests PRIVATE ${CMAKE_SOURCE_DIR})
     target_link_libraries(duel6r-network-session-runtime-tests
             duel6r-game-engine duel6r-network-scaffold)
+    if (UNIX AND NOT APPLE)
+        find_library(D6R_RUNTIME_TEST_LIB_OPENGL GL REQUIRED)
+        find_library(D6R_RUNTIME_TEST_LIB_GLEW GLEW REQUIRED)
+        find_library(D6R_RUNTIME_TEST_LIB_SDL2 SDL2 REQUIRED)
+        find_library(D6R_RUNTIME_TEST_LIB_SDL2_MIXER SDL2_mixer REQUIRED)
+        find_library(D6R_RUNTIME_TEST_LIB_SDL2_TTF SDL2_ttf REQUIRED)
+        find_library(D6R_RUNTIME_TEST_LIB_SDL2_IMAGE SDL2_image REQUIRED)
+        target_link_libraries(duel6r-network-session-runtime-tests
+                ${D6R_RUNTIME_TEST_LIB_OPENGL} ${D6R_RUNTIME_TEST_LIB_GLEW}
+                ${D6R_RUNTIME_TEST_LIB_SDL2} ${D6R_RUNTIME_TEST_LIB_SDL2_MIXER}
+                ${D6R_RUNTIME_TEST_LIB_SDL2_TTF} ${D6R_RUNTIME_TEST_LIB_SDL2_IMAGE})
+        if (D6R_WITH_LUA)
+            find_library(D6R_RUNTIME_TEST_LIB_LUA lua5.3 REQUIRED)
+            target_link_libraries(duel6r-network-session-runtime-tests ${D6R_RUNTIME_TEST_LIB_LUA})
+        endif ()
+    endif ()
     target_compile_definitions(duel6r-network-session-runtime-tests PRIVATE
             D6R_RUNTIME_TEST_SERVER="$<TARGET_FILE:${D6R_SERVER_APP_NAME}>"
             D6R_TEST_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/resources")
     add_dependencies(duel6r-network-session-runtime-tests ${D6R_SERVER_APP_NAME})
-    add_test(NAME duel6r-network-session-runtime-tests COMMAND duel6r-network-session-runtime-tests)
+    if (UNIX)
+        find_program(D6R_TEST_XVFB_RUN_EXECUTABLE xvfb-run REQUIRED)
+        add_test(NAME duel6r-network-session-runtime-tests
+                COMMAND ${CMAKE_COMMAND} -E env SDL_AUDIODRIVER=dummy
+                        ${D6R_TEST_XVFB_RUN_EXECUTABLE} -a
+                        $<TARGET_FILE:duel6r-network-session-runtime-tests>)
+    else ()
+        add_test(NAME duel6r-network-session-runtime-tests COMMAND duel6r-network-session-runtime-tests)
+    endif ()
     set_tests_properties(duel6r-network-session-runtime-tests PROPERTIES
             LABELS "application;integration;network;runtime;presentation;reconnect;regression"
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
             TIMEOUT 30)
 endif ()
 

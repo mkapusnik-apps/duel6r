@@ -29,6 +29,7 @@ namespace Duel6 {
                     const Network::Responsiveness::ConnectionPresentationState &presentation,
                     const std::vector<Network::Responsiveness::PresentedPlayerPose> &presentedPlayers,
                     Int32 width, Int32 height) const;
+        const std::string &backgroundIdentity() const noexcept { return loadedBackground; }
 
     private:
         AppService &service;
@@ -51,10 +52,13 @@ namespace Duel6 {
         std::map<Network::Replication::Identity, Network::Replication::WorldEntityState> presentedEntities;
         std::map<Network::Replication::Identity, Float32> playerStatusRemaining;
         std::string loadedLevel;
+        std::string loadedBackground;
         std::vector<std::string> canonicalLevels;
+        Network::Replication::Identity loadedSession = 0;
+        Network::Replication::Identity loadedMatch = 0;
+        Network::Replication::Identity loadedRound = 0;
         bool loadedMirror = false;
-        bool loadRound(const Network::Replication::RoundState &round,
-                       const std::vector<std::string> &canonicalLevels);
+        bool loadRound(const Network::Replication::CanonicalState &state);
         const PlayerSkin &skinFor(const Network::Replication::PlayerState &player) const;
         Animation animationFor(const Network::Replication::PlayerState &player) const;
         Texture backgroundTexture() const;

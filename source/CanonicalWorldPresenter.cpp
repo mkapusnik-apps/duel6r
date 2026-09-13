@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <set>
 
 #include "AppService.h"
 #include "Bonus.h"
+#include "DataException.h"
 #include "Defines.h"
 #include "Material.h"
 #include "Orientation.h"
@@ -36,6 +38,49 @@ namespace Duel6 {
                    && level.compare(level.size() - 5, 5, ".json") == 0
                    && Network::Trust::validLogicalPath(level)
                    && std::find(manifestLevels.begin(), manifestLevels.end(), level) != manifestLevels.end();
+        }
+
+        void hashIdentity(std::uint64_t &hash, std::uint64_t value) {
+            constexpr std::uint64_t Prime = 1099511628211ull;
+            for (unsigned shift = 0; shift < 64; shift += 8) {
+                hash ^= (value >> shift) & 0xffu;
+                hash *= Prime;
+            }
+        }
+
+        void hashString(std::uint64_t &hash, const std::string &value) {
+            constexpr std::uint64_t Prime = 1099511628211ull;
+            hashIdentity(hash, value.size());
+            for (const unsigned char byte: value) {
+                hash ^= byte;
+                hash *= Prime;
+            }
+        }
+
+        std::string selectBackground(const Network::Replication::CanonicalState &state,
+                                     const Level &level, const GameResources &resources) {
+            const auto &available = resources.getBcgTextures().getTextures();
+            const auto named = available.find(level.getBackground());
+            if (!level.getBackground().empty() && named != available.end()) return named->first;
+
+            std::vector<std::string> eligible;
+            eligible.reserve(available.size());
+            for (const auto &entry: available) eligible.push_back(entry.first);
+            std::sort(eligible.begin(), eligible.end());
+            if (eligible.empty())
+                D6_THROW(DataException, "Required default network backgrounds are unavailable");
+
+            constexpr std::uint64_t Offset = 14695981039346656037ull;
+            std::uint64_t hash = Offset;
+            hashString(hash, "duel6r-network-background-v1");
+            hashIdentity(hash, state.sessionId);
+            hashIdentity(hash, state.matchId);
+            hashString(hash, state.round->level);
+            hashIdentity(hash, eligible.size());
+            for (const auto &entry: eligible) hashString(hash, entry);
+            const std::size_t offset = static_cast<std::size_t>(hash % eligible.size());
+            const std::size_t round = static_cast<std::size_t>(state.round->roundId % eligible.size());
+            return eligible[(offset + round) % eligible.size()];
         }
 
         Float32 unitRatio(std::int64_t value, Float32 maximum) {
@@ -105,19 +150,25 @@ namespace Duel6 {
         canonicalLevels = std::move(levels);
     }
 
-    bool CanonicalWorldPresenter::loadRound(
-            const Network::Replication::RoundState &round,
-            const std::vector<std::string> &replicatedLevels) {
+    bool CanonicalWorldPresenter::loadRound(const Network::Replication::CanonicalState &state) {
+        if (!state.round) return false;
+        const auto &round = *state.round;
         const std::set<std::string> local(canonicalLevels.begin(), canonicalLevels.end());
-        const std::set<std::string> replicated(replicatedLevels.begin(), replicatedLevels.end());
+        const std::set<std::string> replicated(state.settings.levels.begin(), state.settings.levels.end());
         if (local.empty() || local != replicated || !canonicalLevelId(round.level, canonicalLevels)) return false;
-        if (level && loadedLevel == round.level && loadedMirror == round.mirrored) return true;
+        if (level && loadedLevel == round.level && loadedMirror == round.mirrored
+            && loadedSession == state.sessionId && loadedMatch == state.matchId
+            && loadedRound == round.roundId) return true;
         levelRenderData.reset();
         level.reset();
         level = std::make_unique<Level>(round.level, round.mirrored, resources.getBlockMeta());
+        loadedBackground = selectBackground(state, *level, resources);
         levelRenderData = std::make_unique<LevelRenderData>(*level, renderer, 0.15f);
         levelRenderData->generateFaces();
         loadedLevel = round.level;
+        loadedSession = state.sessionId;
+        loadedMatch = state.matchId;
+        loadedRound = round.roundId;
         loadedMirror = round.mirrored;
         return true;
     }
@@ -129,7 +180,7 @@ namespace Duel6 {
             iterator->second -= elapsedTime;
             if (iterator->second <= 0) iterator = playerStatusRemaining.erase(iterator); else ++iterator;
         }
-        if (state && state->round && loadRound(*state->round, state->settings.levels) && levelRenderData)
+        if (state && state->round && loadRound(*state) && levelRenderData)
             levelRenderData->update(elapsedTime);
         explosions.update(elapsedTime);
         if (!state) return;
@@ -251,18 +302,13 @@ namespace Duel6 {
     }
 
     Texture CanonicalWorldPresenter::backgroundTexture() const {
-        if (!level) return Texture();
-
+        if (!level || loadedBackground.empty()) return Texture();
         const auto &backgrounds = resources.getBcgTextures().getTextures();
-        const std::string &configured = level->getBackground();
-        if (!configured.empty()) {
-            const auto found = backgrounds.find(configured);
-            return found == backgrounds.end() ? Texture() : found->second;
-        }
-
-        const auto fallback = std::min_element(backgrounds.begin(), backgrounds.end(),
-                [](const auto &left, const auto &right) { return left.first < right.first; });
-        return fallback == backgrounds.end() ? Texture() : fallback->second;
+        const auto selected = backgrounds.find(loadedBackground);
+        if (selected == backgrounds.end())
+            D6_THROW(DataException, "Required default network background is unavailable: textures/backgrounds/"
+                                    + loadedBackground);
+        return selected->second;
     }
 
     void CanonicalWorldPresenter::renderEntity(
