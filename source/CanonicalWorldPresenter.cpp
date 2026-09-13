@@ -525,12 +525,13 @@ namespace Duel6 {
                                         Vector(1, -1), Material(background));
         else renderer.quadXY(Vector(0, 0), Vector(width, height), Color(24, 28, 40));
 
-        // Level faces use the same top-down orientation as Local Play's camera.
-        // Flipping the level Y axis also preserves their front-face winding;
-        // drawing them with the menu's unflipped pixel transform culled the
-        // complete arena and left only the photographic background visible.
-        renderer.setViewMatrix(Matrix::translate(x, y + level->getHeight() * scale, 0)
-                               * Matrix::scale(scale, -scale, 1));
+        // Local Play's camera is rotated 180 degrees around X. Its look-at
+        // basis therefore reverses both screen axes; preserve that orientation
+        // and the renderer's clockwise front-face winding in the orthographic
+        // network presentation.
+        renderer.setViewMatrix(Matrix::translate(x + level->getWidth() * scale,
+                                                 y + level->getHeight() * scale, 0)
+                               * Matrix::scale(-scale, -scale, 1));
         renderer.enableDepthTest(true);
         levelRenderData->getWalls().render(resources.getBlockTextures(), false);
         levelRenderData->getSprites().render(resources.getBlockTextures(), true);
