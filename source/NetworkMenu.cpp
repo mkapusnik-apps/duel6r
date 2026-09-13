@@ -689,7 +689,8 @@ namespace Duel6 {
             }
             if (pointerInside(x, y, 275, 38, 300, 32)) { focus = footer + 1; activate(); return; }
         } else if (snap.journey == Client::NetworkJourney::Starting) {
-            if (pointerInside(x, y, 275, 300, 300, 32)) { focus = 0; activate(); return; }
+            const Int32 cancelY = !snap.host && setupScreen == SetupScreen::Join ? 38 : 300;
+            if (pointerInside(x, y, 275, cancelY, 300, 32)) { focus = 0; activate(); return; }
         } else if (snap.journey == Client::NetworkJourney::Lobby && snap.canonical) {
             const bool retained = snap.canonical->result.available;
             const auto resultBounds = resultScrollBounds(*snap.canonical, true);
@@ -1782,6 +1783,8 @@ namespace Duel6 {
         std::string title = "NETWORK PLAY";
         if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Host) title = "HOST NETWORK SESSION";
         else if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Join) title = "JOIN NETWORK SESSION";
+        else if (snap.journey == Client::NetworkJourney::Starting
+                 && !snap.host && setupScreen == SetupScreen::Join) title = "JOIN NETWORK SESSION";
         else if (snap.journey == Client::NetworkJourney::Lobby) title = "NETWORK LOBBY";
         else if (snap.journey == Client::NetworkJourney::Summary) title = "MATCH SUMMARY";
         else if (snap.journey == Client::NetworkJourney::Reconnecting) title = "RECONNECTING";
@@ -1863,9 +1866,29 @@ namespace Duel6 {
                 }
             }
         } else if (snap.journey == Client::NetworkJourney::Starting || snap.journey == Client::NetworkJourney::Cancelling) {
-            drawText(300, 430, snap.status);
-            if (snap.journey == Client::NetworkJourney::Starting) {
-                drawText(270, 400, "Startup can take up to 10 seconds."); drawAction(300, "Cancel", true);
+            if (snap.journey == Client::NetworkJourney::Starting
+                && !snap.host && setupScreen == SetupScreen::Join) {
+                drawClippedText(50, 516, "Hostname or address: " + snap.endpoint.host, 68);
+                drawText(650, 516, "Port: " + std::to_string(snap.endpoint.port));
+                drawText(50, 470, "LOCAL PLAYERS " + std::to_string(localPlayers.size()) + " • LOCKED / READ-ONLY");
+                renderer.frame(Vector(48, 158), Vector(764, 304), 1.0f, Color::BLACK);
+                drawText(56, 438, "Slot  Person");
+                drawText(430, 438, "Control");
+                Int32 playerY = 414;
+                for (std::size_t index = 0; index < localPlayers.size() && index < 15; ++index, playerY -= 18) {
+                    drawText(56, playerY, std::to_string(index + 1));
+                    drawClippedText(94, playerY, localPlayers[index].name, 38);
+                    drawClippedText(430, playerY, localPlayers[index].controls
+                            ? localPlayers[index].controls->getDescription() : "No control", 46);
+                }
+                drawWrappedText(50, 136, snap.status, 94, 2);
+                drawText(50, 94, "Connection deadline: 10 seconds total");
+                drawAction(38, "Cancel", true);
+            } else {
+                drawText(300, 430, snap.status);
+                if (snap.journey == Client::NetworkJourney::Starting) {
+                    drawText(270, 400, "Startup can take up to 10 seconds."); drawAction(300, "Cancel", true);
+                }
             }
         } else if (snap.canonical && snap.journey == Client::NetworkJourney::Lobby) {
             drawLobby(snap);
