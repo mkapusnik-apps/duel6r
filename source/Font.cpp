@@ -26,6 +26,7 @@
 */
 
 #include <list>
+#include <string_view>
 #include <unordered_map>
 #include "console/Console.h"
 #include "Font.h"
@@ -33,6 +34,15 @@
 #include "Video.h"
 
 namespace Duel6 {
+    namespace {
+        std::size_t utf8Length(std::string_view value) noexcept {
+            std::size_t characters = 0;
+            for (const unsigned char byte: value)
+                if ((byte & 0xc0u) != 0x80u) ++characters;
+            return characters;
+        }
+    }
+
     Font::Font(Renderer &renderer)
             : font(nullptr), renderer(renderer), fontCache(renderer, 100) {}
 
@@ -52,11 +62,11 @@ namespace Duel6 {
     }
 
     Float32 Font::getTextWidth(const std::string &str, Float32 height) const {
-        return str.size() * (height / 2.0f);
+        return static_cast<Float32>(utf8Length(str)) * (height / 2.0f);
     }
 
     Int32 Font::getTextWidth(const std::string &str, Int32 height) const {
-        return Int32(str.size() * height) / 2;
+        return Int32(utf8Length(str) * static_cast<std::size_t>(height)) / 2;
     }
 
     void Font::print(Int32 x, Int32 y, const Color &color, const std::string &str) const {
@@ -88,7 +98,7 @@ namespace Duel6 {
     }
 
     Texture Font::renderText(const std::string &text) const {
-        SDL_Surface *surface = TTF_RenderText_Blended(font, text.c_str(), SDL_Color{255, 255, 255, 255});
+        SDL_Surface *surface = TTF_RenderUTF8_Blended(font, text.c_str(), SDL_Color{255, 255, 255, 255});
         Image image = Image::fromSurface(surface);
         SDL_FreeSurface(surface);
 

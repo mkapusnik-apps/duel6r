@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <functional>
 
 #include "Context.h"
 #include "AppService.h"
@@ -12,7 +13,8 @@
 namespace Duel6 {
     class NetworkMenu final : public Context {
     public:
-        NetworkMenu(AppService &service, GameResources &resources);
+        NetworkMenu(AppService &service, GameResources &resources,
+                    Texture menuBannerTexture, std::function<void()> renderMenuBackground);
         void open(std::vector<Client::NetworkLocalPlayer> players,
                   Network::HostComposition::Setup setup,
                   std::vector<std::string> persons,
@@ -36,6 +38,8 @@ namespace Duel6 {
         PlayerControlsManager &controlsManager;
         CanonicalWorldPresenter worldPresenter;
         Client::NetworkSessionRuntime runtime;
+        Texture menuBannerTexture;
+        std::function<void()> renderMenuBackground;
         std::vector<Client::NetworkLocalPlayer> localPlayers;
         std::vector<std::string> availablePersons;
         std::vector<std::string> availableLevels;
@@ -44,6 +48,10 @@ namespace Duel6 {
         std::string address = "127.0.0.1";
         std::string hostAddress;
         std::vector<std::string> hostAddresses;
+        bool hostAddressSelectorOpen = false;
+        bool hostAddressSelectionBecameInvalid = false;
+        std::size_t hostAddressHighlight = 0;
+        std::size_t hostAddressScroll = 0;
         std::string port = std::to_string(Network::DefaultServerPort);
         int focus = 0;
         int setupScroll = 0;
@@ -72,6 +80,7 @@ namespace Duel6 {
         bool startEligible(const Client::NetworkRuntimeSnapshot &snapshot, std::string &reason) const;
         bool localReadyEligible(std::string &reason) const;
         bool endpoint(Network::Endpoint &result) const;
+        bool refreshHostAddresses(bool initialSelection);
         std::string serverExecutable() const;
         void drawText(Int32 x, Int32 y, const std::string &text, Color color = Color::BLACK) const;
         void drawClippedText(Int32 x, Int32 y, const std::string &text, std::size_t characters,
@@ -81,6 +90,7 @@ namespace Duel6 {
                              Color color = Color::BLACK) const;
         void drawAction(Int32 y, const std::string &text, bool selected) const;
         void drawFocusKeyline(Int32 x, Int32 y, Int32 width, Int32 height, bool selected) const;
+        void drawMenuCanvas(Int32 width, Int32 height) const;
         void drawPlayers(const Network::Replication::CanonicalState &state) const;
         void drawMatch(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height,
                        bool interactive = true) const;

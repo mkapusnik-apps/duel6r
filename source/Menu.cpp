@@ -419,7 +419,11 @@ namespace Duel6 {
 
         menuTrack = sound.loadModule("sound/undead.xm");
         startMenuBackgroundPreparation({}, true);
-        networkMenu = std::make_unique<NetworkMenu>(appService, game->getResources());
+        networkMenu = std::make_unique<NetworkMenu>(appService, game->getResources(), menuBannerTexture, [this] {
+            if (menuBackgroundInitialFrameRendered) publishPreparedMenuBackground();
+            else menuBackgroundInitialFrameRendered = true;
+            renderMenuBackground();
+        });
     }
 
     void Menu::openNetworkMenu() {

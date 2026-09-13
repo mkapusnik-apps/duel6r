@@ -1069,6 +1069,10 @@ namespace Duel6::Network::Replication {
         reconnecting = true;
         requestPending = false;
         deferredFullSnapshotRequest = false;
+        qualityProbeSentAt.reset();
+        lastQualityProbeAt.reset();
+        qualityProbeOutcomes.clear();
+        unansweredQualityProbeCount = 0;
         clearPendingInitialPayloads();
         replicated.requireResynchronization();
         movement.beginResynchronization();

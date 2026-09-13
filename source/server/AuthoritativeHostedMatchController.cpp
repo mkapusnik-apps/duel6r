@@ -14,9 +14,9 @@ namespace Duel6::Server::Authoritative {
     }
 
     AuthoritativeHostedMatchController::AuthoritativeHostedMatchController(
-            Identity hostParticipantId, MatchRuntimeDependencies dependencies)
+            Identity hostParticipantId, MatchRuntimeDependencies dependencies, Identity sessionId)
             : dependencies(std::move(dependencies)), hostParticipantId(hostParticipantId),
-              replication(), replicationConnections(replication.replicator()), playerInput(hostParticipantId) {}
+              replication(sessionId), replicationConnections(replication.replicator()), playerInput(hostParticipantId) {}
 
     bool AuthoritativeHostedMatchController::initializeReplication(
             std::vector<Network::Replication::ParticipantState> participants,

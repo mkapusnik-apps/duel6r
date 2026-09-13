@@ -300,15 +300,15 @@ namespace Duel6::Network::Trust {
         const auto interfaces = localIpv4Interfaces();
         if (!interfaces) return std::nullopt;
         std::vector<std::array<std::uint8_t, 4>> candidates;
+        const std::array<std::uint8_t, 4> loopback{127, 0, 0, 1};
         for (const auto &record: *interfaces)
             if (classifyIpv4(record.address) == EndpointScope::PrivateLan
                 && decideLocalListenerBind(record.address, *interfaces) == LocalListenerBindDecision::Allowed)
                 candidates.push_back(record.address);
         std::sort(candidates.begin(), candidates.end());
         candidates.erase(std::unique(candidates.begin(), candidates.end()), candidates.end());
-        const std::array<std::uint8_t, 4> loopback{127, 0, 0, 1};
         if (decideLocalListenerBind(loopback, *interfaces) == LocalListenerBindDecision::Allowed)
-            candidates.push_back(loopback);
+            candidates.insert(candidates.begin(), loopback);
         std::vector<std::string> result;
         for (const auto &candidate: candidates) {
             const std::string value = std::to_string(candidate[0]) + "." + std::to_string(candidate[1]) + "."

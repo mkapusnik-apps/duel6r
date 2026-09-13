@@ -26,7 +26,8 @@ namespace Duel6::Server::Authoritative {
     class AuthoritativeHostedMatchController final {
     public:
         AuthoritativeHostedMatchController(Identity hostParticipantId,
-                                           MatchRuntimeDependencies dependencies = {});
+                                           MatchRuntimeDependencies dependencies = {},
+                                           Identity sessionId = 0);
 
         bool markServiceReady();
         bool setParticipantReady(Identity participantId, bool ready);

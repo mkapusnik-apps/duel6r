@@ -1384,6 +1384,7 @@ namespace Duel6::Server {
 
         std::unique_ptr<AdmissionPolicy> admissionPolicy;
         std::unique_ptr<Authoritative::AuthoritativeHostedMatchController> hostedMatch;
+        std::uint64_t lifecycleSessionId = 0;
         std::unique_ptr<Network::Input::ClientCommandSession> hostPlayerInput;
         Network::ManifestBuildResult hostedContent;
         std::optional<Authoritative::MatchConfig> hostedSettings;
@@ -1424,6 +1425,10 @@ namespace Duel6::Server {
                 return 2;
             }
             if (runtimeDependencies.productionReplicationProtocol) {
+                if (!secureSeed(lifecycleSessionId)) {
+                    reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
+                    return 2;
+                }
                 const auto &host = admissionPolicy->allocation().hostParticipant();
                 hostedSettings = productionMatchConfig(hostedContent, host.participantId);
                 if (!hostedSettings) {
@@ -1453,7 +1458,8 @@ namespace Duel6::Server {
                         displayNames.emplace(host.playerIds[index], setup.localPlayerNames[index]);
                 }
                 connectedParticipants.insert(host.participantId);
-                hostedMatch = std::make_unique<Authoritative::AuthoritativeHostedMatchController>(host.participantId);
+                hostedMatch = std::make_unique<Authoritative::AuthoritativeHostedMatchController>(
+                        host.participantId, Authoritative::MatchRuntimeDependencies{}, lifecycleSessionId);
                 hostPlayerInput = std::make_unique<Network::Input::ClientCommandSession>(
                         host.participantId, host.playerIds,
                         [&hostedMatch, participantId = host.participantId](std::vector<std::uint8_t> payload) {
@@ -1611,8 +1617,6 @@ namespace Duel6::Server {
         bool deferLifecycleClose = false;
         std::unique_ptr<Network::Lifecycle::HostSessionLifecycle> sessionLifecycle;
         if (hostedMatch && admissionPolicy) {
-            std::uint64_t lifecycleSessionId = 0;
-            if (!secureSeed(lifecycleSessionId)) return cleanupListener() ? 2 : 4;
             Network::Lifecycle::HostHooks hooks;
             hooks.closeConnection = [&](Network::Lifecycle::ConnectionId connectionId) {
                 if (deferLifecycleClose) {
