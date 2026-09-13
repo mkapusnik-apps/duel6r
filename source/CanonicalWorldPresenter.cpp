@@ -570,6 +570,10 @@ namespace Duel6 {
         }
         levelRenderData->getWater().render(resources.getBlockTextures(), true);
         explosions.render(renderer);
+        // Sprite effects may restore depth testing after their own no-depth
+        // draw. Leave the renderer in the orthographic UI state expected by
+        // NetworkMenu's HUD and overlays.
+        renderer.enableDepthTest(false);
         renderer.setViewMatrix(Matrix::IDENTITY);
         (void) presentation;
         return true;
