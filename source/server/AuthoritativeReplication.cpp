@@ -142,9 +142,14 @@ namespace Duel6::Server::Authoritative {
                 nextState.players.push_back(std::move(player));
             }
             if (!nextState.result.available) resetLobbyScore(nextState);
-            if (!R::validateCanonicalState(nextState))
+            const auto validation = R::validateCanonicalStateDetailed(nextState);
+            if (validation == R::CanonicalValidationOutcome::InternalFailure)
+                return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
+            if (validation != R::CanonicalValidationOutcome::Valid)
                 return {CanonicalLobbyMutationOutcome::Rejected, std::nullopt};
             auto update = nextPublisher.publish(nextState);
+            if (!update && nextPublisher.lastPublishFailedInternally())
+                return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
             if (!update)
                 return {CanonicalLobbyMutationOutcome::PublicationFailure, std::nullopt};
             static_assert(std::is_nothrow_move_assignable_v<R::CanonicalState>);
@@ -172,9 +177,14 @@ namespace Duel6::Server::Authoritative {
             if (found == nextState.participants.end())
                 return {CanonicalLobbyMutationOutcome::Rejected, std::nullopt};
             found->ready = ready;
-            if (!R::validateCanonicalState(nextState))
+            const auto validation = R::validateCanonicalStateDetailed(nextState);
+            if (validation == R::CanonicalValidationOutcome::InternalFailure)
+                return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
+            if (validation != R::CanonicalValidationOutcome::Valid)
                 return {CanonicalLobbyMutationOutcome::Rejected, std::nullopt};
             auto update = nextPublisher.publish(nextState);
+            if (!update && nextPublisher.lastPublishFailedInternally())
+                return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
             if (!update)
                 return {CanonicalLobbyMutationOutcome::PublicationFailure, std::nullopt};
             static_assert(std::is_nothrow_move_assignable_v<R::CanonicalState>);

@@ -231,6 +231,8 @@ namespace Duel6::Network::Replication {
 
     enum class ApplyResult { Applied, Invalid, ResynchronizationRequired, WaitingForSnapshot };
 
+    enum class CanonicalValidationOutcome { Valid, Invalid, InternalFailure };
+    CanonicalValidationOutcome validateCanonicalStateDetailed(const CanonicalState &state) noexcept;
     bool validateCanonicalState(const CanonicalState &state) noexcept;
 
     class AuthoritativeStateReplicator final {
@@ -241,6 +243,7 @@ namespace Duel6::Network::Replication {
         std::optional<FullSnapshot> fullSnapshot() const;
         void discard() noexcept;
         StateVersion version() const noexcept;
+        bool lastPublishFailedInternally() const noexcept;
     private:
         StateVersion currentVersion = 0;
         std::optional<CanonicalState> current;
@@ -252,6 +255,7 @@ namespace Duel6::Network::Replication {
         std::map<Identity, std::uint8_t> issuedRoundNumbers;
         std::map<Identity, EntityKind> transientEntityIdentities;
         Identity highestEntityIdentity = 0;
+        bool publishInternalFailure = false;
     };
 
     class ReplicatedState final {

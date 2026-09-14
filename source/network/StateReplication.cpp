@@ -1372,8 +1372,7 @@ namespace Duel6::Network::Replication {
                && value != 0 && value < found->second;
     }
 
-    bool validateCanonicalState(const CanonicalState &state) noexcept {
-        try {
+    static bool validateCanonicalStateUnchecked(const CanonicalState &state) {
             if (state.sessionId == 0 || state.participants.empty() || !validPhase(state.phase)
                 || state.participants.size() > MaxReplicatedParticipants
                 || state.players.size() > MaxReplicatedPlayers
@@ -1560,8 +1559,20 @@ namespace Duel6::Network::Replication {
             if ((state.phase == Phase::FinalSummary && !state.result.available)
                 || (state.phase != Phase::FinalSummary && state.phase != Phase::Lobby
                     && state.result.available)) return false;
-            return true;
-        } catch (...) { return false; }
+        return true;
+    }
+
+    CanonicalValidationOutcome validateCanonicalStateDetailed(const CanonicalState &state) noexcept {
+        try {
+            return validateCanonicalStateUnchecked(state)
+                   ? CanonicalValidationOutcome::Valid : CanonicalValidationOutcome::Invalid;
+        } catch (...) {
+            return CanonicalValidationOutcome::InternalFailure;
+        }
+    }
+
+    bool validateCanonicalState(const CanonicalState &state) noexcept {
+        return validateCanonicalStateDetailed(state) == CanonicalValidationOutcome::Valid;
     }
 
     bool AuthoritativeStateReplicator::initialize(CanonicalState state) {
@@ -1582,14 +1593,20 @@ namespace Duel6::Network::Replication {
 
     std::optional<IncrementalUpdate> AuthoritativeStateReplicator::publish(
             CanonicalState state, std::vector<PresentationEvent> events) {
+        publishInternalFailure = false;
         const bool roundChanged = current && !sameRound(current->round, state.round);
         if (roundChanged) {
             std::set<Identity> priorEntities;
             for (const auto &entity: current->entities) priorEntities.insert(entity.entityId);
             for (const auto &entity: state.entities) if (priorEntities.count(entity.entityId)) return std::nullopt;
         }
+        const auto validation = validateCanonicalStateDetailed(state);
+        if (validation == CanonicalValidationOutcome::InternalFailure) {
+            publishInternalFailure = true;
+            return std::nullopt;
+        }
         if (!current || currentVersion == std::numeric_limits<StateVersion>::max()
-            || !validateCanonicalState(state) || !validAvailableTerminalResult(state)
+            || validation != CanonicalValidationOutcome::Valid || !validAvailableTerminalResult(state)
             || state.sessionId != current->sessionId
             || (current->matchId != 0 && state.matchId == current->matchId
                 && sameRound(current->round, state.round) && state.phaseTime < current->phaseTime)
@@ -1689,6 +1706,9 @@ namespace Duel6::Network::Replication {
     }
 
     StateVersion AuthoritativeStateReplicator::version() const noexcept { return currentVersion; }
+    bool AuthoritativeStateReplicator::lastPublishFailedInternally() const noexcept {
+        return publishInternalFailure;
+    }
 
     ApplyResult ReplicatedState::apply(const FullSnapshot &snapshot) {
         if (snapshot.version == 0 || !validateCanonicalState(snapshot.state)
