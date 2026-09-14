@@ -318,6 +318,13 @@ namespace Duel6::Network::Replication {
         }
 
         bool validEventForTransient(EntityKind kind, const std::string &eventType) {
+            // A typed gameplay event establishes a short-lived entity's kind
+            // before its lifecycle transitions arrive. It may be born and removed
+            // entirely between snapshots. Generic transitions alone must not
+            // establish a transient identity (see transientKind).
+            if (eventType == "entity-spawned" || eventType == "entity-removed")
+                return kind == EntityKind::Projectile || kind == EntityKind::BonusPickup
+                       || kind == EntityKind::WeaponPickup;
             if (kind == EntityKind::Projectile)
                 return eventType == "shot-fired" || eventType == "shot-hit"
                        || eventType == "player-life-changed" || eventType == "player-died"
