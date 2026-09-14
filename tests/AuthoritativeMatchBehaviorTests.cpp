@@ -26,7 +26,11 @@
 #include "source/server/AuthoritativeReplication.h"
 #include "source/server/AuthoritativeMatchSerialization.h"
 #include "source/server/AuthoritativeMatchValidation.h"
+#undef private
+// MSVC encodes member access in decorated names. Keep this class's production
+// declaration intact; changing its private methods to public breaks linkage.
 #include "source/server/CanonicalMatchRuntime.h"
+#define private public
 #include "source/server/FrozenGameplayConfig.h"
 #include "source/server/NetworkMatchResultRetention.h"
 #include "source/network/CompatibilityManifest.h"
@@ -66,6 +70,26 @@ void operator delete[](void *memory, std::size_t) noexcept { releaseTestMemory(m
 namespace {
 using namespace Duel6::Server::Authoritative;
 namespace R = Duel6::Network::Replication;
+
+// Explicit instantiation permits forming these private member pointers without
+// rewriting the class declaration or changing the production library's ABI.
+template<typename Tag, typename Tag::Type Member>
+struct CanonicalRuntimeMemberAccess {
+    friend typename Tag::Type canonicalRuntimeMember(Tag) { return Member; }
+};
+
+struct CanonicalDependenciesMember {
+    using Type = MatchRuntimeDependencies (CanonicalMatchRuntime::*)();
+    friend Type canonicalRuntimeMember(CanonicalDependenciesMember);
+};
+
+struct CanonicalPlayersMember {
+    using Type = std::map<Identity, Duel6::Player *> CanonicalMatchRuntime::*;
+    friend Type canonicalRuntimeMember(CanonicalPlayersMember);
+};
+
+template struct CanonicalRuntimeMemberAccess<CanonicalDependenciesMember, &CanonicalMatchRuntime::dependencies>;
+template struct CanonicalRuntimeMemberAccess<CanonicalPlayersMember, &CanonicalMatchRuntime::canonicalPlayersById>;
 
 class ScopedAllocationFailure final {
 public:
@@ -1048,7 +1072,8 @@ D6R_TEST_CASE("PR83 capture real Invisibility producer stays drawable and restor
         const auto content = Duel6::Network::CompatibilityManifestBuilder(resources.path(), {}).build();
         D6R_REQUIRE(content.valid());
         auto runtime = std::make_shared<CanonicalMatchRuntime>(requested, players, content.manifest, content.content);
-        AuthoritativeMatch match(runtime->dependencies());
+        const auto dependencies = (runtime.get()->*canonicalRuntimeMember(CanonicalDependenciesMember{}))();
+        AuthoritativeMatch match(dependencies);
         D6R_REQUIRE_EQ(OutcomeCode::None, match.start(requested, players, content.manifest).code);
         AuthoritativeReplication replication(91);
         D6R_REQUIRE(replication.setLobby(1, {{1, true, R::ConnectionState::Connected, true, {101}},
@@ -1067,7 +1092,7 @@ D6R_TEST_CASE("PR83 capture real Invisibility producer stays drawable and restor
         const Identity selected = mode == Mode::Predator ? match.roundDecision().predatorPlayerId : 101;
         const std::uint8_t ordinaryAlpha = mode == Mode::Predator ? 25 : 255;
         const auto verify = [&](std::uint8_t alpha, bool bonus) {
-            const auto source = runtime->snapshot();
+            const auto source = dependencies.worldSnapshot();
             D6R_REQUIRE(source.valid);
             const auto produced = std::find_if(source.players.begin(), source.players.end(),
                     [selected](const auto &player) { return player.playerId == selected; });
@@ -1097,7 +1122,8 @@ D6R_TEST_CASE("PR83 capture real Invisibility producer stays drawable and restor
         verify(ordinaryAlpha, false);
         // Inject only the pickup award using the real Player bonus API. Expiry,
         // production snapshot construction, replication and decoding are real.
-        runtime->canonicalPlayersById.at(selected)->setBonus(Duel6::BonusType::INVISIBILITY, 1);
+        (runtime.get()->*canonicalRuntimeMember(CanonicalPlayersMember{})).at(selected)->setBonus(
+                Duel6::BonusType::INVISIBILITY, 1);
         match.advanceOneTick(); publish();
         verify(51, true);
         for (unsigned tick = 0; tick < 70; ++tick) match.advanceOneTick();
