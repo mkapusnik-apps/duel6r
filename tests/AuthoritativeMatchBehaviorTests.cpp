@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <cstdint>
@@ -7,6 +8,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <new>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -33,8 +35,75 @@
 #include "tests/TestHarness.h"
 
 namespace {
+std::atomic<std::int64_t> allocationFailureCountdown{-1};
+
+bool failThisAllocation() noexcept {
+    auto remaining = allocationFailureCountdown.load(std::memory_order_relaxed);
+    while (remaining >= 0) {
+        if (allocationFailureCountdown.compare_exchange_weak(
+                remaining, remaining - 1, std::memory_order_relaxed))
+            return remaining == 0;
+    }
+    return false;
+}
+}
+
+void *operator new(std::size_t size) {
+    if (failThisAllocation()) throw std::bad_alloc();
+    if (void *memory = std::malloc(size == 0 ? 1 : size)) return memory;
+    throw std::bad_alloc();
+}
+
+void *operator new[](std::size_t size) { return ::operator new(size); }
+[[gnu::noinline]] void releaseTestMemory(void *memory) noexcept { std::free(memory); }
+void operator delete(void *memory) noexcept { releaseTestMemory(memory); }
+void operator delete[](void *memory) noexcept { releaseTestMemory(memory); }
+void operator delete(void *memory, std::size_t) noexcept { releaseTestMemory(memory); }
+void operator delete[](void *memory, std::size_t) noexcept { releaseTestMemory(memory); }
+
+namespace {
 using namespace Duel6::Server::Authoritative;
 namespace R = Duel6::Network::Replication;
+
+class ScopedAllocationFailure final {
+public:
+    explicit ScopedAllocationFailure(std::int64_t offset) noexcept {
+        allocationFailureCountdown.store(offset, std::memory_order_relaxed);
+    }
+    ~ScopedAllocationFailure() {
+        allocationFailureCountdown.store(-1, std::memory_order_relaxed);
+    }
+    ScopedAllocationFailure(const ScopedAllocationFailure &) = delete;
+    ScopedAllocationFailure &operator=(const ScopedAllocationFailure &) = delete;
+};
+
+struct NoncopyablePreflight {
+    std::unique_ptr<int> value = std::make_unique<int>(1);
+    int *calls = nullptr;
+    LobbyCommitOutcome outcome = LobbyCommitOutcome::Committed;
+
+    explicit NoncopyablePreflight(int &calls,
+            LobbyCommitOutcome result = LobbyCommitOutcome::Committed)
+            : calls(&calls), outcome(result) {}
+    NoncopyablePreflight(const NoncopyablePreflight &) = delete;
+    NoncopyablePreflight &operator=(const NoncopyablePreflight &) = delete;
+    NoncopyablePreflight(NoncopyablePreflight &&) noexcept = default;
+    NoncopyablePreflight &operator=(NoncopyablePreflight &&) noexcept = default;
+    LobbyCommitOutcome operator()() {
+        ++*calls;
+        return outcome;
+    }
+};
+
+struct ThrowingCopyPreflight {
+    ThrowingCopyPreflight() = default;
+    ThrowingCopyPreflight(const ThrowingCopyPreflight &) { throw std::bad_alloc(); }
+    LobbyCommitOutcome operator()() const {
+        const ThrowingCopyPreflight copy(*this);
+        (void) copy;
+        return LobbyCommitOutcome::Committed;
+    }
+};
 
 std::vector<PlayerDefinition> roster(std::size_t count = 4) {
     std::vector<PlayerDefinition> result;
@@ -2268,5 +2337,147 @@ D6R_TEST_CASE("controller classifies every external failure and rolls back readi
     }) == LobbyCommitOutcome::Committed);
     D6R_REQUIRE(!controller.participantReady(1));
     D6R_REQUIRE_EQ(readyVersion + 1, controller.currentSnapshot()->version);
+}
+
+D6R_TEST_CASE("staged lobby allocation and callback failures are internal transactional and retryable") {
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}}};
+    const auto players = roster(2);
+    auto settings = config();
+
+    AuthoritativeReplication replication(801);
+    D6R_REQUIRE(replication.setLobby(1, participants, players, settings));
+    const auto replicationBefore = R::serializeReplicationSnapshot(*replication.fullSnapshot());
+    {
+        ScopedAllocationFailure failure(0);
+        const auto result = replication.updateLobbyForConfiguration(
+                participants, players, settings, "copy allocation failure");
+        D6R_REQUIRE(result.outcome == CanonicalLobbyMutationOutcome::InternalFailure);
+        D6R_REQUIRE(!result.update);
+    }
+    D6R_REQUIRE_EQ(replicationBefore,
+                   R::serializeReplicationSnapshot(*replication.fullSnapshot()));
+    const auto retry = replication.updateLobbyForConfiguration(
+            participants, players, settings, "retry after allocation failure");
+    D6R_REQUIRE(retry.outcome == CanonicalLobbyMutationOutcome::Committed);
+    D6R_REQUIRE_EQ(2u, replication.replicator().version());
+
+    AuthoritativeHostedMatchController controller(1, {}, 802);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, settings));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE(controller.setParticipantReady(1, true));
+    D6R_REQUIRE(controller.setParticipantReady(2, true));
+    const auto before = R::serializeReplicationSnapshot(*controller.currentSnapshot());
+    const auto beforeVersion = controller.currentSnapshot()->version;
+    {
+        ScopedAllocationFailure failure(0);
+        const auto prepared = controller.prepareLobbyConfiguration(
+                participants, players, settings, "controller copy allocation failure");
+        D6R_REQUIRE(prepared.outcome == LobbyCommitOutcome::InternalFailure);
+        D6R_REQUIRE(!prepared.mutation);
+    }
+    D6R_REQUIRE_EQ(before, R::serializeReplicationSnapshot(*controller.currentSnapshot()));
+    D6R_REQUIRE(controller.participantReady(1) && controller.participantReady(2));
+
+    D6R_REQUIRE(controller.commitParticipantReady(1, false, ThrowingCopyPreflight{})
+                == LobbyCommitOutcome::InternalFailure);
+    D6R_REQUIRE_EQ(beforeVersion, controller.currentSnapshot()->version);
+    D6R_REQUIRE_EQ(before, R::serializeReplicationSnapshot(*controller.currentSnapshot()));
+    D6R_REQUIRE(controller.participantReady(1) && controller.participantReady(2));
+
+    int callbackCalls = 0;
+    NoncopyablePreflight noncopyable(callbackCalls);
+    D6R_REQUIRE(controller.commitParticipantReady(1, false, noncopyable)
+                == LobbyCommitOutcome::Committed);
+    D6R_REQUIRE_EQ(1, callbackCalls);
+    D6R_REQUIRE(!controller.participantReady(1));
+    D6R_REQUIRE_EQ(beforeVersion + 1, controller.currentSnapshot()->version);
+}
+
+D6R_TEST_CASE("prepared lobby tokens are owner scoped single use and commit one strict version") {
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, false, {101}},
+            {2, false, R::ConnectionState::Connected, false, {102}}};
+    auto players = roster(2);
+    auto settings = config();
+    AuthoritativeHostedMatchController first(1, {}, 811);
+    AuthoritativeHostedMatchController second(1, {}, 812);
+    for (auto *controller: {&first, &second}) {
+        D6R_REQUIRE(controller->initializeReplication(participants, players, settings));
+        D6R_REQUIRE(controller->markServiceReady());
+    }
+
+    auto wrongOwner = first.prepareParticipantReady(1, true);
+    D6R_REQUIRE(wrongOwner.outcome == LobbyCommitOutcome::Committed && wrongOwner.mutation);
+    auto wrongOwnerToken = std::move(*wrongOwner.mutation);
+    D6R_REQUIRE(second.commitPreparedLobbyMutation(std::move(wrongOwnerToken))
+                == LobbyCommitOutcome::InternalFailure);
+    D6R_REQUIRE_EQ(1u, first.currentSnapshot()->version);
+    D6R_REQUIRE_EQ(1u, second.currentSnapshot()->version);
+    D6R_REQUIRE(!first.participantReady(1) && !second.participantReady(1));
+
+    auto stale = first.prepareParticipantReady(1, true);
+    auto winner = first.prepareParticipantReady(2, true);
+    D6R_REQUIRE(stale.mutation && winner.mutation);
+    const auto baseline = first.currentSnapshot()->version;
+    auto winnerToken = std::move(*winner.mutation);
+    D6R_REQUIRE(first.commitPreparedLobbyMutation(std::move(winnerToken))
+                == LobbyCommitOutcome::Committed);
+    D6R_REQUIRE_EQ(baseline + 1, first.currentSnapshot()->version);
+    D6R_REQUIRE(first.participantReady(2));
+    D6R_REQUIRE(!first.participantReady(1));
+    D6R_REQUIRE(first.commitPreparedLobbyMutation(std::move(winnerToken))
+                == LobbyCommitOutcome::InternalFailure);
+    D6R_REQUIRE(first.commitPreparedLobbyMutation(std::move(*stale.mutation))
+                == LobbyCommitOutcome::InternalFailure);
+    D6R_REQUIRE_EQ(baseline + 1, first.currentSnapshot()->version);
+    D6R_REQUIRE(first.participantReady(2) && !first.participantReady(1));
+
+    auto moved = first.prepareParticipantReady(1, true);
+    D6R_REQUIRE(moved.mutation);
+    auto movedToken = std::move(*moved.mutation);
+    D6R_REQUIRE(first.commitPreparedLobbyMutation(std::move(*moved.mutation))
+                == LobbyCommitOutcome::InternalFailure);
+    D6R_REQUIRE(first.commitPreparedLobbyMutation(std::move(movedToken))
+                == LobbyCommitOutcome::Committed);
+    D6R_REQUIRE_EQ(baseline + 2, first.currentSnapshot()->version);
+    D6R_REQUIRE(first.participantReady(1) && first.participantReady(2));
+}
+
+D6R_TEST_CASE("prepared lobby configuration owns input views and commits a valid move exactly once") {
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101}},
+            {2, false, R::ConnectionState::Connected, true, {102}}};
+    auto players = roster(2);
+    auto settings = config();
+    AuthoritativeHostedMatchController controller(1, {}, 821);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, settings));
+    D6R_REQUIRE(controller.markServiceReady());
+
+    auto proposedPlayers = players;
+    std::swap(proposedPlayers[0].rosterOrder, proposedPlayers[1].rosterOrder);
+    proposedPlayers[0].displayName = "Prepared Name";
+    std::string reason = "Owned reason text";
+    const auto baseline = controller.currentSnapshot()->version;
+    auto prepared = controller.prepareLobbyConfiguration(
+            participants, proposedPlayers, settings, std::string_view(reason));
+    D6R_REQUIRE(prepared.outcome == LobbyCommitOutcome::Committed && prepared.mutation);
+    reason.assign("destroyed source");
+    proposedPlayers[0].displayName.assign("destroyed player source");
+    proposedPlayers[0].rosterOrder = 0;
+    auto token = std::move(*prepared.mutation);
+    D6R_REQUIRE(controller.commitPreparedLobbyMutation(std::move(token))
+                == LobbyCommitOutcome::Committed);
+    const auto committed = controller.currentSnapshot();
+    D6R_REQUIRE_EQ(baseline + 1, committed->version);
+    D6R_REQUIRE_EQ(std::string("Owned reason text"), committed->state.messages.status);
+    D6R_REQUIRE_EQ(std::string("Prepared Name"), committed->state.players[0].displayName);
+    D6R_REQUIRE_EQ(1u, committed->state.players[0].rosterPosition);
+    const auto bytes = R::serializeReplicationSnapshot(*committed);
+    D6R_REQUIRE(controller.commitPreparedLobbyMutation(std::move(token))
+                == LobbyCommitOutcome::InternalFailure);
+    D6R_REQUIRE_EQ(baseline + 1, controller.currentSnapshot()->version);
+    D6R_REQUIRE_EQ(bytes, R::serializeReplicationSnapshot(*controller.currentSnapshot()));
 }
 }

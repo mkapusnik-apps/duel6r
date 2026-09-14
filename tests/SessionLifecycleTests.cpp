@@ -642,3 +642,49 @@ D6R_TEST_CASE("host-local supervised failure uses exact private outcome and boun
     D6R_REQUIRE_EQ(1, discards);
     D6R_REQUIRE(host.supervisedHostFailure().empty());
 }
+
+D6R_TEST_CASE("prepared readiness tokens reject competing stale replay moved-from and wrong-owner use") {
+    ManualClock time;
+    CredentialSource source;
+    HostSessionLifecycle first(1300, 1, 10, {101}, time.clock(), source.random());
+    HostSessionLifecycle second(1301, 1, 10, {101}, time.clock(), source.random());
+    D6R_REQUIRE(first.admitGuest(2, 20, {102}, false));
+    D6R_REQUIRE(second.admitGuest(2, 20, {102}, false));
+
+    auto wrongOwner = first.prepareSetReady(1, 10, true);
+    D6R_REQUIRE(wrongOwner.outcome == ReadinessMutationOutcome::Committed && wrongOwner.mutation);
+    auto wrongOwnerToken = std::move(*wrongOwner.mutation);
+    D6R_REQUIRE(second.commitPreparedReadiness(std::move(wrongOwnerToken))
+                == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(!first.ready(1) && !second.ready(1));
+
+    auto stale = first.prepareSetReady(1, 10, true);
+    auto winner = first.prepareSetReady(2, 20, true);
+    D6R_REQUIRE(stale.mutation && winner.mutation);
+    auto winnerToken = std::move(*winner.mutation);
+    D6R_REQUIRE(first.commitPreparedReadiness(std::move(winnerToken))
+                == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(first.ready(2) && !first.ready(1));
+    D6R_REQUIRE(first.commitPreparedReadiness(std::move(winnerToken))
+                == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(first.commitPreparedReadiness(std::move(*stale.mutation))
+                == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(first.ready(2) && !first.ready(1));
+
+    auto moved = first.prepareSetReady(1, 10, true);
+    D6R_REQUIRE(moved.mutation);
+    auto movedToken = std::move(*moved.mutation);
+    D6R_REQUIRE(first.commitPreparedReadiness(std::move(*moved.mutation))
+                == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(first.commitPreparedReadiness(std::move(movedToken))
+                == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(first.ready(1) && first.ready(2));
+
+    auto clear = first.prepareClearReadiness();
+    D6R_REQUIRE(clear.mutation);
+    D6R_REQUIRE(first.setReadyTransactional(1, 10, false)
+                == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(first.commitPreparedReadiness(std::move(*clear.mutation))
+                == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(!first.ready(1) && first.ready(2));
+}
