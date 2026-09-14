@@ -97,10 +97,25 @@ namespace Duel6::Server::Authoritative {
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::updateLobby(
             std::vector<R::ParticipantState> participants, std::vector<PlayerDefinition> roster,
             MatchConfig settings) {
+        return updateLobbyState(std::move(participants), std::move(roster), std::move(settings), "Lobby", false);
+    }
+
+    std::optional<R::IncrementalUpdate> AuthoritativeReplication::updateLobbyForConfiguration(
+            std::vector<R::ParticipantState> participants, std::vector<PlayerDefinition> roster,
+            MatchConfig settings, const std::string &reason) {
+        if (reason.empty()) return std::nullopt;
+        return updateLobbyState(std::move(participants), std::move(roster), std::move(settings), reason, true);
+    }
+
+    std::optional<R::IncrementalUpdate> AuthoritativeReplication::updateLobbyState(
+            std::vector<R::ParticipantState> participants, std::vector<PlayerDefinition> roster,
+            MatchConfig settings, const std::string &status, bool clearReadiness) {
         if (publisher.version() == 0 || state.phase != R::Phase::Lobby) return std::nullopt;
         const AuthoritativeReplication before = *this;
+        if (clearReadiness)
+            for (auto &participant: participants) participant.ready = false;
         state.participants = std::move(participants); state.settings = replicatedSettings(settings);
-        state.messages.status = "Lobby";
+        state.messages.status = status;
         state.players.clear();
         for (const auto &entry: roster) {
             R::PlayerState player;

@@ -19,6 +19,9 @@ namespace Duel6::Server::Authoritative {
         std::optional<Network::Replication::IncrementalUpdate> updateLobby(
                 std::vector<Network::Replication::ParticipantState> participants,
                 std::vector<PlayerDefinition> roster, MatchConfig settings);
+        std::optional<Network::Replication::IncrementalUpdate> updateLobbyForConfiguration(
+                std::vector<Network::Replication::ParticipantState> participants,
+                std::vector<PlayerDefinition> roster, MatchConfig settings, const std::string &reason);
         std::optional<Network::Replication::IncrementalUpdate> setParticipantReady(Identity participantId,
                                                                                      bool ready);
         std::optional<Network::Replication::IncrementalUpdate> setLobbyFailure(const std::string &message);
@@ -49,6 +52,10 @@ namespace Duel6::Server::Authoritative {
 
         bool updateFromMatch(const AuthoritativeMatch &match,
                              std::vector<Network::Replication::PresentationEvent> &events);
+        std::optional<Network::Replication::IncrementalUpdate> updateLobbyState(
+                std::vector<Network::Replication::ParticipantState> participants,
+                std::vector<PlayerDefinition> roster, MatchConfig settings,
+                const std::string &status, bool clearReadiness);
         Identity worldIdentity(Identity roundId, std::uint64_t canonicalIdentity);
     };
 }

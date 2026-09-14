@@ -1741,6 +1741,23 @@ namespace Duel6::Server {
         const auto cancelled = [this] {
             try { return runtimeDependencies.cancelled(); } catch (...) { return true; }
         };
+        const auto commitLobbyConfiguration = [&](Authoritative::MatchConfig nextSettings,
+                std::map<std::uint64_t, std::string> nextDisplayNames,
+                std::vector<std::uint64_t> nextRosterOrder, const std::string &reason) {
+            if (!hostedMatch || !sessionLifecycle || !admissionPolicy || !hostedSettings
+                || hostedMatch->stage() != Authoritative::HostedMatchStage::Lobby) return false;
+            auto lobby = replicationLobbyState(admissionPolicy->allocation(), connectedParticipants,
+                    nextSettings, &nextDisplayNames, &nextRosterOrder);
+            return hostedMatch->commitLobbyConfiguration(std::move(lobby.participants),
+                    std::move(lobby.players), std::move(lobby.settings), reason, [&] {
+                        if (!sessionLifecycle->clearReadiness()) return false;
+                        using std::swap;
+                        swap(*hostedSettings, nextSettings);
+                        swap(displayNames, nextDisplayNames);
+                        swap(rosterOrder, nextRosterOrder);
+                        return true;
+                    });
+        };
         while (!stopRequested && !cancelled()) {
             if (runtimeDependencies.hostSessionPayload) {
                 std::optional<std::vector<std::uint8_t>> payload;
@@ -1751,39 +1768,44 @@ namespace Duel6::Server {
                         // Reject malformed host commands without changing or terminating the session.
                     }
                     else if (message->kind == Network::HostComposition::Kind::StartMatch) {
-                        hostStartRequested = true;
-                        if (!startMatchIfReady()) runtimeFailed = true;
+                        if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
+                            hostStartRequested = true;
+                            if (!startMatchIfReady()) runtimeFailed = true;
+                        }
                     } else if (message->kind == Network::HostComposition::Kind::ReturnToLobby) {
-                        const auto &host = admissionPolicy->allocation().hostParticipant();
-                        if (!hostedMatch->returnToLobby(host.participantId)) runtimeFailed = true;
-                        else admissionPolicy->setMatchStarted(false);
+                        if (hostedMatch->stage() == Authoritative::HostedMatchStage::FinalSummary) {
+                            const auto &host = admissionPolicy->allocation().hostParticipant();
+                            if (!hostedMatch->returnToLobby(host.participantId)) runtimeFailed = true;
+                            else admissionPolicy->setMatchStarted(false);
+                        }
                     } else if (message->kind == Network::HostComposition::Kind::AdvanceRound) {
-                        const auto &host = admissionPolicy->allocation().hostParticipant();
-                        if (!hostedMatch->match()
-                            || hostedMatch->match()->submitHostControl(
-                                    host.participantId, Authoritative::ActionKind::AdvanceRound)
-                               != Authoritative::ActionResult::Accepted) runtimeFailed = true;
+                        if (hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive
+                            && hostedMatch->match()) {
+                            const auto &host = admissionPolicy->allocation().hostParticipant();
+                            (void) hostedMatch->match()->submitHostControl(
+                                    host.participantId, Authoritative::ActionKind::AdvanceRound);
+                        }
                     } else if (message->kind == Network::HostComposition::Kind::PlayerInput) {
                         const auto frame = Network::Input::deserializeFrame(message->payload);
-                        const auto &host = admissionPolicy->allocation().hostParticipant();
-                        if (!frame || frame->kind != Network::Input::FrameKind::Command || !frame->command
-                            || hostedMatch->receivePlayerInput(
-                                    host.participantId, *frame->command, false).closeConnection) runtimeFailed = true;
+                        if (frame && frame->kind == Network::Input::FrameKind::Command && frame->command) {
+                            const auto &host = admissionPolicy->allocation().hostParticipant();
+                            (void) hostedMatch->receivePlayerInput(
+                                    host.participantId, *frame->command, false);
+                        }
                     } else if (message->kind == Network::HostComposition::Kind::ConfigurationChanged) {
-                        if (!sessionLifecycle->clearReadiness()
-                            || !hostedMatch->clearReadinessForConfiguration()) runtimeFailed = true;
+                        if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby
+                            && !commitLobbyConfiguration(*hostedSettings, displayNames, rosterOrder,
+                                    "Local player controls changed. Everyone must confirm readiness again."))
+                            runtimeFailed = true;
                     } else if (message->kind == Network::HostComposition::Kind::Ready
                                || message->kind == Network::HostComposition::Kind::NotReady) {
-                        if (!sessionLifecycle || !hostedMatch || !admissionPolicy
-                            || hostedMatch->stage() != Authoritative::HostedMatchStage::Lobby) {
-                            runtimeFailed = true;
-                        } else {
+                        if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                             const auto &host = admissionPolicy->allocation().hostParticipant();
                             const bool ready = message->kind == Network::HostComposition::Kind::Ready;
-                            if (!sessionLifecycle->setReady(
-                                    host.participantId,
-                                    (std::numeric_limits<Network::Lifecycle::ConnectionId>::max)(), ready)
-                                || !hostedMatch->setParticipantReady(host.participantId, ready)
+                            if (!hostedMatch->commitParticipantReady(host.participantId, ready, [&] {
+                                    return sessionLifecycle->setReady(host.participantId,
+                                            (std::numeric_limits<Network::Lifecycle::ConnectionId>::max)(), ready);
+                                })
                                 || !startMatchIfReady()) runtimeFailed = true;
                         }
                     } else if (message->kind == Network::HostComposition::Kind::UpdateOwnedPersons
@@ -1797,18 +1819,11 @@ namespace Duel6::Server {
                             // Reject a command that does not preserve the host's immutable slots.
                         }
                         else {
+                            auto nextDisplayNames = displayNames;
                             for (std::size_t index = 0; index < host.playerIds.size(); ++index)
-                                displayNames[host.playerIds[index]] = message->ownedPersonNames[index];
-                            if (!sessionLifecycle->clearReadiness()) runtimeFailed = true;
-                            else {
-                                auto lobby = replicationLobbyState(admissionPolicy->allocation(),
-                                        connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
-                                if (!hostedMatch->updateReplicationLobby(std::move(lobby.participants),
-                                        std::move(lobby.players), std::move(lobby.settings))
-                                    || !hostedMatch->clearReadinessForConfiguration(
-                                            "A participant changed player configuration. Everyone must confirm readiness again."))
-                                    runtimeFailed = true;
-                            }
+                                nextDisplayNames[host.playerIds[index]] = message->ownedPersonNames[index];
+                            (void) commitLobbyConfiguration(*hostedSettings, std::move(nextDisplayNames), rosterOrder,
+                                    "A participant changed player configuration. Everyone must confirm readiness again.");
                         }
                     } else if (message->kind == Network::HostComposition::Kind::RosterMove
                                && hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
@@ -1820,17 +1835,11 @@ namespace Duel6::Server {
                             const auto index = static_cast<std::ptrdiff_t>(std::distance(rosterOrder.begin(), selected));
                             const auto target = index + message->rosterDirection;
                             if (target >= 0 && target < static_cast<std::ptrdiff_t>(rosterOrder.size())) {
-                                std::iter_swap(rosterOrder.begin() + index, rosterOrder.begin() + target);
-                                if (!sessionLifecycle->clearReadiness()) runtimeFailed = true;
-                                else {
-                                    auto lobby = replicationLobbyState(admissionPolicy->allocation(),
-                                            connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
-                                    if (!hostedMatch->updateReplicationLobby(std::move(lobby.participants),
-                                            std::move(lobby.players), std::move(lobby.settings))
-                                        || !hostedMatch->clearReadinessForConfiguration(
-                                                "Host changed roster order. Everyone must confirm readiness again."))
-                                        runtimeFailed = true;
-                                }
+                                auto nextRosterOrder = rosterOrder;
+                                std::iter_swap(nextRosterOrder.begin() + index, nextRosterOrder.begin() + target);
+                                (void) commitLobbyConfiguration(*hostedSettings, displayNames,
+                                        std::move(nextRosterOrder),
+                                        "Host changed roster order. Everyone must confirm readiness again.");
                             }
                         }
                     } else if (message->kind == Network::HostComposition::Kind::UpdateSetup
@@ -1863,22 +1872,9 @@ namespace Duel6::Server {
                             auto nextDisplayNames = displayNames;
                             for (std::size_t index = 0; index < host.playerIds.size(); ++index)
                                 nextDisplayNames[host.playerIds[index]] = setup.localPlayerNames[index];
-                            if (!sessionLifecycle->clearReadiness()) runtimeFailed = true;
-                            else {
-                                auto lobby = replicationLobbyState(admissionPolicy->allocation(),
-                                        connectedParticipants, nextSettings, &nextDisplayNames, &rosterOrder);
-                                if (!hostedMatch->updateReplicationLobby(std::move(lobby.participants),
-                                         std::move(lobby.players), std::move(lobby.settings))) {
-                                    // Reject a setup that cannot produce a valid canonical lobby.
-                                }
-                                else if (!hostedMatch->clearReadinessForConfiguration(
-                                         "Host changed match settings. Everyone must confirm readiness again."))
-                                     runtimeFailed = true;
-                                else {
-                                    *hostedSettings = std::move(nextSettings);
-                                    displayNames = std::move(nextDisplayNames);
-                                }
-                            }
+                            (void) commitLobbyConfiguration(std::move(nextSettings),
+                                    std::move(nextDisplayNames), rosterOrder,
+                                    "Host changed match settings. Everyone must confirm readiness again.");
                         }
                     } else {
                         // Reject commands that are not valid for the current host-session state.
@@ -1911,17 +1907,13 @@ namespace Duel6::Server {
                     hostReadiness = runtimeDependencies.hostReadinessChange();
             } catch (...) { runtimeFailed = true; }
             if (runtimeFailed) break;
-            if (hostReadiness) {
-                if (!sessionLifecycle || !hostedMatch || !admissionPolicy
-                    || hostedMatch->stage() != Authoritative::HostedMatchStage::Lobby) {
-                    runtimeFailed = true;
-                    break;
-                }
+            if (hostReadiness && sessionLifecycle && hostedMatch && admissionPolicy
+                && hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                 const auto &host = admissionPolicy->allocation().hostParticipant();
-                if (!sessionLifecycle->setReady(
-                        host.participantId,
-                        (std::numeric_limits<Network::Lifecycle::ConnectionId>::max)(), *hostReadiness)
-                    || !hostedMatch->setParticipantReady(host.participantId, *hostReadiness)
+                if (!hostedMatch->commitParticipantReady(host.participantId, *hostReadiness, [&] {
+                        return sessionLifecycle->setReady(host.participantId,
+                                (std::numeric_limits<Network::Lifecycle::ConnectionId>::max)(), *hostReadiness);
+                    })
                     || !startMatchIfReady()) {
                     runtimeFailed = true;
                     break;
@@ -2215,18 +2207,12 @@ namespace Duel6::Server {
                                     || !sessionLifecycle || hostedMatch->stage() != Authoritative::HostedMatchStage::Lobby) {
                                     connection->requestClose();
                                 } else {
+                                    auto nextDisplayNames = displayNames;
                                     for (std::size_t index = 0; index < runtime.offer.playerIds.size(); ++index)
-                                        displayNames[runtime.offer.playerIds[index]] = configuration->ownedPersonNames[index];
-                                    if (!sessionLifecycle->clearReadiness()) runtimeFailed = true;
-                                    else {
-                                        auto lobby = replicationLobbyState(admissionPolicy->allocation(), connectedParticipants,
-                                                *hostedSettings, &displayNames, &rosterOrder);
-                                        if (!hostedMatch->updateReplicationLobby(std::move(lobby.participants),
-                                                std::move(lobby.players), std::move(lobby.settings))
-                                            || !hostedMatch->clearReadinessForConfiguration(
-                                                    "A participant changed player configuration. Everyone must confirm readiness again."))
-                                            runtimeFailed = true;
-                                    }
+                                        nextDisplayNames[runtime.offer.playerIds[index]] = configuration->ownedPersonNames[index];
+                                    (void) commitLobbyConfiguration(*hostedSettings,
+                                            std::move(nextDisplayNames), rosterOrder,
+                                            "A participant changed player configuration. Everyone must confirm readiness again.");
                                 }
                             } else if (const auto action = Network::Lifecycle::deserializeParticipantAction(
                                     unexpected.payload)) {

@@ -45,6 +45,11 @@ namespace Duel6::Server::Authoritative {
                                    std::vector<PlayerDefinition> roster, MatchConfig settings);
         bool updateReplicationLobby(std::vector<Network::Replication::ParticipantState> participants,
                                     std::vector<PlayerDefinition> roster, MatchConfig settings);
+        bool commitLobbyConfiguration(std::vector<Network::Replication::ParticipantState> participants,
+                                      std::vector<PlayerDefinition> roster, MatchConfig settings,
+                                      const std::string &reason, const std::function<bool()> &commitExternal);
+        bool commitParticipantReady(Identity participantId, bool ready,
+                                    const std::function<bool()> &commitExternal);
         bool restoreReplication(Identity participantId, Network::Replication::ReplicationSender sender,
                                 std::function<void()> close = {});
         void disconnectReplication(Identity participantId) noexcept;

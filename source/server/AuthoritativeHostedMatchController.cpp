@@ -54,6 +54,39 @@ namespace Duel6::Server::Authoritative {
         return true;
     }
 
+    bool AuthoritativeHostedMatchController::commitLobbyConfiguration(
+            std::vector<Network::Replication::ParticipantState> participants,
+            std::vector<PlayerDefinition> roster, MatchConfig settings,
+            const std::string &reason, const std::function<bool()> &commitExternal) {
+        if (currentStage != HostedMatchStage::Lobby || reason.empty() || !commitExternal) return false;
+        for (auto &participant: participants) participant.ready = false;
+        auto nextReadiness = replicatedReadiness(participants);
+        auto nextReplication = replication;
+        const auto update = nextReplication.updateLobbyForConfiguration(
+                std::move(participants), std::move(roster), std::move(settings), reason);
+        if (!update || !commitExternal()) return false;
+        replication = std::move(nextReplication);
+        readiness = std::move(nextReadiness);
+        (void) replicationConnections.broadcast(*update);
+        return true;
+    }
+
+    bool AuthoritativeHostedMatchController::commitParticipantReady(
+            Identity participantId, bool ready, const std::function<bool()> &commitExternal) {
+        if (currentStage != HostedMatchStage::Lobby || participantId == 0 || !commitExternal) return false;
+        auto nextReadiness = readiness;
+        const auto found = nextReadiness.find(participantId);
+        if (found == nextReadiness.end()) return false;
+        found->second = ready;
+        auto nextReplication = replication;
+        const auto update = nextReplication.setParticipantReady(participantId, ready);
+        if (!update || !commitExternal()) return false;
+        replication = std::move(nextReplication);
+        readiness = std::move(nextReadiness);
+        (void) replicationConnections.broadcast(*update);
+        return true;
+    }
+
     void AuthoritativeHostedMatchController::disconnectReplication(Identity participantId) noexcept {
         replicationConnections.disconnect(participantId);
     }
