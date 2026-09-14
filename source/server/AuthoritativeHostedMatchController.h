@@ -31,6 +31,26 @@ namespace Duel6::Server::Authoritative {
         InternalFailure
     };
 
+    class AuthoritativeHostedMatchController;
+    class PreparedLobbyMutation final {
+        friend class AuthoritativeHostedMatchController;
+    public:
+        PreparedLobbyMutation(PreparedLobbyMutation &&) noexcept = default;
+        PreparedLobbyMutation &operator=(PreparedLobbyMutation &&) noexcept = default;
+    private:
+        PreparedLobbyMutation(AuthoritativeReplication replication,
+                              std::map<Identity, bool> readiness,
+                              Network::Replication::IncrementalUpdate update) noexcept;
+        AuthoritativeReplication replication;
+        std::map<Identity, bool> readiness;
+        Network::Replication::IncrementalUpdate update;
+    };
+
+    struct LobbyMutationPreparation {
+        LobbyCommitOutcome outcome = LobbyCommitOutcome::InternalFailure;
+        std::unique_ptr<PreparedLobbyMutation> mutation;
+    };
+
     class AuthoritativeHostedMatchController final {
     public:
         AuthoritativeHostedMatchController(Identity hostParticipantId,
@@ -53,13 +73,12 @@ namespace Duel6::Server::Authoritative {
                                    std::vector<PlayerDefinition> roster, MatchConfig settings);
         bool updateReplicationLobby(std::vector<Network::Replication::ParticipantState> participants,
                                     std::vector<PlayerDefinition> roster, MatchConfig settings);
-        LobbyCommitOutcome commitLobbyConfiguration(
-                std::vector<Network::Replication::ParticipantState> participants,
-                std::vector<PlayerDefinition> roster, MatchConfig settings,
-                const std::string &reason, const std::function<LobbyCommitOutcome()> &commitExternal);
-        LobbyCommitOutcome commitParticipantReady(
-                Identity participantId, bool ready,
-                const std::function<LobbyCommitOutcome()> &commitExternal);
+        LobbyMutationPreparation prepareLobbyConfiguration(
+                const std::vector<Network::Replication::ParticipantState> &participants,
+                const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
+                const std::string &reason) noexcept;
+        LobbyMutationPreparation prepareParticipantReady(Identity participantId, bool ready) noexcept;
+        void commitPreparedLobbyMutation(PreparedLobbyMutation mutation) noexcept;
         bool restoreReplication(Identity participantId, Network::Replication::ReplicationSender sender,
                                 std::function<void()> close = {});
         void disconnectReplication(Identity participantId) noexcept;
@@ -106,6 +125,14 @@ namespace Duel6::Server::Authoritative {
         Network::Responsiveness::CanonicalUpdatePacer replicationPacer;
         MatchPhase lastReplicatedPhase = MatchPhase::Lobby;
 
+        LobbyCommitOutcome commitLobbyConfiguration(
+                const std::vector<Network::Replication::ParticipantState> &participants,
+                const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
+                const std::string &reason,
+                const std::function<LobbyCommitOutcome()> &preflightExternal) noexcept;
+        LobbyCommitOutcome commitParticipantReady(
+                Identity participantId, bool ready,
+                const std::function<LobbyCommitOutcome()> &preflightExternal) noexcept;
         void clearReadiness() noexcept;
         bool allParticipantsReady(const std::vector<PlayerDefinition> &roster) const noexcept;
         static std::map<Identity, bool> replicatedReadiness(

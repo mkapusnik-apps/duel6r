@@ -8,7 +8,7 @@
 
 namespace Duel6::Server::Authoritative {
     namespace {
-        LobbyCommitOutcome lobbyOutcome(CanonicalLobbyMutationOutcome outcome) {
+        LobbyCommitOutcome lobbyOutcome(CanonicalLobbyMutationOutcome outcome) noexcept {
             switch (outcome) {
                 case CanonicalLobbyMutationOutcome::Committed: return LobbyCommitOutcome::Committed;
                 case CanonicalLobbyMutationOutcome::Rejected: return LobbyCommitOutcome::Rejected;
@@ -20,6 +20,11 @@ namespace Duel6::Server::Authoritative {
             return LobbyCommitOutcome::InternalFailure;
         }
     }
+
+    PreparedLobbyMutation::PreparedLobbyMutation(
+            AuthoritativeReplication replication, std::map<Identity, bool> readiness,
+            Network::Replication::IncrementalUpdate update) noexcept
+            : replication(std::move(replication)), readiness(std::move(readiness)), update(std::move(update)) {}
 
     std::map<Identity, bool> AuthoritativeHostedMatchController::replicatedReadiness(
             const std::vector<Network::Replication::ParticipantState> &participants) {
@@ -69,51 +74,88 @@ namespace Duel6::Server::Authoritative {
         return true;
     }
 
-    LobbyCommitOutcome AuthoritativeHostedMatchController::commitLobbyConfiguration(
-            std::vector<Network::Replication::ParticipantState> participants,
-            std::vector<PlayerDefinition> roster, MatchConfig settings,
-            const std::string &reason, const std::function<LobbyCommitOutcome()> &commitExternal) {
-        if (currentStage != HostedMatchStage::Lobby || reason.empty()) return LobbyCommitOutcome::Rejected;
-        if (!commitExternal) return LobbyCommitOutcome::InternalFailure;
-        for (auto &participant: participants) participant.ready = false;
-        auto nextReadiness = replicatedReadiness(participants);
-        auto nextReplication = replication;
-        auto proposal = nextReplication.updateLobbyForConfiguration(
-                std::move(participants), std::move(roster), std::move(settings), reason);
-        if (proposal.outcome != CanonicalLobbyMutationOutcome::Committed)
-            return lobbyOutcome(proposal.outcome);
-        if (!proposal.update) return LobbyCommitOutcome::InternalFailure;
-        const auto external = commitExternal();
-        if (external != LobbyCommitOutcome::Committed) return external;
+    LobbyMutationPreparation AuthoritativeHostedMatchController::prepareLobbyConfiguration(
+            const std::vector<Network::Replication::ParticipantState> &participants,
+            const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
+            const std::string &reason) noexcept {
+        try {
+            if (currentStage != HostedMatchStage::Lobby || reason.empty())
+                return {LobbyCommitOutcome::Rejected, {}};
+            auto nextParticipants = participants;
+            for (auto &participant: nextParticipants) participant.ready = false;
+            auto nextReadiness = replicatedReadiness(nextParticipants);
+            auto nextReplication = replication;
+            auto proposal = nextReplication.updateLobbyForConfiguration(
+                    nextParticipants, roster, settings, reason);
+            if (proposal.outcome != CanonicalLobbyMutationOutcome::Committed)
+                return {lobbyOutcome(proposal.outcome), {}};
+            if (!proposal.update) return {LobbyCommitOutcome::InternalFailure, {}};
+            auto mutation = std::unique_ptr<PreparedLobbyMutation>(new PreparedLobbyMutation(
+                    std::move(nextReplication), std::move(nextReadiness), std::move(*proposal.update)));
+            return {LobbyCommitOutcome::Committed, std::move(mutation)};
+        } catch (...) {
+            return {LobbyCommitOutcome::InternalFailure, {}};
+        }
+    }
+
+    LobbyMutationPreparation AuthoritativeHostedMatchController::prepareParticipantReady(
+            Identity participantId, bool ready) noexcept {
+        try {
+            if (currentStage != HostedMatchStage::Lobby || participantId == 0)
+                return {LobbyCommitOutcome::Rejected, {}};
+            auto nextReadiness = readiness;
+            const auto found = nextReadiness.find(participantId);
+            if (found == nextReadiness.end()) return {LobbyCommitOutcome::Rejected, {}};
+            found->second = ready;
+            auto nextReplication = replication;
+            auto proposal = nextReplication.setParticipantReadyTransactional(participantId, ready);
+            if (proposal.outcome != CanonicalLobbyMutationOutcome::Committed)
+                return {lobbyOutcome(proposal.outcome), {}};
+            if (!proposal.update) return {LobbyCommitOutcome::InternalFailure, {}};
+            auto mutation = std::unique_ptr<PreparedLobbyMutation>(new PreparedLobbyMutation(
+                    std::move(nextReplication), std::move(nextReadiness), std::move(*proposal.update)));
+            return {LobbyCommitOutcome::Committed, std::move(mutation)};
+        } catch (...) {
+            return {LobbyCommitOutcome::InternalFailure, {}};
+        }
+    }
+
+    void AuthoritativeHostedMatchController::commitPreparedLobbyMutation(
+            PreparedLobbyMutation mutation) noexcept {
         static_assert(std::is_nothrow_move_assignable_v<AuthoritativeReplication>);
         static_assert(std::is_nothrow_move_assignable_v<decltype(readiness)>);
-        replication = std::move(nextReplication);
-        readiness = std::move(nextReadiness);
-        try { (void) replicationConnections.broadcast(*proposal.update); } catch (...) {}
+        replication = std::move(mutation.replication);
+        readiness = std::move(mutation.readiness);
+        try { (void) replicationConnections.broadcast(mutation.update); } catch (...) {}
+    }
+
+    LobbyCommitOutcome AuthoritativeHostedMatchController::commitLobbyConfiguration(
+            const std::vector<Network::Replication::ParticipantState> &participants,
+            const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
+            const std::string &reason,
+            const std::function<LobbyCommitOutcome()> &preflightExternal) noexcept {
+        auto prepared = prepareLobbyConfiguration(participants, roster, settings, reason);
+        if (prepared.outcome != LobbyCommitOutcome::Committed || !prepared.mutation)
+            return prepared.outcome;
+        if (!preflightExternal) return LobbyCommitOutcome::InternalFailure;
+        LobbyCommitOutcome external = LobbyCommitOutcome::InternalFailure;
+        try { external = preflightExternal(); } catch (...) { return LobbyCommitOutcome::InternalFailure; }
+        if (external != LobbyCommitOutcome::Committed) return external;
+        commitPreparedLobbyMutation(std::move(*prepared.mutation));
         return LobbyCommitOutcome::Committed;
     }
 
     LobbyCommitOutcome AuthoritativeHostedMatchController::commitParticipantReady(
             Identity participantId, bool ready,
-            const std::function<LobbyCommitOutcome()> &commitExternal) {
-        if (currentStage != HostedMatchStage::Lobby || participantId == 0) return LobbyCommitOutcome::Rejected;
-        if (!commitExternal) return LobbyCommitOutcome::InternalFailure;
-        auto nextReadiness = readiness;
-        const auto found = nextReadiness.find(participantId);
-        if (found == nextReadiness.end()) return LobbyCommitOutcome::Rejected;
-        found->second = ready;
-        auto nextReplication = replication;
-        auto proposal = nextReplication.setParticipantReadyTransactional(participantId, ready);
-        if (proposal.outcome != CanonicalLobbyMutationOutcome::Committed)
-            return lobbyOutcome(proposal.outcome);
-        if (!proposal.update) return LobbyCommitOutcome::InternalFailure;
-        const auto external = commitExternal();
+            const std::function<LobbyCommitOutcome()> &preflightExternal) noexcept {
+        auto prepared = prepareParticipantReady(participantId, ready);
+        if (prepared.outcome != LobbyCommitOutcome::Committed || !prepared.mutation)
+            return prepared.outcome;
+        if (!preflightExternal) return LobbyCommitOutcome::InternalFailure;
+        LobbyCommitOutcome external = LobbyCommitOutcome::InternalFailure;
+        try { external = preflightExternal(); } catch (...) { return LobbyCommitOutcome::InternalFailure; }
         if (external != LobbyCommitOutcome::Committed) return external;
-        static_assert(std::is_nothrow_move_assignable_v<AuthoritativeReplication>);
-        static_assert(std::is_nothrow_move_assignable_v<decltype(readiness)>);
-        replication = std::move(nextReplication);
-        readiness = std::move(nextReadiness);
-        try { (void) replicationConnections.broadcast(*proposal.update); } catch (...) {}
+        commitPreparedLobbyMutation(std::move(*prepared.mutation));
         return LobbyCommitOutcome::Committed;
     }
 

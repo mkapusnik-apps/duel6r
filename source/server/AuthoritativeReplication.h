@@ -33,9 +33,10 @@ namespace Duel6::Server::Authoritative {
                 std::vector<Network::Replication::ParticipantState> participants,
                 std::vector<PlayerDefinition> roster, MatchConfig settings);
         CanonicalLobbyMutationResult updateLobbyForConfiguration(
-                std::vector<Network::Replication::ParticipantState> participants,
-                std::vector<PlayerDefinition> roster, MatchConfig settings, const std::string &reason);
-        CanonicalLobbyMutationResult setParticipantReadyTransactional(Identity participantId, bool ready);
+                const std::vector<Network::Replication::ParticipantState> &participants,
+                const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
+                const std::string &reason) noexcept;
+        CanonicalLobbyMutationResult setParticipantReadyTransactional(Identity participantId, bool ready) noexcept;
         std::optional<Network::Replication::IncrementalUpdate> setParticipantReady(Identity participantId,
                                                                                      bool ready);
         std::optional<Network::Replication::IncrementalUpdate> setLobbyFailure(const std::string &message);
@@ -67,9 +68,9 @@ namespace Duel6::Server::Authoritative {
         bool updateFromMatch(const AuthoritativeMatch &match,
                              std::vector<Network::Replication::PresentationEvent> &events);
         CanonicalLobbyMutationResult updateLobbyStateTransactional(
-                std::vector<Network::Replication::ParticipantState> participants,
-                std::vector<PlayerDefinition> roster, MatchConfig settings,
-                const std::string &status, bool clearReadiness);
+                const std::vector<Network::Replication::ParticipantState> &participants,
+                const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
+                const std::string &status, bool clearReadiness) noexcept;
         Identity worldIdentity(Identity roundId, std::uint64_t canonicalIdentity);
     };
 }

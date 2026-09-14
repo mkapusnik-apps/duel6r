@@ -49,6 +49,26 @@ namespace Duel6::Network::Lifecycle {
     };
     enum class ReadinessMutationOutcome { Committed, Rejected, InternalFailure };
 
+    class HostSessionLifecycle;
+    class PreparedReadinessMutation final {
+        friend class HostSessionLifecycle;
+    public:
+        PreparedReadinessMutation(PreparedReadinessMutation &&) noexcept = default;
+        PreparedReadinessMutation &operator=(PreparedReadinessMutation &&) noexcept = default;
+    private:
+        PreparedReadinessMutation() = default;
+        enum class Kind { SetParticipant, ClearAll };
+        Kind kind = Kind::ClearAll;
+        ParticipantId participantId = 0;
+        ConnectionId connectionId = 0;
+        bool ready = false;
+    };
+
+    struct ReadinessMutationPreparation {
+        ReadinessMutationOutcome outcome = ReadinessMutationOutcome::InternalFailure;
+        std::optional<PreparedReadinessMutation> mutation;
+    };
+
     inline constexpr std::string_view ReconnectExpiredCopy =
             "Reconnect time expired. The session could not be restored.";
     inline constexpr std::string_view ReservationUnavailableCopy =
@@ -160,6 +180,12 @@ namespace Duel6::Network::Lifecycle {
         bool applyParticipantAction(const ParticipantAction &action, ConnectionId connectionId) noexcept;
         bool recognizesParticipantAction(
                 const ParticipantAction &action, ConnectionId connectionId) const noexcept;
+        ReadinessMutationPreparation prepareParticipantReadinessAction(
+                const ParticipantAction &action, ConnectionId connectionId) const noexcept;
+        ReadinessMutationPreparation prepareSetReady(
+                ParticipantId participantId, ConnectionId connectionId, bool readyValue) const noexcept;
+        ReadinessMutationPreparation prepareClearReadiness() const noexcept;
+        ReadinessMutationOutcome commitPreparedReadiness(PreparedReadinessMutation mutation) noexcept;
         ReadinessMutationOutcome applyParticipantReadinessAction(
                 const ParticipantAction &action, ConnectionId connectionId) noexcept;
         ReadinessMutationOutcome setReadyTransactional(
