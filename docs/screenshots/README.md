@@ -1,6 +1,39 @@
 # Implementation screenshot manifest
 
-## Assessment status
+## Network arena orientation — current coverage
+
+This section is the current status override for the affected existing matrix entries. Earlier `Conforms` claims, packet acceptance, and accepted-entry totals below are historical for `SS-019`, `SS-021`, `SS-023`, and `SS-026`. Their previous files and hashes are superseded evidence, not proof of corrected orientation. The earlier confirmation supplement is also superseded for arena orientation. All other entries retain their current status.
+
+Visual impact is a standard localized orientation correction under the existing [network visual rules](../design.md#target-network-controls-and-status). The user-reported prior review identifies inverted players, platform contact, trees, and names in `SS-019`, with upright background and UI. No corrected artifact has been supplied or assessed in this invocation. Existing screen contracts and wireframe structures remain unchanged.
+
+| Entry | Existing screen / wireframe | Replacement workflow and representative state | Supported viewport / profile | Existing destination to replace | Current conformance |
+|---|---|---|---|---|---|
+| `SS-019` | `NET-05` / [NET-05](../screens/wireframes/network-match.md) | Reuse the six-player host and two-guest setup. Select shipped `levels/duel_16.json`, unmirrored. Capture an active round after start fade, with actual Invisibility on a player holding a weapon and degraded recovery while complete updates resume. Show identifiable asymmetric terrain, rooted trees, standing players and readable player status. | 1280x900 desktop; built-in default network visuals | `docs/screenshots/NET-05/six-player-lan-degraded-1280x900.png` | Pending replacement; previous orientation acceptance superseded. |
+| `SS-026` | `NET-05` / [NET-05-C](../design/wireframes/NET-05/NET-05-C.svg) | In the same setup, use a connected guest at its existing viewport. Open Leave session with Escape or controller Back. Capture the focused explicit confirmation over the upright arena before acceptance; cancel to continue. | 1280x720 desktop; built-in default network visuals | `docs/design/screenshots/NET-05/NET-05-C.png` | Pending replacement; previous arena-context acceptance superseded. |
+| `SS-021` | `NET-07` / [NET-07](../screens/wireframes/network-reconnect.md) | Reuse a two-slot guest from active play. Interrupt only the owned connection through the existing approved setup. Capture actual reconnect with 24 positive ceiling seconds remaining and the last complete upright arena; restore contact before expiry for reuse. Do not substitute a lobby background. | 1280x900 desktop; retained default network visuals | `docs/screenshots/NET-07/reconnecting-24s-1280x900.png` | Pending replacement; previous arena-context acceptance superseded. |
+| `SS-023` | `NET-09` / [NET-09](../screens/wireframes/network-host-ended.md) | After reconnect restores active play, intentionally confirm host End session. Capture the receiving guest's blocking host-ended panel over the last complete upright arena. A crash or timeout is not a substitute. | 1280x900 desktop; retained default network visuals | `docs/screenshots/NET-09/host-ended-1280x900.png` | Pending replacement; previous arena-context acceptance superseded. |
+
+These are replacements for four existing wireframes, not new matrix entries. Keep each legacy destination in place; no migration is requested. Reuse the established setup and supported clients, rather than completing a multi-round result task. The current implementation presents `NET-06` and `NET-04-R` through separate summary/lobby presentation, not the affected arena transform. `SS-020`, `SS-025`, menus, and Local Play representatives require no replacement for this localized correction.
+
+### Focused comparison and metadata
+
+- Developer must supply one current representative per affected wireframe at the destinations above.
+- Developer must supply supplementary actual unmirrored and intentionally X-mirrored `duel_16` comparisons against Local Play at 1280x900.
+- The unmirrored network representative may serve as the unmirrored network comparison.
+- Supplementary comparisons must not add a stable wireframe or representative matrix entry.
+- New supplementary images, if retained in the repository, must use `docs/design/screenshots/NET-05/orientation-<local-or-network>-<unmirrored-or-x-mirrored>.png`.
+- Each comparison must identify the actual level and mirror state; a symmetric substitute or retouched image is not evidence.
+- Each artifact must include source checkpoint, branch, capture time, actual route and state, viewport, presentation profile, environment, destination path, and SHA-256.
+- The packet must identify any uncommitted presentation-source changes at capture.
+- The packet must retain session, match, round, level, mirror flag, near-capture tick, affected player/bonus/weapon, and background provenance required by the existing representative.
+- The packet must distinguish active updates, degraded recovery, and last-confirmed retained context.
+- Tester must verify movement and jump direction, gravity, water rise, intentional X mirroring, culling, and unchanged input behavior with temporal or behavioral evidence.
+- Tester must verify unchanged 20% Invisibility on body and held weapon and 10% Predator body with a visible weapon when Invisibility is absent.
+- Static screenshots must not be treated as proof of motion, opacity values, or functional outcomes.
+
+Current visual gate: blocked pending corrected implementation and the four replacement representatives with complete provenance. This scoped invalidation does not reopen unrelated summary captures or product requirements.
+
+## Assessment status (prior packet; subject to current coverage above)
 
 This manifest requires exactly one representative screenshot entry for each wireframe. An entry is `Planned` when downstream implementation does not exist. An entry is `Pending` when implementation evidence is required but unavailable. Planned and pending paths are not implementation evidence.
 PR #69 refreshed the earlier implemented representative destinations without changing a stable screen, wireframe, or screenshot ID.

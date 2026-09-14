@@ -1,6 +1,8 @@
 # Integrated PR83 visual evidence
 
-This is an integration index for the authoritative [screenshot manifest](../../screenshots/README.md), not a second specification or assessment. The final UX manifest is retained byte-for-byte with SHA-256 `90f02bf755ecc4c54142d5555aa8e34a644515ee69415a539a62cf23066173b7`.
+This is an integration index for the authoritative [screenshot manifest](../../screenshots/README.md), not a second specification or assessment. The original integrated manifest had SHA-256 `90f02bf755ecc4c54142d5555aa8e34a644515ee69415a539a62cf23066173b7`; that hash is historical after the current scoped orientation update.
+
+The [current coverage override](../../screenshots/README.md#network-arena-orientation--current-coverage) marks `SS-019`, `SS-021`, `SS-023`, and `SS-026` pending replacement. Earlier acceptance below for the arena representatives and confirmation supplement is superseded for orientation. Their recorded hashes identify previous artifacts, not corrected evidence. Other entries remain unchanged.
 
 The manifest's temporary paths record where UX originally assessed the files. The accepted images and supporting observations now have durable repository locations below. Verification does not depend on those temporary paths. The four superseded guest-defect supplements are intentionally excluded.
 
