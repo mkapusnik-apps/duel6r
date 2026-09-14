@@ -208,7 +208,7 @@ if (NOT D6R_TRANSPORT_ONLY)
     set_tests_properties(duel6r-network-session-runtime-tests PROPERTIES
             LABELS "application;integration;network;runtime;presentation;reconnect;regression"
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
-            TIMEOUT 30)
+            TIMEOUT 120)
 endif ()
 
 if (NOT D6R_TRANSPORT_ONLY)

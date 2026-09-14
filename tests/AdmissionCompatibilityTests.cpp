@@ -25,7 +25,9 @@
 #include "source/network/SessionLifecycle.h"
 #include "source/network/StateReplicationProtocol.h"
 #include "source/server/AdmissionSession.h"
+#define private public
 #include "source/server/HeadlessServer.h"
+#undef private
 
 #ifndef _WIN32
 #include <sys/stat.h>
@@ -312,6 +314,87 @@ namespace {
         std::optional<Network::Lifecycle::ReconnectGrant> reconnectGrant;
         bool admitted = false;
         bool readySent = false;
+    };
+
+    struct ReconnectLeaveBarrier {
+        std::mutex mutex;
+        std::shared_ptr<Network::TcpConnection> first;
+        std::atomic<bool> responseWithheld{false}, leave{false}, admittedLeaveSent{false};
+        unsigned connections = 0; // Guest worker only.
+    };
+
+    class BarrierConnection final : public Server::AdmissionRuntimeConnection {
+    public:
+        BarrierConnection(std::shared_ptr<Network::TcpConnection> connection,
+                          ReconnectLeaveBarrier &barrier, bool retry)
+                : connection(std::move(connection)), barrier(barrier), retry(retry) {}
+        Network::SendResult send(std::vector<std::uint8_t> payload) override {
+            if (const auto action = Network::Lifecycle::deserializeParticipantAction(payload))
+                if (retry && action->kind == Network::Lifecycle::ParticipantActionKind::Leave)
+                    barrier.admittedLeaveSent = true;
+            return connection->send(std::move(payload));
+        }
+        Network::SendResult sendSensitive(std::vector<std::uint8_t> payload) override {
+            return connection->sendSensitive(std::move(payload));
+        }
+        Network::AdmissionAcceptanceEnqueueResult enqueueAdmissionAcceptance(std::vector<std::uint8_t> payload,
+                Network::AdmissionAttemptGate &attempt, const std::function<bool()> &cancelled,
+                const Network::Trust::Clock &now, Network::TransportTimePoint deadline) override {
+            return connection->enqueueAdmissionAcceptance(std::move(payload), attempt, cancelled, now, deadline);
+        }
+        bool receive(Network::TransportFrame &frame) override {
+            if (barrier.responseWithheld && retry) return false;
+            if (!connection->receive(frame)) return false;
+            if (retry) {
+                const auto response = Network::Lifecycle::deserializeReconnectResponse(frame.payload);
+                if (response && response->outcome == Network::Lifecycle::ReconnectOutcome::Accepted) {
+                    // Host has committed restoration and rotated credentials, but
+                    // the guest state machine has not consumed the response.
+                    withheld = std::move(frame);
+                    barrier.responseWithheld = true;
+                    barrier.leave = true;
+                    return false;
+                }
+            }
+            return true;
+        }
+        Network::ClientState state() const override { return connection->state(); }
+        Network::TransportTimePoint acceptedAt() const override { return connection->acceptedAt(); }
+        Network::TransportTimePoint terminalAt() const override { return connection->terminalAt(); }
+        bool permitAdmissionAcceptance() override { return connection->permitAdmissionAcceptance(); }
+        void revokeAdmissionAcceptance() override { connection->revokeAdmissionAcceptance(); }
+        void markAdmissionSucceeded() override { connection->markAdmissionSucceeded(); }
+        void requestClose() override { connection->requestClose(); }
+    private:
+        std::shared_ptr<Network::TcpConnection> connection;
+        ReconnectLeaveBarrier &barrier;
+        bool retry;
+        std::optional<Network::TransportFrame> withheld;
+    };
+
+    class BarrierClient final : public Server::AdmissionRuntimeClient {
+    public:
+        explicit BarrierClient(ReconnectLeaveBarrier &barrier) : barrier(barrier) {}
+        bool start(const Network::Endpoint &endpoint) override { return client.start(endpoint); }
+        bool waitForConnected(std::chrono::milliseconds timeout) override {
+            if (!client.waitForConnected(timeout)) return false;
+            const bool retry = barrier.connections++ != 0;
+            if (!retry) {
+                std::lock_guard<std::mutex> lock(barrier.mutex);
+                barrier.first = client.connection();
+            }
+            adapted = std::make_shared<BarrierConnection>(client.connection(), barrier, retry);
+            return true;
+        }
+        Network::ClientState state() const override { return client.state(); }
+        Network::TransportFailure failure() const override { return client.failure(); }
+        std::shared_ptr<Server::AdmissionRuntimeConnection> connection() const override { return adapted; }
+        void cancel() override { client.cancel(); }
+        void close() override { client.close(); }
+    private:
+        ReconnectLeaveBarrier &barrier;
+        Network::TcpClient client;
+        std::shared_ptr<BarrierConnection> adapted;
     };
 
     std::unique_ptr<ProductionAdmissionPeer> connectProductionPeer(
@@ -1473,6 +1556,331 @@ D6R_TEST_CASE("NET-AC-011 production Headless disconnect reserves and restores t
     D6R_REQUIRE(attemptSent);
     D6R_REQUIRE(accepted);
     D6R_REQUIRE(currentLobby);
+    D6R_REQUIRE_EQ(0, hostStatus);
+}
+
+D6R_TEST_CASE("PR83 production ingress shares burst sixty and sustained thirty across person and readiness families") {
+    const auto hostedManifest = manifest({
+            {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+    auto content = std::make_shared<Network::FrozenGameplayContent>();
+    (*content)["data/blocks.json"] = {'{', '}'};
+    (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+    (*content)["levels/a.json"] = {'{', '}'};
+    Server::ServerConfig config = runtimeServerConfig();
+    config.listenEndpoint.port = unusedLoopbackPort();
+    const auto epoch = std::chrono::steady_clock::now();
+    std::atomic<std::int64_t> milliseconds{0};
+    std::atomic<bool> ready{false}, cancelled{false};
+    Server::AdmissionRuntimeDependencies dependencies;
+    dependencies.now = [&] { return epoch + std::chrono::milliseconds(milliseconds.load()); };
+    dependencies.cancelled = [&] { return cancelled.load(); };
+    dependencies.manifestSource = std::make_shared<FixedManifestSource>(
+            Network::ManifestBuildResult{Network::ManifestStatus::Valid, hostedManifest, content});
+    dependencies.hostedServiceStatus = [&](auto status) {
+        if (status == Network::HostServiceStatusCode::Ready) ready = true;
+        return true;
+    };
+    std::ostringstream output;
+    int status = -1;
+    std::thread worker([&] { status = Server::HeadlessServer(config, dependencies).run(output); });
+    struct Stop {
+        std::atomic<bool> &cancelled;
+        std::thread &worker;
+        ~Stop() { cancelled = true; if (worker.joinable()) worker.join(); }
+    } stop{cancelled, worker};
+    for (unsigned tries = 0; tries < 400 && !ready; ++tries) std::this_thread::sleep_for(5ms);
+    D6R_REQUIRE(ready);
+    auto peer = connectProductionPeer(config.listenEndpoint, hostedManifest);
+    const auto peerReady = [&] {
+        return peer->admitted && !peer->states.empty()
+               && std::any_of(peer->states.back().participants.begin(), peer->states.back().participants.end(),
+                       [&](const auto &participant) { return participant.participantId == peer->offer->participantId
+                           && participant.ready; });
+    };
+    D6R_REQUIRE(pumpUntil(*peer, peerReady, 2s));
+    auto observer = connectProductionPeer(config.listenEndpoint, hostedManifest);
+    D6R_REQUIRE(pumpUntil(*observer, [&] { return observer->admitted && !observer->states.empty(); }, 2s));
+    // Admission's initial Ready consumes one action. Refill before measuring,
+    // then hold the injected host clock fixed while real TCP queues drain.
+    milliseconds = 1000;
+    const auto send = [&](std::vector<std::uint8_t> bytes) {
+        D6R_REQUIRE(peer->connection->send(std::move(bytes)) == Network::SendResult::Accepted);
+    };
+    const auto currentName = [&]() {
+        pumpProductionPeer(*peer);
+        if (peer->states.empty()) return std::string{};
+        for (const auto &slot : peer->states.back().players)
+            if (slot.playerId == peer->offer->playerIds.front()) return slot.displayName;
+        return std::string{};
+    };
+    for (unsigned window = 0; window < 2; ++window) {
+        const unsigned limit = window == 0 ? 60 : 30;
+        if (window) milliseconds += 1000;
+        for (unsigned index = 0; index < limit; ++index) {
+            if (index % 2 == 0)
+                send(Network::HostComposition::serializeOwnedPersons({"window " + std::to_string(window)
+                        + " action " + std::to_string(index)}));
+            else
+                send(Network::Lifecycle::serializeParticipantAction({peer->reconnectGrant->sessionId,
+                        peer->offer->participantId, Network::Lifecycle::ParticipantActionKind::Ready}));
+        }
+        const std::string expected = "window " + std::to_string(window) + " action " + std::to_string(limit - 2);
+        D6R_REQUIRE(pumpUntil(*peer, [&] { return currentName() == expected && peerReady(); }, 2s));
+        send(Network::HostComposition::serializeOwnedPersons({"OVER BUDGET"}));
+        const auto deadline = std::chrono::steady_clock::now() + 150ms;
+        while (std::chrono::steady_clock::now() < deadline) {
+            D6R_REQUIRE_EQ(expected, currentName());
+            pumpProductionPeer(*observer);
+            std::this_thread::sleep_for(5ms);
+        }
+        // Other participants have an independent budget and remain usable.
+        D6R_REQUIRE(observer->connection->send(Network::HostComposition::serializeOwnedPersons(
+                {"Observer " + std::to_string(window)})) == Network::SendResult::Accepted);
+        D6R_REQUIRE(pumpUntil(*observer, [&] {
+            if (observer->states.empty()) return false;
+            return std::any_of(observer->states.back().players.begin(), observer->states.back().players.end(),
+                    [&](const auto &slot) { return slot.playerId == observer->offer->playerIds.front()
+                        && slot.displayName == "Observer " + std::to_string(window); });
+        }, 2s));
+    }
+    D6R_REQUIRE(pumpUntil(*peer, [&] {
+        return peer->connection->state() != Network::ClientState::Connected;
+    }, 2s)); // Two adjacent over-limit windows close only this offender.
+    D6R_REQUIRE(observer->connection->state() == Network::ClientState::Connected);
+    peer->client->close(); observer->client->close();
+    cancelled = true;
+    worker.join();
+    D6R_REQUIRE_EQ(0, status);
+}
+
+D6R_TEST_CASE("PR83 production final-summary Leave and expiry remove membership on direct lobby return") {
+    for (const bool expire : {false, true}) {
+        const auto hostedManifest = manifest({
+                {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+        auto content = std::make_shared<Network::FrozenGameplayContent>();
+        (*content)["data/blocks.json"] = {'{', '}'};
+        (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+        (*content)["levels/a.json"] = {'{', '}'};
+        auto config = runtimeServerConfig();
+        config.listenEndpoint.port = unusedLoopbackPort();
+        std::atomic<bool> ready{false}, cancelled{false}, hostReady{false}, lobbyRequested{false}, startRequested{false};
+        std::atomic<std::int64_t> clockOffset{0};
+        Server::AdmissionRuntimeDependencies dependencies;
+        dependencies.now = [&] { return std::chrono::steady_clock::now() + std::chrono::milliseconds(clockOffset.load()); };
+        dependencies.cancelled = [&] { return cancelled.load(); };
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(
+                Network::ManifestBuildResult{Network::ManifestStatus::Valid, hostedManifest, content});
+        dependencies.hostedServiceStatus = [&](auto status) {
+            if (status == Network::HostServiceStatusCode::Ready) ready = true;
+            return true;
+        };
+        dependencies.hostReadinessChange = [&]() -> std::optional<bool> {
+            return hostReady.exchange(false) ? std::optional<bool>(true) : std::nullopt;
+        };
+        dependencies.hostSessionPayload = [&]() -> std::optional<std::vector<std::uint8_t>> {
+            if (startRequested.exchange(false))
+                return Network::HostComposition::serializeAction(Network::HostComposition::Kind::StartMatch);
+            if (!lobbyRequested.exchange(false)) return std::nullopt;
+            return Network::HostComposition::serializeAction(Network::HostComposition::Kind::ReturnToLobby);
+        };
+        // Only combat completion is deterministic test input. Admission, TCP,
+        // lifecycle removal, final result retention and direct return are real.
+        dependencies.authoritativeRuntimeFactory = [](const auto &, const auto &players, const auto &) {
+            auto snapshot = std::make_shared<Server::Authoritative::CanonicalWorldSnapshot>();
+            snapshot->valid = true; snapshot->stateDigest = 1;
+            for (const auto &definition : players) {
+                Server::Authoritative::CanonicalPlayerSnapshot player;
+                player.playerId = definition.playerId;
+                player.rosterSlot = definition.rosterOrder;
+                player.alive = true; player.life = 100;
+                snapshot->players.push_back(player);
+            }
+            Server::Authoritative::MatchRuntimeDependencies runtime;
+            runtime.contentPreflight = [](const auto &) { return true; };
+            runtime.worldSnapshot = [snapshot] { return *snapshot; };
+            runtime.worldTick = [snapshot](auto, bool) {
+                for (std::size_t index = 1; index < snapshot->players.size(); ++index) {
+                    snapshot->players[index].alive = false;
+                    snapshot->players[index].life = 0;
+                }
+                snapshot->roundOver = true;
+                ++snapshot->worldTick; ++snapshot->stateDigest;
+                return true;
+            };
+            return runtime;
+        };
+        std::ostringstream output;
+        int status = -1;
+        std::thread worker([&] { status = Server::HeadlessServer(config, dependencies).run(output); });
+        struct Stop {
+            std::atomic<bool> &cancelled;
+            std::thread &worker;
+            ~Stop() { cancelled = true; if (worker.joinable()) worker.join(); }
+        } stop{cancelled, worker};
+        for (unsigned tries = 0; tries < 400 && !ready; ++tries) std::this_thread::sleep_for(5ms);
+        D6R_REQUIRE(ready);
+        auto departing = connectProductionPeer(config.listenEndpoint, hostedManifest);
+        D6R_REQUIRE(pumpUntil(*departing, [&] { return departing->admitted; }, 2s));
+        auto survivor = connectProductionPeer(config.listenEndpoint, hostedManifest);
+        D6R_REQUIRE(pumpUntil(*survivor, [&] { return survivor->admitted; }, 2s));
+        D6R_REQUIRE(departing->connection->send(Network::Lifecycle::serializeParticipantAction({
+                departing->reconnectGrant->sessionId, departing->offer->participantId,
+                Network::Lifecycle::ParticipantActionKind::Ready})) == Network::SendResult::Accepted);
+        hostReady = true;
+        D6R_REQUIRE(pumpUntil(*survivor, [&] {
+            pumpProductionPeer(*departing);
+            return !survivor->states.empty() && survivor->states.back().phase == Network::Replication::Phase::FinalSummary;
+        }, 9s));
+        const auto before = survivor->states.back();
+        const auto removed = departing->offer->participantId;
+        if (expire) {
+            departing->client->close();
+            D6R_REQUIRE(pumpUntil(*survivor, [&] {
+                return std::any_of(survivor->states.back().participants.begin(), survivor->states.back().participants.end(),
+                        [&](const auto &participant) { return participant.participantId == removed
+                            && participant.connection == Network::Replication::ConnectionState::Reconnecting; });
+            }, 2s));
+            clockOffset = 30000;
+        } else {
+            D6R_REQUIRE(departing->connection->send(Network::Lifecycle::serializeParticipantAction({
+                    departing->reconnectGrant->sessionId, removed, Network::Lifecycle::ParticipantActionKind::Leave}))
+                        == Network::SendResult::Accepted);
+        }
+        D6R_REQUIRE(pumpUntil(*survivor, [&] {
+            const auto rows = Network::Replication::retainedOutcomeRows(survivor->states.back().result);
+            // Observe the changed completed result before requesting Return; no
+            // admission or configuration mutation is allowed to repair the roster.
+            return rows && survivor->states.back().result.serialized != before.result.serialized;
+        }, 2s));
+        const auto departedResult = survivor->states.back().result.serialized;
+        lobbyRequested = true;
+        D6R_REQUIRE(pumpUntil(*survivor, [&] {
+            return survivor->states.back().phase == Network::Replication::Phase::Lobby;
+        }, 2s));
+        const auto &lobby = survivor->states.back();
+        D6R_REQUIRE_EQ(2u, lobby.participants.size());
+        D6R_REQUIRE_EQ(2u, lobby.players.size());
+        D6R_REQUIRE(std::none_of(lobby.participants.begin(), lobby.participants.end(),
+                [&](const auto &participant) { return participant.participantId == removed || participant.ready; }));
+        D6R_REQUIRE(std::none_of(lobby.players.begin(), lobby.players.end(),
+                [&](const auto &slot) { return slot.ownerParticipantId == removed; }));
+        D6R_REQUIRE_EQ(departedResult, lobby.result.serialized);
+        D6R_REQUIRE(lobby.score.winner.winnerPlayerIds == before.score.winner.winnerPlayerIds);
+        D6R_REQUIRE(lobby.round->outcome.winnerPlayerIds == before.round->outcome.winnerPlayerIds);
+        D6R_REQUIRE_EQ(3u, lobby.score.players.size());
+        D6R_REQUIRE(survivor->connection->send(Network::Lifecycle::serializeParticipantAction({
+                survivor->reconnectGrant->sessionId, survivor->offer->participantId,
+                Network::Lifecycle::ParticipantActionKind::Ready})) == Network::SendResult::Accepted);
+        hostReady = true;
+        D6R_REQUIRE(pumpUntil(*survivor, [&] {
+            return std::all_of(survivor->states.back().participants.begin(), survivor->states.back().participants.end(),
+                    [](const auto &participant) { return participant.ready; });
+        }, 2s));
+        startRequested = true;
+        D6R_REQUIRE(pumpUntil(*survivor, [&] {
+            const auto &next = survivor->states.back();
+            return next.matchId != before.matchId && !next.result.available
+                   && next.players.size() == 2 && next.participants.size() == 2;
+        }, 2s));
+        departing->client->close(); survivor->client->close();
+        cancelled = true; worker.join();
+        D6R_REQUIRE_EQ(0, status);
+    }
+}
+
+D6R_TEST_CASE("PR83 production guest Leave after host restore before reconnect response removes without renewed reservation") {
+    const auto hostedManifest = manifest({
+            {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+    auto content = std::make_shared<Network::FrozenGameplayContent>();
+    (*content)["data/blocks.json"] = {'{', '}'};
+    (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+    (*content)["levels/a.json"] = {'{', '}'};
+    auto source = std::make_shared<FixedManifestSource>(
+            Network::ManifestBuildResult{Network::ManifestStatus::Valid, hostedManifest, content});
+    auto hostConfig = runtimeServerConfig();
+    hostConfig.listenEndpoint.port = unusedLoopbackPort();
+    std::atomic<bool> ready{false}, stopHost{false}, stopGuest{false}, guestDone{false}, guestAdmitted{false};
+    Server::AdmissionRuntimeDependencies hostDependencies;
+    hostDependencies.manifestSource = source;
+    hostDependencies.cancelled = [&] { return stopHost.load(); };
+    hostDependencies.hostedServiceStatus = [&](auto status) {
+        if (status == Network::HostServiceStatusCode::Ready) ready = true;
+        return true;
+    };
+    std::ostringstream hostOutput, guestOutput;
+    int hostStatus = -1, guestStatus = -1;
+    ReconnectLeaveBarrier barrier;
+    Server::AdmissionRuntimeDependencies guestDependencies;
+    auto guestConfig = runtimeGuestConfig();
+    std::thread host([&] { hostStatus = Server::HeadlessServer(hostConfig, hostDependencies).run(hostOutput); });
+    std::thread guest;
+    struct Stop {
+        std::atomic<bool> &stopHost, &stopGuest;
+        std::thread &host, &guest;
+        ~Stop() {
+            stopGuest = true; stopHost = true;
+            if (guest.joinable()) guest.join();
+            if (host.joinable()) host.join();
+        }
+    } cleanup{stopHost, stopGuest, host, guest};
+    for (unsigned tries = 0; tries < 400 && !ready; ++tries) std::this_thread::sleep_for(5ms);
+    D6R_REQUIRE(ready);
+    auto observer = connectProductionPeer(hostConfig.listenEndpoint, hostedManifest);
+    D6R_REQUIRE(pumpUntil(*observer, [&] { return observer->admitted; }, 2s));
+    guestDependencies.manifestSource = source;
+    guestDependencies.cancelled = [&] { return stopGuest.load(); };
+    guestDependencies.clientFactory = [&] { return std::make_unique<BarrierClient>(barrier); };
+    guestDependencies.guestPresentation = [&](const auto &, const auto &, const auto &, const auto &) {
+        guestAdmitted = true;
+    };
+    guestDependencies.localParticipantAction = [&]() -> std::optional<Network::Lifecycle::ParticipantActionKind> {
+        return barrier.leave.exchange(false)
+               ? std::optional<Network::Lifecycle::ParticipantActionKind>(Network::Lifecycle::ParticipantActionKind::Leave)
+               : std::nullopt;
+    };
+    guestConfig.listenEndpoint = hostConfig.listenEndpoint;
+    guestConfig.localPlayers = 1;
+    guest = std::thread([&] {
+        Server::HeadlessServer server(guestConfig, guestDependencies);
+        // The constructor disables production replication for any injected
+        // client factory. This adapter still uses real TCP, so restore that
+        // production setting rather than exercising the legacy fake protocol.
+        server.runtimeDependencies.productionReplicationProtocol = true;
+        guestStatus = server.run(guestOutput);
+        guestDone = true;
+    });
+    D6R_REQUIRE(pumpUntil(*observer, [&] {
+        return guestAdmitted.load() && !observer->states.empty() && observer->states.back().participants.size() == 3;
+    }, 3s));
+    Network::Lifecycle::ParticipantId guestId = 0;
+    for (const auto &participant : observer->states.back().participants)
+        if (!participant.host && participant.participantId != observer->offer->participantId) guestId = participant.participantId;
+    D6R_REQUIRE(guestId != 0);
+    {
+        std::lock_guard<std::mutex> lock(barrier.mutex);
+        D6R_REQUIRE(barrier.first != nullptr);
+        barrier.first->requestClose();
+    }
+    const bool removedAfterRestore = pumpUntil(*observer, [&] {
+        return barrier.responseWithheld.load() && guestDone.load()
+               && observer->states.back().participants.size() == 2;
+    }, 5s);
+    if (!removedAfterRestore)
+        Duel6::Test::fail("restore-before-response Leave removed participant", __FILE__, __LINE__,
+                "response-withheld=" + std::to_string(barrier.responseWithheld.load())
+                + ";admitted-leave=" + std::to_string(barrier.admittedLeaveSent.load())
+                + ";guest-done=" + std::to_string(guestDone.load())
+                + ";participants=" + std::to_string(observer->states.back().participants.size()));
+    D6R_REQUIRE(barrier.admittedLeaveSent);
+    const auto &state = observer->states.back();
+    D6R_REQUIRE(std::none_of(state.participants.begin(), state.participants.end(),
+            [&](const auto &participant) { return participant.participantId == guestId || participant.ready; }));
+    D6R_REQUIRE(std::none_of(state.players.begin(), state.players.end(),
+            [&](const auto &slot) { return slot.ownerParticipantId == guestId; }));
+    D6R_REQUIRE_EQ(2u, state.players.size());
+    guest.join();
+    D6R_REQUIRE_EQ(0, guestStatus);
+    observer->client->close(); stopHost = true; host.join();
     D6R_REQUIRE_EQ(0, hostStatus);
 }
 

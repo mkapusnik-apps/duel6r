@@ -1003,6 +1003,41 @@ D6R_TEST_CASE("AHM round-end boundaries update exactly one second then freeze fi
     D6R_REQUIRE_EQ(MatchPhase::ActiveRound, match.phase());
 }
 
+D6R_TEST_CASE("PR83 real canonical round-end active world consumes survivor press and release before freeze") {
+    ProductionCanonicalFixture fixture(1);
+    for (unsigned tick = 0; tick < 20000
+            && fixture.controller.match()->phase() == MatchPhase::ActiveRound; ++tick)
+        D6R_REQUIRE(fixture.driveOneTick());
+    auto *match = fixture.controller.match();
+    D6R_REQUIRE(match && match->phase() == MatchPhase::RoundEndActive);
+    const auto *world = match->canonicalWorldSnapshot();
+    D6R_REQUIRE(world != nullptr);
+    const auto survivor = std::find_if(world->players.begin(), world->players.end(),
+            [](const auto &player) { return player.alive; });
+    D6R_REQUIRE(survivor != world->players.end());
+    const auto id = survivor->playerId;
+    const auto owner = std::find_if(fixture.players.begin(), fixture.players.end(),
+            [id](const auto &player) { return player.playerId == id; });
+    D6R_REQUIRE(owner != fixture.players.end());
+    for (const std::uint32_t mask : {std::uint32_t(MoveRight | Shoot), std::uint32_t(0), std::uint32_t(MoveLeft)}) {
+        D6R_REQUIRE_EQ(ActionResult::Accepted, match->submit({match->currentTick(), fixture.sequence++,
+                owner->participantId, id, ActionKind::PlayerInput, 0, mask, 0}));
+        D6R_REQUIRE(fixture.controller.advanceOneTick());
+        world = match->canonicalWorldSnapshot();
+        D6R_REQUIRE(world != nullptr);
+        const auto current = std::find_if(world->players.begin(), world->players.end(),
+                [id](const auto &player) { return player.playerId == id; });
+        D6R_REQUIRE(current != world->players.end());
+        D6R_REQUIRE_EQ(mask, current->actionMask);
+        D6R_REQUIRE(match->phase() == MatchPhase::RoundEndActive);
+    }
+    for (unsigned ticks = 0; ticks < RoundEndActiveTicks && match->phase() == MatchPhase::RoundEndActive; ++ticks)
+        D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE(match->phase() == MatchPhase::RoundEndFrozen);
+    D6R_REQUIRE_EQ(ActionResult::RejectedPhase, match->submit({match->currentTick(), fixture.sequence++,
+            owner->participantId, id, ActionKind::PlayerInput, 0, Shoot, 0}));
+}
+
 D6R_TEST_CASE("AHM terminal results are atomic and cleanup controls exit meaning") {
     auto players = roster(2);
     AuthoritativeMatch interrupted;

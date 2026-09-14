@@ -496,6 +496,52 @@ namespace {
         return result;
     }
 
+    D6R_TEST_CASE("PR83 retained multiwinner projection preserves full names and exact historical uint64 identities") {
+        auto result = maximumCompletedResult(false);
+        result.config.mode = A::Mode::Predator;
+        result.config.teamCount = 0;
+        result.teams.clear();
+        result.finalWinningTeam = A::Team::None;
+        result.finalWinnerPlayerIds.clear();
+        std::vector<A::Identity> ids;
+        std::map<A::Identity, std::string> names;
+        for (std::size_t index = 0; index < result.players.size(); ++index) {
+            auto &row = result.players[index];
+            row.playerId = (std::numeric_limits<A::Identity>::max)() - index;
+            row.displayName = std::string(63, static_cast<char>('A' + index)) + static_cast<char>('a' + index);
+            row.team = A::Team::None;
+            row.departed = index % 2 == 0;
+            ids.push_back(row.playerId);
+            names.emplace(row.playerId, row.displayName);
+            if (index < 14) result.finalWinnerPlayerIds.push_back(row.playerId);
+        }
+        for (auto &round : result.rounds) {
+            round.rosterOrder = ids;
+            round.winningTeam = A::Team::None;
+            round.winnerPlayerIds = result.finalWinnerPlayerIds;
+        }
+        const auto serialized = A::serializeSessionResult(result);
+        D6R_REQUIRE(serialized.has_value());
+        R::ResultState retained{true, true, "Completed", *serialized};
+        const auto rows = R::retainedOutcomeRows(retained);
+        D6R_REQUIRE(rows.has_value());
+        D6R_REQUIRE_EQ(100u * 14u, rows->size());
+        std::map<unsigned, std::set<A::Identity>> observed;
+        for (const auto &row : *rows) {
+            D6R_REQUIRE(row.roundNumber <= 99);
+            D6R_REQUIRE_EQ(names.at(row.playerId), row.displayName);
+            D6R_REQUIRE_EQ(64u, row.displayName.size());
+            D6R_REQUIRE_EQ(((std::numeric_limits<A::Identity>::max)() - row.playerId) % 2 == 0, row.departed);
+            D6R_REQUIRE(observed[row.roundNumber].insert(row.playerId).second);
+        }
+        for (unsigned round = 0; round <= 99; ++round)
+            D6R_REQUIRE(observed[round] == std::set<A::Identity>(result.finalWinnerPlayerIds.begin(), result.finalWinnerPlayerIds.end()));
+        // No live roster/name lookup is available or needed by this projection.
+        // Invalid historical data must not produce partially readable outcomes.
+        retained.serialized.pop_back();
+        D6R_REQUIRE(!R::retainedOutcomeRows(retained));
+    }
+
     R::CanonicalState maximumCompletedReplicationState(bool departed) {
         R::CanonicalState state;
         state.sessionId = 10;

@@ -14,6 +14,8 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <list>
+#include <unordered_map>
 #include <vector>
 
 #ifndef _WIN32
@@ -26,6 +28,9 @@
 #include "tests/TestHarness.h"
 #include "source/client/HostServiceSupervisor.h"
 #include "source/DataException.h"
+#define private public
+#include "source/Font.h"
+#undef private
 #include "source/input/PlayerControls.h"
 #include "source/network/HostCompositionProtocol.h"
 #include "source/network/NetworkResponsiveness.h"
@@ -41,7 +46,10 @@
 #include "source/client/NetworkSessionRuntime.h"
 #include "source/Application.h"
 #include "source/CanonicalWorldPresenter.h"
+#include "source/NetworkMenu.h"
 #undef private
+#include "tests/RecordingRenderer.h"
+#include "source/server/AuthoritativeMatchSerialization.h"
 
 namespace {
     using namespace Duel6;
@@ -359,6 +367,487 @@ D6R_TEST_CASE("issue-38 host composition framing is deterministic for every UI a
 }
 
 #ifndef _WIN32
+D6R_TEST_CASE("PR83 Application Return repeat Tab and modal input isolation for host and guest") {
+    char name[] = "duel6r-pr83-input-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    NetworkMenu menu(*application.service, application.gameResources, {}, [] {});
+    auto controls = PlayerControls::keyboardControls("QA K1", application.input,
+            SDLK_LEFT, SDLK_RIGHT, SDLK_UP, SDLK_DOWN, SDLK_RCTRL, SDLK_RSHIFT, SDLK_RETURN);
+    menu.localPlayers = {{"QA", controls.get(), "QA K1"}};
+    menu.runtime.players = menu.localPlayers;
+    menu.runtime.sampledActions.resize(1);
+    // Use SDL's queue and Application's production dispatcher, not a fabricated
+    // context key-up: Application intentionally dispatches only pressed keys.
+    const auto key = [&](SDL_Keycode code, bool pressed, bool repeat = false) {
+        SDL_Event event{};
+        event.type = pressed ? SDL_KEYDOWN : SDL_KEYUP;
+        event.key.type = event.type;
+        event.key.keysym.sym = code;
+        event.key.repeat = repeat;
+        D6R_REQUIRE_EQ(1, SDL_PushEvent(&event));
+        application.processEvents(menu);
+    };
+    for (const bool host : {false, true}) {
+        menu.runtime.current = {};
+        menu.runtime.current.host = host;
+        menu.runtime.current.localParticipantId = host ? 1 : 2;
+        menu.runtime.current.journey = Client::NetworkJourney::Match;
+        menu.runtime.current.canonical = canonical(91, Network::Replication::Phase::ActiveRound);
+        menu.confirmation = NetworkMenu::Confirmation::None;
+        menu.scoreOverlay = false;
+        menu.update(0); // Observe entry before dispatching active-match events.
+        key(SDLK_RETURN, true);
+        D6R_REQUIRE(controls->getStatus().isPressed());
+        for (int repeat = 0; repeat < 4; ++repeat) key(SDLK_RETURN, true, true);
+        D6R_REQUIRE(menu.confirmation == NetworkMenu::Confirmation::None);
+        D6R_REQUIRE(!menu.runtime.pendingHostEnd);
+        D6R_REQUIRE(menu.runtime.pendingGuestCommands.empty());
+        key(SDLK_RETURN, false);
+        D6R_REQUIRE(!controls->getStatus().isPressed());
+        for (const bool expected : {true, false, true}) {
+            key(SDLK_TAB, true);
+            D6R_REQUIRE_EQ(expected, menu.scoreOverlay);
+            key(SDLK_TAB, true, true);
+            D6R_REQUIRE_EQ(expected, menu.scoreOverlay);
+            key(SDLK_TAB, false);
+            D6R_REQUIRE_EQ(expected, menu.scoreOverlay);
+        }
+        // A held fire/status key must not gain destructive meaning when Escape
+        // explicitly opens a dialog. Releasing all confirms arms a fresh action.
+        key(SDLK_RCTRL, true);
+        key(SDLK_RETURN, true);
+        key(SDLK_ESCAPE, true);
+        key(SDLK_ESCAPE, false);
+        menu.update(0);
+        D6R_REQUIRE(menu.confirmation != NetworkMenu::Confirmation::None);
+        D6R_REQUIRE(!menu.confirmationInputArmed);
+        D6R_REQUIRE_EQ(0u, menu.runtime.sampledActions[0]);
+        key(SDLK_RETURN, true, true);
+        D6R_REQUIRE(menu.confirmation != NetworkMenu::Confirmation::None);
+        key(SDLK_RETURN, false);
+        key(SDLK_RCTRL, false);
+        menu.update(0);
+        D6R_REQUIRE(menu.confirmationInputArmed);
+        key(SDLK_ESCAPE, true);
+        key(SDLK_ESCAPE, false);
+        D6R_REQUIRE(menu.confirmation == NetworkMenu::Confirmation::None);
+        D6R_REQUIRE(menu.runtime.pendingGuestCommands.empty());
+        key(SDLK_ESCAPE, true);
+        key(SDLK_ESCAPE, false);
+        menu.update(0);
+        D6R_REQUIRE(menu.confirmationInputArmed);
+        key(SDLK_RETURN, true);
+        key(SDLK_RETURN, false);
+        D6R_REQUIRE(menu.confirmation == NetworkMenu::Confirmation::None);
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Cancelling);
+        if (!host) {
+            D6R_REQUIRE_EQ(1u, menu.runtime.pendingGuestCommands.size());
+            const auto leave = Network::Lifecycle::deserializeParticipantAction(menu.runtime.pendingGuestCommands.front());
+            D6R_REQUIRE(leave && leave->kind == Network::Lifecycle::ParticipantActionKind::Leave);
+        }
+        menu.runtime.pendingGuestCommands.clear();
+    }
+}
+
+D6R_TEST_CASE("PR83 real runtime End drains update from lobby and active match and releases listener") {
+    using namespace std::chrono_literals;
+    for (const bool active : {false, true}) {
+        Client::NetworkSessionRuntime host, guest, unused;
+        const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
+        Network::HostComposition::Setup setup;
+        setup.localPlayerNames = {"Host"};
+        setup.fixedLevel = "levels/duel_01.json";
+        D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR,
+                                  setup, {player("Host")}));
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] {
+            return host.snapshot().journey == Client::NetworkJourney::Lobby;
+        }));
+        D6R_REQUIRE(guest.join(endpoint, D6R_TEST_RESOURCE_DIR, {player("Guest")}));
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] {
+            return guest.snapshot().journey == Client::NetworkJourney::Lobby;
+        }));
+        if (active) {
+            host.setReady(true); guest.setReady(true);
+            D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] {
+                return everyParticipantReady(host.snapshot(), true);
+            }));
+            host.startMatch();
+            D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] {
+                return host.snapshot().journey == Client::NetworkJourney::Match
+                       && guest.snapshot().journey == Client::NetworkJourney::Match;
+            }));
+        }
+        host.endSession();
+        // This update, not the destructor, exercises the former synchronous
+        // observer/mutex deadlock. The enclosing test process timeout is its guard.
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] {
+            return host.snapshot().journey == Client::NetworkJourney::Inactive
+                   && guest.snapshot().journey == Client::NetworkJourney::HostEnded;
+        }));
+        D6R_REQUIRE(!host.snapshot().canonical);
+        D6R_REQUIRE(host.supervisor->snapshot().cleanupComplete);
+        // Restart the real service on the same endpoint, proving listener cleanup.
+        host.reset(); guest.reset();
+        D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR,
+                                  setup, {player("Host")}));
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] {
+            return host.snapshot().journey == Client::NetworkJourney::Lobby;
+        }));
+        host.endSession();
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] {
+            return host.snapshot().journey == Client::NetworkJourney::Inactive;
+        }));
+    }
+}
+
+D6R_TEST_CASE("PR83 canonical held weapon draw alpha distinguishes invisibility from Predator") {
+    char name[] = "duel6r-pr83-weapon-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot;
+        std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recorder = std::make_unique<Test::RecordingRenderer>();
+    auto &draws = recorder->draws;
+    video.renderer = std::move(recorder);
+    CanonicalWorldPresenter presenter(*application.service, application.gameResources);
+    Network::Replication::PlayerState player;
+    player.heldWeapon = "pistol";
+    for (const bool predator : {false, true}) {
+        for (const bool invisible : {false, true}) {
+            player.presentationAlpha = invisible ? 51 : predator ? 0 : 255;
+            player.activeBonus = invisible ? "invisibility" : "";
+            player.bonusRemaining = invisible ? 60 : 0;
+            draws.clear();
+            presenter.renderHeldWeapon(player, 0, 0);
+            D6R_REQUIRE_EQ(1u, draws.size());
+            D6R_REQUIRE(draws[0].material.getColor() == Color(255, 255, 255, invisible ? 51 : 255));
+            D6R_REQUIRE_EQ(!invisible, draws[0].material.isMasked());
+            D6R_REQUIRE(draws[0].blend == (invisible ? BlendFunc::SrcAlpha : BlendFunc::None));
+        }
+    }
+    player.bonusRemaining = 0; // Expired bonus name must not retain weapon opacity.
+    draws.clear();
+    presenter.renderHeldWeapon(player, 0, 0);
+    D6R_REQUIRE_EQ(1u, draws.size());
+    D6R_REQUIRE(draws[0].material.getColor() == Color::WHITE);
+    player.lifeState = Network::Replication::LifeState::Dead;
+    draws.clear();
+    presenter.renderHeldWeapon(player, 0, 0);
+    D6R_REQUIRE(draws.empty());
+}
+
+D6R_TEST_CASE("PR83 real runtime End from naturally completed final summary drains and discards result") {
+    using namespace std::chrono_literals;
+    // Independent temporary gameplay content, never changes a supplied bundle.
+    // The tester owns cleanup, including assertion-failure unwinding.
+    const auto root = std::filesystem::temp_directory_path()
+            / ("duel6r-pr83-final-" + std::to_string(::getpid()));
+    struct Cleanup {
+        std::filesystem::path root;
+        ~Cleanup() { std::error_code ignored; std::filesystem::remove_all(root, ignored); }
+    };
+    D6R_REQUIRE(std::filesystem::create_directory(root));
+    Cleanup cleanup{root};
+    std::filesystem::create_directory(root / "data");
+    std::filesystem::create_directory(root / "levels");
+    for (const auto *file : {"blocks.json", "config.script"})
+        std::filesystem::copy_file(std::filesystem::path(D6R_TEST_RESOURCE_DIR) / "data" / file,
+                                   root / "data" / file);
+    {
+        std::ofstream level(root / "levels/end.json");
+        level << R"({"width":6,"height":4,"blocks":[1,1,1,1,1,1,1,0,0,0,0,1,1,0,0,0,0,1,1,1,1,1,1,1],"elevators":[]})";
+        D6R_REQUIRE(level.good());
+    }
+    Client::NetworkSessionRuntime host, guest, unused;
+    const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
+    Network::HostComposition::Setup setup;
+    setup.localPlayerNames = {"Host"}; setup.fixedLevel = "levels/end.json";
+    setup.roundLimit = 1; setup.quickLiquid = true;
+    D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, root.string(), setup, {player("Host")}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Lobby;
+    }));
+    D6R_REQUIRE(guest.join(endpoint, root.string(), {player("Guest")}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] {
+        return guest.snapshot().journey == Client::NetworkJourney::Lobby;
+    }));
+    host.setReady(true); guest.setReady(true);
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
+    host.startMatch();
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 90s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Summary
+               && guest.snapshot().journey == Client::NetworkJourney::Summary;
+    }));
+    D6R_REQUIRE(host.snapshot().canonical->result.available);
+    D6R_REQUIRE_EQ(std::string("Completed"), host.snapshot().canonical->result.state);
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Inactive
+               && guest.snapshot().journey == Client::NetworkJourney::HostEnded;
+    }));
+    D6R_REQUIRE(!host.snapshot().canonical);
+    D6R_REQUIRE(host.supervisor->snapshot().cleanupComplete);
+}
+
+D6R_TEST_CASE("PR83 summary and retained result draw bounded headers and scroll every long historical winner") {
+    namespace A = Server::Authoritative;
+    namespace R = Network::Replication;
+    char name[] = "duel6r-pr83-outcome-layout-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    Test::RecordingRenderer recorder;
+    Font font(recorder);
+    font.load("data/font.ttf", application.console);
+    auto &original = *application.service;
+    AppService service(font, original.getConsole(), original.getTextureManager(), original.getVideo(),
+            original.getInput(), original.getControlsManager(), original.getSound(), original.getScriptManager());
+    NetworkMenu menu(service, application.gameResources, {}, [] {});
+    A::SessionResult result;
+    result.config.mode = A::Mode::Predator;
+    result.config.hostParticipantId = 1;
+    result.config.seed = 1234;
+    result.config.roundLimit = 1;
+    result.config.fixedLevel = "levels/duel_01.json";
+    result.config.playableLevels = {result.config.fixedLevel};
+    result.config.enabledWeapons = {"pistol"};
+    result.completedRounds = 1;
+    A::RoundResult round;
+    round.roundNumber = 1; round.level = result.config.fixedLevel;
+    for (unsigned index = 0; index < 15; ++index) {
+        A::PlayerResultRow row;
+        row.playerId = (std::numeric_limits<A::Identity>::max)() - index;
+        row.participantId = index + 1;
+        row.rosterOrder = index;
+        row.displayName = std::string(63, static_cast<char>('A' + index)) + static_cast<char>('a' + index);
+        row.departed = true;
+        row.statistics.roundsPlayed = 1;
+        row.rounds.resize(1); row.rounds[0].roundsPlayed = 1;
+        round.rosterOrder.push_back(row.playerId);
+        if (index < 14) round.winnerPlayerIds.push_back(row.playerId);
+        result.players.push_back(row);
+    }
+    result.rounds = {round}; result.finalWinnerPlayerIds = round.winnerPlayerIds;
+    const auto serialized = A::serializeSessionResult(result);
+    D6R_REQUIRE(serialized.has_value());
+    R::CanonicalState state;
+    state.completedRounds = 1;
+    state.settings.mode = "Predator";
+    state.score.winner.winnerPlayerIds = result.finalWinnerPlayerIds;
+    state.round = R::RoundState{3, 1, round.level, false, round.rosterOrder, state.score.winner};
+    state.result = {true, true, "Completed", *serialized};
+    D6R_REQUIRE(R::retainedOutcomeRows(state.result).has_value());
+    for (const bool retained : {false, true}) {
+        state.phase = retained ? R::Phase::Lobby : R::Phase::FinalSummary;
+        menu.runtime.current.journey = retained ? Client::NetworkJourney::Lobby : Client::NetworkJourney::Summary;
+        menu.runtime.current.canonical = state;
+        std::set<std::string> visible;
+        bool matchHeading = false, lastRoundHeading = false;
+        menu.summaryScroll = 0;
+        menu.focus = retained ? 2 : 1; // Guest result-table focus, with no local slots in this historical fixture.
+        for (unsigned page = 0; page < 40; ++page) {
+            menu.summaryHorizontal = 0;
+            for (unsigned horizontal = 0; horizontal < 5; ++horizontal) {
+                recorder.draws.clear();
+                if (retained) menu.drawResult(state, true);
+                else menu.drawSummary(menu.runtime.snapshot());
+                for (const auto &draw : recorder.draws) {
+                    const auto entry = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),
+                            [&](const auto &item) { return item.texture == draw.material.getTexture(); });
+                    D6R_REQUIRE(entry != font.fontCache.entryList.end());
+                    const auto &text = entry->text;
+                    const bool match = text.find("Match outcome:") == 0;
+                    const bool last = text.find("Last completed round") == 0;
+                    if (match || last) {
+                        D6R_REQUIRE(draw.right <= 818); // Inside the fixed 850-unit menu canvas.
+                        matchHeading = matchHeading || match; lastRoundHeading = lastRoundHeading || last;
+                    }
+                    visible.insert(text);
+                }
+                application.keyEvent(menu, KeyPressEvent(SDLK_RIGHT, SysEvent::ButtonState::PRESSED, 0));
+            }
+            menu.mouseWheelEvent(MouseWheelEvent(0, 0, 0, -1));
+        }
+        D6R_REQUIRE(matchHeading && lastRoundHeading);
+        for (unsigned index = 0; index < 14; ++index) {
+            const auto &row = result.players[index];
+            const bool nameVisible = std::any_of(visible.begin(), visible.end(), [&](const auto &text) {
+                return text.find(row.displayName) != std::string::npos;
+            });
+            if (!nameVisible) {
+                std::string detail = "retained=" + std::to_string(retained) + ";winner=" + std::to_string(index)
+                        + ";scroll=" + std::to_string(menu.summaryScroll) + ";visible=";
+                for (const auto &text : visible) if (detail.size() < 4000) detail += "[" + text + "]";
+                Test::fail("complete winner name is reachable", __FILE__, __LINE__, detail);
+            }
+            D6R_REQUIRE(std::any_of(visible.begin(), visible.end(), [&](const auto &text) {
+                return text.find(std::to_string(row.playerId)) != std::string::npos
+                       && text.find(std::string(8, static_cast<char>('A' + index))) != std::string::npos;
+            }));
+        }
+    }
+}
+
+D6R_TEST_CASE("PR83 host emits movement and fire-release masks until exact round-end freeze boundary") {
+    char name[] = "duel6r-pr83-round-input-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    auto controls = PlayerControls::keyboardControls("QA", application.input,
+            SDLK_LEFT, SDLK_RIGHT, SDLK_UP, SDLK_DOWN, SDLK_RCTRL, SDLK_RSHIFT, SDLK_RETURN);
+    Client::NetworkSessionRuntime host;
+    host.players = {{"Host", controls.get(), "QA"}};
+    host.sampledActions.resize(1);
+    host.current.host = true;
+    host.current.canonical = canonical(91, Network::Replication::Phase::ActiveRound);
+    auto &state = *host.current.canonical;
+    state.hostParticipantId = 1;
+    state.participants = {{1, true, Network::Replication::ConnectionState::Connected, true, {101}}};
+    std::vector<Network::Input::Command> commands;
+    host.hostInput = std::make_unique<Network::Input::ClientCommandSession>(1,
+            std::vector<Network::Input::Identity>{101}, [&](auto payload) {
+                const auto decoded = Network::Input::deserializeFrame(payload);
+                D6R_REQUIRE(decoded && decoded->command);
+                commands.push_back(*decoded->command);
+                return Network::SendResult::Accepted;
+            });
+    application.input.setPressed(SDLK_LEFT, true);
+    application.input.setPressed(SDLK_RCTRL, true);
+    host.update();
+    D6R_REQUIRE_EQ(1u, commands.size());
+    D6R_REQUIRE_EQ(Network::Input::MoveLeft | Network::Input::Shoot, commands.back().actions);
+    state.phase = Network::Replication::Phase::RoundSummary;
+    state.roundEndCountdown = 360;
+    ++state.phaseTime;
+    application.input.setPressed(SDLK_LEFT, false);
+    application.input.setPressed(SDLK_RCTRL, false); // Charged-fire release.
+    host.update();
+    D6R_REQUIRE_EQ(2u, commands.size());
+    D6R_REQUIRE_EQ(0u, commands.back().actions);
+    state.roundEndCountdown = 301;
+    ++state.phaseTime;
+    application.input.setPressed(SDLK_RIGHT, true);
+    host.update();
+    D6R_REQUIRE_EQ(3u, commands.size());
+    D6R_REQUIRE_EQ(Network::Input::MoveRight, commands.back().actions);
+    for (const unsigned countdown : {300u, 299u, 1u, 0u}) {
+        state.roundEndCountdown = countdown;
+        ++state.phaseTime;
+        host.update();
+        D6R_REQUIRE_EQ(3u, commands.size());
+    }
+}
+
+D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and guest sustain release edges") {
+    using namespace std::chrono_literals;
+    char name[] = "duel6r-pr83-capacity-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    NetworkMenu menu(*application.service, application.gameResources, {}, [] {});
+    Client::NetworkSessionRuntime guest, unused;
+    auto &host = menu.runtime;
+    const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
+    std::vector<std::unique_ptr<PlayerControls>> controls;
+    Input input(application.console);
+    for (unsigned index = 0; index < 15; ++index) {
+        // Independent real keyboard controls; crouch is harmless on the arena
+        // floor and its accepted mask exposes both press and release per slot.
+        controls.push_back(PlayerControls::keyboardControls("QA", input,
+                SDLK_LEFT, SDLK_RIGHT, SDLK_UP, SDLK_a + index,
+                SDLK_RCTRL, SDLK_RSHIFT, SDLK_RETURN));
+        if (index < 14) menu.localPlayers.push_back({"Host " + std::to_string(index), controls.back().get(), "QA"});
+    }
+    menu.hostSetup.localPlayerNames.clear();
+    for (const auto &slot : menu.localPlayers) menu.hostSetup.localPlayerNames.push_back(slot.name);
+    menu.hostSetup.mode = "Team deathmatch";
+    menu.hostSetup.teamCount = 4;
+    menu.hostSetup.friendlyFire = true;
+    menu.hostSetup.fixedLevel = "levels/duel_01.json";
+    menu.preferredTeamCount = 4;
+    menu.preferredFriendlyFire = true;
+    D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR,
+                              menu.hostSetup, menu.localPlayers));
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Lobby;
+    }));
+    D6R_REQUIRE(guest.join(endpoint, D6R_TEST_RESOURCE_DIR, {{"Guest", controls.back().get(), "QA"}}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] {
+        return guest.snapshot().journey == Client::NetworkJourney::Lobby;
+    }));
+    for (const std::string mode : {"Deathmatch", "Predator", "Team deathmatch"}) {
+        host.setReady(true); guest.setReady(true);
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] {
+            return everyParticipantReady(host.snapshot(), true);
+        }));
+        menu.focus = 2 * 14 + 1; // Mode, after fourteen person/control pairs and Ready.
+        application.keyEvent(menu, KeyPressEvent(SDLK_RETURN, SysEvent::ButtonState::PRESSED, 0));
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] {
+            for (auto *runtime : {&host, &guest}) {
+                const auto snapshot = runtime->snapshot();
+                if (!snapshot.canonical || snapshot.canonical->settings.mode != mode
+                    || snapshot.canonical->settings.teamCount != (mode == "Team deathmatch" ? 4 : 0)
+                    || snapshot.canonical->settings.friendlyFire != (mode == "Team deathmatch")
+                    || !everyParticipantReady(snapshot, false)) return false;
+            }
+            return true;
+        }));
+        // A subsequent unrelated edit must not disappear into an invalid draft.
+        const auto previousRounds = menu.hostSetup.roundLimit;
+        menu.focus = 2 * 14 + 1 + 5;
+        application.keyEvent(menu, KeyPressEvent(SDLK_RETURN, SysEvent::ButtonState::PRESSED, 0));
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] {
+            return guest.snapshot().canonical->settings.roundLimit == previousRounds + 1;
+        }));
+    }
+    host.setReady(true); guest.setReady(true);
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
+    host.startMatch();
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Match
+               && guest.snapshot().journey == Client::NetworkJourney::Match;
+    }));
+    const auto initialTick = host.snapshot().canonical->phaseTime;
+    const auto ids = host.snapshot().canonical->participants.front().ownedPlayerIds;
+    D6R_REQUIRE_EQ(14u, ids.size());
+    std::size_t edges = 0;
+    for (unsigned step = 0; step < 24; ++step) {
+        for (unsigned index = 0; index < 15; ++index)
+            input.setPressed(SDLK_a + index, (step + index) % 2 == 0);
+        const auto until = std::chrono::steady_clock::now() + 300ms;
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 250ms, [&] {
+            const auto snapshot = guest.snapshot();
+            if (!snapshot.canonical || snapshot.canonical->players.size() != 15) return false;
+            for (const auto &slot : snapshot.canonical->players) {
+                const auto found = std::find(ids.begin(), ids.end(), slot.playerId);
+                const auto index = found == ids.end() ? 14u : static_cast<unsigned>(found - ids.begin());
+                const auto expected = (step + index) % 2 == 0 ? Network::Input::Crouch : 0u;
+                if (slot.actionMask != expected) return false;
+            }
+            return true;
+        }));
+        ++edges;
+        // Continue pumping at normal frame cadence after convergence; a test
+        // that stops the producer on each early success hides growing backlog.
+        while (std::chrono::steady_clock::now() < until) {
+            host.update(); guest.update();
+            std::this_thread::sleep_for(5ms);
+        }
+        D6R_REQUIRE(host.snapshot().journey == Client::NetworkJourney::Match);
+        D6R_REQUIRE(guest.snapshot().journey == Client::NetworkJourney::Match);
+    }
+    D6R_REQUIRE_EQ(24u, edges);
+    D6R_REQUIRE(host.snapshot().canonical->phaseTime > initialTick + 300);
+    D6R_REQUIRE(host.hostInput && !host.hostInput->policyViolation());
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Inactive
+               && guest.snapshot().journey == Client::NetworkJourney::HostEnded;
+    }));
+}
+
 D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionRuntime participants preserve team lobby composition and survive authenticated reconnect probes") {
     using namespace std::chrono_literals;
     Client::NetworkSessionRuntime host;
