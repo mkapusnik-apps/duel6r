@@ -4,6 +4,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <string_view>
 
 #include "AuthoritativeMatch.h"
 #include "../network/StateReplication.h"
@@ -35,7 +36,7 @@ namespace Duel6::Server::Authoritative {
         CanonicalLobbyMutationResult updateLobbyForConfiguration(
                 const std::vector<Network::Replication::ParticipantState> &participants,
                 const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
-                const std::string &reason) noexcept;
+                std::string_view reason) noexcept;
         CanonicalLobbyMutationResult setParticipantReadyTransactional(Identity participantId, bool ready) noexcept;
         std::optional<Network::Replication::IncrementalUpdate> setParticipantReady(Identity participantId,
                                                                                      bool ready);
@@ -70,7 +71,7 @@ namespace Duel6::Server::Authoritative {
         CanonicalLobbyMutationResult updateLobbyStateTransactional(
                 const std::vector<Network::Replication::ParticipantState> &participants,
                 const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
-                const std::string &status, bool clearReadiness) noexcept;
+                std::string_view status, bool clearReadiness) noexcept;
         Identity worldIdentity(Identity roundId, std::uint64_t canonicalIdentity);
     };
 }

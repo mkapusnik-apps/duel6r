@@ -11,6 +11,7 @@
 #include <memory>
 #include <set>
 #include <stdexcept>
+#include <string_view>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -1766,10 +1767,10 @@ namespace Duel6::Server {
             return sessionLifecycle ? sessionLifecycle->prepareSetReady(participantId, connectionId, ready)
                                     : Network::Lifecycle::ReadinessMutationPreparation{};
         };
-        const auto commitLobbyConfiguration = [&](Authoritative::MatchConfig nextSettings,
-                std::map<std::uint64_t, std::string> nextDisplayNames,
-                std::vector<std::uint64_t> nextRosterOrder, const std::string &reason,
-                Network::Lifecycle::ReadinessMutationPreparation readiness) noexcept {
+        const auto commitLobbyConfiguration = [&](const Authoritative::MatchConfig &requestedSettings,
+                const std::map<std::uint64_t, std::string> &requestedDisplayNames,
+                const std::vector<std::uint64_t> &requestedRosterOrder, std::string_view reason,
+                Network::Lifecycle::ReadinessMutationPreparation &&readiness) noexcept {
             if (!hostedMatch || !sessionLifecycle || !admissionPolicy || !hostedSettings)
                 return Authoritative::LobbyCommitOutcome::InternalFailure;
             if (hostedMatch->stage() != Authoritative::HostedMatchStage::Lobby)
@@ -1779,33 +1780,35 @@ namespace Duel6::Server {
                 return lifecycleCommitOutcome(readiness.outcome);
             Authoritative::LobbyMutationPreparation canonical;
             try {
+                auto nextSettings = requestedSettings;
+                auto nextDisplayNames = requestedDisplayNames;
+                auto nextRosterOrder = requestedRosterOrder;
                 auto lobby = replicationLobbyState(admissionPolicy->allocation(), connectedParticipants,
                         nextSettings, &nextDisplayNames, &nextRosterOrder);
                 canonical = hostedMatch->prepareLobbyConfiguration(
                         lobby.participants, lobby.players, lobby.settings, reason);
-            } catch (...) {
-                return Authoritative::LobbyCommitOutcome::InternalFailure;
-            }
-            if (canonical.outcome != Authoritative::LobbyCommitOutcome::Committed
-                || !canonical.mutation)
-                return canonical.outcome;
-            const auto readinessCommitted = sessionLifecycle->commitPreparedReadiness(
-                    std::move(*readiness.mutation));
-            if (readinessCommitted != Network::Lifecycle::ReadinessMutationOutcome::Committed)
-                return lifecycleCommitOutcome(readinessCommitted);
-            static_assert(std::is_nothrow_swappable_v<Authoritative::MatchConfig>);
-            static_assert(std::is_nothrow_swappable_v<decltype(displayNames)>);
-            static_assert(std::is_nothrow_swappable_v<decltype(rosterOrder)>);
-            static_assert(std::is_nothrow_move_constructible_v<Authoritative::PreparedLobbyMutation>);
-            using std::swap;
-            swap(*hostedSettings, nextSettings);
-            swap(displayNames, nextDisplayNames);
-            swap(rosterOrder, nextRosterOrder);
-            hostedMatch->commitPreparedLobbyMutation(std::move(*canonical.mutation));
-            return Authoritative::LobbyCommitOutcome::Committed;
+                if (canonical.outcome != Authoritative::LobbyCommitOutcome::Committed
+                    || !canonical.mutation)
+                    return canonical.outcome;
+                if (!sessionLifecycle->canCommitPreparedReadiness(*readiness.mutation)
+                    || !hostedMatch->canCommitPreparedLobbyMutation(*canonical.mutation))
+                    return Authoritative::LobbyCommitOutcome::InternalFailure;
+                const auto readinessCommitted = sessionLifecycle->commitPreparedReadiness(
+                        std::move(*readiness.mutation));
+                if (readinessCommitted != Network::Lifecycle::ReadinessMutationOutcome::Committed)
+                    return lifecycleCommitOutcome(readinessCommitted);
+                static_assert(std::is_nothrow_swappable_v<Authoritative::MatchConfig>);
+                static_assert(std::is_nothrow_swappable_v<decltype(displayNames)>);
+                static_assert(std::is_nothrow_swappable_v<decltype(rosterOrder)>);
+                using std::swap;
+                swap(*hostedSettings, nextSettings);
+                swap(displayNames, nextDisplayNames);
+                swap(rosterOrder, nextRosterOrder);
+                return hostedMatch->commitPreparedLobbyMutation(std::move(*canonical.mutation));
+            } catch (...) { return Authoritative::LobbyCommitOutcome::InternalFailure; }
         };
         const auto commitParticipantReady = [&](Authoritative::Identity participantId, bool ready,
-                Network::Lifecycle::ReadinessMutationPreparation readiness) noexcept {
+                Network::Lifecycle::ReadinessMutationPreparation &&readiness) noexcept {
             if (!hostedMatch || !sessionLifecycle) return Authoritative::LobbyCommitOutcome::InternalFailure;
             if (readiness.outcome != Network::Lifecycle::ReadinessMutationOutcome::Committed
                 || !readiness.mutation)
@@ -1814,13 +1817,75 @@ namespace Duel6::Server {
             if (canonical.outcome != Authoritative::LobbyCommitOutcome::Committed
                 || !canonical.mutation)
                 return canonical.outcome;
+            if (!sessionLifecycle->canCommitPreparedReadiness(*readiness.mutation)
+                || !hostedMatch->canCommitPreparedLobbyMutation(*canonical.mutation))
+                return Authoritative::LobbyCommitOutcome::InternalFailure;
             const auto readinessCommitted = sessionLifecycle->commitPreparedReadiness(
                     std::move(*readiness.mutation));
             if (readinessCommitted != Network::Lifecycle::ReadinessMutationOutcome::Committed)
                 return lifecycleCommitOutcome(readinessCommitted);
-            static_assert(std::is_nothrow_move_constructible_v<Authoritative::PreparedLobbyMutation>);
-            hostedMatch->commitPreparedLobbyMutation(std::move(*canonical.mutation));
-            return Authoritative::LobbyCommitOutcome::Committed;
+            return hostedMatch->commitPreparedLobbyMutation(std::move(*canonical.mutation));
+        };
+        const auto commitDisplayNames = [&](const std::vector<std::uint64_t> &playerIds,
+                const std::vector<std::string> &names, std::string_view reason,
+                Network::Lifecycle::ReadinessMutationPreparation &&readiness) noexcept {
+            if (!hostedSettings || playerIds.size() != names.size())
+                return Authoritative::LobbyCommitOutcome::Rejected;
+            try {
+                auto nextDisplayNames = displayNames;
+                for (std::size_t index = 0; index < playerIds.size(); ++index)
+                    nextDisplayNames[playerIds[index]] = names[index];
+                return commitLobbyConfiguration(*hostedSettings, nextDisplayNames, rosterOrder, reason,
+                        std::move(readiness));
+            } catch (...) { return Authoritative::LobbyCommitOutcome::InternalFailure; }
+        };
+        const auto commitRosterMove = [&](std::uint64_t playerId, std::int8_t direction,
+                std::string_view reason,
+                Network::Lifecycle::ReadinessMutationPreparation &&readiness) noexcept {
+            if (!hostedSettings) return Authoritative::LobbyCommitOutcome::InternalFailure;
+            const auto selected = std::find(rosterOrder.begin(), rosterOrder.end(), playerId);
+            if (selected == rosterOrder.end()) return Authoritative::LobbyCommitOutcome::Rejected;
+            const auto index = static_cast<std::ptrdiff_t>(std::distance(rosterOrder.begin(), selected));
+            const auto target = index + direction;
+            if (target < 0 || target >= static_cast<std::ptrdiff_t>(rosterOrder.size()))
+                return Authoritative::LobbyCommitOutcome::Rejected;
+            try {
+                auto nextRosterOrder = rosterOrder;
+                std::iter_swap(nextRosterOrder.begin() + index, nextRosterOrder.begin() + target);
+                return commitLobbyConfiguration(*hostedSettings, displayNames, nextRosterOrder, reason,
+                        std::move(readiness));
+            } catch (...) { return Authoritative::LobbyCommitOutcome::InternalFailure; }
+        };
+        const auto commitHostSetup = [&](const Network::HostComposition::Setup &setup,
+                const std::vector<std::uint64_t> &hostPlayerIds, std::string_view reason,
+                Network::Lifecycle::ReadinessMutationPreparation &&readiness) noexcept {
+            if (!hostedSettings || setup.localPlayerNames.size() != hostPlayerIds.size())
+                return Authoritative::LobbyCommitOutcome::Rejected;
+            try {
+                auto nextSettings = *hostedSettings;
+                nextSettings.mode = setup.mode == "Predator" ? Authoritative::Mode::Predator
+                                  : setup.mode == "Team deathmatch" ? Authoritative::Mode::TeamDeathmatch
+                                                                    : Authoritative::Mode::Deathmatch;
+                nextSettings.teamCount = nextSettings.mode == Authoritative::Mode::TeamDeathmatch
+                                         ? setup.teamCount : 0;
+                nextSettings.friendlyFire = nextSettings.mode == Authoritative::Mode::TeamDeathmatch
+                                            && setup.friendlyFire;
+                nextSettings.levelPlan = setup.levelPlan == "Shuffle all levels"
+                                         ? Authoritative::LevelPlan::ShuffleAll
+                                         : setup.levelPlan == "Random level"
+                                           ? Authoritative::LevelPlan::Random
+                                           : Authoritative::LevelPlan::Fixed;
+                nextSettings.fixedLevel = setup.fixedLevel;
+                nextSettings.roundLimit = setup.roundLimit;
+                nextSettings.assistance = setup.assistance;
+                nextSettings.quickLiquid = setup.quickLiquid;
+                nextSettings.burnableTrees = setup.burnableTrees;
+                auto nextDisplayNames = displayNames;
+                for (std::size_t index = 0; index < hostPlayerIds.size(); ++index)
+                    nextDisplayNames[hostPlayerIds[index]] = setup.localPlayerNames[index];
+                return commitLobbyConfiguration(nextSettings, nextDisplayNames, rosterOrder, reason,
+                        std::move(readiness));
+            } catch (...) { return Authoritative::LobbyCommitOutcome::InternalFailure; }
         };
         while (!stopRequested && !cancelled()) {
             if (runtimeDependencies.hostSessionPayload) {
@@ -1886,34 +1951,17 @@ namespace Duel6::Server {
                             // Reject a command that does not preserve the host's immutable slots.
                         }
                         else {
-                            auto nextDisplayNames = displayNames;
-                            for (std::size_t index = 0; index < host.playerIds.size(); ++index)
-                                nextDisplayNames[host.playerIds[index]] = message->ownedPersonNames[index];
-                            const auto committed = commitLobbyConfiguration(*hostedSettings,
-                                    std::move(nextDisplayNames), rosterOrder,
+                            const auto committed = commitDisplayNames(host.playerIds, message->ownedPersonNames,
                                     "A participant changed player configuration. Everyone must confirm readiness again.",
                                     prepareClearReadiness());
                             if (fatalLobbyCommit(committed)) runtimeFailed = true;
                         }
                     } else if (message->kind == Network::HostComposition::Kind::RosterMove
                                && hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
-                        const auto selected = std::find(rosterOrder.begin(), rosterOrder.end(), message->rosterPlayerId);
-                        if (selected == rosterOrder.end()) {
-                            // Reject a roster command for an identity outside the session.
-                        }
-                        else {
-                            const auto index = static_cast<std::ptrdiff_t>(std::distance(rosterOrder.begin(), selected));
-                            const auto target = index + message->rosterDirection;
-                            if (target >= 0 && target < static_cast<std::ptrdiff_t>(rosterOrder.size())) {
-                                auto nextRosterOrder = rosterOrder;
-                                std::iter_swap(nextRosterOrder.begin() + index, nextRosterOrder.begin() + target);
-                                const auto committed = commitLobbyConfiguration(*hostedSettings, displayNames,
-                                        std::move(nextRosterOrder),
-                                        "Host changed roster order. Everyone must confirm readiness again.",
-                                        prepareClearReadiness());
-                                if (fatalLobbyCommit(committed)) runtimeFailed = true;
-                            }
-                        }
+                        const auto committed = commitRosterMove(message->rosterPlayerId, message->rosterDirection,
+                                "Host changed roster order. Everyone must confirm readiness again.",
+                                prepareClearReadiness());
+                        if (fatalLobbyCommit(committed)) runtimeFailed = true;
                     } else if (message->kind == Network::HostComposition::Kind::UpdateSetup
                                && message->setup
                                && hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
@@ -1923,29 +1971,7 @@ namespace Duel6::Server {
                             // Reject a setup command that does not preserve the host's immutable slots.
                         }
                         else {
-                            auto nextSettings = *hostedSettings;
-                            nextSettings.mode = setup.mode == "Predator" ? Authoritative::Mode::Predator
-                                              : setup.mode == "Team deathmatch" ? Authoritative::Mode::TeamDeathmatch
-                                                                               : Authoritative::Mode::Deathmatch;
-                            nextSettings.teamCount = nextSettings.mode == Authoritative::Mode::TeamDeathmatch
-                                                     ? setup.teamCount : 0;
-                            nextSettings.friendlyFire = nextSettings.mode == Authoritative::Mode::TeamDeathmatch
-                                                        && setup.friendlyFire;
-                            nextSettings.levelPlan = setup.levelPlan == "Shuffle all levels"
-                                                     ? Authoritative::LevelPlan::ShuffleAll
-                                                     : setup.levelPlan == "Random level"
-                                                       ? Authoritative::LevelPlan::Random
-                                                       : Authoritative::LevelPlan::Fixed;
-                            nextSettings.fixedLevel = setup.fixedLevel;
-                            nextSettings.roundLimit = setup.roundLimit;
-                            nextSettings.assistance = setup.assistance;
-                            nextSettings.quickLiquid = setup.quickLiquid;
-                            nextSettings.burnableTrees = setup.burnableTrees;
-                            auto nextDisplayNames = displayNames;
-                            for (std::size_t index = 0; index < host.playerIds.size(); ++index)
-                                nextDisplayNames[host.playerIds[index]] = setup.localPlayerNames[index];
-                            const auto committed = commitLobbyConfiguration(std::move(nextSettings),
-                                    std::move(nextDisplayNames), rosterOrder,
+                            const auto committed = commitHostSetup(setup, host.playerIds,
                                     "Host changed match settings. Everyone must confirm readiness again.",
                                     prepareClearReadiness());
                             if (fatalLobbyCommit(committed)) runtimeFailed = true;
@@ -2282,11 +2308,8 @@ namespace Duel6::Server {
                                     || !sessionLifecycle || hostedMatch->stage() != Authoritative::HostedMatchStage::Lobby) {
                                     connection->requestClose();
                                 } else {
-                                    auto nextDisplayNames = displayNames;
-                                    for (std::size_t index = 0; index < runtime.offer.playerIds.size(); ++index)
-                                        nextDisplayNames[runtime.offer.playerIds[index]] = configuration->ownedPersonNames[index];
-                                    const auto committed = commitLobbyConfiguration(*hostedSettings,
-                                            std::move(nextDisplayNames), rosterOrder,
+                                    const auto committed = commitDisplayNames(runtime.offer.playerIds,
+                                            configuration->ownedPersonNames,
                                             "A participant changed player configuration. Everyone must confirm readiness again.",
                                             prepareClearReadiness());
                                     if (committed == Authoritative::LobbyCommitOutcome::Rejected)

@@ -1,5 +1,6 @@
 #include "AuthoritativeHostedMatchController.h"
 
+#include <limits>
 #include <set>
 #include <type_traits>
 #include <utility>
@@ -22,9 +23,37 @@ namespace Duel6::Server::Authoritative {
     }
 
     PreparedLobbyMutation::PreparedLobbyMutation(
-            AuthoritativeReplication replication, std::map<Identity, bool> readiness,
+            const AuthoritativeHostedMatchController *owner, std::uint64_t generation,
+            Network::Replication::StateVersion baselineVersion,
+            std::map<Identity, bool> baselineReadiness, AuthoritativeReplication replication,
+            std::map<Identity, bool> readiness,
             Network::Replication::IncrementalUpdate update) noexcept
-            : replication(std::move(replication)), readiness(std::move(readiness)), update(std::move(update)) {}
+            : owner(owner), generation(generation), baselineVersion(baselineVersion),
+              baselineReadiness(std::move(baselineReadiness)), replication(std::move(replication)),
+              readiness(std::move(readiness)), update(std::move(update)), valid(true) {}
+
+    PreparedLobbyMutation::PreparedLobbyMutation(PreparedLobbyMutation &&other) noexcept
+            : owner(other.owner), generation(other.generation), baselineVersion(other.baselineVersion),
+              baselineReadiness(std::move(other.baselineReadiness)), replication(std::move(other.replication)),
+              readiness(std::move(other.readiness)), update(std::move(other.update)), valid(other.valid) {
+        other.owner = nullptr;
+        other.valid = false;
+    }
+
+    PreparedLobbyMutation &PreparedLobbyMutation::operator=(PreparedLobbyMutation &&other) noexcept {
+        if (this == &other) return *this;
+        owner = other.owner;
+        generation = other.generation;
+        baselineVersion = other.baselineVersion;
+        baselineReadiness = std::move(other.baselineReadiness);
+        replication = std::move(other.replication);
+        readiness = std::move(other.readiness);
+        update = std::move(other.update);
+        valid = other.valid;
+        other.owner = nullptr;
+        other.valid = false;
+        return *this;
+    }
 
     std::map<Identity, bool> AuthoritativeHostedMatchController::replicatedReadiness(
             const std::vector<Network::Replication::ParticipantState> &participants) {
@@ -46,6 +75,7 @@ namespace Duel6::Server::Authoritative {
         if (!replication.setLobby(hostParticipantId, std::move(participants),
                                   std::move(roster), std::move(settings))) return false;
         readiness = std::move(nextReadiness);
+        advanceLobbyMutationGeneration();
         return true;
     }
 
@@ -70,6 +100,7 @@ namespace Duel6::Server::Authoritative {
                 std::move(participants), std::move(roster), std::move(settings));
         if (!update) return false;
         readiness = std::move(nextReadiness);
+        advanceLobbyMutationGeneration();
         (void) replicationConnections.broadcast(*update);
         return true;
     }
@@ -77,10 +108,14 @@ namespace Duel6::Server::Authoritative {
     LobbyMutationPreparation AuthoritativeHostedMatchController::prepareLobbyConfiguration(
             const std::vector<Network::Replication::ParticipantState> &participants,
             const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
-            const std::string &reason) noexcept {
+            std::string_view reason) noexcept {
         try {
             if (currentStage != HostedMatchStage::Lobby || reason.empty())
                 return {LobbyCommitOutcome::Rejected, {}};
+            if (lobbyMutationGeneration == (std::numeric_limits<std::uint64_t>::max)())
+                return {LobbyCommitOutcome::InternalFailure, {}};
+            const auto baselineVersion = replication.replicator().version();
+            auto baselineReadiness = readiness;
             auto nextParticipants = participants;
             for (auto &participant: nextParticipants) participant.ready = false;
             auto nextReadiness = replicatedReadiness(nextParticipants);
@@ -91,6 +126,7 @@ namespace Duel6::Server::Authoritative {
                 return {lobbyOutcome(proposal.outcome), {}};
             if (!proposal.update) return {LobbyCommitOutcome::InternalFailure, {}};
             auto mutation = std::unique_ptr<PreparedLobbyMutation>(new PreparedLobbyMutation(
+                    this, lobbyMutationGeneration, baselineVersion, std::move(baselineReadiness),
                     std::move(nextReplication), std::move(nextReadiness), std::move(*proposal.update)));
             return {LobbyCommitOutcome::Committed, std::move(mutation)};
         } catch (...) {
@@ -103,6 +139,10 @@ namespace Duel6::Server::Authoritative {
         try {
             if (currentStage != HostedMatchStage::Lobby || participantId == 0)
                 return {LobbyCommitOutcome::Rejected, {}};
+            if (lobbyMutationGeneration == (std::numeric_limits<std::uint64_t>::max)())
+                return {LobbyCommitOutcome::InternalFailure, {}};
+            const auto baselineVersion = replication.replicator().version();
+            auto baselineReadiness = readiness;
             auto nextReadiness = readiness;
             const auto found = nextReadiness.find(participantId);
             if (found == nextReadiness.end()) return {LobbyCommitOutcome::Rejected, {}};
@@ -113,6 +153,7 @@ namespace Duel6::Server::Authoritative {
                 return {lobbyOutcome(proposal.outcome), {}};
             if (!proposal.update) return {LobbyCommitOutcome::InternalFailure, {}};
             auto mutation = std::unique_ptr<PreparedLobbyMutation>(new PreparedLobbyMutation(
+                    this, lobbyMutationGeneration, baselineVersion, std::move(baselineReadiness),
                     std::move(nextReplication), std::move(nextReadiness), std::move(*proposal.update)));
             return {LobbyCommitOutcome::Committed, std::move(mutation)};
         } catch (...) {
@@ -120,19 +161,40 @@ namespace Duel6::Server::Authoritative {
         }
     }
 
-    void AuthoritativeHostedMatchController::commitPreparedLobbyMutation(
-            PreparedLobbyMutation mutation) noexcept {
+    bool AuthoritativeHostedMatchController::canCommitPreparedLobbyMutation(
+            const PreparedLobbyMutation &mutation) const noexcept {
+        return mutation.valid && mutation.owner == this && currentStage == HostedMatchStage::Lobby
+               && mutation.generation == lobbyMutationGeneration
+               && mutation.baselineVersion == replication.replicator().version()
+               && mutation.baselineReadiness == readiness
+               && mutation.baselineVersion != (std::numeric_limits<Network::Replication::StateVersion>::max)()
+               && mutation.replication.replicator().version() == mutation.baselineVersion + 1
+               && mutation.update.baseline == mutation.baselineVersion
+               && mutation.update.version == mutation.baselineVersion + 1;
+    }
+
+    LobbyCommitOutcome AuthoritativeHostedMatchController::commitPreparedLobbyMutation(
+            PreparedLobbyMutation &&mutation) noexcept {
+        if (!canCommitPreparedLobbyMutation(mutation)) {
+            mutation.valid = false;
+            mutation.owner = nullptr;
+            return LobbyCommitOutcome::InternalFailure;
+        }
+        mutation.valid = false;
+        mutation.owner = nullptr;
         static_assert(std::is_nothrow_move_assignable_v<AuthoritativeReplication>);
         static_assert(std::is_nothrow_move_assignable_v<decltype(readiness)>);
         replication = std::move(mutation.replication);
         readiness = std::move(mutation.readiness);
+        advanceLobbyMutationGeneration();
         try { (void) replicationConnections.broadcast(mutation.update); } catch (...) {}
+        return LobbyCommitOutcome::Committed;
     }
 
     LobbyCommitOutcome AuthoritativeHostedMatchController::commitLobbyConfiguration(
             const std::vector<Network::Replication::ParticipantState> &participants,
             const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
-            const std::string &reason,
+            std::string_view reason,
             const std::function<LobbyCommitOutcome()> &preflightExternal) noexcept {
         auto prepared = prepareLobbyConfiguration(participants, roster, settings, reason);
         if (prepared.outcome != LobbyCommitOutcome::Committed || !prepared.mutation)
@@ -141,8 +203,7 @@ namespace Duel6::Server::Authoritative {
         LobbyCommitOutcome external = LobbyCommitOutcome::InternalFailure;
         try { external = preflightExternal(); } catch (...) { return LobbyCommitOutcome::InternalFailure; }
         if (external != LobbyCommitOutcome::Committed) return external;
-        commitPreparedLobbyMutation(std::move(*prepared.mutation));
-        return LobbyCommitOutcome::Committed;
+        return commitPreparedLobbyMutation(std::move(*prepared.mutation));
     }
 
     LobbyCommitOutcome AuthoritativeHostedMatchController::commitParticipantReady(
@@ -155,8 +216,7 @@ namespace Duel6::Server::Authoritative {
         LobbyCommitOutcome external = LobbyCommitOutcome::InternalFailure;
         try { external = preflightExternal(); } catch (...) { return LobbyCommitOutcome::InternalFailure; }
         if (external != LobbyCommitOutcome::Committed) return external;
-        commitPreparedLobbyMutation(std::move(*prepared.mutation));
-        return LobbyCommitOutcome::Committed;
+        return commitPreparedLobbyMutation(std::move(*prepared.mutation));
     }
 
     void AuthoritativeHostedMatchController::disconnectReplication(Identity participantId) noexcept {
@@ -265,6 +325,7 @@ namespace Duel6::Server::Authoritative {
             }
             (void) replicationConnections.broadcast(*update);
         }
+        advanceLobbyMutationGeneration();
         return true;
     }
 
@@ -280,6 +341,12 @@ namespace Duel6::Server::Authoritative {
 
     void AuthoritativeHostedMatchController::clearReadiness() noexcept {
         for (auto &entry: readiness) entry.second = false;
+        advanceLobbyMutationGeneration();
+    }
+
+    void AuthoritativeHostedMatchController::advanceLobbyMutationGeneration() noexcept {
+        if (lobbyMutationGeneration != (std::numeric_limits<std::uint64_t>::max)())
+            ++lobbyMutationGeneration;
     }
 
     bool AuthoritativeHostedMatchController::allParticipantsReady(

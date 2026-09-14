@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include "AuthoritativeMatch.h"
 #include "AuthoritativeReplication.h"
@@ -35,15 +36,26 @@ namespace Duel6::Server::Authoritative {
     class PreparedLobbyMutation final {
         friend class AuthoritativeHostedMatchController;
     public:
-        PreparedLobbyMutation(PreparedLobbyMutation &&) noexcept = default;
-        PreparedLobbyMutation &operator=(PreparedLobbyMutation &&) noexcept = default;
+        PreparedLobbyMutation(PreparedLobbyMutation &&other) noexcept;
+        PreparedLobbyMutation &operator=(PreparedLobbyMutation &&other) noexcept;
+        PreparedLobbyMutation(const PreparedLobbyMutation &) = delete;
+        PreparedLobbyMutation &operator=(const PreparedLobbyMutation &) = delete;
     private:
-        PreparedLobbyMutation(AuthoritativeReplication replication,
-                              std::map<Identity, bool> readiness,
-                              Network::Replication::IncrementalUpdate update) noexcept;
+        PreparedLobbyMutation(const AuthoritativeHostedMatchController *owner,
+                               std::uint64_t generation,
+                               Network::Replication::StateVersion baselineVersion,
+                               std::map<Identity, bool> baselineReadiness,
+                               AuthoritativeReplication replication,
+                               std::map<Identity, bool> readiness,
+                               Network::Replication::IncrementalUpdate update) noexcept;
+        const AuthoritativeHostedMatchController *owner = nullptr;
+        std::uint64_t generation = 0;
+        Network::Replication::StateVersion baselineVersion = 0;
+        std::map<Identity, bool> baselineReadiness;
         AuthoritativeReplication replication;
         std::map<Identity, bool> readiness;
         Network::Replication::IncrementalUpdate update;
+        bool valid = false;
     };
 
     struct LobbyMutationPreparation {
@@ -76,9 +88,10 @@ namespace Duel6::Server::Authoritative {
         LobbyMutationPreparation prepareLobbyConfiguration(
                 const std::vector<Network::Replication::ParticipantState> &participants,
                 const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
-                const std::string &reason) noexcept;
+                std::string_view reason) noexcept;
         LobbyMutationPreparation prepareParticipantReady(Identity participantId, bool ready) noexcept;
-        void commitPreparedLobbyMutation(PreparedLobbyMutation mutation) noexcept;
+        bool canCommitPreparedLobbyMutation(const PreparedLobbyMutation &mutation) const noexcept;
+        LobbyCommitOutcome commitPreparedLobbyMutation(PreparedLobbyMutation &&mutation) noexcept;
         bool restoreReplication(Identity participantId, Network::Replication::ReplicationSender sender,
                                 std::function<void()> close = {});
         void disconnectReplication(Identity participantId) noexcept;
@@ -122,18 +135,20 @@ namespace Duel6::Server::Authoritative {
         AuthoritativePlayerInput playerInput;
         NetworkMatchResultRetention resultRetention;
         std::uint64_t activeResultGeneration = 0;
+        std::uint64_t lobbyMutationGeneration = 1;
         Network::Responsiveness::CanonicalUpdatePacer replicationPacer;
         MatchPhase lastReplicatedPhase = MatchPhase::Lobby;
 
         LobbyCommitOutcome commitLobbyConfiguration(
                 const std::vector<Network::Replication::ParticipantState> &participants,
                 const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
-                const std::string &reason,
+                std::string_view reason,
                 const std::function<LobbyCommitOutcome()> &preflightExternal) noexcept;
         LobbyCommitOutcome commitParticipantReady(
                 Identity participantId, bool ready,
                 const std::function<LobbyCommitOutcome()> &preflightExternal) noexcept;
         void clearReadiness() noexcept;
+        void advanceLobbyMutationGeneration() noexcept;
         bool allParticipantsReady(const std::vector<PlayerDefinition> &roster) const noexcept;
         static std::map<Identity, bool> replicatedReadiness(
                 const std::vector<Network::Replication::ParticipantState> &participants);

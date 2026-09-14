@@ -53,15 +53,22 @@ namespace Duel6::Network::Lifecycle {
     class PreparedReadinessMutation final {
         friend class HostSessionLifecycle;
     public:
-        PreparedReadinessMutation(PreparedReadinessMutation &&) noexcept = default;
-        PreparedReadinessMutation &operator=(PreparedReadinessMutation &&) noexcept = default;
+        PreparedReadinessMutation(PreparedReadinessMutation &&other) noexcept;
+        PreparedReadinessMutation &operator=(PreparedReadinessMutation &&other) noexcept;
+        PreparedReadinessMutation(const PreparedReadinessMutation &) = delete;
+        PreparedReadinessMutation &operator=(const PreparedReadinessMutation &) = delete;
     private:
         PreparedReadinessMutation() = default;
         enum class Kind { SetParticipant, ClearAll };
+        const HostSessionLifecycle *owner = nullptr;
+        std::uint64_t generation = 0;
+        bool baselineHostReady = false;
+        bool baselineParticipantReady = false;
         Kind kind = Kind::ClearAll;
         ParticipantId participantId = 0;
         ConnectionId connectionId = 0;
         bool ready = false;
+        bool valid = false;
     };
 
     struct ReadinessMutationPreparation {
@@ -185,7 +192,8 @@ namespace Duel6::Network::Lifecycle {
         ReadinessMutationPreparation prepareSetReady(
                 ParticipantId participantId, ConnectionId connectionId, bool readyValue) const noexcept;
         ReadinessMutationPreparation prepareClearReadiness() const noexcept;
-        ReadinessMutationOutcome commitPreparedReadiness(PreparedReadinessMutation mutation) noexcept;
+        bool canCommitPreparedReadiness(const PreparedReadinessMutation &mutation) const noexcept;
+        ReadinessMutationOutcome commitPreparedReadiness(PreparedReadinessMutation &&mutation) noexcept;
         ReadinessMutationOutcome applyParticipantReadinessAction(
                 const ParticipantAction &action, ConnectionId connectionId) noexcept;
         ReadinessMutationOutcome setReadyTransactional(
@@ -229,6 +237,7 @@ namespace Duel6::Network::Lifecycle {
         std::map<ParticipantId, Participant> participants;
         std::set<ParticipantId> pendingLeaves;
         std::uint64_t nextReservationId = 1;
+        std::uint64_t readinessGeneration = 1;
         bool hostReady = false;
         bool sessionEnded = false;
         bool operationActive = false;
@@ -239,6 +248,7 @@ namespace Duel6::Network::Lifecycle {
         void close(ConnectionId connectionId) noexcept;
         void clearAll() noexcept;
         void failSession() noexcept;
+        void advanceReadinessGeneration() noexcept;
     };
 
     class GuestSessionRecovery final {

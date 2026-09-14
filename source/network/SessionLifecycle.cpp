@@ -80,6 +80,32 @@ namespace Duel6::Network::Lifecycle {
         }
     }
 
+    PreparedReadinessMutation::PreparedReadinessMutation(PreparedReadinessMutation &&other) noexcept
+            : owner(other.owner), generation(other.generation), baselineHostReady(other.baselineHostReady),
+              baselineParticipantReady(other.baselineParticipantReady), kind(other.kind),
+              participantId(other.participantId), connectionId(other.connectionId), ready(other.ready),
+              valid(other.valid) {
+        other.owner = nullptr;
+        other.valid = false;
+    }
+
+    PreparedReadinessMutation &PreparedReadinessMutation::operator=(
+            PreparedReadinessMutation &&other) noexcept {
+        if (this == &other) return *this;
+        owner = other.owner;
+        generation = other.generation;
+        baselineHostReady = other.baselineHostReady;
+        baselineParticipantReady = other.baselineParticipantReady;
+        kind = other.kind;
+        participantId = other.participantId;
+        connectionId = other.connectionId;
+        ready = other.ready;
+        valid = other.valid;
+        other.owner = nullptr;
+        other.valid = false;
+        return *this;
+    }
+
     std::string_view reconnectCopy(ReconnectOutcome outcome) noexcept {
         switch (outcome) {
             case ReconnectOutcome::AuthorizationFailed: return Trust::ReconnectAuthorizationFailureCopy;
@@ -300,6 +326,7 @@ namespace Duel6::Network::Lifecycle {
         participant.ready = false; participant.reservationId = reservationId;
         participant.reservation = std::move(reservation);
         participants.emplace(participantId, std::move(participant));
+        advanceReadinessGeneration();
         return grant;
     }
 
@@ -310,6 +337,7 @@ namespace Duel6::Network::Lifecycle {
         OperationGuard operation(operationActive);
         if (!found->second.reservation->activate()) return false;
         found->second.connected = false;
+        advanceReadinessGeneration();
         bool disconnected = true;
         try { if (hooks.disconnect) disconnected = hooks.disconnect(participantId); } catch (...) { disconnected = false; }
         if (!disconnected) failSession();
@@ -377,6 +405,7 @@ namespace Duel6::Network::Lifecycle {
             return reject(restoredAt >= *deadline ? ReconnectOutcome::Expired : ReconnectOutcome::RestoreFailed);
         }
         current->second.connectionId = connectionId; current->second.connected = true;
+        advanceReadinessGeneration();
         current->second.rollbackReservationId = current->second.reservationId;
         current->second.rollbackReservation = std::move(current->second.reservation);
         current->second.reservationId = replacementId; current->second.reservation = std::move(replacement);
@@ -447,12 +476,21 @@ namespace Duel6::Network::Lifecycle {
             if (sessionEnded || operationActive)
                 return {ReadinessMutationOutcome::InternalFailure, std::nullopt};
             PreparedReadinessMutation mutation;
+            if (readinessGeneration == (std::numeric_limits<std::uint64_t>::max)())
+                return {ReadinessMutationOutcome::InternalFailure, std::nullopt};
+            mutation.owner = this;
+            mutation.generation = readinessGeneration;
+            mutation.baselineHostReady = hostReady;
             mutation.kind = action.kind == ParticipantActionKind::ConfigurationChanged
                             ? PreparedReadinessMutation::Kind::ClearAll
                             : PreparedReadinessMutation::Kind::SetParticipant;
             mutation.participantId = action.participantId;
             mutation.connectionId = connectionId;
             mutation.ready = action.kind == ParticipantActionKind::Ready;
+            if (mutation.kind == PreparedReadinessMutation::Kind::SetParticipant)
+                mutation.baselineParticipantReady = action.participantId == hostParticipantId
+                                                    ? hostReady : participants.find(action.participantId)->second.ready;
+            mutation.valid = true;
             return {ReadinessMutationOutcome::Committed, std::move(mutation)};
         } catch (...) {
             return {ReadinessMutationOutcome::InternalFailure, std::nullopt};
@@ -476,10 +514,18 @@ namespace Duel6::Network::Lifecycle {
                     return {ReadinessMutationOutcome::Rejected, std::nullopt};
             }
             PreparedReadinessMutation mutation;
+            if (readinessGeneration == (std::numeric_limits<std::uint64_t>::max)())
+                return {ReadinessMutationOutcome::InternalFailure, std::nullopt};
+            mutation.owner = this;
+            mutation.generation = readinessGeneration;
+            mutation.baselineHostReady = hostReady;
             mutation.kind = PreparedReadinessMutation::Kind::SetParticipant;
             mutation.participantId = participantId;
             mutation.connectionId = connectionId;
             mutation.ready = readyValue;
+            mutation.baselineParticipantReady = participantId == hostParticipantId
+                                                ? hostReady : participants.find(participantId)->second.ready;
+            mutation.valid = true;
             return {ReadinessMutationOutcome::Committed, std::move(mutation)};
         } catch (...) {
             return {ReadinessMutationOutcome::InternalFailure, std::nullopt};
@@ -487,26 +533,46 @@ namespace Duel6::Network::Lifecycle {
     }
 
     ReadinessMutationPreparation HostSessionLifecycle::prepareClearReadiness() const noexcept {
-        if (sessionEnded || operationActive)
+        if (sessionEnded || operationActive
+            || readinessGeneration == (std::numeric_limits<std::uint64_t>::max)())
             return {ReadinessMutationOutcome::InternalFailure, std::nullopt};
         PreparedReadinessMutation mutation;
+        mutation.owner = this;
+        mutation.generation = readinessGeneration;
+        mutation.baselineHostReady = hostReady;
         mutation.kind = PreparedReadinessMutation::Kind::ClearAll;
+        mutation.valid = true;
         return {ReadinessMutationOutcome::Committed, std::move(mutation)};
     }
 
-    ReadinessMutationOutcome HostSessionLifecycle::commitPreparedReadiness(
-            PreparedReadinessMutation mutation) noexcept {
-        if (sessionEnded || operationActive) return ReadinessMutationOutcome::InternalFailure;
+    bool HostSessionLifecycle::canCommitPreparedReadiness(
+            const PreparedReadinessMutation &mutation) const noexcept {
+        if (!mutation.valid || mutation.owner != this || sessionEnded || operationActive
+            || mutation.generation != readinessGeneration || mutation.baselineHostReady != hostReady)
+            return false;
         if (mutation.kind == PreparedReadinessMutation::Kind::SetParticipant) {
             if (mutation.participantId == hostParticipantId) {
-                if (mutation.connectionId != hostConnectionId) return ReadinessMutationOutcome::Rejected;
+                if (mutation.connectionId != hostConnectionId
+                    || mutation.baselineParticipantReady != hostReady) return false;
             } else {
                 const auto found = participants.find(mutation.participantId);
                 if (found == participants.end() || !found->second.connected
-                    || found->second.connectionId != mutation.connectionId)
-                    return ReadinessMutationOutcome::Rejected;
+                    || found->second.connectionId != mutation.connectionId
+                    || found->second.ready != mutation.baselineParticipantReady) return false;
             }
         }
+        return true;
+    }
+
+    ReadinessMutationOutcome HostSessionLifecycle::commitPreparedReadiness(
+            PreparedReadinessMutation &&mutation) noexcept {
+        if (!canCommitPreparedReadiness(mutation)) {
+            mutation.valid = false;
+            mutation.owner = nullptr;
+            return ReadinessMutationOutcome::InternalFailure;
+        }
+        mutation.valid = false;
+        mutation.owner = nullptr;
         OperationGuard operation(operationActive);
         if (mutation.kind == PreparedReadinessMutation::Kind::ClearAll) {
             hostReady = false;
@@ -516,6 +582,7 @@ namespace Duel6::Network::Lifecycle {
         } else {
             participants.find(mutation.participantId)->second.ready = mutation.ready;
         }
+        advanceReadinessGeneration();
         return ReadinessMutationOutcome::Committed;
     }
 
@@ -550,6 +617,10 @@ namespace Duel6::Network::Lifecycle {
 
     bool HostSessionLifecycle::clearReadiness() noexcept {
         return clearReadinessTransactional() == ReadinessMutationOutcome::Committed;
+    }
+
+    void HostSessionLifecycle::advanceReadinessGeneration() noexcept {
+        if (readinessGeneration != (std::numeric_limits<std::uint64_t>::max)()) ++readinessGeneration;
     }
 
     bool HostSessionLifecycle::allConnectedAndReady() const noexcept {
@@ -589,6 +660,7 @@ namespace Duel6::Network::Lifecycle {
         const bool reservationRestored = found->second.reservation->restoreSuspended();
         if (!reservationRestored) pendingLeaves.insert(participantId);
         found->second.connected = false;
+        advanceReadinessGeneration();
         bool disconnected = true;
         try { if (hooks.disconnect) disconnected = hooks.disconnect(participantId); }
         catch (...) { disconnected = false; }
@@ -630,6 +702,7 @@ namespace Duel6::Network::Lifecycle {
         const std::size_t roster = retainedPlayerCount();
         hostReady = false;
         for (auto &[id, participant]: participants) participant.ready = false;
+        advanceReadinessGeneration();
         if (phase == Phase::Lobby) return RemovalOutcome::LobbyUpdated;
         if (phase == Phase::FinalSummary) return RemovalOutcome::FinalSummaryRetained;
         if (roster < 2) return RemovalOutcome::InterruptedToLobby;

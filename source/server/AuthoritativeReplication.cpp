@@ -106,14 +106,14 @@ namespace Duel6::Server::Authoritative {
 
     CanonicalLobbyMutationResult AuthoritativeReplication::updateLobbyForConfiguration(
             const std::vector<R::ParticipantState> &participants, const std::vector<PlayerDefinition> &roster,
-            const MatchConfig &settings, const std::string &reason) noexcept {
+            const MatchConfig &settings, std::string_view reason) noexcept {
         if (reason.empty()) return {CanonicalLobbyMutationOutcome::Rejected, std::nullopt};
         return updateLobbyStateTransactional(participants, roster, settings, reason, true);
     }
 
     CanonicalLobbyMutationResult AuthoritativeReplication::updateLobbyStateTransactional(
             const std::vector<R::ParticipantState> &participants, const std::vector<PlayerDefinition> &roster,
-            const MatchConfig &settings, const std::string &status, bool clearReadiness) noexcept {
+            const MatchConfig &settings, std::string_view status, bool clearReadiness) noexcept {
         try {
             if (publisher.version() == 0 || state.phase != R::Phase::Lobby)
                 return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
@@ -126,7 +126,7 @@ namespace Duel6::Server::Authoritative {
                 for (auto &participant: nextParticipants) participant.ready = false;
             nextState.participants = std::move(nextParticipants);
             nextState.settings = replicatedSettings(settings);
-            nextState.messages.status = status;
+            nextState.messages.status.assign(status.data(), status.size());
             nextState.players.clear();
             for (const auto &entry: roster) {
                 R::PlayerState player;
