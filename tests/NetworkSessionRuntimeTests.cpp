@@ -110,6 +110,19 @@ namespace {
         return found != snapshot.canonical->participants.end() && found->ready;
     }
 
+    bool everyParticipantReady(const Client::NetworkRuntimeSnapshot &snapshot, bool ready) {
+        return snapshot.canonical && std::all_of(snapshot.canonical->participants.begin(),
+                snapshot.canonical->participants.end(), [ready](const auto &participant) {
+                    return participant.ready == ready;
+                });
+    }
+
+    std::vector<std::uint8_t> canonicalFingerprint(const Client::NetworkRuntimeSnapshot &snapshot) {
+        D6R_REQUIRE(snapshot.canonical.has_value());
+        return Network::Replication::serializeReplicationSnapshot(
+                {1, *snapshot.canonical, snapshot.canonical->phaseTime});
+    }
+
     class ScopedLevelVariant final {
     public:
         explicit ScopedLevelVariant(const std::string &sourceLevel)
@@ -312,7 +325,7 @@ D6R_TEST_CASE("issue-38 host composition framing is deterministic for every UI a
 }
 
 #ifndef _WIN32
-D6R_TEST_CASE("NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionRuntime participants converge Ready and survive authenticated reconnect probes") {
+D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionRuntime participants preserve team lobby composition and survive authenticated reconnect probes") {
     using namespace std::chrono_literals;
     Client::NetworkSessionRuntime host;
     Client::NetworkSessionRuntime first;
@@ -324,6 +337,8 @@ D6R_TEST_CASE("NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionRuntime part
     const std::vector<Client::NetworkLocalPlayer> secondPlayers{player("Søren"), player("Łukasz")};
     Network::HostComposition::Setup setup;
     setup.localPlayerNames = {hostPlayers[0].name, hostPlayers[1].name};
+    setup.mode = "Team deathmatch";
+    setup.teamCount = 2;
     setup.fixedLevel = "levels/duel_01.json";
     setup.roundLimit = 3;
 
@@ -350,6 +365,99 @@ D6R_TEST_CASE("NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionRuntime part
     D6R_REQUIRE(firstLobby.localParticipantId != 0);
     D6R_REQUIRE(secondLobby.localParticipantId != 0);
     D6R_REQUIRE(firstLobby.localParticipantId != secondLobby.localParticipantId);
+    D6R_REQUIRE_EQ(std::string("Team deathmatch"), hostLobby.canonical->settings.mode);
+    D6R_REQUIRE_EQ(2u, hostLobby.canonical->settings.teamCount);
+    D6R_REQUIRE(!hostLobby.canonical->settings.friendlyFire);
+
+    std::vector<std::pair<Network::Replication::Identity, Network::Replication::Identity>> immutableSlots;
+    for (const auto &slot: hostLobby.canonical->players)
+        immutableSlots.emplace_back(slot.playerId, slot.ownerParticipantId);
+    const auto requireImmutableSixSlots = [&](const Client::NetworkRuntimeSnapshot &snapshot) {
+        D6R_REQUIRE(sixPlayerLobby(snapshot));
+        std::vector<std::pair<Network::Replication::Identity, Network::Replication::Identity>> slots;
+        for (const auto &slot: snapshot.canonical->players)
+            slots.emplace_back(slot.playerId, slot.ownerParticipantId);
+        D6R_REQUIRE(slots == immutableSlots);
+    };
+
+    const auto readyEveryone = [&] {
+        host.setReady(true); first.setReady(true); second.setReady(true);
+        D6R_REQUIRE(pumpRuntimes(host, first, second, 5s, [&] {
+            return everyParticipantReady(host.snapshot(), true)
+                   && everyParticipantReady(first.snapshot(), true)
+                   && everyParticipantReady(second.snapshot(), true);
+        }));
+    };
+    const auto hostTransition = [&](const std::string &mode, std::uint8_t teamCount,
+                                    bool friendlyFire) {
+        readyEveryone();
+        setup.mode = mode;
+        setup.teamCount = teamCount;
+        setup.friendlyFire = friendlyFire;
+        host.updateHostSetup(setup);
+        D6R_REQUIRE(pumpRuntimes(host, first, second, 5s, [&] {
+            for (const auto *runtime: {&host, &first, &second}) {
+                const auto snapshot = runtime->snapshot();
+                if (!sixPlayerLobby(snapshot) || snapshot.canonical->settings.mode != mode
+                    || snapshot.canonical->settings.teamCount != teamCount
+                    || snapshot.canonical->settings.friendlyFire != friendlyFire
+                    || !everyParticipantReady(snapshot, false)) return false;
+            }
+            return true;
+        }));
+        requireImmutableSixSlots(host.snapshot());
+        requireImmutableSixSlots(first.snapshot());
+        requireImmutableSixSlots(second.snapshot());
+    };
+
+    hostTransition("Team deathmatch", 3, true);
+    hostTransition("Team deathmatch", 4, false);
+    hostTransition("Predator", 0, false);
+    hostTransition("Deathmatch", 0, false);
+    hostTransition("Team deathmatch", 2, true);
+
+    const auto guestBefore = canonicalFingerprint(first.snapshot());
+    auto unauthorizedGuestSetup = setup;
+    unauthorizedGuestSetup.teamCount = 3;
+    first.updateHostSetup(unauthorizedGuestSetup);
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 250ms, [&] { return false; }) == false);
+    D6R_REQUIRE_EQ(guestBefore, canonicalFingerprint(first.snapshot()));
+
+    const auto rejectHostCommandWithoutMutation = [&](std::vector<std::uint8_t> command) {
+        const auto before = canonicalFingerprint(host.snapshot());
+        {
+            std::lock_guard<std::mutex> lock(host.mutex);
+            host.pendingHostCommands.push_back(std::move(command));
+        }
+        D6R_REQUIRE(pumpRuntimes(host, first, second, 250ms, [&] { return false; }) == false);
+        D6R_REQUIRE(host.snapshot().journey == Client::NetworkJourney::Lobby);
+        D6R_REQUIRE_EQ(before, canonicalFingerprint(host.snapshot()));
+        D6R_REQUIRE_EQ(before, canonicalFingerprint(first.snapshot()));
+        D6R_REQUIRE_EQ(before, canonicalFingerprint(second.snapshot()));
+    };
+
+    rejectHostCommandWithoutMutation({0x44, 0x36, 0x48});
+
+    auto invalidNonTeam = setup;
+    invalidNonTeam.mode = "Deathmatch";
+    invalidNonTeam.teamCount = 0;
+    invalidNonTeam.friendlyFire = false;
+    auto invalidNonTeamPayload = Network::HostComposition::serializeSetupUpdate(invalidNonTeam);
+    std::size_t teamOffset = 9;
+    for (const auto &name: invalidNonTeam.localPlayerNames) teamOffset += 2 + name.size();
+    teamOffset += 2 + invalidNonTeam.mode.size();
+    D6R_REQUIRE(teamOffset < invalidNonTeamPayload.size());
+    invalidNonTeamPayload[teamOffset] = 2;
+    rejectHostCommandWithoutMutation(std::move(invalidNonTeamPayload));
+
+    auto slotChanging = setup;
+    slotChanging.localPlayerNames.resize(1);
+    rejectHostCommandWithoutMutation(Network::HostComposition::serializeSetupUpdate(slotChanging));
+    rejectHostCommandWithoutMutation(Network::HostComposition::serializeRosterMove(
+            (std::numeric_limits<Network::Replication::Identity>::max)(), 1));
+
+    // A valid command after rejected inputs proves the host session remains usable.
+    hostTransition("Team deathmatch", 3, false);
 
     first.setReady(true);
     D6R_REQUIRE(pumpRuntimes(host, first, second, 5s, [&] {
@@ -501,6 +609,27 @@ D6R_TEST_CASE("NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionRuntime part
         }
         return true;
     }));
+
+    const auto activeBeforeRejectedSetup = host.snapshot();
+    D6R_REQUIRE(activeBeforeRejectedSetup.canonical.has_value());
+    host.updateHostSetup(setup);
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 250ms, [&] { return false; }) == false);
+    for (const auto *runtime: {&host, &first, &second}) {
+        const auto current = runtime->snapshot();
+        D6R_REQUIRE(current.journey == Client::NetworkJourney::Match);
+        D6R_REQUIRE(current.canonical.has_value());
+        D6R_REQUIRE_EQ(activeBeforeRejectedSetup.canonical->sessionId, current.canonical->sessionId);
+        D6R_REQUIRE_EQ(activeBeforeRejectedSetup.canonical->matchId, current.canonical->matchId);
+        D6R_REQUIRE_EQ(activeBeforeRejectedSetup.canonical->round->roundId,
+                       current.canonical->round->roundId);
+        D6R_REQUIRE_EQ(activeBeforeRejectedSetup.canonical->settings.mode,
+                       current.canonical->settings.mode);
+        D6R_REQUIRE_EQ(activeBeforeRejectedSetup.canonical->settings.teamCount,
+                       current.canonical->settings.teamCount);
+        D6R_REQUIRE_EQ(activeBeforeRejectedSetup.canonical->settings.friendlyFire,
+                       current.canonical->settings.friendlyFire);
+        D6R_REQUIRE_EQ(6u, current.canonical->players.size());
+    }
 
     char applicationName[] = "duel6r-network-session-runtime-tests";
     char *arguments[] = {applicationName};
