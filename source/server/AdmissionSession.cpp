@@ -223,6 +223,11 @@ namespace Duel6::Server {
             return rejectedOffer(Network::AdmissionResultCode::NetworkReleaseMismatch);
         if (!Network::hasRequiredAdmissionCapabilities(request.capabilities))
             return rejectedOffer(Network::AdmissionResultCode::RequiredCapabilityUnsupported);
+        if (!request.localPlayerNames.empty()
+            && (request.localPlayerNames.size() != request.localPlayerCount
+                || !std::all_of(request.localPlayerNames.begin(), request.localPlayerNames.end(),
+                        [](const std::string &name) { return Network::Trust::validParticipantName(name); })))
+            return rejectedOffer(Network::AdmissionResultCode::MalformedRequest);
         if (!Network::validCanonicalManifest(request.gameplayManifest))
             return rejectedOffer(Network::AdmissionResultCode::GameplayContentManifestInvalid);
 

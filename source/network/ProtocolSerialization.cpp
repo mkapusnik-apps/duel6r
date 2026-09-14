@@ -439,7 +439,8 @@ namespace Duel6::Network {
         set(properties, "player.count", std::to_string(state.players.size()));
         for (std::uint32_t i = 0; i < state.players.size(); ++i) {
             const LobbyPlayer &player = state.players[i];
-            requireNonEmpty("Lobby player display name", player.displayName);
+            if (!Trust::validParticipantName(player.displayName))
+                throw std::invalid_argument("Lobby player display name is invalid");
             set(properties, indexedKey("player", i, "playerId"), std::to_string(player.playerId));
             set(properties, indexedKey("player", i, "clientId"), std::to_string(player.clientId));
             set(properties, indexedKey("player", i, "displayName"), player.displayName);
@@ -472,7 +473,8 @@ namespace Duel6::Network {
             player.playerId = requiredUint32(properties, indexedKey("player", i, "playerId"));
             player.clientId = requiredUint32(properties, indexedKey("player", i, "clientId"));
             player.displayName = requiredString(properties, indexedKey("player", i, "displayName"));
-            requireNonEmpty("Lobby player display name", player.displayName);
+            if (!Trust::validParticipantName(player.displayName))
+                throw std::invalid_argument("Lobby player display name is invalid");
             player.team = requiredUint8(properties, indexedKey("player", i, "team"));
             player.ready = requiredBool(properties, indexedKey("player", i, "ready"));
             state.players.push_back(player);

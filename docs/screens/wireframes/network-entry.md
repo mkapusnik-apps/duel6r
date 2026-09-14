@@ -22,5 +22,6 @@ Target representative viewport: 1920 by 1080 px. The 850 by 700 logical canvas u
 - Focus order is Host, Join, Back. Every state and scope constraint is textual.
 - No unsupported discovery, Internet, account, dedicated-server, or matchmaking affordance appears.
 - Significant unavailable and return variants remain in the screen specification.
+- The panel uses the shared 24-logical-pixel inner margin, one centered equal-size action column, and at least 8 logical px between actions.
 
 Planned representative screenshot: [`SS-015`](../../screenshots/README.md#ss-015).

@@ -543,7 +543,8 @@ PY
 
 # Clear button acceptance resets non-Elo stats but retains Elo fields.
 start_app
-xdotool mousemove "$(menu_x 640)" "$(menu_y 755)" click 1
+# The four-action issue #38 footer places Clear in the third equal-width slot.
+xdotool mousemove "$(menu_x 727)" "$(menu_y 755)" click 1
 sleep 0.2
 xdotool key --window "$window_id" y
 close_app

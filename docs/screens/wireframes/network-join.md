@@ -5,20 +5,23 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 ```text
 ┌────────────────────── 850 × 700 logical canvas ──────────────────────┐
 │                         JOIN NETWORK SESSION                         │
-│ Hostname or address [192.168.1.24____]  Port [27015]                 │
+│ Hostname or address [127.0.0.1________]  Port [26660]                 │
 │                                                                      │
 │ ┌──────── LOCAL PLAYERS 2 ─────────────────────────────────────────┐ │
-│ │ Ada   profile A   Keyboard                                      │ │
-│ │ Bruno profile B   Controller 1                                  │ │
+│ │ Ada             Keyboard                                        │ │
+│ │ Bruno           Controller 1                                    │ │
 │ └──────────────────────────────────────────────────────────────────┘ │
 │                                                                      │
-│                 Connecting to 192.168.1.24:27015…                    │
+│                 Connecting to 127.0.0.1:26660…                       │
 │                 Connection deadline: 10 seconds total                │
 │                         [ Cancel ]                                   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
 - The endpoint and two local players remain visible while the attempt is pending.
+- The representative setup uses a project-local host process bound to `127.0.0.1:26660` that accepts the connection and withholds a complete terminal admission result until after capture.
+- The capture setup does not change host, Docker, firewall, route, NAT, or port-forwarding configuration.
+- This same-machine state complements the explicit private-LAN selection in `SS-016` and does not replace that coverage.
 - The screen must not claim connection or lobby admission before the guest validates the exact final `admitted` confirmation, valid host-clock calibration, and one complete valid initial full snapshot.
 - The guest must receive all three success inputs strictly before the single total deadline.
 - The initial snapshot must match the confirmed participant identity and ordered owned-player identities.
@@ -28,5 +31,14 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 - Without a complete response, name-resolution failure, unreachable or refusal, incomplete admission, and timeout use the exact order and copy in the screen specification.
 - User copy is fixed and never displays peer-supplied release IDs, manifest paths, credentials, policy values, or payloads.
 - Retry, Edit setup, Return to Network, and other failure variants remain in the screen specification.
+- The endpoint header and connecting footer remain fixed. Local-player rows use the flexible middle region and scroll under fixed headings.
+- Local setup provides person selection and control assignment without a profile selector, profile column, profile value, or profile-editing action.
+- Profile and cosmetic differences do not produce compatibility copy or block Connect.
+- Editable setup provides Add and Remove controls for the pre-admission local-player count.
+- Connect finalizes the displayed count and ordered slot set for the attempt.
+- Connecting locks the slot count and order and shows no active Add, Remove, or Transfer action.
+- Focus remains on Cancel while the loopback attempt is pending.
+- Focused revalidation must show that Cancel restores the retained endpoint and two slots.
+- Separate focused revalidation must show `Connection timed out.` when the controlled host withholds every complete terminal result through the original 10-second deadline.
 
 Planned representative screenshot: [`SS-017`](../../screenshots/README.md#ss-017).

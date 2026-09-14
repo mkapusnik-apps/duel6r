@@ -98,6 +98,11 @@ The manifest must exclude:
 
 Participant profile data must not affect compatibility. The network session must not load or execute a participant profile script.
 
+- **CMP-VIS-001** Admission must not compare a profile, skin, animation resource, visual resource, or other cosmetic asset.
+- **CMP-VIS-002** A missing, changed, or additional profile or cosmetic asset must not cause an admission rejection.
+- **CMP-VIS-003** A supported client must use the built-in default network visual set after admission.
+- **CMP-VIS-004** A client must not obtain a profile or cosmetic fallback from a peer.
+
 First-release network matches must not enable or execute an optional gameplay script. The authoritative policy is in [`network-authoritative-headless-match.md`](network-authoritative-headless-match.md).
 
 ### Entry fields and canonical paths
@@ -181,6 +186,13 @@ Return to Network must enter `NET-01`. A confirmed invalid-manifest result befor
 17. The guest may report success and enter the downstream lobby only after it validates all three inputs.
 
 A guest admission request must contain at least one local player. Before commit, a rejection, offer-send failure, invalid or missing acceptance, cancellation, timeout, or disconnect must roll back the reservation and allocate no participant, playable slot, ownership, or committed session identity. Provisional identities remain burned for the session so that a later entity never reuses them. Commit is the rollback boundary: failure or loss of the final confirmation does not undo host state, and the committed participant passes to the disconnect and reconnect lifecycle owned by issue #36 while the guest reports the applicable incomplete-admission close or timeout result.
+
+- **ADM-OWN-001** Admission commit must fix one participant's exact ordered player identities and ownership.
+- **ADM-OWN-002** An admitted participant must not request an additional player slot or removal of one owned player slot.
+- **ADM-OWN-003** A person or local-control change for an existing player slot must not change the committed player identity or ownership.
+- **ADM-OWN-004** An authoritative roster-order change must not change a committed player identity or ownership.
+- **ADM-OWN-005** Participant Leave, reservation expiry, or session end may remove committed player slots.
+- **ADM-OWN-006** The service must not reuse an identity from a removed player slot during the session.
 
 The guest must check Cancel before parsing every offer, rejection, or confirmation, immediately before acceptance enqueue, and immediately before publishing rejection, invalid-host, or success. One admission-attempt gate serializes Cancel, acceptance enqueue, and terminal publication. The concrete acceptance enqueue holds that gate through the outbound queue insertion and checks Cancel plus the injected monotonic clock at the insertion point. Cancel wins when it linearizes first; no `D6RK` is queued in that case. A strictly pre-deadline enqueue that linearizes first remains accepted and cannot be retroactively removed by a later Cancel; that later Cancel may still win against a not-yet-published final confirmation. The guest must never enqueue acceptance at or after the original Connect-start deadline. Runtime fakes expose the same conditional-enqueue operation so a test can change Cancel or time immediately before insertion. The host independently retains its transport-acceptance-time plus 10-second hard bound and rejects acceptance at or after that boundary. This client check prevents avoidable late asymmetric commit; only acceptance already sent before the guest deadline followed by confirmation loss retains the documented post-commit issue #36 handoff.
 
@@ -390,7 +402,7 @@ These commands provide process-level protocol evidence only. Successful output r
 - **AC-009:** An invalid path, duplicate path, invalid order, missing field, or excessive manifest must fail as invalid manifest.
 - **AC-010:** A changed, missing, additional, or case-different valid entry must fail as gameplay-content mismatch.
 - **AC-011:** A changed gameplay level or level metadata file must fail as gameplay-content mismatch.
-- **AC-012:** Cosmetic assets, profiles, people, controls, statistics, and saves must not affect compatibility.
+- **AC-012:** Cosmetic assets, profiles, people, controls, statistics, and saves must not affect compatibility. Missing, changed, or additional profile or cosmetic material must not cause an admission rejection.
 - **AC-013:** The network session must not load or execute a participant profile script.
 - **AC-014:** An optional gameplay script must not enter or execute through a supported first-release network match.
 - **AC-015:** Admission must reject a request that would exceed 15 participants or 15 roster players.
@@ -404,3 +416,5 @@ These commands provide process-level protocol evidence only. Successful output r
 - **AC-023:** An admission attempt after match start must receive the fixed join-in-progress rejection.
 - **AC-024:** Local Play must start and complete without starting or requiring a network service.
 - **AC-025:** Completion of issue #30 alone must not justify a claim that network play is available or ready for release.
+- **CMP-VIS-AC-001:** Admission ignores profile, skin, animation-resource, visual-resource, and cosmetic-asset differences. After admission, each supported client uses the built-in default network visual set without loading peer content as a fallback.
+- **ADM-OWN-AC-001:** Admission confirms one immutable set of ordered player identities and ownership for each participant. Lobby person, control, and roster-order changes preserve that set. Participant removal removes all owned slots, and the service does not reuse their identities during the session.

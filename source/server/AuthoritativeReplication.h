@@ -4,11 +4,25 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <string_view>
 
 #include "AuthoritativeMatch.h"
 #include "../network/StateReplication.h"
 
 namespace Duel6::Server::Authoritative {
+    enum class CanonicalLobbyMutationOutcome {
+        Committed,
+        Rejected,
+        VersionFailure,
+        PublicationFailure,
+        InternalFailure
+    };
+
+    struct CanonicalLobbyMutationResult {
+        CanonicalLobbyMutationOutcome outcome = CanonicalLobbyMutationOutcome::InternalFailure;
+        std::optional<Network::Replication::IncrementalUpdate> update;
+    };
+
     class AuthoritativeReplication final {
     public:
         explicit AuthoritativeReplication(Identity sessionId = 0);
@@ -19,8 +33,14 @@ namespace Duel6::Server::Authoritative {
         std::optional<Network::Replication::IncrementalUpdate> updateLobby(
                 std::vector<Network::Replication::ParticipantState> participants,
                 std::vector<PlayerDefinition> roster, MatchConfig settings);
+        CanonicalLobbyMutationResult updateLobbyForConfiguration(
+                const std::vector<Network::Replication::ParticipantState> &participants,
+                const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
+                std::string_view reason) noexcept;
+        CanonicalLobbyMutationResult setParticipantReadyTransactional(Identity participantId, bool ready) noexcept;
         std::optional<Network::Replication::IncrementalUpdate> setParticipantReady(Identity participantId,
-                                                                                    bool ready);
+                                                                                     bool ready);
+        std::optional<Network::Replication::IncrementalUpdate> setLobbyFailure(const std::string &message);
         std::optional<Network::Replication::IncrementalUpdate> setParticipantConnection(
                 Identity participantId, Network::Replication::ConnectionState connection);
         std::optional<Network::Replication::IncrementalUpdate> beginMatch(const AuthoritativeMatch &match);
@@ -48,6 +68,10 @@ namespace Duel6::Server::Authoritative {
 
         bool updateFromMatch(const AuthoritativeMatch &match,
                              std::vector<Network::Replication::PresentationEvent> &events);
+        CanonicalLobbyMutationResult updateLobbyStateTransactional(
+                const std::vector<Network::Replication::ParticipantState> &participants,
+                const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
+                std::string_view status, bool clearReadiness) noexcept;
         Identity worldIdentity(Identity roundId, std::uint64_t canonicalIdentity);
     };
 }

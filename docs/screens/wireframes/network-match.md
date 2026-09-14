@@ -46,5 +46,20 @@ Target representative viewport: 1280 by 900 px. The gameplay renderer fills the 
 - Recovery removes the degraded indication only after the approved supported-condition interval.
 - The network status region is non-interactive and does not receive focus or capture gameplay input.
 - The exact degraded text supplies a non-color status cue.
+- All six local and remote players use the built-in default network player skin and deterministic default animation and entity mappings.
+- A locally usable named level background takes precedence over fallback selection.
+- When the named background is not locally usable, every client derives the same built-in fallback from equal replicated session, match, round, and level logical identities and equal stable ordered eligible background lists.
+- Full snapshot, equivalent incremental state, reconnect, and resynchronization keep that same fallback while those inputs remain equal.
+- The fallback uses no gameplay RNG, canonical background field, profile fallback, or peer content.
+- The fallback does not change gameplay, results, Local Play, visible copy, controls, or layout.
+- Replicated Team color, Predator opacity, invisibility, and other visual gameplay states modify the default network visuals when applicable.
+- No selected local or remote profile changes a network player appearance.
+- The client derives presentation from complete read-only replicated canonical state and does not advance a second gameplay simulation.
+- Selected-profile appearance parity is deferred to issue #84.
+- The representative static artifact uses a level without a locally usable named background and shows the expected fallback for recorded identity inputs and the recorded eligible list.
+- Supplementary temporal evidence shows equal-client convergence, continuity through incremental state, reconnect and resynchronization, named-background precedence, and existing correction/degraded/recovery behavior.
+- Functional evidence varies identities until every eligible background has a demonstrated selection opportunity.
 
 Planned representative screenshot: [`SS-019`](../../screenshots/README.md#ss-019).
+
+Review correction: the representative arena includes an invisible body and held weapon; Predator without Invisibility keeps an opaque weapon. [NET-05-C](../../design/wireframes/NET-05/NET-05-C.svg) adds the explicit guest Leave confirmation (`SS-026`, 1280×720), preserving Confirm-then-Cancel focus. Active gameplay Return/Space never activate hidden actions; opening/held/repeated input cannot confirm. Tab is a discrete pre-winner toggle, not a release or modal action. The owning [match specification](../network-match.md) defines behavior; corrected evidence is pending.

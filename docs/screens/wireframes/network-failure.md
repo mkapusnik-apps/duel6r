@@ -32,5 +32,7 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 - Runtime failure maps the host to the existing hosted-session failure presentation and keeps guests out of intentional host-end presentation.
 - Cleanup failure is operational-only in issue #32 and has no approved graphical destination or action.
 - Each reason remains persistent text, and each disabled Retry state includes a textual reason.
+- The reason region may scroll, but the state heading and enabled recovery actions remain visible.
+- Recovery actions wrap in reading order before their captions clip or overlap.
 
 Planned representative screenshot: [`SS-022`](../../screenshots/README.md#ss-022).

@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -35,6 +37,34 @@ namespace {
     ReconnectRequest requestFor(const ReconnectGrant &grant) {
         return {grant.sessionId, grant.participantId, grant.reservationId, grant.credential};
     }
+
+    template<typename T>
+    class SameAddressOwner final {
+    public:
+        ~SameAddressOwner() {
+            if (instance) instance->~T();
+        }
+
+        template<typename... Arguments>
+        T *construct(Arguments &&...arguments) {
+            D6R_REQUIRE(instance == nullptr);
+            instance = ::new (static_cast<void *>(storage)) T(
+                    std::forward<Arguments>(arguments)...);
+            return instance;
+        }
+
+        template<typename... Arguments>
+        T *replace(Arguments &&...arguments) {
+            D6R_REQUIRE(instance != nullptr);
+            instance->~T();
+            instance = nullptr;
+            return construct(std::forward<Arguments>(arguments)...);
+        }
+
+    private:
+        alignas(T) std::byte storage[sizeof(T)];
+        T *instance = nullptr;
+    };
 
 }
 
@@ -73,7 +103,8 @@ D6R_TEST_CASE("lifecycle protocol rejects malformed zero and cross-kind credenti
 D6R_TEST_CASE("participant actions round trip exactly and reject malformed or unknown framing") {
     for (const auto kind: {ParticipantActionKind::Ready,
                            ParticipantActionKind::NotReady,
-                           ParticipantActionKind::Leave}) {
+                           ParticipantActionKind::Leave,
+                           ParticipantActionKind::ConfigurationChanged}) {
         const ParticipantAction action{91, 7, kind};
         const auto payload = serializeParticipantAction(action);
         D6R_REQUIRE_EQ(26u, payload.size());
@@ -87,7 +118,7 @@ D6R_TEST_CASE("participant actions round trip exactly and reject malformed or un
     D6R_REQUIRE(serializeParticipantAction({0, 7, ParticipantActionKind::Ready}).empty());
     D6R_REQUIRE(serializeParticipantAction({91, 0, ParticipantActionKind::Ready}).empty());
     D6R_REQUIRE(serializeParticipantAction(
-            {91, 7, static_cast<ParticipantActionKind>(4)}).empty());
+            {91, 7, static_cast<ParticipantActionKind>(5)}).empty());
     auto malformed = serializeParticipantAction({91, 7, ParticipantActionKind::Ready});
     malformed.push_back(0);
     D6R_REQUIRE(!deserializeParticipantAction(malformed).has_value());
@@ -119,6 +150,44 @@ D6R_TEST_CASE("authenticated participant actions drive readiness and connected L
     D6R_REQUIRE(host.applyParticipantAction({92, 2, ParticipantActionKind::Leave}, 20));
     D6R_REQUIRE(host.processLifecycleBatch(Phase::Lobby) == RemovalOutcome::LobbyUpdated);
     D6R_REQUIRE_EQ((std::vector<ParticipantId>{2}), removed);
+}
+
+D6R_TEST_CASE("typed readiness mutations cover host guest configuration rejection and terminal failure") {
+    ManualClock time;
+    CredentialSource source;
+    HostSessionLifecycle host(193, 1, 10, {101, 102}, time.clock(), source.random());
+    D6R_REQUIRE(host.admitGuest(2, 20, {201, 202}, false).has_value());
+
+    D6R_REQUIRE(host.setReadyTransactional(1, 10, true) == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(host.applyParticipantReadinessAction(
+            {193, 2, ParticipantActionKind::Ready}, 20) == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(host.allConnectedAndReady());
+
+    D6R_REQUIRE(host.applyParticipantReadinessAction(
+            {193, 2, ParticipantActionKind::ConfigurationChanged}, 20)
+                == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(!host.ready(1));
+    D6R_REQUIRE(!host.ready(2));
+
+    D6R_REQUIRE(host.applyParticipantReadinessAction(
+            {193, 2, ParticipantActionKind::Ready}, 20) == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(host.applyParticipantReadinessAction(
+            {193, 2, ParticipantActionKind::NotReady}, 20) == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(!host.ready(2));
+    D6R_REQUIRE(host.setReadyTransactional(1, 10, true) == ReadinessMutationOutcome::Committed);
+
+    D6R_REQUIRE(host.setReadyTransactional(2, 99, true) == ReadinessMutationOutcome::Rejected);
+    D6R_REQUIRE(host.applyParticipantReadinessAction(
+            {193, 2, ParticipantActionKind::Leave}, 20) == ReadinessMutationOutcome::Rejected);
+    D6R_REQUIRE(host.ready(1));
+    D6R_REQUIRE(!host.ready(2));
+
+    const auto ended = host.endSession(1, 10);
+    D6R_REQUIRE(ended.accepted);
+    D6R_REQUIRE(host.setReadyTransactional(1, 10, true) == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(host.clearReadinessTransactional() == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(host.ready(1));
+    D6R_REQUIRE(!host.ready(2));
 }
 
 D6R_TEST_CASE("guest reconnect retains non-current context and one positive 30 second deadline") {
@@ -602,4 +671,85 @@ D6R_TEST_CASE("host-local supervised failure uses exact private outcome and boun
     D6R_REQUIRE_EQ(0, notices);
     D6R_REQUIRE_EQ(1, discards);
     D6R_REQUIRE(host.supervisedHostFailure().empty());
+}
+
+D6R_TEST_CASE("prepared readiness tokens reject competing stale replay moved-from and wrong-owner use") {
+    ManualClock time;
+    CredentialSource source;
+    HostSessionLifecycle first(1300, 1, 10, {101}, time.clock(), source.random());
+    HostSessionLifecycle second(1301, 1, 10, {101}, time.clock(), source.random());
+    D6R_REQUIRE(first.admitGuest(2, 20, {102}, false));
+    D6R_REQUIRE(second.admitGuest(2, 20, {102}, false));
+
+    auto wrongOwner = first.prepareSetReady(1, 10, true);
+    D6R_REQUIRE(wrongOwner.outcome == ReadinessMutationOutcome::Committed && wrongOwner.mutation);
+    auto wrongOwnerToken = std::move(*wrongOwner.mutation);
+    D6R_REQUIRE(second.commitPreparedReadiness(std::move(wrongOwnerToken))
+                == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(!first.ready(1) && !second.ready(1));
+
+    auto stale = first.prepareSetReady(1, 10, true);
+    auto winner = first.prepareSetReady(2, 20, true);
+    D6R_REQUIRE(stale.mutation && winner.mutation);
+    auto winnerToken = std::move(*winner.mutation);
+    D6R_REQUIRE(first.commitPreparedReadiness(std::move(winnerToken))
+                == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(first.ready(2) && !first.ready(1));
+    D6R_REQUIRE(first.commitPreparedReadiness(std::move(winnerToken))
+                == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(first.commitPreparedReadiness(std::move(*stale.mutation))
+                == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(first.ready(2) && !first.ready(1));
+
+    auto moved = first.prepareSetReady(1, 10, true);
+    D6R_REQUIRE(moved.mutation);
+    auto movedToken = std::move(*moved.mutation);
+    D6R_REQUIRE(first.commitPreparedReadiness(std::move(*moved.mutation))
+                == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(first.commitPreparedReadiness(std::move(movedToken))
+                == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(first.ready(1) && first.ready(2));
+
+    auto clear = first.prepareClearReadiness();
+    D6R_REQUIRE(clear.mutation);
+    D6R_REQUIRE(first.setReadyTransactional(1, 10, false)
+                == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(first.commitPreparedReadiness(std::move(*clear.mutation))
+                == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(!first.ready(1) && first.ready(2));
+}
+
+D6R_TEST_CASE("prepared readiness token cannot bind to a same-address replacement session") {
+    ManualClock time;
+    CredentialSource source;
+    SameAddressOwner<HostSessionLifecycle> storage;
+    auto *original = storage.construct(
+            1400, 1, 10, std::vector<PlayerId>{101}, time.clock(), source.random(), HostHooks{});
+    D6R_REQUIRE(original->admitGuest(2, 20, {102}, false));
+    auto old = original->prepareSetReady(1, 10, true);
+    D6R_REQUIRE(old.outcome == ReadinessMutationOutcome::Committed && old.mutation);
+    const auto originalAddress = original;
+
+    auto *replacement = storage.replace(
+            1400, 1, 10, std::vector<PlayerId>{101}, time.clock(), source.random(), HostHooks{});
+    D6R_REQUIRE_EQ(static_cast<const void *>(originalAddress),
+                   static_cast<const void *>(replacement));
+    D6R_REQUIRE(replacement->admitGuest(2, 20, {102}, false));
+    D6R_REQUIRE(!replacement->ready(1));
+    D6R_REQUIRE(!replacement->ready(2));
+    D6R_REQUIRE_EQ(2u, replacement->retainedPlayerCount());
+
+    D6R_REQUIRE(replacement->commitPreparedReadiness(std::move(*old.mutation))
+                == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(!replacement->ready(1));
+    D6R_REQUIRE(!replacement->ready(2));
+    D6R_REQUIRE_EQ(2u, replacement->retainedPlayerCount());
+
+    auto fresh = replacement->prepareSetReady(1, 10, true);
+    D6R_REQUIRE(fresh.outcome == ReadinessMutationOutcome::Committed && fresh.mutation);
+    D6R_REQUIRE(replacement->commitPreparedReadiness(std::move(*fresh.mutation))
+                == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(replacement->ready(1));
+    D6R_REQUIRE(!replacement->ready(2));
+    D6R_REQUIRE_EQ(2u, replacement->retainedPlayerCount());
 }

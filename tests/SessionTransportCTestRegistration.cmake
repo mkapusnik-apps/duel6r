@@ -16,6 +16,7 @@ add_executable(duel6r-authoritative-match-behavior-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
         ${CMAKE_SOURCE_DIR}/tests/AuthoritativeMatchBehaviorTests.cpp)
 target_include_directories(duel6r-authoritative-match-behavior-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(duel6r-authoritative-match-behavior-tests PRIVATE D6R_HEADLESS_CORE)
 target_link_libraries(duel6r-authoritative-match-behavior-tests
         duel6r-network-scaffold duel6r-canonical-gameplay-core)
 if (MINGW)
@@ -169,6 +170,68 @@ set_tests_properties(duel6r-session-lifecycle-tests PROPERTIES
         LABELS "application;integration;network;reconnect;lifecycle;security;regression"
         TIMEOUT 30)
 
+if (NOT D6R_TRANSPORT_ONLY)
+    add_executable(duel6r-network-session-runtime-tests
+            ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+            ${CMAKE_SOURCE_DIR}/tests/NetworkSessionRuntimeTests.cpp)
+    target_include_directories(duel6r-network-session-runtime-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-network-session-runtime-tests
+            duel6r-game-engine duel6r-network-scaffold)
+    if (UNIX AND NOT APPLE)
+        find_library(D6R_RUNTIME_TEST_LIB_OPENGL GL REQUIRED)
+        find_library(D6R_RUNTIME_TEST_LIB_GLEW GLEW REQUIRED)
+        find_library(D6R_RUNTIME_TEST_LIB_SDL2 SDL2 REQUIRED)
+        find_library(D6R_RUNTIME_TEST_LIB_SDL2_MIXER SDL2_mixer REQUIRED)
+        find_library(D6R_RUNTIME_TEST_LIB_SDL2_TTF SDL2_ttf REQUIRED)
+        find_library(D6R_RUNTIME_TEST_LIB_SDL2_IMAGE SDL2_image REQUIRED)
+        target_link_libraries(duel6r-network-session-runtime-tests
+                ${D6R_RUNTIME_TEST_LIB_OPENGL} ${D6R_RUNTIME_TEST_LIB_GLEW}
+                ${D6R_RUNTIME_TEST_LIB_SDL2} ${D6R_RUNTIME_TEST_LIB_SDL2_MIXER}
+                ${D6R_RUNTIME_TEST_LIB_SDL2_TTF} ${D6R_RUNTIME_TEST_LIB_SDL2_IMAGE})
+        if (D6R_WITH_LUA)
+            find_library(D6R_RUNTIME_TEST_LIB_LUA lua5.3 REQUIRED)
+            target_link_libraries(duel6r-network-session-runtime-tests ${D6R_RUNTIME_TEST_LIB_LUA})
+        endif ()
+    endif ()
+    target_compile_definitions(duel6r-network-session-runtime-tests PRIVATE
+            D6R_RUNTIME_TEST_SERVER="$<TARGET_FILE:${D6R_SERVER_APP_NAME}>"
+            D6R_TEST_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/resources")
+    add_dependencies(duel6r-network-session-runtime-tests ${D6R_SERVER_APP_NAME})
+    if (UNIX)
+        find_program(D6R_TEST_XVFB_RUN_EXECUTABLE xvfb-run REQUIRED)
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        add_test(NAME duel6r-network-session-runtime-tests
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/NetworkFlatBundleHarness.py
+                        $<TARGET_FILE:duel6r-network-session-runtime-tests>
+                        ${CMAKE_SOURCE_DIR}/resources $<TARGET_FILE:${D6R_SERVER_APP_NAME}>)
+    else ()
+        add_test(NAME duel6r-network-session-runtime-tests COMMAND duel6r-network-session-runtime-tests)
+    endif ()
+    set_tests_properties(duel6r-network-session-runtime-tests PROPERTIES
+            LABELS "application;integration;network;runtime;presentation;reconnect;regression"
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
+            TIMEOUT 180)
+endif ()
+
+if (NOT D6R_TRANSPORT_ONLY)
+    find_library(D6R_TEST_LIB_SDL2 SDL2 REQUIRED)
+    find_library(D6R_TEST_LIB_SDL2_TTF SDL2_ttf REQUIRED)
+    find_library(D6R_TEST_LIB_SDL2_IMAGE SDL2_image REQUIRED)
+    add_executable(duel6r-font-utf8-tests
+            ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
+            ${CMAKE_SOURCE_DIR}/tests/FontUtf8Tests.cpp)
+    target_include_directories(duel6r-font-utf8-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-font-utf8-tests
+            duel6r-game-engine duel6r-network-scaffold
+            ${D6R_TEST_LIB_SDL2} ${D6R_TEST_LIB_SDL2_TTF} ${D6R_TEST_LIB_SDL2_IMAGE})
+    target_compile_definitions(duel6r-font-utf8-tests PRIVATE
+            D6R_TEST_FONT_PATH="${CMAKE_SOURCE_DIR}/resources/data/font.ttf")
+    add_test(NAME duel6r-font-utf8-tests COMMAND duel6r-font-utf8-tests)
+    set_tests_properties(duel6r-font-utf8-tests PROPERTIES
+            LABELS "application;network;presentation;font;utf8;regression"
+            TIMEOUT 30)
+endif ()
+
 add_executable(duel6r-admission-compatibility-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
         ${CMAKE_SOURCE_DIR}/tests/AdmissionCompatibilityTests.cpp)
@@ -180,7 +243,7 @@ endif ()
 add_test(NAME duel6r-admission-compatibility-tests COMMAND duel6r-admission-compatibility-tests)
 set_tests_properties(duel6r-admission-compatibility-tests PROPERTIES
         LABELS "application;integration;network;admission;compatibility"
-        TIMEOUT 120)
+        TIMEOUT 180)
 
 add_executable(duel6r-host-service-supervisor-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp

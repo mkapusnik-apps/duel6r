@@ -20,11 +20,11 @@ The authoritative responsiveness and recovery target is in [`network-responsiven
 
 - **Participant:** One admitted game instance. The host is one participant; every other participant is a guest.
 - **Connected participant:** An admitted participant with a currently accepted transport connection.
-- **Local player:** A player controlled from a participant's machine with that participant's person, profile, and control assignment.
+- **Local player:** A player controlled from a participant's machine with that participant's person and control assignment.
 - **Roster player:** One combatant in the authoritative session roster. Every roster player belongs to exactly one participant until removal.
 - **Host:** The participant that creates the session, owns the authoritative server process, configures the match, and controls session progression.
 - **Guest:** A participant admitted through the host's direct endpoint.
-- **Endpoint:** A directly entered hostname or IP address plus port.
+- **Endpoint:** A host address plus port. The host selects an eligible local listening address. A guest directly enters the host address or hostname.
 - **Lobby:** The pre-match and between-match state showing admission, connection, ownership, roster, readiness, and host settings.
 - **Ready:** A participant's confirmation of the current configuration. Clearing mutations invalidate every participant's readiness.
 - **Session:** The period from confirmed host startup until intentional host End session, host-local supervised service failure, or application shutdown.
@@ -40,7 +40,7 @@ All normative deadlines and precedence rules in this document are evaluated on t
 | Platforms | Linux x86-64 and Windows x86-64 | Other operating systems and architectures |
 | Cross-platform play | Linux and Windows x86-64 participants in one session | Other targets |
 | Network environments | Separate instances on one machine; LAN direct connection | Internet support, NAT traversal, relays, public hosting claims |
-| Connection method | Direct hostname or IP address plus port | Discovery, server browser, matchmaking |
+| Connection method | Host selection of an eligible local listening address; guest entry of a direct hostname or IP address plus port | Discovery, server browser, matchmaking |
 | Hosting | Player-hosted authoritative session | Dedicated server deployment and host migration |
 | Identity and access | Session-local participant identity | Accounts, passwords, cloud identity, ranked identity |
 | Lobby cardinality | 1–15 admitted participants and 1–15 roster players; a host-alone lobby is valid | Empty or over-capacity admitted lobby |
@@ -48,26 +48,64 @@ All normative deadlines and precedence rules in this document are evaluated on t
 | Degraded match | One connected host may continue while at least two roster players remain | Continuing after fewer than two roster players remain |
 | Admission | Lobby admission before match start | Join-in-progress and spectators |
 | Compatibility | Exact network release ID and canonical gameplay content | Cross-release or cross-content compatibility |
+| Player visuals | Deterministic built-in default network visuals | Selected-profile appearance and remote profile appearance parity |
 | Results | Session-only network results retained until a new match starts or the session ends | Local statistics or Elo writes |
 
 Lobby invariants are `1 <= admitted participants <= roster players <= 15`. Match start invariants are `2 <= connected participants <= roster players <= 15`, with every participant owning at least one player. A started match may degrade to one connected host if reservations or retained roster ownership leave at least two roster players. Fewer than two roster players ends the match without a winner.
 
 Same-machine support means separate running instances communicating through the production transport. It does not wrap or alter the local-only Play journey.
 
+## Host listening address
+
+- **NET-HOST-IF-001** `NET-02` must provide an explicit host control labeled `Listening interface`.
+- **NET-HOST-IF-002** `Listening interface` must list IPv4 loopback and each eligible assigned private RFC1918 IPv4 address that is available on the host.
+- **NET-HOST-IF-003** `Listening interface` must not list a wildcard, unspecified, public, multicast, link-local, unassigned, network, or broadcast address.
+- **NET-HOST-IF-004** On first entry to `NET-02`, `Listening interface` must select IPv4 loopback by default.
+- **NET-HOST-IF-005** The application must retain the selected listening address with the other retained host setup.
+- **NET-HOST-IF-006** On a multihomed host, the application must not automatically select one private LAN address instead of another.
+- **NET-HOST-IF-007** The application must validate the selected listening address again before it starts the hosted service.
+- **NET-HOST-IF-008** If the selected listening address is no longer eligible, the application must keep the host in editable `NET-02` and require another eligible selection.
+- **NET-HOST-IF-009** Selecting a listening address must not change a host interface, route, firewall, Docker network, port forwarding, or other network infrastructure.
+- **NET-HOST-IF-010** The Port field must keep initial focus in editable `NET-02`.
+- **NET-HOST-IF-011** `Listening interface` must follow Port in the keyboard and controller focus order.
+- **NET-HOST-IF-012** Local interface enumeration must not discover or list another host or session.
+
+Loopback supports same-machine play. An explicitly selected eligible private address supports direct private-LAN play.
+
 ## Ownership and configuration
 
 - The host starts and owns the player-hosted authoritative session and direct endpoint.
 - The host configures mode, level or rotation, rounds, other approved match settings, and authoritative roster order.
-- Each participant configures only its own local persons, profiles, and controls and must own at least one roster player while admitted.
+- Each participant configures only its own local persons and controls and must own at least one roster player while admitted.
 - The lobby labels each participant's role, connection state, readiness, owned players, and authoritative roster positions separately.
 - Host-owned settings are read-only for guests. Participant-owned player controls are editable only by that participant.
 - Every gameplay action and state transition is validated and applied by the authoritative host simulation.
+
+- **NET-OWN-001** Each participant must select its local player count before host startup or guest connection begins.
+- **NET-OWN-002** Admission must commit the participant's exact ordered player identities and ownership.
+- **NET-OWN-003** The set of player identities owned by an admitted participant must remain unchanged while that participant remains admitted.
+- **NET-OWN-004** An admitted participant must not add, remove, or transfer an individual player slot in `NET-04`.
+- **NET-OWN-005** An admitted participant may change the person or local control assigned to one of its existing player slots in `NET-04`.
+- **NET-OWN-006** A change under NET-OWN-005 must not change that slot's player identity or owner.
+- **NET-OWN-007** A host roster-order change must not change a player identity or owner.
+- **NET-OWN-008** Intentional participant Leave or authoritative reservation expiry must remove all player slots owned by that participant.
+- **NET-OWN-009** A removed player identity must not be reused during the session.
+
+### Team setting preferences
+
+- **NET-SET-001** The network lobby must preserve the host's Team setting preferences across mode changes according to `SET-042` and `SET-043` in [`features.md`](features.md).
+- **NET-SET-002** When Deathmatch or Predator is selected, the authoritative match settings must apply no teams and no Friendly Fire.
+- **NET-SET-003** When the host selects Team deathmatch again, the authoritative match settings must apply the retained Team setting preferences.
+
+Preference retention does not change host-only setting permissions or readiness invalidation.
 
 ## Lobby, readiness, and admission
 
 - A host-alone lobby with one or more host-owned players is valid, but Start is blocked until the match-start invariants are met.
 - Every connected participant, including the host, must be ready before Start is enabled.
-- Adding, removing, admitting, or expiring a participant; intentionally leaving; adding, removing, or editing a player; changing a person, profile, control, host match setting, or roster order clears every participant's readiness.
+- Admitting, intentionally removing, or expiring a participant clears every participant's readiness.
+- Changing a person, control, host match setting, or roster order in `NET-04` clears every participant's readiness.
+- A participant must add or remove local player slots before host startup or guest connection begins.
 - An admitted guest declared disconnected remains admitted as `Reconnecting`. Its prior Ready value is retained, but Start is blocked with `Waiting for <participant> to reconnect`.
 - A successful reconnect restores the retained Ready value unless another readiness-clearing mutation occurred after disconnect.
 - Reconnect expiry or intentional Leave removes the participant and players and clears every remaining participant's readiness.
@@ -127,6 +165,32 @@ The following synthetic fixtures are normative compatibility examples, not shipp
 | Invalid path | Not applicable | a peer value containing a disallowed segment | `Gameplay content manifest is invalid. Use the host's exact supported gameplay content.`; user copy and diagnostics omit the raw value |
 
 Issue #30 owns canonical serialization, content digest choice, exchange, comparison mechanics, and protocol enforcement. The authoritative issue #30 target is in [`network-compatibility-and-admission.md`](network-compatibility-and-admission.md). Those mechanics must produce the exact policy, fixture outcomes, and user-visible copy above.
+
+## Default network visuals
+
+The **default network visual set** is the built-in player skin, animation mapping, entity-resource mapping, and background-selection behavior for first-release network play.
+
+The **eligible background list** is the stable ordered list of locally available built-in backgrounds that can satisfy the existing fallback behavior in `LIF-009`.
+
+- **NET-VIS-001** First-release network setup must let each participant select local persons and controls.
+- **NET-VIS-002** First-release network setup must not offer profile selection for a network player.
+- **NET-VIS-003** Each client must use the default network visual set for every player in a network match.
+- **NET-VIS-004** A client must derive each player animation and entity visual from replicated canonical state and the default network visual set.
+- **NET-VIS-005** A client must not run a second gameplay simulation to derive network presentation.
+- **NET-VIS-006** The same supported release and replicated canonical state must select the same player animation and entity visual on each client.
+- **NET-VIS-007** A local or remote profile must not change a network player's skin, animation, or visual resource.
+- **NET-VIS-008** The default network visual set must apply authoritative Team colors, Predator opacity, invisibility, and other replicated visual gameplay states.
+- **NET-VIS-009** A missing, changed, or additional profile or cosmetic asset must not block admission.
+- **NET-VIS-010** A client must not load a peer-selected profile, file, or script as a network-visual fallback.
+- **NET-VIS-011** If a client cannot load a required default network visual resource, the client must not start network play and must retain the existing required-resource failure behavior.
+- **NET-VIS-012** A client must use the level's named background when that background is locally usable.
+- **NET-VIS-013** When the level has no locally usable named background, the client must select one background from the eligible background list by a deterministic pseudo-random mapping.
+- **NET-VIS-014** The mapping in `NET-VIS-013` must use only the replicated session, match, round, and level logical identities and the eligible background list.
+- **NET-VIS-015** Equal identities and equal eligible background lists must select the same fallback background on each client of the supported release.
+- **NET-VIS-016** The mapping must give each background in an eligible background list a selection opportunity as the identity inputs change.
+- **NET-VIS-017** The fallback selection must remain presentation-only and must not use the authoritative gameplay seed, change canonical state, require a replicated background field, or load peer content.
+
+Selected-profile appearance parity between network participants is outside first-release scope.
 
 ## Timing, failures, and precedence
 
@@ -219,7 +283,7 @@ The host application's local supervisor may detect that its own hosted service s
 
 ### Lobby, match, summary, and return
 
-1. Valid admitted participants configure owned fields in `NET-04`; every clearing mutation clears readiness.
+1. Valid admitted participants may change the person or control for an existing owned player slot in `NET-04`. They must not add, remove, or transfer an individual player slot. Every permitted configuration change clears readiness.
 2. Start is enabled only when all match-start cardinality, ownership, connection, compatibility, and readiness requirements hold.
 3. Start closes admission and enters authoritative shared-arena `NET-05`.
 4. Normal completion enters `NET-06`; host Return to lobby moves connected participants to `NET-04` with readiness cleared.
@@ -272,6 +336,8 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 - An interrupted result appears in the following `NET-04` lobby and does not appear in `NET-06`.
 - The following lobby must retain each result value without deriving a champion from cumulative ranking.
 - A participant or player that leaves after results exist remains in those rows and is labeled `Departed`.
+- **NET-RES-001** Each retained round outcome and match outcome must preserve its complete winner identities after participant or player removal.
+- **NET-RES-002** Participants must be able to read every winner's complete display name and identity for each available outcome in `NET-06` and the retained `NET-04` result, including supported maximum-length names and multiwinner outcomes.
 - Starting a new match clears the prior retained result before the new match begins; results are not accumulated as persistent history.
 - Intentional host End session, host-local supervised service failure, or application shutdown discards the host's session result set. An isolated guest does not infer that discard from transport failure.
 - Interrupted matches do not create a persistent or locally recoverable result.
@@ -292,16 +358,19 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 - A guest-observable unexpected host-termination signal; only intentional End session notice is guest-observable in first release.
 - Cross-release or cross-content compatibility.
 - Compatibility checks for presentation-only assets, local persistence, local controls, or documentation.
+- Selected-profile appearance in a network match or remote profile appearance parity.
 - Changes to existing local-only Play behavior.
 
 ## Acceptance criteria
 
+- **NET-SET-AC-001 — Mode changes:** Switching from Team deathmatch with Friendly Fire on to Deathmatch and then Predator must apply valid non-team settings on host and guests. A subsequent setting edit must apply normally. Each configuration change must clear readiness. Returning to Team deathmatch must restore both Team preferences.
+- **NET-RES-AC-001 — Complete retained winners:** After Leave or reservation expiry during final summary, each completed outcome must preserve its complete winner identities. Affected result rows must show `Departed`. Returning directly to the lobby must exclude removed participants and their players from membership and readiness. Participants must be able to read every winner's complete display name and identity in the summary and retained lobby result, including multiwinner outcomes with supported maximum-length names.
 - **NET-AC-001 — Platform:** Linux x86-64 and Windows x86-64 instances can participate together, and no other platform or architecture is claimed.
-- **NET-AC-002 — Endpoints:** Separate instances connect on one machine or LAN through a directly entered hostname or IP address plus port, with no Internet, NAT, discovery, or matchmaking affordance.
+- **NET-AC-002 — Endpoints:** A host selects IPv4 loopback or an eligible assigned private RFC1918 IPv4 listening address. A guest connects on the same machine or LAN through a directly entered hostname or IP address plus port. The product provides no Internet, NAT, discovery, or matchmaking affordance.
 - **NET-AC-003 — Host model:** The session is player-hosted and authoritative, with no dedicated-server product path or host migration.
 - **NET-AC-004 — Lifecycle cardinality:** A lobby admits 1–15 participants and players including a valid host-alone lobby; Start requires 2–15 connected participants and players with at least one player each; a degraded match may continue with one connected host while at least two roster players remain; fewer than two ends without winner.
-- **NET-AC-005 — Ownership:** The host controls match settings and roster order; each participant controls only its local persons, profiles, and controls; authoritative input and state ownership are enforced.
-- **NET-AC-006 — Readiness:** Every participant must be connected, valid, and ready to start; clearing mutations clear all readiness; a disconnected admitted guest retains prior readiness as `Reconnecting` but blocks Start by name; reconnect restores retained readiness only when no later clearing mutation occurred.
+- **NET-AC-005 — Ownership:** The host controls match settings and roster order. Each participant controls only the persons and controls assigned to its immutable admitted player slots. A person, control, or roster-order change does not change player identity or ownership. Authoritative input and state ownership are enforced.
+- **NET-AC-006 — Readiness:** Every participant must be connected, valid, and ready to start. Participant admission or removal and each permitted lobby configuration change clear all readiness. A disconnected admitted guest retains prior readiness as `Reconnecting` but blocks Start by name. Reconnect restores retained readiness only when no later clearing mutation occurred.
 - **NET-AC-007 — Admission:** Admission occurs only before match start, and late attempts fail with explicit join-in-progress-prohibited behavior.
 - **NET-AC-008 — Compatibility:** Admission requires an exact case-sensitive non-empty network release ID and exact gameplay-content manifest whose logical paths satisfy every ASCII length, segment, character, separator, uniqueness, and unsigned-order rule; fixed user copy discloses no peer release ID, path, value, or raw payload, and diagnostics name only independently validated canonical paths.
 - **NET-AC-009 — Timing, admission, and host-local failure:** Host startup and complete initial guest connection must satisfy their 10-second boundaries. Production connection success must include predeadline final confirmation, valid clock calibration, and a complete valid initial snapshot. Missing calibration must produce timeout. Late initial-connection frames must not replace timeout or predeadline success. User Cancel and local validation must keep their defined precedence. The host application's local supervisor alone may route the host to `NET-08` with `Hosted session stopped unexpectedly.` This outcome is never guest evidence. Retained data, fixed copy, Retry, Edit setup, and Return destinations must match this specification.
@@ -314,7 +383,26 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 - **NET-AC-016 — Cancellation and leave:** Host startup Cancel, guest connection Cancel, guest lobby/match/summary Leave, reconnect Leave session, host End session, and their confirmations retain or discard data and reach exactly the specified destinations.
 - **NET-AC-017 — Truthful and non-disclosing UX:** Role, Connected/Reconnecting, readiness, pending, retryable ambiguity, terminal rejection, disabled Retry, expiry, host-local service failure, consequence, and host-ended states use fixed visible copy, disclose no untrusted peer value, and never claim guest-observed host end, player removal, or unexpected termination from isolation alone.
 - **NET-AC-018 — Session-only results:** Result state, match outcome, last completed-round outcome, and cumulative rankings are distinct. Completed match outcome equals the final round outcome. Interrupted match outcome is `No winner`. Cumulative rankings include only completed rounds and define no champion. Completed results appear in `NET-06`. Completed and interrupted results remain through the following lobby with departed labels. A new match clears the retained result. Intentional host end, host-local service failure, or application shutdown discards it. An isolated guest expiry does not claim a server-side result transition. Results never persist locally or to Elo.
-- **NET-AC-019 — Explicit boundaries:** UI, packaging, and release claims omit every non-goal and exclude presentation/cosmetic/local persistence/control/documentation material from gameplay compatibility.
+- **NET-AC-019 — Explicit boundaries:** UI, packaging, and release claims omit every non-goal. Gameplay compatibility excludes presentation, cosmetic, profile, local persistence, local control, and documentation material. First-release network play does not claim selected-profile appearance parity.
+- **NET-VIS-AC-001 — Setup:** Network setup provides person and control selection without profile selection.
+- **NET-VIS-AC-002 — Deterministic presentation:** Each client presents the same replicated canonical state with the same default player skin, player animation, and entity visual selection without a second gameplay simulation.
+- **NET-VIS-AC-003 — Gameplay states:** Default network visuals preserve each authoritative Team color, Predator opacity, invisibility state, and other replicated visual gameplay state.
+- **NET-VIS-AC-004 — Profile exclusion:** Local and remote profiles do not change network visuals, do not affect admission, and do not provide a presentation fallback.
+- **NET-VIS-AC-005 — Required-resource failure:** A client with an unavailable required default network visual resource does not start network play and does not load peer content as a fallback.
+- **NET-VIS-AC-006 — Named background precedence:** Every client uses a locally usable named level background before it considers fallback selection.
+- **NET-VIS-AC-007 — Deterministic background fallback:** For a level without a locally usable named background, two clients of the supported release select the same fallback when their replicated session, match, round, and level logical identities and their eligible background lists are equal. A full snapshot, equivalent incremental state, reconnect, and resynchronization produce that same selection. Controlled varied identity inputs demonstrate that every item in an eligible background list can be selected.
+- **NET-VIS-AC-008 — Presentation-only background:** Fallback background selection uses no authoritative gameplay seed, canonical background field, second gameplay simulation, profile fallback, or peer content. It does not change canonical state or match outcomes.
+- **NET-OWN-AC-001 — Pre-admission player count:** A host or guest can add or remove local player slots only before its admission process begins.
+- **NET-OWN-AC-002 — Immutable admitted ownership:** Admission fixes each participant's exact player identities and ownership until that participant leaves, expires, or the session ends.
+- **NET-OWN-AC-003 — Lobby edits:** In `NET-04`, a participant can change the person or control for an existing owned slot. The change clears all readiness and preserves the slot's identity and owner.
+- **NET-OWN-AC-004 — Roster order:** A host roster-order change clears all readiness and preserves every player identity and owner.
+- **NET-OWN-AC-005 — Removal:** Participant Leave or expiry removes all of that participant's slots and permanently revokes their identities for the session.
+- **NET-HOST-IF-AC-001 — Same-machine host:** A host can select IPv4 loopback and start a same-machine session without changing network infrastructure.
+- **NET-HOST-IF-AC-002 — Multihomed LAN host:** A multihomed host can explicitly select each eligible assigned private RFC1918 IPv4 address and start a direct LAN session on the selected address.
+- **NET-HOST-IF-AC-003 — Address exclusion:** The host selector omits every wildcard, unspecified, public, multicast, link-local, unassigned, network, and broadcast address.
+- **NET-HOST-IF-AC-004 — Stale selection:** An address that becomes ineligible before Start blocks startup in editable `NET-02` until the host selects an eligible address.
+- **NET-HOST-IF-AC-005 — Focus and retention:** Port has initial focus. `Listening interface` follows Port in focus order. Cancel, Edit setup, and eligible Retry retain the selected address.
+- **NET-HOST-IF-AC-006 — Scope:** Address selection does not reconfigure host or Docker networking and does not provide discovery, public Internet, NAT traversal, or port forwarding.
 
 ## Exact downstream issue mapping
 
@@ -336,6 +424,8 @@ Each issue owns the listed criteria without changing their normative boundaries.
 | [#40](https://github.com/mkapusnik-apps/duel6r/issues/40) | Supported network packaging and deployment documentation | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-008`, `NET-AC-015`, `NET-AC-019` |
 | [#41](https://github.com/mkapusnik-apps/duel6r/issues/41) | Complete release-candidate validation | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-006`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-010`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018`, `NET-AC-019` |
 
+Issue #38 owns `NET-VIS-001` through `NET-VIS-017`, `NET-VIS-AC-001` through `NET-VIS-AC-008`, `NET-OWN-001` through `NET-OWN-009`, `NET-OWN-AC-001` through `NET-OWN-AC-005`, `NET-HOST-IF-001` through `NET-HOST-IF-012`, and `NET-HOST-IF-AC-001` through `NET-HOST-IF-AC-006`. Issue #41 owns final validation of those requirements.
+
 Issue #28 approves this target but does not satisfy parent issue #27's implementation or release evidence. In-process loopback, documentation, or planned screenshots are insufficient to claim playable networking.
 
 ## Evidence expectations
@@ -343,6 +433,8 @@ Issue #28 approves this target but does not satisfy parent issue #27's implement
 - Product review traces each downstream issue to the exact criteria above and confirms non-goals remain excluded.
 - UX review traces `MENU-01`, `MENU-02`, `CONS-01`, and `NET-01`–`NET-09` to applicable criteria and assesses one representative wireframe per affected screen.
 - Issue #38 must supply one implementation screenshot for each of the 11 planned entries in [`docs/screenshots/README.md`](screenshots/README.md): `SS-002`, `SS-013`, and `SS-015`–`SS-023`. These entries remain planned, and no current screenshot is valid for the changed target UI.
+- Issue #38 evidence must show default network visuals without profile selection or selected-profile appearance parity.
+- Issue #38 evidence must show named-background precedence and deterministic fallback convergence for equal eligible background lists.
 - Reviewer evidence checks lifecycle cardinality, initial admission order, full-deadline ambiguity for every unexpected host failure, intentional-end-only `NET-09`, host-local-only supervision, reconnect precedence, lifecycle-specific removal, exact compatibility fixtures/copy, destinations, and local-only preservation.
 - Tester evidence independently verifies at downstream implementation SHAs that every guest-observed host crash, machine/listener loss, silence, reset, refusal, timeout, and no-response case stays `NET-07` through the fixed deadline; that only an accepted intentional End notice enters guest `NET-09`; and that host-local supervision routes only the host to `NET-08`. Issue #28 itself is documentation-only and requires no automated test implementation.
 - DevOps evidence confirms supported Linux and Windows x86-64 artifacts and hosted checks at the applicable release-candidate SHA.

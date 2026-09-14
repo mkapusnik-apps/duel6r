@@ -1,6 +1,8 @@
 #include "AuthoritativeReplication.h"
 
 #include <algorithm>
+#include <limits>
+#include <type_traits>
 #include <utility>
 
 #include "AuthoritativeMatchSerialization.h"
@@ -18,6 +20,14 @@ namespace Duel6::Server::Authoritative {
             result.assistance = config.assistance; result.quickLiquid = config.quickLiquid;
             result.burnableTrees = config.burnableTrees;
             return result;
+        }
+
+        void resetLobbyScore(R::CanonicalState &state) {
+            state.score = {};
+            for (const auto &player: state.players) state.score.ranking.push_back(player.playerId);
+            state.score.teamTotals.assign(state.settings.teamCount, 0);
+            for (std::size_t team = 1; team <= state.settings.teamCount; ++team)
+                state.score.teamRanking.push_back(static_cast<std::uint8_t>(team));
         }
 
         R::EntityKind entityKind(const std::string &kind, const std::string &type) {
@@ -80,8 +90,7 @@ namespace Duel6::Server::Authoritative {
             player.life = MaximumLife; player.lifeState = R::LifeState::Alive;
             state.players.push_back(std::move(player));
         }
-        state.score.ranking.clear();
-        for (const auto &player: state.players) state.score.ranking.push_back(player.playerId);
+        resetLobbyScore(state);
         if (publisher.initialize(state)) return true;
         *this = before;
         return false;
@@ -90,30 +99,102 @@ namespace Duel6::Server::Authoritative {
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::updateLobby(
             std::vector<R::ParticipantState> participants, std::vector<PlayerDefinition> roster,
             MatchConfig settings) {
-        if (publisher.version() == 0 || state.phase != R::Phase::Lobby) return std::nullopt;
-        const AuthoritativeReplication before = *this;
-        state.participants = std::move(participants); state.settings = replicatedSettings(settings);
-        state.players.clear();
-        for (const auto &entry: roster) {
-            R::PlayerState player;
-            player.playerId = entry.playerId; player.ownerParticipantId = entry.participantId;
-            player.rosterPosition = entry.rosterOrder; player.displayName = entry.displayName;
-            player.life = MaximumLife; player.lifeState = R::LifeState::Alive;
-            if (retainedResult) {
-                const auto row = std::find_if(retainedResult->players.begin(), retainedResult->players.end(),
-                        [&](const auto &value) { return value.playerId == player.playerId; });
-                if (row != retainedResult->players.end() && row->departed)
-                    player.lifeState = R::LifeState::Departed;
+        auto result = updateLobbyStateTransactional(
+                participants, roster, settings, "Lobby", false);
+        return std::move(result.update);
+    }
+
+    CanonicalLobbyMutationResult AuthoritativeReplication::updateLobbyForConfiguration(
+            const std::vector<R::ParticipantState> &participants, const std::vector<PlayerDefinition> &roster,
+            const MatchConfig &settings, std::string_view reason) noexcept {
+        if (reason.empty()) return {CanonicalLobbyMutationOutcome::Rejected, std::nullopt};
+        return updateLobbyStateTransactional(participants, roster, settings, reason, true);
+    }
+
+    CanonicalLobbyMutationResult AuthoritativeReplication::updateLobbyStateTransactional(
+            const std::vector<R::ParticipantState> &participants, const std::vector<PlayerDefinition> &roster,
+            const MatchConfig &settings, std::string_view status, bool clearReadiness) noexcept {
+        try {
+            if (publisher.version() == 0 || state.phase != R::Phase::Lobby)
+                return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
+            if (publisher.version() == (std::numeric_limits<R::StateVersion>::max)())
+                return {CanonicalLobbyMutationOutcome::VersionFailure, std::nullopt};
+            auto nextState = state;
+            auto nextPublisher = publisher;
+            auto nextParticipants = participants;
+            if (clearReadiness)
+                for (auto &participant: nextParticipants) participant.ready = false;
+            nextState.participants = std::move(nextParticipants);
+            nextState.settings = replicatedSettings(settings);
+            nextState.messages.status.assign(status.data(), status.size());
+            nextState.players.clear();
+            for (const auto &entry: roster) {
+                R::PlayerState player;
+                player.playerId = entry.playerId; player.ownerParticipantId = entry.participantId;
+                player.rosterPosition = entry.rosterOrder; player.displayName = entry.displayName;
+                player.life = MaximumLife; player.lifeState = R::LifeState::Alive;
+                if (retainedResult) {
+                    const auto row = std::find_if(retainedResult->players.begin(), retainedResult->players.end(),
+                            [&](const auto &value) { return value.playerId == player.playerId; });
+                    if (row != retainedResult->players.end() && row->departed)
+                        player.lifeState = R::LifeState::Departed;
+                }
+                nextState.players.push_back(std::move(player));
             }
-            state.players.push_back(std::move(player));
+            if (!nextState.result.available) resetLobbyScore(nextState);
+            const auto validation = R::validateCanonicalStateDetailed(nextState);
+            if (validation == R::CanonicalValidationOutcome::InternalFailure)
+                return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
+            if (validation != R::CanonicalValidationOutcome::Valid)
+                return {CanonicalLobbyMutationOutcome::Rejected, std::nullopt};
+            auto update = nextPublisher.publish(nextState);
+            if (!update && nextPublisher.lastPublishFailedInternally())
+                return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
+            if (!update)
+                return {CanonicalLobbyMutationOutcome::PublicationFailure, std::nullopt};
+            static_assert(std::is_nothrow_move_assignable_v<R::CanonicalState>);
+            static_assert(std::is_nothrow_move_assignable_v<R::AuthoritativeStateReplicator>);
+            state = std::move(nextState);
+            publisher = std::move(nextPublisher);
+            return {CanonicalLobbyMutationOutcome::Committed, std::move(update)};
+        } catch (...) {
+            return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
         }
-        if (!state.result.available) {
-            state.score.players.clear(); state.score.ranking.clear();
-            for (const auto &player: state.players) state.score.ranking.push_back(player.playerId);
+    }
+
+    CanonicalLobbyMutationResult AuthoritativeReplication::setParticipantReadyTransactional(
+            Identity participantId, bool ready) noexcept {
+        try {
+            if (participantId == 0) return {CanonicalLobbyMutationOutcome::Rejected, std::nullopt};
+            if (publisher.version() == 0 || state.phase != R::Phase::Lobby)
+                return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
+            if (publisher.version() == (std::numeric_limits<R::StateVersion>::max)())
+                return {CanonicalLobbyMutationOutcome::VersionFailure, std::nullopt};
+            auto nextState = state;
+            auto nextPublisher = publisher;
+            const auto found = std::find_if(nextState.participants.begin(), nextState.participants.end(),
+                    [participantId](const auto &participant) { return participant.participantId == participantId; });
+            if (found == nextState.participants.end())
+                return {CanonicalLobbyMutationOutcome::Rejected, std::nullopt};
+            found->ready = ready;
+            const auto validation = R::validateCanonicalStateDetailed(nextState);
+            if (validation == R::CanonicalValidationOutcome::InternalFailure)
+                return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
+            if (validation != R::CanonicalValidationOutcome::Valid)
+                return {CanonicalLobbyMutationOutcome::Rejected, std::nullopt};
+            auto update = nextPublisher.publish(nextState);
+            if (!update && nextPublisher.lastPublishFailedInternally())
+                return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
+            if (!update)
+                return {CanonicalLobbyMutationOutcome::PublicationFailure, std::nullopt};
+            static_assert(std::is_nothrow_move_assignable_v<R::CanonicalState>);
+            static_assert(std::is_nothrow_move_assignable_v<R::AuthoritativeStateReplicator>);
+            state = std::move(nextState);
+            publisher = std::move(nextPublisher);
+            return {CanonicalLobbyMutationOutcome::Committed, std::move(update)};
+        } catch (...) {
+            return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
         }
-        auto update = publisher.publish(state);
-        if (!update) *this = before;
-        return update;
     }
 
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::setParticipantReady(
@@ -124,6 +205,16 @@ namespace Duel6::Server::Authoritative {
                 [participantId](const auto &participant) { return participant.participantId == participantId; });
         if (found == state.participants.end()) return std::nullopt;
         found->ready = ready;
+        auto update = publisher.publish(state);
+        if (!update) *this = before;
+        return update;
+    }
+
+    std::optional<R::IncrementalUpdate> AuthoritativeReplication::setLobbyFailure(const std::string &message) {
+        if (publisher.version() == 0 || state.phase != R::Phase::Lobby || message.empty()) return std::nullopt;
+        const AuthoritativeReplication before = *this;
+        for (auto &participant: state.participants) participant.ready = false;
+        state.messages.status = message;
         auto update = publisher.publish(state);
         if (!update) *this = before;
         return update;
@@ -245,6 +336,7 @@ namespace Duel6::Server::Authoritative {
                 player.reloadRemaining = source.reload; player.charge = source.charge;
                 player.temporaryMovementRemaining = source.temporarySlowdownRemaining;
                 player.visible = source.visible; player.invulnerable = source.invulnerable;
+                player.presentationAlpha = source.presentationAlpha;
                 state.players.push_back(std::move(player));
                 if ((source.actionMask & ShowStatus) != 0) state.messages.currentPlayerIndicators.push_back(source.playerId);
                 R::ScoreRowState score;
@@ -541,6 +633,28 @@ namespace Duel6::Server::Authoritative {
         state.entities.clear();
         state.effects.clear();
         state.roundEndCountdown = 0;
+        // Departed identities belong to the immutable result, not to the next
+        // lobby's membership/readiness. Publish the transition atomically.
+        std::set<Identity> departedPlayers;
+        for (const auto &player: state.players)
+            if (player.lifeState == R::LifeState::Departed) departedPlayers.insert(player.playerId);
+        state.players.erase(std::remove_if(state.players.begin(), state.players.end(),
+                [&](const auto &player) { return departedPlayers.count(player.playerId); }), state.players.end());
+        for (auto &participant: state.participants) {
+            auto &owned = participant.ownedPlayerIds;
+            owned.erase(std::remove_if(owned.begin(), owned.end(),
+                    [&](Identity id) { return departedPlayers.count(id); }), owned.end());
+        }
+        state.participants.erase(std::remove_if(state.participants.begin(), state.participants.end(),
+                [](const auto &participant) { return participant.ownedPlayerIds.empty(); }), state.participants.end());
+        std::sort(state.players.begin(), state.players.end(), [](const auto &left, const auto &right) {
+            return left.rosterPosition < right.rosterPosition;
+        });
+        for (std::size_t index = 0; index < state.players.size(); ++index) {
+            state.players[index].rosterPosition = static_cast<std::uint8_t>(index);
+            state.players[index].team = state.settings.teamCount
+                    ? static_cast<std::uint8_t>(index % state.settings.teamCount + 1) : 0;
+        }
         for (auto &participant: state.participants) participant.ready = false;
         auto update = publisher.publish(state);
         if (!update) *this = before;

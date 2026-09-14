@@ -297,6 +297,14 @@ namespace Duel6::Client {
                 }
             }
 
+            for (auto iterator = events.begin(); iterator != events.end();) {
+                if (iterator->sessionPayload.empty()) { ++iterator; continue; }
+                if (dependencies.sessionPayloadObserver) {
+                    try { dependencies.sessionPayloadObserver(iterator->sessionPayload); } catch (...) {}
+                }
+                iterator = events.erase(iterator);
+            }
+
             HostServiceSnapshot transition;
             bool didTransition = false;
             {
@@ -438,6 +446,15 @@ namespace Duel6::Client {
         std::lock_guard<std::mutex> lock(mutex);
         if (state != HostServiceState::Active || !child || selectedStop != SelectedStop::None) return false;
         try { return child->requestReadiness(ready); }
+        catch (...) { return false; }
+    }
+
+    bool HostServiceSupervisor::sendSessionPayload(const std::vector<std::uint8_t> &payload) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if ((state != HostServiceState::Starting && state != HostServiceState::Active) || !child
+            || selectedStop != SelectedStop::None || payload.empty()
+            || payload.size() > Network::HostServiceMaximumPayloadBytes) return false;
+        try { return child->requestSessionPayload(payload); }
         catch (...) { return false; }
     }
 

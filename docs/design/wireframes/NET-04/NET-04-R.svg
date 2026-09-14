@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="940" viewBox="0 0 900 940">
+  <title>NET-04-R — Lobby with retained complete outcomes</title>
+  <desc>Top-left wireframe coordinates. Fixed 850 by 700 logical menu canvas. Current membership and settings remain above a bounded retained-result region. Result rows scroll independently of outcome labels and footer actions.</desc>
+  <rect width="900" height="940" fill="white"/>
+  <g fill="none" stroke="black" stroke-width="1">
+    <rect x="25" y="20" width="850" height="700"/>
+    <rect x="49" y="105" width="524" height="235"/>
+    <rect x="581" y="105" width="270" height="235"/>
+    <path d="M49 135H573 M49 220H573 M581 135H851"/>
+    <rect x="49" y="360" width="802" height="215"/>
+    <path d="M49 438H851 M49 464H851 M49 537H851"/>
+    <rect x="830" y="464" width="21" height="73"/>
+    <rect x="833" y="480" width="15" height="20"/>
+    <rect x="62" y="546" width="26" height="20"/>
+    <rect x="96" y="550" width="395" height="12"/>
+    <rect x="96" y="550" width="100" height="12"/>
+    <rect x="500" y="546" width="26" height="20"/>
+    <rect x="49" y="645" width="130" height="38"/>
+    <rect x="195" y="645" width="245" height="38"/>
+    <rect x="456" y="645" width="180" height="38"/>
+    <rect x="47" y="436" width="806" height="141" stroke-width="2"/>
+    <path d="M25 740H875" stroke-dasharray="5 5"/>
+  </g>
+  <g font-family="sans-serif" font-size="14" fill="black">
+    <text x="49" y="52">NETWORK LOBBY • Host • session endpoint</text>
+    <text x="49" y="80">Current membership: 2 participants • 10 players</text>
+    <text x="62" y="125">PARTICIPANTS / AUTHORITATIVE ROSTER</text>
+    <text x="62" y="155">Role    Connection    Readiness    Owned players</text>
+    <text x="62" y="180">Host    Connected     Not ready    5</text>
+    <text x="62" y="205">Guest   Connected     Not ready    5</text>
+    <text x="62" y="243">Position    Person    Owner    Local control</text>
+    <text x="62" y="270">1             Ada        Host      Keyboard [edit]</text>
+    <text x="62" y="299">2             Cora       Guest     Read-only</text>
+    <text x="62" y="325">Remaining current rows scroll here</text>
+    <text x="594" y="125">HOST MATCH SETTINGS</text>
+    <text x="594" y="160">Mode: Predator  [previous / next]</text>
+    <text x="594" y="190">Level plan • Rounds</text>
+    <text x="594" y="220">Assistance • Quick Liquid</text>
+    <text x="594" y="250">Burnable Trees</text>
+    <text x="594" y="280">Roster-order controls</text>
+    <text x="594" y="325">Settings stay within this region</text>
+    <text x="62" y="384">RETAINED RESULT • Session only • Completed</text>
+    <text x="62" y="408">Match outcome: 14 winners • See outcome rows</text>
+    <text x="62" y="430">Last completed round: 1 • 14 winners • See outcome rows</text>
+    <text x="62" y="456">Outcome scope     Complete display name / player identity / departure</text>
+    <text x="62" y="486">Match                    Winner name [scroll horizontally for full value] / P2 / Departed</text>
+    <text x="62" y="509">Match                    Next winner name / P3 / Connected</text>
+    <text x="62" y="532">Round 1                 Winner name / P2 / Departed</text>
+    <text x="69" y="561">&lt;</text><text x="507" y="561">&gt;</text>
+    <text x="542" y="562">Rows 1–3 / total • Columns 1–n / total</text>
+    <text x="49" y="602">Readiness cleared after participant removal • Start requires all participants ready</text>
+    <text x="49" y="627">Optional scripts are disabled for network play.</text>
+    <text x="72" y="670">Ready</text><text x="212" y="670">Start match — disabled</text>
+    <text x="475" y="670">End session</text>
+    <text x="25" y="766">ANNOTATIONS — not interface copy; structure only, not production appearance</text>
+    <text x="25" y="794">Reading order: session → current membership/settings → retained outcomes → status → actions.</text>
+    <text x="25" y="820">Keep current membership separate from historical winners. Use retained identities after removal.</text>
+    <text x="25" y="846">Keep headings/footer fixed. Scroll all outcome winners, then settings, rounds and cumulative results.</text>
+    <text x="25" y="872">Preserve full 64 UTF-8-byte names and IDs. Clip only the viewport; do not split UTF-8 characters.</text>
+    <text x="25" y="898">Use existing keyboard/controller/pointer scrolling and focus. Keep logical layout at supported sizes.</text>
+    <text x="25" y="924">Requirements: NET-RES-001/002/AC-001. Functional contract: docs/screens/network-lobby.md.</text>
+  </g>
+</svg>

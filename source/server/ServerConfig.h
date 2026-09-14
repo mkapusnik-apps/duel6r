@@ -17,12 +17,14 @@ namespace Duel6::Server {
         std::uint32_t tickRate = 60;
         std::uint32_t maxClients = 15;
         std::uint8_t localPlayers = 1;
+        std::vector<std::string> localPlayerNames;
         std::vector<std::string> enabledGameplayScripts;
         bool localOnly = false;
         bool transportEnabled = false;
         bool transportEcho = false;
         bool admissionClient = false;
         bool hostedServiceIpc = false;
+        bool graphicalHostComposition = false;
         std::uint64_t hostedServiceParent = 0;
 #ifdef D6R_TRANSPORT_WINDOWS
         std::uint64_t hostedServiceStatusHandle = 0;

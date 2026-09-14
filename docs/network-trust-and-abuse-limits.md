@@ -25,6 +25,16 @@ Network session cannot use a public or wildcard address. Use loopback or a priva
 
 An unsupported, unassigned, network, or broadcast listener address emits only the applicable rejection line and exits before constructing a listener. In that fixed copy, “private LAN address” means an assigned private unicast address valid for the host interface prefix; the copy remains non-disclosing and does not reveal interface details. The pure `decideLocalListenerBind` helper accepts explicit address/prefix/optional-broadcast records so platform-shaped policy cases are deterministic, while `localListenerBindDecision` enumerates real interfaces and fails closed when metadata is invalid or unavailable. Normal `duel6r` startup and local-only Play still start no network service.
 
+### Host listening-address selection
+
+- **TRU-BIND-001** The host application must offer only IPv4 loopback and eligible assigned private RFC1918 IPv4 addresses for listener selection.
+- **TRU-BIND-002** The host application must require an explicit selection before it binds a private LAN address.
+- **TRU-BIND-003** The host application must validate the selected address against current local interface information before listener creation.
+- **TRU-BIND-004** The host application must not create a listener when the selected address is no longer eligible.
+- **TRU-BIND-005** Address enumeration and selection must not change an interface, route, firewall, Docker network, NAT rule, port-forwarding rule, or other network infrastructure.
+- **TRU-BIND-006** Local interface enumeration must not perform peer, host, or session discovery.
+- **TRU-BIND-007** Address selection must not weaken the trusted loopback and private-LAN exposure boundary.
+
 ## Assets, actors, and boundaries
 
 Protected assets are host authority, participant and player-slot ownership, canonical future simulation state, session availability, process memory and CPU, local files and scripts, reconnect identity, and non-disclosing diagnostics.
@@ -34,12 +44,22 @@ Trust boundaries are:
 - **Local host authority:** created only by trusted local session setup. It is never granted by a remote message.
 - **Transport peer:** every remote connection, frame, message, count, string, name, profile field, and source address is untrusted until its applicable bounded validation succeeds.
 - **Admission:** a transport connection has no committed participant identity, player slot, readiness, or host authority. It may submit exactly one bounded initial request within three seconds. A successful compatibility decision creates only a private provisional reservation. The guest must repeat the exact ordered identity offer in one acceptance before the single total 10-second Connect deadline; the host then commits atomically and sends a final exact `admitted` confirmation.
-- **Participant authority:** after admission, one immutable connection-to-participant binding controls only that participant's readiness, proposals, leave action, and owned player slots. Host-only actions require the locally created host participant. Disconnect removes the connection's authority while reservation ownership may remain for #36; intentional/expired participant removal clears ownership.
+- **Participant authority:** after admission, one immutable connection-to-participant binding controls only that participant's readiness, proposals, leave action, person values for existing owned player slots, and those owned player slots. Local control assignments remain participant-local. Host-only actions require the locally created host participant. Disconnect removes the connection's authority while reservation ownership may remain for #36; intentional or expired participant removal clears ownership.
 - **Content and scripting:** Guest Lua, content files, profile files, and profile-selected scripts must not load or execute. First-release network matches must disable all optional gameplay scripts, as specified for issue #32.
 - **Resolver helper:** the packaged helper is started by an explicit executable path with direct arguments and no shell, bounded output, restricted inherited handles, fail-closed supervision, and the existing process-global cap of 32 active or delayed helpers.
 - **Diagnostics:** peer-facing copy and trusted local diagnostics are separate. The diagnostic API accepts only a trusted timestamp, local connection number, enumerated stage/category/limit name, and bounded counters.
 
 This model limits accidental exposure and straightforward resource abuse by reachable peers. It does not provide confidentiality, peer identity, anti-cheat, resistance to a malicious local administrator, or public-service hardening.
+
+### Admitted player-slot authority
+
+- **TRU-OWN-001** Admission must bind one immutable set of player identities and owned player slots to the participant.
+- **TRU-OWN-002** A participant may change a person only for an existing player slot that it owns.
+- **TRU-OWN-003** A participant may change its local control assignment only for an existing player slot that it owns.
+- **TRU-OWN-004** A person or control change must not replace the player identity or transfer ownership.
+- **TRU-OWN-005** The service must reject a post-admission request to add, remove, or transfer one player slot.
+- **TRU-OWN-006** Participant Leave or authoritative expiry must revoke all authority for that participant and its owned player slots.
+- **TRU-OWN-007** A reconnect must restore only the same reserved participant and player-slot ownership.
 
 ## Admission and connection quotas
 

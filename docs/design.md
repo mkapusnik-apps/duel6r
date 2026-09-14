@@ -10,8 +10,9 @@ The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a seco
 The approved product requirements are the source of truth for visual-impact changes.
 The current native implementation remains the source for unchanged visual details.
 The fixed product baseline is the current product-owned `docs/features.md` content.
-This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, the person-action alignment specified in `SET-078`–`SET-083`, the person-list and action-button refinement specified in `SET-084`–`SET-091`, the final limited Deathmatch and Team game summary specified in `UI-GAME-001`–`UI-GAME-007`, and the planned first-release network UI defined for issue #28.
-The network additions are target specifications for downstream issue #38 and are not implemented UI or evidence of playable networking.
+This baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, the person-action alignment specified in `SET-078`–`SET-083`, the person-list and action-button refinement specified in `SET-084`–`SET-091`, the final limited Deathmatch and Team game summary specified in `UI-GAME-001`–`UI-GAME-007`, and the first-release network UI defined for issue #28.
+Issue #38 implements the network graphical states. Its 13 canonical visual artifacts conform at source head `e70a057819c97100b083c3cdaae5dc24566435cd`.
+This visual acceptance does not establish parent issue #27 release readiness.
 Issue #35 implements presentation-ready responsiveness, correction, degraded-state, resynchronization, and recovery handoffs without a graphical consumer.
 Issue #35 does not change a rendered application screen, layout, or graphical state.
 Issue #30 may implement protocol, command-line, or scaffold outcomes, but it must not add graphical network UI.
@@ -19,7 +20,7 @@ Issue #32 defines authoritative headless match states, result data, and fixed ou
 Issue #32 must not add graphical network UI.
 Issue #34 defines stable replicated identities and presentation-independent result-state replication.
 Issue #34 must not add graphical network UI.
-Issue #38 owns the future graphical consumption, presentation, accessibility, and visual evidence for the replicated states.
+Issue #38 owns the graphical consumption, presentation, accessibility, and visual evidence for the replicated states.
 
 ## Visual principles
 
@@ -185,7 +186,7 @@ The following values come from renderer and GUI source.
 - Gameplay must use `resources/textures/blocks/`, `resources/textures/man/`, `resources/textures/weapon/`, `resources/textures/bonus/`, and `resources/textures/elevator/` for visible world objects.
 - The game must preserve nearest or linear filtering choices from each loader call.
 - A missing required texture, level, or font may stop initialization in the current implementation.
-- A missing person profile must fall back to random player colors and default player sounds.
+- In Local Play, a missing person profile must fall back to random player colors and default player sounds.
 - Documentation must not define a visual placeholder for a missing required world asset because the implementation has no visual placeholder.
 
 ## Motion and temporal feedback
@@ -300,6 +301,71 @@ The following values come from renderer and GUI source.
 - Network round limit must accept only integers from 1 through 99.
 - Network match setup must not expose weapon enablement, ammunition ranges, level data, or gameplay definitions as settings.
 - Network match status must state that optional Lua and profile scripts are disabled for network play.
+- Network setup must provide local person selection and local control assignment without a profile selector, profile column, or profile-editing action.
+- `NET-02` must show a control labeled `Listening interface` directly after Port in the endpoint hierarchy.
+- Port must keep initial focus in editable `NET-02`.
+- `Listening interface` must follow Port in the keyboard and controller focus order.
+- `Listening interface` must show IPv4 loopback and each currently eligible assigned private RFC1918 IPv4 address.
+- The selector should show the IPv4 literal first and the scope as `Same machine` or `Private LAN`.
+- The selector must not show wildcard, unspecified, public, multicast, link-local, unassigned, network, or broadcast addresses.
+- The selector must select IPv4 loopback on first entry to `NET-02`.
+- The interface list must show each eligible IPv4 literal once.
+- The collapsed selector must keep the complete selected IPv4 literal visible.
+- An expanded interface list must use one line per address.
+- An expanded interface list must scroll vertically when all eligible addresses do not fit without changing the canvas or moving the split setup panels.
+- A long option label must clip after the complete IPv4 literal and must not wrap or change row height.
+- The selector pointer region must include the complete collapsed control and each complete visible option row.
+- The selected option and selector focus must remain identifiable without color.
+- Confirm must open the collapsed selector or accept the highlighted option.
+- Keyboard or controller directional input must move through visible interface options while the selector is open.
+- Escape or controller Back must close the expanded selector without leaving `NET-02`.
+- `NET-02` must retain an eligible selected listening address through Cancel, failure, Edit setup, and eligible Retry.
+- Start session must revalidate the selected listening address before startup begins.
+- An ineligible retained address must leave `Listening interface` without a valid selection and keep `NET-02` editable.
+- An ineligible retained address must show `Selected listening interface is no longer available. Choose another interface.`
+- The application must not automatically replace an ineligible address with a private LAN address.
+- Interface enumeration and selection must not discover another host or session.
+- Interface enumeration and selection must not change an interface, route, firewall, Docker network, NAT rule, port-forwarding rule, or other network infrastructure.
+- Network setup must let a participant add or remove local player slots only before host startup or guest Connect begins.
+- Start session and Connect must lock the displayed local-player count and ordered slot set for that attempt.
+- Cancel or a recoverable pre-admission failure may return to editable setup with the retained slot set.
+- Successful host startup or guest admission must fix the participant's ordered player slots, identities, and ownership for the admitted lifetime.
+- `NET-04` must not show or provide an action to add, remove, or transfer one player slot.
+- An admitted participant may edit the person and local control only for an existing owned player slot.
+- A person or control edit must retain the slot position, player identity, and owner.
+- Only the host may reorder the authoritative roster.
+- A host roster reorder must retain every player identity and owner.
+- A person edit, control edit, or host roster reorder must clear every participant's readiness.
+- Intentional participant Leave or authoritative expiry must remove every slot owned by that participant as one participant-level outcome.
+- A removed player identity must not be reused during the same session.
+- Reconnect must restore the same reserved participant, player slots, player identities, and ownership.
+- Reconnect must not create, remove, replace, reorder, or transfer a reserved player slot.
+- A network player name must identify the selected local person without implying selected-profile appearance parity.
+- First-release network play must use one built-in default network visual set for every local and remote player.
+- The default network visual set must provide the built-in player skin, animation mapping, and entity-resource mapping.
+- The same supported release and the same complete replicated canonical state must select the same network player animation and entity visual on each client.
+- Presentation must derive movement, action, entity type, and visual gameplay state from read-only replicated canonical state.
+- Presentation must not create or advance a second gameplay simulation.
+- A local or remote profile must not change a network player's skin, animation, or visual resource.
+- The default network visual set must preserve authoritative Team colors, Predator opacity, invisibility, and each other replicated visual gameplay state.
+- A network client must use the level's named background when that background is locally usable.
+- A network client must use a deterministic pseudo-random built-in fallback when the level has no locally usable named background.
+- The fallback mapping must use only the existing replicated session, match, round, and level logical identities and the client's stable ordered eligible background list.
+- Equal logical identities and equal eligible background lists must select the same fallback background on every client of the supported release.
+- A fixed identity tuple and eligible background list must keep the selected fallback unchanged across a full snapshot, equivalent incremental state, reconnect, and resynchronization.
+- Controlled varied identity tuples must give every item in the eligible background list a selection opportunity.
+- Fallback selection must not use or advance authoritative gameplay random state.
+- Fallback selection must not add or consume a canonical background-selection field.
+- Fallback selection must not change canonical state, gameplay, results, or Local Play behavior.
+- Fallback selection must not load a profile background or peer content.
+- Background fallback must not add visible copy, controls, status, or layout allocation.
+- A missing, changed, or additional profile or cosmetic asset must not block network admission.
+- A client must not load a peer-selected profile, file, or script as a visual fallback.
+- A client that cannot load a required default network visual resource must not start network play.
+- A required default network visual resource failure must keep the existing required-resource failure behavior.
+- `NET-07` and `NET-09` must retain the default network visuals from the last complete accepted network state when they retain arena context.
+- A retained arena context must not switch to a selected-profile appearance while it is non-current or blocked.
+- Selected-profile appearance parity is deferred to issue #84 and must not appear as first-release behavior or evidence.
 - Only the host may show an enabled early-advance action after a round outcome exists.
 - Guests must not see an enabled round-advance action.
 - Network round-end presentation must distinguish the first-second active phase from the final-five-second frozen phase.
@@ -333,6 +399,25 @@ The following values come from renderer and GUI source.
 - A movement correction must move that sprite toward one latest accepted canonical position.
 - A movement correction must not use a duplicate sprite, ghost trail, flashing marker, camera shift, or outcome effect.
 - A movement correction must not change another player's visible state or an authoritative outcome.
+- A menu-canvas network screen must keep a 24-logical-pixel inner margin around its primary panel.
+- A menu-canvas network screen must use a fixed header region, a flexible body region, and a fixed action region.
+- Adjacent network controls must keep at least 8 logical px of clear space.
+- A primary network action must precede Back, Cancel, Leave, End session, Edit setup, and Return actions in reading order.
+- A focused network control must add a continuous 2-logical-pixel black outer keyline outside its normal frame.
+- The focus keyline must not change the control size or move adjacent content.
+- A disabled network control must keep readable text, use a flat frame instead of the raised actionable frame, and show one persistent nearby reason.
+- A disabled network control must not receive focus or pointer activation.
+- A network text field must show its complete value when the value fits.
+- A focused text field may scroll its text horizontally to keep the insertion position visible.
+- An unfocused text field must clip an overlong value inside the field and must not draw into an adjacent region.
+- A network list or table must keep its heading visible while its body scrolls vertically.
+- A network list or table must not increase row height to fit a long participant or player name.
+- A long participant or player value must clip inside its column.
+- A horizontally wide result table must provide an explicit horizontal scroll control inside the result region.
+- A scroll control must remain keyboard- and controller-operable and must show visible position feedback.
+- A blocking network panel must keep at least 16 px between its outer edge and each client edge.
+- A blocking network panel must wrap prose at word boundaries and may break an unspaced endpoint at a character boundary.
+- A blocking network panel must keep its heading, current status, and primary recovery action visible when body content scrolls.
 
 ### Gameplay presentation
 
@@ -445,7 +530,7 @@ The following values come from renderer and GUI source.
 - Screenshot provenance must record branch, source SHA, environment, workflow, state, viewport, and artifact path.
 - Evidence for menu background selection or persistence must also record the selected filename, runtime asset manifest revision, and session identifier.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
-- Eleven screenshot entries remain `Planned` until issue #38 implements and captures `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
+- The issue #38 entries `SS-002`, `SS-013`, and `SS-015`–`SS-023` conform at source head `e70a057819c97100b083c3cdaae5dc24566435cd`.
 - `SS-001` and `SS-024` must represent the two approved `MENU-01` conditional-layout wireframes.
 - `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry.
 - The PR #59 `SS-001` and `SS-024` artifacts are historical because they show the prior person-action arrangement.
@@ -453,11 +538,10 @@ The following values come from renderer and GUI source.
 - The PR #62 `SS-001` and `SS-024` artifacts are historical because they show `<<` in the Persons panel.
 - PR #69 provides the latest captured implementation screenshots for nine implemented wireframes.
 - PR #70 provides the latest captured implementation screenshot for `OVER-03`.
-- `SS-001` and `SS-024` represent the current three-action `MENU-01` implementation and conform at PR #69 assessment head `f4708d337bb82be55c553c64608bd75ccd64121f`.
+- `SS-001` and `SS-024` represent the current four-action `MENU-01` implementation and conform at source head `e70a057819c97100b083c3cdaae5dc24566435cd`.
 - `SS-003`, `SS-007`–`SS-011`, and `SS-014` represent the current implemented gameplay and overlay wireframes and conform at the same assessment head.
-- The PR #70 `SS-012` artifact is historical because it predates the enlarged and contained final round counter and the Deathmatch completion-notice requirement.
-- `SS-012` is pending replacement evidence for the current `OVER-03` wireframe.
-- Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
+- The PR #70 `SS-012` replacement artifact conforms to the current `OVER-03` wireframe.
+- Issue #38 recaptured `SS-001` and `SS-024` with the implemented Network footer.
 
 ## Reviewed implementation sources
 

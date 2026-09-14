@@ -96,6 +96,7 @@ namespace Duel6::Network::Replication {
         std::int64_t bonusRemaining = 0;
         bool invulnerable = false;
         bool visible = true;
+        std::uint8_t presentationAlpha = 255;
         std::int64_t reloadRemaining = 0;
         std::int64_t charge = 0;
         std::int64_t temporaryMovementRemaining = 0;
@@ -192,6 +193,25 @@ namespace Duel6::Network::Replication {
         ResultState result;
     };
 
+    // Countdown is expressed in fixed 60 Hz authoritative ticks. The final
+    // five seconds are frozen; presentation's RoundSummary also covers the
+    // preceding input-eligible second.
+    inline bool acceptsGameplayInput(const CanonicalState &state) noexcept {
+        return state.phase == Phase::ActiveRound
+               || (state.phase == Phase::RoundSummary && state.roundEndCountdown > 5u * 60u);
+    }
+
+    struct RetainedOutcomeRow {
+        std::uint8_t roundNumber = 0; // Zero denotes the match outcome.
+        Identity playerId = 0; // Zero denotes No winner.
+        std::string displayName;
+        std::uint8_t team = 0;
+        bool departed = false;
+    };
+    // Read-only projection using the bounded canonical result parser, preserving
+    // exact 64-bit identities (the general UI JSON reader uses floating point).
+    std::optional<std::vector<RetainedOutcomeRow>> retainedOutcomeRows(const ResultState &result);
+
     struct FullSnapshot {
         StateVersion version = 0;
         CanonicalState state;
@@ -230,6 +250,8 @@ namespace Duel6::Network::Replication {
 
     enum class ApplyResult { Applied, Invalid, ResynchronizationRequired, WaitingForSnapshot };
 
+    enum class CanonicalValidationOutcome { Valid, Invalid, InternalFailure };
+    CanonicalValidationOutcome validateCanonicalStateDetailed(const CanonicalState &state) noexcept;
     bool validateCanonicalState(const CanonicalState &state) noexcept;
 
     class AuthoritativeStateReplicator final {
@@ -240,6 +262,7 @@ namespace Duel6::Network::Replication {
         std::optional<FullSnapshot> fullSnapshot() const;
         void discard() noexcept;
         StateVersion version() const noexcept;
+        bool lastPublishFailedInternally() const noexcept;
     private:
         StateVersion currentVersion = 0;
         std::optional<CanonicalState> current;
@@ -251,6 +274,7 @@ namespace Duel6::Network::Replication {
         std::map<Identity, std::uint8_t> issuedRoundNumbers;
         std::map<Identity, EntityKind> transientEntityIdentities;
         Identity highestEntityIdentity = 0;
+        bool publishInternalFailure = false;
     };
 
     class ReplicatedState final {

@@ -2,12 +2,12 @@
 
 ## Status, purpose, and requirements
 
-This is a target screen for downstream issue #38; it is not implemented. It gives an actionable and truthful outcome for startup/initial-connection failures and terminal reconnect outcomes. It implements `NET-AC-002`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-011`, `NET-AC-013`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
-Issue #30 defines the compatibility and admission outcomes for this planned screen in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
+This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It gives an actionable and truthful outcome for startup/initial-connection failures and terminal reconnect outcomes. It implements `NET-AC-002`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-011`, `NET-AC-013`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+Issue #30 defines the compatibility and admission outcomes for this screen in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 Issue #30 must not implement this graphical screen.
-Issue #31 defines host startup and post-readiness service outcomes for this planned screen in [`docs/network-host-service-lifecycle.md`](../network-host-service-lifecycle.md).
+Issue #31 defines host startup and post-readiness service outcomes for this screen in [`docs/network-host-service-lifecycle.md`](../network-host-service-lifecycle.md).
 Issue #31 must not implement this graphical screen.
-Issue #32 defines authoritative match failures for this planned screen in [`docs/network-authoritative-headless-match.md`](../network-authoritative-headless-match.md).
+Issue #32 defines authoritative match failures for this screen in [`docs/network-authoritative-headless-match.md`](../network-authoritative-headless-match.md).
 Issue #32 must not implement this graphical screen.
 Issue #38 owns its graphical controls, focus, disabled reasons, and visual evidence.
 
@@ -21,6 +21,14 @@ Host startup or initial Join failure enters from `NET-02` or `NET-03`; terminal 
 - The representative state is `Host unreachable.` for the preserved direct endpoint.
 - Show a short recovery instruction, then Retry when valid, `Edit setup`, and `Return to Network`.
 - Keep unsupported-feature marketing or speculative diagnostic controls out of the screen.
+- Keep the failure panel inside the shared 24-logical-pixel canvas margin.
+- Use a fixed state heading, a flexible reason and instruction region, and a fixed recovery-action region.
+- Keep the complete confirmed reason visible and wrap it at word boundaries.
+- Keep an entered guest endpoint inside a bounded context row.
+- Break an unspaced endpoint at a character boundary when it does not fit.
+- Keep Retry, Edit setup, and Return to Network in one row when they fit.
+- Wrap recovery actions to a second row in reading order before captions clip or actions overlap.
+- Keep every enabled recovery action visible when the reason region scrolls.
 
 ## Significant variants
 

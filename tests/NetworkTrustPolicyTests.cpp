@@ -103,6 +103,31 @@ D6R_TEST_CASE("local bind helper accepts assigned trusted interfaces and rejects
     D6R_REQUIRE(!isLocalIpv4AddressAssigned({192, 168, 0, 255}));
 }
 
+D6R_TEST_CASE("NET-02 production listener address enumeration is stable loopback-first and self-revalidating") {
+    const auto first = localListenerAddresses();
+    const auto second = localListenerAddresses();
+    D6R_REQUIRE(first.has_value());
+    D6R_REQUIRE(second.has_value());
+    D6R_REQUIRE(!first->empty());
+    D6R_REQUIRE_EQ(*first, *second);
+    D6R_REQUIRE_EQ(std::string("127.0.0.1"), first->front());
+    D6R_REQUIRE(std::adjacent_find(first->begin(), first->end()) == first->end());
+    for (const auto &address: *first) {
+        D6R_REQUIRE(classifyIpv4Literal(address) == EndpointScope::Loopback
+                    || classifyIpv4Literal(address) == EndpointScope::PrivateLan);
+        std::array<std::uint8_t, 4> parsed{};
+        std::size_t offset = 0;
+        for (std::size_t index = 0; index < parsed.size(); ++index) {
+            const auto separator = address.find('.', offset);
+            const auto component = address.substr(offset, separator - offset);
+            parsed[index] = static_cast<std::uint8_t>(std::stoul(component));
+            offset = separator == std::string::npos ? address.size() : separator + 1;
+        }
+        D6R_REQUIRE(localListenerBindDecision(parsed) == LocalListenerBindDecision::Allowed);
+    }
+    D6R_REQUIRE_EQ(first->front(), *preferredLocalListenerAddress());
+}
+
 D6R_TEST_CASE("pure local bind decisions honor interface prefixes and platform record shapes") {
     using Decision = LocalListenerBindDecision;
     const auto decide = [](std::array<std::uint8_t, 4> requested,

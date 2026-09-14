@@ -40,6 +40,40 @@ namespace Duel6::Client {
         constexpr std::size_t MaximumProcessArguments = 32;
         std::atomic<bool> productionServiceOwned{false};
 
+        bool takeHostServiceEvent(std::vector<std::uint8_t> &buffer, HostServiceStatusEvent &event) {
+            if (buffer.size() < 4) return false;
+            const std::uint32_t magic = (static_cast<std::uint32_t>(buffer[0]) << 24u)
+                                        | (static_cast<std::uint32_t>(buffer[1]) << 16u)
+                                        | (static_cast<std::uint32_t>(buffer[2]) << 8u)
+                                        | static_cast<std::uint32_t>(buffer[3]);
+            std::size_t messageBytes = 0;
+            if (magic == Network::HostServiceControlMagic) {
+                messageBytes = Network::HostServiceStatusMessageBytes;
+                if (buffer.size() < messageBytes) return false;
+                std::uint64_t timestamp = 0;
+                if (!Network::decodeHostServiceStatus(buffer.data(), messageBytes, event.code, timestamp))
+                    throw std::invalid_argument("Invalid hosted-service status message");
+                event.receivedAt = HostServiceTimePoint(std::chrono::nanoseconds(timestamp));
+                event.sessionPayload.clear();
+            } else if (magic == Network::HostServicePayloadMagic) {
+                std::size_t payloadBytes = 0;
+                if (buffer.size() < Network::HostServicePayloadHeaderBytes) return false;
+                if (!Network::decodeHostServicePayloadHeader(
+                        buffer.data(), Network::HostServicePayloadHeaderBytes, payloadBytes))
+                    throw std::invalid_argument("Invalid hosted-service payload header");
+                messageBytes = Network::HostServicePayloadHeaderBytes + payloadBytes;
+                if (buffer.size() < messageBytes) return false;
+                event.sessionPayload.assign(
+                        buffer.begin() + static_cast<std::ptrdiff_t>(Network::HostServicePayloadHeaderBytes),
+                        buffer.begin() + static_cast<std::ptrdiff_t>(messageBytes));
+                event.receivedAt = std::chrono::steady_clock::now();
+            } else {
+                throw std::invalid_argument("Invalid hosted-service message magic");
+            }
+            buffer.erase(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(messageBytes));
+            return true;
+        }
+
         class ExclusiveHostServiceChild final : public HostServiceChild {
         public:
             explicit ExclusiveHostServiceChild(std::unique_ptr<HostServiceChild> owned) : owned(std::move(owned)) {}
@@ -61,6 +95,9 @@ namespace Duel6::Client {
             void requestStop() override { owned->requestStop(); }
             void requestEndSession() override { owned->requestEndSession(); }
             bool requestReadiness(bool ready) override { return owned->requestReadiness(ready); }
+            bool requestSessionPayload(const std::vector<std::uint8_t> &payload) override {
+                return owned->requestSessionPayload(payload);
+            }
             bool waitForExit(std::chrono::milliseconds timeout) override { return owned->waitForExit(timeout); }
             void forceTerminate() override { owned->forceTerminate(); }
             bool cleanupConfirmed() override { return owned->cleanupConfirmed(); }
@@ -86,6 +123,7 @@ namespace Duel6::Client {
             };
             for (const auto &script: config.enabledGameplayScripts)
                 arguments.push_back("--gameplay-script=" + script);
+            if (config.graphicalComposition) arguments.push_back("--graphical-host-composition");
             if (arguments.size() > MaximumProcessArguments)
                 throw std::invalid_argument("Hosted service has too many process arguments");
             return arguments;
@@ -146,30 +184,30 @@ namespace Duel6::Client {
                 if (!statusRead || statusSealed) return false;
                 const auto deadline = std::chrono::steady_clock::now() + timeout;
                 do {
+                    try { if (takeHostServiceEvent(statusBuffer, event)) return true; }
+                    catch (...) { statusSealed = true; closeStatusLocked(); return false; }
                     DWORD available = 0;
                     if (!PeekNamedPipe(statusRead, nullptr, 0, nullptr, &available, nullptr)) {
                         closeStatusLocked();
                         return false;
                     }
                     if (available > 0) {
-                        constexpr DWORD MaximumBufferedStatusBytes =
-                                static_cast<DWORD>(Network::HostServiceStatusMessageBytes * 16u);
-                        if (available > MaximumBufferedStatusBytes
-                            || available % Network::HostServiceStatusMessageBytes != 0) {
+                        constexpr DWORD MaximumBufferedStatusBytes = static_cast<DWORD>(
+                                Network::HostServiceMaximumPayloadBytes + Network::HostServicePayloadHeaderBytes
+                                + Network::HostServiceStatusMessageBytes * 16u);
+                        if (available > MaximumBufferedStatusBytes) {
                             statusSealed = true;
                             closeStatusLocked();
                             return false;
                         }
-                        std::array<std::uint8_t, Network::HostServiceStatusMessageBytes> message{};
+                        std::array<std::uint8_t, 4096> message{};
                         DWORD count = 0;
-                        if (!ReadFile(statusRead, message.data(), static_cast<DWORD>(message.size()), &count, nullptr)
-                            || count != message.size())
+                        const DWORD requested = (std::min)(available, static_cast<DWORD>(message.size()));
+                        if (!ReadFile(statusRead, message.data(), requested, &count, nullptr) || count == 0)
                             return false;
-                        std::uint64_t timestamp = 0;
-                        if (!Network::decodeHostServiceStatus(message.data(), message.size(), event.code, timestamp))
-                            return false;
-                        event.receivedAt = HostServiceTimePoint(std::chrono::nanoseconds(timestamp));
-                        return true;
+                        statusBuffer.insert(statusBuffer.end(), message.begin(),
+                                            message.begin() + static_cast<std::ptrdiff_t>(count));
+                        continue;
                     }
                     if (timeout <= std::chrono::milliseconds::zero()) return false;
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -202,6 +240,16 @@ namespace Duel6::Client {
             bool requestReadiness(bool ready) override {
                 return requestCommand(ready ? Network::HostServiceCommandCode::Ready
                                             : Network::HostServiceCommandCode::NotReady, false);
+            }
+
+            bool requestSessionPayload(const std::vector<std::uint8_t> &payload) override {
+                std::lock_guard<std::mutex> lock(controlMutex);
+                if (stopSent || !controlWrite) return false;
+                std::vector<std::uint8_t> message;
+                try { message = Network::encodeHostServicePayload(payload); } catch (...) { return false; }
+                DWORD count = 0;
+                return WriteFile(controlWrite, message.data(), static_cast<DWORD>(message.size()), &count, nullptr)
+                       && count == message.size();
             }
 
             bool requestCommand(Network::HostServiceCommandCode command, bool terminal) {
@@ -246,32 +294,22 @@ namespace Duel6::Client {
             }
 
             void drainSealedStatusLocked(std::vector<HostServiceStatusEvent> &statuses) {
-                constexpr DWORD MaximumBufferedStatusBytes =
-                        static_cast<DWORD>(Network::HostServiceStatusMessageBytes * 16u);
                 if (!statusRead) return;
                 DWORD available = 0;
-                if (!PeekNamedPipe(statusRead, nullptr, 0, nullptr, &available, nullptr)
-                    || available == 0 || available > MaximumBufferedStatusBytes
-                    || available % Network::HostServiceStatusMessageBytes != 0)
-                    return;
-
-                std::vector<HostServiceStatusEvent> drained;
-                drained.reserve(available / Network::HostServiceStatusMessageBytes);
+                if (!PeekNamedPipe(statusRead, nullptr, 0, nullptr, &available, nullptr)) return;
                 while (available > 0) {
-                    std::array<std::uint8_t, Network::HostServiceStatusMessageBytes> message{};
+                    std::array<std::uint8_t, 4096> message{};
                     DWORD count = 0;
-                    if (!ReadFile(statusRead, message.data(), static_cast<DWORD>(message.size()), &count, nullptr)
-                        || count != message.size())
-                        return;
-                    HostServiceStatusEvent event;
-                    std::uint64_t timestamp = 0;
-                    if (!Network::decodeHostServiceStatus(message.data(), message.size(), event.code, timestamp))
-                        return;
-                    event.receivedAt = HostServiceTimePoint(std::chrono::nanoseconds(timestamp));
-                    drained.push_back(event);
-                    available -= static_cast<DWORD>(message.size());
+                    const DWORD requested = (std::min)(available, static_cast<DWORD>(message.size()));
+                    if (!ReadFile(statusRead, message.data(), requested, &count, nullptr) || count == 0) return;
+                    statusBuffer.insert(statusBuffer.end(), message.begin(),
+                                        message.begin() + static_cast<std::ptrdiff_t>(count));
+                    available -= count;
                 }
-                statuses.insert(statuses.end(), drained.begin(), drained.end());
+                try {
+                    HostServiceStatusEvent event;
+                    while (takeHostServiceEvent(statusBuffer, event)) statuses.push_back(event);
+                } catch (...) { statusBuffer.clear(); }
             }
 
             bool jobEmpty() const {
@@ -290,6 +328,7 @@ namespace Duel6::Client {
             std::mutex statusMutex;
             bool stopSent = false;
             bool statusSealed = false;
+            std::vector<std::uint8_t> statusBuffer;
         };
 #else
         bool moveAboveHostedDescriptors(int &descriptor) {
@@ -378,32 +417,30 @@ namespace Duel6::Client {
             bool readStatus(HostServiceStatusEvent &event, std::chrono::milliseconds timeout) override {
                 std::lock_guard<std::mutex> lock(statusMutex);
                 if (statusRead < 0 || statusSealed) return false;
-                pollfd descriptor{statusRead, POLLIN, 0};
-                const int ready = poll(&descriptor, 1, static_cast<int>(std::max<std::int64_t>(0, timeout.count())));
-                if (ready <= 0 || !(descriptor.revents & POLLIN)) return false;
-                int available = 0;
-                if (ioctl(statusRead, FIONREAD, &available) != 0) return false;
-                constexpr int MaximumBufferedStatusBytes =
-                        static_cast<int>(Network::HostServiceStatusMessageBytes * 16u);
-                if (available > MaximumBufferedStatusBytes
-                    || available % static_cast<int>(Network::HostServiceStatusMessageBytes) != 0) {
-                    statusSealed = true;
-                    closeStatusLocked();
-                    return false;
-                }
-                std::array<std::uint8_t, Network::HostServiceStatusMessageBytes> message{};
-                std::size_t offset = 0;
-                while (offset < message.size()) {
-                    const ssize_t count = read(statusRead, message.data() + offset, message.size() - offset);
+                try { if (takeHostServiceEvent(statusBuffer, event)) return true; }
+                catch (...) { statusSealed = true; closeStatusLocked(); return false; }
+                const auto deadline = std::chrono::steady_clock::now() + timeout;
+                do {
+                    pollfd descriptor{statusRead, POLLIN, 0};
+                    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            deadline - std::chrono::steady_clock::now());
+                    const int ready = poll(&descriptor, 1,
+                                           static_cast<int>(std::max<std::int64_t>(0, remaining.count())));
+                    if (ready <= 0 || !(descriptor.revents & POLLIN)) return false;
+                    std::array<std::uint8_t, 4096> message{};
+                    const ssize_t count = read(statusRead, message.data(), message.size());
                     if (count < 0 && errno == EINTR) continue;
                     if (count <= 0) return false;
-                    offset += static_cast<std::size_t>(count);
-                }
-                std::uint64_t timestamp = 0;
-                if (!Network::decodeHostServiceStatus(message.data(), message.size(), event.code, timestamp))
-                    return false;
-                event.receivedAt = HostServiceTimePoint(std::chrono::nanoseconds(timestamp));
-                return true;
+                    statusBuffer.insert(statusBuffer.end(), message.begin(),
+                                        message.begin() + static_cast<std::ptrdiff_t>(count));
+                    if (statusBuffer.size() > Network::HostServiceMaximumPayloadBytes
+                                              + Network::HostServicePayloadHeaderBytes) {
+                        statusSealed = true; closeStatusLocked(); return false;
+                    }
+                    try { if (takeHostServiceEvent(statusBuffer, event)) return true; }
+                    catch (...) { statusSealed = true; closeStatusLocked(); return false; }
+                } while (std::chrono::steady_clock::now() < deadline);
+                return false;
             }
 
             bool observeExitAndDrainStatus(
@@ -434,6 +471,22 @@ namespace Duel6::Client {
             bool requestReadiness(bool ready) override {
                 return requestCommand(ready ? Network::HostServiceCommandCode::Ready
                                             : Network::HostServiceCommandCode::NotReady, false);
+            }
+
+            bool requestSessionPayload(const std::vector<std::uint8_t> &payload) override {
+                std::lock_guard<std::mutex> lock(controlMutex);
+                if (stopSent || controlWrite < 0) return false;
+                std::vector<std::uint8_t> message;
+                try { message = Network::encodeHostServicePayload(payload); } catch (...) { return false; }
+                std::size_t offset = 0;
+                while (offset < message.size()) {
+                    const ssize_t count = send(controlWrite, message.data() + offset, message.size() - offset,
+                                               MSG_NOSIGNAL);
+                    if (count < 0 && errno == EINTR) continue;
+                    if (count <= 0) return false;
+                    offset += static_cast<std::size_t>(count);
+                }
+                return true;
             }
 
             bool requestCommand(Network::HostServiceCommandCode command, bool terminal) {
@@ -499,36 +552,24 @@ namespace Duel6::Client {
             }
 
             void drainSealedStatusLocked(std::vector<HostServiceStatusEvent> &statuses) {
-                constexpr int MaximumBufferedStatusBytes =
-                        static_cast<int>(Network::HostServiceStatusMessageBytes * 16u);
                 if (statusRead < 0) return;
                 int available = 0;
-                if (ioctl(statusRead, FIONREAD, &available) != 0 || available <= 0
-                    || available > MaximumBufferedStatusBytes
-                    || available % static_cast<int>(Network::HostServiceStatusMessageBytes) != 0)
-                    return;
-
-                std::vector<HostServiceStatusEvent> drained;
-                drained.reserve(static_cast<std::size_t>(available)
-                                / Network::HostServiceStatusMessageBytes);
+                if (ioctl(statusRead, FIONREAD, &available) != 0) return;
                 while (available > 0) {
-                    std::array<std::uint8_t, Network::HostServiceStatusMessageBytes> message{};
-                    std::size_t offset = 0;
-                    while (offset < message.size()) {
-                        const ssize_t count = read(statusRead, message.data() + offset, message.size() - offset);
-                        if (count < 0 && errno == EINTR) continue;
-                        if (count <= 0) return;
-                        offset += static_cast<std::size_t>(count);
-                    }
-                    HostServiceStatusEvent event;
-                    std::uint64_t timestamp = 0;
-                    if (!Network::decodeHostServiceStatus(message.data(), message.size(), event.code, timestamp))
-                        return;
-                    event.receivedAt = HostServiceTimePoint(std::chrono::nanoseconds(timestamp));
-                    drained.push_back(event);
-                    available -= static_cast<int>(message.size());
+                    std::array<std::uint8_t, 4096> message{};
+                    const auto requested = static_cast<std::size_t>((std::min)(available,
+                            static_cast<int>(message.size())));
+                    const ssize_t count = read(statusRead, message.data(), requested);
+                    if (count < 0 && errno == EINTR) continue;
+                    if (count <= 0) return;
+                    statusBuffer.insert(statusBuffer.end(), message.begin(),
+                                        message.begin() + static_cast<std::ptrdiff_t>(count));
+                    available -= static_cast<int>(count);
                 }
-                statuses.insert(statuses.end(), drained.begin(), drained.end());
+                try {
+                    HostServiceStatusEvent event;
+                    while (takeHostServiceEvent(statusBuffer, event)) statuses.push_back(event);
+                } catch (...) { statusBuffer.clear(); }
             }
 
             bool observeLeaderExitLocked() {
@@ -598,6 +639,7 @@ namespace Duel6::Client {
             mutable std::mutex processMutex;
             bool stopSent = false;
             bool statusSealed = false;
+            std::vector<std::uint8_t> statusBuffer;
             bool leaderExitObserved = false;
             bool leaderReaped = false;
             bool ownershipAnchorLost = false;

@@ -25,6 +25,7 @@ namespace Duel6::Network {
         std::string networkReleaseId{NetworkReleaseId};
         std::vector<std::string> capabilities;
         std::uint8_t localPlayerCount = 1;
+        std::vector<std::string> localPlayerNames;
         GameplayManifest gameplayManifest;
     };
 
@@ -91,7 +92,8 @@ namespace Duel6::Network {
     std::string_view reconnectCompatibilityIdentifier(ReconnectCompatibilityCode code);
     std::string_view reconnectCompatibilityUserCopy(ReconnectCompatibilityCode code);
     bool hasRequiredAdmissionCapabilities(const std::vector<std::string> &capabilities);
-    AdmissionRequest makeLocalAdmissionRequest(std::uint8_t localPlayers, GameplayManifest manifest);
+    AdmissionRequest makeLocalAdmissionRequest(std::uint8_t localPlayers, GameplayManifest manifest,
+                                               std::vector<std::string> localPlayerNames = {});
 }
 
 #endif

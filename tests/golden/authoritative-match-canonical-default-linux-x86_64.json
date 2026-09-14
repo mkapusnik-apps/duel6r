@@ -5,10 +5,10 @@
   "seed": 424242,
   "scenario": "interrupted-fixed-duel-01",
   "diagnosticFixture": "none",
-  "stateDigest": 12294085871348412701,
+  "stateDigest": 10327420613828619293,
   "randomDecisionCount": 53,
   "randomDigest": 17678977412360259559,
-  "stateCheckpoints": [[0, 12294085871348412701]],
+  "stateCheckpoints": [[0, 10327420613828619293]],
   "canonicalPlayers": {
     "101": {"life": 100, "ammo": 15, "shots": 0, "hits": 0, "positionX": 327680, "positionY": 786439},
     "201": {"life": 100, "ammo": 15, "shots": 0, "hits": 0, "positionX": 524288, "positionY": 65543}

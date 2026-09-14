@@ -10,11 +10,18 @@ int main() {
     const auto &tests = Duel6::Test::registry();
     const char *filterValue = std::getenv("D6R_TEST_FILTER");
     const std::string filter = filterValue ? filterValue : "";
+    const bool listOnly = std::getenv("D6R_TEST_LIST") != nullptr;
+    const bool exact = std::getenv("D6R_TEST_EXACT") != nullptr;
     std::size_t failed = 0;
     std::size_t executed = 0;
 
     for (const auto &test: tests) {
-        if (!filter.empty() && std::string(test.name).find(filter) == std::string::npos) continue;
+        if (!filter.empty() && (exact ? std::string(test.name) != filter
+                                     : std::string(test.name).find(filter) == std::string::npos)) continue;
+        if (listOnly) {
+            std::cout << test.name << '\n';
+            continue;
+        }
         ++executed;
         try {
             test.function();
@@ -37,6 +44,6 @@ int main() {
         }
     }
 
-    std::cout << "Executed " << executed << " test(s), failures: " << failed << '\n';
+    if (!listOnly) std::cout << "Executed " << executed << " test(s), failures: " << failed << '\n';
     return failed == 0 ? 0 : 1;
 }

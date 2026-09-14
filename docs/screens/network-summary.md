@@ -2,11 +2,13 @@
 
 ## Status, purpose, and requirements
 
-This is a target screen for downstream issue #38; it is not implemented. It presents a completed authoritative match result without implying local persistence. It implements `NET-AC-010`, `NET-AC-011`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It presents a completed authoritative match result without implying local persistence. It implements `NET-AC-010`, `NET-AC-011`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 
 Normal match completion enters from `NET-05`. An interrupted match enters `NET-04` directly and never enters this screen. Host Return to lobby sends all connected participants to `NET-04` with readiness cleared; guest Leave returns to `NET-01`; unexpected host contact failure enters guest `NET-07`. Only a valid End session notice accepted through the current established session enters guest `NET-09`.
 
 ## Representative layout
+
+PR #83 review corrections supersede the earlier visual acceptance; replacement `SS-020` evidence is pending. Bound match and last-round headings using a winner count and `See outcome rows` when full names do not fit. Put complete match and round outcome rows before existing result sections. Each winner row retains scope, full display name, player identity, and departure state independently of live membership. Horizontal and vertical scrolling must expose every supported 64 UTF-8-byte name without splitting characters. Keep outcome headings, scrolling position, and actions fixed; do not shrink text or infer winners from ranking. Validate 14 Predator winners including departed winners at 1280×900 and containment at 1280×720.
 
 - Use the final arena frame or retro summary context consistently with the existing score-summary visual language.
 - Show result state `Completed`.
@@ -20,6 +22,16 @@ Normal match completion enters from `NET-05`. An interrupted match enters `NET-0
 - Show team totals when the mode uses teams.
 - Place the exact label `Session only` beside the heading or result table and show `Not saved to local statistics or Elo` as supporting copy.
 - Show host-only `Return to lobby` and `End session`; guests see a waiting status and `Leave`.
+- Keep the summary panel at least 16 px from every client edge.
+- Limit the summary panel to the available client width and height.
+- Use a fixed summary heading and result-identity region, a flexible result viewport, and a fixed status and action region.
+- Keep `Session only`, `Completed`, match outcome, and last completed-round outcome visible above the scrolling result viewport.
+- Group match settings, round results, and cumulative results as separately labeled sections in reading order.
+- Let the result viewport scroll vertically when all sections do not fit.
+- Keep table headings visible while table rows scroll.
+- Provide horizontal scrolling inside a table when all required columns do not fit.
+- Keep action controls visible while result content scrolls.
+- Clip long display names inside their columns and do not increase row height.
 
 ## Navigation and significant variants
 

@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-This is a target screen for downstream issue #38; it is not implemented. It separates player-hosted network play from local-only Play and implements `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-015`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It separates player-hosted network play from local-only Play and implements `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-015`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 Issue #30 must not add this graphical entry or change the current Local Play menu.
 
 Entry is `MENU-01` → `Network (F2)`. Host continues to `NET-02`, Join continues to `NET-03`, and Back returns to `MENU-01` without starting a network service.
@@ -14,6 +14,11 @@ Entry is `MENU-01` → `Network (F2)`. Host continues to `NET-02`, Join continue
 - Show concise scope copy: `Same machine or LAN`, `Direct address and port`, and `Linux / Windows x86-64`.
 - Show `Player-hosted • Lobby 1–15 • Match 2–15 participants and players` as textual constraints.
 - Do not show endpoint fields until Join or host settings until Host.
+- Keep the `NETWORK PLAY` panel inside the shared 24-logical-pixel canvas margin.
+- Allocate the panel as a fixed title and scope region above one centered action column.
+- Give Host, Join, and Back one common width and height.
+- Keep at least 8 logical px between adjacent actions.
+- Wrap the scope copy at word boundaries before it reaches an action or panel edge.
 
 ## Navigation and state variants
 

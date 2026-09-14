@@ -2,10 +2,10 @@
 
 ## Purpose and traceability
 
-The implemented screen builds the local roster, assigns controls, selects match settings, shows persistent results, starts a local match, and exits the application. The approved target adds a distinct network entry without changing local Play.
+The implemented screen builds the local roster, assigns controls, selects match settings, shows persistent results, starts a local match, provides the distinct issue #38 network entry, and exits the application. The network entry does not change local Play.
 Entry occurs when the application starts or when gameplay closes.
-Implemented exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action. In the target UI, `Network (F2)` enters `NET-01`.
-The screen implements `SET-001`–`SET-091`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005`, `AC-011`, `AC-040`–`AC-051`, and `AC-053`–`AC-069` from [`docs/features.md`](../features.md). The planned Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+Exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action. `Network (F2)` enters `NET-01`.
+The screen implements `SET-001`–`SET-091`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005`, `AC-011`, `AC-040`–`AC-051`, and `AC-053`–`AC-069` from [`docs/features.md`](../features.md). The Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md) and is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`.
 The Equalize and Shuffle behavior specifically traces to `SET-017`–`SET-019`, `SET-073`–`SET-077`, `AC-011`, and `AC-063`–`AC-064` at fixed product baseline `e75552f`.
 The person-action alignment specifically traces to `SET-078`–`SET-083` and `AC-065` at fixed product baseline `e75552f`.
 The person-list and action-button refinement specifically traces to `SET-084`–`SET-091` and `AC-066`–`AC-069` at fixed product baseline `88b72a6`.
@@ -91,7 +91,7 @@ Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cp
 - The four target footer buttons must have equal 150-logical-pixel widths, equal 46-logical-pixel gaps, and equal 46-logical-pixel outer margins within the `x=10–840` footer content span.
 - The bottom action row must use action-first captions.
 - The screen must not use `[F1] PLAY`, `[F3] CLEAR`, or `[ESC] QUIT`.
-- The planned `Network (F2)` control is not implemented by issue #28 and must not be treated as current runtime behavior.
+- Issue #38 implements the `Network (F2)` control at accepted checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`.
 
 ## Visible behavior and state variants
 

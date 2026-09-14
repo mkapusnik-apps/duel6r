@@ -168,6 +168,8 @@ namespace Duel6::Network {
     std::vector<std::uint8_t> serializeAdmissionRequest(const AdmissionRequest &request) {
         if (request.networkReleaseId.empty() || !Trust::validGeneralString(request.networkReleaseId)
             || request.localPlayerCount == 0 || request.localPlayerCount > Trust::MaxParticipants
+            || (!request.localPlayerNames.empty()
+                && request.localPlayerNames.size() != request.localPlayerCount)
             || !Trust::validCollectionSize(request.capabilities.size())
             || !validCanonicalManifest(request.gameplayManifest))
             throw std::invalid_argument("Admission request is invalid");
@@ -184,6 +186,12 @@ namespace Duel6::Network {
             != request.capabilities.size())
             throw std::invalid_argument("Admission capabilities must be unique");
         writer.byte(request.localPlayerCount);
+        writer.byte(static_cast<std::uint8_t>(request.localPlayerNames.size()));
+        for (const auto &name: request.localPlayerNames) {
+            if (!Trust::validParticipantName(name))
+                throw std::invalid_argument("Admission player name is invalid");
+            writer.text(name, 64);
+        }
         writer.uint16(static_cast<std::uint16_t>(request.gameplayManifest.size()));
         for (const GameplayManifestEntry &entry: request.gameplayManifest) {
             writer.text(entry.logicalPath, Trust::MaxLogicalPathBytes);
@@ -213,6 +221,15 @@ namespace Duel6::Network {
         request.localPlayerCount = reader.byte();
         if (request.localPlayerCount == 0 || request.localPlayerCount > Trust::MaxParticipants)
             throw std::invalid_argument("Admission local player count is invalid");
+        const std::size_t playerNameCount = reader.byte();
+        if (playerNameCount != 0 && playerNameCount != request.localPlayerCount)
+            throw std::invalid_argument("Admission player names do not match local player count");
+        for (std::size_t index = 0; index < playerNameCount; ++index) {
+            auto name = reader.text(64);
+            if (!Trust::validParticipantName(name))
+                throw std::invalid_argument("Admission player name is invalid");
+            request.localPlayerNames.push_back(std::move(name));
+        }
         const std::size_t manifestCount = reader.uint16();
         if (!Trust::validManifestEntryCount(manifestCount)) throw std::length_error("Admission manifest is too large");
         request.gameplayManifest.reserve(manifestCount);
@@ -352,9 +369,11 @@ namespace Duel6::Network {
         return true;
     }
 
-    AdmissionRequest makeLocalAdmissionRequest(std::uint8_t localPlayers, GameplayManifest manifest) {
+    AdmissionRequest makeLocalAdmissionRequest(std::uint8_t localPlayers, GameplayManifest manifest,
+                                               std::vector<std::string> localPlayerNames) {
         AdmissionRequest request;
         request.localPlayerCount = localPlayers;
+        request.localPlayerNames = std::move(localPlayerNames);
         request.gameplayManifest = std::move(manifest);
         request.capabilities.reserve(RequiredAdmissionCapabilities.size());
         for (std::string_view capability: RequiredAdmissionCapabilities) request.capabilities.emplace_back(capability);

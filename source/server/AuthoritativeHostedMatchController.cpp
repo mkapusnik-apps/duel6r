@@ -1,11 +1,61 @@
 #include "AuthoritativeHostedMatchController.h"
 
+#include <limits>
 #include <set>
+#include <type_traits>
 #include <utility>
 
 #include "AuthoritativeMatchValidation.h"
 
 namespace Duel6::Server::Authoritative {
+    namespace {
+        LobbyCommitOutcome lobbyOutcome(CanonicalLobbyMutationOutcome outcome) noexcept {
+            switch (outcome) {
+                case CanonicalLobbyMutationOutcome::Committed: return LobbyCommitOutcome::Committed;
+                case CanonicalLobbyMutationOutcome::Rejected: return LobbyCommitOutcome::Rejected;
+                case CanonicalLobbyMutationOutcome::VersionFailure: return LobbyCommitOutcome::VersionFailure;
+                case CanonicalLobbyMutationOutcome::PublicationFailure:
+                    return LobbyCommitOutcome::PublicationFailure;
+                case CanonicalLobbyMutationOutcome::InternalFailure: return LobbyCommitOutcome::InternalFailure;
+            }
+            return LobbyCommitOutcome::InternalFailure;
+        }
+    }
+
+    PreparedLobbyMutation::PreparedLobbyMutation(
+            std::weak_ptr<const void> ownerLifetime, std::uint64_t generation,
+            Network::Replication::StateVersion baselineVersion,
+            std::map<Identity, bool> baselineReadiness, AuthoritativeReplication replication,
+            std::map<Identity, bool> readiness,
+            Network::Replication::IncrementalUpdate update) noexcept
+            : ownerLifetime(std::move(ownerLifetime)), generation(generation), baselineVersion(baselineVersion),
+              baselineReadiness(std::move(baselineReadiness)), replication(std::move(replication)),
+              readiness(std::move(readiness)), update(std::move(update)), valid(true) {}
+
+    PreparedLobbyMutation::PreparedLobbyMutation(PreparedLobbyMutation &&other) noexcept
+            : ownerLifetime(std::move(other.ownerLifetime)), generation(other.generation),
+              baselineVersion(other.baselineVersion),
+              baselineReadiness(std::move(other.baselineReadiness)), replication(std::move(other.replication)),
+              readiness(std::move(other.readiness)), update(std::move(other.update)), valid(other.valid) {
+        other.ownerLifetime.reset();
+        other.valid = false;
+    }
+
+    PreparedLobbyMutation &PreparedLobbyMutation::operator=(PreparedLobbyMutation &&other) noexcept {
+        if (this == &other) return *this;
+        ownerLifetime = std::move(other.ownerLifetime);
+        generation = other.generation;
+        baselineVersion = other.baselineVersion;
+        baselineReadiness = std::move(other.baselineReadiness);
+        replication = std::move(other.replication);
+        readiness = std::move(other.readiness);
+        update = std::move(other.update);
+        valid = other.valid;
+        other.ownerLifetime.reset();
+        other.valid = false;
+        return *this;
+    }
+
     std::map<Identity, bool> AuthoritativeHostedMatchController::replicatedReadiness(
             const std::vector<Network::Replication::ParticipantState> &participants) {
         std::map<Identity, bool> result;
@@ -14,9 +64,10 @@ namespace Duel6::Server::Authoritative {
     }
 
     AuthoritativeHostedMatchController::AuthoritativeHostedMatchController(
-            Identity hostParticipantId, MatchRuntimeDependencies dependencies)
-            : dependencies(std::move(dependencies)), hostParticipantId(hostParticipantId),
-              replication(), replicationConnections(replication.replicator()), playerInput(hostParticipantId) {}
+            Identity hostParticipantId, MatchRuntimeDependencies dependencies, Identity sessionId)
+            : instanceLifetime(std::make_shared<const std::uint8_t>(0)), dependencies(std::move(dependencies)),
+              hostParticipantId(hostParticipantId),
+              replication(sessionId), replicationConnections(replication.replicator()), playerInput(hostParticipantId) {}
 
     bool AuthoritativeHostedMatchController::initializeReplication(
             std::vector<Network::Replication::ParticipantState> participants,
@@ -26,6 +77,7 @@ namespace Duel6::Server::Authoritative {
         if (!replication.setLobby(hostParticipantId, std::move(participants),
                                   std::move(roster), std::move(settings))) return false;
         readiness = std::move(nextReadiness);
+        advanceLobbyMutationGeneration();
         return true;
     }
 
@@ -50,8 +102,96 @@ namespace Duel6::Server::Authoritative {
                 std::move(participants), std::move(roster), std::move(settings));
         if (!update) return false;
         readiness = std::move(nextReadiness);
+        advanceLobbyMutationGeneration();
         (void) replicationConnections.broadcast(*update);
         return true;
+    }
+
+    LobbyMutationPreparation AuthoritativeHostedMatchController::prepareLobbyConfiguration(
+            const std::vector<Network::Replication::ParticipantState> &participants,
+            const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
+            std::string_view reason) noexcept {
+        try {
+            if (currentStage != HostedMatchStage::Lobby || reason.empty())
+                return {LobbyCommitOutcome::Rejected, {}};
+            if (lobbyMutationGeneration == (std::numeric_limits<std::uint64_t>::max)())
+                return {LobbyCommitOutcome::InternalFailure, {}};
+            const auto baselineVersion = replication.replicator().version();
+            auto baselineReadiness = readiness;
+            auto nextParticipants = participants;
+            for (auto &participant: nextParticipants) participant.ready = false;
+            auto nextReadiness = replicatedReadiness(nextParticipants);
+            auto nextReplication = replication;
+            auto proposal = nextReplication.updateLobbyForConfiguration(
+                    nextParticipants, roster, settings, reason);
+            if (proposal.outcome != CanonicalLobbyMutationOutcome::Committed)
+                return {lobbyOutcome(proposal.outcome), {}};
+            if (!proposal.update) return {LobbyCommitOutcome::InternalFailure, {}};
+            auto mutation = std::unique_ptr<PreparedLobbyMutation>(new PreparedLobbyMutation(
+                    instanceLifetime, lobbyMutationGeneration, baselineVersion, std::move(baselineReadiness),
+                    std::move(nextReplication), std::move(nextReadiness), std::move(*proposal.update)));
+            return {LobbyCommitOutcome::Committed, std::move(mutation)};
+        } catch (...) {
+            return {LobbyCommitOutcome::InternalFailure, {}};
+        }
+    }
+
+    LobbyMutationPreparation AuthoritativeHostedMatchController::prepareParticipantReady(
+            Identity participantId, bool ready) noexcept {
+        try {
+            if (currentStage != HostedMatchStage::Lobby || participantId == 0)
+                return {LobbyCommitOutcome::Rejected, {}};
+            if (lobbyMutationGeneration == (std::numeric_limits<std::uint64_t>::max)())
+                return {LobbyCommitOutcome::InternalFailure, {}};
+            const auto baselineVersion = replication.replicator().version();
+            auto baselineReadiness = readiness;
+            auto nextReadiness = readiness;
+            const auto found = nextReadiness.find(participantId);
+            if (found == nextReadiness.end()) return {LobbyCommitOutcome::Rejected, {}};
+            found->second = ready;
+            auto nextReplication = replication;
+            auto proposal = nextReplication.setParticipantReadyTransactional(participantId, ready);
+            if (proposal.outcome != CanonicalLobbyMutationOutcome::Committed)
+                return {lobbyOutcome(proposal.outcome), {}};
+            if (!proposal.update) return {LobbyCommitOutcome::InternalFailure, {}};
+            auto mutation = std::unique_ptr<PreparedLobbyMutation>(new PreparedLobbyMutation(
+                    instanceLifetime, lobbyMutationGeneration, baselineVersion, std::move(baselineReadiness),
+                    std::move(nextReplication), std::move(nextReadiness), std::move(*proposal.update)));
+            return {LobbyCommitOutcome::Committed, std::move(mutation)};
+        } catch (...) {
+            return {LobbyCommitOutcome::InternalFailure, {}};
+        }
+    }
+
+    bool AuthoritativeHostedMatchController::canCommitPreparedLobbyMutation(
+            const PreparedLobbyMutation &mutation) const noexcept {
+        return mutation.valid && mutation.ownerLifetime.lock() == instanceLifetime
+               && currentStage == HostedMatchStage::Lobby
+               && mutation.generation == lobbyMutationGeneration
+               && mutation.baselineVersion == replication.replicator().version()
+               && mutation.baselineReadiness == readiness
+               && mutation.baselineVersion != (std::numeric_limits<Network::Replication::StateVersion>::max)()
+               && mutation.replication.replicator().version() == mutation.baselineVersion + 1
+               && mutation.update.baseline == mutation.baselineVersion
+               && mutation.update.version == mutation.baselineVersion + 1;
+    }
+
+    LobbyCommitOutcome AuthoritativeHostedMatchController::commitPreparedLobbyMutation(
+            PreparedLobbyMutation &&mutation) noexcept {
+        if (!canCommitPreparedLobbyMutation(mutation)) {
+            mutation.valid = false;
+            mutation.ownerLifetime.reset();
+            return LobbyCommitOutcome::InternalFailure;
+        }
+        mutation.valid = false;
+        mutation.ownerLifetime.reset();
+        static_assert(std::is_nothrow_move_assignable_v<AuthoritativeReplication>);
+        static_assert(std::is_nothrow_move_assignable_v<decltype(readiness)>);
+        replication = std::move(mutation.replication);
+        readiness = std::move(mutation.readiness);
+        advanceLobbyMutationGeneration();
+        try { (void) replicationConnections.broadcast(mutation.update); } catch (...) {}
+        return LobbyCommitOutcome::Committed;
     }
 
     void AuthoritativeHostedMatchController::disconnectReplication(Identity participantId) noexcept {
@@ -76,6 +216,7 @@ namespace Duel6::Server::Authoritative {
         if (!canRemoveLifecycleParticipants(participantIds)) return false;
         std::set<Identity> removals(participantIds.begin(), participantIds.end());
         clearReadiness();
+        for (Identity participantId: participantIds) readiness.erase(participantId);
         if (!activeMatch || currentStage != HostedMatchStage::MatchActive) {
             if (!replication.retainsSessionResult()) return true;
             if (!replication.resultDepartureUpdateRequired(participantIds)) return true;
@@ -160,11 +301,28 @@ namespace Duel6::Server::Authoritative {
             }
             (void) replicationConnections.broadcast(*update);
         }
+        advanceLobbyMutationGeneration();
+        return true;
+    }
+
+    bool AuthoritativeHostedMatchController::clearReadinessForConfiguration(const std::string &reason) {
+        if (currentStage != HostedMatchStage::Lobby || reason.empty()) return false;
+        clearReadiness();
+        if (replication.replicator().version() == 0) return true;
+        const auto update = replication.setLobbyFailure(reason);
+        if (!update) return false;
+        (void) replicationConnections.broadcast(*update);
         return true;
     }
 
     void AuthoritativeHostedMatchController::clearReadiness() noexcept {
         for (auto &entry: readiness) entry.second = false;
+        advanceLobbyMutationGeneration();
+    }
+
+    void AuthoritativeHostedMatchController::advanceLobbyMutationGeneration() noexcept {
+        if (lobbyMutationGeneration != (std::numeric_limits<std::uint64_t>::max)())
+            ++lobbyMutationGeneration;
     }
 
     bool AuthoritativeHostedMatchController::allParticipantsReady(
@@ -196,12 +354,22 @@ namespace Duel6::Server::Authoritative {
         const ValidationResult settings = validateMatchConfig(config, roster);
         if (!settings.valid || !allParticipantsReady(roster)) {
             clearReadiness();
+            if (replication.replicator().version() != 0) {
+                const auto update = replication.setLobbyFailure(
+                        "Match settings are invalid. Correct the settings and try again.");
+                if (update) (void) replicationConnections.broadcast(*update);
+            }
             return terminalOutcome(OutcomeCode::SettingsInvalid);
         }
         const ValidationResult content = validateFrozenContent(config, manifest);
         if (!content.valid) {
             clearReadiness();
             currentStage = HostedMatchStage::ContentBlocked;
+            if (replication.replicator().version() != 0) {
+                const auto update = replication.setLobbyFailure(
+                        "The match cannot start with the supported gameplay content. Restore the supported gameplay content and restart the application.");
+                if (update) (void) replicationConnections.broadcast(*update);
+            }
             return terminalOutcome(OutcomeCode::ContentUnavailable);
         }
         activeMatch = std::make_unique<AuthoritativeMatch>(std::move(matchDependencies));
@@ -270,7 +438,8 @@ namespace Duel6::Server::Authoritative {
                            ? HostedMatchStage::UnexpectedStop : HostedMatchStage::Ended;
             return stopped;
         }
-        if (currentStage == HostedMatchStage::Lobby || currentStage == HostedMatchStage::ContentBlocked) {
+        if (currentStage == HostedMatchStage::Lobby || currentStage == HostedMatchStage::FinalSummary
+            || currentStage == HostedMatchStage::ContentBlocked) {
             discardSessionResults();
             currentStage = HostedMatchStage::Ended;
             return terminalOutcome(OutcomeCode::EndedIntentionally);
@@ -310,17 +479,13 @@ namespace Duel6::Server::Authoritative {
                     return false;
                 }
                 (void) replicationConnections.broadcast(*result);
-                const auto lobby = replication.enterFollowingLobby();
-                if (!lobby) {
-                    discardSessionResults();
-                    currentStage = HostedMatchStage::UnexpectedStop;
-                    return false;
-                }
-                (void) replicationConnections.broadcast(*lobby);
-                clearReadiness();
-                explicitReadinessRequired = true;
+                const bool interrupted = published->state == ResultState::Interrupted;
                 activeMatch.reset();
-                currentStage = HostedMatchStage::Lobby;
+                if (interrupted) {
+                    clearReadiness();
+                    explicitReadinessRequired = true;
+                    currentStage = HostedMatchStage::Lobby;
+                } else currentStage = HostedMatchStage::FinalSummary;
             }
         } else {
             const bool lifecycleTransition = activeMatch->phase() != lastReplicatedPhase;
@@ -331,6 +496,17 @@ namespace Duel6::Server::Authoritative {
                 lastReplicatedPhase = activeMatch->phase();
             }
         }
+        return true;
+    }
+
+    bool AuthoritativeHostedMatchController::returnToLobby(Identity participantId) {
+        if (participantId != hostParticipantId || currentStage != HostedMatchStage::FinalSummary) return false;
+        const auto lobby = replication.enterFollowingLobby();
+        if (!lobby) return false;
+        (void) replicationConnections.broadcast(*lobby);
+        clearReadiness();
+        explicitReadinessRequired = true;
+        currentStage = HostedMatchStage::Lobby;
         return true;
     }
 
@@ -359,5 +535,10 @@ namespace Duel6::Server::Authoritative {
     const AuthoritativeMatch *AuthoritativeHostedMatchController::match() const noexcept { return activeMatch.get(); }
     const std::optional<SessionResult> &AuthoritativeHostedMatchController::currentSessionResult() const noexcept {
         return resultRetention.current();
+    }
+
+    std::optional<Network::Replication::FullSnapshot>
+    AuthoritativeHostedMatchController::currentSnapshot() const {
+        return replication.fullSnapshot();
     }
 }

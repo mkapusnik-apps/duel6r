@@ -50,9 +50,11 @@
 #include "gui/TextBox.h"
 #include "gui/Spinner.h"
 #include "GameMode.h"
+#include "client/NetworkSessionRuntime.h"
 
 namespace Duel6 {
     class Game; // Forward, TODO: Remove
+    class NetworkMenu;
 
     class Menu
             : public Context {
@@ -110,6 +112,7 @@ namespace Duel6 {
         Int32 menuTranslationY;
         Sound::Track menuTrack;
         bool playMusic;
+        std::unique_ptr<NetworkMenu> networkMenu;
 
     public:
         explicit Menu(AppService &appService);
@@ -202,6 +205,7 @@ namespace Duel6 {
         void detectControls(Size playerIndex);
 
         void play();
+        void openNetworkMenu();
 
         void playPlayersSound(const std::string &name);
 

@@ -189,10 +189,13 @@ namespace Duel6 {
         SDL_Keycode code;
         ButtonState state;
         Uint16 modifiers;
+        bool repeat;
 
     public:
-        KeyPressEvent(SDL_Keycode code, const ButtonState &state, Uint16 modifiers)
-                : code(code), state(state), modifiers(modifiers) {}
+        KeyPressEvent(SDL_Keycode code, const ButtonState &state, Uint16 modifiers, bool repeat = false)
+                : code(code), state(state), modifiers(modifiers), repeat(repeat) {}
+
+        bool isRepeat() const { return repeat; }
 
         SDL_Keycode getCode() const {
             return code;

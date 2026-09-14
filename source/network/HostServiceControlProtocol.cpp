@@ -1,5 +1,8 @@
 #include "HostServiceControlProtocol.h"
 
+#include <algorithm>
+#include <stdexcept>
+
 namespace Duel6::Network {
     namespace {
         std::array<std::uint8_t, HostServiceControlMessageBytes> encode(std::uint8_t kind) {
@@ -23,6 +26,17 @@ namespace Duel6::Network {
         std::uint64_t readU64(const std::uint8_t *source) {
             std::uint64_t value = 0;
             for (unsigned index = 0; index < 8; ++index) value = (value << 8u) | source[index];
+            return value;
+        }
+
+        void writeU32(std::uint8_t *target, std::uint32_t value) {
+            for (unsigned index = 0; index < 4; ++index)
+                target[index] = static_cast<std::uint8_t>((value >> ((3u - index) * 8u)) & 0xffu);
+        }
+
+        std::uint32_t readU32(const std::uint8_t *source) {
+            std::uint32_t value = 0;
+            for (unsigned index = 0; index < 4; ++index) value = (value << 8u) | source[index];
             return value;
         }
 
@@ -80,5 +94,28 @@ namespace Duel6::Network {
                 return true;
         }
         return false;
+    }
+
+    std::vector<std::uint8_t> encodeHostServicePayload(const std::vector<std::uint8_t> &payload) {
+        if (payload.empty() || payload.size() > HostServiceMaximumPayloadBytes)
+            throw std::invalid_argument("Invalid host-service payload size");
+        std::vector<std::uint8_t> message(HostServicePayloadHeaderBytes + payload.size());
+        writeU32(message.data(), HostServicePayloadMagic);
+        message[4] = HostServicePayloadVersion;
+        message[5] = 0;
+        message[6] = 0;
+        message[7] = 0;
+        writeU32(message.data() + 8, static_cast<std::uint32_t>(payload.size()));
+        std::copy(payload.begin(), payload.end(), message.begin() + HostServicePayloadHeaderBytes);
+        return message;
+    }
+
+    bool decodeHostServicePayloadHeader(const std::uint8_t *message, std::size_t size,
+                                        std::size_t &payloadBytes) noexcept {
+        if (!message || size < HostServicePayloadHeaderBytes || readU32(message) != HostServicePayloadMagic
+            || message[4] != HostServicePayloadVersion || message[5] != 0 || message[6] != 0 || message[7] != 0)
+            return false;
+        payloadBytes = readU32(message + 8);
+        return payloadBytes > 0 && payloadBytes <= HostServiceMaximumPayloadBytes;
     }
 }

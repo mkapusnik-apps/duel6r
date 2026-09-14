@@ -42,6 +42,12 @@ int main(int argc, char **argv) {
             dependencies.hostReadinessChange = [hostedChannel] {
                 return hostedChannel->takeReadinessChange();
             };
+            dependencies.hostSessionPayload = [hostedChannel] {
+                return hostedChannel->takeSessionPayload();
+            };
+            dependencies.hostSessionPresentation = [hostedChannel](const std::vector<std::uint8_t> &payload) {
+                return hostedChannel->sendSessionPayload(payload);
+            };
             dependencies.hostedServiceStatus = [hostedChannel](Duel6::Network::HostServiceStatusCode status) {
                 return hostedChannel->send(status);
             };

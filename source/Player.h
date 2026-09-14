@@ -431,6 +431,10 @@ namespace Duel6 {
             setAlpha(1.0f);
         }
 
+        Float32 getBodyAlpha() const {
+            return bodyAlpha;
+        }
+
         void removeBody() {
             unsetFlag(FlagLying);
         }

@@ -47,7 +47,7 @@ namespace Duel6 {
             SDL_Keysym key = ke.keysym;
             SysEvent::ButtonState buttonState =
                     ke.type == SDL_KEYDOWN ? SysEvent::ButtonState::PRESSED : SysEvent::ButtonState::RELEASED;
-            return KeyPressEvent(key.sym, buttonState, key.mod);
+            return KeyPressEvent(key.sym, buttonState, key.mod, ke.repeat != 0);
         }
 
         SysEvent::MouseButton getMouseButton(Int32 sdlButton) {

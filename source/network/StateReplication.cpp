@@ -5,6 +5,8 @@
 #include <string_view>
 #include <utility>
 
+#include "NetworkTrustPolicy.h"
+
 namespace Duel6::Network::Replication {
     namespace {
         bool validText(const std::string &value, std::size_t maximum = 64, bool emptyAllowed = false) {
@@ -12,6 +14,12 @@ namespace Duel6::Network::Replication {
             return std::none_of(value.begin(), value.end(), [](unsigned char character) {
                 return character < 0x20 || character == 0x7f;
             });
+        }
+
+        bool validLevelPath(std::string_view value) {
+            return value.size() > 12 && value.compare(0, 7, "levels/") == 0
+                   && value.compare(value.size() - 5, 5, ".json") == 0
+                   && Trust::validLogicalPath(value);
         }
 
         template<typename T, typename Id>
@@ -42,6 +50,7 @@ namespace Duel6::Network::Replication {
                    && left.ammunition == right.ammunition && left.actionMask == right.actionMask
                    && left.activeBonus == right.activeBonus && left.bonusRemaining == right.bonusRemaining
                    && left.invulnerable == right.invulnerable && left.visible == right.visible
+                   && left.presentationAlpha == right.presentationAlpha
                    && left.reloadRemaining == right.reloadRemaining && left.charge == right.charge
                    && left.temporaryMovementRemaining == right.temporaryMovementRemaining;
         }
@@ -309,6 +318,13 @@ namespace Duel6::Network::Replication {
         }
 
         bool validEventForTransient(EntityKind kind, const std::string &eventType) {
+            // A typed gameplay event establishes a short-lived entity's kind
+            // before its lifecycle transitions arrive. It may be born and removed
+            // entirely between snapshots. Generic transitions alone must not
+            // establish a transient identity (see transientKind).
+            if (eventType == "entity-spawned" || eventType == "entity-removed")
+                return kind == EntityKind::Projectile || kind == EntityKind::BonusPickup
+                       || kind == EntityKind::WeaponPickup;
             if (kind == EntityKind::Projectile)
                 return eventType == "shot-fired" || eventType == "shot-hit"
                        || eventType == "player-life-changed" || eventType == "player-died"
@@ -899,7 +915,7 @@ namespace Duel6::Network::Replication {
                 const auto cumulative = cumulativeValue ? resultStatistics(*cumulativeValue) : std::nullopt;
                 const auto *playerRounds = member(row, "\"rounds\"");
                 if (!rank || *rank != index + 1 || !playerId || !participantId || !displayName
-                    || !validText(*displayName) || !team || !departed || !rosterOrder
+                    || !Trust::validParticipantName(*displayName) || !team || !departed || !rosterOrder
                     || *rosterOrder >= MaxReplicatedPlayers || !cumulative
                     || !playerRounds || playerRounds->kind != ParsedJsonValue::Kind::Array
                     || playerRounds->array.size() != *completedRounds
@@ -1345,6 +1361,27 @@ namespace Duel6::Network::Replication {
         }
     }
 
+    std::optional<std::vector<RetainedOutcomeRow>> retainedOutcomeRows(const ResultState &result) {
+        if (!result.available) return std::nullopt;
+        const auto labels = canonicalResultLabels(result.serialized);
+        if (!labels) return std::nullopt;
+        std::vector<RetainedOutcomeRow> rows;
+        const auto append = [&](std::uint8_t round, const CanonicalResultOutcome &outcome) {
+            if (outcome.noWinner) { rows.push_back({round, 0, {}, 0, false}); return true; }
+            for (Identity id: outcome.winnerPlayerIds) {
+                const auto winner = std::find_if(labels->rows.begin(), labels->rows.end(),
+                        [id](const auto &row) { return row.playerId == id; });
+                if (winner == labels->rows.end()) return false;
+                rows.push_back({round, id, winner->displayName, winner->team, winner->departed});
+            }
+            return true;
+        };
+        if (!append(0, labels->finalOutcome)) return std::nullopt;
+        for (const auto &round: labels->rounds)
+            if (!append(round.number, round.outcome)) return std::nullopt;
+        return rows;
+    }
+
     Identity StableIdentitySource::issue(IdentityCategory category) {
         constexpr Identity CounterMask = (Identity{1} << 56u) - 1u;
         Identity &candidate = next[category];
@@ -1363,8 +1400,7 @@ namespace Duel6::Network::Replication {
                && value != 0 && value < found->second;
     }
 
-    bool validateCanonicalState(const CanonicalState &state) noexcept {
-        try {
+    static bool validateCanonicalStateUnchecked(const CanonicalState &state) {
             if (state.sessionId == 0 || state.participants.empty() || !validPhase(state.phase)
                 || state.participants.size() > MaxReplicatedParticipants
                 || state.players.size() > MaxReplicatedPlayers
@@ -1379,6 +1415,13 @@ namespace Duel6::Network::Replication {
                 if (state.result.available != (state.matchId != 0)) return false;
             } else if (state.matchId == 0) return false;
             if (state.settings.teamCount > MaxReplicatedPlayers) return false;
+            if (!validText(state.settings.mode) || !validText(state.settings.levelPlan)
+                || !validText(state.settings.fixedLevel, 240, true)
+                || state.settings.levels.empty() || state.settings.levels.size() > MaxReplicatedLevels) return false;
+            std::set<std::string> canonicalLevels;
+            for (const auto &level: state.settings.levels)
+                if (!validLevelPath(level) || !canonicalLevels.insert(level).second) return false;
+            if (!state.settings.fixedLevel.empty() && !canonicalLevels.count(state.settings.fixedLevel)) return false;
             std::set<Identity> participantIds;
             if (!uniqueNonzero(state.participants, [](const auto &value) { return value.participantId; },
                                &participantIds)) return false;
@@ -1398,7 +1441,7 @@ namespace Duel6::Network::Replication {
             if (!uniqueNonzero(state.players, [](const auto &value) { return value.playerId; }, &playerIds)) return false;
             for (const auto &player: state.players) {
                 if (!participantIds.count(player.ownerParticipantId) || !rosterPositions.insert(player.rosterPosition).second
-                    || !validText(player.displayName) || !validText(player.heldWeapon, 64, true)
+                    || !Trust::validParticipantName(player.displayName) || !validText(player.heldWeapon, 64, true)
                     || !validText(player.activeBonus, 64, true) || !validLifeState(player.lifeState)
                     || player.life < 0 || player.team > state.settings.teamCount
                     || (state.phase != Phase::Lobby && state.settings.teamCount != 0 && player.team == 0)) return false;
@@ -1418,7 +1461,8 @@ namespace Duel6::Network::Replication {
                     || !validText(entity.lifecycle, 64, true)) return false;
             }
             if (state.round) {
-                if (state.round->roundId == 0 || state.round->roundNumber == 0 || !validText(state.round->level, 240)
+                if (state.round->roundId == 0 || state.round->roundNumber == 0
+                    || !canonicalLevels.count(state.round->level)
                     || state.round->roundNumber != state.currentRoundNumber
                     || !uniqueNonzero(state.round->rosterOrder, [](Identity value) { return value; })
                     || !uniqueNonzero(state.round->outcome.winnerPlayerIds,
@@ -1429,10 +1473,6 @@ namespace Duel6::Network::Replication {
                         if (!playerIds.count(player)) return false;
                 }
             } else if (state.phase == Phase::ActiveRound || state.phase == Phase::RoundSummary) return false;
-            if (!validText(state.settings.mode) || !validText(state.settings.levelPlan)
-                || !validText(state.settings.fixedLevel, 240, true)
-                || state.settings.levels.size() > 256) return false;
-            for (const auto &level: state.settings.levels) if (!validText(level, 240)) return false;
             if (!uniqueNonzero(state.score.players, [](const auto &value) { return value.playerId; })) return false;
             const bool retainedLobbyResult = state.phase == Phase::Lobby && state.result.available;
             for (const auto &row: state.score.players)
@@ -1547,8 +1587,20 @@ namespace Duel6::Network::Replication {
             if ((state.phase == Phase::FinalSummary && !state.result.available)
                 || (state.phase != Phase::FinalSummary && state.phase != Phase::Lobby
                     && state.result.available)) return false;
-            return true;
-        } catch (...) { return false; }
+        return true;
+    }
+
+    CanonicalValidationOutcome validateCanonicalStateDetailed(const CanonicalState &state) noexcept {
+        try {
+            return validateCanonicalStateUnchecked(state)
+                   ? CanonicalValidationOutcome::Valid : CanonicalValidationOutcome::Invalid;
+        } catch (...) {
+            return CanonicalValidationOutcome::InternalFailure;
+        }
+    }
+
+    bool validateCanonicalState(const CanonicalState &state) noexcept {
+        return validateCanonicalStateDetailed(state) == CanonicalValidationOutcome::Valid;
     }
 
     bool AuthoritativeStateReplicator::initialize(CanonicalState state) {
@@ -1569,14 +1621,20 @@ namespace Duel6::Network::Replication {
 
     std::optional<IncrementalUpdate> AuthoritativeStateReplicator::publish(
             CanonicalState state, std::vector<PresentationEvent> events) {
+        publishInternalFailure = false;
         const bool roundChanged = current && !sameRound(current->round, state.round);
         if (roundChanged) {
             std::set<Identity> priorEntities;
             for (const auto &entity: current->entities) priorEntities.insert(entity.entityId);
             for (const auto &entity: state.entities) if (priorEntities.count(entity.entityId)) return std::nullopt;
         }
+        const auto validation = validateCanonicalStateDetailed(state);
+        if (validation == CanonicalValidationOutcome::InternalFailure) {
+            publishInternalFailure = true;
+            return std::nullopt;
+        }
         if (!current || currentVersion == std::numeric_limits<StateVersion>::max()
-            || !validateCanonicalState(state) || !validAvailableTerminalResult(state)
+            || validation != CanonicalValidationOutcome::Valid || !validAvailableTerminalResult(state)
             || state.sessionId != current->sessionId
             || (current->matchId != 0 && state.matchId == current->matchId
                 && sameRound(current->round, state.round) && state.phaseTime < current->phaseTime)
@@ -1676,6 +1734,9 @@ namespace Duel6::Network::Replication {
     }
 
     StateVersion AuthoritativeStateReplicator::version() const noexcept { return currentVersion; }
+    bool AuthoritativeStateReplicator::lastPublishFailedInternally() const noexcept {
+        return publishInternalFailure;
+    }
 
     ApplyResult ReplicatedState::apply(const FullSnapshot &snapshot) {
         if (snapshot.version == 0 || !validateCanonicalState(snapshot.state)

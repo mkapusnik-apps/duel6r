@@ -47,6 +47,34 @@ namespace Duel6::Network::Lifecycle {
         FinalSummaryRetained,
         Failed
     };
+    enum class ReadinessMutationOutcome { Committed, Rejected, InternalFailure };
+
+    class HostSessionLifecycle;
+    class PreparedReadinessMutation final {
+        friend class HostSessionLifecycle;
+    public:
+        PreparedReadinessMutation(PreparedReadinessMutation &&other) noexcept;
+        PreparedReadinessMutation &operator=(PreparedReadinessMutation &&other) noexcept;
+        PreparedReadinessMutation(const PreparedReadinessMutation &) = delete;
+        PreparedReadinessMutation &operator=(const PreparedReadinessMutation &) = delete;
+    private:
+        PreparedReadinessMutation() = default;
+        enum class Kind { SetParticipant, ClearAll };
+        std::weak_ptr<const void> ownerLifetime;
+        std::uint64_t generation = 0;
+        bool baselineHostReady = false;
+        bool baselineParticipantReady = false;
+        Kind kind = Kind::ClearAll;
+        ParticipantId participantId = 0;
+        ConnectionId connectionId = 0;
+        bool ready = false;
+        bool valid = false;
+    };
+
+    struct ReadinessMutationPreparation {
+        ReadinessMutationOutcome outcome = ReadinessMutationOutcome::InternalFailure;
+        std::optional<PreparedReadinessMutation> mutation;
+    };
 
     inline constexpr std::string_view ReconnectExpiredCopy =
             "Reconnect time expired. The session could not be restored.";
@@ -89,7 +117,9 @@ namespace Duel6::Network::Lifecycle {
         std::optional<ReconnectGrant> nextGrant;
     };
 
-    enum class ParticipantActionKind : std::uint16_t { Ready = 1, NotReady = 2, Leave = 3 };
+    enum class ParticipantActionKind : std::uint16_t {
+        Ready = 1, NotReady = 2, Leave = 3, ConfigurationChanged = 4
+    };
     struct ParticipantAction {
         std::uint64_t sessionId = 0;
         ParticipantId participantId = 0;
@@ -146,6 +176,10 @@ namespace Duel6::Network::Lifecycle {
                              ConnectionId hostConnectionId, std::vector<PlayerId> hostOwnedPlayers,
                              Clock clock = {}, Trust::RandomFill random = {}, HostHooks hooks = {});
         ~HostSessionLifecycle();
+        HostSessionLifecycle(const HostSessionLifecycle &) = delete;
+        HostSessionLifecycle &operator=(const HostSessionLifecycle &) = delete;
+        HostSessionLifecycle(HostSessionLifecycle &&) = delete;
+        HostSessionLifecycle &operator=(HostSessionLifecycle &&) = delete;
 
         std::optional<ReconnectGrant> admitGuest(ParticipantId participantId, ConnectionId connectionId,
                                                   std::vector<PlayerId> ownedPlayers, bool ready);
@@ -155,6 +189,20 @@ namespace Duel6::Network::Lifecycle {
         bool queueIntentionalLeave(ParticipantId participantId, ConnectionId connectionId);
         bool queueReservedLeave(const ReconnectRequest &request, ConnectionId attemptConnectionId);
         bool applyParticipantAction(const ParticipantAction &action, ConnectionId connectionId) noexcept;
+        bool recognizesParticipantAction(
+                const ParticipantAction &action, ConnectionId connectionId) const noexcept;
+        ReadinessMutationPreparation prepareParticipantReadinessAction(
+                const ParticipantAction &action, ConnectionId connectionId) const noexcept;
+        ReadinessMutationPreparation prepareSetReady(
+                ParticipantId participantId, ConnectionId connectionId, bool readyValue) const noexcept;
+        ReadinessMutationPreparation prepareClearReadiness() const noexcept;
+        bool canCommitPreparedReadiness(const PreparedReadinessMutation &mutation) const noexcept;
+        ReadinessMutationOutcome commitPreparedReadiness(PreparedReadinessMutation &&mutation) noexcept;
+        ReadinessMutationOutcome applyParticipantReadinessAction(
+                const ParticipantAction &action, ConnectionId connectionId) noexcept;
+        ReadinessMutationOutcome setReadyTransactional(
+                ParticipantId participantId, ConnectionId connectionId, bool readyValue) noexcept;
+        ReadinessMutationOutcome clearReadinessTransactional() noexcept;
         bool setReady(ParticipantId participantId, ConnectionId connectionId, bool readyValue) noexcept;
         bool clearReadiness() noexcept;
         bool allConnectedAndReady() const noexcept;
@@ -183,6 +231,7 @@ namespace Duel6::Network::Lifecycle {
             std::unique_ptr<Trust::ReconnectReservation> rollbackReservation;
         };
 
+        std::shared_ptr<const void> instanceLifetime;
         std::uint64_t sessionId;
         ParticipantId hostParticipantId;
         ConnectionId hostConnectionId;
@@ -193,6 +242,7 @@ namespace Duel6::Network::Lifecycle {
         std::map<ParticipantId, Participant> participants;
         std::set<ParticipantId> pendingLeaves;
         std::uint64_t nextReservationId = 1;
+        std::uint64_t readinessGeneration = 1;
         bool hostReady = false;
         bool sessionEnded = false;
         bool operationActive = false;
@@ -203,6 +253,7 @@ namespace Duel6::Network::Lifecycle {
         void close(ConnectionId connectionId) noexcept;
         void clearAll() noexcept;
         void failSession() noexcept;
+        void advanceReadinessGeneration() noexcept;
     };
 
     class GuestSessionRecovery final {

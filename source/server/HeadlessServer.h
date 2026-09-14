@@ -145,7 +145,15 @@ namespace Duel6::Server {
         std::function<bool(Network::HostServiceStatusCode)> hostedServiceStatus;
         std::function<bool()> intentionalHostEndRequested;
         std::function<std::optional<bool>()> hostReadinessChange;
+        std::function<std::optional<std::vector<std::uint8_t>>()> hostSessionPayload;
+        std::function<bool(const std::vector<std::uint8_t> &)> hostSessionPresentation;
         std::function<std::optional<Network::Lifecycle::ParticipantActionKind>()> localParticipantAction;
+        std::function<std::optional<std::vector<std::string>>()> localParticipantPersons;
+        // Graphical guests use this single peek/ack channel so every local composition,
+        // readiness, and leave command keeps its UI production order until accepted.
+        std::function<std::optional<std::vector<std::uint8_t>>()> localParticipantCommand;
+        std::function<void()> localParticipantCommandAccepted;
+        std::function<void(Network::AdmissionResultCode, bool)> guestAdmissionOutcome;
         std::shared_ptr<const Network::ManifestSource> manifestSource;
         Network::ManifestFilesystemObserver filesystemObserver;
         IdentitySource identitySource;
@@ -162,6 +170,10 @@ namespace Duel6::Server {
                            const std::vector<Network::Responsiveness::PresentedPlayerPose> &,
                            const std::vector<Network::Replication::PresentationEvent> &)>
                 guestPresentation;
+        std::function<void(Network::Lifecycle::ParticipantId,
+                           const std::vector<Network::Lifecycle::PlayerId> &)> guestAdmission;
+        std::function<void(Network::Lifecycle::GuestJourney, std::optional<unsigned>,
+                           std::string_view)> guestRecoveryPresentation;
         std::function<Authoritative::MatchRuntimeDependencies(
                 const Authoritative::MatchConfig &, const std::vector<Authoritative::PlayerDefinition> &,
                 const Network::ManifestBuildResult &)> authoritativeRuntimeFactory;
