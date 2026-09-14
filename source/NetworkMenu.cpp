@@ -1834,7 +1834,15 @@ namespace Duel6 {
         }
         drawText(42, retainedResult ? 58 : 172, focus == readyIndex ? "> Ready / Not ready" : "Ready / Not ready");
         drawFocusKeyline(40, retainedResult ? 54 : 168, 220, 20, focus == readyIndex);
-        if (state.messages.status != "Lobby" && (!snap.host || !retainedResult))
+        if (!snap.host && retainedResult) {
+            const auto &status = state.messages.status;
+            if (!status.empty() && status != "lobby" && status != "Lobby") {
+                // A separate, bounded status region to the right of the script
+                // policy. Its 16px text ends at y=108, leaving 8px before the
+                // read-only line at y=116 and 16px above the footer targets.
+                drawClippedText(448, 92, status, 45);
+            }
+        } else if (state.messages.status != "Lobby" && (!snap.host || !retainedResult))
             drawClippedText(42, retainedResult ? 118 : 144, state.messages.status, 96);
         if (snap.host) {
             std::vector<Network::Replication::PlayerState> roster = state.players;
