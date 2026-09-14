@@ -1,6 +1,7 @@
 #include "AuthoritativeReplication.h"
 
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 #include "AuthoritativeMatchSerialization.h"
@@ -97,20 +98,26 @@ namespace Duel6::Server::Authoritative {
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::updateLobby(
             std::vector<R::ParticipantState> participants, std::vector<PlayerDefinition> roster,
             MatchConfig settings) {
-        return updateLobbyState(std::move(participants), std::move(roster), std::move(settings), "Lobby", false);
+        auto result = updateLobbyStateTransactional(
+                std::move(participants), std::move(roster), std::move(settings), "Lobby", false);
+        return std::move(result.update);
     }
 
-    std::optional<R::IncrementalUpdate> AuthoritativeReplication::updateLobbyForConfiguration(
+    CanonicalLobbyMutationResult AuthoritativeReplication::updateLobbyForConfiguration(
             std::vector<R::ParticipantState> participants, std::vector<PlayerDefinition> roster,
             MatchConfig settings, const std::string &reason) {
-        if (reason.empty()) return std::nullopt;
-        return updateLobbyState(std::move(participants), std::move(roster), std::move(settings), reason, true);
+        if (reason.empty()) return {CanonicalLobbyMutationOutcome::Rejected, std::nullopt};
+        return updateLobbyStateTransactional(
+                std::move(participants), std::move(roster), std::move(settings), reason, true);
     }
 
-    std::optional<R::IncrementalUpdate> AuthoritativeReplication::updateLobbyState(
+    CanonicalLobbyMutationResult AuthoritativeReplication::updateLobbyStateTransactional(
             std::vector<R::ParticipantState> participants, std::vector<PlayerDefinition> roster,
             MatchConfig settings, const std::string &status, bool clearReadiness) {
-        if (publisher.version() == 0 || state.phase != R::Phase::Lobby) return std::nullopt;
+        if (publisher.version() == 0 || state.phase != R::Phase::Lobby)
+            return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
+        if (publisher.version() == (std::numeric_limits<R::StateVersion>::max)())
+            return {CanonicalLobbyMutationOutcome::VersionFailure, std::nullopt};
         const AuthoritativeReplication before = *this;
         if (clearReadiness)
             for (auto &participant: participants) participant.ready = false;
@@ -133,9 +140,40 @@ namespace Duel6::Server::Authoritative {
         if (!state.result.available) {
             resetLobbyScore(state);
         }
+        if (!R::validateCanonicalState(state)) {
+            *this = before;
+            return {CanonicalLobbyMutationOutcome::Rejected, std::nullopt};
+        }
         auto update = publisher.publish(state);
-        if (!update) *this = before;
-        return update;
+        if (!update) {
+            *this = before;
+            return {CanonicalLobbyMutationOutcome::PublicationFailure, std::nullopt};
+        }
+        return {CanonicalLobbyMutationOutcome::Committed, std::move(update)};
+    }
+
+    CanonicalLobbyMutationResult AuthoritativeReplication::setParticipantReadyTransactional(
+            Identity participantId, bool ready) {
+        if (participantId == 0) return {CanonicalLobbyMutationOutcome::Rejected, std::nullopt};
+        if (publisher.version() == 0 || state.phase != R::Phase::Lobby)
+            return {CanonicalLobbyMutationOutcome::InternalFailure, std::nullopt};
+        if (publisher.version() == (std::numeric_limits<R::StateVersion>::max)())
+            return {CanonicalLobbyMutationOutcome::VersionFailure, std::nullopt};
+        const AuthoritativeReplication before = *this;
+        const auto found = std::find_if(state.participants.begin(), state.participants.end(),
+                [participantId](const auto &participant) { return participant.participantId == participantId; });
+        if (found == state.participants.end()) return {CanonicalLobbyMutationOutcome::Rejected, std::nullopt};
+        found->ready = ready;
+        if (!R::validateCanonicalState(state)) {
+            *this = before;
+            return {CanonicalLobbyMutationOutcome::Rejected, std::nullopt};
+        }
+        auto update = publisher.publish(state);
+        if (!update) {
+            *this = before;
+            return {CanonicalLobbyMutationOutcome::PublicationFailure, std::nullopt};
+        }
+        return {CanonicalLobbyMutationOutcome::Committed, std::move(update)};
     }
 
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::setParticipantReady(

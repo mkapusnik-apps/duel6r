@@ -9,6 +9,19 @@
 #include "../network/StateReplication.h"
 
 namespace Duel6::Server::Authoritative {
+    enum class CanonicalLobbyMutationOutcome {
+        Committed,
+        Rejected,
+        VersionFailure,
+        PublicationFailure,
+        InternalFailure
+    };
+
+    struct CanonicalLobbyMutationResult {
+        CanonicalLobbyMutationOutcome outcome = CanonicalLobbyMutationOutcome::InternalFailure;
+        std::optional<Network::Replication::IncrementalUpdate> update;
+    };
+
     class AuthoritativeReplication final {
     public:
         explicit AuthoritativeReplication(Identity sessionId = 0);
@@ -19,9 +32,10 @@ namespace Duel6::Server::Authoritative {
         std::optional<Network::Replication::IncrementalUpdate> updateLobby(
                 std::vector<Network::Replication::ParticipantState> participants,
                 std::vector<PlayerDefinition> roster, MatchConfig settings);
-        std::optional<Network::Replication::IncrementalUpdate> updateLobbyForConfiguration(
+        CanonicalLobbyMutationResult updateLobbyForConfiguration(
                 std::vector<Network::Replication::ParticipantState> participants,
                 std::vector<PlayerDefinition> roster, MatchConfig settings, const std::string &reason);
+        CanonicalLobbyMutationResult setParticipantReadyTransactional(Identity participantId, bool ready);
         std::optional<Network::Replication::IncrementalUpdate> setParticipantReady(Identity participantId,
                                                                                      bool ready);
         std::optional<Network::Replication::IncrementalUpdate> setLobbyFailure(const std::string &message);
@@ -52,7 +66,7 @@ namespace Duel6::Server::Authoritative {
 
         bool updateFromMatch(const AuthoritativeMatch &match,
                              std::vector<Network::Replication::PresentationEvent> &events);
-        std::optional<Network::Replication::IncrementalUpdate> updateLobbyState(
+        CanonicalLobbyMutationResult updateLobbyStateTransactional(
                 std::vector<Network::Replication::ParticipantState> participants,
                 std::vector<PlayerDefinition> roster, MatchConfig settings,
                 const std::string &status, bool clearReadiness);

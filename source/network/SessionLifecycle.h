@@ -47,6 +47,7 @@ namespace Duel6::Network::Lifecycle {
         FinalSummaryRetained,
         Failed
     };
+    enum class ReadinessMutationOutcome { Committed, Rejected, InternalFailure };
 
     inline constexpr std::string_view ReconnectExpiredCopy =
             "Reconnect time expired. The session could not be restored.";
@@ -157,6 +158,13 @@ namespace Duel6::Network::Lifecycle {
         bool queueIntentionalLeave(ParticipantId participantId, ConnectionId connectionId);
         bool queueReservedLeave(const ReconnectRequest &request, ConnectionId attemptConnectionId);
         bool applyParticipantAction(const ParticipantAction &action, ConnectionId connectionId) noexcept;
+        bool recognizesParticipantAction(
+                const ParticipantAction &action, ConnectionId connectionId) const noexcept;
+        ReadinessMutationOutcome applyParticipantReadinessAction(
+                const ParticipantAction &action, ConnectionId connectionId) noexcept;
+        ReadinessMutationOutcome setReadyTransactional(
+                ParticipantId participantId, ConnectionId connectionId, bool readyValue) noexcept;
+        ReadinessMutationOutcome clearReadinessTransactional() noexcept;
         bool setReady(ParticipantId participantId, ConnectionId connectionId, bool readyValue) noexcept;
         bool clearReadiness() noexcept;
         bool allConnectedAndReady() const noexcept;

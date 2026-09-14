@@ -22,6 +22,14 @@ namespace Duel6::Server::Authoritative {
         UnexpectedStop,
         Ended
     };
+    enum class LobbyCommitOutcome {
+        Committed,
+        Rejected,
+        LifecycleFailure,
+        PublicationFailure,
+        VersionFailure,
+        InternalFailure
+    };
 
     class AuthoritativeHostedMatchController final {
     public:
@@ -45,11 +53,13 @@ namespace Duel6::Server::Authoritative {
                                    std::vector<PlayerDefinition> roster, MatchConfig settings);
         bool updateReplicationLobby(std::vector<Network::Replication::ParticipantState> participants,
                                     std::vector<PlayerDefinition> roster, MatchConfig settings);
-        bool commitLobbyConfiguration(std::vector<Network::Replication::ParticipantState> participants,
-                                      std::vector<PlayerDefinition> roster, MatchConfig settings,
-                                      const std::string &reason, const std::function<bool()> &commitExternal);
-        bool commitParticipantReady(Identity participantId, bool ready,
-                                    const std::function<bool()> &commitExternal);
+        LobbyCommitOutcome commitLobbyConfiguration(
+                std::vector<Network::Replication::ParticipantState> participants,
+                std::vector<PlayerDefinition> roster, MatchConfig settings,
+                const std::string &reason, const std::function<LobbyCommitOutcome()> &commitExternal);
+        LobbyCommitOutcome commitParticipantReady(
+                Identity participantId, bool ready,
+                const std::function<LobbyCommitOutcome()> &commitExternal);
         bool restoreReplication(Identity participantId, Network::Replication::ReplicationSender sender,
                                 std::function<void()> close = {});
         void disconnectReplication(Identity participantId) noexcept;

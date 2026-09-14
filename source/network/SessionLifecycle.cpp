@@ -422,35 +422,76 @@ namespace Duel6::Network::Lifecycle {
             if (action.sessionId != sessionId) return false;
             if (action.kind == ParticipantActionKind::Leave)
                 return queueIntentionalLeave(action.participantId, connectionId);
-            if (action.kind == ParticipantActionKind::ConfigurationChanged)
-                return setReady(action.participantId, connectionId, false) && clearReadiness();
-            return setReady(action.participantId, connectionId,
-                            action.kind == ParticipantActionKind::Ready);
+            return applyParticipantReadinessAction(action, connectionId)
+                   == ReadinessMutationOutcome::Committed;
         } catch (...) { return false; }
+    }
+
+    bool HostSessionLifecycle::recognizesParticipantAction(
+            const ParticipantAction &action, ConnectionId connectionId) const noexcept {
+        if (action.sessionId != sessionId || action.participantId == 0 || connectionId == 0) return false;
+        if (action.participantId == hostParticipantId) return connectionId == hostConnectionId;
+        const auto found = participants.find(action.participantId);
+        return found != participants.end() && found->second.connected
+               && found->second.connectionId == connectionId;
+    }
+
+    ReadinessMutationOutcome HostSessionLifecycle::applyParticipantReadinessAction(
+            const ParticipantAction &action, ConnectionId connectionId) noexcept {
+        if ((action.kind != ParticipantActionKind::Ready
+             && action.kind != ParticipantActionKind::NotReady
+             && action.kind != ParticipantActionKind::ConfigurationChanged)
+            || !recognizesParticipantAction(action, connectionId))
+            return ReadinessMutationOutcome::Rejected;
+        if (sessionEnded || operationActive) return ReadinessMutationOutcome::InternalFailure;
+        OperationGuard operation(operationActive);
+        if (action.kind == ParticipantActionKind::ConfigurationChanged) {
+            hostReady = false;
+            for (auto &[id, participant]: participants) participant.ready = false;
+        } else if (action.participantId == hostParticipantId) {
+            hostReady = action.kind == ParticipantActionKind::Ready;
+        } else {
+            participants.find(action.participantId)->second.ready =
+                    action.kind == ParticipantActionKind::Ready;
+        }
+        return ReadinessMutationOutcome::Committed;
+    }
+
+    ReadinessMutationOutcome HostSessionLifecycle::setReadyTransactional(
+            ParticipantId participantId, ConnectionId connectionId, bool readyValue) noexcept {
+        if (participantId == 0 || connectionId == 0) return ReadinessMutationOutcome::Rejected;
+        if (sessionEnded || operationActive) return ReadinessMutationOutcome::InternalFailure;
+        if (participantId == hostParticipantId) {
+            if (connectionId != hostConnectionId) return ReadinessMutationOutcome::Rejected;
+            OperationGuard operation(operationActive);
+            hostReady = readyValue;
+            return ReadinessMutationOutcome::Committed;
+        }
+        const auto found = participants.find(participantId);
+        if (found == participants.end() || !found->second.connected
+            || found->second.connectionId != connectionId)
+            return ReadinessMutationOutcome::Rejected;
+        OperationGuard operation(operationActive);
+        found->second.ready = readyValue;
+        return ReadinessMutationOutcome::Committed;
+    }
+
+    ReadinessMutationOutcome HostSessionLifecycle::clearReadinessTransactional() noexcept {
+        if (sessionEnded || operationActive) return ReadinessMutationOutcome::InternalFailure;
+        OperationGuard operation(operationActive);
+        hostReady = false;
+        for (auto &[id, participant]: participants) participant.ready = false;
+        return ReadinessMutationOutcome::Committed;
     }
 
     bool HostSessionLifecycle::setReady(
             ParticipantId participantId, ConnectionId connectionId, bool readyValue) noexcept {
-        if (sessionEnded || operationActive || participantId == 0 || connectionId == 0) return false;
-        OperationGuard operation(operationActive);
-        if (participantId == hostParticipantId) {
-            if (connectionId != hostConnectionId) return false;
-            hostReady = readyValue;
-            return true;
-        }
-        const auto found = participants.find(participantId);
-        if (found == participants.end() || !found->second.connected
-            || found->second.connectionId != connectionId) return false;
-        found->second.ready = readyValue;
-        return true;
+        return setReadyTransactional(participantId, connectionId, readyValue)
+               == ReadinessMutationOutcome::Committed;
     }
 
     bool HostSessionLifecycle::clearReadiness() noexcept {
-        if (sessionEnded || operationActive) return false;
-        OperationGuard operation(operationActive);
-        hostReady = false;
-        for (auto &[id, participant]: participants) participant.ready = false;
-        return true;
+        return clearReadinessTransactional() == ReadinessMutationOutcome::Committed;
     }
 
     bool HostSessionLifecycle::allConnectedAndReady() const noexcept {
