@@ -92,13 +92,18 @@ namespace Duel6::Network::HostComposition {
         bool validLevelPlan(const std::string &value) {
             return value == "Fixed level" || value == "Shuffle all levels" || value == "Random level";
         }
+
+        bool validTeamSettings(const Setup &setup) {
+            return setup.mode == "Team deathmatch"
+                   ? setup.teamCount >= 2 && setup.teamCount <= 4
+                   : setup.teamCount == 0 && !setup.friendlyFire;
+        }
     }
 
     std::vector<std::uint8_t> serializeSetup(const Setup &setup) {
         if (setup.localPlayerNames.empty() || setup.localPlayerNames.size() > Trust::MaxParticipants
             || !validMode(setup.mode) || !validLevelPlan(setup.levelPlan)
-            || setup.roundLimit == 0 || setup.roundLimit > 99
-            || (setup.mode == "Team deathmatch" && (setup.teamCount < 2 || setup.teamCount > 4)))
+            || setup.roundLimit == 0 || setup.roundLimit > 99 || !validTeamSettings(setup))
             throw std::invalid_argument("Invalid host composition setup");
         Writer writer; envelope(writer, Kind::Setup);
         writer.u8(static_cast<std::uint8_t>(setup.localPlayerNames.size()));
@@ -189,8 +194,7 @@ namespace Duel6::Network::HostComposition {
                 setup.quickLiquid = reader.boolean();
                 setup.burnableTrees = reader.boolean();
                 if (!reader.done() || !validMode(setup.mode) || !validLevelPlan(setup.levelPlan)
-                    || setup.roundLimit == 0 || setup.roundLimit > 99
-                    || (setup.mode == "Team deathmatch" && (setup.teamCount < 2 || setup.teamCount > 4)))
+                    || setup.roundLimit == 0 || setup.roundLimit > 99 || !validTeamSettings(setup))
                     return std::nullopt;
                 message.setup = std::move(setup);
             } else if (message.kind == Kind::StartMatch || message.kind == Kind::ReturnToLobby

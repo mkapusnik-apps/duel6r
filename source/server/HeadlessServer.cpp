@@ -1747,7 +1747,9 @@ namespace Duel6::Server {
                 try { payload = runtimeDependencies.hostSessionPayload(); } catch (...) { runtimeFailed = true; }
                 if (payload && !runtimeFailed) {
                     const auto message = Network::HostComposition::deserialize(*payload);
-                    if (!message) runtimeFailed = true;
+                    if (!message) {
+                        // Reject malformed host commands without changing or terminating the session.
+                    }
                     else if (message->kind == Network::HostComposition::Kind::StartMatch) {
                         hostStartRequested = true;
                         if (!startMatchIfReady()) runtimeFailed = true;
@@ -1791,7 +1793,9 @@ namespace Duel6::Server {
                             || !std::all_of(message->ownedPersonNames.begin(), message->ownedPersonNames.end(),
                                     [](const std::string &name) {
                                         return Network::Trust::validParticipantName(name);
-                                    })) runtimeFailed = true;
+                                    })) {
+                            // Reject a command that does not preserve the host's immutable slots.
+                        }
                         else {
                             for (std::size_t index = 0; index < host.playerIds.size(); ++index)
                                 displayNames[host.playerIds[index]] = message->ownedPersonNames[index];
@@ -1809,7 +1813,9 @@ namespace Duel6::Server {
                     } else if (message->kind == Network::HostComposition::Kind::RosterMove
                                && hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                         const auto selected = std::find(rosterOrder.begin(), rosterOrder.end(), message->rosterPlayerId);
-                        if (selected == rosterOrder.end()) runtimeFailed = true;
+                        if (selected == rosterOrder.end()) {
+                            // Reject a roster command for an identity outside the session.
+                        }
                         else {
                             const auto index = static_cast<std::ptrdiff_t>(std::distance(rosterOrder.begin(), selected));
                             const auto target = index + message->rosterDirection;
@@ -1832,39 +1838,51 @@ namespace Duel6::Server {
                                && hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                         const auto &setup = *message->setup;
                         const auto &host = admissionPolicy->allocation().hostParticipant();
-                        if (setup.localPlayerNames.size() != host.playerIds.size()) runtimeFailed = true;
+                        if (setup.localPlayerNames.size() != host.playerIds.size()) {
+                            // Reject a setup command that does not preserve the host's immutable slots.
+                        }
                         else {
-                            hostedSettings->mode = setup.mode == "Predator" ? Authoritative::Mode::Predator
-                                                 : setup.mode == "Team deathmatch" ? Authoritative::Mode::TeamDeathmatch
-                                                                                  : Authoritative::Mode::Deathmatch;
-                            hostedSettings->teamCount = hostedSettings->mode == Authoritative::Mode::TeamDeathmatch
-                                                        ? setup.teamCount : 0;
-                            hostedSettings->friendlyFire = hostedSettings->mode == Authoritative::Mode::TeamDeathmatch
-                                                           && setup.friendlyFire;
-                            hostedSettings->levelPlan = setup.levelPlan == "Shuffle all levels"
-                                                        ? Authoritative::LevelPlan::ShuffleAll
-                                                        : setup.levelPlan == "Random level"
-                                                          ? Authoritative::LevelPlan::Random
-                                                          : Authoritative::LevelPlan::Fixed;
-                            hostedSettings->fixedLevel = setup.fixedLevel;
-                            hostedSettings->roundLimit = setup.roundLimit;
-                            hostedSettings->assistance = setup.assistance;
-                            hostedSettings->quickLiquid = setup.quickLiquid;
-                            hostedSettings->burnableTrees = setup.burnableTrees;
+                            auto nextSettings = *hostedSettings;
+                            nextSettings.mode = setup.mode == "Predator" ? Authoritative::Mode::Predator
+                                              : setup.mode == "Team deathmatch" ? Authoritative::Mode::TeamDeathmatch
+                                                                               : Authoritative::Mode::Deathmatch;
+                            nextSettings.teamCount = nextSettings.mode == Authoritative::Mode::TeamDeathmatch
+                                                     ? setup.teamCount : 0;
+                            nextSettings.friendlyFire = nextSettings.mode == Authoritative::Mode::TeamDeathmatch
+                                                        && setup.friendlyFire;
+                            nextSettings.levelPlan = setup.levelPlan == "Shuffle all levels"
+                                                     ? Authoritative::LevelPlan::ShuffleAll
+                                                     : setup.levelPlan == "Random level"
+                                                       ? Authoritative::LevelPlan::Random
+                                                       : Authoritative::LevelPlan::Fixed;
+                            nextSettings.fixedLevel = setup.fixedLevel;
+                            nextSettings.roundLimit = setup.roundLimit;
+                            nextSettings.assistance = setup.assistance;
+                            nextSettings.quickLiquid = setup.quickLiquid;
+                            nextSettings.burnableTrees = setup.burnableTrees;
+                            auto nextDisplayNames = displayNames;
                             for (std::size_t index = 0; index < host.playerIds.size(); ++index)
-                                displayNames[host.playerIds[index]] = setup.localPlayerNames[index];
+                                nextDisplayNames[host.playerIds[index]] = setup.localPlayerNames[index];
                             if (!sessionLifecycle->clearReadiness()) runtimeFailed = true;
                             else {
                                 auto lobby = replicationLobbyState(admissionPolicy->allocation(),
-                                        connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
+                                        connectedParticipants, nextSettings, &nextDisplayNames, &rosterOrder);
                                 if (!hostedMatch->updateReplicationLobby(std::move(lobby.participants),
-                                        std::move(lobby.players), std::move(lobby.settings))) runtimeFailed = true;
+                                         std::move(lobby.players), std::move(lobby.settings))) {
+                                    // Reject a setup that cannot produce a valid canonical lobby.
+                                }
                                 else if (!hostedMatch->clearReadinessForConfiguration(
-                                        "Host changed match settings. Everyone must confirm readiness again."))
-                                    runtimeFailed = true;
+                                         "Host changed match settings. Everyone must confirm readiness again."))
+                                     runtimeFailed = true;
+                                else {
+                                    *hostedSettings = std::move(nextSettings);
+                                    displayNames = std::move(nextDisplayNames);
+                                }
                             }
                         }
-                    } else runtimeFailed = true;
+                    } else {
+                        // Reject commands that are not valid for the current host-session state.
+                    }
                 }
             }
             bool intentionalEnd = false;

@@ -20,6 +20,14 @@ namespace Duel6::Server::Authoritative {
             return result;
         }
 
+        void resetLobbyScore(R::CanonicalState &state) {
+            state.score = {};
+            for (const auto &player: state.players) state.score.ranking.push_back(player.playerId);
+            state.score.teamTotals.assign(state.settings.teamCount, 0);
+            for (std::size_t team = 1; team <= state.settings.teamCount; ++team)
+                state.score.teamRanking.push_back(static_cast<std::uint8_t>(team));
+        }
+
         R::EntityKind entityKind(const std::string &kind, const std::string &type) {
             if (kind == "projectile") return R::EntityKind::Projectile;
             if (kind == "weapon-pickup") return R::EntityKind::WeaponPickup;
@@ -80,8 +88,7 @@ namespace Duel6::Server::Authoritative {
             player.life = MaximumLife; player.lifeState = R::LifeState::Alive;
             state.players.push_back(std::move(player));
         }
-        state.score.ranking.clear();
-        for (const auto &player: state.players) state.score.ranking.push_back(player.playerId);
+        resetLobbyScore(state);
         if (publisher.initialize(state)) return true;
         *this = before;
         return false;
@@ -109,8 +116,7 @@ namespace Duel6::Server::Authoritative {
             state.players.push_back(std::move(player));
         }
         if (!state.result.available) {
-            state.score.players.clear(); state.score.ranking.clear();
-            for (const auto &player: state.players) state.score.ranking.push_back(player.playerId);
+            resetLobbyScore(state);
         }
         auto update = publisher.publish(state);
         if (!update) *this = before;
