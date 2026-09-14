@@ -38,6 +38,7 @@
 #include "source/network/SessionLifecycle.h"
 #undef private
 #include "tests/TestHarness.h"
+#include "tests/CanonicalMotionTrace.h"
 #include "source/Player.h"
 
 namespace {
@@ -272,8 +273,8 @@ struct ProductionCanonicalFixture {
     std::vector<std::uint32_t> previousInputs;
     std::uint8_t observedRound = 0;
 
-    explicit ProductionCanonicalFixture(std::uint8_t rounds, std::size_t playerCount = 2)
-            : requested(canonicalConfig(rounds, resources.path())),
+    explicit ProductionCanonicalFixture(std::uint8_t rounds, std::size_t playerCount = 2, bool quickLiquid = false)
+            : requested(canonicalConfig(rounds, resources.path(), quickLiquid)),
               players(roster(playerCount)),
               content(Duel6::Network::CompatibilityManifestBuilder(resources.path(), {}).build()),
               controller(1, CanonicalMatchRuntime::createDependencies(requested, players, content)),
@@ -294,7 +295,7 @@ struct ProductionCanonicalFixture {
         D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, content.manifest).code);
     }
 
-    static MatchConfig canonicalConfig(std::uint8_t rounds, const std::string &resourceRoot) {
+    static MatchConfig canonicalConfig(std::uint8_t rounds, const std::string &resourceRoot, bool quickLiquid = false) {
         const auto built = Duel6::Network::CompatibilityManifestBuilder(resourceRoot, {}).build();
         D6R_REQUIRE(built.valid() && built.content);
         const auto source = built.content->find("data/config.script");
@@ -318,6 +319,7 @@ struct ProductionCanonicalFixture {
         value.fixedStartingWeapon = "pistol";
         value.compactSpawnLayout = true;
         value.roundLimit = rounds;
+        value.quickLiquid = quickLiquid;
         return value;
     }
 
@@ -1026,6 +1028,96 @@ D6R_TEST_CASE("AHM round-end boundaries update exactly one second then freeze fi
     D6R_REQUIRE_EQ(ActionResult::RejectedAuthority, match.submit(action(match, sequence++, 2, 0, ActionKind::AdvanceRound)));
     D6R_REQUIRE_EQ(ActionResult::Accepted, match.submit(action(match, sequence++, 1, 0, ActionKind::AdvanceRound)));
     D6R_REQUIRE_EQ(MatchPhase::ActiveRound, match.phase());
+}
+
+D6R_TEST_CASE(Duel6::Test::CanonicalMotionProducer) {
+    // Seeded, shipped-resource fixture; no positions, velocities, water heights,
+    // timers, or snapshots are injected. Only real player inputs and ticks drive it.
+    ProductionCanonicalFixture fixture(1, 2, true);
+    auto &match = *fixture.controller.match();
+    std::vector<Duel6::Test::CanonicalMotionSample> samples;
+    const auto snapshot = [&] {
+        D6R_REQUIRE(fixture.controller.captureReplication());
+        const auto full = fixture.controller.currentSnapshot();
+        D6R_REQUIRE(full.has_value());
+        D6R_REQUIRE(full->state.phase == R::Phase::ActiveRound);
+        return *full;
+    };
+    const auto player = [](const R::FullSnapshot &full) -> const R::PlayerState & {
+        const auto found = std::find_if(full.state.players.begin(), full.state.players.end(),
+                [](const auto &value) { return value.playerId == 101; });
+        D6R_REQUIRE(found != full.state.players.end());
+        D6R_REQUIRE(found->lifeState == R::LifeState::Alive);
+        return *found;
+    };
+    const auto waterHeight = [](const R::FullSnapshot &full) {
+        const auto found = std::find_if(full.state.entities.begin(), full.state.entities.end(),
+                [](const auto &value) { return value.kind == R::EntityKind::Water; });
+        D6R_REQUIRE(found != full.state.entities.end());
+        return found->primaryValue;
+    };
+    const auto input = [&](std::uint32_t mask) {
+        D6R_REQUIRE_EQ(ActionResult::Accepted, match.submit({match.currentTick(), fixture.sequence++,
+                1, 101, ActionKind::PlayerInput, 0, mask, 0}));
+    };
+    const auto tick = [&] {
+        D6R_REQUIRE(fixture.controller.advanceOneTick());
+        return snapshot();
+    };
+    const auto initial = snapshot();
+    auto before = tick();
+    input(MoveRight);
+    auto after = tick();
+    for (unsigned i = 0; i < 20 && player(after).positionX <= player(before).positionX; ++i) after = tick();
+    D6R_REQUIRE(player(after).positionX > player(before).positionX);
+    D6R_REQUIRE_EQ(std::uint32_t(MoveRight), player(after).actionMask);
+    samples.push_back({"right-before", before});
+    samples.push_back({"right-after", after});
+
+    input(0);
+    before = tick();
+    for (unsigned i = 0; i < 90 && player(before).velocityY != 0; ++i) before = tick();
+    D6R_REQUIRE_EQ(0, player(before).velocityY);
+    input(Jump);
+    after = tick();
+    for (unsigned i = 0; i < 10 && player(after).positionY <= player(before).positionY; ++i) after = tick();
+    D6R_REQUIRE(player(after).positionY > player(before).positionY);
+    D6R_REQUIRE(player(after).velocityY > 0);
+    D6R_REQUIRE_EQ(std::uint32_t(Jump), player(after).actionMask);
+    samples.push_back({"jump-before", before});
+    samples.push_back({"jump-after", after});
+
+    input(0); // Release, then let gravity (not an injected pose) produce descent.
+    bool fell = false;
+    for (unsigned i = 0; i < 120; ++i) {
+        before = after;
+        after = tick();
+        if (player(after).positionY < player(before).positionY && player(after).velocityY < 0) {
+            fell = true;
+            break;
+        }
+    }
+    D6R_REQUIRE(fell);
+    D6R_REQUIRE_EQ(0u, player(after).actionMask);
+    samples.push_back({"fall-before", before});
+    samples.push_back({"fall-after", after});
+
+    // Quick Liquid starts sudden death through the normal ruleset. Advance the
+    // production timer until its first raise, preserving the adjacent snapshots.
+    D6R_REQUIRE_EQ(waterHeight(initial), waterHeight(after));
+    bool rose = false;
+    for (unsigned i = 0; i < 600; ++i) {
+        before = after;
+        after = tick();
+        if (waterHeight(after) > waterHeight(before)) { rose = true; break; }
+    }
+    D6R_REQUIRE(rose);
+    D6R_REQUIRE_EQ(waterHeight(before) + 1, waterHeight(after));
+    D6R_REQUIRE(after.state.phaseTime > before.state.phaseTime);
+    samples.push_back({"water-before", before});
+    samples.push_back({"water-after", after});
+    if (const auto *path = std::getenv("D6R_CANONICAL_MOTION_TRACE"))
+        Duel6::Test::writeCanonicalMotionTrace(path, samples);
 }
 
 D6R_TEST_CASE("PR83 real canonical round-end active world consumes survivor press and release before freeze") {
