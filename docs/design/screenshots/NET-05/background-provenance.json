@@ -1,0 +1,25 @@
+{
+  "session": 376367718770980310,
+  "match": 144115188075855873,
+  "round": 216172782113783809,
+  "level": "levels/duel_16.json",
+  "named_background": "",
+  "eligible": [
+    "000.tga",
+    "001.tga",
+    "002.tga",
+    "003.tga",
+    "004.tga",
+    "005.tga",
+    "006.tga",
+    "007.tga",
+    "008.tga",
+    "009.tga",
+    "010.tga",
+    "011.tga",
+    "012.tga",
+    "013.tga"
+  ],
+  "selected_by_production_mapping": "006.tga",
+  "asset_sha256": "68ef999d2704ec08615b981327ba17a4d3e567f318415a4024bae2ac6925129e"
+}

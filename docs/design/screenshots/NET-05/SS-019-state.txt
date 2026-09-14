@@ -1,0 +1,37 @@
+session 376367718770980310 match 144115188075855873 phase 1 tick 13299 countdown 0
+round 216172782113783809 number 1 level levels/duel_16.json mirrored 0
+player 2 owner 1 name Ada life 0 hp 100 air 5242880 xy 1316610,65536 visible 1 alpha 51 bonus invisibility remain 1326056 weapon machine-gun
+player 3 owner 1 name Bruno life 0 hp 100 air 13107200 xy 262144,131072 visible 1 alpha 255 bonus  remain 0 weapon kiss-of-death
+player 5 owner 4 name Cora life 0 hp 100 air 13107200 xy 458752,655360 visible 1 alpha 255 bonus  remain 0 weapon machine-gun
+player 6 owner 4 name David life 0 hp 100 air 13107200 xy 1179648,589824 visible 1 alpha 255 bonus  remain 0 weapon plasma
+player 8 owner 7 name Emi life 0 hp 100 air 13107200 xy 1114112,589824 visible 1 alpha 255 bonus  remain 0 weapon bazooka
+player 9 owner 7 name Felix life 0 hp 100 air 13107200 xy 655360,65536 visible 1 alpha 255 bonus  remain 0 weapon laser
+bonus 432345564227567630 plusLife xy 865075,668467
+bonus 432345564227567632 vampireShots xy 471859,471859
+bonus 432345564227567634 fastReload xy 1323827,1061683
+bonus 432345564227567637 powerfulShots xy 799539,275251
+bonus 432345564227567638 infiniteAmmo xy 406323,340787
+bonus 432345564227567639 minusLife xy 340787,1061683
+bonus 432345564227567641 snorkel xy 1192755,1061683
+bonus 432345564227567643 bullets xy 996147,471859
+bonus 432345564227567644 invulnerability xy 799539,340787
+bonus 432345564227567645 snorkel xy 668467,406323
+bonus 432345564227567647 minusLife xy 930611,668467
+bonus 432345564227567648 splitFire xy 471859,144179
+bonus 432345564227567649 vampireShots xy 1061683,996147
+bonus 432345564227567652 infiniteAmmo xy 275251,471859
+bonus 432345564227567656 splitFire xy 799539,1061683
+bonus 432345564227567659 infiniteAmmo xy 1454899,209715
+bonus 432345564227567661 invulnerability xy 1127219,930611
+bonus 432345564227567662 bullets xy 1258291,1061683
+bonus 432345564227567663 invulnerability xy 471859,275251
+bonus 432345564227567671 fullLife xy 1454899,668467
+bonus 432345564227567675 splitFire xy 1454899,602931
+bonus 432345564227567677 invisibility xy 799539,799539
+bonus 432345564227567680 fullLife xy 1061683,406323
+bonus 432345564227567681 vampireShots xy 799539,602931
+bonus 432345564227567685 invulnerability xy 1454899,996147
+bonus 432345564227567687 minusLife xy 668467,1061683
+bonus 432345564227567694 splitFire xy 1258291,406323
+bonus 432345564227567695 snorkel xy 144179,471859
+winners

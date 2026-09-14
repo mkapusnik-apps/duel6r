@@ -1,0 +1,21 @@
+session 1916732464373467639 match 144115188075855873 phase 3 tick 17027 countdown 0
+round 216172782113783811 number 3 level levels/duel_16.json mirrored 0
+player 2 owner 1 name H1-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 0 hp 100 air 13107200 xy 655360,65536 visible 1 alpha 255 bonus  remain 0 weapon uzi
+player 3 owner 1 name H2-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 0 hp 100 air 13107200 xy 917504,917504 visible 1 alpha 255 bonus  remain 0 weapon pistol
+player 4 owner 1 name H3-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 0 hp 100 air 13107200 xy 589824,65536 visible 1 alpha 255 bonus  remain 0 weapon plasma
+player 5 owner 1 name H4-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 0 hp 100 air 13107200 xy 786432,589824 visible 1 alpha 255 bonus  remain 0 weapon shotgun
+player 6 owner 1 name H5-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 0 hp 100 air 13107200 xy 655360,917504 visible 1 alpha 255 bonus  remain 0 weapon lightning
+player 8 owner 7 name G1-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 2 hp 100 air 13107200 xy 720896,65536 visible 1 alpha 255 bonus  remain 0 weapon shotgun
+player 9 owner 7 name G2-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 2 hp 100 air 13107200 xy 393216,262144 visible 1 alpha 255 bonus  remain 0 weapon bow
+player 10 owner 7 name G3-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 2 hp 100 air 13107200 xy 917504,589824 visible 1 alpha 255 bonus  remain 0 weapon laser
+player 11 owner 7 name G4-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 2 hp 100 air 13107200 xy 589824,917504 visible 1 alpha 255 bonus  remain 0 weapon triton
+player 12 owner 7 name G5-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 2 hp 100 air 13107200 xy 393216,65536 visible 1 alpha 255 bonus  remain 0 weapon bazooka
+player 14 owner 13 name J1-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 0 hp 100 air 13107200 xy 851968,917504 visible 1 alpha 255 bonus  remain 0 weapon machine-gun
+player 15 owner 13 name J2-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 1 hp 0 air 0 xy 1446733,65536 visible 1 alpha 25 bonus  remain 0 weapon plasma
+player 16 owner 13 name J3-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 0 hp 100 air 13107200 xy 524288,917504 visible 1 alpha 255 bonus  remain 0 weapon bazooka
+player 17 owner 13 name J4-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 0 hp 100 air 13107200 xy 720896,917504 visible 1 alpha 255 bonus  remain 0 weapon triton
+player 18 owner 13 name J5-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 0 hp 100 air 13107200 xy 1245184,983040 visible 1 alpha 255 bonus  remain 0 weapon pistol
+bonus 432345564227567787 fastReload xy 1127219,406323
+bonus 432345564227567788 bullets xy 1323827,799539
+bonus 432345564227567789 fastReload xy 1454899,734003
+winners 2 3 4 5 6 8 9 10 11 12 14 16 17 18

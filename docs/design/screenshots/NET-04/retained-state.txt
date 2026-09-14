@@ -1,0 +1,7 @@
+session 6627074416700005532 match 144115188075855873 phase 0 tick 20402 countdown 0
+status lobby
+round 216172782113783809 number 1 level levels/duel_16.json mirrored 1
+player 2 owner 1 name H1-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 0 hp 100 air 13107200 xy 1048576,655360 visible 1 alpha 255 bonus  remain 0 weapon plasma
+player 4 owner 3 name G1-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 0 hp 100 air 13107200 xy 983040,917504 visible 1 alpha 255 bonus  remain 0 weapon plasma
+player 6 owner 5 name J1-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghi life 1 hp 0 air 0 xy 184931,65536 visible 1 alpha 25 bonus  remain 0 weapon kiss-of-death
+winners 2 4
