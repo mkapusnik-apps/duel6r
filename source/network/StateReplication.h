@@ -193,6 +193,25 @@ namespace Duel6::Network::Replication {
         ResultState result;
     };
 
+    // Countdown is expressed in fixed 60 Hz authoritative ticks. The final
+    // five seconds are frozen; presentation's RoundSummary also covers the
+    // preceding input-eligible second.
+    inline bool acceptsGameplayInput(const CanonicalState &state) noexcept {
+        return state.phase == Phase::ActiveRound
+               || (state.phase == Phase::RoundSummary && state.roundEndCountdown > 5u * 60u);
+    }
+
+    struct RetainedOutcomeRow {
+        std::uint8_t roundNumber = 0; // Zero denotes the match outcome.
+        Identity playerId = 0; // Zero denotes No winner.
+        std::string displayName;
+        std::uint8_t team = 0;
+        bool departed = false;
+    };
+    // Read-only projection using the bounded canonical result parser, preserving
+    // exact 64-bit identities (the general UI JSON reader uses floating point).
+    std::optional<std::vector<RetainedOutcomeRow>> retainedOutcomeRows(const ResultState &result);
+
     struct FullSnapshot {
         StateVersion version = 0;
         CanonicalState state;

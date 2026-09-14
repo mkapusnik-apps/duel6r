@@ -846,7 +846,7 @@ namespace {
                 }
             }
             if (playerInput && canonical && runtimeDependencies.localPlayerActions
-                && canonical->phase == Duel6::Network::Replication::Phase::ActiveRound
+                && Duel6::Network::Replication::acceptsGameplayInput(*canonical)
                 && (!submittedInputTick || *submittedInputTick != canonical->phaseTime)) {
                 submittedInputTick = canonical->phaseTime;
                 for (const auto &participant: canonical->participants) {
@@ -964,8 +964,18 @@ namespace {
             return requested;
         };
         const auto sendReservedLeave = [](const Duel6::Network::Lifecycle::ReconnectRequest &request,
-                                          const std::shared_ptr<Duel6::Server::AdmissionRuntimeConnection> &target) {
+                                          const std::shared_ptr<Duel6::Server::AdmissionRuntimeConnection> &target,
+                                          bool attemptSubmitted = false) {
             if (!target) return;
+            if (attemptSubmitted) {
+                // The ordered reconnect attempt may already have consumed and
+                // rotated the credential. Leave follows that attempt on the same
+                // binding, without presenting the now-obsolete reservation key.
+                try { (void) target->send(Duel6::Network::Lifecycle::serializeParticipantAction({
+                        request.sessionId, request.participantId,
+                        Duel6::Network::Lifecycle::ParticipantActionKind::Leave})); } catch (...) {}
+                return;
+            }
             auto payload = Duel6::Network::Lifecycle::serializeReconnectRequest(request);
             try { (void) target->sendSensitive(payload); } catch (...) {}
             Duel6::Network::Lifecycle::eraseLifecycleCredentialPayload(payload);
@@ -1083,7 +1093,7 @@ namespace {
                 try { reservedLeaveRequested = takeReservedLeave(); }
                 catch (...) { try { retryClient->close(); } catch (...) {} return 2; }
                 if (reservedLeaveRequested) {
-                    sendReservedLeave(*retryRequest, retryConnection);
+                    sendReservedLeave(*retryRequest, retryConnection, true);
                     sessionRecovery->leave();
                     try { retryClient->close(); } catch (...) {}
                     return 0;
@@ -1095,7 +1105,7 @@ namespace {
                 try { reservedLeaveRequested = takeReservedLeave(); }
                 catch (...) { try { retryClient->close(); } catch (...) {} return 2; }
                 if (reservedLeaveRequested) {
-                    sendReservedLeave(*retryRequest, retryConnection);
+                    sendReservedLeave(*retryRequest, retryConnection, true);
                     sessionRecovery->leave();
                     try { retryClient->close(); } catch (...) {}
                     return 0;
@@ -1153,7 +1163,7 @@ namespace {
             try { reservedLeaveRequested = takeReservedLeave(); }
             catch (...) { try { retryClient->close(); } catch (...) {} return 2; }
             if (reservedLeaveRequested) {
-                sendReservedLeave(*retryRequest, retryConnection);
+                sendReservedLeave(*retryRequest, retryConnection, true);
                 sessionRecovery->leave();
                 try { retryClient->close(); } catch (...) {}
                 return 0;
@@ -1613,6 +1623,26 @@ namespace Duel6::Server {
                       connectionId(connectionId) {}
         };
         std::vector<RuntimeConnection> connections;
+        struct NonInputBudget {
+            Network::Trust::TokenBucket actions;
+            Network::Trust::ConsecutiveWindowLimit violations;
+            explicit NonInputBudget(const Network::Trust::Clock &clock)
+                    : actions(Network::Trust::NonInputActionsPerSecond,
+                              Network::Trust::NonInputActionBurst, clock), violations(clock) {}
+        };
+        // One budget per admitted participant, retained across connection restore
+        // and shared by all non-input ingress, including owned-person, readiness,
+        // configuration, Leave, resynchronization and quality-control messages.
+        std::map<Network::Lifecycle::ParticipantId, NonInputBudget> nonInputBudgets;
+        const auto acceptNonInput = [&](RuntimeConnection &runtime) {
+            auto &budget = nonInputBudgets.try_emplace(
+                    runtime.offer.participantId, runtimeDependencies.now).first->second;
+            if (budget.actions.consume()) {
+                return true;
+            }
+            if (budget.violations.recordOverLimit()) runtime.transport->requestClose();
+            return false;
+        };
         Network::Trust::ConnectionId nextConnectionId = 1;
         std::map<Network::Lifecycle::ParticipantId, Network::Lifecycle::ConnectionId> participantConnections;
         std::set<Network::Lifecycle::ConnectionId> deferredLifecycleCloses;
@@ -1676,6 +1706,7 @@ namespace Duel6::Server {
                     || !hostedMatch->removeLifecycleParticipants(participants)
                     || !admissionPolicy->removeParticipants(participants)) return false;
                 for (const auto participantId: participants) {
+                    nonInputBudgets.erase(participantId);
                     participantConnections.erase(participantId);
                     connectedParticipants.erase(participantId);
                 }
@@ -1888,9 +1919,13 @@ namespace Duel6::Server {
             } catch (...) { return Authoritative::LobbyCommitOutcome::InternalFailure; }
         };
         while (!stopRequested && !cancelled()) {
-            if (runtimeDependencies.hostSessionPayload) {
+            // Bound host work like guest work: sustain all owned slots without
+            // starving guest ingress, lifecycle processing, or the 60 Hz simulation.
+            for (std::size_t drained = 0; runtimeDependencies.hostSessionPayload
+                    && drained < Network::MaxNetworkPlayers && !runtimeFailed; ++drained) {
                 std::optional<std::vector<std::uint8_t>> payload;
                 try { payload = runtimeDependencies.hostSessionPayload(); } catch (...) { runtimeFailed = true; }
+                if (!payload) break;
                 if (payload && !runtimeFailed) {
                     const auto message = Network::HostComposition::deserialize(*payload);
                     if (!message) {
@@ -1904,7 +1939,8 @@ namespace Duel6::Server {
                     } else if (message->kind == Network::HostComposition::Kind::ReturnToLobby) {
                         if (hostedMatch->stage() == Authoritative::HostedMatchStage::FinalSummary) {
                             const auto &host = admissionPolicy->allocation().hostParticipant();
-                            if (!hostedMatch->returnToLobby(host.participantId)) runtimeFailed = true;
+                            if (!sessionLifecycle->clearReadiness()
+                                || !hostedMatch->returnToLobby(host.participantId)) runtimeFailed = true;
                             else admissionPolicy->setMatchStarted(false);
                         }
                     } else if (message->kind == Network::HostComposition::Kind::AdvanceRound) {
@@ -2294,6 +2330,10 @@ namespace Duel6::Server {
                         Network::TransportFrame unexpected;
                         if (!connection->receive(unexpected)) break;
                         LifecycleCredentialPayloadGuard credentialPayload(unexpected.payload);
+                        if (!Network::Input::isPlayerInputFrame(unexpected.payload) && !acceptNonInput(runtime)) {
+                            if (connection->state() != Network::ClientState::Connected) break;
+                            continue; // No over-budget mutation, response, or broadcast.
+                        }
                         if (!hostedMatch) connection->requestClose();
                         else {
                             if (const auto configuration = Network::HostComposition::deserialize(unexpected.payload);

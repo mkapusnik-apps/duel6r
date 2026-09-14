@@ -72,12 +72,13 @@ namespace Duel6::Client {
         void startMatch();
         void returnToLobby();
         void advanceRound();
-        void updateHostSetup(const Network::HostComposition::Setup &setup);
+        bool updateHostSetup(const Network::HostComposition::Setup &setup);
         void rebindLocalPlayers(std::vector<NetworkLocalPlayer> players);
         void ownedPersonsChanged();
         void localConfigurationChanged();
         void moveRosterPlayer(Network::Replication::Identity playerId, int direction);
         void update();
+        void suppressGameplayInput(bool suppressed);
         NetworkRuntimeSnapshot snapshot() const;
         void reset();
 
@@ -90,6 +91,7 @@ namespace Duel6::Client {
         std::deque<std::vector<std::uint8_t>> pendingGuestCommands;
         std::deque<std::vector<std::uint8_t>> pendingHostCommands;
         bool pendingHostEnd = false;
+        bool gameplayInputSuppressed = false;
         std::unique_ptr<Network::Input::ClientCommandSession> hostInput;
         std::unique_ptr<Network::Replication::ClientReplicationConnection> hostPresentation;
         struct DeferredHostPresentation {

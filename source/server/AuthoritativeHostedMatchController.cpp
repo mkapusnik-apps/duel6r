@@ -216,6 +216,7 @@ namespace Duel6::Server::Authoritative {
         if (!canRemoveLifecycleParticipants(participantIds)) return false;
         std::set<Identity> removals(participantIds.begin(), participantIds.end());
         clearReadiness();
+        for (Identity participantId: participantIds) readiness.erase(participantId);
         if (!activeMatch || currentStage != HostedMatchStage::MatchActive) {
             if (!replication.retainsSessionResult()) return true;
             if (!replication.resultDepartureUpdateRequired(participantIds)) return true;

@@ -1354,6 +1354,27 @@ namespace Duel6::Network::Replication {
         }
     }
 
+    std::optional<std::vector<RetainedOutcomeRow>> retainedOutcomeRows(const ResultState &result) {
+        if (!result.available) return std::nullopt;
+        const auto labels = canonicalResultLabels(result.serialized);
+        if (!labels) return std::nullopt;
+        std::vector<RetainedOutcomeRow> rows;
+        const auto append = [&](std::uint8_t round, const CanonicalResultOutcome &outcome) {
+            if (outcome.noWinner) { rows.push_back({round, 0, {}, 0, false}); return true; }
+            for (Identity id: outcome.winnerPlayerIds) {
+                const auto winner = std::find_if(labels->rows.begin(), labels->rows.end(),
+                        [id](const auto &row) { return row.playerId == id; });
+                if (winner == labels->rows.end()) return false;
+                rows.push_back({round, id, winner->displayName, winner->team, winner->departed});
+            }
+            return true;
+        };
+        if (!append(0, labels->finalOutcome)) return std::nullopt;
+        for (const auto &round: labels->rounds)
+            if (!append(round.number, round.outcome)) return std::nullopt;
+        return rows;
+    }
+
     Identity StableIdentitySource::issue(IdentityCategory category) {
         constexpr Identity CounterMask = (Identity{1} << 56u) - 1u;
         Identity &candidate = next[category];

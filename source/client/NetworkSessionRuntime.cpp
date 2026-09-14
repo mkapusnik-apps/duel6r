@@ -285,7 +285,7 @@ namespace Duel6::Client {
     }
 
     std::uint32_t NetworkSessionRuntime::sampleActionsOnInputThread(std::size_t binding) const {
-        if (binding >= players.size() || !players[binding].controls) return 0;
+        if (gameplayInputSuppressed || binding >= players.size() || !players[binding].controls) return 0;
         const auto &c = *players[binding].controls;
         return (c.getLeft().isPressed() ? Network::Input::MoveLeft : 0u)
                | (c.getRight().isPressed() ? Network::Input::MoveRight : 0u)
@@ -294,6 +294,11 @@ namespace Duel6::Client {
                | (c.getShoot().isPressed() ? Network::Input::Shoot : 0u)
                | (c.getPick().isPressed() ? Network::Input::PickOrSwapWeapon : 0u)
                | (c.getStatus().isPressed() ? Network::Input::ShowStatus : 0u);
+    }
+
+    void NetworkSessionRuntime::suppressGameplayInput(bool suppressed) {
+        std::lock_guard<std::mutex> lock(mutex);
+        gameplayInputSuppressed = suppressed;
     }
 
     void NetworkSessionRuntime::update() {
@@ -319,7 +324,7 @@ namespace Duel6::Client {
                 current.presentedPlayers = hostPresentation->presentedPlayers(now);
             }
             if (!current.host || !current.canonical
-                || current.canonical->phase != Network::Replication::Phase::ActiveRound
+                || !Network::Replication::acceptsGameplayInput(*current.canonical)
                 || (submittedHostTick && *submittedHostTick == current.canonical->phaseTime)) return;
             tick = current.canonical->phaseTime; submittedHostTick = tick;
             participant = current.canonical->hostParticipantId;
@@ -378,13 +383,27 @@ namespace Duel6::Client {
         pendingHostCommands.push_back(std::move(payload));
     }
     void NetworkSessionRuntime::drainHostCommands() {
-        std::lock_guard<std::mutex> lock(mutex);
-        if (!supervisor) return;
-        if (!pendingHostCommands.empty()) {
-            if (supervisor->sendSessionPayload(pendingHostCommands.front())) pendingHostCommands.pop_front();
-            return;
+        std::optional<std::vector<std::uint8_t>> command;
+        bool end = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (!supervisor) return;
+            if (!pendingHostCommands.empty()) {
+                command = std::move(pendingHostCommands.front());
+                pendingHostCommands.pop_front();
+            } else {
+                end = pendingHostEnd;
+                pendingHostEnd = false;
+            }
         }
-        if (pendingHostEnd && supervisor->endSession()) pendingHostEnd = false;
+        // Supervisor observers synchronously re-enter the runtime. Never invoke them
+        // under its mutex. Earlier commands remain ordered before intentional End.
+        if (command && !supervisor->sendSessionPayload(*command)) {
+            std::lock_guard<std::mutex> lock(mutex);
+            pendingHostCommands.push_front(std::move(*command));
+        } else if (end) {
+            (void) supervisor->endSession();
+        }
     }
     void NetworkSessionRuntime::setReady(bool ready) {
         if (supervisor) sendHostAction(ready ? Network::HostComposition::Kind::Ready
@@ -395,9 +414,12 @@ namespace Duel6::Client {
     void NetworkSessionRuntime::startMatch() { sendHostAction(Network::HostComposition::Kind::StartMatch); }
     void NetworkSessionRuntime::returnToLobby() { sendHostAction(Network::HostComposition::Kind::ReturnToLobby); }
     void NetworkSessionRuntime::advanceRound() { sendHostAction(Network::HostComposition::Kind::AdvanceRound); }
-    void NetworkSessionRuntime::updateHostSetup(const Network::HostComposition::Setup &setup) {
-        try { if (supervisor) enqueueHostCommand(Network::HostComposition::serializeSetupUpdate(setup)); }
-        catch (...) {}
+    bool NetworkSessionRuntime::updateHostSetup(const Network::HostComposition::Setup &setup) {
+        try {
+            if (!supervisor) return false;
+            enqueueHostCommand(Network::HostComposition::serializeSetupUpdate(setup));
+            return true;
+        } catch (...) { return false; }
     }
     void NetworkSessionRuntime::rebindLocalPlayers(std::vector<NetworkLocalPlayer> localPlayers) {
         std::lock_guard<std::mutex> lock(mutex);
@@ -466,6 +488,7 @@ namespace Duel6::Client {
         current = {}; players.clear(); sampledActions.clear(); ownedPlayerBindings.clear();
         pendingGuestCommands.clear(); pendingHostCommands.clear();
         pendingHostEnd = false;
+        gameplayInputSuppressed = false;
         hostInput.reset(); hostPresentation.reset(); deferredHostPresentation.reset();
         deferredHostPresentationUpdates = 0; submittedHostTick.reset();
     }

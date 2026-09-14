@@ -432,10 +432,14 @@ namespace Duel6 {
         const Weapon *weapon = weaponFor(player.heldWeapon);
         if (!weapon || !weapon->getNetworkWeaponTexture()) return;
         const Float32 direction = player.facingLeft ? -1.0f : 1.0f;
+        const bool invisible = player.activeBonus == "invisibility" && player.bonusRemaining > 0;
+        if (invisible) renderer.setBlendFunc(BlendFunc::SrcAlpha);
         renderer.quadXY(Vector(x + direction * 0.38f - 0.26f, y + 0.28f, 0.64f), Vector(0.52f, 0.28f),
                         player.facingLeft ? Vector(1, 1, 0) : Vector(0, 1, 0),
                         player.facingLeft ? Vector(-1, -1) : Vector(1, -1),
-                        Material::makeMaskedTexture(weapon->getNetworkWeaponTexture()));
+                        Material(weapon->getNetworkWeaponTexture(),
+                                 Color(255, 255, 255, invisible ? 51 : 255), !invisible));
+        if (invisible) renderer.setBlendFunc(BlendFunc::None);
     }
 
     void CanonicalWorldPresenter::renderPlayerEffects(

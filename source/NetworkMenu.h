@@ -44,6 +44,8 @@ namespace Duel6 {
         std::vector<std::string> availablePersons;
         std::vector<std::string> availableLevels;
         Network::HostComposition::Setup hostSetup;
+        std::uint8_t preferredTeamCount = 2;
+        bool preferredFriendlyFire = false;
         SetupScreen setupScreen = SetupScreen::Entry;
         std::string address = "127.0.0.1";
         std::string hostAddress;
@@ -59,7 +61,10 @@ namespace Duel6 {
         int summaryHorizontal = 0;
         int rankingScroll = 0;
         Confirmation confirmation = Confirmation::None;
+        bool confirmationInputArmed = false;
         bool scoreOverlay = false;
+        bool keyboardHandled = false;
+        bool previousRoundSummary = false;
         bool controllerConfirm = false, controllerBack = false, controllerUp = false, controllerDown = false;
         bool controllerLeft = false, controllerRight = false;
         bool controllerSessionBack = false;
@@ -70,6 +75,7 @@ namespace Duel6 {
         void beforeStart(Context *) override;
         void beforeClose(Context *) override;
         void activate();
+        void showConfirmation(Confirmation value);
         void back();
         void moveFocus(int direction);
         void syncLobbyScroll(const Client::NetworkRuntimeSnapshot &snapshot);

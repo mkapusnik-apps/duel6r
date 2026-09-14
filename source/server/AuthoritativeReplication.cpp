@@ -633,6 +633,28 @@ namespace Duel6::Server::Authoritative {
         state.entities.clear();
         state.effects.clear();
         state.roundEndCountdown = 0;
+        // Departed identities belong to the immutable result, not to the next
+        // lobby's membership/readiness. Publish the transition atomically.
+        std::set<Identity> departedPlayers;
+        for (const auto &player: state.players)
+            if (player.lifeState == R::LifeState::Departed) departedPlayers.insert(player.playerId);
+        state.players.erase(std::remove_if(state.players.begin(), state.players.end(),
+                [&](const auto &player) { return departedPlayers.count(player.playerId); }), state.players.end());
+        for (auto &participant: state.participants) {
+            auto &owned = participant.ownedPlayerIds;
+            owned.erase(std::remove_if(owned.begin(), owned.end(),
+                    [&](Identity id) { return departedPlayers.count(id); }), owned.end());
+        }
+        state.participants.erase(std::remove_if(state.participants.begin(), state.participants.end(),
+                [](const auto &participant) { return participant.ownedPlayerIds.empty(); }), state.participants.end());
+        std::sort(state.players.begin(), state.players.end(), [](const auto &left, const auto &right) {
+            return left.rosterPosition < right.rosterPosition;
+        });
+        for (std::size_t index = 0; index < state.players.size(); ++index) {
+            state.players[index].rosterPosition = static_cast<std::uint8_t>(index);
+            state.players[index].team = state.settings.teamCount
+                    ? static_cast<std::uint8_t>(index % state.settings.teamCount + 1) : 0;
+        }
         for (auto &participant: state.participants) participant.ready = false;
         auto update = publisher.publish(state);
         if (!update) *this = before;
