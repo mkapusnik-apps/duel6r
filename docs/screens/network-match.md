@@ -88,6 +88,10 @@ The host starts this screen from `NET-04` after all participants are ready and c
 
 ## Interaction, focus, and accessibility
 
+PR #83 corrected presentation requires replacement evidence. Return and Space during active gameplay must never activate an invisible session action. Only an explicitly opened confirmation captures confirmation input; opening input, key repeats, and held controller input must not accept a newly opened dialog or newly displayed round action. Keep the existing Confirm-then-Cancel order and initial focus. Tab toggles the pre-winner score overlay on a discrete press only, not release, repeat, or while a modal is open; it must not dismiss a completed round result.
+
+The explicit confirmation variant [NET-05-C](../design/wireframes/NET-05/NET-05-C.svg), captured by `SS-026`, keeps a centered bounded consequence panel over the arena, with at least 16 px client inset and 8 px between controls. Wrap exact consequence copy within the panel. The existing six-player degraded representative `SS-019` must include authoritative Invisibility on both body and held weapon; Predator alone dims only the body.
+
 - The network status region must be non-interactive.
 - The network status region must not receive keyboard, controller, or pointer focus.
 - The network status region must not add a pointer or touch target.

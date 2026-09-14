@@ -61,3 +61,5 @@ Target representative viewport: 1280 by 900 px. The gameplay renderer fills the 
 - Functional evidence varies identities until every eligible background has a demonstrated selection opportunity.
 
 Planned representative screenshot: [`SS-019`](../../screenshots/README.md#ss-019).
+
+Review correction: the representative arena includes an invisible body and held weapon; Predator without Invisibility keeps an opaque weapon. [NET-05-C](../../design/wireframes/NET-05/NET-05-C.svg) adds the explicit guest Leave confirmation (`SS-026`, 1280×720), preserving Confirm-then-Cancel focus. Active gameplay Return/Space never activate hidden actions; opening/held/repeated input cannot confirm. Tab is a discrete pre-winner toggle, not a release or modal action. The owning [match specification](../network-match.md) defines behavior; corrected evidence is pending.

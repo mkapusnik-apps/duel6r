@@ -27,6 +27,7 @@ An admitted participant may edit person and control values only on existing owne
 Reconnect restores the same reserved slot identities and ownership.
 
 The implementation supports desktop display viewports only.
+PR #83 review corrections require new acceptance for NET-04, NET-05 and NET-06. Existing owning documents remain canonical; no screen migration is introduced. Two explicit structural variants supplement the inventory: [NET-04-R retained lobby result](../design/wireframes/NET-04/NET-04-R.svg), owned by [NET-04](network-lobby.md), and [NET-05-C explicit confirmation](../design/wireframes/NET-05/NET-05-C.svg), owned by [NET-05](network-match.md). Their screenshot entries are `SS-025` and `SS-026`; `SS-018`–`SS-020` require replacement evidence. These variants implement `NET-SET-001`–`NET-SET-003`, `NET-RES-001`–`NET-RES-002`, their acceptance criteria, and existing confirmation requirements.
 Each screen uses one desktop wireframe because the implementation does not define a mobile layout.
 The `MENU-01` visual baseline was updated on 2026-08-23 from the approved retro menu direction in the connected Stitch project.
 The update changes the menu presentation and control layout without adding a screen or changing product behavior.

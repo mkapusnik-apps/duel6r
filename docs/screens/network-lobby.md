@@ -13,6 +13,10 @@ A complete validated production admission must contain an exact final confirmati
 
 ## Representative layout
 
+PR #83 review corrections supersede the earlier visual acceptance for this screen; replacement evidence is pending. Preserve both Team preferences under `NET-SET-001`–`NET-SET-003`, but expose no Team-control interaction targets in non-Team modes.
+
+The retained-result variant [NET-04-R](../design/wireframes/NET-04/NET-04-R.svg) reserves approximately 215 logical pixels below current membership/settings for historical results. Keep membership separate from departed historical identities. Use bounded outcome headings with a winner count and `See outcome rows` when names do not fit. Before existing results, provide outcome rows for every available match and round outcome, with complete display names, player identities, scope, and `Departed` labels independent of current membership. Horizontal and vertical scrolling must expose all text, including 64 UTF-8-byte names, without splitting UTF-8 characters. Keep headings, position indicators, and footer actions visible. See `NET-RES-001`–`NET-RES-002` and screenshot entry `SS-025`.
+
 - Use the scaled retro canvas with session endpoint, `Host` or `Guest`, and exact participant/player totals as text.
 - Show participant Role, Connection, Readiness, and owned-player count in separate columns, such as `Guest | Reconnecting | Ready | 2`; do not combine these states into one ambiguous label.
 - Show each admitted player as one existing slot in authoritative roster order.

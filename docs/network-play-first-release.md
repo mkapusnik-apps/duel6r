@@ -91,6 +91,14 @@ Loopback supports same-machine play. An explicitly selected eligible private add
 - **NET-OWN-008** Intentional participant Leave or authoritative reservation expiry must remove all player slots owned by that participant.
 - **NET-OWN-009** A removed player identity must not be reused during the session.
 
+### Team setting preferences
+
+- **NET-SET-001** The network lobby must preserve the host's Team setting preferences across mode changes according to `SET-042` and `SET-043` in [`features.md`](features.md).
+- **NET-SET-002** When Deathmatch or Predator is selected, the authoritative match settings must apply no teams and no Friendly Fire.
+- **NET-SET-003** When the host selects Team deathmatch again, the authoritative match settings must apply the retained Team setting preferences.
+
+Preference retention does not change host-only setting permissions or readiness invalidation.
+
 ## Lobby, readiness, and admission
 
 - A host-alone lobby with one or more host-owned players is valid, but Start is blocked until the match-start invariants are met.
@@ -328,6 +336,8 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 - An interrupted result appears in the following `NET-04` lobby and does not appear in `NET-06`.
 - The following lobby must retain each result value without deriving a champion from cumulative ranking.
 - A participant or player that leaves after results exist remains in those rows and is labeled `Departed`.
+- **NET-RES-001** Each retained round outcome and match outcome must preserve its complete winner identities after participant or player removal.
+- **NET-RES-002** Participants must be able to read every winner's complete display name and identity for each available outcome in `NET-06` and the retained `NET-04` result, including supported maximum-length names and multiwinner outcomes.
 - Starting a new match clears the prior retained result before the new match begins; results are not accumulated as persistent history.
 - Intentional host End session, host-local supervised service failure, or application shutdown discards the host's session result set. An isolated guest does not infer that discard from transport failure.
 - Interrupted matches do not create a persistent or locally recoverable result.
@@ -353,6 +363,8 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 
 ## Acceptance criteria
 
+- **NET-SET-AC-001 — Mode changes:** Switching from Team deathmatch with Friendly Fire on to Deathmatch and then Predator must apply valid non-team settings on host and guests. A subsequent setting edit must apply normally. Each configuration change must clear readiness. Returning to Team deathmatch must restore both Team preferences.
+- **NET-RES-AC-001 — Complete retained winners:** After Leave or reservation expiry during final summary, each completed outcome must preserve its complete winner identities. Affected result rows must show `Departed`. Returning directly to the lobby must exclude removed participants and their players from membership and readiness. Participants must be able to read every winner's complete display name and identity in the summary and retained lobby result, including multiwinner outcomes with supported maximum-length names.
 - **NET-AC-001 — Platform:** Linux x86-64 and Windows x86-64 instances can participate together, and no other platform or architecture is claimed.
 - **NET-AC-002 — Endpoints:** A host selects IPv4 loopback or an eligible assigned private RFC1918 IPv4 listening address. A guest connects on the same machine or LAN through a directly entered hostname or IP address plus port. The product provides no Internet, NAT, discovery, or matchmaking affordance.
 - **NET-AC-003 — Host model:** The session is player-hosted and authoritative, with no dedicated-server product path or host migration.

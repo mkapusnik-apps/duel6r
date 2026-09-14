@@ -8,6 +8,8 @@ Normal match completion enters from `NET-05`. An interrupted match enters `NET-0
 
 ## Representative layout
 
+PR #83 review corrections supersede the earlier visual acceptance; replacement `SS-020` evidence is pending. Bound match and last-round headings using a winner count and `See outcome rows` when full names do not fit. Put complete match and round outcome rows before existing result sections. Each winner row retains scope, full display name, player identity, and departure state independently of live membership. Horizontal and vertical scrolling must expose every supported 64 UTF-8-byte name without splitting characters. Keep outcome headings, scrolling position, and actions fixed; do not shrink text or infer winners from ranking. Validate 14 Predator winners including departed winners at 1280×900 and containment at 1280×720.
+
 - Use the final arena frame or retro summary context consistently with the existing score-summary visual language.
 - Show result state `Completed`.
 - Show the labeled match outcome as the configured final-round winner identity, winning team, or `No winner`.

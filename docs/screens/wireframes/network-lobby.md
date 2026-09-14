@@ -48,3 +48,5 @@ Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro
 - Leave or authoritative expiry removes all slots owned by that participant.
 
 Planned representative screenshot: [`SS-018`](../../screenshots/README.md#ss-018).
+
+Review correction: the representative lobby now exercises retained four-team/Friendly Fire preferences through Deathmatch and Predator with readiness cleared. Non-Team controls have no targets. [NET-04-R](../../design/wireframes/NET-04/NET-04-R.svg) adds the explicit retained-results structure (`SS-025`): approximately 215 logical pixels for historical results beneath current membership, bounded winner-count headings with `See outcome rows`, and complete scrollable outcome identities before existing results. Fixed headings and actions remain visible; removed winners remain only in history. The owning [lobby specification](../network-lobby.md) defines behavior; corrected captures are pending.

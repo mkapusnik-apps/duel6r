@@ -34,3 +34,5 @@ Target representative viewport: 1280 by 900 px. The final arena context remains 
 - Wide result tables provide an internal horizontal scroll control and keep their column headings visible.
 
 Planned representative screenshot: [`SS-020`](../../screenshots/README.md#ss-020).
+
+Review correction: use 14 surviving Predator winners with maximum-length names and a departed winning guest. Bound fixed outcome headings with winner counts and `See outcome rows`; insert complete scrollable match/round outcome rows before existing result sections. Keep full names, identity, scope and departure state accessible independently of current membership. Preserve fixed headings/actions and UTF-8 boundaries. The owning [summary specification](../network-summary.md) defines the corrected layout; replacement evidence is pending.

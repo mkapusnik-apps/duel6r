@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="930" viewBox="0 0 1280 930">
+  <title>NET-05-C — Explicit session consequence confirmation</title>
+  <desc>Top-left wireframe coordinates. A centered blocking confirmation sits above one shared arena. The guest Leave confirmation represents the layout; host End uses the same structure. Opening input cannot also accept the confirmation.</desc>
+  <rect width="1280" height="930" fill="white"/>
+  <g stroke="black" fill="none">
+    <rect x="1" y="1" width="1278" height="718"/>
+    <rect x="970" y="24" width="285" height="145"/>
+    <path d="M50 490H180V430H300V540H480 M830 520H960V455H1225"/>
+    <rect x="320" y="230" width="640" height="260" fill="white" stroke-width="2"/>
+    <rect x="356" y="418" width="230" height="40" stroke-width="1"/>
+    <rect x="353" y="415" width="236" height="46" stroke-width="2"/>
+    <rect x="694" y="418" width="230" height="40"/>
+    <rect x="16" y="655" width="1248" height="49"/>
+    <path d="M16 742H1264" stroke-dasharray="5 5"/>
+  </g>
+  <g font-family="sans-serif" font-size="16" fill="black">
+    <text x="24" y="45">Events</text><text x="545" y="45">Round 2 | 3</text>
+    <text x="990" y="50">Ranking</text><text x="990" y="82">Player / points / state</text>
+    <text x="990" y="115">Current authoritative values</text>
+    <text x="420" y="170">ONE UNDIVIDED SHARED ARENA</text>
+    <text x="350" y="265">Leave session?</text>
+    <text x="350" y="311">Your players will be removed immediately and the match</text>
+    <text x="350" y="339">will continue without reconnect.</text>
+    <text x="398" y="444">Leave session</text><text x="772" y="444">Cancel</text>
+    <text x="120" y="568">Player / terrain / hazards</text>
+    <text x="844" y="579">Other players remain in the shared arena</text>
+    <text x="25" y="676">Guest • LAN session • Connected</text>
+    <text x="905" y="676">Session only scores</text>
+    <text x="905" y="696">Optional scripts disabled</text>
+    <text x="16" y="773">ANNOTATIONS — not interface copy; preserve the existing design system and confirmation order</text>
+    <text x="16" y="802">Read prompt → consequence → explicit action → Cancel. Confirm remains first; do not add initial Cancel focus.</text>
+    <text x="16" y="831">Wrap copy inside the panel. Keep all buttons visible, separated by at least 8 px, with complete pointer targets.</text>
+    <text x="16" y="860">Trap modal focus. Opening input, key repeat and held controller input cannot accept a newly opened panel.</text>
+    <text x="16" y="889">Host variant: “End session for everyone?” / End session / Cancel. No implicit Return-to-End in active play.</text>
+    <text x="16" y="918">Keep ≥16 px client inset at 1280×720 and 1280×900. Contract: docs/screens/network-match.md, NET-AC-016.</text>
+  </g>
+</svg>
