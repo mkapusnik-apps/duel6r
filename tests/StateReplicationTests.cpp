@@ -2611,6 +2611,127 @@ D6R_TEST_CASE("REP-012 REP-027 REP-030 REP-032 production combat events survive 
     D6R_REQUIRE(client.takePresentationEvents().empty());
 }
 
+D6R_TEST_CASE("PR83 transient typed spawn remove absent from both captures converges and cannot be recreated") {
+    const std::vector<std::pair<std::string, R::EntityKind>> kinds{
+            {"shot-fired", R::EntityKind::Projectile},
+            {"bonus-picked", R::EntityKind::BonusPickup},
+            {"weapon-picked", R::EntityKind::WeaponPickup}};
+    for (const auto &[typed, kind] : kinds) {
+        const auto initial = activeState();
+        auto next = initial;
+        ++next.phaseTime;
+        D6R_REQUIRE(entity(initial, 777) == nullptr && entity(next, 777) == nullptr);
+        const std::vector<R::PresentationEvent> events{
+                {900, typed, 101, 0, 777, 1},
+                {901, "entity-spawned", 0, 0, 777, 0},
+                {902, "entity-removed", 0, 0, 777, 0}};
+        R::AuthoritativeStateReplicator publisher;
+        D6R_REQUIRE(publisher.initialize(initial));
+        const auto update = publisher.publish(next, events);
+        D6R_REQUIRE(update.has_value());
+        D6R_REQUIRE(update->entities.empty());
+        const auto decoded = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+        D6R_REQUIRE(decoded && decoded->update);
+        R::ReplicatedState client;
+        D6R_REQUIRE(client.apply({1, initial}) == R::ApplyResult::Applied);
+        D6R_REQUIRE(client.apply(*decoded->update) == R::ApplyResult::Applied);
+        D6R_REQUIRE(client.current());
+        D6R_REQUIRE_EQ(2u, client.version());
+        D6R_REQUIRE(entity(*client.state(), 777) == nullptr);
+        const auto delivered = client.takePresentationEvents();
+        D6R_REQUIRE_EQ(3u, delivered.size());
+        for (std::size_t index = 0; index < events.size(); ++index) {
+            D6R_REQUIRE_EQ(events[index].eventId, delivered[index].eventId);
+            D6R_REQUIRE_EQ(events[index].type, delivered[index].type);
+            D6R_REQUIRE_EQ(events[index].entityId, delivered[index].entityId);
+        }
+        D6R_REQUIRE(client.takePresentationEvents().empty());
+        const auto accepted = *publisher.fullSnapshot();
+        const auto acceptedBytes = R::serializeReplicationSnapshot(accepted);
+        D6R_REQUIRE_EQ(acceptedBytes, R::serializeReplicationSnapshot({2, *client.state(), accepted.authoritativeProducedAt}));
+
+        // Neither a live entity nor an incompatible typed occurrence may reuse
+        // an identity established by the preceding transient-only event batch.
+        for (const bool liveCreation : {false, true}) {
+            auto attempted = next;
+            ++attempted.phaseTime;
+            std::vector<R::PresentationEvent> reusedEvents;
+            if (liveCreation) {
+                R::WorldEntityState recreated;
+                recreated.entityId = 777; recreated.kind = kind;
+                recreated.ownerPlayerId = kind == R::EntityKind::Projectile ? 101 : 0;
+                recreated.type = kind == R::EntityKind::BonusPickup ? "shield" : "bow";
+                recreated.lifecycle = kind == R::EntityKind::Projectile ? "active" : "available";
+                attempted.entities.push_back(recreated);
+            } else {
+                reusedEvents = {{903, kind == R::EntityKind::Projectile ? "bonus-picked" : "shot-fired", 101, 0, 777, 1},
+                                {904, "entity-spawned", 0, 0, 777, 0}};
+            }
+            D6R_REQUIRE(!publisher.publish(attempted, reusedEvents));
+            D6R_REQUIRE_EQ(acceptedBytes, R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+            R::ReplicatedState freshClient;
+            D6R_REQUIRE(freshClient.apply({1, initial}) == R::ApplyResult::Applied);
+            D6R_REQUIRE(freshClient.apply(*update) == R::ApplyResult::Applied);
+            (void) freshClient.takePresentationEvents();
+            auto attack = validUpdate(next, attempted);
+            attack.baseline = 2; attack.version = 3; attack.events = reusedEvents;
+            D6R_REQUIRE(freshClient.apply(attack) == R::ApplyResult::ResynchronizationRequired);
+            D6R_REQUIRE_EQ(2u, freshClient.version());
+            D6R_REQUIRE(freshClient.retainedState() != nullptr);
+            D6R_REQUIRE_EQ(acceptedBytes, R::serializeReplicationSnapshot({2, *freshClient.retainedState(), accepted.authoritativeProducedAt}));
+            D6R_REQUIRE(freshClient.takePresentationEvents().empty());
+        }
+        client.requireResynchronization();
+        D6R_REQUIRE(client.apply(accepted) == R::ApplyResult::Applied);
+        D6R_REQUIRE(entity(*client.state(), 777) == nullptr);
+        D6R_REQUIRE(client.takePresentationEvents().empty());
+    }
+}
+
+D6R_TEST_CASE("PR83 transient generic before typed and unknown identities reject transactionally on publisher and client") {
+    for (const std::string typed : {"shot-fired", "bonus-picked", "weapon-picked"}) {
+        const auto initial = activeState();
+        auto next = initial;
+        ++next.phaseTime;
+        const std::vector<R::PresentationEvent> valid{
+                {900, typed, 101, 0, 777, 1}, {901, "entity-spawned", 0, 0, 777, 0},
+                {902, "entity-removed", 0, 0, 777, 0}};
+        const std::vector<std::vector<R::PresentationEvent>> rejected{
+                {{900, "entity-spawned", 0, 0, 777, 0}, {901, typed, 101, 0, 777, 1}},
+                {{900, "entity-removed", 0, 0, 777, 0}, {901, typed, 101, 0, 777, 1}},
+                {{900, "entity-spawned", 0, 0, 888, 0}},
+                {{900, "entity-removed", 0, 0, 888, 0}},
+                {{900, typed, 101, 0, 777, 1}, {901, "entity-spawned", 0, 0, 888, 0}},
+                {{900, typed, 101, 0, 777, 1}, {901, "entity-spawned", 0, 0, 777, 0},
+                 {902, "entity-removed", 0, 0, 888, 0}}};
+        for (const auto &events : rejected) {
+            R::AuthoritativeStateReplicator publisher;
+            D6R_REQUIRE(publisher.initialize(initial));
+            const auto before = *publisher.fullSnapshot();
+            const auto beforeBytes = R::serializeReplicationSnapshot(before);
+            D6R_REQUIRE(!publisher.publish(next, events));
+            D6R_REQUIRE_EQ(1u, publisher.version());
+            D6R_REQUIRE_EQ(beforeBytes, R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+            R::ReplicatedState client;
+            D6R_REQUIRE(client.apply(before) == R::ApplyResult::Applied);
+            auto attack = validUpdate(initial, next);
+            attack.events = events;
+            D6R_REQUIRE(client.apply(attack) == R::ApplyResult::ResynchronizationRequired);
+            D6R_REQUIRE_EQ(1u, client.version());
+            D6R_REQUIRE(client.retainedState() != nullptr);
+            D6R_REQUIRE_EQ(beforeBytes, R::serializeReplicationSnapshot({1, *client.retainedState(), before.authoritativeProducedAt}));
+            D6R_REQUIRE(client.takePresentationEvents().empty());
+            // Retrying the valid batch with the same occurrence/identity values
+            // proves rejected prefixes did not consume event or identity history.
+            D6R_REQUIRE(client.apply(before) == R::ApplyResult::Applied);
+            const auto recovered = publisher.publish(next, valid);
+            D6R_REQUIRE(recovered.has_value());
+            D6R_REQUIRE(client.apply(*recovered) == R::ApplyResult::Applied);
+            D6R_REQUIRE_EQ(3u, client.takePresentationEvents().size());
+        }
+    }
+}
+
 D6R_TEST_CASE("REP-005 REP-012 REP-027 transient-only projectile identity is delivered once and cannot later become live") {
     const auto initial = activeState();
     auto afterEvent = initial;
