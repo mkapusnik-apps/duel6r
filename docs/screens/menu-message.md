@@ -3,7 +3,7 @@
 ## Purpose and traceability
 
 This state requests confirmation, requests controller input, or reports why a match cannot start.
-The approved target background includes the four equal-width `MENU-01` footer actions with distinct `Network (F2)`. Issue #28 does not implement that background change.
+The implemented background includes the four equal-width `MENU-01` footer actions with distinct `Network (F2)`. Issue #38 implements and accepts that background at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`.
 Entry occurs from Clear, person removal, Play, resume handling, statistics clearing, or a controller-detection button.
 Exit occurs after an accepted key or event, as defined by the active variant.
 The state implements `SET-003`, `SET-006`–`SET-007`, `SET-022`, `LIF-023`–`LIF-029`, and `INP-008`–`INP-009` from [`docs/features.md`](../features.md).

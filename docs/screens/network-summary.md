@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-This is a target screen for downstream issue #38; it is not implemented. It presents a completed authoritative match result without implying local persistence. It implements `NET-AC-010`, `NET-AC-011`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It presents a completed authoritative match result without implying local persistence. It implements `NET-AC-010`, `NET-AC-011`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 
 Normal match completion enters from `NET-05`. An interrupted match enters `NET-04` directly and never enters this screen. Host Return to lobby sends all connected participants to `NET-04` with readiness cleared; guest Leave returns to `NET-01`; unexpected host contact failure enters guest `NET-07`. Only a valid End session notice accepted through the current established session enters guest `NET-09`.
 

@@ -2,11 +2,11 @@
 
 ## Status, purpose, and requirements
 
-This is a target screen for downstream issue #38; it is not implemented. It configures a guest's direct endpoint and local players, then truthfully reports connection progress. It implements `NET-AC-001`, `NET-AC-002`, `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It configures a guest's direct endpoint and local players, then truthfully reports connection progress. It implements `NET-AC-001`, `NET-AC-002`, `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 It preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
 It implements `NET-VIS-001`, `NET-VIS-002`, `NET-VIS-009` through `NET-VIS-011`, `NET-VIS-AC-001`, `NET-VIS-AC-004`, and `NET-VIS-AC-005`. It also consumes `CMP-VIS-001` through `CMP-VIS-004`, `CMP-VIS-AC-001`, and updated `AC-012` from [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 It implements `NET-OWN-001` through `NET-OWN-003` and `NET-OWN-AC-001` through `NET-OWN-AC-002`. Successful admission consumes `ADM-OWN-001` and `ADM-OWN-AC-001` from the compatibility and admission specification.
-Issue #30 defines the compatibility and admission outcomes for this planned flow in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
+Issue #30 defines the compatibility and admission outcomes for this flow in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 Issue #30 must not implement this graphical screen.
 
 Entry is `NET-01` → Join. Complete validated production admission enters `NET-04`; failure enters `NET-08`; Cancel during connection restores editable setup; Back returns to `NET-01`.

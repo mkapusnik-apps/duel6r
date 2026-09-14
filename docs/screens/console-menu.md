@@ -3,7 +3,7 @@
 ## Purpose and traceability
 
 This overlay provides runtime inspection and commands while the menu remains visible.
-The approved target background includes the four equal-width `MENU-01` footer actions with distinct `Network (F2)`. Issue #28 does not implement that background change.
+The implemented background includes the four equal-width `MENU-01` footer actions with distinct `Network (F2)`. Issue #38 implements and accepts that background at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`.
 Entry occurs when backquote is pressed from the menu.
 Exit occurs when backquote is pressed again or a console command closes the console.
 The overlay implements `CFG-001`–`CFG-002` and `CFG-008`–`CFG-020` from [`docs/features.md`](../features.md).

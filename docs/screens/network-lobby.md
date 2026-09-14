@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-This is a target screen for downstream issue #38; it is not implemented. It exposes participant ownership, local-player configuration, host-owned match settings, authoritative roster order, readiness, and retained session results. Issue #32 defines its authoritative setup and result states in [`docs/network-authoritative-headless-match.md`](../network-authoritative-headless-match.md).
+This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It exposes participant ownership, local-player configuration, host-owned match settings, authoritative roster order, readiness, and retained session results. Issue #32 defines its authoritative setup and result states in [`docs/network-authoritative-headless-match.md`](../network-authoritative-headless-match.md).
 Local-player configuration preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
 It implements `NET-VIS-001`, `NET-VIS-002`, `NET-VIS-009` through `NET-VIS-011`, `NET-VIS-AC-001`, `NET-VIS-AC-004`, and `NET-VIS-AC-005`. It consumes `CMP-VIS-001` through `CMP-VIS-004`, `CMP-VIS-AC-001`, and updated `AC-012` from [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 It implements `NET-OWN-002` through `NET-OWN-009` and `NET-OWN-AC-002` through `NET-OWN-AC-005`. It consumes `ADM-OWN-001` through `ADM-OWN-006`, `ADM-OWN-AC-001`, `REP-OWN-001` through `REP-OWN-003`, `REP-OWN-AC-001`, `NIN-OWN-008`, `NIN-OWN-009`, `NIN-OWN-AC-001`, `NIN-OWN-AC-002`, and `TRU-OWN-001` through `TRU-OWN-007`.

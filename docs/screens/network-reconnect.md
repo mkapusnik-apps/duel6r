@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-This is a target screen for downstream issue #38; it is not implemented. It truthfully presents a guest's host-clock 30-second reconnect reservation and active-session behavior. It implements `NET-AC-006`, `NET-AC-009`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-016`, and `NET-AC-017` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It truthfully presents a guest's host-clock 30-second reconnect reservation and active-session behavior. It implements `NET-AC-006`, `NET-AC-009`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-016`, and `NET-AC-017` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 Its retained arena context implements `NET-VIS-003` through `NET-VIS-010`, `NET-VIS-AC-002` through `NET-VIS-AC-004`, `REP-PRES-001` through `REP-PRES-006`, and `REP-PRES-AC-001` through `REP-PRES-AC-003`.
 Its reservation and restoration behavior implements `NET-OWN-002`, `NET-OWN-003`, `NET-OWN-008`, `NET-OWN-009`, `NET-OWN-AC-002`, and `NET-OWN-AC-005`. It consumes `REP-AC-004` and `TRU-OWN-007`.
 

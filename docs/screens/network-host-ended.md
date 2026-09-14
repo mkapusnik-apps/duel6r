@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-This is a target blocking overlay for downstream issue #38; it is not implemented. It presents only a valid intentional host End session notice accepted through the guest's current established session. It implements `NET-AC-003`, `NET-AC-009`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+This blocking overlay is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It presents only a valid intentional host End session notice accepted through the guest's current established session. It implements `NET-AC-003`, `NET-AC-009`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 Its retained arena context implements `NET-VIS-003` through `NET-VIS-010`, `NET-VIS-AC-002` through `NET-VIS-AC-004`, `REP-PRES-001` through `REP-PRES-006`, and `REP-PRES-AC-001` through `REP-PRES-AC-003`.
 
 A valid intentional host End session notice accepted through the current established session enters this guest overlay from `NET-04`, `NET-05`, `NET-06`, or `NET-07`. `Return to Network` enters `NET-01`. The host itself goes directly to `NET-01`. Every unexpected host failure remains guest `NET-07` until terminal rejection or expiry.

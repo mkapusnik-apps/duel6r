@@ -2,15 +2,15 @@
 
 ## Status, purpose, and requirements
 
-This is a target screen for downstream issue #38; it is not implemented. It collects the listening interface, direct listening port, and host local players before creating a player-hosted session. It implements `NET-AC-001`, updated `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-009`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-019`, `NET-HOST-IF-001` through `NET-HOST-IF-012`, and `NET-HOST-IF-AC-001` through `NET-HOST-IF-AC-006` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It collects the listening interface, direct listening port, and host local players before creating a player-hosted session. It implements `NET-AC-001`, updated `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-009`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-019`, `NET-HOST-IF-001` through `NET-HOST-IF-012`, and `NET-HOST-IF-AC-001` through `NET-HOST-IF-AC-006` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 It preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
 It implements `NET-VIS-001`, `NET-VIS-002`, `NET-VIS-009` through `NET-VIS-011`, `NET-VIS-AC-001`, `NET-VIS-AC-004`, and `NET-VIS-AC-005`. It also consumes `CMP-VIS-001` through `CMP-VIS-004`, `CMP-VIS-AC-001`, and updated `AC-012` from [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 It implements `NET-OWN-001` and `NET-OWN-AC-001`. Successful startup consumes `ADM-OWN-001` and `ADM-OWN-AC-001` from the compatibility and admission specification.
 It consumes `TRU-BIND-001` through `TRU-BIND-007` from [`docs/network-trust-and-abuse-limits.md`](../network-trust-and-abuse-limits.md).
 It consumes `HSL-IF-001` through `HSL-IF-003` and `HSL-AC-019` from [`docs/network-host-service-lifecycle.md`](../network-host-service-lifecycle.md).
-Issue #30 defines the host compatibility result for this planned flow in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
+Issue #30 defines the host compatibility result for this flow in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 Issue #30 must not implement this graphical screen.
-Issue #31 defines the hosted-service lifecycle for this planned flow in [`docs/network-host-service-lifecycle.md`](../network-host-service-lifecycle.md).
+Issue #31 defines the hosted-service lifecycle for this flow in [`docs/network-host-service-lifecycle.md`](../network-host-service-lifecycle.md).
 Issue #31 must not implement this graphical screen.
 Issue #38 owns its graphical controls, focus, disabled reasons, and visual evidence.
 

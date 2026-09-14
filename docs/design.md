@@ -10,8 +10,9 @@ The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a seco
 The approved product requirements are the source of truth for visual-impact changes.
 The current native implementation remains the source for unchanged visual details.
 The fixed product baseline is the current product-owned `docs/features.md` content.
-This target baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, the person-action alignment specified in `SET-078`–`SET-083`, the person-list and action-button refinement specified in `SET-084`–`SET-091`, the final limited Deathmatch and Team game summary specified in `UI-GAME-001`–`UI-GAME-007`, and the planned first-release network UI defined for issue #28.
-The network additions are target specifications for downstream issue #38 and are not implemented UI or evidence of playable networking.
+This baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, the person-action alignment specified in `SET-078`–`SET-083`, the person-list and action-button refinement specified in `SET-084`–`SET-091`, the final limited Deathmatch and Team game summary specified in `UI-GAME-001`–`UI-GAME-007`, and the first-release network UI defined for issue #28.
+Issue #38 implements the network graphical states. Its 13 canonical visual artifacts conform at source head `e70a057819c97100b083c3cdaae5dc24566435cd`.
+This visual acceptance does not establish parent issue #27 release readiness.
 Issue #35 implements presentation-ready responsiveness, correction, degraded-state, resynchronization, and recovery handoffs without a graphical consumer.
 Issue #35 does not change a rendered application screen, layout, or graphical state.
 Issue #30 may implement protocol, command-line, or scaffold outcomes, but it must not add graphical network UI.
@@ -19,7 +20,7 @@ Issue #32 defines authoritative headless match states, result data, and fixed ou
 Issue #32 must not add graphical network UI.
 Issue #34 defines stable replicated identities and presentation-independent result-state replication.
 Issue #34 must not add graphical network UI.
-Issue #38 owns the future graphical consumption, presentation, accessibility, and visual evidence for the replicated states.
+Issue #38 owns the graphical consumption, presentation, accessibility, and visual evidence for the replicated states.
 
 ## Visual principles
 
@@ -529,7 +530,7 @@ The following values come from renderer and GUI source.
 - Screenshot provenance must record branch, source SHA, environment, workflow, state, viewport, and artifact path.
 - Evidence for menu background selection or persistence must also record the selected filename, runtime asset manifest revision, and session identifier.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
-- Eleven screenshot entries remain `Planned` until issue #38 implements and captures `MENU-02`, `CONS-01`, and `NET-01`–`NET-09`.
+- The issue #38 entries `SS-002`, `SS-013`, and `SS-015`–`SS-023` conform at source head `e70a057819c97100b083c3cdaae5dc24566435cd`.
 - `SS-001` and `SS-024` must represent the two approved `MENU-01` conditional-layout wireframes.
 - `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry.
 - The PR #59 `SS-001` and `SS-024` artifacts are historical because they show the prior person-action arrangement.
@@ -537,11 +538,10 @@ The following values come from renderer and GUI source.
 - The PR #62 `SS-001` and `SS-024` artifacts are historical because they show `<<` in the Persons panel.
 - PR #69 provides the latest captured implementation screenshots for nine implemented wireframes.
 - PR #70 provides the latest captured implementation screenshot for `OVER-03`.
-- `SS-001` and `SS-024` represent the current three-action `MENU-01` implementation and conform at PR #69 assessment head `f4708d337bb82be55c553c64608bd75ccd64121f`.
+- `SS-001` and `SS-024` represent the current four-action `MENU-01` implementation and conform at source head `e70a057819c97100b083c3cdaae5dc24566435cd`.
 - `SS-003`, `SS-007`–`SS-011`, and `SS-014` represent the current implemented gameplay and overlay wireframes and conform at the same assessment head.
-- The PR #70 `SS-012` artifact is historical because it predates the enlarged and contained final round counter and the Deathmatch completion-notice requirement.
-- `SS-012` is pending replacement evidence for the current `OVER-03` wireframe.
-- Issue #38 must invalidate and recapture `SS-001` and `SS-024` when it implements the target Network footer.
+- The PR #70 `SS-012` replacement artifact conforms to the current `OVER-03` wireframe.
+- Issue #38 recaptured `SS-001` and `SS-024` with the implemented Network footer.
 
 ## Reviewed implementation sources
 
