@@ -1,10 +1,12 @@
 #ifndef DUEL6_SERVER_AUTHORITATIVEHOSTEDMATCHCONTROLLER_H
 #define DUEL6_SERVER_AUTHORITATIVEHOSTEDMATCHCONTROLLER_H
 
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "AuthoritativeMatch.h"
 #include "AuthoritativeReplication.h"
@@ -139,14 +141,40 @@ namespace Duel6::Server::Authoritative {
         Network::Responsiveness::CanonicalUpdatePacer replicationPacer;
         MatchPhase lastReplicatedPhase = MatchPhase::Lobby;
 
+        template<typename PreflightExternal>
         LobbyCommitOutcome commitLobbyConfiguration(
                 const std::vector<Network::Replication::ParticipantState> &participants,
                 const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
                 std::string_view reason,
-                const std::function<LobbyCommitOutcome()> &preflightExternal) noexcept;
+                PreflightExternal &&preflightExternal) noexcept {
+            auto prepared = prepareLobbyConfiguration(participants, roster, settings, reason);
+            if (prepared.outcome != LobbyCommitOutcome::Committed || !prepared.mutation)
+                return prepared.outcome;
+            LobbyCommitOutcome external = LobbyCommitOutcome::InternalFailure;
+            try { external = std::forward<PreflightExternal>(preflightExternal)(); }
+            catch (...) { return LobbyCommitOutcome::InternalFailure; }
+            if (external != LobbyCommitOutcome::Committed) return external;
+            return commitPreparedLobbyMutation(std::move(*prepared.mutation));
+        }
+        LobbyCommitOutcome commitLobbyConfiguration(
+                const std::vector<Network::Replication::ParticipantState> &,
+                const std::vector<PlayerDefinition> &, const MatchConfig &, std::string_view,
+                std::nullptr_t) noexcept { return LobbyCommitOutcome::InternalFailure; }
+        template<typename PreflightExternal>
         LobbyCommitOutcome commitParticipantReady(
                 Identity participantId, bool ready,
-                const std::function<LobbyCommitOutcome()> &preflightExternal) noexcept;
+                PreflightExternal &&preflightExternal) noexcept {
+            auto prepared = prepareParticipantReady(participantId, ready);
+            if (prepared.outcome != LobbyCommitOutcome::Committed || !prepared.mutation)
+                return prepared.outcome;
+            LobbyCommitOutcome external = LobbyCommitOutcome::InternalFailure;
+            try { external = std::forward<PreflightExternal>(preflightExternal)(); }
+            catch (...) { return LobbyCommitOutcome::InternalFailure; }
+            if (external != LobbyCommitOutcome::Committed) return external;
+            return commitPreparedLobbyMutation(std::move(*prepared.mutation));
+        }
+        LobbyCommitOutcome commitParticipantReady(
+                Identity, bool, std::nullptr_t) noexcept { return LobbyCommitOutcome::InternalFailure; }
         void clearReadiness() noexcept;
         void advanceLobbyMutationGeneration() noexcept;
         bool allParticipantsReady(const std::vector<PlayerDefinition> &roster) const noexcept;

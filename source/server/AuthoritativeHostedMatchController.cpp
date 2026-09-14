@@ -191,34 +191,6 @@ namespace Duel6::Server::Authoritative {
         return LobbyCommitOutcome::Committed;
     }
 
-    LobbyCommitOutcome AuthoritativeHostedMatchController::commitLobbyConfiguration(
-            const std::vector<Network::Replication::ParticipantState> &participants,
-            const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,
-            std::string_view reason,
-            const std::function<LobbyCommitOutcome()> &preflightExternal) noexcept {
-        auto prepared = prepareLobbyConfiguration(participants, roster, settings, reason);
-        if (prepared.outcome != LobbyCommitOutcome::Committed || !prepared.mutation)
-            return prepared.outcome;
-        if (!preflightExternal) return LobbyCommitOutcome::InternalFailure;
-        LobbyCommitOutcome external = LobbyCommitOutcome::InternalFailure;
-        try { external = preflightExternal(); } catch (...) { return LobbyCommitOutcome::InternalFailure; }
-        if (external != LobbyCommitOutcome::Committed) return external;
-        return commitPreparedLobbyMutation(std::move(*prepared.mutation));
-    }
-
-    LobbyCommitOutcome AuthoritativeHostedMatchController::commitParticipantReady(
-            Identity participantId, bool ready,
-            const std::function<LobbyCommitOutcome()> &preflightExternal) noexcept {
-        auto prepared = prepareParticipantReady(participantId, ready);
-        if (prepared.outcome != LobbyCommitOutcome::Committed || !prepared.mutation)
-            return prepared.outcome;
-        if (!preflightExternal) return LobbyCommitOutcome::InternalFailure;
-        LobbyCommitOutcome external = LobbyCommitOutcome::InternalFailure;
-        try { external = preflightExternal(); } catch (...) { return LobbyCommitOutcome::InternalFailure; }
-        if (external != LobbyCommitOutcome::Committed) return external;
-        return commitPreparedLobbyMutation(std::move(*prepared.mutation));
-    }
-
     void AuthoritativeHostedMatchController::disconnectReplication(Identity participantId) noexcept {
         replicationConnections.disconnect(participantId);
     }
