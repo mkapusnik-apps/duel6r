@@ -69,6 +69,8 @@ namespace Duel6 {
         KeyboardButton(const Input &input, SDL_Keycode keyCode)
                 : input(input), keyCode(keyCode) {}
 
+        SDL_Keycode getKeyCode() const { return keyCode; }
+
         bool isPressed() const override;
     };
 

@@ -63,7 +63,7 @@ namespace Duel6 {
         Confirmation confirmation = Confirmation::None;
         bool confirmationInputArmed = false;
         bool scoreOverlay = false;
-        bool keyboardHandled = false;
+        std::uint32_t consumedKeyboardActions = 0;
         bool previousRoundSummary = false;
         bool controllerConfirm = false, controllerBack = false, controllerUp = false, controllerDown = false;
         bool controllerLeft = false, controllerRight = false;

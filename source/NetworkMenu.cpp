@@ -1184,18 +1184,35 @@ namespace Duel6 {
     void NetworkMenu::keyEvent(const KeyPressEvent &event) {
         if (!event.isPressed() || event.isRepeat()) return;
         const auto snap = runtime.snapshot();
-        keyboardHandled = true;
+        const auto consumeKey = [&] {
+            if (localPlayers.empty() || !localPlayers[0].controls) return;
+            const auto &controls = *localPlayers[0].controls;
+            const auto consume = [&](const Control &control, std::uint32_t action) {
+                const auto *keyboard = dynamic_cast<const KeyboardButton *>(&control);
+                if (keyboard && keyboard->getKeyCode() == event.getCode()) consumedKeyboardActions |= action;
+            };
+            consume(controls.getShoot(), Network::Input::Shoot);
+            consume(controls.getPick(), Network::Input::PickOrSwapWeapon);
+            consume(controls.getUp(), Network::Input::Jump);
+            consume(controls.getDown(), Network::Input::Crouch);
+            consume(controls.getLeft(), Network::Input::MoveLeft);
+            consume(controls.getRight(), Network::Input::MoveRight);
+        };
+        const auto activateKey = [&] { consumeKey(); activate(); };
+        const auto backKey = [&] { consumeKey(); back(); };
+        const auto focusKey = [&](int direction) { consumeKey(); moveFocus(direction); };
         if (confirmation != Confirmation::None) {
-            if (event.getCode() == SDLK_ESCAPE) back();
-            else if (event.getCode() == SDLK_RETURN || event.getCode() == SDLK_SPACE) activate();
-            else if (event.getCode() == SDLK_UP || event.getCode() == SDLK_LEFT) moveFocus(-1);
-            else if (event.getCode() == SDLK_DOWN || event.getCode() == SDLK_RIGHT) moveFocus(1);
+            if (event.getCode() == SDLK_ESCAPE) backKey();
+            else if (event.getCode() == SDLK_RETURN || event.getCode() == SDLK_SPACE) activateKey();
+            else if (event.getCode() == SDLK_UP || event.getCode() == SDLK_LEFT) focusKey(-1);
+            else if (event.getCode() == SDLK_DOWN || event.getCode() == SDLK_RIGHT) focusKey(1);
             return;
         }
         if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Host
             && hostAddressSelectorOpen) {
-            if (event.getCode() == SDLK_ESCAPE) { hostAddressSelectorOpen = false; focus = 1; return; }
+            if (event.getCode() == SDLK_ESCAPE) { consumeKey(); hostAddressSelectorOpen = false; focus = 1; return; }
             if ((event.getCode() == SDLK_UP || event.getCode() == SDLK_DOWN) && !hostAddresses.empty()) {
+                consumeKey();
                 const int direction = event.getCode() == SDLK_DOWN ? 1 : -1;
                 hostAddressHighlight = static_cast<std::size_t>((static_cast<int>(hostAddressHighlight) + direction
                         + static_cast<int>(hostAddresses.size())) % static_cast<int>(hostAddresses.size()));
@@ -1204,6 +1221,7 @@ namespace Duel6 {
                 return;
             }
             if (event.getCode() == SDLK_RETURN || event.getCode() == SDLK_SPACE) {
+                consumeKey();
                 if (!hostAddresses.empty()) {
                     hostAddress = hostAddresses[hostAddressHighlight];
                     hostAddressSelectionBecameInvalid = false;
@@ -1215,6 +1233,7 @@ namespace Duel6 {
         }
         if (snap.journey == Client::NetworkJourney::Match && confirmation == Confirmation::None) {
             if (event.getCode() == SDLK_TAB) {
+                consumeKey();
                 if (snap.canonical && snap.canonical->phase == Network::Replication::Phase::ActiveRound)
                     scoreOverlay = !scoreOverlay;
                 return;
@@ -1222,10 +1241,10 @@ namespace Duel6 {
             if (event.getCode() == SDLK_F9 && snap.host && snap.canonical && snap.canonical->round
                 && (!snap.canonical->round->outcome.winnerPlayerIds.empty()
                     || snap.canonical->round->outcome.winningTeam || snap.canonical->round->outcome.noWinner)) {
-                runtime.advanceRound(); return;
+                consumeKey(); runtime.advanceRound(); return;
             }
             if (snap.canonical && Network::Replication::acceptsGameplayInput(*snap.canonical)) {
-                if (event.getCode() == SDLK_ESCAPE) { back(); return; }
+                if (event.getCode() == SDLK_ESCAPE) { backKey(); return; }
                 if (event.getCode() == SDLK_RETURN || event.getCode() == SDLK_SPACE
                     || event.getCode() == SDLK_UP || event.getCode() == SDLK_DOWN) return;
             }
@@ -1233,6 +1252,7 @@ namespace Duel6 {
         if ((snap.journey == Client::NetworkJourney::Summary
              || (snap.journey == Client::NetworkJourney::Lobby && snap.canonical && snap.canonical->result.available))
             && (event.getCode() == SDLK_PAGEUP || event.getCode() == SDLK_PAGEDOWN)) {
+            consumeKey();
             const bool retained = retainedResult(snap);
             const auto bounds = snap.canonical ? resultScrollBounds(*snap.canonical, retained) : ResultScrollBounds{};
             summaryScroll = std::clamp(summaryScroll + (event.getCode() == SDLK_PAGEDOWN ? 8 : -8),
@@ -1241,6 +1261,7 @@ namespace Duel6 {
         }
         if (snap.journey == Client::NetworkJourney::Match && !scoreOverlay
             && (event.getCode() == SDLK_PAGEUP || event.getCode() == SDLK_PAGEDOWN)) {
+            consumeKey();
             const auto maximum = snap.canonical ? rankingMaximumScroll(
                     *snap.canonical, service.getVideo().getScreen().getClientHeight(),
                     snap.canonical->phase == Network::Replication::Phase::RoundSummary) : 0;
@@ -1251,22 +1272,23 @@ namespace Duel6 {
         if ((snap.journey == Client::NetworkJourney::Summary
              || (snap.journey == Client::NetworkJourney::Lobby && snap.canonical && snap.canonical->result.available))
             && (event.getCode() == SDLK_LEFT || event.getCode() == SDLK_RIGHT)) {
+            consumeKey();
             const bool retained = retainedResult(snap);
             const auto bounds = snap.canonical ? resultScrollBounds(*snap.canonical, retained) : ResultScrollBounds{};
             summaryHorizontal = std::clamp(summaryHorizontal + (event.getCode() == SDLK_RIGHT ? 8 : -8),
                                            0, static_cast<int>(bounds.horizontal));
             return;
         }
-        if (event.getCode() == SDLK_ESCAPE) back();
-        else if (event.getCode() == SDLK_TAB || event.getCode() == SDLK_DOWN) moveFocus(1);
-        else if (event.getCode() == SDLK_UP) moveFocus(-1);
-        else if (event.getCode() == SDLK_RETURN || event.getCode() == SDLK_SPACE) activate();
+        if (event.getCode() == SDLK_ESCAPE) backKey();
+        else if (event.getCode() == SDLK_TAB || event.getCode() == SDLK_DOWN) focusKey(1);
+        else if (event.getCode() == SDLK_UP) focusKey(-1);
+        else if (event.getCode() == SDLK_RETURN || event.getCode() == SDLK_SPACE) activateKey();
         else if ((setupScreen == SetupScreen::Host || setupScreen == SetupScreen::Join)
                  && snap.journey == Client::NetworkJourney::Inactive) {
             std::string *field = setupScreen == SetupScreen::Join && focus == 0 ? &address : &port;
             if (((setupScreen == SetupScreen::Join && (focus == 0 || focus == 1))
                  || (setupScreen == SetupScreen::Host && focus == 0))
-                && event.getCode() == SDLK_BACKSPACE && !field->empty()) field->pop_back();
+                && event.getCode() == SDLK_BACKSPACE && !field->empty()) { consumeKey(); field->pop_back(); }
         }
     }
 
@@ -1310,6 +1332,10 @@ namespace Duel6 {
             uiRight = uiRight || controller.isPressed(GameController::CONTROLLER_BUTTON_DPAD_RIGHT)
                     || controller.getAxis(GameController::CONTROLLER_AXIS_LEFTX) > 16000;
         }
+        const std::uint32_t controllerActions = (uiConfirm ? Network::Input::Shoot : 0u)
+                | (uiBack ? Network::Input::PickOrSwapWeapon : 0u) | (uiUp ? Network::Input::Jump : 0u)
+                | (uiDown ? Network::Input::Crouch : 0u) | (uiLeft ? Network::Input::MoveLeft : 0u)
+                | (uiRight ? Network::Input::MoveRight : 0u);
         // Sample mapped actions even in gameplay, so held input cannot acquire a
         // new meaning when a summary or confirmation appears.
         if (!localPlayers.empty() && localPlayers[0].controls) {
@@ -1329,9 +1355,17 @@ namespace Duel6 {
                 && currentSnapshot.canonical
                 && Network::Replication::acceptsGameplayInput(*currentSnapshot.canonical);
         if (!gameplayActive || confirmation != Confirmation::None) {
+            // Suppress only the mapped keyboard edge already handled by keyEvent.
+            // Keep raw held histories and independent simultaneous controller input.
+            const auto duplicate = consumedKeyboardActions & ~controllerActions;
+            if (duplicate & Network::Input::Shoot) controllerConfirm = uiConfirm;
+            if (duplicate & Network::Input::PickOrSwapWeapon) controllerBack = uiBack;
+            if (duplicate & Network::Input::Jump) controllerUp = uiUp;
+            if (duplicate & Network::Input::Crouch) controllerDown = uiDown;
+            if (duplicate & Network::Input::MoveLeft) controllerLeft = uiLeft;
+            if (duplicate & Network::Input::MoveRight) controllerRight = uiRight;
             const bool enteredState = currentSnapshot.journey != lastJourney
-                    || roundSummary != previousRoundSummary || confirmation != priorConfirmation
-                    || keyboardHandled;
+                    || roundSummary != previousRoundSummary || confirmation != priorConfirmation;
             if (enteredState) {
                 controllerConfirm = uiConfirm; controllerBack = uiBack;
                 controllerUp = uiUp; controllerDown = uiDown;
@@ -1400,7 +1434,7 @@ namespace Duel6 {
         if (confirmation != Confirmation::None && !uiConfirm
             && !service.getInput().isPressed(SDLK_RETURN) && !service.getInput().isPressed(SDLK_SPACE))
             confirmationInputArmed = true;
-        keyboardHandled = false;
+        consumedKeyboardActions = 0;
         if (currentSnapshot.journey != lastJourney) {
             std::string retryReason;
             const bool canRetry = currentSnapshot.journey == Client::NetworkJourney::Failure
@@ -1755,6 +1789,10 @@ namespace Duel6 {
                         "Control: " + (localPlayers[index].controls
                         ? localPlayers[index].controls->getDescription() : "No control"),
                         static_cast<std::size_t>((LobbyControlWidth - 4) / 8));
+                drawFocusKeyline(LobbyPersonLeft, rectangles.bottom, LobbyPersonWidth, LobbyControlRowHeight,
+                                 focus == static_cast<int>(index) * 2);
+                drawFocusKeyline(LobbyControlLeft, rectangles.bottom, LobbyControlWidth, LobbyControlRowHeight,
+                                 focus == static_cast<int>(index) * 2 + 1);
             }
         }
         const int readyIndex = static_cast<int>(localPlayers.size()) * 2;
