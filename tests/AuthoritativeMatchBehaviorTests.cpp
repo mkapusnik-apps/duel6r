@@ -34,6 +34,7 @@
 #include "source/network/SessionLifecycle.h"
 #undef private
 #include "tests/TestHarness.h"
+#include "source/Player.h"
 
 namespace {
 std::atomic<std::int64_t> allocationFailureCountdown{-1};
@@ -1036,6 +1037,73 @@ D6R_TEST_CASE("PR83 real canonical round-end active world consumes survivor pres
     D6R_REQUIRE(match->phase() == MatchPhase::RoundEndFrozen);
     D6R_REQUIRE_EQ(ActionResult::RejectedPhase, match->submit({match->currentTick(), fixture.sequence++,
             owner->participantId, id, ActionKind::PlayerInput, 0, Shoot, 0}));
+}
+
+D6R_TEST_CASE("PR83 capture real Invisibility producer stays drawable and restores normal or Predator alpha on expiry") {
+    for (const Mode mode : {Mode::Deathmatch, Mode::Predator}) {
+        ProductionCanonicalResourceRoot resources;
+        auto requested = ProductionCanonicalFixture::canonicalConfig(1, resources.path());
+        requested.mode = mode;
+        const auto players = roster(3);
+        const auto content = Duel6::Network::CompatibilityManifestBuilder(resources.path(), {}).build();
+        D6R_REQUIRE(content.valid());
+        auto runtime = std::make_shared<CanonicalMatchRuntime>(requested, players, content.manifest, content.content);
+        AuthoritativeMatch match(runtime->dependencies());
+        D6R_REQUIRE_EQ(OutcomeCode::None, match.start(requested, players, content.manifest).code);
+        AuthoritativeReplication replication(91);
+        D6R_REQUIRE(replication.setLobby(1, {{1, true, R::ConnectionState::Connected, true, {101}},
+                {2, false, R::ConnectionState::Connected, true, {102}},
+                {3, false, R::ConnectionState::Connected, true, {103}}}, players, requested));
+        D6R_REQUIRE(replication.beginMatch(match));
+        R::ReplicatedState liveClient;
+        D6R_REQUIRE(liveClient.apply(*replication.fullSnapshot()) == R::ApplyResult::Applied);
+        const auto publish = [&] {
+            const auto update = replication.capture(match);
+            D6R_REQUIRE(update.has_value());
+            const auto decoded = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+            D6R_REQUIRE(decoded && decoded->update);
+            D6R_REQUIRE(liveClient.apply(*decoded->update) == R::ApplyResult::Applied);
+        };
+        const Identity selected = mode == Mode::Predator ? match.roundDecision().predatorPlayerId : 101;
+        const std::uint8_t ordinaryAlpha = mode == Mode::Predator ? 25 : 255;
+        const auto verify = [&](std::uint8_t alpha, bool bonus) {
+            const auto source = runtime->snapshot();
+            D6R_REQUIRE(source.valid);
+            const auto produced = std::find_if(source.players.begin(), source.players.end(),
+                    [selected](const auto &player) { return player.playerId == selected; });
+            D6R_REQUIRE(produced != source.players.end());
+            D6R_REQUIRE(produced->visible);
+            D6R_REQUIRE_EQ(alpha, produced->presentationAlpha);
+            D6R_REQUIRE_EQ(bonus, produced->timedBonus == "invisibility" && produced->bonusRemaining > 0);
+            const auto full = replication.fullSnapshot();
+            D6R_REQUIRE(full.has_value());
+            const auto decoded = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*full));
+            D6R_REQUIRE(decoded && decoded->snapshot);
+            R::ReplicatedState client;
+            D6R_REQUIRE(client.apply(*decoded->snapshot) == R::ApplyResult::Applied);
+            const auto &remote = client.state()->players;
+            const auto restored = std::find_if(remote.begin(), remote.end(),
+                    [selected](const auto &player) { return player.playerId == selected; });
+            D6R_REQUIRE(restored != remote.end() && restored->visible);
+            D6R_REQUIRE_EQ(alpha, restored->presentationAlpha);
+            D6R_REQUIRE_EQ(bonus, restored->activeBonus == "invisibility" && restored->bonusRemaining > 0);
+            const auto &live = liveClient.state()->players;
+            const auto updated = std::find_if(live.begin(), live.end(),
+                    [selected](const auto &player) { return player.playerId == selected; });
+            D6R_REQUIRE(updated != live.end() && updated->visible);
+            D6R_REQUIRE_EQ(alpha, updated->presentationAlpha);
+            D6R_REQUIRE_EQ(bonus, updated->activeBonus == "invisibility" && updated->bonusRemaining > 0);
+        };
+        verify(ordinaryAlpha, false);
+        // Inject only the pickup award using the real Player bonus API. Expiry,
+        // production snapshot construction, replication and decoding are real.
+        runtime->canonicalPlayersById.at(selected)->setBonus(Duel6::BonusType::INVISIBILITY, 1);
+        match.advanceOneTick(); publish();
+        verify(51, true);
+        for (unsigned tick = 0; tick < 70; ++tick) match.advanceOneTick();
+        publish();
+        verify(ordinaryAlpha, false);
+    }
 }
 
 D6R_TEST_CASE("AHM terminal results are atomic and cleanup controls exit meaning") {

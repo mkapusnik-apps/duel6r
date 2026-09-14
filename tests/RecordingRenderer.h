@@ -39,7 +39,13 @@ public:
     void frame(const Vector &position, const Vector &size, Float32 width, const Color &color) override {
         frames.push_back({position, size, width, color});
     }
-    std::unique_ptr<RendererBuffer> makeBuffer(const FaceList &) override { return {}; }
+    std::unique_ptr<RendererBuffer> makeBuffer(const FaceList &) override {
+        class GeometryBuffer final : public RendererBuffer {
+            void update(const FaceList &) override {}
+            void render(const Material &) override {}
+        };
+        return std::make_unique<GeometryBuffer>();
+    }
     std::unique_ptr<RendererTarget> makeTarget(ScreenParameters) override { return {}; }
 };
 }

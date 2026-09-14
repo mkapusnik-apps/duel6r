@@ -16,6 +16,7 @@ add_executable(duel6r-authoritative-match-behavior-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
         ${CMAKE_SOURCE_DIR}/tests/AuthoritativeMatchBehaviorTests.cpp)
 target_include_directories(duel6r-authoritative-match-behavior-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(duel6r-authoritative-match-behavior-tests PRIVATE D6R_HEADLESS_CORE)
 target_link_libraries(duel6r-authoritative-match-behavior-tests
         duel6r-network-scaffold duel6r-canonical-gameplay-core)
 if (MINGW)
@@ -198,17 +199,18 @@ if (NOT D6R_TRANSPORT_ONLY)
     add_dependencies(duel6r-network-session-runtime-tests ${D6R_SERVER_APP_NAME})
     if (UNIX)
         find_program(D6R_TEST_XVFB_RUN_EXECUTABLE xvfb-run REQUIRED)
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
         add_test(NAME duel6r-network-session-runtime-tests
-                COMMAND ${CMAKE_COMMAND} -E env SDL_AUDIODRIVER=dummy
-                        ${D6R_TEST_XVFB_RUN_EXECUTABLE} -a
-                        $<TARGET_FILE:duel6r-network-session-runtime-tests>)
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/NetworkFlatBundleHarness.py
+                        $<TARGET_FILE:duel6r-network-session-runtime-tests>
+                        ${CMAKE_SOURCE_DIR}/resources $<TARGET_FILE:${D6R_SERVER_APP_NAME}>)
     else ()
         add_test(NAME duel6r-network-session-runtime-tests COMMAND duel6r-network-session-runtime-tests)
     endif ()
     set_tests_properties(duel6r-network-session-runtime-tests PROPERTIES
             LABELS "application;integration;network;runtime;presentation;reconnect;regression"
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
-            TIMEOUT 120)
+            TIMEOUT 180)
 endif ()
 
 if (NOT D6R_TRANSPORT_ONLY)
