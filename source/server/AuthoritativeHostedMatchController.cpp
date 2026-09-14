@@ -23,26 +23,27 @@ namespace Duel6::Server::Authoritative {
     }
 
     PreparedLobbyMutation::PreparedLobbyMutation(
-            const AuthoritativeHostedMatchController *owner, std::uint64_t generation,
+            std::weak_ptr<const void> ownerLifetime, std::uint64_t generation,
             Network::Replication::StateVersion baselineVersion,
             std::map<Identity, bool> baselineReadiness, AuthoritativeReplication replication,
             std::map<Identity, bool> readiness,
             Network::Replication::IncrementalUpdate update) noexcept
-            : owner(owner), generation(generation), baselineVersion(baselineVersion),
+            : ownerLifetime(std::move(ownerLifetime)), generation(generation), baselineVersion(baselineVersion),
               baselineReadiness(std::move(baselineReadiness)), replication(std::move(replication)),
               readiness(std::move(readiness)), update(std::move(update)), valid(true) {}
 
     PreparedLobbyMutation::PreparedLobbyMutation(PreparedLobbyMutation &&other) noexcept
-            : owner(other.owner), generation(other.generation), baselineVersion(other.baselineVersion),
+            : ownerLifetime(std::move(other.ownerLifetime)), generation(other.generation),
+              baselineVersion(other.baselineVersion),
               baselineReadiness(std::move(other.baselineReadiness)), replication(std::move(other.replication)),
               readiness(std::move(other.readiness)), update(std::move(other.update)), valid(other.valid) {
-        other.owner = nullptr;
+        other.ownerLifetime.reset();
         other.valid = false;
     }
 
     PreparedLobbyMutation &PreparedLobbyMutation::operator=(PreparedLobbyMutation &&other) noexcept {
         if (this == &other) return *this;
-        owner = other.owner;
+        ownerLifetime = std::move(other.ownerLifetime);
         generation = other.generation;
         baselineVersion = other.baselineVersion;
         baselineReadiness = std::move(other.baselineReadiness);
@@ -50,7 +51,7 @@ namespace Duel6::Server::Authoritative {
         readiness = std::move(other.readiness);
         update = std::move(other.update);
         valid = other.valid;
-        other.owner = nullptr;
+        other.ownerLifetime.reset();
         other.valid = false;
         return *this;
     }
@@ -64,7 +65,8 @@ namespace Duel6::Server::Authoritative {
 
     AuthoritativeHostedMatchController::AuthoritativeHostedMatchController(
             Identity hostParticipantId, MatchRuntimeDependencies dependencies, Identity sessionId)
-            : dependencies(std::move(dependencies)), hostParticipantId(hostParticipantId),
+            : instanceLifetime(std::make_shared<const std::uint8_t>(0)), dependencies(std::move(dependencies)),
+              hostParticipantId(hostParticipantId),
               replication(sessionId), replicationConnections(replication.replicator()), playerInput(hostParticipantId) {}
 
     bool AuthoritativeHostedMatchController::initializeReplication(
@@ -126,7 +128,7 @@ namespace Duel6::Server::Authoritative {
                 return {lobbyOutcome(proposal.outcome), {}};
             if (!proposal.update) return {LobbyCommitOutcome::InternalFailure, {}};
             auto mutation = std::unique_ptr<PreparedLobbyMutation>(new PreparedLobbyMutation(
-                    this, lobbyMutationGeneration, baselineVersion, std::move(baselineReadiness),
+                    instanceLifetime, lobbyMutationGeneration, baselineVersion, std::move(baselineReadiness),
                     std::move(nextReplication), std::move(nextReadiness), std::move(*proposal.update)));
             return {LobbyCommitOutcome::Committed, std::move(mutation)};
         } catch (...) {
@@ -153,7 +155,7 @@ namespace Duel6::Server::Authoritative {
                 return {lobbyOutcome(proposal.outcome), {}};
             if (!proposal.update) return {LobbyCommitOutcome::InternalFailure, {}};
             auto mutation = std::unique_ptr<PreparedLobbyMutation>(new PreparedLobbyMutation(
-                    this, lobbyMutationGeneration, baselineVersion, std::move(baselineReadiness),
+                    instanceLifetime, lobbyMutationGeneration, baselineVersion, std::move(baselineReadiness),
                     std::move(nextReplication), std::move(nextReadiness), std::move(*proposal.update)));
             return {LobbyCommitOutcome::Committed, std::move(mutation)};
         } catch (...) {
@@ -163,7 +165,8 @@ namespace Duel6::Server::Authoritative {
 
     bool AuthoritativeHostedMatchController::canCommitPreparedLobbyMutation(
             const PreparedLobbyMutation &mutation) const noexcept {
-        return mutation.valid && mutation.owner == this && currentStage == HostedMatchStage::Lobby
+        return mutation.valid && mutation.ownerLifetime.lock() == instanceLifetime
+               && currentStage == HostedMatchStage::Lobby
                && mutation.generation == lobbyMutationGeneration
                && mutation.baselineVersion == replication.replicator().version()
                && mutation.baselineReadiness == readiness
@@ -177,11 +180,11 @@ namespace Duel6::Server::Authoritative {
             PreparedLobbyMutation &&mutation) noexcept {
         if (!canCommitPreparedLobbyMutation(mutation)) {
             mutation.valid = false;
-            mutation.owner = nullptr;
+            mutation.ownerLifetime.reset();
             return LobbyCommitOutcome::InternalFailure;
         }
         mutation.valid = false;
-        mutation.owner = nullptr;
+        mutation.ownerLifetime.reset();
         static_assert(std::is_nothrow_move_assignable_v<AuthoritativeReplication>);
         static_assert(std::is_nothrow_move_assignable_v<decltype(readiness)>);
         replication = std::move(mutation.replication);

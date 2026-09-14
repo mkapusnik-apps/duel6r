@@ -60,7 +60,7 @@ namespace Duel6::Network::Lifecycle {
     private:
         PreparedReadinessMutation() = default;
         enum class Kind { SetParticipant, ClearAll };
-        const HostSessionLifecycle *owner = nullptr;
+        std::weak_ptr<const void> ownerLifetime;
         std::uint64_t generation = 0;
         bool baselineHostReady = false;
         bool baselineParticipantReady = false;
@@ -176,6 +176,10 @@ namespace Duel6::Network::Lifecycle {
                              ConnectionId hostConnectionId, std::vector<PlayerId> hostOwnedPlayers,
                              Clock clock = {}, Trust::RandomFill random = {}, HostHooks hooks = {});
         ~HostSessionLifecycle();
+        HostSessionLifecycle(const HostSessionLifecycle &) = delete;
+        HostSessionLifecycle &operator=(const HostSessionLifecycle &) = delete;
+        HostSessionLifecycle(HostSessionLifecycle &&) = delete;
+        HostSessionLifecycle &operator=(HostSessionLifecycle &&) = delete;
 
         std::optional<ReconnectGrant> admitGuest(ParticipantId participantId, ConnectionId connectionId,
                                                   std::vector<PlayerId> ownedPlayers, bool ready);
@@ -227,6 +231,7 @@ namespace Duel6::Network::Lifecycle {
             std::unique_ptr<Trust::ReconnectReservation> rollbackReservation;
         };
 
+        std::shared_ptr<const void> instanceLifetime;
         std::uint64_t sessionId;
         ParticipantId hostParticipantId;
         ConnectionId hostConnectionId;

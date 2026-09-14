@@ -43,14 +43,14 @@ namespace Duel6::Server::Authoritative {
         PreparedLobbyMutation(const PreparedLobbyMutation &) = delete;
         PreparedLobbyMutation &operator=(const PreparedLobbyMutation &) = delete;
     private:
-        PreparedLobbyMutation(const AuthoritativeHostedMatchController *owner,
+        PreparedLobbyMutation(std::weak_ptr<const void> ownerLifetime,
                                std::uint64_t generation,
                                Network::Replication::StateVersion baselineVersion,
                                std::map<Identity, bool> baselineReadiness,
                                AuthoritativeReplication replication,
                                std::map<Identity, bool> readiness,
                                Network::Replication::IncrementalUpdate update) noexcept;
-        const AuthoritativeHostedMatchController *owner = nullptr;
+        std::weak_ptr<const void> ownerLifetime;
         std::uint64_t generation = 0;
         Network::Replication::StateVersion baselineVersion = 0;
         std::map<Identity, bool> baselineReadiness;
@@ -70,6 +70,10 @@ namespace Duel6::Server::Authoritative {
         AuthoritativeHostedMatchController(Identity hostParticipantId,
                                            MatchRuntimeDependencies dependencies = {},
                                            Identity sessionId = 0);
+        AuthoritativeHostedMatchController(const AuthoritativeHostedMatchController &) = delete;
+        AuthoritativeHostedMatchController &operator=(const AuthoritativeHostedMatchController &) = delete;
+        AuthoritativeHostedMatchController(AuthoritativeHostedMatchController &&) = delete;
+        AuthoritativeHostedMatchController &operator=(AuthoritativeHostedMatchController &&) = delete;
 
         bool markServiceReady();
         bool setParticipantReady(Identity participantId, bool ready);
@@ -126,6 +130,7 @@ namespace Duel6::Server::Authoritative {
         }
 
     private:
+        std::shared_ptr<const void> instanceLifetime;
         MatchRuntimeDependencies dependencies;
         HostedMatchStage currentStage = HostedMatchStage::ServiceStarting;
         std::map<Identity, bool> readiness;

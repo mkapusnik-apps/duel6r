@@ -81,18 +81,19 @@ namespace Duel6::Network::Lifecycle {
     }
 
     PreparedReadinessMutation::PreparedReadinessMutation(PreparedReadinessMutation &&other) noexcept
-            : owner(other.owner), generation(other.generation), baselineHostReady(other.baselineHostReady),
+            : ownerLifetime(std::move(other.ownerLifetime)), generation(other.generation),
+              baselineHostReady(other.baselineHostReady),
               baselineParticipantReady(other.baselineParticipantReady), kind(other.kind),
               participantId(other.participantId), connectionId(other.connectionId), ready(other.ready),
               valid(other.valid) {
-        other.owner = nullptr;
+        other.ownerLifetime.reset();
         other.valid = false;
     }
 
     PreparedReadinessMutation &PreparedReadinessMutation::operator=(
             PreparedReadinessMutation &&other) noexcept {
         if (this == &other) return *this;
-        owner = other.owner;
+        ownerLifetime = std::move(other.ownerLifetime);
         generation = other.generation;
         baselineHostReady = other.baselineHostReady;
         baselineParticipantReady = other.baselineParticipantReady;
@@ -101,7 +102,7 @@ namespace Duel6::Network::Lifecycle {
         connectionId = other.connectionId;
         ready = other.ready;
         valid = other.valid;
-        other.owner = nullptr;
+        other.ownerLifetime.reset();
         other.valid = false;
         return *this;
     }
@@ -280,7 +281,8 @@ namespace Duel6::Network::Lifecycle {
     HostSessionLifecycle::HostSessionLifecycle(std::uint64_t sessionId, ParticipantId hostParticipantId,
             ConnectionId hostConnectionId, std::vector<PlayerId> hostOwnedPlayers, Clock clock,
             Trust::RandomFill random, HostHooks hooks)
-            : sessionId(sessionId), hostParticipantId(hostParticipantId), hostConnectionId(hostConnectionId),
+            : instanceLifetime(std::make_shared<const std::uint8_t>(0)), sessionId(sessionId),
+              hostParticipantId(hostParticipantId), hostConnectionId(hostConnectionId),
               hostOwnedPlayers(std::move(hostOwnedPlayers)),
               clock(clock ? std::move(clock) : Clock(realNow)), random(std::move(random)), hooks(std::move(hooks)) {
         const std::set<PlayerId> unique(this->hostOwnedPlayers.begin(), this->hostOwnedPlayers.end());
@@ -478,7 +480,7 @@ namespace Duel6::Network::Lifecycle {
             PreparedReadinessMutation mutation;
             if (readinessGeneration == (std::numeric_limits<std::uint64_t>::max)())
                 return {ReadinessMutationOutcome::InternalFailure, std::nullopt};
-            mutation.owner = this;
+            mutation.ownerLifetime = instanceLifetime;
             mutation.generation = readinessGeneration;
             mutation.baselineHostReady = hostReady;
             mutation.kind = action.kind == ParticipantActionKind::ConfigurationChanged
@@ -516,7 +518,7 @@ namespace Duel6::Network::Lifecycle {
             PreparedReadinessMutation mutation;
             if (readinessGeneration == (std::numeric_limits<std::uint64_t>::max)())
                 return {ReadinessMutationOutcome::InternalFailure, std::nullopt};
-            mutation.owner = this;
+            mutation.ownerLifetime = instanceLifetime;
             mutation.generation = readinessGeneration;
             mutation.baselineHostReady = hostReady;
             mutation.kind = PreparedReadinessMutation::Kind::SetParticipant;
@@ -537,7 +539,7 @@ namespace Duel6::Network::Lifecycle {
             || readinessGeneration == (std::numeric_limits<std::uint64_t>::max)())
             return {ReadinessMutationOutcome::InternalFailure, std::nullopt};
         PreparedReadinessMutation mutation;
-        mutation.owner = this;
+        mutation.ownerLifetime = instanceLifetime;
         mutation.generation = readinessGeneration;
         mutation.baselineHostReady = hostReady;
         mutation.kind = PreparedReadinessMutation::Kind::ClearAll;
@@ -547,7 +549,7 @@ namespace Duel6::Network::Lifecycle {
 
     bool HostSessionLifecycle::canCommitPreparedReadiness(
             const PreparedReadinessMutation &mutation) const noexcept {
-        if (!mutation.valid || mutation.owner != this || sessionEnded || operationActive
+        if (!mutation.valid || mutation.ownerLifetime.lock() != instanceLifetime || sessionEnded || operationActive
             || mutation.generation != readinessGeneration || mutation.baselineHostReady != hostReady)
             return false;
         if (mutation.kind == PreparedReadinessMutation::Kind::SetParticipant) {
@@ -568,11 +570,11 @@ namespace Duel6::Network::Lifecycle {
             PreparedReadinessMutation &&mutation) noexcept {
         if (!canCommitPreparedReadiness(mutation)) {
             mutation.valid = false;
-            mutation.owner = nullptr;
+            mutation.ownerLifetime.reset();
             return ReadinessMutationOutcome::InternalFailure;
         }
         mutation.valid = false;
-        mutation.owner = nullptr;
+        mutation.ownerLifetime.reset();
         OperationGuard operation(operationActive);
         if (mutation.kind == PreparedReadinessMutation::Kind::ClearAll) {
             hostReady = false;
