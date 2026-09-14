@@ -205,7 +205,7 @@ namespace Duel6 {
                 for (Size index = 0; index < rounds.getLength(); ++index) {
                     const auto round = rounds.get(index);
                     std::string winner = round.get("noWinner").asBoolean() ? "No winner" : round.get("winningTeam").asString();
-                    if (winner == "None") {
+                    if (winner.empty()) {
                         winner.clear(); const auto winnerIds = round.get("winnerPlayerIds");
                         for (Size winnerIndex = 0; winnerIndex < winnerIds.getLength(); ++winnerIndex) {
                             const auto id = static_cast<Network::Replication::Identity>(winnerIds.get(winnerIndex).asDouble());
