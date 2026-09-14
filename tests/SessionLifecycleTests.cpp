@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -35,6 +37,34 @@ namespace {
     ReconnectRequest requestFor(const ReconnectGrant &grant) {
         return {grant.sessionId, grant.participantId, grant.reservationId, grant.credential};
     }
+
+    template<typename T>
+    class SameAddressOwner final {
+    public:
+        ~SameAddressOwner() {
+            if (instance) instance->~T();
+        }
+
+        template<typename... Arguments>
+        T *construct(Arguments &&...arguments) {
+            D6R_REQUIRE(instance == nullptr);
+            instance = ::new (static_cast<void *>(storage)) T(
+                    std::forward<Arguments>(arguments)...);
+            return instance;
+        }
+
+        template<typename... Arguments>
+        T *replace(Arguments &&...arguments) {
+            D6R_REQUIRE(instance != nullptr);
+            instance->~T();
+            instance = nullptr;
+            return construct(std::forward<Arguments>(arguments)...);
+        }
+
+    private:
+        alignas(T) std::byte storage[sizeof(T)];
+        T *instance = nullptr;
+    };
 
 }
 
@@ -687,4 +717,39 @@ D6R_TEST_CASE("prepared readiness tokens reject competing stale replay moved-fro
     D6R_REQUIRE(first.commitPreparedReadiness(std::move(*clear.mutation))
                 == ReadinessMutationOutcome::InternalFailure);
     D6R_REQUIRE(!first.ready(1) && first.ready(2));
+}
+
+D6R_TEST_CASE("prepared readiness token cannot bind to a same-address replacement session") {
+    ManualClock time;
+    CredentialSource source;
+    SameAddressOwner<HostSessionLifecycle> storage;
+    auto *original = storage.construct(
+            1400, 1, 10, std::vector<PlayerId>{101}, time.clock(), source.random(), HostHooks{});
+    D6R_REQUIRE(original->admitGuest(2, 20, {102}, false));
+    auto old = original->prepareSetReady(1, 10, true);
+    D6R_REQUIRE(old.outcome == ReadinessMutationOutcome::Committed && old.mutation);
+    const auto originalAddress = original;
+
+    auto *replacement = storage.replace(
+            1400, 1, 10, std::vector<PlayerId>{101}, time.clock(), source.random(), HostHooks{});
+    D6R_REQUIRE_EQ(static_cast<const void *>(originalAddress),
+                   static_cast<const void *>(replacement));
+    D6R_REQUIRE(replacement->admitGuest(2, 20, {102}, false));
+    D6R_REQUIRE(!replacement->ready(1));
+    D6R_REQUIRE(!replacement->ready(2));
+    D6R_REQUIRE_EQ(2u, replacement->retainedPlayerCount());
+
+    D6R_REQUIRE(replacement->commitPreparedReadiness(std::move(*old.mutation))
+                == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(!replacement->ready(1));
+    D6R_REQUIRE(!replacement->ready(2));
+    D6R_REQUIRE_EQ(2u, replacement->retainedPlayerCount());
+
+    auto fresh = replacement->prepareSetReady(1, 10, true);
+    D6R_REQUIRE(fresh.outcome == ReadinessMutationOutcome::Committed && fresh.mutation);
+    D6R_REQUIRE(replacement->commitPreparedReadiness(std::move(*fresh.mutation))
+                == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(replacement->ready(1));
+    D6R_REQUIRE(!replacement->ready(2));
+    D6R_REQUIRE_EQ(2u, replacement->retainedPlayerCount());
 }

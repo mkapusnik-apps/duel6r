@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdlib>
 #include <cstdint>
 #include <filesystem>
@@ -103,6 +104,34 @@ struct ThrowingCopyPreflight {
         (void) copy;
         return LobbyCommitOutcome::Committed;
     }
+};
+
+template<typename T>
+class SameAddressOwner final {
+public:
+    ~SameAddressOwner() {
+        if (instance) instance->~T();
+    }
+
+    template<typename... Arguments>
+    T *construct(Arguments &&...arguments) {
+        D6R_REQUIRE(instance == nullptr);
+        instance = ::new (static_cast<void *>(storage)) T(
+                std::forward<Arguments>(arguments)...);
+        return instance;
+    }
+
+    template<typename... Arguments>
+    T *replace(Arguments &&...arguments) {
+        D6R_REQUIRE(instance != nullptr);
+        instance->~T();
+        instance = nullptr;
+        return construct(std::forward<Arguments>(arguments)...);
+    }
+
+private:
+    alignas(T) std::byte storage[sizeof(T)];
+    T *instance = nullptr;
 };
 
 std::vector<PlayerDefinition> roster(std::size_t count = 4) {
@@ -2479,5 +2508,47 @@ D6R_TEST_CASE("prepared lobby configuration owns input views and commits a valid
                 == LobbyCommitOutcome::InternalFailure);
     D6R_REQUIRE_EQ(baseline + 1, controller.currentSnapshot()->version);
     D6R_REQUIRE_EQ(bytes, R::serializeReplicationSnapshot(*controller.currentSnapshot()));
+}
+
+D6R_TEST_CASE("prepared lobby token cannot bind to a same-address replacement owner") {
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, false, {101}},
+            {2, false, R::ConnectionState::Connected, false, {102}}};
+    const auto players = roster(2);
+    const auto settings = config();
+    SameAddressOwner<AuthoritativeHostedMatchController> storage;
+    auto *original = storage.construct(1, MatchRuntimeDependencies{}, Identity{901});
+    D6R_REQUIRE(original->initializeReplication(participants, players, settings));
+    D6R_REQUIRE(original->markServiceReady());
+    auto old = original->prepareParticipantReady(1, true);
+    D6R_REQUIRE(old.outcome == LobbyCommitOutcome::Committed && old.mutation);
+    const auto originalAddress = original;
+
+    auto *replacement = storage.replace(1, MatchRuntimeDependencies{}, Identity{901});
+    D6R_REQUIRE_EQ(static_cast<const void *>(originalAddress),
+                   static_cast<const void *>(replacement));
+    D6R_REQUIRE(replacement->initializeReplication(participants, players, settings));
+    D6R_REQUIRE(replacement->markServiceReady());
+    const auto baseline = replacement->currentSnapshot();
+    D6R_REQUIRE(baseline.has_value());
+    const auto baselineBytes = R::serializeReplicationSnapshot(*baseline);
+    D6R_REQUIRE_EQ(1u, baseline->version);
+    D6R_REQUIRE(!replacement->participantReady(1));
+
+    D6R_REQUIRE(replacement->commitPreparedLobbyMutation(std::move(*old.mutation))
+                == LobbyCommitOutcome::InternalFailure);
+    D6R_REQUIRE_EQ(1u, replacement->currentSnapshot()->version);
+    D6R_REQUIRE_EQ(baselineBytes,
+                   R::serializeReplicationSnapshot(*replacement->currentSnapshot()));
+    D6R_REQUIRE(!replacement->participantReady(1));
+    D6R_REQUIRE(!replacement->participantReady(2));
+
+    auto fresh = replacement->prepareParticipantReady(1, true);
+    D6R_REQUIRE(fresh.outcome == LobbyCommitOutcome::Committed && fresh.mutation);
+    D6R_REQUIRE(replacement->commitPreparedLobbyMutation(std::move(*fresh.mutation))
+                == LobbyCommitOutcome::Committed);
+    D6R_REQUIRE_EQ(2u, replacement->currentSnapshot()->version);
+    D6R_REQUIRE(replacement->participantReady(1));
+    D6R_REQUIRE(!replacement->participantReady(2));
 }
 }
