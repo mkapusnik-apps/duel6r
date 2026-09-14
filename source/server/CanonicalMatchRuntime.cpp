@@ -500,9 +500,13 @@ namespace Duel6::Server::Authoritative {
             player.hasWeapon = players[index].hasGun();
             player.facingLeft = players[index].getOrientation() == Orientation::Left;
             player.invulnerable = players[index].isInvulnerable();
-            player.visible = players[index].getBonus() != BonusType::INVISIBILITY;
+            // Invisibility is translucent presentation, not entity omission. It
+            // applies to body and weapon; Predator alone keeps its body-only alpha.
+            player.visible = true;
+            const Float32 bodyAlpha = players[index].getBonus() == BonusType::INVISIBILITY
+                                      ? 0.2f : players[index].getBodyAlpha();
             player.presentationAlpha = static_cast<std::uint8_t>(
-                    std::max(0.0f, std::min(255.0f, players[index].getBodyAlpha() * 255.0f)));
+                    std::max(0.0f, std::min(255.0f, bodyAlpha * 255.0f)));
             player.actionMask = heldInputsByPlayerId[definition.playerId];
             if (players[index].getBonus()) player.timedBonus = players[index].getBonus()->getName();
             player.statistics = statistics(players[index].getPerson());

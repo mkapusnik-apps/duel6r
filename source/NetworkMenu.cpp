@@ -1046,8 +1046,10 @@ namespace Duel6 {
             hostSetup.localPlayerNames.clear();
             for (const auto &player: localPlayers) hostSetup.localPlayerNames.push_back(player.name);
             if (setupScreen == SetupScreen::Host)
-                (void) runtime.startHost(target, serverExecutable(), "resources", hostSetup, localPlayers);
-            else (void) runtime.join(target, "resources", localPlayers);
+                // The graphical client loads data/ and levels/ from its working
+                // content root, including the normal flat packaged runtime.
+                (void) runtime.startHost(target, serverExecutable(), ".", hostSetup, localPlayers);
+            else (void) runtime.join(target, ".", localPlayers);
             focus = 0; return;
         }
         if (snap.journey == Client::NetworkJourney::Starting) { runtime.cancel(); return; }
@@ -1149,8 +1151,8 @@ namespace Duel6 {
                 }
                 Network::Endpoint target; if (!endpoint(target)) return;
                 runtime.reset();
-                if (snap.host) (void) runtime.startHost(target, serverExecutable(), "resources", hostSetup, localPlayers);
-                else (void) runtime.join(target, "resources", localPlayers);
+                if (snap.host) (void) runtime.startHost(target, serverExecutable(), ".", hostSetup, localPlayers);
+                else (void) runtime.join(target, ".", localPlayers);
             } else if (action == 1) {
                 runtime.reset(); setupScreen = snap.host ? SetupScreen::Host : SetupScreen::Join;
                 if (snap.host) (void) refreshHostAddresses(false);
@@ -1181,6 +1183,13 @@ namespace Duel6 {
         }
     }
 
+    bool NetworkMenu::editingEndpoint(const Client::NetworkRuntimeSnapshot &snapshot) const {
+        return confirmation == Confirmation::None && !hostAddressSelectorOpen
+               && snapshot.journey == Client::NetworkJourney::Inactive
+               && ((setupScreen == SetupScreen::Host && focus == 0)
+                   || (setupScreen == SetupScreen::Join && (focus == 0 || focus == 1)));
+    }
+
     void NetworkMenu::keyEvent(const KeyPressEvent &event) {
         if (!event.isPressed() || event.isRepeat()) return;
         const auto snap = runtime.snapshot();
@@ -1201,6 +1210,9 @@ namespace Duel6 {
         const auto activateKey = [&] { consumeKey(); activate(); };
         const auto backKey = [&] { consumeKey(); back(); };
         const auto focusKey = [&](int direction) { consumeKey(); moveFocus(direction); };
+        // Keep text keys consumed even if a later event moves focus before the
+        // next input poll. Explicit navigation below still handles its own keys.
+        if (editingEndpoint(snap)) consumeKey();
         if (confirmation != Confirmation::None) {
             if (event.getCode() == SDLK_ESCAPE) backKey();
             else if (event.getCode() == SDLK_RETURN || event.getCode() == SDLK_SPACE) activateKey();
@@ -1340,10 +1352,23 @@ namespace Duel6 {
         // new meaning when a summary or confirmation appears.
         if (!localPlayers.empty() && localPlayers[0].controls) {
             const auto &c = *localPlayers[0].controls;
-            uiConfirm = uiConfirm || c.getShoot().isPressed();
-            uiBack = uiBack || c.getPick().isPressed();
-            uiUp = uiUp || c.getUp().isPressed(); uiDown = uiDown || c.getDown().isPressed();
-            uiLeft = uiLeft || c.getLeft().isPressed(); uiRight = uiRight || c.getRight().isPressed();
+            const bool textFocused = editingEndpoint(currentSnapshot);
+            const auto sample = [&](const Control &control, std::uint32_t action) {
+                if (textFocused && dynamic_cast<const KeyboardButton *>(&control))
+                    consumedKeyboardActions |= action;
+                return control.isPressed();
+            };
+            // Sample every mapped control even when an independent controller
+            // already holds that action, retaining keyboard suppression/history.
+            const bool confirm = sample(c.getShoot(), Network::Input::Shoot);
+            const bool back = sample(c.getPick(), Network::Input::PickOrSwapWeapon);
+            const bool up = sample(c.getUp(), Network::Input::Jump);
+            const bool down = sample(c.getDown(), Network::Input::Crouch);
+            const bool left = sample(c.getLeft(), Network::Input::MoveLeft);
+            const bool right = sample(c.getRight(), Network::Input::MoveRight);
+            uiConfirm = uiConfirm || confirm; uiBack = uiBack || back;
+            uiUp = uiUp || up; uiDown = uiDown || down;
+            uiLeft = uiLeft || left; uiRight = uiRight || right;
         }
         const auto priorConfirmation = confirmation;
         if (sessionBack && !controllerSessionBack) back();

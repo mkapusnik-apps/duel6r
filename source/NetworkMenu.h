@@ -87,6 +87,7 @@ namespace Duel6 {
         bool startEligible(const Client::NetworkRuntimeSnapshot &snapshot, std::string &reason) const;
         bool localReadyEligible(std::string &reason) const;
         bool endpoint(Network::Endpoint &result) const;
+        bool editingEndpoint(const Client::NetworkRuntimeSnapshot &snapshot) const;
         bool refreshHostAddresses(bool initialSelection);
         std::string serverExecutable() const;
         void drawText(Int32 x, Int32 y, const std::string &text, Color color = Color::BLACK) const;

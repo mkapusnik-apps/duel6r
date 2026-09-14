@@ -1461,7 +1461,9 @@ namespace Duel6::Server {
                                                 : setup.levelPlan == "Random level"
                                                   ? Authoritative::LevelPlan::Random
                                                   : Authoritative::LevelPlan::Fixed;
-                    if (!setup.fixedLevel.empty()) hostedSettings->fixedLevel = setup.fixedLevel;
+                    if (hostedSettings->levelPlan != Authoritative::LevelPlan::Fixed)
+                        hostedSettings->fixedLevel.clear();
+                    else if (!setup.fixedLevel.empty()) hostedSettings->fixedLevel = setup.fixedLevel;
                     hostedSettings->roundLimit = setup.roundLimit;
                     hostedSettings->assistance = setup.assistance;
                     hostedSettings->quickLiquid = setup.quickLiquid;
@@ -1906,7 +1908,8 @@ namespace Duel6::Server {
                                          : setup.levelPlan == "Random level"
                                            ? Authoritative::LevelPlan::Random
                                            : Authoritative::LevelPlan::Fixed;
-                nextSettings.fixedLevel = setup.fixedLevel;
+                nextSettings.fixedLevel = nextSettings.levelPlan == Authoritative::LevelPlan::Fixed
+                                          ? setup.fixedLevel : std::string();
                 nextSettings.roundLimit = setup.roundLimit;
                 nextSettings.assistance = setup.assistance;
                 nextSettings.quickLiquid = setup.quickLiquid;
