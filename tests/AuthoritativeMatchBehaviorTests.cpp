@@ -3,12 +3,21 @@
 #include <cstdlib>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <limits>
+#include <map>
+#include <memory>
+#include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <tuple>
 #include <vector>
 
+// Test-only access permits deterministic version-boundary injection without a
+// production diagnostic seam.
+#define private public
 #include "source/server/AuthoritativeMatch.h"
 #include "source/server/AuthoritativeHostedMatchController.h"
 #include "source/server/AuthoritativeReplication.h"
@@ -20,6 +29,7 @@
 #include "source/network/CompatibilityManifest.h"
 #include "source/network/StateReplicationProtocol.h"
 #include "source/network/SessionLifecycle.h"
+#undef private
 #include "tests/TestHarness.h"
 
 namespace {
@@ -2037,5 +2047,226 @@ D6R_TEST_CASE("REP-017 REP-025 production canonical interrupted match retains co
     D6R_REQUIRE(following->score.winner.noWinner);
     D6R_REQUIRE(following->score.winner.winnerPlayerIds.empty());
     requireCumulativeScoreMatchesResult(*following, result);
+}
+
+D6R_TEST_CASE("lobby mutation outcomes preserve canonical versions and remain usable after rejection") {
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101, 102}},
+            {2, false, R::ConnectionState::Connected, true, {201, 202}}};
+    const std::vector<PlayerDefinition> players = {
+            {1, 101, "Host One", 0}, {1, 102, "Host Two", 1},
+            {2, 201, "Guest One", 2}, {2, 202, "Guest Two", 3}};
+    auto settings = config();
+    settings.mode = Mode::TeamDeathmatch;
+    settings.teamCount = 2;
+
+    AuthoritativeReplication uninitialized(700);
+    auto outcome = uninitialized.updateLobbyForConfiguration(participants, players, settings, "change");
+    D6R_REQUIRE(outcome.outcome == CanonicalLobbyMutationOutcome::InternalFailure);
+    D6R_REQUIRE(!outcome.update.has_value());
+    D6R_REQUIRE_EQ(0u, uninitialized.replicator().version());
+
+    AuthoritativeReplication replication(701);
+    D6R_REQUIRE(replication.setLobby(1, participants, players, settings));
+    const auto original = replication.fullSnapshot();
+    D6R_REQUIRE(original.has_value());
+    const auto originalBytes = R::serializeReplicationSnapshot(*original);
+
+    outcome = replication.updateLobbyForConfiguration(participants, players, settings, "");
+    D6R_REQUIRE(outcome.outcome == CanonicalLobbyMutationOutcome::Rejected);
+    D6R_REQUIRE_EQ(original->version, replication.replicator().version());
+    D6R_REQUIRE_EQ(originalBytes, R::serializeReplicationSnapshot(*replication.fullSnapshot()));
+
+    auto invalidPlayers = players;
+    invalidPlayers.back().playerId = invalidPlayers.front().playerId;
+    outcome = replication.updateLobbyForConfiguration(participants, invalidPlayers, settings, "invalid roster");
+    D6R_REQUIRE(outcome.outcome == CanonicalLobbyMutationOutcome::Rejected);
+    D6R_REQUIRE_EQ(original->version, replication.replicator().version());
+    D6R_REQUIRE_EQ(originalBytes, R::serializeReplicationSnapshot(*replication.fullSnapshot()));
+
+    auto changedPlayers = players;
+    changedPlayers[0].displayName = "Renamed Host";
+    std::swap(changedPlayers[0].rosterOrder, changedPlayers[1].rosterOrder);
+    auto changedSettings = settings;
+    changedSettings.teamCount = 3;
+    outcome = replication.updateLobbyForConfiguration(
+            participants, changedPlayers, changedSettings, "settings names roster");
+    D6R_REQUIRE(outcome.outcome == CanonicalLobbyMutationOutcome::Committed);
+    D6R_REQUIRE(outcome.update.has_value());
+    D6R_REQUIRE_EQ(original->version + 1, replication.replicator().version());
+    const auto changed = replication.fullSnapshot();
+    D6R_REQUIRE(changed.has_value());
+    D6R_REQUIRE_EQ(std::string("Renamed Host"), changed->state.players[0].displayName);
+    D6R_REQUIRE_EQ(1u, changed->state.players[0].rosterPosition);
+    D6R_REQUIRE_EQ(3u, changed->state.settings.teamCount);
+    D6R_REQUIRE_EQ((std::vector<std::int64_t>{0, 0, 0}), changed->state.score.teamTotals);
+    D6R_REQUIRE_EQ((std::vector<std::uint8_t>{1, 2, 3}), changed->state.score.teamRanking);
+    for (const auto &participant: changed->state.participants) D6R_REQUIRE(!participant.ready);
+
+    const std::vector<R::ParticipantState> hostOnlyParticipants = {
+            {1, true, R::ConnectionState::Connected, false, {101, 102}}};
+    const std::vector<PlayerDefinition> hostOnlyPlayers = {
+            changedPlayers[0], changedPlayers[1]};
+    outcome = replication.updateLobbyForConfiguration(
+            hostOnlyParticipants, hostOnlyPlayers, changedSettings, "guest left");
+    D6R_REQUIRE(outcome.outcome == CanonicalLobbyMutationOutcome::Committed);
+    const auto removed = replication.fullSnapshot();
+    D6R_REQUIRE(removed.has_value());
+    const auto removedBytes = R::serializeReplicationSnapshot(*removed);
+
+    outcome = replication.updateLobbyForConfiguration(
+            participants, changedPlayers, changedSettings, "reuse removed identities");
+    D6R_REQUIRE(outcome.outcome == CanonicalLobbyMutationOutcome::PublicationFailure);
+    D6R_REQUIRE(!outcome.update.has_value());
+    D6R_REQUIRE_EQ(removed->version, replication.replicator().version());
+    D6R_REQUIRE_EQ(removedBytes, R::serializeReplicationSnapshot(*replication.fullSnapshot()));
+
+    auto subsequentlyUsable = hostOnlyPlayers;
+    subsequentlyUsable[0].displayName = "Still Usable";
+    outcome = replication.updateLobbyForConfiguration(
+            hostOnlyParticipants, subsequentlyUsable, changedSettings, "valid after failure");
+    D6R_REQUIRE(outcome.outcome == CanonicalLobbyMutationOutcome::Committed);
+    D6R_REQUIRE_EQ(removed->version + 1, replication.replicator().version());
+    D6R_REQUIRE_EQ(std::string("Still Usable"), replication.fullSnapshot()->state.players[0].displayName);
+
+    const auto usableVersion = replication.replicator().version();
+    replication.publisher.currentVersion = (std::numeric_limits<R::StateVersion>::max)();
+    const auto maximumVersionBytes = R::serializeReplicationSnapshot(*replication.fullSnapshot());
+    outcome = replication.updateLobbyForConfiguration(
+            hostOnlyParticipants, subsequentlyUsable, changedSettings, "version boundary");
+    D6R_REQUIRE(outcome.outcome == CanonicalLobbyMutationOutcome::VersionFailure);
+    D6R_REQUIRE(!outcome.update.has_value());
+    D6R_REQUIRE_EQ((std::numeric_limits<R::StateVersion>::max)(), replication.replicator().version());
+    D6R_REQUIRE_EQ(maximumVersionBytes, R::serializeReplicationSnapshot(*replication.fullSnapshot()));
+    replication.publisher.currentVersion = usableVersion;
+    subsequentlyUsable[1].displayName = "Usable After Version Failure";
+    outcome = replication.updateLobbyForConfiguration(
+            hostOnlyParticipants, subsequentlyUsable, changedSettings, "valid after version failure");
+    D6R_REQUIRE(outcome.outcome == CanonicalLobbyMutationOutcome::Committed);
+    D6R_REQUIRE_EQ(usableVersion + 1, replication.replicator().version());
+    D6R_REQUIRE_EQ(std::string("Usable After Version Failure"),
+                   replication.fullSnapshot()->state.players[1].displayName);
+}
+
+D6R_TEST_CASE("controller classifies every external failure and rolls back readiness and canonical state") {
+    using Duel6::Network::Lifecycle::HostSessionLifecycle;
+    using Duel6::Network::Lifecycle::ParticipantAction;
+    using Duel6::Network::Lifecycle::ParticipantActionKind;
+    using Duel6::Network::Lifecycle::ReadinessMutationOutcome;
+
+    const std::vector<R::ParticipantState> participants = {
+            {1, true, R::ConnectionState::Connected, true, {101, 102}},
+            {2, false, R::ConnectionState::Connected, true, {201, 202}}};
+    const std::vector<PlayerDefinition> players = {
+            {1, 101, "Host One", 0}, {1, 102, "Host Two", 1},
+            {2, 201, "Guest One", 2}, {2, 202, "Guest Two", 3}};
+    auto settings = config();
+    settings.mode = Mode::TeamDeathmatch;
+    settings.teamCount = 2;
+    AuthoritativeHostedMatchController controller(1, {}, 702);
+    D6R_REQUIRE(controller.initializeReplication(participants, players, settings));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE(controller.setParticipantReady(1, true));
+    D6R_REQUIRE(controller.setParticipantReady(2, true));
+
+    auto nextSettings = settings;
+    nextSettings.teamCount = 3;
+    auto nextPlayers = players;
+    nextPlayers[0].displayName = "Changed";
+    std::swap(nextPlayers[0].rosterOrder, nextPlayers[1].rosterOrder);
+    const auto baseline = controller.currentSnapshot();
+    D6R_REQUIRE(baseline.has_value());
+    const auto baselineBytes = R::serializeReplicationSnapshot(*baseline);
+
+    controller.replication.publisher.currentVersion = (std::numeric_limits<R::StateVersion>::max)();
+    const auto maximumControllerBytes = R::serializeReplicationSnapshot(*controller.currentSnapshot());
+    bool externalCalled = false;
+    D6R_REQUIRE(controller.commitLobbyConfiguration(
+            participants, nextPlayers, nextSettings, "version boundary", [&] {
+                externalCalled = true;
+                return LobbyCommitOutcome::Committed;
+            }) == LobbyCommitOutcome::VersionFailure);
+    D6R_REQUIRE(!externalCalled);
+    D6R_REQUIRE_EQ(maximumControllerBytes,
+                   R::serializeReplicationSnapshot(*controller.currentSnapshot()));
+    D6R_REQUIRE(controller.participantReady(1));
+    D6R_REQUIRE(controller.participantReady(2));
+    controller.replication.publisher.currentVersion = baseline->version;
+
+    for (const auto failure: {LobbyCommitOutcome::Rejected,
+                              LobbyCommitOutcome::LifecycleFailure,
+                              LobbyCommitOutcome::PublicationFailure,
+                              LobbyCommitOutcome::VersionFailure,
+                              LobbyCommitOutcome::InternalFailure}) {
+        D6R_REQUIRE(controller.commitLobbyConfiguration(
+                participants, nextPlayers, nextSettings, "typed failure",
+                [failure] { return failure; }) == failure);
+        D6R_REQUIRE_EQ(baseline->version, controller.currentSnapshot()->version);
+        D6R_REQUIRE_EQ(baselineBytes, R::serializeReplicationSnapshot(*controller.currentSnapshot()));
+        D6R_REQUIRE(controller.participantReady(1));
+        D6R_REQUIRE(controller.participantReady(2));
+    }
+    D6R_REQUIRE(controller.commitLobbyConfiguration(
+            participants, nextPlayers, nextSettings, "missing callback", {})
+                == LobbyCommitOutcome::InternalFailure);
+    D6R_REQUIRE(controller.commitLobbyConfiguration(
+            participants, nextPlayers, nextSettings, "", [] {
+                return LobbyCommitOutcome::Committed;
+            }) == LobbyCommitOutcome::Rejected);
+
+    HostSessionLifecycle lifecycle(702, 1, 10, {101, 102});
+    D6R_REQUIRE(lifecycle.admitGuest(2, 20, {201, 202}, true).has_value());
+    D6R_REQUIRE(lifecycle.setReadyTransactional(1, 10, true) == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(lifecycle.setReadyTransactional(2, 20, true) == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(lifecycle.allConnectedAndReady());
+    const ParticipantAction rejectedAction{702, 2, ParticipantActionKind::ConfigurationChanged};
+    D6R_REQUIRE(controller.commitLobbyConfiguration(
+            participants, nextPlayers, nextSettings, "rejected lifecycle", [&] {
+                const auto result = lifecycle.applyParticipantReadinessAction(rejectedAction, 99);
+                return result == ReadinessMutationOutcome::Rejected
+                       ? LobbyCommitOutcome::Rejected : LobbyCommitOutcome::InternalFailure;
+            }) == LobbyCommitOutcome::Rejected);
+    D6R_REQUIRE(lifecycle.allConnectedAndReady());
+    D6R_REQUIRE_EQ(baselineBytes, R::serializeReplicationSnapshot(*controller.currentSnapshot()));
+
+    const ParticipantAction acceptedAction{702, 2, ParticipantActionKind::ConfigurationChanged};
+    D6R_REQUIRE(controller.commitLobbyConfiguration(
+            participants, nextPlayers, nextSettings, "valid configuration", [&] {
+                return lifecycle.applyParticipantReadinessAction(acceptedAction, 20)
+                               == ReadinessMutationOutcome::Committed
+                       ? LobbyCommitOutcome::Committed : LobbyCommitOutcome::LifecycleFailure;
+            }) == LobbyCommitOutcome::Committed);
+    D6R_REQUIRE(!lifecycle.ready(1));
+    D6R_REQUIRE(!lifecycle.ready(2));
+    D6R_REQUIRE(!controller.participantReady(1));
+    D6R_REQUIRE(!controller.participantReady(2));
+    const auto committed = controller.currentSnapshot();
+    D6R_REQUIRE(committed.has_value());
+    D6R_REQUIRE_EQ(baseline->version + 1, committed->version);
+    D6R_REQUIRE_EQ(3u, committed->state.settings.teamCount);
+    D6R_REQUIRE_EQ(std::string("Changed"), committed->state.players[0].displayName);
+    D6R_REQUIRE_EQ(1u, committed->state.players[0].rosterPosition);
+    D6R_REQUIRE_EQ((std::vector<std::int64_t>{0, 0, 0}), committed->state.score.teamTotals);
+    D6R_REQUIRE_EQ((std::vector<std::uint8_t>{1, 2, 3}), committed->state.score.teamRanking);
+    for (std::size_t index = 0; index < players.size(); ++index) {
+        D6R_REQUIRE_EQ(players[index].playerId, committed->state.players[index].playerId);
+        D6R_REQUIRE_EQ(players[index].participantId, committed->state.players[index].ownerParticipantId);
+    }
+
+    D6R_REQUIRE(controller.commitParticipantReady(1, true, [] {
+        return LobbyCommitOutcome::Committed;
+    }) == LobbyCommitOutcome::Committed);
+    const auto readyVersion = controller.currentSnapshot()->version;
+    D6R_REQUIRE(controller.participantReady(1));
+    D6R_REQUIRE(controller.commitParticipantReady(1, false, [] {
+        return LobbyCommitOutcome::LifecycleFailure;
+    }) == LobbyCommitOutcome::LifecycleFailure);
+    D6R_REQUIRE(controller.participantReady(1));
+    D6R_REQUIRE_EQ(readyVersion, controller.currentSnapshot()->version);
+    D6R_REQUIRE(controller.commitParticipantReady(1, false, [] {
+        return LobbyCommitOutcome::Committed;
+    }) == LobbyCommitOutcome::Committed);
+    D6R_REQUIRE(!controller.participantReady(1));
+    D6R_REQUIRE_EQ(readyVersion + 1, controller.currentSnapshot()->version);
 }
 }

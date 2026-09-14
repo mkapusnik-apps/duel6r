@@ -122,6 +122,44 @@ D6R_TEST_CASE("authenticated participant actions drive readiness and connected L
     D6R_REQUIRE_EQ((std::vector<ParticipantId>{2}), removed);
 }
 
+D6R_TEST_CASE("typed readiness mutations cover host guest configuration rejection and terminal failure") {
+    ManualClock time;
+    CredentialSource source;
+    HostSessionLifecycle host(193, 1, 10, {101, 102}, time.clock(), source.random());
+    D6R_REQUIRE(host.admitGuest(2, 20, {201, 202}, false).has_value());
+
+    D6R_REQUIRE(host.setReadyTransactional(1, 10, true) == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(host.applyParticipantReadinessAction(
+            {193, 2, ParticipantActionKind::Ready}, 20) == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(host.allConnectedAndReady());
+
+    D6R_REQUIRE(host.applyParticipantReadinessAction(
+            {193, 2, ParticipantActionKind::ConfigurationChanged}, 20)
+                == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(!host.ready(1));
+    D6R_REQUIRE(!host.ready(2));
+
+    D6R_REQUIRE(host.applyParticipantReadinessAction(
+            {193, 2, ParticipantActionKind::Ready}, 20) == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(host.applyParticipantReadinessAction(
+            {193, 2, ParticipantActionKind::NotReady}, 20) == ReadinessMutationOutcome::Committed);
+    D6R_REQUIRE(!host.ready(2));
+    D6R_REQUIRE(host.setReadyTransactional(1, 10, true) == ReadinessMutationOutcome::Committed);
+
+    D6R_REQUIRE(host.setReadyTransactional(2, 99, true) == ReadinessMutationOutcome::Rejected);
+    D6R_REQUIRE(host.applyParticipantReadinessAction(
+            {193, 2, ParticipantActionKind::Leave}, 20) == ReadinessMutationOutcome::Rejected);
+    D6R_REQUIRE(host.ready(1));
+    D6R_REQUIRE(!host.ready(2));
+
+    const auto ended = host.endSession(1, 10);
+    D6R_REQUIRE(ended.accepted);
+    D6R_REQUIRE(host.setReadyTransactional(1, 10, true) == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(host.clearReadinessTransactional() == ReadinessMutationOutcome::InternalFailure);
+    D6R_REQUIRE(host.ready(1));
+    D6R_REQUIRE(!host.ready(2));
+}
+
 D6R_TEST_CASE("guest reconnect retains non-current context and one positive 30 second deadline") {
     CredentialSource source;
     ManualClock time;

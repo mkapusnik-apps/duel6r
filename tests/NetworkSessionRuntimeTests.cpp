@@ -123,6 +123,40 @@ namespace {
                 {1, *snapshot.canonical, snapshot.canonical->phaseTime});
     }
 
+    std::string lobbyConfigurationFingerprint(const Client::NetworkRuntimeSnapshot &snapshot) {
+        D6R_REQUIRE(snapshot.canonical.has_value());
+        const auto &state = *snapshot.canonical;
+        std::ostringstream result;
+        result << state.settings.mode << ':' << unsigned(state.settings.teamCount)
+               << ':' << state.settings.friendlyFire << ':' << state.settings.levelPlan
+               << ':' << state.settings.fixedLevel << ':' << unsigned(state.settings.roundLimit)
+               << ':' << state.settings.assistance << ':' << state.settings.quickLiquid
+               << ':' << state.settings.burnableTrees << ';';
+        auto participants = state.participants;
+        std::sort(participants.begin(), participants.end(), [](const auto &left, const auto &right) {
+            return left.participantId < right.participantId;
+        });
+        for (const auto &participant: participants) {
+            result << 'p' << participant.participantId << ':' << participant.host << ':'
+                   << unsigned(participant.connection) << ':' << participant.ready << '[';
+            for (const auto id: participant.ownedPlayerIds) result << id << ',';
+            result << "];";
+        }
+        auto players = state.players;
+        std::sort(players.begin(), players.end(), [](const auto &left, const auto &right) {
+            return left.playerId < right.playerId;
+        });
+        for (const auto &slot: players)
+            result << 's' << slot.playerId << ':' << slot.ownerParticipantId << ':'
+                   << unsigned(slot.rosterPosition) << ':' << slot.displayName << ';';
+        result << "totals[";
+        for (const auto total: state.score.teamTotals) result << total << ',';
+        result << "];ranking[";
+        for (const auto team: state.score.teamRanking) result << unsigned(team) << ',';
+        result << ']';
+        return result.str();
+    }
+
     class ScopedLevelVariant final {
     public:
         explicit ScopedLevelVariant(const std::string &sourceLevel)
@@ -372,13 +406,28 @@ D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionR
     std::vector<std::pair<Network::Replication::Identity, Network::Replication::Identity>> immutableSlots;
     for (const auto &slot: hostLobby.canonical->players)
         immutableSlots.emplace_back(slot.playerId, slot.ownerParticipantId);
+    std::sort(immutableSlots.begin(), immutableSlots.end());
     const auto requireImmutableSixSlots = [&](const Client::NetworkRuntimeSnapshot &snapshot) {
         D6R_REQUIRE(sixPlayerLobby(snapshot));
         std::vector<std::pair<Network::Replication::Identity, Network::Replication::Identity>> slots;
         for (const auto &slot: snapshot.canonical->players)
             slots.emplace_back(slot.playerId, slot.ownerParticipantId);
+        std::sort(slots.begin(), slots.end());
         D6R_REQUIRE(slots == immutableSlots);
     };
+    const auto ownedPlayerIds = [](const Client::NetworkRuntimeSnapshot &snapshot,
+                                   Network::Replication::Identity participantId) {
+        const auto participant = std::find_if(snapshot.canonical->participants.begin(),
+                snapshot.canonical->participants.end(), [participantId](const auto &value) {
+                    return value.participantId == participantId;
+                });
+        D6R_REQUIRE(participant != snapshot.canonical->participants.end());
+        return participant->ownedPlayerIds;
+    };
+    const auto hostPlayerIds = ownedPlayerIds(hostLobby, hostLobby.localParticipantId);
+    const auto firstPlayerIds = ownedPlayerIds(firstLobby, firstLobby.localParticipantId);
+    D6R_REQUIRE_EQ(2u, hostPlayerIds.size());
+    D6R_REQUIRE_EQ(2u, firstPlayerIds.size());
 
     const auto readyEveryone = [&] {
         host.setReady(true); first.setReady(true); second.setReady(true);
@@ -402,6 +451,10 @@ D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionR
                     || snapshot.canonical->settings.teamCount != teamCount
                     || snapshot.canonical->settings.friendlyFire != friendlyFire
                     || !everyParticipantReady(snapshot, false)) return false;
+                if (snapshot.canonical->score.teamTotals.size() != teamCount
+                    || snapshot.canonical->score.teamRanking.size() != teamCount) return false;
+                for (std::size_t team = 0; team < teamCount; ++team)
+                    if (snapshot.canonical->score.teamRanking[team] != team + 1) return false;
             }
             return true;
         }));
@@ -416,6 +469,104 @@ D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionR
     hostTransition("Deathmatch", 0, false);
     hostTransition("Team deathmatch", 2, true);
 
+    readyEveryone();
+    host.setReady(false);
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 5s, [&] {
+        return !participantReady(host.snapshot(), hostLobby.localParticipantId)
+               && participantReady(host.snapshot(), firstLobby.localParticipantId)
+               && participantReady(host.snapshot(), secondLobby.localParticipantId);
+    }));
+    host.setReady(true);
+    first.setReady(false);
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 5s, [&] {
+        return participantReady(host.snapshot(), hostLobby.localParticipantId)
+               && !participantReady(host.snapshot(), firstLobby.localParticipantId)
+               && participantReady(host.snapshot(), secondLobby.localParticipantId);
+    }));
+    first.setReady(true);
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 5s, [&] {
+        return everyParticipantReady(host.snapshot(), true);
+    }));
+
+    first.localConfigurationChanged();
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 5s, [&] {
+        return everyParticipantReady(host.snapshot(), false)
+               && everyParticipantReady(first.snapshot(), false)
+               && everyParticipantReady(second.snapshot(), false);
+    }));
+    readyEveryone();
+    host.localConfigurationChanged();
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 5s, [&] {
+        return everyParticipantReady(host.snapshot(), false)
+               && everyParticipantReady(first.snapshot(), false)
+               && everyParticipantReady(second.snapshot(), false);
+    }));
+
+    readyEveryone();
+    first.rebindLocalPlayers({player("Guest Renamed One"), player("Guest Renamed Two")});
+    first.ownedPersonsChanged();
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 5s, [&] {
+        const auto snapshot = host.snapshot();
+        if (!snapshot.canonical || !everyParticipantReady(snapshot, false)) return false;
+        std::map<Network::Replication::Identity, std::string> names;
+        for (const auto &slot: snapshot.canonical->players) names[slot.playerId] = slot.displayName;
+        return names[firstPlayerIds[0]] == "Guest Renamed One"
+               && names[firstPlayerIds[1]] == "Guest Renamed Two";
+    }));
+    requireImmutableSixSlots(host.snapshot());
+
+    readyEveryone();
+    setup.localPlayerNames = {"Host Renamed One", "Host Renamed Two"};
+    host.updateHostSetup(setup);
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 5s, [&] {
+        const auto snapshot = host.snapshot();
+        if (!snapshot.canonical || !everyParticipantReady(snapshot, false)) return false;
+        std::map<Network::Replication::Identity, std::string> names;
+        for (const auto &slot: snapshot.canonical->players) names[slot.playerId] = slot.displayName;
+        return names[hostPlayerIds[0]] == "Host Renamed One"
+               && names[hostPlayerIds[1]] == "Host Renamed Two";
+    }));
+    requireImmutableSixSlots(host.snapshot());
+
+    readyEveryone();
+    std::map<Network::Replication::Identity, std::uint8_t> positionsBefore;
+    const auto beforeRosterMove = host.snapshot();
+    D6R_REQUIRE(beforeRosterMove.canonical.has_value());
+    for (const auto &slot: beforeRosterMove.canonical->players)
+        positionsBefore[slot.playerId] = slot.rosterPosition;
+    const auto movedPlayer = beforeRosterMove.canonical->players.front().playerId;
+    host.moveRosterPlayer(movedPlayer, 1);
+    D6R_REQUIRE(pumpRuntimes(host, first, second, 5s, [&] {
+        const auto snapshot = host.snapshot();
+        if (!snapshot.canonical || !everyParticipantReady(snapshot, false)) return false;
+        const auto moved = std::find_if(snapshot.canonical->players.begin(),
+                snapshot.canonical->players.end(), [&](const auto &slot) {
+                    return slot.playerId == movedPlayer;
+                });
+        return moved != snapshot.canonical->players.end()
+               && moved->rosterPosition != positionsBefore.at(movedPlayer);
+    }));
+    requireImmutableSixSlots(host.snapshot());
+    requireImmutableSixSlots(first.snapshot());
+    requireImmutableSixSlots(second.snapshot());
+    const bool configurationConverged = pumpRuntimes(host, first, second, 5s, [&] {
+        const auto hostNow = host.snapshot();
+        const auto firstNow = first.snapshot();
+        const auto secondNow = second.snapshot();
+        return everyParticipantReady(hostNow, false)
+               && lobbyConfigurationFingerprint(hostNow) == lobbyConfigurationFingerprint(firstNow)
+               && lobbyConfigurationFingerprint(hostNow) == lobbyConfigurationFingerprint(secondNow);
+    });
+    if (!configurationConverged) {
+        const auto hostNow = host.snapshot();
+        const auto firstNow = first.snapshot();
+        const auto secondNow = second.snapshot();
+        Duel6::Test::fail("lobby configuration converged", __FILE__, __LINE__,
+                "host=" + lobbyConfigurationFingerprint(hostNow)
+                + "\nfirst=" + lobbyConfigurationFingerprint(firstNow)
+                + "\nsecond=" + lobbyConfigurationFingerprint(secondNow));
+    }
+
     const auto guestBefore = canonicalFingerprint(first.snapshot());
     auto unauthorizedGuestSetup = setup;
     unauthorizedGuestSetup.teamCount = 3;
@@ -424,16 +575,18 @@ D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionR
     D6R_REQUIRE_EQ(guestBefore, canonicalFingerprint(first.snapshot()));
 
     const auto rejectHostCommandWithoutMutation = [&](std::vector<std::uint8_t> command) {
-        const auto before = canonicalFingerprint(host.snapshot());
+        const auto hostBefore = canonicalFingerprint(host.snapshot());
+        const auto firstBefore = canonicalFingerprint(first.snapshot());
+        const auto secondBefore = canonicalFingerprint(second.snapshot());
         {
             std::lock_guard<std::mutex> lock(host.mutex);
             host.pendingHostCommands.push_back(std::move(command));
         }
         D6R_REQUIRE(pumpRuntimes(host, first, second, 250ms, [&] { return false; }) == false);
         D6R_REQUIRE(host.snapshot().journey == Client::NetworkJourney::Lobby);
-        D6R_REQUIRE_EQ(before, canonicalFingerprint(host.snapshot()));
-        D6R_REQUIRE_EQ(before, canonicalFingerprint(first.snapshot()));
-        D6R_REQUIRE_EQ(before, canonicalFingerprint(second.snapshot()));
+        D6R_REQUIRE_EQ(hostBefore, canonicalFingerprint(host.snapshot()));
+        D6R_REQUIRE_EQ(firstBefore, canonicalFingerprint(first.snapshot()));
+        D6R_REQUIRE_EQ(secondBefore, canonicalFingerprint(second.snapshot()));
     };
 
     rejectHostCommandWithoutMutation({0x44, 0x36, 0x48});
