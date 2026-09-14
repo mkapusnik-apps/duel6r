@@ -10,6 +10,8 @@ class RecordingRenderer final : public RendererBase {
 public:
     struct Draw { Material material; BlendFunc blend; Float32 right; };
     std::vector<Draw> draws;
+    struct Frame { Vector position; Vector size; Float32 width; Color color; };
+    std::vector<Frame> frames;
     unsigned uploads = 0;
     BlendFunc blend = BlendFunc::None;
     Info getInfo() override { return {}; }
@@ -34,6 +36,9 @@ public:
     }
     void point(const Vector &, Float32, const Color &) override {}
     void line(const Vector &, const Vector &, Float32, const Color &) override {}
+    void frame(const Vector &position, const Vector &size, Float32 width, const Color &color) override {
+        frames.push_back({position, size, width, color});
+    }
     std::unique_ptr<RendererBuffer> makeBuffer(const FaceList &) override { return {}; }
     std::unique_ptr<RendererTarget> makeTarget(ScreenParameters) override { return {}; }
 };

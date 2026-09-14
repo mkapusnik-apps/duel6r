@@ -367,6 +367,159 @@ D6R_TEST_CASE("issue-38 host composition framing is deterministic for every UI a
 }
 
 #ifndef _WIN32
+D6R_TEST_CASE("PR83 latest Application mapped keyboard independent controller and retained last-owned-slot focus") {
+    char name[] = "duel6r-pr83-mapped-controls-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot;
+        std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recording = std::make_unique<Test::RecordingRenderer>();
+    auto &recorder = *recording;
+    video.renderer = std::move(recording);
+    Font font(recorder);
+    font.load("data/font.ttf", application.console);
+    auto &original = *application.service;
+    AppService service(font, original.getConsole(), original.getTextureManager(), video,
+            original.getInput(), original.getControlsManager(), original.getSound(), original.getScriptManager());
+    NetworkMenu menu(service, application.gameResources, {}, [] {});
+    auto k1 = PlayerControls::keyboardControls("K1: Arrows", application.input,
+            SDLK_LEFT, SDLK_RIGHT, SDLK_UP, SDLK_DOWN, SDLK_RCTRL, SDLK_RSHIFT, SDLK_RETURN);
+    auto k2 = PlayerControls::keyboardControls("K2: WSAD", application.input,
+            SDLK_a, SDLK_d, SDLK_w, SDLK_s, SDLK_q, SDLK_1, SDLK_2);
+    menu.availablePersons = {"Alice", "Bob", "Charlie"};
+    menu.localPlayers = {{"Alice", k2.get(), "K2: WSAD"}};
+    menu.runtime.players = menu.localPlayers;
+    menu.runtime.sampledActions.resize(1);
+    menu.runtime.current.journey = Client::NetworkJourney::Lobby;
+    menu.runtime.current.localParticipantId = 2;
+    menu.runtime.current.canonical = canonical(91, Network::Replication::Phase::Lobby);
+    menu.update(0); // Observe the stable lobby before supplying UI edges.
+    const auto event = [&](SDL_Keycode code, bool down, bool repeat = false) {
+        SDL_Event value{};
+        value.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+        value.key.type = value.type; value.key.keysym.sym = code; value.key.repeat = repeat;
+        D6R_REQUIRE_EQ(1, SDL_PushEvent(&value));
+        application.processEvents(menu);
+    };
+    const auto pulse = [&](SDL_Keycode code) {
+        event(code, true); menu.update(0);
+        event(code, false); menu.update(0);
+    };
+    // K2 navigation was previously erased by the broad keyboard-handled latch.
+    pulse(SDLK_s); D6R_REQUIRE_EQ(1, menu.focus);
+    pulse(SDLK_w); D6R_REQUIRE_EQ(0, menu.focus);
+    event(SDLK_q, true); menu.update(0);
+    D6R_REQUIRE_EQ(std::string("Bob"), menu.localPlayers[0].name);
+    event(SDLK_q, true, true); menu.update(0);
+    D6R_REQUIRE_EQ(std::string("Bob"), menu.localPlayers[0].name);
+    event(SDLK_q, false); menu.update(0);
+    pulse(SDLK_1); D6R_REQUIRE_EQ(3, menu.focus); // Leave action, not a session departure.
+    D6R_REQUIRE(menu.confirmation == NetworkMenu::Confirmation::None);
+    menu.localPlayers[0].controls = k1.get();
+    menu.runtime.rebindLocalPlayers(menu.localPlayers);
+    menu.focus = 0;
+    pulse(SDLK_RCTRL);
+    D6R_REQUIRE_EQ(std::string("Charlie"), menu.localPlayers[0].name);
+    pulse(SDLK_RSHIFT); D6R_REQUIRE_EQ(3, menu.focus);
+    menu.focus = 0;
+    pulse(SDLK_DOWN); D6R_REQUIRE_EQ(1, menu.focus); // Direct and mapped handling must not double step.
+    pulse(SDLK_UP); D6R_REQUIRE_EQ(0, menu.focus);
+
+    SDL_VirtualJoystickDesc descriptor{};
+    descriptor.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
+    descriptor.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;
+    descriptor.naxes = SDL_CONTROLLER_AXIS_MAX;
+    descriptor.nbuttons = SDL_CONTROLLER_BUTTON_MAX;
+    descriptor.name = "PR83 independent controller";
+    const int device = SDL_JoystickAttachVirtualEx(&descriptor);
+    D6R_REQUIRE(device >= 0);
+    SDL_Joystick *joystick = SDL_JoystickOpen(device);
+    struct Detach {
+        SDL_Joystick *joystick; int device;
+        ~Detach() { if (joystick) SDL_JoystickClose(joystick); SDL_JoystickDetachVirtual(device); }
+    } detach{joystick, device};
+    D6R_REQUIRE(joystick != nullptr);
+    application.processEvents(menu);
+    menu.update(0);
+    D6R_REQUIRE(!application.input.getJoys().empty());
+    const auto button = [&](SDL_GameControllerButton value, bool down) {
+        D6R_REQUIRE_EQ(0, SDL_JoystickSetVirtualButton(joystick, value, down));
+        SDL_JoystickUpdate();
+        application.processEvents(menu);
+    };
+    menu.focus = 0;
+    event(SDLK_z, true); // Unrelated keyboard input must not mask a controller edge.
+    button(SDL_CONTROLLER_BUTTON_DPAD_DOWN, true); menu.update(0);
+    D6R_REQUIRE_EQ(1, menu.focus);
+    event(SDLK_z, false); button(SDL_CONTROLLER_BUTTON_DPAD_DOWN, false); menu.update(0);
+    menu.focus = 0;
+    event(SDLK_RETURN, true); // Keyboard activates Person; independent controller moves focus.
+    button(SDL_CONTROLLER_BUTTON_DPAD_DOWN, true); menu.update(0);
+    D6R_REQUIRE_EQ(std::string("Alice"), menu.localPlayers[0].name);
+    D6R_REQUIRE_EQ(1, menu.focus);
+    event(SDLK_RETURN, false); button(SDL_CONTROLLER_BUTTON_DPAD_DOWN, false); menu.update(0);
+    menu.focus = 0;
+    event(SDLK_z, true); button(SDL_CONTROLLER_BUTTON_A, true); menu.update(0);
+    D6R_REQUIRE_EQ(std::string("Bob"), menu.localPlayers[0].name);
+    event(SDLK_z, false); button(SDL_CONTROLLER_BUTTON_A, false); menu.update(0);
+
+    // A retained-result UI fixture keeps fourteen admitted local slots. Check
+    // rendered labels and focus rectangles, not just the internal focus index.
+    menu.localPlayers.clear();
+    for (unsigned index = 0; index < 14; ++index)
+        menu.localPlayers.push_back({"Owned " + std::to_string(index + 1), k2.get(), "K2: WSAD"});
+    menu.runtime.players = menu.localPlayers;
+    menu.runtime.sampledActions.resize(14);
+    auto &state = *menu.runtime.current.canonical;
+    state.result.available = true; state.result.state = "Completed";
+    state.participants = {{2, false, Network::Replication::ConnectionState::Connected, false, {}}};
+    state.players.clear();
+    for (unsigned index = 0; index < 14; ++index) {
+        Network::Replication::PlayerState slot;
+        slot.playerId = index + 101; slot.ownerParticipantId = 2;
+        slot.rosterPosition = index; slot.displayName = menu.localPlayers[index].name;
+        state.players.push_back(slot); state.participants[0].ownedPlayerIds.push_back(slot.playerId);
+    }
+    const auto visibleTexts = [&] {
+        std::vector<std::string> result;
+        for (const auto &draw : recorder.draws) {
+            const auto found = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),
+                    [&](const auto &entry) { return entry.texture == draw.material.getTexture(); });
+            if (found != font.fontCache.entryList.end()) result.push_back(found->text);
+        }
+        return result;
+    };
+    for (const bool host : {false, true}) {
+        menu.runtime.current.host = host;
+        menu.focus = 0;
+        for (unsigned index = 0; index < 27; ++index) pulse(SDLK_s);
+        D6R_REQUIRE_EQ(27, menu.focus); // Control of the last owned slot.
+        pulse(SDLK_w); D6R_REQUIRE_EQ(26, menu.focus);
+        recorder.draws.clear(); recorder.frames.clear();
+        menu.drawLobby(menu.runtime.snapshot());
+        const auto personTexts = visibleTexts();
+        D6R_REQUIRE(std::find(personTexts.begin(), personTexts.end(), "Person: Owned 14") != personTexts.end());
+        const auto selectedPerson = std::find_if(recorder.frames.begin(), recorder.frames.end(),
+                [](const auto &frame) { return frame.width == 2 && frame.size.y < 40; });
+        D6R_REQUIRE(selectedPerson != recorder.frames.end());
+        const auto personX = selectedPerson->position.x;
+        pulse(SDLK_s); D6R_REQUIRE_EQ(27, menu.focus);
+        recorder.draws.clear(); recorder.frames.clear();
+        menu.drawLobby(menu.runtime.snapshot());
+        const auto controlTexts = visibleTexts();
+        D6R_REQUIRE(std::find(controlTexts.begin(), controlTexts.end(), "Person: Owned 14") != controlTexts.end());
+        D6R_REQUIRE(std::find(controlTexts.begin(), controlTexts.end(), "Control: K2: WSAD") != controlTexts.end());
+        const auto selectedControl = std::find_if(recorder.frames.begin(), recorder.frames.end(),
+                [](const auto &frame) { return frame.width == 2 && frame.size.y < 40; });
+        D6R_REQUIRE(selectedControl != recorder.frames.end());
+        D6R_REQUIRE(selectedControl->position.x > personX);
+    }
+}
+
 D6R_TEST_CASE("PR83 Application Return repeat Tab and modal input isolation for host and guest") {
     char name[] = "duel6r-pr83-input-tests";
     char *arguments[] = {name};
@@ -741,11 +894,154 @@ D6R_TEST_CASE("PR83 host emits movement and fire-release masks until exact round
     }
 }
 
+D6R_TEST_CASE("PR83 latest host and guest charged bow releases fire during active round-end second") {
+    using namespace std::chrono_literals;
+    char name[] = "duel6r-pr83-charged-release-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    Input input(application.console);
+    auto hostControls = PlayerControls::keyboardControls("Host bow", input,
+            SDLK_LEFT, SDLK_RIGHT, SDLK_UP, SDLK_DOWN, SDLK_q, SDLK_RSHIFT, SDLK_RETURN);
+    auto guestControls = PlayerControls::keyboardControls("Guest bow", input,
+            SDLK_a, SDLK_d, SDLK_w, SDLK_s, SDLK_u, SDLK_1, SDLK_2);
+    const auto root = std::filesystem::temp_directory_path()
+            / ("duel6r-pr83-bow-" + std::to_string(::getpid()));
+    D6R_REQUIRE(std::filesystem::create_directory(root));
+    struct Cleanup {
+        std::filesystem::path root;
+        ~Cleanup() { std::error_code ignored; std::filesystem::remove_all(root, ignored); }
+    } cleanup{root};
+    std::filesystem::create_directory(root / "data");
+    std::filesystem::create_directory(root / "levels");
+    std::filesystem::copy_file(std::filesystem::path(D6R_TEST_RESOURCE_DIR) / "data/blocks.json", root / "data/blocks.json");
+    {
+        std::ofstream config(root / "data/config.script");
+        config << "volume 128\nmusic on\n";
+        for (unsigned weapon = 0; weapon < 17; ++weapon)
+            config << "gun " << weapon << (weapon == 9 ? " true\n" : " false\n");
+        D6R_REQUIRE(config.good());
+        std::ofstream level(root / "levels/bow.json");
+        level << R"({"width":10,"height":4,"blocks":[1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1],"elevators":[]})";
+        D6R_REQUIRE(level.good());
+    }
+    Client::NetworkSessionRuntime host, opponent, ally;
+    const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
+    Network::HostComposition::Setup setup;
+    setup.localPlayerNames = {"Host archer"};
+    setup.mode = "Team deathmatch"; setup.teamCount = 2;
+    setup.fixedLevel = "levels/bow.json"; setup.roundLimit = 1; setup.quickLiquid = false;
+    D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, root.string(), setup,
+                              {{"Host archer", hostControls.get(), "Host bow"}}));
+    D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 10s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Lobby;
+    }));
+    D6R_REQUIRE(opponent.join(endpoint, root.string(), {player("Departing Bravo")}));
+    D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 10s, [&] {
+        return opponent.snapshot().journey == Client::NetworkJourney::Lobby;
+    }));
+    D6R_REQUIRE(ally.join(endpoint, root.string(), {{"Guest archer", guestControls.get(), "Guest bow"}}));
+    D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 10s, [&] {
+        return ally.snapshot().journey == Client::NetworkJourney::Lobby;
+    }));
+    host.setReady(true); opponent.setReady(true); ally.setReady(true);
+    D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
+    host.startMatch();
+    const auto chargedArchers = [](const Client::NetworkRuntimeSnapshot &snapshot) {
+        return snapshot.canonical && std::count_if(snapshot.canonical->players.begin(), snapshot.canonical->players.end(),
+                [](const auto &slot) { return slot.team == 1 && slot.heldWeapon == "bow" && slot.charge >= 49152
+                    && (slot.actionMask & Network::Input::Shoot) != 0; }) == 2;
+    };
+    input.setPressed(SDLK_q, true); input.setPressed(SDLK_u, true);
+    D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 5s, [&] {
+        return chargedArchers(host.snapshot()) && chargedArchers(ally.snapshot());
+    }));
+    const auto before = *host.snapshot().canonical;
+    std::map<Network::Replication::Identity, int> ammo;
+    for (const auto &slot : before.players) if (slot.team == 1) ammo.emplace(slot.playerId, slot.ammunition);
+    D6R_REQUIRE_EQ(2u, ammo.size());
+    // Real intentional removal of the sole opposing team produces a normal
+    // round win while both the host and remote archer remain alive and charged.
+    opponent.leave();
+    D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 3s, [&] {
+        for (const auto *runtime : {&host, &ally}) {
+            const auto snapshot = runtime->snapshot();
+            if (!snapshot.canonical || snapshot.canonical->phase != Network::Replication::Phase::RoundSummary
+                || snapshot.canonical->roundEndCountdown <= 300 || !chargedArchers(snapshot)) return false;
+        }
+        return true;
+    }));
+    input.setPressed(SDLK_q, false); input.setPressed(SDLK_u, false);
+    const bool firedOnRelease = pumpRuntimes(host, opponent, ally, 500ms, [&] {
+        for (const auto *runtime : {&host, &ally}) {
+            const auto snapshot = runtime->snapshot();
+            if (!snapshot.canonical || snapshot.canonical->roundEndCountdown <= 300) return false;
+            for (const auto &[id, previousAmmo] : ammo) {
+                const auto slot = std::find_if(snapshot.canonical->players.begin(), snapshot.canonical->players.end(),
+                        [id](const auto &player) { return player.playerId == id; });
+                if (slot == snapshot.canonical->players.end() || slot->charge >= 32768 || slot->actionMask != 0
+                    || slot->ammunition != previousAmmo - 1) return false;
+                const auto score = std::find_if(snapshot.canonical->score.players.begin(), snapshot.canonical->score.players.end(),
+                        [id](const auto &row) { return row.playerId == id; });
+                if (score == snapshot.canonical->score.players.end() || score->shots != 1) return false;
+                if (!snapshot.host && std::none_of(snapshot.presentationEvents.begin(), snapshot.presentationEvents.end(),
+                        [id](const auto &event) { return event.playerId == id && event.type == "shot-fired"; })) return false;
+            }
+        }
+        return true;
+    });
+    if (!firedOnRelease) {
+        std::ostringstream detail;
+        for (const auto *runtime : {&host, &ally}) {
+            const auto snapshot = runtime->snapshot();
+            detail << "host=" << snapshot.host << ";journey=" << static_cast<unsigned>(snapshot.journey)
+                   << ";status=" << snapshot.status << ";failure=" << snapshot.failure;
+            if (snapshot.canonical) {
+                detail << ";countdown=" << snapshot.canonical->roundEndCountdown;
+                for (const auto &slot : snapshot.canonical->players)
+                    detail << ";player=" << slot.playerId << ":ammo=" << slot.ammunition
+                           << ":charge=" << slot.charge << ":mask=" << slot.actionMask;
+            }
+            for (const auto &event : snapshot.presentationEvents)
+                detail << ";event=" << event.type << ":player=" << event.playerId;
+            detail << '\n';
+        }
+        Test::fail("host and guest fire charged bows before freezing", __FILE__, __LINE__, detail.str());
+    }
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 5s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Inactive
+               && ally.snapshot().journey == Client::NetworkJourney::HostEnded;
+    }));
+}
+
 D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and guest sustain release edges") {
     using namespace std::chrono_literals;
     char name[] = "duel6r-pr83-capacity-tests";
     char *arguments[] = {name};
     Application application(1, arguments);
+    const auto root = std::filesystem::temp_directory_path()
+            / ("duel6r-pr83-capacity-" + std::to_string(::getpid()));
+    D6R_REQUIRE(std::filesystem::create_directory(root));
+    struct Cleanup {
+        std::filesystem::path root;
+        ~Cleanup() { std::error_code ignored; std::filesystem::remove_all(root, ignored); }
+    } cleanup{root};
+    std::filesystem::create_directory(root / "data");
+    std::filesystem::create_directory(root / "levels");
+    for (const auto *file : {"blocks.json", "config.script"})
+        std::filesystem::copy_file(std::filesystem::path(D6R_TEST_RESOURCE_DIR) / "data" / file, root / "data" / file);
+    {
+        // A long input-rate test must not mistake an arena hazard killing an
+        // idle player for rejected release input. Keep all fifteen slots alive.
+        std::ofstream level(root / "levels/capacity.json");
+        level << "{\"width\":40,\"height\":6,\"blocks\":[";
+        for (unsigned y = 0; y < 6; ++y) for (unsigned x = 0; x < 40; ++x) {
+            if (y || x) level << ',';
+            level << ((x == 0 || x == 39 || y == 0 || y == 5) ? 1 : 0);
+        }
+        level << "],\"elevators\":[]}";
+        D6R_REQUIRE(level.good());
+    }
     NetworkMenu menu(*application.service, application.gameResources, {}, [] {});
     Client::NetworkSessionRuntime guest, unused;
     auto &host = menu.runtime;
@@ -765,15 +1061,16 @@ D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and 
     menu.hostSetup.mode = "Team deathmatch";
     menu.hostSetup.teamCount = 4;
     menu.hostSetup.friendlyFire = true;
-    menu.hostSetup.fixedLevel = "levels/duel_01.json";
+    menu.hostSetup.fixedLevel = "levels/capacity.json";
+    menu.hostSetup.quickLiquid = false;
     menu.preferredTeamCount = 4;
     menu.preferredFriendlyFire = true;
-    D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR,
+    D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, root.string(),
                               menu.hostSetup, menu.localPlayers));
     D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] {
         return host.snapshot().journey == Client::NetworkJourney::Lobby;
     }));
-    D6R_REQUIRE(guest.join(endpoint, D6R_TEST_RESOURCE_DIR, {{"Guest", controls.back().get(), "QA"}}));
+    D6R_REQUIRE(guest.join(endpoint, root.string(), {{"Guest", controls.back().get(), "QA"}}));
     D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] {
         return guest.snapshot().journey == Client::NetworkJourney::Lobby;
     }));
@@ -813,21 +1110,38 @@ D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and 
     const auto ids = host.snapshot().canonical->participants.front().ownedPlayerIds;
     D6R_REQUIRE_EQ(14u, ids.size());
     std::size_t edges = 0;
-    for (unsigned step = 0; step < 24; ++step) {
+    for (unsigned step = 0; step < 120; ++step) {
         for (unsigned index = 0; index < 15; ++index)
             input.setPressed(SDLK_a + index, (step + index) % 2 == 0);
         const auto until = std::chrono::steady_clock::now() + 300ms;
-        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 250ms, [&] {
+        const bool converged = pumpRuntimes(host, guest, unused, 250ms, [&] {
             const auto snapshot = guest.snapshot();
             if (!snapshot.canonical || snapshot.canonical->players.size() != 15) return false;
             for (const auto &slot : snapshot.canonical->players) {
+                if (slot.lifeState != Network::Replication::LifeState::Alive) return false;
                 const auto found = std::find(ids.begin(), ids.end(), slot.playerId);
                 const auto index = found == ids.end() ? 14u : static_cast<unsigned>(found - ids.begin());
                 const auto expected = (step + index) % 2 == 0 ? Network::Input::Crouch : 0u;
                 if (slot.actionMask != expected) return false;
             }
             return true;
-        }));
+        });
+        if (!converged) {
+            std::ostringstream detail;
+            detail << "step=" << step;
+            for (const auto *runtime : {&host, &guest}) {
+                const auto snapshot = runtime->snapshot();
+                detail << ";host=" << snapshot.host << ";journey=" << static_cast<unsigned>(snapshot.journey)
+                       << ";failure=" << snapshot.failure;
+                if (snapshot.canonical) {
+                    detail << ";tick=" << snapshot.canonical->phaseTime;
+                    for (const auto &slot : snapshot.canonical->players)
+                        detail << ";player=" << slot.playerId << ":life=" << static_cast<unsigned>(slot.lifeState)
+                               << ":mask=" << slot.actionMask;
+                }
+            }
+            Test::fail("all fifteen slots converge under sustained input", __FILE__, __LINE__, detail.str());
+        }
         ++edges;
         // Continue pumping at normal frame cadence after convergence; a test
         // that stops the producer on each early success hides growing backlog.
@@ -838,8 +1152,9 @@ D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and 
         D6R_REQUIRE(host.snapshot().journey == Client::NetworkJourney::Match);
         D6R_REQUIRE(guest.snapshot().journey == Client::NetworkJourney::Match);
     }
-    D6R_REQUIRE_EQ(24u, edges);
-    D6R_REQUIRE(host.snapshot().canonical->phaseTime > initialTick + 300);
+    D6R_REQUIRE_EQ(120u, edges);
+    D6R_REQUIRE(host.snapshot().canonical->phaseTime > initialTick + 1800);
+    D6R_REQUIRE(guest.snapshot().canonical->phaseTime > initialTick + 1800);
     D6R_REQUIRE(host.hostInput && !host.hostInput->policyViolation());
     host.endSession();
     D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] {
