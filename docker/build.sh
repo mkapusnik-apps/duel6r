@@ -110,5 +110,24 @@ if [[ ! -f "${tmp_build_dir}/duel6r-resolver" ]]; then
 fi
 cp "${tmp_build_dir}/duel6r-resolver" "${workspace_dir}/${output_dir}/duel6r-resolver"
 cp -R "${workspace_dir}/resources/." "${workspace_dir}/${output_dir}/"
+cp "${workspace_dir}/README.md" "${workspace_dir}/LICENSE" "${workspace_dir}/${output_dir}/"
+mkdir -p "${workspace_dir}/${output_dir}/docs"
+cp -R "${workspace_dir}/docs/." "${workspace_dir}/${output_dir}/docs/"
+
+python3 - "${workspace_dir}/${output_dir}" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+files = [root / name for name in (
+    "duel6r", "duel6r-server", "duel6r-host-supervisor", "duel6r-resolver", "README.md", "LICENSE"
+)]
+for directory in ("data", "levels", "profiles", "shaders", "sound", "textures", "docs"):
+    files.extend(path for path in (root / directory).rglob("*") if path.is_file())
+with (root / "linux-x86_64.sha256sums").open("w") as manifest:
+    for path in sorted(files):
+        manifest.write(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root).as_posix()}\n")
+PY
 
 echo "Linux runtime bundle written to ${workspace_dir}/${output_dir}"
