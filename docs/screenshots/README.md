@@ -4,14 +4,14 @@
 
 This section is the current status override for the affected existing matrix entries. Earlier `Conforms` claims, packet acceptance, and accepted-entry totals below are historical for `SS-019`, `SS-021`, `SS-023`, and `SS-026`. Their previous files and hashes are superseded evidence, not proof of corrected orientation. The earlier confirmation supplement is also superseded for arena orientation. All other entries retain their current status.
 
-Visual impact is a standard localized orientation correction under the existing [network visual rules](../design.md#target-network-controls-and-status). The user-reported prior review identifies inverted players, platform contact, trees, and names in `SS-019`, with upright background and UI. No corrected artifact has been supplied or assessed in this invocation. Existing screen contracts and wireframe structures remain unchanged.
+Visual impact is a standard localized orientation correction under the existing [network visual rules](../design.md#target-network-controls-and-status). UX inspected the four replacement representatives and three Local Play comparison supplements at accepted checkpoint `84f63bc6fdee75444b06723b3c5f542546e27b15`, with unchanged production source `78d97e5c9c4791262a81ffd4b0823671034ec872`. All seven conform for this scoped orientation assessment. Existing screen contracts and wireframe structures remain unchanged.
 
-| Entry | Existing screen / wireframe | Replacement workflow and representative state | Supported viewport / profile | Existing destination to replace | Current conformance |
+| Entry | Existing screen / wireframe | Actual workflow and representative state | Supported viewport / profile | Current destination | Current conformance and supplied SHA-256 |
 |---|---|---|---|---|---|
-| `SS-019` | `NET-05` / [NET-05](../screens/wireframes/network-match.md) | Reuse the six-player host and two-guest setup. Select shipped `levels/duel_16.json`, unmirrored. Capture an active round after start fade, with actual Invisibility on a player holding a weapon and degraded recovery while complete updates resume. Show identifiable asymmetric terrain, rooted trees, standing players and readable player status. | 1280x900 desktop; built-in default network visuals | `docs/screenshots/NET-05/six-player-lan-degraded-1280x900.png` | Pending replacement; previous orientation acceptance superseded. |
-| `SS-026` | `NET-05` / [NET-05-C](../design/wireframes/NET-05/NET-05-C.svg) | In the same setup, use a connected guest at its existing viewport. Open Leave session with Escape or controller Back. Capture the focused explicit confirmation over the upright arena before acceptance; cancel to continue. | 1280x720 desktop; built-in default network visuals | `docs/design/screenshots/NET-05/NET-05-C.png` | Pending replacement; previous arena-context acceptance superseded. |
-| `SS-021` | `NET-07` / [NET-07](../screens/wireframes/network-reconnect.md) | Reuse a two-slot guest from active play. Interrupt only the owned connection through the existing approved setup. Capture actual reconnect with 24 positive ceiling seconds remaining and the last complete upright arena; restore contact before expiry for reuse. Do not substitute a lobby background. | 1280x900 desktop; retained default network visuals | `docs/screenshots/NET-07/reconnecting-24s-1280x900.png` | Pending replacement; previous arena-context acceptance superseded. |
-| `SS-023` | `NET-09` / [NET-09](../screens/wireframes/network-host-ended.md) | After reconnect restores active play, intentionally confirm host End session. Capture the receiving guest's blocking host-ended panel over the last complete upright arena. A crash or timeout is not a substitute. | 1280x900 desktop; retained default network visuals | `docs/screenshots/NET-09/host-ended-1280x900.png` | Pending replacement; previous arena-context acceptance superseded. |
+| `SS-019` | `NET-05` / [NET-05](../screens/wireframes/network-match.md) | Six-player Deathmatch, one host and two guests with two slots each, fixed shipped unmirrored `duel_16`, round 1 of 1. Guest captures actual Elm/player 8 Invisibility with held shotgun during degraded recovery after forwarding resumes. | 1280x900 desktop; built-in default network visuals | `docs/screenshots/NET-05/six-player-lan-degraded-1280x900.png` | Conforms: upright players, platform contact, tree orientation, readable player status, complete arena and degraded text. `6a6ed7101b6f7506aa8bb9b4f0679de2747da5c3e7aa701f7c381f3b698626ed` |
+| `SS-026` | `NET-05` / [NET-05-C](../design/wireframes/NET-05/NET-05-C.svg) | Same setup; small guest opens Leave session with Escape, captures before acceptance, then cancels with Escape. | 1280x720 desktop; built-in default network visuals | `docs/design/screenshots/NET-05/NET-05-C.png` | Conforms: upright arena behind centered bounded consequence panel, complete wrapped copy, separate Leave/Cancel controls and visible initial focus. `7a5b9fb62dfef41c43d792bd87b2b6f2f30974a0fbc4cedec6fe4ec5d84a2b7d` |
+| `SS-021` | `NET-07` / [NET-07](../screens/wireframes/network-reconnect.md) | Interrupt the owned two-slot guest connection during active play; capture at 24 seconds remaining. Restore contact before expiry. | 1280x900 desktop; retained default network visuals | `docs/screenshots/NET-07/reconnecting-24s-1280x900.png` | Conforms: upright retained arena, Last confirmed state, readable reservation/countdown copy and focused Leave action. `d1088e648d2a0092cbc21592a89a1f2d05d844f54143f6e2e9ac9b38c5f29fef` |
+| `SS-023` | `NET-09` / [NET-09](../screens/wireframes/network-host-ended.md) | After reconnect restores active play, host opens and intentionally confirms End session; receiving guest captures the retained arena and terminal panel. | 1280x900 desktop; retained default network visuals | `docs/screenshots/NET-09/host-ended-1280x900.png` | Conforms: upright retained arena, readable terminal/no-resume/no-persistence content and focused Return action. `ba7d591afd56ec2584307bd062f9e76dd04ac3281831f6b7803aa6d6a867bbbf` |
 
 These are replacements for four existing wireframes, not new matrix entries. Keep each legacy destination in place; no migration is requested. Reuse the established setup and supported clients, rather than completing a multi-round result task. The current implementation presents `NET-06` and `NET-04-R` through separate summary/lobby presentation, not the affected arena transform. `SS-020`, `SS-025`, menus, and Local Play representatives require no replacement for this localized correction.
 
@@ -31,7 +31,52 @@ These are replacements for four existing wireframes, not new matrix entries. Kee
 - Tester must verify unchanged 20% Invisibility on body and held weapon and 10% Predator body with a visible weapon when Invisibility is absent.
 - Static screenshots must not be treated as proof of motion, opacity values, or functional outcomes.
 
-Current visual gate: blocked pending corrected implementation and the four replacement representatives with complete provenance. This scoped invalidation does not reopen unrelated summary captures or product requirements.
+### Current assessment and reproduction inputs
+
+The accepted `SS-019` representative uses Guest and round 1 of 1 instead of the prior Host and round 2 of 3 fixture. This explicit capture-profile refinement preserves the same wireframe, six-player task, degraded indication, actual Invisibility, and world-transform coverage. It is not host-action evidence and does not change functional behavior. No extra round-result capture is required.
+
+The network workflow uses actual UI-created persons: host Alder/Birch, guest Cedar/Dogwood, and small guest Elm/Fir. Each slot uses K2 WSAD controls. Setup is Deathmatch, fixed `levels/duel_16.json`, one round, Assistance on, Quick Liquid off, and Burnable Trees on. All participants ready before start. The host listens at container-local `127.0.0.1:26660`; owned forwarding proxies use ports 26661 and 26662. The supplied passive observer records replication without injecting or modifying game-state bytes.
+
+All four representatives share session `11662738353544004403`, match `144115188075855873`, round `216172782113783809`, and `mirrored=false`. The level has no named background. The unchanged eligible list is `000.tga` through `013.tga`; production fallback recomputed from observed identities is `000.tga`.
+
+| Entry | Capture start UTC, 2026-09-14 | Nearby observed ticks | Capture interpretation |
+|---|---|---|---|
+| `SS-019` | 23:53:53.078073 | 24156–24204 | Complete updates advance after forwarding resumes at 23:53:52.199724. Elm/player 8 has actual Invisibility, shotgun, and recorded alpha 51/255. |
+| `SS-026` | 23:54:42.931218 | 27150–27207 | Explicit guest confirmation over active play. |
+| `SS-021` | 23:54:50.784866 | 27237 retained | Owned connection interrupted at 23:54:44.384225; restored at 23:54:51.695144 before expiry. |
+| `SS-023` | 23:55:50.890231 | 31206 retained | Intentional host End after successful restoration; no crash or timeout substitute. |
+
+Ticks bound nearby forwarded state; they do not identify the exact GPU-consumed update. The capture worktree was clean with no uncommitted presentation-source changes. Runtime application SHA-256 is `394281ccbe19b207cdf97d9dd025bc95350a8a194651df9bb6061982e1274198`.
+
+Environment: Release, GL4, Lua enabled, Ubuntu 24.04 Docker, SDL dummy audio, and fixed Xvfb client areas without resizing. Actual OpenGL reports Mesa llvmpipe, LLVM 20.1.2, 256 bits, OpenGL 4.5 Core, Mesa 25.2.8. These are actual rasterized software-OpenGL frames, not physical-GPU coverage or recording-renderer substitutes. Developer reports full-client capture without cropping, compositing, retouching, content edits, forced seeds, or state injection.
+
+| Supplement | Actual reproduction inputs | Current path | Supplied SHA-256 |
+|---|---|---|---|
+| Network X mirror | 1280x900; 2026-09-14 23:58:45.715733 UTC; actual session `9745887772574650472`, same match/round IDs, ticks 216–264, `duel_16`, mirrored=true, fallback `009.tga`; normal attempts until mirror selected. | `docs/design/screenshots/NET-05/orientation-network-x-mirrored.png` | `6da757c4ea24deb58eb829103e635d3f5a9cc74962addc62cf8219bd144c2c2e` |
+| Local unmirrored | 1280x900; 2026-09-15 00:01:40.147197 UTC; actual Local Play, Hazel/Ivy, K1 Arrows, map 0 selects `duel_16`; console confirms mirror=false. | `docs/design/screenshots/NET-05/orientation-local-unmirrored.png` | `9db95b1aad9315d3a2bb86011bf2e80084bb1819e2de8f5b9303d91efd346030` |
+| Local X mirror | 1280x900; 2026-09-15 00:05:58.517477 UTC; same Local Play process/map; normal progression/Shift+F1; console confirms mirror=true. | `docs/design/screenshots/NET-05/orientation-local-x-mirrored.png` | `5cafba0084ee6fa7e6d0619b3695e04cf4cbc19397f5aba30d0741490a80243b` |
+
+Local Play exposes no network identity or exact canonical tick in this capture. Its backgrounds are visually identified as `000.tga` and `007.tga`, not confirmed by a runtime filename trace. Different local profiles, perspective side faces, and backgrounds are not orientation failures or claims of network profile parity.
+
+The long upper platform, lava shelf, lower steps, and water-channel placement match Local Play in each mirror state. Horizontal mirroring changes their side without vertical inversion. Players are head-up with visible feet above supporting platform tops. Tree crowns remain above trunks. Visible names and ammunition text are upright. Elm's body and held-weapon region are faint rather than omitted. Terrain and sprites visibly rasterize without the former global reversal. The background and UI stay upright. Confirmations and retained-context panels preserve hierarchy, containment, readable copy, and non-color focus outlines.
+
+No blocking orientation finding remains. The supplied source approval and 69-pass QA handoff establish behavioral coverage, including right movement, jump, fall, water rise, producer-to-MVP checks, and the expected old-matrix negative-control failure. UX did not rerun those tests. These still images do not independently prove motion, all culling invariants, numerical 20% Invisibility/10% Predator opacity, or input outcomes; those remain source/QA evidence. This Deathmatch packet is not a new Predator capture.
+
+Supporting observations were read from `/tmp/opencode/pr87-orientation-evidence/README.md`, `captures.json`, and PNG JSON sidecars. The supplied `captures.json` SHA-256 is `ac7bada9a5e00b252f7033179e97835cec4f197c880549d7ea44d4c81687d4bf`. The prose handoff was explicitly reconstructed after interruption; original image/JSON bytes were recovered unchanged according to the developer. UX read the repository images directly and used supplied artifact hashes; UX did not independently execute a hash tool.
+
+| Inspected supporting image in the temporary packet | Evidence scope | Supplied SHA-256 |
+|---|---|---|
+| `local-console-a.png` | Actual `duel_16`, mirror=false, 2026-09-15 00:01:41.580292 UTC | `01eac606b06da01238ccb8d104cd1e3e53af2b3afdd8a78fd5a632136d482fd7` |
+| `local-console-f.png` | Actual `duel_16`, mirror=true, 2026-09-15 00:05:59.570243 UTC | `67b9729b3f072593c4c9d48357f51680c55d3b45a0b9ca910e9b937c4d82fec0` |
+| `reconnect-restored.png` | Guest Connected after restoration, 2026-09-14 23:54:54.695859 UTC | `22fd31870ee1a7915c1140a5f1a1dce5801e20f625c1c320ddcee7ceeada202e` |
+| `host-end-confirm.png` | Explicit focused host End confirmation, 2026-09-14 23:55:25.856982 UTC | `69e9c66f62a3a4c7914a3df7530754477e5ee0fc93827a6d8360c200d636d04e` |
+| `gl-info.png` | Actual Mesa llvmpipe environment, 2026-09-15 00:07:54.929258 UTC | `c1ddfac820d505991610f0edb2aa628a900b80a59653356cf4773f59c11303ab` |
+
+All supporting images use 1280x900 and the same checkpoint/environment. Developer must retain the selected provenance packet and these supporting observations in a durable handoff location before temporary cleanup. They are not additional representative matrix entries. Historical PR #83 state/background sidecars must not be presented as provenance for the replacement images.
+
+Visual gate: satisfied
+
+This assessment covers the exact seven image hashes above and the unchanged presentation source at the accepted checkpoint. Product final acceptance and PR finalization remain separate. Committing the exact assessed bytes without presentation-source or UX-content changes does not require another visual assessment.
 
 ## Assessment status (prior packet; subject to current coverage above)
 

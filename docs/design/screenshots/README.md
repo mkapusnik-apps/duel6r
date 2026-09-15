@@ -2,13 +2,13 @@
 
 This is an integration index for the authoritative [screenshot manifest](../../screenshots/README.md), not a second specification or assessment. The original integrated manifest had SHA-256 `90f02bf755ecc4c54142d5555aa8e34a644515ee69415a539a62cf23066173b7`; that hash is historical after the current scoped orientation update.
 
-The [current coverage override](../../screenshots/README.md#network-arena-orientation--current-coverage) marks `SS-019`, `SS-021`, `SS-023`, and `SS-026` pending replacement. Earlier acceptance below for the arena representatives and confirmation supplement is superseded for orientation. Their recorded hashes identify previous artifacts, not corrected evidence. Other entries remain unchanged.
+The [current coverage and assessment](../../screenshots/README.md#network-arena-orientation--current-coverage) accepts the PR #87 replacements for `SS-019`, `SS-021`, `SS-023`, and `SS-026` and three orientation comparison supplements. It is the sole current source for their paths, hashes, reproduction inputs, and assessment limits. Earlier acceptance below for the arena representatives and confirmation supplement is superseded for orientation. Their recorded hashes and PR #83 state/background sidecars identify historical evidence, not the replacement artifacts. Other entries remain unchanged.
 
 The manifest's temporary paths record where UX originally assessed the files. The accepted images and supporting observations now have durable repository locations below. Verification does not depend on those temporary paths. The four superseded guest-defect supplements are intentionally excluded.
 
-## Five accepted representatives
+## Prior five-representative packet
 
-These retain capture checkpoint `24d244bee7edd5523c5791297cabe1b00c01fd7e` and byte-unchanged production source `f7730db176f48bfd6436b634b88a2d18310bd221`. The guest-status correction at `6aebaf22d73a3d9409111714d3ebb7c2cf6a12ef` does not execute in these representative states.
+This packet used capture checkpoint `24d244bee7edd5523c5791297cabe1b00c01fd7e` and byte-unchanged production source `f7730db176f48bfd6436b634b88a2d18310bd221`. `SS-019` and `SS-026` below are historical hashes; their linked destinations now contain the accepted PR #87 replacements. The guest-status correction at `6aebaf22d73a3d9409111714d3ebb7c2cf6a12ef` did not execute in these representative states.
 
 | Entry | Image | SHA-256 |
 |---|---|---|

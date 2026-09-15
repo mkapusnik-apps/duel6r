@@ -1,0 +1,14 @@
+{
+  "client": "local",
+  "time": "2026-09-15T00:01:41.580292+00:00",
+  "path": "/tmp/local-console-a.png",
+  "viewport": [
+    1280,
+    900
+  ],
+  "source": "84f63bc6fdee75444b06723b3c5f542546e27b15",
+  "productionSource": "78d97e5c9c4791262a81ffd4b0823671034ec872",
+  "sha256": "01eac606b06da01238ccb8d104cd1e3e53af2b3afdd8a78fd5a632136d482fd7",
+  "before": null,
+  "after": null
+}
