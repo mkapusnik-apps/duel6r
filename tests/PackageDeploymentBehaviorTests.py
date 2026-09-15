@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import tempfile
 import textwrap
@@ -90,6 +91,19 @@ def assert_data(root, saved):
                 "Local data differs from its own backup: " + str(path.relative_to(saved)))
 
 
+def assert_people(root, prefix, expected=None):
+    data = json.loads((root / "data/persons.json").read_text())
+    names = [person["name"] for person in data["persons"]]
+    intended = {prefix + "1", prefix + "2"}
+    require(len(names) == 2 and set(names) == intended,
+            "Fixture must contain exactly its two intended people; no duplicates or appended names")
+    require(len(data["playing"]) == 2 and set(data["playing"]) == intended,
+            "Saved roster must contain exactly the intended people")
+    if expected is not None:
+        require(data == expected, "Person records, Local Play statistics or saved roster changed")
+    return data
+
+
 class Client:
     """One graphical process with a private display and bounded text assertions."""
 
@@ -154,12 +168,15 @@ class Client:
                 require("error" not in result, result.get("error", "Rendered-text observer failed"))
                 if result.get("id") == identity:
                     require(result["matched"] == list(range(len(predicates))), "Incomplete UI assertion")
-                    return
+                    return result
             require(self.process.poll() is None, "Packaged client/debugger exited before UI assertion")
             time.sleep(.05)
         raise AssertionError("Expected rendered text did not appear: " + repr(predicates))
 
     def add_people(self, prefix):
+        saved = self.root / "data/persons.json"
+        require(not saved.exists() or not json.loads(saved.read_text())["persons"],
+                "add_people seeds a fresh installation only; reuse the existing roster instead")
         for index in (1, 2):
             self.click(100, 298)
             self.text(prefix + str(index))
@@ -168,10 +185,15 @@ class Client:
             self.click(90, y)
             self.click(300, 268)
 
-    def network(self, host, address="127.0.0.1"):
+    def network(self, host, address="127.0.0.1", port=26660, start=True):
         self.key("F2")
         self.expect({"text": "Host"}, {"text": "Join"})
         self.click(425, 340 if host else 295)
+        if port != 26660:
+            self.click(200, 497 if host else 473)
+            self.x("key", "--repeat", "5", "--delay", "80", "BackSpace")
+            self.text(str(port))
+            self.expect({"contains": "Port: " + str(port)})
         if address != "127.0.0.1":
             target = ipaddress.IPv4Address(address)
             require(any(target in ipaddress.IPv4Network(network) for network in
@@ -191,7 +213,8 @@ class Client:
                 self.x("key", "--repeat", "9", "--delay", "80", "BackSpace")
                 self.text(address)
                 self.expect({"contains": "Address: " + address})
-        self.click(425, 98)
+        if start:
+            self.click(425, 98)
 
     def lobby(self, ready=False, timeout=15):
         predicates = [{"contains": "2 participants • 4 players"}]
@@ -229,14 +252,15 @@ class Client:
         require(not owned_processes(self.root), "Owned application/service process survived cleanup")
 
 
-def session(host_root, guest_root, scratch, seed=False):
+def session(host_root, guest_root, scratch, seed_host=False, seed_guest=False):
     with ExitStack() as stack:
         host = Client(host_root, scratch / "host", ":91")
         stack.callback(host.close)
         guest = Client(guest_root, scratch / "guest", ":92")
         stack.callback(guest.close)
-        if seed:
+        if seed_host:
             host.add_people("QAHost")
+        if seed_guest:
             guest.add_people("QAGuest")
         host.network(True)
         host.expect({"contains": "1 participants • 2 players"})
@@ -306,7 +330,7 @@ def local_round(root, scratch):
         client.quit_menu()
     finally:
         client.close()
-    data = json.loads((root / "data/persons.json").read_text())
+    data = assert_people(root, "QAHost")
     require(data["rounds"] == 1, "Local Play did not complete its one-round match")
     require(all(person["games"] == 1 and person["eloGames"] == 1 for person in data["persons"]),
             "Completed Local Play did not persist game/Elo counts")
@@ -315,6 +339,7 @@ def local_round(root, scratch):
             and sum(person["deaths"] for person in data["persons"]) >= 1,
             "Completed Local Play result is inconsistent")
     print("Local Play no-service samples:", samples, flush=True)
+    return data
 
 
 def rejected_session(host_root, guest_root, scratch, invalid=False, check_return=False):
@@ -362,6 +387,136 @@ def rejected_session(host_root, guest_root, scratch, invalid=False, check_return
     require(sha256(config) == original_config, "Admission rewrote guest configuration")
     require(not subprocess.check_output(["ss", "-Hltn", "sport", "=", ":26660"], text=True).strip(),
             "Negative scenario leaked its owned listener")
+
+
+def failure_navigation_case(archive, work, host_role, retry_available):
+    """Real failure producers; exercise all three NET-08 actions separately."""
+    root, peer_root = work / "client", work / "peer"
+    install(archive, root)
+    install(archive, peer_root)
+    prefix = "QAHost" if host_role else "QAGuest"
+    port = 26740  # Non-default: losing the retained port must fail the test.
+    counter = "host_starts" if host_role else "guest_joins"
+    if not retry_available:
+        blocks = root / "data/blocks.json"
+        blocks.rename(root / "data/saved-blocks.json")
+        blocks.symlink_to("saved-blocks.json")
+        message = ("Hosted" if host_role else "Local") + (
+            " gameplay content is invalid. Restore the supported gameplay content and restart the application.")
+    elif host_role:
+        message = "The selected port is unavailable. Choose another port and try again."
+    else:
+        message = "Host unreachable."
+    failure_text = [{"text": line} for line in textwrap.wrap(message, width=72)]
+    failure_text.append({"text": "Retry" if retry_available else "Retry unavailable"})
+    if not host_role:
+        failure_text.append({"text": "Endpoint: 127.0.0.1:" + str(port)})
+
+    with ExitStack() as stack:
+        blocker = None
+        if host_role and retry_available:
+            # Owned, loopback-only socket: a real port collision, not fabricated UI state.
+            blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            stack.callback(blocker.close)
+            blocker.bind(("127.0.0.1", port))
+            blocker.listen(1)
+        client = Client(root, work / "observer", ":91")
+        stack.callback(client.close)
+        client.add_people(prefix)
+        client.network(host_role, port=port, start=False)
+        # Both fresh Menu slots initially use K1. Explicitly configure a distinct
+        # second control before testing retention rather than guessing a default.
+        client.expect({"contains": prefix + "2 • K1: Arrows", "x": 434, "y": 386})
+        client.click(600, 390)
+        client.expect({"contains": prefix + "2 • K2: WSAD", "x": 434, "y": 386})
+        client.click(425, 98)
+
+        def failure(expected_attempts):
+            observed = client.expect(*failure_text)
+            require(observed["attempts"][counter] == expected_attempts,
+                    "Unexpected Start/Join count; attempt observer or action dispatch is incorrect")
+            return observed
+
+        def retained_setup():
+            client.expect(
+                {"text": "HOST NETWORK SESSION" if host_role else "JOIN NETWORK SESSION"},
+                {"contains": "Port: " + str(port)},
+                {"contains": "Listening interface: 127.0.0.1 (Same machine)" if host_role
+                 else "Address: 127.0.0.1"},
+                {"contains": prefix + "1 • K1: Arrows", "x": 434, "y": 408},
+                {"contains": prefix + "2 • K2: WSAD", "x": 434, "y": 386},
+                {"contains": "Local players: 2"},
+                {"text": "Start session" if host_role else "Connect"})
+
+        count = 1
+        failure(count)  # Also validates that the invocation probe is active.
+        client.click(160, 285)
+        if retry_available:
+            count += 1
+            failure(count)
+        else:
+            # Require fresh post-click frames and no new attempt, not just the same
+            # error reappearing after an accidentally dispatched retry.
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                failure(count)
+                time.sleep(.1)
+
+        client.click(425, 285)  # Edit setup must retain endpoint, people and controls.
+        retained_setup()
+        client.click(425, 98)
+        count += 1
+        failure(count)
+        client.click(685, 285)  # Return must enter NET-01, not editable NET-02/03.
+        entry = client.expect({"text": "Host"}, {"text": "Join"})
+        require(entry["attempts"][counter] == count, "Return to Network started a new attempt")
+
+        if retry_available:
+            client.click(425, 340 if host_role else 295)
+            retained_setup()
+            client.click(425, 98)
+            count += 1
+            failure(count)
+            peer = None
+            if blocker is not None:
+                blocker.close()
+            else:
+                # A matching real host appears at the retained endpoint. No client
+                # files are changed while either application is running.
+                peer = Client(peer_root, work / "peer-observer", ":92")
+                stack.callback(peer.close)
+                peer.add_people("QAHost")
+                peer.network(True, port=port)
+                peer.expect({"contains": "1 participants • 2 players"})
+            client.click(160, 285)
+            count += 1
+            admitted = client.expect({"contains": "127.0.0.1:" + str(port)},
+                                     {"contains": "1 participants • 2 players" if host_role
+                                      else "2 participants • 4 players"})
+            require(admitted["attempts"][counter] == count, "Eligible Retry did not repeat exactly one attempt")
+            if not host_role:
+                client.lobby()
+                peer.lobby()
+            owner = client if host_role else peer
+            owner.click(740, 64)
+            owner.click(225, 272)
+            owner.expect({"text": "Host"}, {"text": "Join"})
+            if peer is not None:
+                client.expect({"text": "HOST ENDED SESSION"})
+                client.click(425, 260)
+                client.expect({"text": "Host"}, {"text": "Join"})
+                peer.key("Escape")
+                peer.expect({"text": "PERSONS"})
+                peer.quit_menu()
+        client.key("Escape")
+        client.expect({"text": "PERSONS"})
+        client.quit_menu()
+    assert_people(root, prefix)
+    require(not subprocess.check_output(["ss", "-Hltn", "sport", "=", ":" + str(port)], text=True).strip(),
+            "Failure matrix left the owned listener active")
+    print("PASS: failure navigation", "host" if host_role else "guest",
+          "retry-available" if retry_available else "retry-disabled",
+          "Return/Edit/Retry, retained setup and cleanup", flush=True)
 
 
 def lan_participant(root, scratch, host, address, peer_ready_file=None):
@@ -433,7 +588,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", type=Path)
     parser.add_argument("--sha256", required=True)
-    parser.add_argument("--scenario", choices=("session", "replacement", "local", "mismatch", "invalid", "failure-return", "lan-host", "lan-guest", "cancel"), default="session")
+    parser.add_argument("--scenario", choices=("session", "replacement", "local", "mismatch", "invalid", "failure-return", "failure-matrix", "lan-host", "lan-guest", "cancel"), default="session")
+    parser.add_argument("--failure-case", choices=("all", "host-available", "host-disabled", "guest-available", "guest-disabled"),
+                        default="all", help="Narrow one real NET-08 matrix case while diagnosing a failure")
     parser.add_argument("--address", default="127.0.0.1", help="Host's explicit RFC1918 interface for isolated LAN tests")
     parser.add_argument("--peer-ready-file", type=Path,
                         help="LAN host barrier: controller creates this only after guest reports rendered Ready")
@@ -441,6 +598,14 @@ def main():
     require(sha256(args.archive) == args.sha256, "Archive digest does not match checkpoint handoff")
     with tempfile.TemporaryDirectory(prefix="duel6r-package-behavior-") as directory:
         work = Path(directory)
+        if args.scenario == "failure-matrix":
+            for role in ("host", "guest"):
+                for retry in ("available", "disabled"):
+                    case = role + "-" + retry
+                    if args.failure_case in ("all", case):
+                        failure_navigation_case(args.archive, work / case, role == "host", retry == "available")
+            require(sha256(args.archive) == args.sha256, "Source archive changed during verification")
+            return
         host, guest = work / "host", work / "guest"
         install(args.archive, host)
         install(args.archive, guest)
@@ -454,7 +619,7 @@ def main():
             require(sha256(args.archive) == args.sha256, "Source archive changed during verification")
             return
         if args.scenario in ("local", "replacement"):
-            local_round(host, work / "local")
+            local_baseline = local_round(host, work / "local")
             print("PASS: offline packaged Local Play rendered final summary and saved real statistics", flush=True)
         if args.scenario == "local":
             require(sha256(args.archive) == args.sha256, "Source archive changed during verification")
@@ -465,24 +630,35 @@ def main():
             print("PASS: " + args.scenario + " exact rendered failure, host isolation and cleanup", flush=True)
             require(sha256(args.archive) == args.sha256, "Source archive changed during verification")
             return
-        session(host, guest, work / "initial", seed=True)
+        session(host, guest, work / "initial", seed_host=args.scenario != "replacement", seed_guest=True)
         print("PASS: rendered admitted identities, ownership, readiness, gameplay, End and cleanup", flush=True)
         if args.scenario == "replacement":
+            baselines = {
+                "host": assert_people(host, "QAHost", local_baseline),
+                "guest": assert_people(guest, "QAGuest"),
+            }
+            require(baselines["guest"]["rounds"] == 0 and all(
+                person["games"] == 0 and person["eloGames"] == 0
+                for person in baselines["guest"]["persons"]),
+                "Network-only guest must not acquire Local Play statistics")
             saved_archive = work / "prior.zip"
             shutil.copy2(args.archive, saved_archive)
             for root in (host, guest):
                 config = root / "data/config.script"
                 config.write_text(config.read_text().replace("volume      128", "volume      64"))
                 shutil.copytree(root / "profiles/sample", root / "profiles/QALocalProfile")
+                assert_people(root, "QAHost" if root == host else "QAGuest", baselines[root.name])
                 backup(root, work / (root.name + "-backup"))
             for phase in ("reinstall", "rollback"):
                 for root in (host, guest):
                     root.rename(work / (root.name + "-" + phase + "-retired"))
                     install(args.archive if phase == "reinstall" else saved_archive, root)
                     restore(root, work / (root.name + "-backup"))
+                    assert_people(root, "QAHost" if root == host else "QAGuest", baselines[root.name])
                 session(host, guest, work / phase)
                 for root in (host, guest):
                     assert_data(root, work / (root.name + "-backup"))
+                    assert_people(root, "QAHost" if root == host else "QAGuest", baselines[root.name])
                 print("PASS: " + phase + " own backup data and new production session", flush=True)
                 if phase == "reinstall":
                     # Rollback must not use data changed after reinstallation.

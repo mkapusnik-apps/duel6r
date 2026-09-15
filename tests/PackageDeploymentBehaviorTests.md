@@ -16,7 +16,8 @@ release acceptance. New, unintegrated tests provide diagnostic evidence only.
 `PackageRenderedTextObserver.py` is a narrowly scoped GDB assertion helper for the
 Linux x86-64, libstdc++ C++11 ABI binary. It observes the existing `Font::print`
 entry points and groups requested predicates at `SDL_GL_SwapWindow`. Only an
-allowlisted predicate's index, the request identity, and frame number are saved.
+allowlisted predicate's index, the request identity, frame number, and Start/Join
+invocation counts are saved. Invocation probes read no function arguments.
 It never records arbitrary UI text, raw traffic, reconnect credentials, a memory
 dump, or a screenshot. Matching identity, ownership, and readiness rows must occur
 in **one frame**, not accumulate across UI states. The actual inferior exit code
@@ -72,12 +73,50 @@ Use one of these scenarios:
 | `mismatch` | Different valid guest `config.script`; exact wrapped gameplay-content mismatch copy; host still has only its own participant; no silent guest-config rewrite. Exits through Edit setup and Back. |
 | `invalid` | Symlinked guest gameplay file; exact local-invalid-content copy; Retry unavailable; host remains alone; cleanup. This is **local pre-admission invalidity**, not a remote invalid-manifest request. |
 | `failure-return` | Same real mismatch, then pointer-click Return to Network; require Network entry, not Join setup. Keep this expectation even if the checkpoint fails it. |
+| `failure-matrix` | Host/guest with Retry available/unavailable; Return enters NET-01, Edit retains NET-02/03 endpoint/people/controls, eligible Retry repeats and subsequently recovers, and disabled Retry dispatches no attempt. |
 
 People and statistics are created through the client. Config and custom profile
 backups are byte-compared before and after the real replacement sessions. Each
 fresh extraction passes the platform inventory **before** local data is restored.
 Replacement never overlays old binaries or rewrites an inventory. No previous
 network release, Windows data transfer, or cross-release migration is tested.
+
+Replacement seeds the host **only once**, during Local Play. Its initial network
+session seeds only the fresh guest. `add_people` refuses existing saved people
+instead of relying on duplicate-name rejection to clear the name field. The exact
+two-person set and two-person saved roster are asserted after Local Play. The
+entire saved host record is retained as a semantic baseline and must still match
+before backup, immediately after each restoration, and after each new network
+session. The guest must retain exactly its own two people and zero Local Play
+game/Elo counts. These checks supplement, rather than replace, byte-for-byte
+backup comparisons and detect accidental concatenated or extra person names.
+
+### Focused failure-navigation matrix
+
+```sh
+python3 /tests/PackageDeploymentBehaviorTests.py /artifacts/package.zip \
+  --sha256 CHECKPOINT_ARCHIVE_SHA256 --scenario failure-matrix
+```
+
+Use `--failure-case host-available`, `host-disabled`, `guest-available`, or
+`guest-disabled` to diagnose just one case. All cases use non-default loopback
+port **26740**, which must be free before testing.
+
+| Case | Real failure producer | Retry assertion |
+|---|---|---|
+| Host / available | Tester-owned bound socket prevents the actual hosted service from binding. | Retry repeats the port failure; after releasing only that owned socket, Retry starts the real lobby on the retained port. |
+| Host / disabled | Symlinked local gameplay file causes hosted manifest validation to fail. | Clicking Retry unavailable leaves the fixed error and makes no new Start call. |
+| Guest / available | No host is running at the retained loopback endpoint. | Retry repeats the unreachable outcome; after starting a real matching host, Retry admits the same two owned players at that port. |
+| Guest / disabled | Symlinked local gameplay file fails local validation before connection. | Clicking Retry unavailable leaves the fixed error and makes no new Join call. |
+
+Each initial attempt must increment its observer counter, validating the probe.
+Disabled Retry is checked across fresh post-click frames for two seconds; an
+incorrect retry cannot pass merely by quickly failing with the same copy. Every
+case also verifies Edit's retained port, interface/address, names and K1/K2
+controls, then recreates the real failure and verifies pointer Return enters
+Network entry without beginning another attempt. No failure snapshot is injected,
+no unrelated listener is killed, and no game content is repaired while running.
+This is action/retention coverage, not deadline or race acceptance.
 
 ## Two-container private virtual LAN
 

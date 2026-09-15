@@ -3,8 +3,9 @@
 Linux x86-64/libstdc++ C++11 ABI only. This observes Font::print calls in the
 unaltered executable; it is not an accessibility API or a pixel/visual oracle.
 No screenshot, arbitrary UI text, packet, credential, or memory dump is saved.
-The driver requests text predicates; only predicate indexes and frame counts
-leave the debugger. Software breakpoints affect timing: never use this for
+The driver requests text predicates; only predicate indexes, frame counts, and
+Start/Join invocation counts leave the debugger. No call arguments are read for
+the invocation counters. Software breakpoints affect timing: never use this for
 performance, startup-deadline, reconnect-deadline, or race acceptance.
 """
 
@@ -22,6 +23,7 @@ request = {"id": None, "predicates": []}
 matched = set()
 frames = 0
 stamp = None
+attempts = {"host_starts": 0, "guest_joins": 0}
 
 
 def refresh():
@@ -78,7 +80,7 @@ class Frame(gdb.Breakpoint):
         refresh()
         frames += 1
         if request["predicates"] and len(matched) == len(request["predicates"]):
-            publish({"id": request["id"], "matched": sorted(matched), "frame": frames})
+            publish({"id": request["id"], "matched": sorted(matched), "frame": frames, "attempts": attempts})
         matched = set()
         return False
 
@@ -87,6 +89,16 @@ class FloatText(Text):
     # Floating point coordinates consume SSE registers, not integer registers.
     string_register = "$rdx"
     coordinates = False
+
+
+class Attempt(gdb.Breakpoint):
+    def __init__(self, method, counter):
+        super().__init__("Duel6::Client::NetworkSessionRuntime::" + method, internal=True)
+        self.counter = counter
+
+    def stop(self):
+        attempts[self.counter] += 1
+        return False
 
 
 gdb.execute("set pagination off")
@@ -103,4 +115,6 @@ gdb.events.exited.connect(exited)
 Text("*_ZNK5Duel64Font5printEiiRKNS_5ColorERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE", internal=True)
 FloatText("*_ZNK5Duel64Font5printEfffRKNS_5ColorERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEf", internal=True)
 Frame("SDL_GL_SwapWindow", internal=True)
+Attempt("startHost", "host_starts")
+Attempt("join", "guest_joins")
 gdb.execute("run")
