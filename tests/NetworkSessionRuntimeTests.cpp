@@ -23,6 +23,10 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <cerrno>
 #endif
 
 #include "tests/TestHarness.h"
@@ -49,7 +53,10 @@
 #include "source/NetworkMenu.h"
 #undef private
 #include "tests/RecordingRenderer.h"
+#include "tests/CanonicalMotionTrace.h"
 #include "source/server/AuthoritativeMatchSerialization.h"
+#include "source/math/Camera.h"
+#include <cmath>
 
 namespace {
     using namespace Duel6;
@@ -926,6 +933,270 @@ D6R_TEST_CASE("PR83 capture complete presenter draws translucent body and weapon
             }
         }
     }
+}
+
+D6R_TEST_CASE("PR87 submitted arena vertices retain Local Play basis through mirrored and retained snapshots") {
+    char name[] = "duel6r-orientation-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot;
+        std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recorder = std::make_unique<Test::RecordingRenderer>();
+    auto &recording = *recorder;
+    video.renderer = std::move(recorder);
+    CanonicalWorldPresenter presenter(*application.service, application.gameResources);
+    auto state = canonical(87, Network::Replication::Phase::ActiveRound);
+    state.matchId = 1;
+    state.settings.levels = {"levels/duel_16.json"};
+    state.round = Network::Replication::RoundState{1, 1, state.settings.levels.front()};
+    Network::Replication::PlayerState actor;
+    actor.playerId = 101; actor.ownerParticipantId = 1; actor.life = 100;
+    actor.positionX = 4 * 65536; actor.positionY = 3 * 65536;
+    actor.heldWeapon = "pistol"; actor.visible = true; actor.displayName = "Upright";
+    state.players = {actor};
+    state.messages.currentPlayerIndicators = {actor.playerId};
+    presenter.setCanonicalLevels(state.settings.levels);
+    Camera localCamera;
+    localCamera.rotate(180.0f, 0, 0); // Player constructors establish this Local Play camera.
+    const auto localView = Matrix::lookAt(localCamera.getPosition(), localCamera.getFront(), localCamera.getUp());
+    const auto localOrigin = localView * Vector::ZERO;
+    D6R_REQUIRE((localView * Vector::UNIT_X).x > localOrigin.x);
+    D6R_REQUIRE((localView * Vector::UNIT_Y).y > localOrigin.y);
+    std::vector<bool> normalWalls;
+    for (const bool mirrored : {false, true}) {
+        state.round->mirrored = mirrored;
+        ++state.round->roundNumber;
+        presenter.update(0, &state, {});
+        D6R_REQUIRE(presenter.level);
+        const auto &level = *presenter.level;
+        unsigned asymmetricCells = 0;
+        for (int y = 0; y < level.getHeight(); ++y) {
+            for (int x = 0; x < level.getWidth(); ++x) {
+                if (!mirrored) normalWalls.push_back(level.isWall(x, y, false));
+                else {
+                    D6R_REQUIRE_EQ(normalWalls[y * level.getWidth() + level.getWidth() - 1 - x],
+                                   level.isWall(x, y, false));
+                    asymmetricCells += normalWalls[y * level.getWidth() + x] != level.isWall(x, y, false);
+                }
+            }
+        }
+        if (mirrored) D6R_REQUIRE(asymmetricCells > 0); // A real X-mirror, not a flag-only fixture.
+        const auto texture = presenter.skinFor(actor).getTexture();
+        D6R_REQUIRE(texture);
+        for (const auto phase : {Network::Replication::Phase::ActiveRound,
+                                 Network::Replication::Phase::FinalSummary}) {
+            state.phase = phase;
+            if (phase == Network::Replication::Phase::FinalSummary)
+                presenter.update(0, nullptr, {}); // Retain loaded arena while no fresh canonical state is supplied.
+            for (const auto &size : {std::pair<int, int>{1280, 900}, {900, 1280}}) {
+                recording.setProjectionMatrix(Matrix::orthographic(0, size.first, 0, size.second, -1, 1));
+                recording.setModelMatrix(Matrix::IDENTITY);
+                recording.quads.clear();
+                recording.buffers.clear();
+                D6R_REQUIRE(presenter.render(state, {}, {}, size.first, size.second));
+                const auto body = std::find_if(recording.quads.begin(), recording.quads.end(),
+                        [texture](const auto &draw) { return draw.material.getTexture() == texture; });
+                D6R_REQUIRE(body != recording.quads.end());
+                const auto matrix = body->projection * body->view * body->model;
+                const auto origin = matrix * Vector::ZERO;
+                const auto right = matrix * Vector::UNIT_X;
+                const auto up = matrix * Vector::UNIT_Y;
+                D6R_REQUIRE(right.x > origin.x);
+                D6R_REQUIRE(up.y > origin.y);
+                D6R_REQUIRE(std::abs(right.y - origin.y) < 0.00001f);
+                D6R_REQUIRE(std::abs(up.x - origin.x) < 0.00001f);
+                auto signedArea = [](const auto &points) {
+                    return (points[1].x - points[0].x) * (points[2].y - points[0].y)
+                         - (points[1].y - points[0].y) * (points[2].x - points[0].x);
+                };
+                D6R_REQUIRE(signedArea(body->vertices) * signedArea(body->projected) > 0);
+                D6R_REQUIRE(body->material.getColor() == Color::WHITE);
+                D6R_REQUIRE(std::abs(signedArea(body->uv)) > 0);
+                D6R_REQUIRE(!recording.buffers.empty());
+                unsigned nonemptyBuffers = 0;
+                for (const auto &buffer : recording.buffers) {
+                    if (buffer.vertices.empty()) continue;
+                    ++nonemptyBuffers;
+                    D6R_REQUIRE_EQ(buffer.vertices.size(), buffer.projected.size());
+                    for (unsigned i = 0; i < buffer.vertices.size(); ++i) {
+                        const auto &vertex = buffer.vertices[i];
+                        const auto expected = matrix * Vector(vertex.x, vertex.y, vertex.z);
+                        D6R_REQUIRE(std::abs(expected.x - buffer.projected[i].x) < 0.00001f);
+                        D6R_REQUIRE(std::abs(expected.y - buffer.projected[i].y) < 0.00001f);
+                    }
+                }
+                D6R_REQUIRE(nonemptyBuffers > 0);
+                for (unsigned i = 0; i < 4; ++i) {
+                    for (unsigned j = 0; j < 4; ++j) {
+                        if (body->vertices[i].y > body->vertices[j].y)
+                            D6R_REQUIRE(body->projected[i].y > body->projected[j].y);
+                        if (body->vertices[i].x > body->vertices[j].x)
+                            D6R_REQUIRE(body->projected[i].x > body->projected[j].x);
+                    }
+                }
+                // Name/ammunition backing is submitted above the actor, not beneath its feet.
+                const auto label = std::find_if(recording.quads.begin(), recording.quads.end(), [](const auto &draw) {
+                    return draw.material.getColor() == Color(0, 0, 200, 220);
+                });
+                D6R_REQUIRE(label != recording.quads.end());
+                const auto feet = matrix * Vector(4, 3, 0);
+                for (const auto &vertex : label->projected) D6R_REQUIRE(vertex.y > feet.y);
+                D6R_REQUIRE_EQ(actor.positionX, state.players.front().positionX);
+                D6R_REQUIRE_EQ(actor.positionY, state.players.front().positionY);
+                D6R_REQUIRE_EQ(mirrored, state.round->mirrored);
+            }
+        }
+        // Canonical water heights are absolute world levels. Check the submitted
+        // filled region stays rooted at world zero as its surface advances.
+        Network::Replication::WorldEntityState water;
+        water.kind = Network::Replication::EntityKind::Water;
+        state.entities = {water};
+        Float32 previousTop = -2;
+        Float32 bottom = -2;
+        for (const int height : {0, 1, 2}) {
+            state.entities.front().primaryValue = height;
+            recording.quads.clear();
+            recording.buffers.clear();
+            D6R_REQUIRE(presenter.render(state, {}, {}, 900, 1280));
+            const auto draw = std::find_if(recording.quads.begin(), recording.quads.end(), [](const auto &quad) {
+                return quad.material.getColor() == Color(32, 96, 224, 128);
+            });
+            D6R_REQUIRE(draw != recording.quads.end());
+            const auto bounds = std::minmax_element(draw->projected.begin(), draw->projected.end(),
+                    [](const auto &a, const auto &b) { return a.y < b.y; });
+            if (height == 0) bottom = bounds.first->y;
+            D6R_REQUIRE(std::abs(bottom - bounds.first->y) < 0.00001f);
+            D6R_REQUIRE(bounds.second->y > previousTop);
+            previousTop = bounds.second->y;
+            D6R_REQUIRE(draw->blend == BlendFunc::SrcAlpha);
+            D6R_REQUIRE_EQ(height, state.entities.front().primaryValue);
+        }
+        state.entities.clear();
+    }
+}
+
+D6R_TEST_CASE("PR87 real canonical motion and timed water project through submitted presenter matrices") {
+    using namespace std::chrono_literals;
+    // The test owns this temporary trace and removes it even on assertion failure.
+    const auto root = std::filesystem::temp_directory_path()
+            / ("duel6r-pr87-motion-" + std::to_string(::getpid()));
+    D6R_REQUIRE(std::filesystem::create_directory(root));
+    struct Cleanup {
+        std::filesystem::path root;
+        pid_t child = -1;
+        ~Cleanup() {
+            if (child > 0) {
+                ::kill(child, SIGKILL);
+                while (::waitpid(child, nullptr, 0) < 0 && errno == EINTR) {}
+            }
+            std::error_code ignored;
+            std::filesystem::remove_all(root, ignored);
+        }
+    } cleanup{root};
+    const auto path = (root / "motion.trace").string();
+    // No shell or environment mutation in the parent; env replaces only these
+    // child settings. The headless producer never shares its Player ABI with GL4.
+    std::vector<std::string> arguments{"env", std::string("D6R_TEST_FILTER=") + Test::CanonicalMotionProducer,
+            "D6R_TEST_EXACT=1", "D6R_CANONICAL_MOTION_TRACE=" + path, D6R_CANONICAL_MOTION_TEST_PRODUCER};
+    std::vector<char *> argv;
+    for (auto &argument : arguments) argv.push_back(argument.data());
+    argv.push_back(nullptr);
+    D6R_REQUIRE_EQ(0, ::posix_spawnp(&cleanup.child, "env", nullptr, nullptr, argv.data(), environ));
+    int status = 0;
+    bool exited = false;
+    const auto deadline = std::chrono::steady_clock::now() + 30s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto result = ::waitpid(cleanup.child, &status, WNOHANG);
+        if (result == cleanup.child) { cleanup.child = -1; exited = true; break; }
+        D6R_REQUIRE(result == 0 || (result < 0 && errno == EINTR));
+        std::this_thread::sleep_for(10ms);
+    }
+    D6R_REQUIRE(exited && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    const auto samples = Test::readCanonicalMotionTrace(path);
+
+    char name[] = "duel6r-pr87-motion-presenter-tests";
+    char *appArguments[] = {name};
+    Application application(1, appArguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot;
+        std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recorder = std::make_unique<Test::RecordingRenderer>();
+    auto &recording = *recorder;
+    video.renderer = std::move(recorder);
+    CanonicalWorldPresenter presenter(*application.service, application.gameResources);
+    presenter.setCanonicalLevels(samples.front().snapshot.state.settings.levels);
+    recording.setProjectionMatrix(Matrix::orthographic(0, 1280, 0, 900, -1, 1));
+    recording.setModelMatrix(Matrix::IDENTITY);
+    struct Projection {
+        Vector root;
+        Float32 waterBottom, waterTop;
+        Network::Replication::PlayerState actor;
+        std::int64_t waterHeight;
+    };
+    std::map<std::string, Projection> projected;
+    for (const auto &sample : samples) {
+        const auto &state = sample.snapshot.state;
+        const auto serialized = Network::Replication::serializeReplicationSnapshot(sample.snapshot);
+        const auto actor = std::find_if(state.players.begin(), state.players.end(),
+                [](const auto &value) { return value.playerId == 101; });
+        D6R_REQUIRE(actor != state.players.end());
+        presenter.update(0, &state, {});
+        recording.quads.clear(); recording.buffers.clear();
+        D6R_REQUIRE(presenter.render(state, {}, {}, 1280, 900));
+        const auto texture = presenter.skinFor(*actor).getTexture();
+        const auto x = static_cast<Float32>(actor->positionX) / 65536;
+        const auto y = static_cast<Float32>(actor->positionY) / 65536;
+        const auto body = std::find_if(recording.quads.begin(), recording.quads.end(), [&](const auto &draw) {
+            return draw.material.getTexture() == texture
+                && std::any_of(draw.vertices.begin(), draw.vertices.end(), [&](const auto &vertex) {
+                    return vertex.x == x && vertex.y == y;
+                });
+        });
+        D6R_REQUIRE(body != recording.quads.end());
+        const auto corner = std::find_if(body->vertices.begin(), body->vertices.end(), [&](const auto &vertex) {
+            return vertex.x == x && vertex.y == y;
+        });
+        const auto bodyRoot = body->projected[std::distance(body->vertices.begin(), corner)];
+        const auto matrix = body->projection * body->view * body->model;
+        const auto expected = matrix * Vector(x, y, corner->z);
+        D6R_REQUIRE_NEAR(expected.x, bodyRoot.x, 0.00001f);
+        D6R_REQUIRE_NEAR(expected.y, bodyRoot.y, 0.00001f);
+        const auto water = std::find_if(state.entities.begin(), state.entities.end(), [](const auto &entity) {
+            return entity.kind == Network::Replication::EntityKind::Water;
+        });
+        D6R_REQUIRE(water != state.entities.end());
+        const auto waterDraw = std::find_if(recording.quads.begin(), recording.quads.end(), [](const auto &draw) {
+            return draw.material.getColor() == Color(32, 96, 224, 128);
+        });
+        D6R_REQUIRE(waterDraw != recording.quads.end());
+        const auto bounds = std::minmax_element(waterDraw->projected.begin(), waterDraw->projected.end(),
+                [](const auto &a, const auto &b) { return a.y < b.y; });
+        D6R_REQUIRE_NEAR((matrix * Vector::ZERO).y, bounds.first->y, 0.00001f);
+        D6R_REQUIRE_NEAR((matrix * Vector(0, water->primaryValue + 1, 0)).y, bounds.second->y, 0.00001f);
+        D6R_REQUIRE(projected.emplace(sample.name, Projection{bodyRoot, bounds.first->y, bounds.second->y,
+                                                             *actor, water->primaryValue}).second);
+        D6R_REQUIRE(serialized == Network::Replication::serializeReplicationSnapshot(sample.snapshot));
+    }
+    const auto &rightBefore = projected.at("right-before"), &rightAfter = projected.at("right-after");
+    D6R_REQUIRE(rightAfter.actor.positionX > rightBefore.actor.positionX);
+    D6R_REQUIRE(rightAfter.root.x > rightBefore.root.x);
+    const auto &jumpBefore = projected.at("jump-before"), &jumpAfter = projected.at("jump-after");
+    D6R_REQUIRE(jumpAfter.actor.positionY > jumpBefore.actor.positionY);
+    D6R_REQUIRE(jumpAfter.root.y > jumpBefore.root.y);
+    const auto &fallBefore = projected.at("fall-before"), &fallAfter = projected.at("fall-after");
+    D6R_REQUIRE(fallAfter.actor.positionY < fallBefore.actor.positionY);
+    D6R_REQUIRE(fallAfter.root.y < fallBefore.root.y);
+    const auto &waterBefore = projected.at("water-before"), &waterAfter = projected.at("water-after");
+    D6R_REQUIRE_EQ(waterBefore.waterHeight + 1, waterAfter.waterHeight);
+    D6R_REQUIRE(waterAfter.waterTop > waterBefore.waterTop);
+    D6R_REQUIRE_NEAR(waterBefore.waterBottom, waterAfter.waterBottom, 0.00001f);
 }
 
 D6R_TEST_CASE("PR83 real runtime End from naturally completed final summary drains and discards result") {

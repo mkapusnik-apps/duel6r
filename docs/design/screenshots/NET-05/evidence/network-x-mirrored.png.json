@@ -1,0 +1,327 @@
+{
+  "client": "guest",
+  "time": "2026-09-14T23:58:45.715733+00:00",
+  "path": "/tmp/network-x-mirrored.png",
+  "viewport": [
+    1280,
+    900
+  ],
+  "source": "84f63bc6fdee75444b06723b3c5f542546e27b15",
+  "productionSource": "78d97e5c9c4791262a81ffd4b0823671034ec872",
+  "sha256": "6da757c4ea24deb58eb829103e635d3f5a9cc74962addc62cf8219bd144c2c2e",
+  "before": {
+    "time": 1789430325.715,
+    "session": 9745887772574650472,
+    "match": 144115188075855873,
+    "version": 79,
+    "tick": 216,
+    "phase": 1,
+    "round": 216172782113783809,
+    "level": "levels/duel_16.json",
+    "mirrored": true,
+    "players": [
+      {
+        "id": 2,
+        "name": "Alder",
+        "x": 851968,
+        "y": 65536,
+        "life": 100,
+        "weapon": "triton",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 3,
+        "name": "Birch",
+        "x": 1114112,
+        "y": 917504,
+        "life": 100,
+        "weapon": "pistol",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 5,
+        "name": "Cedar",
+        "x": 786432,
+        "y": 917504,
+        "life": 100,
+        "weapon": "pistol",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 6,
+        "name": "Dogwood",
+        "x": 917504,
+        "y": 917504,
+        "life": 100,
+        "weapon": "machine-gun",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 8,
+        "name": "Elm",
+        "x": 393216,
+        "y": 589824,
+        "life": 100,
+        "weapon": "plasma",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 9,
+        "name": "Fir",
+        "x": 983040,
+        "y": 655360,
+        "life": 100,
+        "weapon": "triton",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      }
+    ],
+    "entities": [
+      {
+        "type": "elevator",
+        "kind": 4,
+        "x": 949008,
+        "y": 332088,
+        "primary": 0
+      },
+      {
+        "type": "water",
+        "kind": 6,
+        "x": 0,
+        "y": 0,
+        "primary": 0
+      },
+      {
+        "type": "0",
+        "kind": 7,
+        "x": 851968,
+        "y": 196608,
+        "primary": 0
+      },
+      {
+        "type": "0",
+        "kind": 7,
+        "x": 458752,
+        "y": 589824,
+        "primary": 0
+      },
+      {
+        "type": "1",
+        "kind": 7,
+        "x": 1245184,
+        "y": 655360,
+        "primary": 0
+      },
+      {
+        "type": "0",
+        "kind": 7,
+        "x": 1048576,
+        "y": 917504,
+        "primary": 0
+      },
+      {
+        "type": "vampireShots",
+        "kind": 3,
+        "x": 275251,
+        "y": 799539,
+        "primary": 23
+      },
+      {
+        "type": "triton",
+        "kind": 2,
+        "x": 589824,
+        "y": 589824,
+        "primary": 10
+      }
+    ]
+  },
+  "after": {
+    "time": 1789430326.511,
+    "session": 9745887772574650472,
+    "match": 144115188075855873,
+    "version": 95,
+    "tick": 264,
+    "phase": 1,
+    "round": 216172782113783809,
+    "level": "levels/duel_16.json",
+    "mirrored": true,
+    "players": [
+      {
+        "id": 2,
+        "name": "Alder",
+        "x": 851968,
+        "y": 65536,
+        "life": 100,
+        "weapon": "triton",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 3,
+        "name": "Birch",
+        "x": 1114112,
+        "y": 917504,
+        "life": 100,
+        "weapon": "pistol",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 5,
+        "name": "Cedar",
+        "x": 786432,
+        "y": 917504,
+        "life": 100,
+        "weapon": "pistol",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 6,
+        "name": "Dogwood",
+        "x": 917504,
+        "y": 917504,
+        "life": 100,
+        "weapon": "machine-gun",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 8,
+        "name": "Elm",
+        "x": 393216,
+        "y": 589824,
+        "life": 100,
+        "weapon": "plasma",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 9,
+        "name": "Fir",
+        "x": 983040,
+        "y": 655360,
+        "life": 100,
+        "weapon": "triton",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      }
+    ],
+    "entities": [
+      {
+        "type": "elevator",
+        "kind": 4,
+        "x": 853648,
+        "y": 332872,
+        "primary": 0
+      },
+      {
+        "type": "water",
+        "kind": 6,
+        "x": 0,
+        "y": 0,
+        "primary": 0
+      },
+      {
+        "type": "0",
+        "kind": 7,
+        "x": 851968,
+        "y": 196608,
+        "primary": 0
+      },
+      {
+        "type": "0",
+        "kind": 7,
+        "x": 458752,
+        "y": 589824,
+        "primary": 0
+      },
+      {
+        "type": "1",
+        "kind": 7,
+        "x": 1245184,
+        "y": 655360,
+        "primary": 0
+      },
+      {
+        "type": "0",
+        "kind": 7,
+        "x": 1048576,
+        "y": 917504,
+        "primary": 0
+      },
+      {
+        "type": "vampireShots",
+        "kind": 3,
+        "x": 275251,
+        "y": 799539,
+        "primary": 23
+      },
+      {
+        "type": "triton",
+        "kind": 2,
+        "x": 589824,
+        "y": 589824,
+        "primary": 10
+      },
+      {
+        "type": "triton",
+        "kind": 2,
+        "x": 1310720,
+        "y": 196608,
+        "primary": 14
+      },
+      {
+        "type": "fastReload",
+        "kind": 3,
+        "x": 668467,
+        "y": 537395,
+        "primary": 28
+      }
+    ]
+  },
+  "id": "network-x-mirrored",
+  "destination": "docs/design/screenshots/NET-05/orientation-network-x-mirrored.png",
+  "branch": "bugfix/network-arena-orientation",
+  "worktreeAtCapture": "clean",
+  "uncommittedPresentationChanges": false,
+  "background": {
+    "selection": "production deterministic fallback recomputed from passively observed identities",
+    "file": "009.tga",
+    "eligible": [
+      "000.tga",
+      "001.tga",
+      "002.tga",
+      "003.tga",
+      "004.tga",
+      "005.tga",
+      "006.tga",
+      "007.tga",
+      "008.tga",
+      "009.tga",
+      "010.tga",
+      "011.tga",
+      "012.tga",
+      "013.tga"
+    ],
+    "namedBackground": null,
+    "sha256": "e562a62d40cbcf051b05edf068ad1d2b5bddaa7b1af0050f374f63d8fc986de4"
+  }
+}

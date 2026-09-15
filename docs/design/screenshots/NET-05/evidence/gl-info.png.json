@@ -1,0 +1,14 @@
+{
+  "client": "local",
+  "time": "2026-09-15T00:07:54.929258+00:00",
+  "path": "/tmp/gl-info.png",
+  "viewport": [
+    1280,
+    900
+  ],
+  "source": "84f63bc6fdee75444b06723b3c5f542546e27b15",
+  "productionSource": "78d97e5c9c4791262a81ffd4b0823671034ec872",
+  "sha256": "c1ddfac820d505991610f0edb2aa628a900b80a59653356cf4773f59c11303ab",
+  "before": null,
+  "after": null
+}

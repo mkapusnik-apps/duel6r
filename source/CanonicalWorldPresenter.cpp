@@ -529,13 +529,11 @@ namespace Duel6 {
                                         Vector(1, -1), Material(background));
         else renderer.quadXY(Vector(0, 0), Vector(width, height), Color(24, 28, 40));
 
-        // Local Play's camera is rotated 180 degrees around X. Its look-at
-        // basis therefore reverses both screen axes; preserve that orientation
-        // and the renderer's clockwise front-face winding in the orthographic
-        // network presentation.
-        renderer.setViewMatrix(Matrix::translate(x + level->getWidth() * scale,
-                                                 y + level->getHeight() * scale, 0)
-                               * Matrix::scale(-scale, -scale, 1));
+        // Match Local Play's positive-X/right, positive-Y/up world basis.
+        // Level loading already applies row conversion and the round's mirror.
+        // Positive uniform scaling preserves the clockwise front-face winding.
+        renderer.setViewMatrix(Matrix::translate(x, y, 0)
+                               * Matrix::scale(scale, scale, 1));
         // This is a flattened orthographic presentation with an explicit
         // painter order. Do not test against depth left by the underlying menu
         // background; that can reject the complete canonical arena.

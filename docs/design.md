@@ -11,7 +11,7 @@ The approved product requirements are the source of truth for visual-impact chan
 The current native implementation remains the source for unchanged visual details.
 The fixed product baseline is the current product-owned `docs/features.md` content.
 This baseline includes the shared arena view requirements, the retro menu layout approved on 2026-08-23, the scaled photographic menu presentation approved on 2026-08-26, the consolidated main-menu Persons list specified in `SET-048`–`SET-072`, the Equalize and Shuffle behavior specified in `SET-017`–`SET-019` and `SET-073`–`SET-077`, the person-action alignment specified in `SET-078`–`SET-083`, the person-list and action-button refinement specified in `SET-084`–`SET-091`, the final limited Deathmatch and Team game summary specified in `UI-GAME-001`–`UI-GAME-007`, and the first-release network UI defined for issue #28.
-Issue #38 implements the network graphical states. Its 13 canonical visual artifacts conform at source head `e70a057819c97100b083c3cdaae5dc24566435cd`.
+Issue #38 implements the network graphical states. Its earlier acceptance is historical for affected network-arena evidence. The [current screenshot manifest](screenshots/README.md#network-arena-orientation--current-coverage) accepts the corrected PR #87 orientation representatives `SS-019`, `SS-021`, `SS-023`, and `SS-026` at checkpoint `84f63bc6fdee75444b06723b3c5f542546e27b15`; other entries retain their current status. The manifest owns artifact hashes and assessment limits.
 This visual acceptance does not establish parent issue #27 release readiness.
 Issue #35 implements presentation-ready responsiveness, correction, degraded-state, resynchronization, and recovery handoffs without a graphical consumer.
 Issue #35 does not change a rendered application screen, layout, or graphical state.
@@ -365,6 +365,18 @@ The following values come from renderer and GUI source.
 - A required default network visual resource failure must keep the existing required-resource failure behavior.
 - `NET-07` and `NET-09` must retain the default network visuals from the last complete accepted network state when they retain arena context.
 - A retained arena context must not switch to a selected-profile appearance while it is non-current or blocked.
+- The network arena must use the same visible axis orientation as Local Play for the same level and authoritative horizontal-mirror state.
+- An unmirrored asymmetric level must not appear rotated or horizontally reversed relative to Local Play.
+- An intentional horizontal level mirror must not invert the vertical axis.
+- Standing players must appear head-up with their feet on the upper surface of their supporting platform.
+- Trees must appear rooted below their crowns.
+- Visible player names and ammunition text must remain upright and readable near their player.
+- Terrain, water, entities, held weapons, effects, and player status must use consistent world placement.
+- An orientation correction must preserve the complete centered arena, existing scale, clipping bounds, render order, and visible faces.
+- An orientation correction must preserve background selection and background orientation.
+- An orientation correction must preserve HUD placement, text wrapping, modal containment, focus order, and pointer regions.
+- An orientation correction must preserve Invisibility presentation under `BON-013` and the existing Predator presentation.
+- The retained arena in `NET-07` and `NET-09` must keep the same orientation as `NET-05` for the last complete accepted state.
 - Selected-profile appearance parity is deferred to issue #84 and must not appear as first-release behavior or evidence.
 - Only the host may show an enabled early-advance action after a round outcome exists.
 - Guests must not see an enabled round-advance action.
@@ -530,7 +542,7 @@ The following values come from renderer and GUI source.
 - Screenshot provenance must record branch, source SHA, environment, workflow, state, viewport, and artifact path.
 - Evidence for menu background selection or persistence must also record the selected filename, runtime asset manifest revision, and session identifier.
 - The implementation source remains authoritative when a documented value conflicts with the reviewed baseline.
-- The issue #38 entries `SS-002`, `SS-013`, and `SS-015`–`SS-023` conform at source head `e70a057819c97100b083c3cdaae5dc24566435cd`.
+- The issue #38 entries `SS-002`, `SS-013`, and `SS-015`–`SS-023` have historical acceptance at source head `e70a057819c97100b083c3cdaae5dc24566435cd`; the current manifest governs subsequent corrections and affected-entry invalidation.
 - `SS-001` and `SS-024` must represent the two approved `MENU-01` conditional-layout wireframes.
 - `SS-001` and `SS-024` use the approved 50:50 Persons and Players panel geometry.
 - The PR #59 `SS-001` and `SS-024` artifacts are historical because they show the prior person-action arrangement.

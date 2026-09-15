@@ -195,8 +195,10 @@ if (NOT D6R_TRANSPORT_ONLY)
     endif ()
     target_compile_definitions(duel6r-network-session-runtime-tests PRIVATE
             D6R_RUNTIME_TEST_SERVER="$<TARGET_FILE:${D6R_SERVER_APP_NAME}>"
+            D6R_CANONICAL_MOTION_TEST_PRODUCER="$<TARGET_FILE:duel6r-authoritative-match-behavior-tests>"
             D6R_TEST_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/resources")
-    add_dependencies(duel6r-network-session-runtime-tests ${D6R_SERVER_APP_NAME})
+    add_dependencies(duel6r-network-session-runtime-tests ${D6R_SERVER_APP_NAME}
+            duel6r-authoritative-match-behavior-tests)
     if (UNIX)
         find_program(D6R_TEST_XVFB_RUN_EXECUTABLE xvfb-run REQUIRED)
         find_package(Python3 COMPONENTS Interpreter REQUIRED)
