@@ -1,0 +1,30 @@
+{
+  "client": "local",
+  "time": "2026-09-15T00:01:40.147197+00:00",
+  "path": "/tmp/local-round-a.png",
+  "viewport": [
+    1280,
+    900
+  ],
+  "source": "84f63bc6fdee75444b06723b3c5f542546e27b15",
+  "productionSource": "78d97e5c9c4791262a81ffd4b0823671034ec872",
+  "sha256": "9db95b1aad9315d3a2bb86011bf2e80084bb1819e2de8f5b9303d91efd346030",
+  "before": null,
+  "after": null,
+  "id": "local-unmirrored",
+  "destination": "docs/design/screenshots/NET-05/orientation-local-unmirrored.png",
+  "branch": "bugfix/network-arena-orientation",
+  "worktreeAtCapture": "clean",
+  "uncommittedPresentationChanges": false,
+  "level": "levels/duel_16.json",
+  "mirrored": false,
+  "session": "local application process, display :94",
+  "match": "Local Play via map 0",
+  "round": "console-verified current round; numeric round/tick not exposed by this uninstrumented runtime",
+  "mirrorEvidence": "local-console-a.png",
+  "background": {
+    "file": "000.tga",
+    "selection": "visually identified against unchanged shipped asset inventory; not a runtime filename trace",
+    "sha256": "0ef0f3d98b548523ff35ab040e6481a014e2eb9d857b081f21e9f6ebc11d0b84"
+  }
+}

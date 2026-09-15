@@ -1,0 +1,817 @@
+{
+  "client": "guest",
+  "time": "2026-09-14T23:53:53.078073+00:00",
+  "path": "/tmp/ss019-final.png",
+  "viewport": [
+    1280,
+    900
+  ],
+  "source": "84f63bc6fdee75444b06723b3c5f542546e27b15",
+  "productionSource": "78d97e5c9c4791262a81ffd4b0823671034ec872",
+  "sha256": "6a6ed7101b6f7506aa8bb9b4f0679de2747da5c3e7aa701f7c381f3b698626ed",
+  "before": {
+    "time": 1789430033.025,
+    "session": 11662738353544004403,
+    "match": 144115188075855873,
+    "version": 8094,
+    "tick": 24156,
+    "phase": 1,
+    "round": 216172782113783809,
+    "level": "levels/duel_16.json",
+    "mirrored": false,
+    "players": [
+      {
+        "id": 2,
+        "name": "Alder",
+        "x": 786432,
+        "y": 65536,
+        "life": 100,
+        "weapon": "double-laser",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 3,
+        "name": "Birch",
+        "x": 458752,
+        "y": 655360,
+        "life": 100,
+        "weapon": "machine-gun",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 5,
+        "name": "Cedar",
+        "x": 524288,
+        "y": 655360,
+        "life": 100,
+        "weapon": "slime",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 6,
+        "name": "Dogwood",
+        "x": 720896,
+        "y": 917504,
+        "life": 100,
+        "weapon": "laser",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 8,
+        "name": "Elm",
+        "x": 1113775,
+        "y": 65536,
+        "life": 100,
+        "weapon": "shotgun",
+        "bonus": "invisibility",
+        "bonusRemaining": 822532,
+        "alpha": 51
+      },
+      {
+        "id": 9,
+        "name": "Fir",
+        "x": 672693,
+        "y": 65536,
+        "life": 100,
+        "weapon": "triton",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      }
+    ],
+    "entities": [
+      {
+        "type": "elevator",
+        "kind": 4,
+        "x": 1064620,
+        "y": 858913,
+        "primary": 0
+      },
+      {
+        "type": "water",
+        "kind": 6,
+        "x": 0,
+        "y": 0,
+        "primary": 0
+      },
+      {
+        "type": "0",
+        "kind": 7,
+        "x": 655360,
+        "y": 196608,
+        "primary": 0
+      },
+      {
+        "type": "0",
+        "kind": 7,
+        "x": 1048576,
+        "y": 589824,
+        "primary": 0
+      },
+      {
+        "type": "1",
+        "kind": 7,
+        "x": 262144,
+        "y": 655360,
+        "primary": 0
+      },
+      {
+        "type": "0",
+        "kind": 7,
+        "x": 458752,
+        "y": 917504,
+        "primary": 0
+      },
+      {
+        "type": "fullLife",
+        "kind": 3,
+        "x": 1061683,
+        "y": 144179,
+        "primary": 0
+      },
+      {
+        "type": "snorkel",
+        "kind": 3,
+        "x": 1061683,
+        "y": 799539,
+        "primary": 22
+      },
+      {
+        "type": "powerfulShots",
+        "kind": 3,
+        "x": 1258291,
+        "y": 996147,
+        "primary": 25
+      },
+      {
+        "type": "fastReload",
+        "kind": 3,
+        "x": 1454899,
+        "y": 406323,
+        "primary": 19
+      },
+      {
+        "type": "invulnerability",
+        "kind": 3,
+        "x": 406323,
+        "y": 930611,
+        "primary": 16
+      },
+      {
+        "type": "snorkel",
+        "kind": 3,
+        "x": 1258291,
+        "y": 209715,
+        "primary": 24
+      },
+      {
+        "type": "fullLife",
+        "kind": 3,
+        "x": 1127219,
+        "y": 996147,
+        "primary": 0
+      },
+      {
+        "type": "snorkel",
+        "kind": 3,
+        "x": 996147,
+        "y": 144179,
+        "primary": 24
+      },
+      {
+        "type": "bullets",
+        "kind": 3,
+        "x": 144179,
+        "y": 471859,
+        "primary": 0
+      },
+      {
+        "type": "infiniteAmmo",
+        "kind": 3,
+        "x": 1061683,
+        "y": 996147,
+        "primary": 14
+      },
+      {
+        "type": "infiniteAmmo",
+        "kind": 3,
+        "x": 406323,
+        "y": 471859,
+        "primary": 27
+      },
+      {
+        "type": "powerfulShots",
+        "kind": 3,
+        "x": 209715,
+        "y": 734003,
+        "primary": 28
+      },
+      {
+        "type": "infiniteAmmo",
+        "kind": 3,
+        "x": 865075,
+        "y": 406323,
+        "primary": 15
+      },
+      {
+        "type": "infiniteAmmo",
+        "kind": 3,
+        "x": 340787,
+        "y": 799539,
+        "primary": 21
+      },
+      {
+        "type": "splitFire",
+        "kind": 3,
+        "x": 996147,
+        "y": 930611,
+        "primary": 19
+      },
+      {
+        "type": "invulnerability",
+        "kind": 3,
+        "x": 340787,
+        "y": 668467,
+        "primary": 19
+      },
+      {
+        "type": "snorkel",
+        "kind": 3,
+        "x": 1192755,
+        "y": 734003,
+        "primary": 17
+      },
+      {
+        "type": "fastMovement",
+        "kind": 3,
+        "x": 1454899,
+        "y": 340787,
+        "primary": 24
+      },
+      {
+        "type": "fastReload",
+        "kind": 3,
+        "x": 1061683,
+        "y": 340787,
+        "primary": 19
+      },
+      {
+        "type": "splitFire",
+        "kind": 3,
+        "x": 78643,
+        "y": 668467,
+        "primary": 13
+      },
+      {
+        "type": "vampireShots",
+        "kind": 3,
+        "x": 1454899,
+        "y": 734003,
+        "primary": 13
+      },
+      {
+        "type": "infiniteAmmo",
+        "kind": 3,
+        "x": 1258291,
+        "y": 1061683,
+        "primary": 22
+      },
+      {
+        "type": "powerfulShots",
+        "kind": 3,
+        "x": 602931,
+        "y": 340787,
+        "primary": 13
+      },
+      {
+        "type": "minusLife",
+        "kind": 3,
+        "x": 209715,
+        "y": 340787,
+        "primary": 0
+      },
+      {
+        "type": "fullLife",
+        "kind": 3,
+        "x": 996147,
+        "y": 340787,
+        "primary": 0
+      },
+      {
+        "type": "snorkel",
+        "kind": 3,
+        "x": 78643,
+        "y": 471859,
+        "primary": 15
+      },
+      {
+        "type": "vampireShots",
+        "kind": 3,
+        "x": 144179,
+        "y": 734003,
+        "primary": 20
+      },
+      {
+        "type": "vampireShots",
+        "kind": 3,
+        "x": 865075,
+        "y": 537395,
+        "primary": 25
+      },
+      {
+        "type": "bullets",
+        "kind": 3,
+        "x": 865075,
+        "y": 275251,
+        "primary": 0
+      },
+      {
+        "type": "vampireShots",
+        "kind": 3,
+        "x": 471859,
+        "y": 1061683,
+        "primary": 20
+      },
+      {
+        "type": "bazooka",
+        "kind": 2,
+        "x": 917504,
+        "y": 589824,
+        "primary": 13
+      },
+      {
+        "type": "invulnerability",
+        "kind": 3,
+        "x": 471859,
+        "y": 471859,
+        "primary": 19
+      },
+      {
+        "type": "invisibility",
+        "kind": 3,
+        "x": 1323827,
+        "y": 537395,
+        "primary": 19
+      },
+      {
+        "type": "plusLife",
+        "kind": 3,
+        "x": 996147,
+        "y": 602931,
+        "primary": 0
+      },
+      {
+        "type": "plusLife",
+        "kind": 3,
+        "x": 406323,
+        "y": 340787,
+        "primary": 0
+      },
+      {
+        "type": "kiss-of-death",
+        "kind": 2,
+        "x": 262144,
+        "y": 983040,
+        "primary": 10
+      },
+      {
+        "type": "bullets",
+        "kind": 3,
+        "x": 340787,
+        "y": 1061683,
+        "primary": 0
+      },
+      {
+        "type": "lightning",
+        "kind": 2,
+        "x": 589824,
+        "y": 917504,
+        "primary": 10
+      }
+    ]
+  },
+  "after": {
+    "time": 1789430033.826,
+    "session": 11662738353544004403,
+    "match": 144115188075855873,
+    "version": 8110,
+    "tick": 24204,
+    "phase": 1,
+    "round": 216172782113783809,
+    "level": "levels/duel_16.json",
+    "mirrored": false,
+    "players": [
+      {
+        "id": 2,
+        "name": "Alder",
+        "x": 786432,
+        "y": 65536,
+        "life": 100,
+        "weapon": "double-laser",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 3,
+        "name": "Birch",
+        "x": 458752,
+        "y": 655360,
+        "life": 100,
+        "weapon": "machine-gun",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 5,
+        "name": "Cedar",
+        "x": 524288,
+        "y": 655360,
+        "life": 100,
+        "weapon": "slime",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 6,
+        "name": "Dogwood",
+        "x": 720896,
+        "y": 917504,
+        "life": 100,
+        "weapon": "laser",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      },
+      {
+        "id": 8,
+        "name": "Elm",
+        "x": 1113775,
+        "y": 65536,
+        "life": 100,
+        "weapon": "shotgun",
+        "bonus": "invisibility",
+        "bonusRemaining": 770116,
+        "alpha": 51
+      },
+      {
+        "id": 9,
+        "name": "Fir",
+        "x": 672693,
+        "y": 65536,
+        "life": 100,
+        "weapon": "triton",
+        "bonus": "",
+        "bonusRemaining": 0,
+        "alpha": 255
+      }
+    ],
+    "entities": [
+      {
+        "type": "elevator",
+        "kind": 4,
+        "x": 1073606,
+        "y": 943043,
+        "primary": 0
+      },
+      {
+        "type": "water",
+        "kind": 6,
+        "x": 0,
+        "y": 0,
+        "primary": 0
+      },
+      {
+        "type": "0",
+        "kind": 7,
+        "x": 655360,
+        "y": 196608,
+        "primary": 0
+      },
+      {
+        "type": "0",
+        "kind": 7,
+        "x": 1048576,
+        "y": 589824,
+        "primary": 0
+      },
+      {
+        "type": "1",
+        "kind": 7,
+        "x": 262144,
+        "y": 655360,
+        "primary": 0
+      },
+      {
+        "type": "0",
+        "kind": 7,
+        "x": 458752,
+        "y": 917504,
+        "primary": 0
+      },
+      {
+        "type": "fullLife",
+        "kind": 3,
+        "x": 1061683,
+        "y": 144179,
+        "primary": 0
+      },
+      {
+        "type": "snorkel",
+        "kind": 3,
+        "x": 1061683,
+        "y": 799539,
+        "primary": 22
+      },
+      {
+        "type": "powerfulShots",
+        "kind": 3,
+        "x": 1258291,
+        "y": 996147,
+        "primary": 25
+      },
+      {
+        "type": "fastReload",
+        "kind": 3,
+        "x": 1454899,
+        "y": 406323,
+        "primary": 19
+      },
+      {
+        "type": "invulnerability",
+        "kind": 3,
+        "x": 406323,
+        "y": 930611,
+        "primary": 16
+      },
+      {
+        "type": "snorkel",
+        "kind": 3,
+        "x": 1258291,
+        "y": 209715,
+        "primary": 24
+      },
+      {
+        "type": "fullLife",
+        "kind": 3,
+        "x": 1127219,
+        "y": 996147,
+        "primary": 0
+      },
+      {
+        "type": "snorkel",
+        "kind": 3,
+        "x": 996147,
+        "y": 144179,
+        "primary": 24
+      },
+      {
+        "type": "bullets",
+        "kind": 3,
+        "x": 144179,
+        "y": 471859,
+        "primary": 0
+      },
+      {
+        "type": "infiniteAmmo",
+        "kind": 3,
+        "x": 1061683,
+        "y": 996147,
+        "primary": 14
+      },
+      {
+        "type": "infiniteAmmo",
+        "kind": 3,
+        "x": 406323,
+        "y": 471859,
+        "primary": 27
+      },
+      {
+        "type": "powerfulShots",
+        "kind": 3,
+        "x": 209715,
+        "y": 734003,
+        "primary": 28
+      },
+      {
+        "type": "infiniteAmmo",
+        "kind": 3,
+        "x": 865075,
+        "y": 406323,
+        "primary": 15
+      },
+      {
+        "type": "infiniteAmmo",
+        "kind": 3,
+        "x": 340787,
+        "y": 799539,
+        "primary": 21
+      },
+      {
+        "type": "splitFire",
+        "kind": 3,
+        "x": 996147,
+        "y": 930611,
+        "primary": 19
+      },
+      {
+        "type": "invulnerability",
+        "kind": 3,
+        "x": 340787,
+        "y": 668467,
+        "primary": 19
+      },
+      {
+        "type": "snorkel",
+        "kind": 3,
+        "x": 1192755,
+        "y": 734003,
+        "primary": 17
+      },
+      {
+        "type": "fastMovement",
+        "kind": 3,
+        "x": 1454899,
+        "y": 340787,
+        "primary": 24
+      },
+      {
+        "type": "fastReload",
+        "kind": 3,
+        "x": 1061683,
+        "y": 340787,
+        "primary": 19
+      },
+      {
+        "type": "splitFire",
+        "kind": 3,
+        "x": 78643,
+        "y": 668467,
+        "primary": 13
+      },
+      {
+        "type": "vampireShots",
+        "kind": 3,
+        "x": 1454899,
+        "y": 734003,
+        "primary": 13
+      },
+      {
+        "type": "infiniteAmmo",
+        "kind": 3,
+        "x": 1258291,
+        "y": 1061683,
+        "primary": 22
+      },
+      {
+        "type": "powerfulShots",
+        "kind": 3,
+        "x": 602931,
+        "y": 340787,
+        "primary": 13
+      },
+      {
+        "type": "minusLife",
+        "kind": 3,
+        "x": 209715,
+        "y": 340787,
+        "primary": 0
+      },
+      {
+        "type": "fullLife",
+        "kind": 3,
+        "x": 996147,
+        "y": 340787,
+        "primary": 0
+      },
+      {
+        "type": "snorkel",
+        "kind": 3,
+        "x": 78643,
+        "y": 471859,
+        "primary": 15
+      },
+      {
+        "type": "vampireShots",
+        "kind": 3,
+        "x": 144179,
+        "y": 734003,
+        "primary": 20
+      },
+      {
+        "type": "vampireShots",
+        "kind": 3,
+        "x": 865075,
+        "y": 537395,
+        "primary": 25
+      },
+      {
+        "type": "bullets",
+        "kind": 3,
+        "x": 865075,
+        "y": 275251,
+        "primary": 0
+      },
+      {
+        "type": "vampireShots",
+        "kind": 3,
+        "x": 471859,
+        "y": 1061683,
+        "primary": 20
+      },
+      {
+        "type": "bazooka",
+        "kind": 2,
+        "x": 917504,
+        "y": 589824,
+        "primary": 13
+      },
+      {
+        "type": "invulnerability",
+        "kind": 3,
+        "x": 471859,
+        "y": 471859,
+        "primary": 19
+      },
+      {
+        "type": "invisibility",
+        "kind": 3,
+        "x": 1323827,
+        "y": 537395,
+        "primary": 19
+      },
+      {
+        "type": "plusLife",
+        "kind": 3,
+        "x": 996147,
+        "y": 602931,
+        "primary": 0
+      },
+      {
+        "type": "plusLife",
+        "kind": 3,
+        "x": 406323,
+        "y": 340787,
+        "primary": 0
+      },
+      {
+        "type": "kiss-of-death",
+        "kind": 2,
+        "x": 262144,
+        "y": 983040,
+        "primary": 10
+      },
+      {
+        "type": "bullets",
+        "kind": 3,
+        "x": 340787,
+        "y": 1061683,
+        "primary": 0
+      },
+      {
+        "type": "lightning",
+        "kind": 2,
+        "x": 589824,
+        "y": 917504,
+        "primary": 10
+      }
+    ]
+  },
+  "id": "SS-019",
+  "destination": "docs/screenshots/NET-05/six-player-lan-degraded-1280x900.png",
+  "branch": "bugfix/network-arena-orientation",
+  "worktreeAtCapture": "clean",
+  "uncommittedPresentationChanges": false,
+  "background": {
+    "selection": "production deterministic fallback recomputed from passively observed identities",
+    "file": "000.tga",
+    "eligible": [
+      "000.tga",
+      "001.tga",
+      "002.tga",
+      "003.tga",
+      "004.tga",
+      "005.tga",
+      "006.tga",
+      "007.tga",
+      "008.tga",
+      "009.tga",
+      "010.tga",
+      "011.tga",
+      "012.tga",
+      "013.tga"
+    ],
+    "namedBackground": null,
+    "sha256": "0ef0f3d98b548523ff35ab040e6481a014e2eb9d857b081f21e9f6ebc11d0b84"
+  }
+}
