@@ -69,15 +69,17 @@ if [[ ! -f "${tmp_build_dir}/duel6r-resolver.exe" ]]; then
 fi
 cp "${tmp_build_dir}/duel6r-resolver.exe" "${workspace_dir}/${output_dir}/duel6r-resolver.exe"
 cp -R "${workspace_dir}/resources/." "${workspace_dir}/${output_dir}/"
+cp "${workspace_dir}/README.md" "${workspace_dir}/LICENSE" "${workspace_dir}/${output_dir}/"
+mkdir -p "${workspace_dir}/${output_dir}/docs"
+cp -R "${workspace_dir}/docs/." "${workspace_dir}/${output_dir}/docs/"
 
-python3 - "${workspace_dir}/${output_dir}/duel6r.exe" "${workspace_dir}/${output_dir}" <<'PY'
+python3 - "${workspace_dir}/${output_dir}" <<'PY'
 import pathlib
 import shutil
 import subprocess
 import sys
 
-exe_path = pathlib.Path(sys.argv[1])
-dist_dir = pathlib.Path(sys.argv[2])
+dist_dir = pathlib.Path(sys.argv[1])
 vcpkg_bin = pathlib.Path("/opt/vcpkg/installed/x64-mingw-dynamic/bin")
 
 search_roots = [
@@ -88,26 +90,35 @@ search_roots = [
 search_roots.extend(pathlib.Path("/usr/lib/gcc/x86_64-w64-mingw32").glob("*/"))
 
 seen = set()
-queue = [exe_path]
+queue = [dist_dir / name for name in (
+    "duel6r.exe", "duel6r-server.exe", "duel6r-host-supervisor.exe", "duel6r-resolver.exe"
+)]
 copied = []
 
 windows_system_dlls = {
     "advapi32.dll",
     "bcrypt.dll",
+    "cfgmgr32.dll",
+    "comctl32.dll",
     "comdlg32.dll",
     "crypt32.dll",
     "d3d11.dll",
     "d3d9.dll",
+    "dinput8.dll",
+    "dsound.dll",
     "dwmapi.dll",
     "dxgi.dll",
     "gdi32.dll",
+    "hid.dll",
     "imm32.dll",
     "iphlpapi.dll",
     "kernel32.dll",
     "msvcrt.dll",
+    "ntdll.dll",
     "ole32.dll",
     "oleaut32.dll",
     "opengl32.dll",
+    "powrprof.dll",
     "rpcrt4.dll",
     "setupapi.dll",
     "shell32.dll",
@@ -119,6 +130,7 @@ windows_system_dlls = {
     "winmm.dll",
     "winspool.drv",
     "ws2_32.dll",
+    "xinput1_4.dll",
 }
 
 optional_sdl_mixer_dll_prefixes = (
@@ -197,7 +209,7 @@ def resolve_dll(name: str, origin: pathlib.Path) -> pathlib.Path | None:
         for path in root.glob("*.dll"):
             if path.name.lower() == lower_name:
                 return path
-    return None
+    raise RuntimeError(f"{origin.name} imports {name}, but no runtime DLL was found")
 
 
 def copy_dll(path: pathlib.Path) -> pathlib.Path:
@@ -225,7 +237,8 @@ def copy_imported_dependency_closure() -> None:
             queue.append(copy_dll(resolved))
 
 
-verify_pe64(exe_path)
+for executable in queue:
+    verify_pe64(executable)
 copy_imported_dependency_closure()
 
 # SDL_mixer loads some music decoders dynamically, so they do not appear in
@@ -246,5 +259,20 @@ PY
 
 python3 "${workspace_dir}/tests/WindowsBundleDependencyTests.py" \
   --dist-dir "${workspace_dir}/${output_dir}"
+
+python3 - "${workspace_dir}/${output_dir}" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+files = list(root.glob("*.exe")) + list(root.glob("*.dll"))
+files += [root / name for name in ("README.md", "LICENSE", "windows-dependencies.txt")]
+for directory in ("data", "levels", "profiles", "shaders", "sound", "textures", "docs"):
+    files.extend(path for path in (root / directory).rglob("*") if path.is_file())
+with (root / "windows-x86_64.sha256sums").open("w") as manifest:
+    for path in sorted(files):
+        manifest.write(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root).as_posix()}\n")
+PY
 
 echo "Windows runtime files written to ${workspace_dir}/${output_dir}"

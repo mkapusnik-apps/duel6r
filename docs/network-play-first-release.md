@@ -16,6 +16,8 @@ The authoritative player-input target is in [`network-authoritative-player-input
 
 The authoritative responsiveness and recovery target is in [`network-responsiveness-and-recovery.md`](network-responsiveness-and-recovery.md).
 
+The authoritative package, deployment, reinstallation, and rollback requirements are in [`network-deployments.md`](network-deployments.md).
+
 ## Terminology and clock
 
 - **Participant:** One admitted game instance. The host is one participant; every other participant is a guest.

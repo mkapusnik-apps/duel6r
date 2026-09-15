@@ -5,6 +5,10 @@ Duel 6 Reloaded is a **cross-platform open-source last-man-standing 2D multiplay
 
 The canonical behavior specification is [`docs/features.md`](docs/features.md). The canonical visual design system, screen inventory, and screenshot manifest are [`docs/design.md`](docs/design.md), [`docs/screens/README.md`](docs/screens/README.md), and [`docs/screenshots/README.md`](docs/screenshots/README.md).
 
+## Network package operations (experimental)
+
+Networking remains experimental/prototype work; package availability does not establish accepted playable end-to-end support. See the [package operations guide](docs/network-package-operations.md) for package verification, runtime prerequisites, trusted player-hosted deployment, local-data backup, offline same-release reinstallation, rollback, and the outstanding execution-evidence boundaries. The approved network targets are Linux x86-64 and Windows x86-64, not every historical local-game platform listed below. The [deployment specification](docs/network-deployments.md) defines acceptance; issue #41 remains the final release-validation gate.
+
 ## History
 
 The very first version of the game has been developed in **2002** by [Ondrej Danek](http://www.ondrej-danek.net/en/blog) as a sequel to **Duel 5** which was popular 2D deathmatch game published in a Czech computer magazine **Level**. Since then the game code has been continually improved and later open-sourced.

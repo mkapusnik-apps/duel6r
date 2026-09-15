@@ -884,7 +884,8 @@ namespace Duel6 {
             int selected = 0;
             if (canRetry && pointerInside(x, y, 54, 270, 220, 34)) { focus = selected; activate(); return; }
             if (canRetry) ++selected;
-            if (pointerInside(x, y, 315, 270, 220, 34)) { focus = selected++; activate(); return; }
+            if (pointerInside(x, y, 315, 270, 220, 34)) { focus = selected; activate(); return; }
+            ++selected;
             if (pointerInside(x, y, 576, 270, 220, 34)) { focus = selected; activate(); return; }
         }
     }
