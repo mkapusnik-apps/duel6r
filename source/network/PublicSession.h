@@ -14,6 +14,7 @@ namespace Duel6::Network::PublicSession {
     inline constexpr const char *Maintenance =
             "Session ended for service maintenance. Connect again to start or join a new session.";
     bool validEndpoint(std::string_view value);
+    std::string endpointIdentity(std::string_view value);
     bool validInvite(std::string_view value);
     void erase(std::string &value) noexcept;
     struct Secret final {

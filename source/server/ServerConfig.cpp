@@ -134,7 +134,10 @@ namespace Duel6::Server {
                         "Usage: duel6r-server [--host=ADDR] [--port=PORT] [--name=NAME] "
                         "[--resources=PATH] [--gameplay-script=PATH] [--local-players=N] "
                         "[--tick-rate=N] [--max-clients=N] [--local-only] [--transport] "
-                        "[--transport-echo] [--admission-client]");
+                        "[--transport-echo] [--admission-client] OR "
+                        "duel6r-server --dedicated --transport --host=127.0.0.1 --port=26661 "
+                        "--resources=PATH --trusted-proxy-protocol=v2 --invite-file=PATH --readiness-socket=PATH OR "
+                        "duel6r-server --check-ready=PATH");
             } else {
                 throw std::invalid_argument("Unknown server argument");
             }

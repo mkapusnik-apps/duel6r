@@ -157,7 +157,10 @@ namespace Duel6::Client {
                 } else if (journey == Network::Lifecycle::GuestJourney::ConnectionFailure) {
                     current.journey = NetworkJourney::Failure; current.failure = std::string(failure);
                     current.retryAllowed = false;
-                    current.retryBlockReason = NetworkRetryBlockReason::TerminalReconnect;
+                    current.retryBlockReason = failure == Network::PublicSession::ControllerExpired
+                                               || failure == Network::PublicSession::Maintenance
+                                               ? NetworkRetryBlockReason::EndedSession
+                                               : NetworkRetryBlockReason::TerminalReconnect;
                 } else if (journey == Network::Lifecycle::GuestJourney::Reconnecting)
                     current.journey = NetworkJourney::Reconnecting;
             };
@@ -175,7 +178,8 @@ namespace Duel6::Client {
                 if (current.securityFailure || current.authorizationRejected) {
                     current.retryAllowed = false;
                     current.retryBlockReason = NetworkRetryBlockReason::InvalidSetup;
-                } else if (current.retryBlockReason == NetworkRetryBlockReason::TerminalReconnect) {
+                } else if (current.retryBlockReason == NetworkRetryBlockReason::TerminalReconnect
+                           || current.retryBlockReason == NetworkRetryBlockReason::EndedSession) {
                     current.retryAllowed = false;
                 } else if (current.retryBlockReason != NetworkRetryBlockReason::RestartRequired) {
                     current.retryAllowed = true;

@@ -53,6 +53,21 @@ namespace Duel6::Network::PublicSession {
         }
         return true;
     }
+    std::string endpointIdentity(std::string_view value) {
+        if (!validEndpoint(value) || !std::all_of(value.begin(), value.end(), [](char c) {
+                return (c >= '0' && c <= '9') || c == '.';
+            })) return std::string(value);
+        // IPv4 octets are decimal under NET-JOIN-PUB-010, not libc's legacy octal syntax.
+        std::string result;
+        unsigned octet = 0;
+        for (std::size_t i = 0; i <= value.size(); ++i) {
+            if (i == value.size() || value[i] == '.') {
+                if (!result.empty()) result += '.';
+                result += std::to_string(octet); octet = 0;
+            } else octet = octet * 10 + value[i] - '0';
+        }
+        return result;
+    }
     std::vector<std::uint8_t> wrapAdmission(const std::vector<std::uint8_t> &request,
                                             std::string_view invitation) {
         if (!validInvite(invitation) || request.size() + invitation.size() + 6 > Trust::MaxAdmissionPayloadBytes)

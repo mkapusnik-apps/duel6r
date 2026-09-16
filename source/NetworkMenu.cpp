@@ -1109,6 +1109,18 @@ namespace Duel6 {
             if (action == 0) { std::string reason; if (localReadyEligible(reason)) runtime.setReady(!ready); return; }
             --action;
             if (snap.host) {
+                if (snap.publicSession && snap.canonical) {
+                    const auto &settings = snap.canonical->settings;
+                    hostSetup.mode = settings.mode;
+                    hostSetup.teamCount = settings.teamCount;
+                    hostSetup.friendlyFire = settings.friendlyFire;
+                    hostSetup.levelPlan = settings.levelPlan;
+                    hostSetup.fixedLevel = settings.fixedLevel;
+                    hostSetup.roundLimit = settings.roundLimit;
+                    hostSetup.assistance = settings.assistance;
+                    hostSetup.quickLiquid = settings.quickLiquid;
+                    hostSetup.burnableTrees = settings.burnableTrees;
+                }
                 const bool contentBlocked = snap.canonical
                         && snap.canonical->messages.status == "The match cannot start with the supported gameplay content. Restore the supported gameplay content and restart the application.";
                 const int rosterCount = static_cast<int>(snap.canonical ? snap.canonical->players.size() : 0);

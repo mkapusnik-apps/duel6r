@@ -1452,6 +1452,8 @@ namespace Duel6::Network {
             ClientState expected = ClientState::NotStarted;
             if (!state.compare_exchange_strong(expected, ClientState::Resolving)) return false;
             endpoint = value;
+            if (dependencies.publicTls || dependencies.enforceNetworkSessionPolicy)
+                endpoint.host = PublicSession::endpointIdentity(value.host);
             worker = std::thread([this] { connectLoop(); });
             return true;
         }
