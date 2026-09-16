@@ -2,6 +2,8 @@
 
 ## Status and authority
 
+The public dedicated pilot in [network-play-first-release.md](network-play-first-release.md) retains this document's compatibility checks, stable rejection outcomes, and atomic admission contract. Its security prerequisite is [TRU-PUB-001 through TRU-PUB-016](network-trust-and-abuse-limits.md). The pre-listener local-host admission sequence below applies only to player-hosted LAN mode. Dedicated readiness instead follows HSL-PUB-002; the first authorized compatible participant creates and controls the session under NET-PUB-002 through NET-PUB-004. No provisional offer grants controller authority. A failed public security check cannot reach compatibility admission or grant session identity. These public-mode differences do not authorize changes to the LAN admission path or relax exact release/content checks.
+
 This document is the authoritative product target for GitHub issue #30. It defines first-release network compatibility and admission behavior.
 
 The compatibility and admission contract is implemented in the explicit command-line networking scaffold. It does not provide a lobby, gameplay, graphical network UI, or playable networking. The current networking status remains documented in [`networking.md`](networking.md).

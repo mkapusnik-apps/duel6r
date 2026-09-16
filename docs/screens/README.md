@@ -1,6 +1,26 @@
 # Screen inventory
 
 This inventory is authoritative for product screens and materially distinct full-screen visual states.
+
+## Public dedicated pilot functional states
+
+The public pilot uses the existing screen IDs. Its canonical behavior is in [network-play-first-release.md](../network-play-first-release.md), [network-trust-and-abuse-limits.md](../network-trust-and-abuse-limits.md), and [network-host-service-lifecycle.md](../network-host-service-lifecycle.md). The functional public-mode sections in the screen documents govern these variants. Earlier LAN-only copy and representative screenshots do not establish acceptance of public variants. Existing layout notes remain read-only UX context for this extension; UX owns revised presentation in `docs/design`.
+
+| Screen | Functional state IDs | Functional coverage |
+|---|---|---|
+| `NET-01` | `NET-01-PUBLIC-ENTRY` | Public Join and preserved LAN Host entry |
+| `NET-03` | `NET-03-PUBLIC-EDIT`, `NET-03-PUBLIC-CONNECTING` | Endpoint, invitation, explicit security mode, cancellation |
+| `NET-04` | `NET-04-PUBLIC-CONTROLLER`, `NET-04-PUBLIC-GUEST` | Authoritative controller assignment and permissions |
+| `NET-05`, `NET-06` | `NET-05-PUBLIC`, `NET-06-PUBLIC` | Dedicated match and summary actions |
+| `NET-07` | `NET-07-PUBLIC-RECONNECT` | Guest or controller reservation without migration |
+| `NET-08` | `NET-08-PUBLIC-SECURITY`, `NET-08-PUBLIC-MAINTENANCE`, `NET-08-PUBLIC-CONTROLLER-EXPIRED` | Secure admission failure and confirmed terminal service outcomes |
+| `NET-09` | `NET-09-PUBLIC-CONTROLLER-END` | Confirmed controller End session |
+
+`NET-02` remains the private-LAN host setup contract. No public administrator screen or new Local Play screen is introduced.
+
+Public entry uses `Connect`, `Host private LAN`, and `Back` under the NET-01 contract. NET-03 owns the fixed input and invitation lifecycle requirements `NET-JOIN-PUB-001`–`NET-JOIN-PUB-019` and criteria `NET-JOIN-PUB-AC-001`–`NET-JOIN-PUB-AC-003`. The public controller's unexpected loss uses the existing 30-second reconnect contract; explicit departure ends the session. The linked UX contracts in `docs/design/screens` own presentation and must use these functional decisions rather than their earlier pending-decision notes.
+
+## Existing inventory and context
 The target baseline uses the shared arena view requirements in `docs/features.md`.
 The product has no implemented URL routes.
 Each route value below therefore names a reproducible local workflow.

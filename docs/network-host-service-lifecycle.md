@@ -16,6 +16,31 @@ Local Play remains subject to [`features.md`](features.md). This document does n
 
 ## Terms
 
+The ownership, supervision, orphan-prevention, and dedicated-hosting exclusions in the player-hosted sections below apply only to LAN hosting. For the public pilot, the operator owns the service and the first admitted participant controls the session under `NET-PUB-001`–`NET-PUB-021`. A dedicated participant must not launch, adopt, stop, or supervise the remote service process. Public gameplay and recovery retain the existing service-authoritative clock and guest recovery contract unless the requirements below state a difference.
+
+### Dedicated service lifecycle
+
+- **HSL-PUB-001** While its environment is running, a dedicated service must remain available for a new session after an ended session completes cleanup.
+- **HSL-PUB-002** Public readiness must require secure admission availability, validated gameplay content, and the ability to create a session; it must not require an already admitted controller.
+- **HSL-PUB-003** A controller's confirmed End session must end only the current session, not the environment's service.
+- **HSL-PUB-004** The service must reject admission while session cleanup or deployment shutdown is in progress.
+- **HSL-PUB-005** An accepted intentional controller End notice must use the existing `NET-09` outcome for other participants.
+- **HSL-PUB-012** A service-confirmed session end requested by normal controller application shutdown must use the intentional controller-end outcome; unconfirmed shutdown must remain ambiguous to other participants.
+- **HSL-PUB-006** A confirmed service notice of controller reservation expiry must enter `NET-08` with `Session ended because the controller did not reconnect.`
+- **HSL-PUB-007** A confirmed service notice of deployment or rollback interruption must enter `NET-08` with `Session ended for service maintenance. Connect again to start or join a new session.`
+- **HSL-PUB-008** Outcomes in HSL-PUB-006 and HSL-PUB-007 must disable reconnect Retry and permit Edit setup and Return to Network.
+- **HSL-PUB-009** A client without a confirmed terminal notice must use the existing ambiguous-loss reconnect behavior and fixed deadline.
+- **HSL-PUB-010** A client must not describe a fresh admission after maintenance as restoration of the previous session.
+- **HSL-PUB-011** A failed or incomplete dedicated startup must not report readiness or accept session admission.
+- **HSL-PUB-013** A shutdown signal or transport closure alone must not establish deployment, rollback, controller departure, or another terminal reason for a client.
+
+SIGTERM interruption is permitted. Delivery of a maintenance notice is not required for shutdown completion. HSL-PUB-007 applies only when an authenticated service notice explicitly establishes maintenance; absent that notice, HSL-PUB-009 applies. Neither the endpoint name nor a recent deployment attempt proves a termination reason to the client.
+
+| Criterion | Required outcome | Requirements |
+|---|---|---|
+| **HSL-PUB-AC-001** | An empty secure service reports readiness only when it can create a valid session. Failed startup admits nobody. End session releases session state but permits a later fresh session without participant-owned process supervision. | HSL-PUB-001–004, HSL-PUB-011 |
+| **HSL-PUB-AC-002** | Confirmed controller end, including a received normal-shutdown request, and controller expiry produce their distinct destinations and copy. An authenticated maintenance notice, when supplied, uses the maintenance outcome. SIGTERM or abrupt interruption without a terminal notice retains ambiguous reconnect until a terminal response or the original deadline. Fresh admission is not presented as restoration. | HSL-PUB-005–010, HSL-PUB-012–013 |
+
 - **Host application:** The game instance in which the host starts and controls a player-hosted session.
 - **Hosted service:** The separate service that owns the authoritative session and its listening endpoint.
 - **Owned service:** A hosted service that the host application started and must supervise until final cleanup.

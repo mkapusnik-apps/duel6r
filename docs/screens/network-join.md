@@ -2,6 +2,44 @@
 
 ## Status, purpose, and requirements
 
+### Public pilot functional contract
+
+The states `NET-03-PUBLIC-EDIT` and `NET-03-PUBLIC-CONNECTING` apply `NET-PUB-016`–`NET-PUB-020` and `TRU-PUB-001`–`TRU-PUB-016`. They replace LAN-only endpoint and credential exclusions for public mode. Existing local-player setup, immutable admission ownership, Cancel, deadline, compatibility, and confirmed-success requirements remain applicable.
+
+- **NET-JOIN-PUB-001** Join setup must let the user explicitly choose encrypted public mode or trusted private-LAN mode before Connect.
+- **NET-JOIN-PUB-002** First entry must select public mode with the production endpoint from NET-PUB-016.
+- **NET-JOIN-PUB-003** Public setup must let the user supply an invitation without making it part of the endpoint.
+- **NET-JOIN-PUB-004** A missing invitation in public mode must block Connect in editable setup.
+- **NET-JOIN-PUB-005** Switching to LAN mode must clear the supplied invitation.
+- **NET-JOIN-PUB-006** Cancel or Edit setup must retain the selected mode, endpoint, and local-player setup.
+- **NET-JOIN-PUB-007** An authorization failure must clear the rejected invitation and require a new invitation before another initial attempt.
+- **NET-JOIN-PUB-008** Successful dedicated admission must enter NET-04 with the service-confirmed controller or guest role.
+- **NET-JOIN-PUB-009** The client must not infer controller authority from an empty lobby, connection order, or a local choice.
+- **NET-JOIN-PUB-010** The endpoint input must accept an ASCII DNS hostname or an IPv4 literal separately from an integer port from 1 through 65535.
+- **NET-JOIN-PUB-011** Endpoint validation must reject schemes, URL paths, embedded ports, whitespace, and IPv6 without starting a connection attempt.
+- **NET-JOIN-PUB-012** Invitation input must accept an opaque case-sensitive value of 1 through 256 printable ASCII characters without spaces.
+- **NET-JOIN-PUB-013** Invitation input must reject whitespace, control characters, non-ASCII characters, and overlength input without trimming, normalizing, or truncating the submitted value.
+- **NET-JOIN-PUB-014** The user must be able to type or explicitly paste an invitation into the invitation input.
+- **NET-JOIN-PUB-015** The client must retain the invitation only in memory for the current public setup and its active connection attempt.
+- **NET-JOIN-PUB-016** Cancel, Edit setup, or a recoverable non-authorization failure must retain the invitation only while the public mode and endpoint remain unchanged.
+- **NET-JOIN-PUB-017** A hostname or port edit, a mode change, Back, Return to Network, successful admission, or application shutdown must clear the invitation.
+- **NET-JOIN-PUB-018** Reconnect must use the existing participant-scoped reconnect credential rather than retain or resubmit the invitation.
+- **NET-JOIN-PUB-019** Editable setup must prevent Connect when the invitation does not satisfy NET-JOIN-PUB-012 and NET-JOIN-PUB-013.
+
+An ASCII DNS hostname uses dot-separated labels of 1 through 63 letters, digits, or hyphens, with a letter or digit at each label end and a maximum total length of 253 characters. No trailing dot is accepted. An IPv4 literal has four decimal octets from 0 through 255. Port input contains ASCII digits only. Both modes use this input syntax; LAN resolution retains the existing private-address restriction. Public certificates must validate the entered hostname or IP identity. Public and LAN modes must not be inferred from the address.
+
+The initial public endpoint is `duel.netusite.cz` with separate port `26660` under NET-PUB-016 and NET-PUB-022. A custom endpoint, including `staging.duel.netusite.cz`, uses the same syntax. Invitation syntax is an input bound, not a check of entropy or authenticity; only the service validates the exact operator-issued value. An invalid local value stays editable; a service authorization rejection clears it under NET-JOIN-PUB-007. No invitation is fetched automatically from the clipboard or copied into an endpoint.
+
+Presentation authority: [NET-03 UX contract](../design/screens/NET-03.md). The public/private selector and separate Port input are required, not conditional. The proposed masked invitation treatment is approved; there is no reveal action in this pilot. UX owns mask rendering, labels, layout, focus, and validation presentation. Paste is permitted only as the explicit input action in NET-JOIN-PUB-014. `Host` may label the service-confirmed controller role; it never means ownership of the dedicated process.
+
+The initial default, custom endpoint, and public/LAN choice are functional behavior; UX owns controls, grouping, focus, credential-entry presentation, and feedback. Setup must not imply that the production domain is already active. A valid custom secure test endpoint can exercise the same public behavior before domain activation.
+
+**NET-JOIN-PUB-AC-001:** First entry uses public production setup. Selecting a custom endpoint preserves public security. Explicit LAN selection clears the invitation and uses existing private-address restrictions. Missing invitations cannot initiate public admission. Cancel and Edit setup preserve non-secret setup; a rejected invitation requires replacement. Only complete admission selects the NET-04 role. This criterion covers NET-JOIN-PUB-001 through NET-JOIN-PUB-009.
+
+**NET-JOIN-PUB-AC-002:** Valid hostname/IPv4 and port input accepts production, staging, and custom endpoints. URL syntax, embedded ports, whitespace, IPv6, and invalid port bounds remain editable without a connection. Mode is explicit and never inferred from the address. This criterion covers NET-JOIN-PUB-010 and NET-JOIN-PUB-011.
+
+**NET-JOIN-PUB-AC-003:** Typing or explicit paste preserves the exact invitation. Empty, whitespace-containing, non-ASCII, and overlength values cannot initiate Connect. Cancel and eligible failure recovery retain the value only for unchanged public setup. Authorization rejection, endpoint/mode changes, leaving setup for Network, successful admission, and application shutdown clear it. Reconnect uses only its scoped credential. This criterion covers NET-JOIN-PUB-007 and NET-JOIN-PUB-012 through NET-JOIN-PUB-019. UX assesses masked rendering under its own contract.
+
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It configures a guest's direct endpoint and local players, then truthfully reports connection progress. It implements `NET-AC-001`, `NET-AC-002`, `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 It preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
 It implements `NET-VIS-001`, `NET-VIS-002`, `NET-VIS-009` through `NET-VIS-011`, `NET-VIS-AC-001`, `NET-VIS-AC-004`, and `NET-VIS-AC-005`. It also consumes `CMP-VIS-001` through `CMP-VIS-004`, `CMP-VIS-AC-001`, and updated `AC-012` from [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
@@ -9,7 +47,7 @@ It implements `NET-OWN-001` through `NET-OWN-003` and `NET-OWN-AC-001` through `
 Issue #30 defines the compatibility and admission outcomes for this flow in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 Issue #30 must not implement this graphical screen.
 
-Entry is `NET-01` → Join. Complete validated production admission enters `NET-04`; failure enters `NET-08`; Cancel during connection restores editable setup; Back returns to `NET-01`.
+Entry is `NET-01` → `Connect`. Complete validated production admission enters `NET-04`; failure enters `NET-08`; Cancel during connection restores editable setup; Back returns to `NET-01`.
 
 ## Representative layout
 

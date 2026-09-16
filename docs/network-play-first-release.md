@@ -2,6 +2,49 @@
 
 ## Status and authority
 
+The product supports two target hosting modes: trusted player-hosted LAN play and an encrypted, invite-only public dedicated pilot. The public pilot requirements in this document replace the Internet and dedicated-hosting exclusions only for that pilot. Earlier first-release scope tables, host-process terminology, and exclusions below apply to player-hosted LAN play. Local Play remains unchanged. Target support does not establish live availability or release acceptance. The public pilot uses the existing compatibility, gameplay, ownership, readiness, result, and recovery contracts except for the explicit differences below.
+
+## Public dedicated pilot
+
+A **session controller** is the first successfully admitted participant in a dedicated session. This participant has the existing host's match-control permissions but does not own the server process. A **pilot environment** is either staging or production. The service clock supplies the existing host-session clock for dedicated sessions.
+
+- **NET-PUB-001** Each pilot environment must provide at most one active session.
+- **NET-PUB-002** The service must create a session when the first authorized, compatible participant completes admission to an environment without a session.
+- **NET-PUB-003** The service must assign session-controller authority to exactly that first admitted participant.
+- **NET-PUB-004** Concurrent admission attempts must not create multiple sessions or multiple controllers.
+- **NET-PUB-005** Later admitted participants must join the existing lobby as guests.
+- **NET-PUB-006** The controller must have the existing host permissions for match settings, roster order, match start, return to lobby, and session end.
+- **NET-PUB-007** A guest must not acquire controller authority through a request, reconnect, controller departure, or service restart.
+- **NET-PUB-008** Dedicated sessions must retain the existing participant/player limits, readiness rules, exact compatibility checks, admission-before-match rule, authoritative gameplay, and session-only results.
+- **NET-PUB-009** A confirmed controller Leave or End session must end the session for every participant.
+- **NET-PUB-010** An unintentional controller disconnect must use the existing fixed 30-second reconnect reservation without transferring controller authority.
+- **NET-PUB-011** Controller reservation expiry must end the dedicated session instead of transferring control or continuing without a controller.
+- **NET-PUB-012** Guest departure and reconnect must retain the existing guest lifecycle behavior.
+- **NET-PUB-013** Session end must discard session-only results and invalidate all session identities and reconnect credentials.
+- **NET-PUB-014** After session cleanup, the service must permit a new first authorized participant to create a new session.
+- **NET-PUB-015** A service restart must not restore an ended session or its controller authority.
+- **NET-PUB-016** Network Join setup must prefill `duel.netusite.cz` on first use.
+- **NET-PUB-017** The user must be able to replace the prefilled endpoint with a custom endpoint, including `staging.duel.netusite.cz` or a trusted LAN endpoint.
+- **NET-PUB-018** The application must not connect until the user requests Connect.
+- **NET-PUB-019** The application must not fall back from an unavailable production endpoint to staging, LAN, another public endpoint, or an unencrypted connection.
+- **NET-PUB-020** Public connection, security checks, admission, clock calibration, and initial-state validation must share the existing single 10-second connection deadline.
+- **NET-PUB-021** Public session behavior must preserve offline Local Play and the existing explicit private-LAN hosting journey.
+- **NET-PUB-022** Public Join setup must prefill port `26660` with the production hostname and permit a custom port.
+- **NET-PUB-023** Normal controller application shutdown must request session end; when the service cannot receive that request, the existing controller reservation expiry must end the session.
+
+Deployment can interrupt a session under `NET-PUB-DEP-008` in [network-deployments.md](network-deployments.md). The public security policy is authoritative in [network-trust-and-abuse-limits.md](network-trust-and-abuse-limits.md). Dedicated service and terminal-outcome behavior is authoritative in [network-host-service-lifecycle.md](network-host-service-lifecycle.md).
+
+### Public pilot acceptance criteria
+
+| Criterion | Required outcome | Requirements |
+|---|---|---|
+| **NET-PUB-AC-001** | Concurrent authorized first joins create one session with exactly one controller. Later joins enter that lobby. Rejected or cancelled admission grants no authority. | NET-PUB-001–005 |
+| **NET-PUB-AC-002** | Only the controller can change host-owned settings, order the roster, start, return to lobby, or end the session. Existing readiness, cardinality, compatibility, and join-in-progress rejection remain enforced. | NET-PUB-006–008 |
+| **NET-PUB-AC-003** | Controller Leave ends the session. Normal controller application shutdown requests session end. Controller contact loss permits the existing 30-second restore to the same authority; expiry ends the session without migration. Guest departure retains existing behavior. | NET-PUB-009–012, NET-PUB-023 |
+| **NET-PUB-AC-004** | Ending or restarting the service leaves no resumable old session, result, or authority. After cleanup, a new authorized join creates a distinct session. | NET-PUB-013–015 |
+| **NET-PUB-AC-005** | Initial Join setup prefills the production hostname and published port. Custom staging and LAN endpoints and ports remain usable. No connection starts implicitly and no failure causes endpoint or security fallback. Complete admission retains the 10-second boundary. | NET-PUB-016–020, NET-PUB-022 |
+| **NET-PUB-AC-006** | Linux and Windows clients exercise dedicated lobby, match, summary, and return behavior with the existing gameplay and result contracts. Offline Local Play and trusted private-LAN play remain available. | NET-PUB-008, NET-PUB-021 |
+
 This document is the authoritative product target for issue [#28](https://github.com/mkapusnik-apps/duel6r/issues/28), a subtask of [#27](https://github.com/mkapusnik-apps/duel6r/issues/27). It defines approved first-release network-play scope and journeys, not implemented behavior. The current code remains an experimental scaffold with no playable network support, as documented in [`docs/networking.md`](networking.md). The enforced trusted-loopback/private-LAN deployment boundary and abuse limits are defined in [`docs/network-trust-and-abuse-limits.md`](network-trust-and-abuse-limits.md).
 
 The target network screens in [`docs/screens`](screens/README.md) implement this product specification. Existing local behavior remains governed by [`docs/features.md`](features.md), which intentionally makes no network-support claim.

@@ -2,6 +2,16 @@
 
 ## Status, purpose, and requirements
 
+### Public pilot functional contract
+
+`NET-07-PUBLIC-RECONNECT` applies to dedicated controllers as well as guests. It implements `NET-PUB-010`–`NET-PUB-012` and `HSL-PUB-006`–`HSL-PUB-010`. The service owns the reservation clock. The existing positive countdown, retained non-current context, input suppression, and fixed deadline remain unchanged. A restored controller retains its exact role; no guest receives it.
+
+Presentation authority: [NET-07 UX contract](../design/screens/NET-07.md). The controller uses the same existing 30-second reservation as guests after unexpected contact loss. This is an approved functional rule, not a UX assumption. Explicit controller departure is a different action and ends the session. A disconnected client must not infer maintenance from SIGTERM, a failed retry, DNS, or the endpoint name.
+
+For a controller, Leave uses `End session for everyone?` rather than the guest-only player-removal consequence. Confirm stops local reconnect and returns to `NET-01`. If the service receives the authorized End request, it ends the session immediately; otherwise controller reservation expiry ends it. The isolated client must not claim that the service received the request. Guests retain their existing Leave confirmation and behavior.
+
+Functional acceptance: `NET-PUB-AC-003` and `HSL-PUB-AC-002` cover controller restoration, expiry, confirmed versus unconfirmed outcomes, and no deadline extension. UX owns distinct controller consequences without implying contact with an unreachable service.
+
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It truthfully presents a guest's host-clock 30-second reconnect reservation and active-session behavior. It implements `NET-AC-006`, `NET-AC-009`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-016`, and `NET-AC-017` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 Its retained arena context implements `NET-VIS-003` through `NET-VIS-010`, `NET-VIS-AC-002` through `NET-VIS-AC-004`, `REP-PRES-001` through `REP-PRES-006`, and `REP-PRES-AC-001` through `REP-PRES-AC-003`.
 Its reservation and restoration behavior implements `NET-OWN-002`, `NET-OWN-003`, `NET-OWN-008`, `NET-OWN-009`, `NET-OWN-AC-002`, and `NET-OWN-AC-005`. It consumes `REP-AC-004` and `TRU-OWN-007`.

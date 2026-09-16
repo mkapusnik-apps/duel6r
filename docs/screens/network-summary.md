@@ -2,6 +2,12 @@
 
 ## Status, purpose, and requirements
 
+### Public pilot functional contract
+
+`NET-06-PUBLIC` retains the existing completed, session-only summary under `NET-PUB-008`. The controller has the existing host Return to lobby and End session permissions. Controller End uses the confirmation and destinations in the [NET-04 public contract](network-lobby.md). Guests retain Leave. All dedicated participants use `NET-07` on ambiguous contact loss. Confirmed terminal notices use the outcomes in HSL-PUB-005 through HSL-PUB-010; maintenance does not offer saved results or session restoration.
+
+Functional acceptance: `NET-PUB-AC-002`–`NET-PUB-AC-004`, `NET-PUB-AC-006`, and `HSL-PUB-AC-002` cover permissions, return to lobby, result lifetime, and interruption. UX owns public role and status presentation.
+
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It presents a completed authoritative match result without implying local persistence. It implements `NET-AC-010`, `NET-AC-011`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 
 Normal match completion enters from `NET-05`. An interrupted match enters `NET-04` directly and never enters this screen. Host Return to lobby sends all connected participants to `NET-04` with readiness cleared; guest Leave returns to `NET-01`; unexpected host contact failure enters guest `NET-07`. Only a valid End session notice accepted through the current established session enters guest `NET-09`.

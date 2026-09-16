@@ -1,4 +1,54 @@
-# Integrated PR83 visual evidence
+# UX screenshot coverage and integration evidence
+
+## Public-service extension — pending coverage
+
+This section owns pending capture and assessment for the public-service extension only. The legacy manifest below retains authority for unchanged baseline artifacts. New captures must use the canonical destinations in this table and replace the same wireframe's artifact on later revisions. Do not create a new screenshot identity for a minor role, copy, or failure variant.
+
+All entries below are **Pending**. No extension screenshots have been supplied or assessed. Historical LAN evidence does not establish public-service conformance. No image hashes are available for these pending entries.
+
+There are no URL routes. Routes below are local UI workflows. The standard profile is the existing desktop retro presentation, full client capture, standard input and font settings. Use 1920 by 1080 for menu representatives and 1280 by 900 for arena-context representatives. Behavioral boundary checks must cover 850 by 700 and 1280 by 720; they do not require a second default representative per wireframe.
+
+| Entry / screen / wireframe | Route and reproducible setup | Expected visible result | Canonical destination |
+|---|---|---|---|
+| SS-015 / NET-01 / NET-01 | Main menu → Network (F2); NET-01-PUBLIC-ENTRY | Public invite scope; Connect, Host private LAN, Back; visible initial focus | `docs/design/screenshots/NET-01/NET-01.png` |
+| SS-017 / NET-03 / NET-03 | Network → Connect; NET-03-PUBLIC-EDIT; fresh production default; two local players; type a disposable test invitation without connecting | Explicit Public (encrypted), complete `duel.netusite.cz`, Port 26660, masked Invite, local controls, Connect/Back; no connected claim | `docs/design/screenshots/NET-03/NET-03.png` |
+| SS-018 / NET-04 / NET-04 | First participant connects through public mode to the local trusted TLS fixture; NET-04-PUBLIC-CONTROLLER; admit two guests with two players each; leave one guest unready | Confirmed Host, actual fixture endpoint, separate role/connection/readiness columns; disabled Start reason; host consequence note | `docs/design/screenshots/NET-04/NET-04.png` |
+| SS-025 / NET-04 / NET-04-R | Complete a public match; return to lobby with retained result using existing outcome-extreme reproduction | Public header does not cover historical results, scroll controls, owned-slot editors, or footer | `docs/design/screenshots/NET-04/NET-04-R.png` |
+| SS-019 / NET-05 / NET-05 | Fixture public lobby → actual six-player match; NET-05-PUBLIC; use existing degraded representative procedure through the secure connection | `Public session`; undivided arena and readable status; preserve accepted orientation and Invisibility checks | `docs/design/screenshots/NET-05/NET-05.png` |
+| SS-026 / NET-05 / NET-05-C | During the public match, open explicit guest Leave confirmation without accepting | Distinct guest consequence, contained modal, visible action and Cancel; no input leakage | `docs/design/screenshots/NET-05/NET-05-C.png` |
+| SS-020 / NET-06 / NET-06 | Finish an actual limited public match with existing summary reproduction inputs | Correct completed result, session-only persistence notice, role-correct actions; no LAN-only copy | `docs/design/screenshots/NET-06/NET-06.png` |
+| SS-021 / NET-07 / NET-07 | Disconnect the admitted public Host during an actual fixture match; NET-07-PUBLIC-RECONNECT; capture within the original 30-second reservation | Last confirmed arena; Host label, positive countdown, truthful consequence; End session available | `docs/design/screenshots/NET-07/NET-07.png` |
+| SS-022 / NET-08 / NET-08 | Public Connect to a local TLS fixture presenting a trusted-chain certificate with the wrong endpoint identity; NET-08-PUBLIC-SECURITY | Exact TRU-PUB-016 message; Edit setup focused and Return to Network; no Retry or bypass; no invite disclosure | `docs/design/screenshots/NET-08/NET-08.png` |
+| SS-023 / NET-09 / NET-09 | Guest in fixture public match receives an actual accepted intentional End session notice; NET-09-PUBLIC-CONTROLLER-END | Confirmed end panel over last arena; no resume; Return to Network | `docs/design/screenshots/NET-09/NET-09.png` |
+
+The matrix invalidates only affected public representations. NET-02 / SS-016 and Local Play remain unchanged and retain their existing coverage unless presentation source changes. NET-05, NET-06, NET-04-R, and NET-05-C need replacement for their public context; unchanged layouts do not justify new wireframe IDs. SS-020 uses NET-06-PUBLIC. SS-025 and SS-026 use the retained-result and confirmation variants within their public screen states. All connected rows may use the same local fixture session sequence where their setup permits it.
+
+### Capture gates and supplemental checks
+
+1. Use the reconciled [functional references](../README.md#reconciled-functional-references) and exact product-owned state mappings. Presentation has no outstanding product dependency.
+2. Developer must supply a functioning public transport/admission path and security-check evidence. A local trusted TLS fixture is sufficient for UI capture; live DNS, cloud provisioning, and public deployment are not visual-gate prerequisites.
+3. The fixture must use the production client path with Public (encrypted) selected. Use a custom loopback endpoint such as `127.0.0.1`, a recorded port, and a valid certificate with the matching IP identity chained to an explicitly trusted test authority in the isolated test environment. Certificate validation, invitation enforcement, and real authoritative admission must remain enabled. A plaintext or validation-bypass fixture is not acceptable.
+4. Record fixture identity and trust setup without secrets. Developer owns temporary fixture cleanup. Do not relabel local evidence as production or staging deployment evidence. Production-default SS-017 needs no connection; custom secure fixtures exercise the subsequent states. Cloud deployment acceptance remains a separate gate.
+5. Use short-lived test invites. Capture masks as rendered; do not retouch images. Evidence must contain no reusable invite or reconnect secret. Empty invite entry may represent SS-017 when no safe masked test setup is available; record that state precisely.
+6. Record source checkpoint, exact state, role, viewport, presentation profile, environment, reproduction inputs, file path, and SHA-256 for every artifact. Record selected menu background and relevant runtime asset identity under the existing evidence contract.
+
+QA must also supply observations for custom private-LAN connection, staging address entry without requiring live DNS, long valid endpoint/invite input, invalid invite, explicit paste, invitation clearing/retention, Connecting/Cancel, keyboard/controller/pointer focus, guest read-only controls, Host and Guest reconnect, host departure, deployment termination, and ended-session recovery. Exercise NET-03-PUBLIC-CONNECTING, NET-04-PUBLIC-GUEST, NET-08-PUBLIC-MAINTENANCE, and NET-08-PUBLIC-CONTROLLER-EXPIRED through their actual authenticated paths. Test abrupt service loss separately from an authenticated maintenance notice. Do not fabricate an unreachable state or assume that a socket close proves its cause. Minor role and outcome variants require behavioral observations, not extra default screenshot entries.
+
+### Visual acceptance
+
+- Structure must conform to the stable wireframes, not their pixel appearance.
+- Styling must conform to the existing design system; no shared-token redesign is authorized.
+- Endpoint, invite, local setup, role, failure reason, and primary action must remain clear at the supported minimum viewport.
+- No text, focus outline, pointer region, or action may overlap an adjacent region.
+- Roles, public/private context, readiness, and disconnect causes must remain understandable without color.
+- The accepted capture packet must contain every affected representative and its required metadata and hashes.
+- Supplied behavior evidence must establish transitions that still images cannot prove.
+
+Visual gate: blocked
+
+Reason: current implementation artifacts and behavioral evidence have not been supplied. Functional reconciliation is complete; DNS and cloud availability do not block local visual verification. Exact-hash integration requires no second assessment unless presentation source, artifacts, or UX-owned content changes.
+
+## Integrated PR83 visual evidence
 
 This is an integration index for the authoritative [screenshot manifest](../../screenshots/README.md), not a second specification or assessment. The original integrated manifest had SHA-256 `90f02bf755ecc4c54142d5555aa8e34a644515ee69415a539a62cf23066173b7`; that hash is historical after the current scoped orientation update.
 
