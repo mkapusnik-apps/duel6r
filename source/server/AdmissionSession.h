@@ -40,7 +40,7 @@ namespace Duel6::Server {
 
     class SessionAllocation {
     public:
-        explicit SessionAllocation(std::uint8_t hostLocalPlayers, IdentitySource identities = {});
+        explicit SessionAllocation(std::uint8_t hostLocalPlayers, IdentitySource identities = {}, bool dedicated = false);
 
         AdmissionOffer reserveGuest(std::uint8_t localPlayers);
         bool commit(std::uint64_t transactionId);
@@ -70,6 +70,7 @@ namespace Duel6::Server {
         std::size_t players = 0;
         std::size_t pendingPlayers = 0;
         std::uint64_t hostId = 0;
+        bool dedicated = false;
     };
 
     class AdmissionPolicy {
@@ -77,7 +78,7 @@ namespace Duel6::Server {
         AdmissionPolicy(Network::GameplayManifest frozenHostManifest, std::uint8_t hostLocalPlayers,
                         IdentitySource identities = {},
                         std::shared_ptr<Network::Trust::ConcurrentWorkLimiter> workLimiter = {},
-                        ValidationWorkGate validationWorkGate = {});
+                        ValidationWorkGate validationWorkGate = {}, bool dedicated = false);
 
         Network::AdmissionResult evaluate(const Network::AdmissionRequest &request,
                                           AdmissionContext context = {});
@@ -110,6 +111,7 @@ namespace Duel6::Server {
         ValidationWorkGate validationWorkGate;
         Network::Trust::AuthorizationPolicy authorization;
         bool matchStarted = false;
+        bool dedicated = false;
         mutable std::mutex policyMutex;
     };
 }

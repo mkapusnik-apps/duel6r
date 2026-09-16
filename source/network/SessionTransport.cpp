@@ -1,4 +1,6 @@
 #include "SessionTransport.h"
+#include "PublicSession.h"
+#include "TlsStream.h"
 #include "ResolverProtocol.h"
 
 #include <algorithm>
@@ -851,10 +853,12 @@ namespace Duel6::Network {
         Impl(SocketHandle socket, OutboundTransportDependencies outbound, TransportTimePoint acceptedAt,
               std::function<TransportTimePoint()> now = {},
               std::array<std::uint8_t, 4> source = {},
-              std::shared_ptr<Trust::PendingAdmissionLimiter::Reservation> admissionReservation = {})
+              std::shared_ptr<Trust::PendingAdmissionLimiter::Reservation> admissionReservation = {},
+              std::shared_ptr<TlsStream> secureStream = {})
                 : socket(socket), outbound(std::move(outbound)), now(std::move(now)), source(source),
                   acceptanceTime(acceptedAt), admissionReservation(std::move(admissionReservation)),
-                  lastInboundActivity(acceptedAt), lastOutboundProgress(acceptedAt), lastLivenessPing(acceptedAt) {
+                   lastInboundActivity(acceptedAt), lastOutboundProgress(acceptedAt), lastLivenessPing(acceptedAt) {
+            tls = std::move(secureStream);
             admissionComplete.store(!this->admissionReservation);
             if (!configureConnectedSocket(socket)) {
                 failure.store(TransportFailure::SystemError);
@@ -1039,6 +1043,7 @@ namespace Duel6::Network {
         };
 
         SocketHandle socket;
+        std::shared_ptr<TlsStream> tls;
         const OutboundTransportDependencies outbound;
         const std::function<TransportTimePoint()> now;
         std::atomic<bool> socketClosed{false};
@@ -1141,7 +1146,7 @@ namespace Duel6::Network {
             std::size_t offset = 0;
             Clock::time_point progress = Clock::now();
             while (offset < size && !stop.load()) {
-                if (!waitSocket(socket, false, std::chrono::milliseconds(100))) {
+                if (!tls && !waitSocket(socket, false, std::chrono::milliseconds(100))) {
                     auto now = Clock::now();
                     const auto lastActivity = lastTransportActivity();
                     if (now - lastActivity >= ReceiveIdleDeadline) {
@@ -1155,11 +1160,18 @@ namespace Duel6::Network {
                     }
                     continue;
                 }
-#ifdef D6R_TRANSPORT_WINDOWS
-                int count = recv(socket, reinterpret_cast<char *>(target + offset), static_cast<int>(size - offset), 0);
-#else
-                ssize_t count = recv(socket, target + offset, size - offset, 0);
-#endif
+                const auto count = tls ? tls->read(target + offset, size - offset)
+                        : recv(socket, reinterpret_cast<char *>(target + offset), static_cast<int>(size - offset), 0);
+                if (tls && count == -2) {
+                    const auto current = Clock::now();
+                    if (current - lastTransportActivity() >= ReceiveIdleDeadline
+                        || (offset > 0 && current - progress >= ProgressDeadline)) {
+                        fail(TransportFailure::InboundStalled, true); return false;
+                    }
+                    queueLivenessProbeIfDue(lastTransportActivity());
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                    continue;
+                }
                 if (count > 0) {
                     offset += static_cast<std::size_t>(count);
                     progress = Clock::now();
@@ -1169,7 +1181,7 @@ namespace Duel6::Network {
                     return false;
                 } else {
                     int error = socketError();
-                    if (!wouldBlock(error) && !interrupted(error)) {
+                    if (tls || (!wouldBlock(error) && !interrupted(error))) {
                         fail(TransportFailure::SystemError);
                         return false;
                     }
@@ -1268,6 +1280,11 @@ namespace Duel6::Network {
         }
 
         OutboundSendOutcome sendFrameSegment(std::uint16_t kind, const std::uint8_t *data, std::size_t size) const {
+            if (tls) {
+                const int count = tls->write(data, size);
+                if (count > 0) return {OutboundSendStatus::Sent, static_cast<std::size_t>(count)};
+                return count == -2 ? OutboundSendOutcome{OutboundSendStatus::WouldBlock, 0} : OutboundSendOutcome{};
+            }
             if (outbound.send) {
                 OutboundSendOutcome outcome = outbound.send(static_cast<std::intptr_t>(socket), kind, data, size);
                 if ((outcome.status == OutboundSendStatus::Sent && (outcome.bytes == 0 || outcome.bytes > size))
@@ -1482,7 +1499,8 @@ namespace Duel6::Network {
         void connectLoop() {
             const auto deadline = dependencyNow(dependencies) + StartupDeadline;
             const Trust::EndpointScope literalScope = Trust::classifyIpv4Literal(endpoint.host);
-            const bool policyEndpointInvalid = dependencies.enforceNetworkSessionPolicy
+            const bool policyEndpointInvalid = dependencies.publicTls ? !PublicSession::validEndpoint(endpoint.host)
+                    : dependencies.enforceNetworkSessionPolicy
                                                && (!Trust::validGuestEndpointName(endpoint.host)
                                                    || literalScope == Trust::EndpointScope::Unsupported);
             if (!socketRuntime().ready() || endpoint.host.empty() || endpoint.host.find('\0') != std::string::npos
@@ -1502,7 +1520,7 @@ namespace Duel6::Network {
                 finishFailure(TransportFailure::ResolveFailed);
                 return;
             }
-            if (dependencies.enforceNetworkSessionPolicy) {
+            if (dependencies.enforceNetworkSessionPolicy && !dependencies.publicTls) {
                 resolution.endpoints.erase(std::remove_if(resolution.endpoints.begin(), resolution.endpoints.end(),
                         [](const ResolvedIpv4Endpoint &resolved) {
                             const auto scope = Trust::classifyIpv4(resolved.address);
@@ -1528,10 +1546,20 @@ namespace Duel6::Network {
             }
             if (outcome.status == ConnectStatus::Connected && outcome.nativeSocket != -1
                 && dependencyNow(dependencies) < deadline) {
+                std::shared_ptr<TlsStream> tls;
+                if (dependencies.publicTls) {
+                    if (configureTransportSocket(static_cast<SocketHandle>(outcome.nativeSocket)))
+                        tls = TlsStream::connect(outcome.nativeSocket, endpoint.host, deadline, isCancelled);
+                    if (!tls) {
+                        closeSocket(static_cast<SocketHandle>(outcome.nativeSocket));
+                        finishFailure(TransportFailure::SecureConnectionFailed); return;
+                    }
+                }
                 auto active = std::shared_ptr<TcpConnection>(new TcpConnection(
                         std::make_unique<TcpConnection::Impl>(static_cast<SocketHandle>(outcome.nativeSocket),
                                                                dependencies.outbound,
-                                                               dependencyNow(dependencies), dependencies.now)));
+                                                               dependencyNow(dependencies), dependencies.now,
+                                                               std::array<std::uint8_t, 4>{}, nullptr, std::move(tls))));
                 if (active->state() != ClientState::Connected) {
                     if (active->terminalAt() != TransportTimePoint{}) {
                         std::lock_guard<std::mutex> lock(mutex);
@@ -1692,6 +1720,9 @@ namespace Duel6::Network {
             std::array<std::uint8_t, 4> requestedAddress{};
             const auto requestedScope = Trust::classifyIpv4Literal(endpoint.host, &requestedAddress);
             const bool loopbackHostname = endpoint.host == "localhost";
+            if (dependencies.trustedProxyV2 && endpoint.host != "127.0.0.1") {
+                fail(TransportFailure::InvalidEndpoint); return;
+            }
             const bool policyEndpointInvalid = dependencies.enforceNetworkSessionPolicy
                                                && requestedScope != Trust::EndpointScope::Loopback
                                                && requestedScope != Trust::EndpointScope::PrivateLan
@@ -1771,10 +1802,37 @@ namespace Duel6::Network {
                 const TransportTimePoint acceptedAt = dependencyNow(dependencies);
                 std::array<std::uint8_t, 4> peerAddress{};
                 std::memcpy(peerAddress.data(), &peer.sin_addr.s_addr, peerAddress.size());
+                if (dependencies.trustedProxyV2) {
+                    if (peerAddress != std::array<std::uint8_t, 4>{127, 0, 0, 1}
+                        || !configureTransportSocket(accepted)) {
+                        closeSocket(accepted); continue;
+                    }
+                    // HAProxy's fixed TCP/IPv4 PROXYv2 envelope; no LOCAL, v1, datagram,
+                    // IPv6 or unbounded TLVs. Parsing shares the admission request budget.
+                    std::array<std::uint8_t, 28> header{};
+                    std::size_t received = 0;
+                    const auto proxyDeadline = acceptedAt + std::chrono::seconds(1);
+                    while (received < header.size() && !stop.load()
+                           && dependencyNow(dependencies) < proxyDeadline) {
+                        const auto count = recv(accepted, reinterpret_cast<char *>(header.data() + received),
+                                                static_cast<int>(header.size() - received), 0);
+                        if (count > 0) received += static_cast<std::size_t>(count);
+                        else if (count == 0 || (!wouldBlock(socketError()) && !interrupted(socketError()))) break;
+                        else std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                    }
+                    static constexpr std::array<std::uint8_t, 16> prefix{
+                            13, 10, 13, 10, 0, 13, 10, 'Q', 'U', 'I', 'T', 10, 0x21, 0x11, 0, 12};
+                    if (received != header.size() || !std::equal(prefix.begin(), prefix.end(), header.begin())
+                        || (header[24] == 0 && header[25] == 0)) {
+                        closeSocket(accepted); continue;
+                    }
+                    std::copy_n(header.begin() + 16, 4, peerAddress.begin());
+                }
                 std::shared_ptr<Trust::PendingAdmissionLimiter::Reservation> admissionReservation;
                 if (dependencies.enforceNetworkSessionPolicy) {
                     const auto peerScope = Trust::classifyIpv4(peerAddress);
-                    if (peerScope != Trust::EndpointScope::Loopback && peerScope != Trust::EndpointScope::PrivateLan) {
+                    if (!dependencies.trustedProxyV2 && peerScope != Trust::EndpointScope::Loopback
+                        && peerScope != Trust::EndpointScope::PrivateLan) {
                         closeSocket(accepted);
                         continue;
                     }

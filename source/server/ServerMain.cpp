@@ -7,8 +7,14 @@
 #include "HeadlessServer.h"
 #include "HostedServiceChannel.h"
 #include "ServerConfig.h"
+#include "DedicatedService.h"
 
 int main(int argc, char **argv) {
+    if (argc == 2 && std::string(argv[1]).compare(0, 14, "--check-ready=") == 0) {
+        const bool ready = Duel6::Server::DedicatedReadiness::check(std::string(argv[1]).substr(14));
+        if (ready) std::cout << "ready\n";
+        return ready ? 0 : 1;
+    }
     const auto hostedChannel = Duel6::Server::HostedServiceChannel::fromCommandLine(argc, argv);
     try {
         if (Duel6::Server::Authoritative::authoritativeMatchRequested(argc, argv)) {

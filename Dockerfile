@@ -9,6 +9,7 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         cmake \
+        libssl-dev \
         libgl1-mesa-dev \
         libglew-dev \
         liblua5.3-dev \
