@@ -7,7 +7,7 @@ It does not establish live availability. Cloud authorization, provisioning, invi
 certificates, and hosted gameplay observations remain external acceptance work.
 
 Use only project `duel-6-reloaded`. Production and staging each have one non-Spot
-`e2-medium` VM in `europe-north2-a`, a separate VPC, static Standard Tier IPv4,
+`e2-micro` VM in `europe-north2-a`, a separate VPC, static Standard Tier IPv4,
 registry repository, runtime identity, deploy identity, and invitation secret.
 Production runs continuously after activation. Staging stops after initial provisioning
 and each automated deployment. The environments share project administration and quotas,
@@ -187,16 +187,37 @@ as a staging operation. Production starts the selected service again on VM boot.
 
 ## Cost and capacity
 
-Public prices researched on 2026-09-17 selected Stockholm as the cheapest listed European
-E2 region. `e2-medium` was $0.035180998/hour versus Belgium $0.036857730 and Frankfurt
-$0.043167780. The 4 GiB shared-core VM has only one vCPU-equivalent sustained CPU across
-two visible vCPUs. Full 60 Hz/15-player capacity is not established by choosing this size.
-Measure pilot behavior; if necessary, approve `e2-standard-2` rather than depend on bursts.
+Both environments start with `e2-micro`: 1 GiB RAM and 0.25 vCPU-equivalent sustained
+CPU across two visible vCPUs. This is not a capacity guarantee for 60 Hz or 15 players.
+Increase VM size only through a manually approved infrastructure change after observed
+CPU pressure, memory exhaustion, or gameplay degradation establishes the need. Record
+the observation and review the cost and session interruption before resizing. There is
+no automatic size increase. Keep project `duel-6-reloaded` and region `europe-north2`.
 
-At 730 production hours and 40 staging hours per month, budget approximately USD 36–37
-before network traffic, taxes, currency conversion, CI usage, or optional paid services:
-compute $27.09, two attached static IPv4 addresses $7.30, two 20 GiB standard disks $1.60,
-plus small registry/secret charges. Staging stopped all month still costs approximately
+The Compose `mem_limit: 2g` is an upper bound, not a reservation. It does not prevent
+startup on a 1 GiB VM, but it cannot protect the host from memory exhaustion. The OS,
+Docker, HAProxy, and certificate operations also need memory. Observe actual usage;
+do not treat the container limit as available memory or proof of safe capacity.
+
+Planning estimate updated on 2026-09-17, not a fresh regional price quote: Context7
+returned no matching pricing documentation, and the official compute price page exceeded
+the retrieval limit. The compute assumption is $0.0087952495/hour (one quarter of the
+previous $0.035180998/hour `e2-medium` estimate); the retained disk assumption is
+$0.04/GiB-month. Confirm both regional rates before an authorized apply. The official
+network price page confirms $0.005/hour for an in-use static IPv4 address, including
+one attached to a stopped VM.
+
+At 730 production hours and 40 staging hours per month, the estimated base is USD 15.67:
+
+| Resource | Calculation | Monthly USD |
+| --- | --- | --- |
+| Two `e2-micro` VMs | (730 + 40) hours × $0.0087952495 | $6.77 |
+| Two attached static Standard Tier IPv4 addresses | 2 × 730 hours × $0.005 | $7.30 |
+| Two 20 GiB `pd-standard` disks | 2 × 20 GiB × $0.04 | $1.60 |
+
+Allow approximately USD 16–17 before network traffic, taxes, currency conversion, CI
+usage, or optional paid services, including small registry/secret charges. These charges
+depend on usage and are not capped by this estimate. Staging stopped all month still costs approximately
 $4.45 for its address and disk. Do not detach a retained address: unused reserved IPv4
 costs more. Production remains non-Spot and continuously running.
 

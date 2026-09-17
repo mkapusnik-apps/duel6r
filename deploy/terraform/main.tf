@@ -108,7 +108,7 @@ resource "google_secret_manager_secret_iam_member" "invite" {
 resource "google_compute_instance" "server" {
   for_each            = local.environments
   name                = "duel6r-${each.key}"
-  machine_type        = "e2-medium"
+  machine_type        = "e2-micro"
   deletion_protection = true
   boot_disk {
     initialize_params {
