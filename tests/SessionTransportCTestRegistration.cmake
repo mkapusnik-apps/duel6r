@@ -1,9 +1,11 @@
 include_guard(GLOBAL)
 
 # Windows registration is OFF by default: ordinary native CTest must never
-# alter a developer's user trust store. DevOps may opt in ONLY inside an
-# approved disposable Windows Docker container, with no host trust/profile
-# mounts and no persistent user profile. Inside that container:
+# alter a developer's trust store. DevOps may opt in ONLY inside an approved
+# disposable Windows Docker container, with no host trust/registry/profile
+# mounts, no persistent user profile, and existing permission to write that
+# container's LocalMachine ROOT. Access denial fails; there is no elevation,
+# CurrentUser write fallback, or protected-root policy change. Inside it:
 #   set D6R_DISPOSABLE_WINDOWS_CONTAINER=1
 #   cmake ... -DD6R_TRANSPORT_ONLY=ON -DBUILD_TESTING=ON
 #             -DD6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS=ON
@@ -11,11 +13,14 @@ include_guard(GLOBAL)
 #   ctest --test-dir <build> -R "^duel6r-portable-tls-tests$" --output-on-failure
 # The executable also requires a Windows container marker before trust access.
 # Missing/unsupported isolation markers fail closed; do not bypass the guard.
-# RAII removes the generated CurrentUser root on normal/error exits. Mandatory
-# container destruction removes its profile even after timeout/forced kill.
+# Provisioning uses the documented physical LocalMachine ROOT provider; the
+# unchanged production CurrentUser ROOT reader sees its LocalMachine sibling.
+# RAII removes only the generated root on normal/error exits and verifies its
+# absence through both readers. Mandatory container destruction removes its
+# writable registry layer even after timeout/forced kill. Never use a host store.
 # No OpenSSL CLI, Python TLS fixture, GUI, or fake platform macros are needed.
 option(D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS
-        "Opt into temporary CurrentUser TLS trust tests ONLY in disposable Windows Docker containers" OFF)
+        "Opt into temporary container LocalMachine ROOT TLS tests ONLY in disposable Windows Docker containers" OFF)
 if (NOT WIN32 OR D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS)
     add_executable(duel6r-portable-tls-tests ${CMAKE_SOURCE_DIR}/tests/PortableTlsTests.cpp)
     target_include_directories(duel6r-portable-tls-tests PRIVATE ${CMAKE_SOURCE_DIR})

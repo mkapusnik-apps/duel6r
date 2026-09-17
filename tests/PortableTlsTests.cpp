@@ -2,8 +2,9 @@
 // macros and no plaintext/verification bypass. Windows is excluded by default;
 // its CMake opt-in, runtime permission and container preflight are ALL required.
 // Use ONLY an approved disposable Windows Docker container with no host trust
-// or user-profile mounts. RAII removes the generated CurrentUser ROOT on normal
-// and exception exits; mandatory container destruction cleans up after forced
+// or registry/profile mounts. RAII removes only the generated root from the
+// container's LocalMachine ROOT on normal and exception exits; mandatory
+// container destruction cleans up after forced
 // termination. Never run this certificate-store test on the Windows host.
 // Invocation/cleanup contract is in SessionTransportCTestRegistration.cmake.
 #ifdef D6R_TRANSPORT_WINDOWS
@@ -165,6 +166,28 @@ class TrustFixture {
 #ifdef D6R_TRANSPORT_WINDOWS
     HCERTSTORE store = nullptr;
     PCCERT_CONTEXT added = nullptr;
+    static bool productionRootVisibility(PCCERT_CONTEXT identity, bool expectedPresent) {
+        // Match TlsStream's real, unchanged system-trust reader. CurrentUser's
+        // logical ROOT includes the LocalMachine physical sibling (Microsoft:
+        // https://learn.microsoft.com/windows/win32/seccrypto/system-store-locations).
+        std::cout << "TRUST CertOpenSystemStoreA(CurrentUser ROOT reader) begin" << std::endl;
+        HCERTSTORE reader = CertOpenSystemStoreA(0, "ROOT");
+        const DWORD openError = reader ? ERROR_SUCCESS : GetLastError();
+        std::cout << "TRUST CertOpenSystemStoreA end win32=" << openError << std::endl;
+        if (!reader) return false;
+        std::cout << "TRUST CertFindCertificateInStore(production reader) begin" << std::endl;
+        const auto found = CertFindCertificateInStore(reader, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+                                                      0, CERT_FIND_EXISTING, identity, nullptr);
+        const DWORD findError = found ? ERROR_SUCCESS : GetLastError();
+        const bool matched = found != nullptr;
+        std::cout << "TRUST CertFindCertificateInStore end present=" << matched << " win32=" << findError << std::endl;
+        if (found) CertFreeCertificateContext(found);
+        std::cout << "TRUST CertCloseStore(production reader) begin" << std::endl;
+        const bool closed = CertCloseStore(reader, 0) != 0;
+        const DWORD closeError = closed ? ERROR_SUCCESS : GetLastError();
+        std::cout << "TRUST CertCloseStore end win32=" << closeError << std::endl;
+        return closed && (expectedPresent ? matched : !matched && findError == static_cast<DWORD>(CRYPT_E_NOT_FOUND));
+    }
 #else
     std::filesystem::path root;
     std::string oldFile, oldDir;
@@ -173,16 +196,43 @@ class TrustFixture {
 public:
     explicit TrustFixture(X509 *ca) {
 #ifdef D6R_TRANSPORT_WINDOWS
+        std::cout << "TRUST disposable-container guard begin" << std::endl;
         requireDisposableWindowsContainer();
-        store = CertOpenStore(CERT_STORE_PROV_SYSTEM_A, 0, 0, CERT_SYSTEM_STORE_CURRENT_USER, "ROOT");
-        check(store != nullptr, "CurrentUser ROOT unavailable");
+        std::cout << "TRUST disposable-container guard complete" << std::endl;
+        // Use the documented physical-store provider, NOT raw registry writes,
+        // a protected-root-list policy edit, or UNPROTECTED_FLAG. The latter is
+        // a read/filter override, not a silent trust-import API. Container-only
+        // LocalMachine provisioning avoids the CurrentUser protected-root write
+        // path while preserving the normal production ROOT reader and TLS checks.
+        // https://learn.microsoft.com/windows/win32/api/wincrypt/nf-wincrypt-certopenstore
+        std::cout << "TRUST i2d_X509(size) begin" << std::endl;
         const int size = i2d_X509(ca, nullptr);
-        if (size <= 0) { CertCloseStore(store, 0); store = nullptr; throw std::runtime_error("test root encoding"); }
+        std::cout << "TRUST i2d_X509(size) end bytes=" << size << std::endl;
+        check(size > 0, "test root encoding size");
         std::vector<unsigned char> der(static_cast<std::size_t>(size)); auto *cursor = der.data();
-        if (size <= 0 || i2d_X509(ca, &cursor) != size || !CertAddEncodedCertificateToStore(store,
-            X509_ASN_ENCODING, der.data(), static_cast<DWORD>(der.size()), CERT_STORE_ADD_NEW, &added)) {
-            CertCloseStore(store, 0); store = nullptr;
-            throw std::runtime_error("temporary CurrentUser test root could not be added");
+        std::cout << "TRUST i2d_X509(encode) begin" << std::endl;
+        const int encoded = i2d_X509(ca, &cursor);
+        std::cout << "TRUST i2d_X509(encode) end bytes=" << encoded << std::endl;
+        check(encoded == size, "test root encoding");
+        try {
+            std::cout << "TRUST CertOpenStore(container LocalMachine physical ROOT) begin" << std::endl;
+            store = CertOpenStore(CERT_STORE_PROV_SYSTEM_REGISTRY_A, 0, 0,
+                                  CERT_SYSTEM_STORE_LOCAL_MACHINE | CERT_STORE_OPEN_EXISTING_FLAG, "ROOT");
+            const DWORD openError = store ? ERROR_SUCCESS : GetLastError();
+            std::cout << "TRUST CertOpenStore end win32=" << openError << std::endl;
+            check(store != nullptr, "container LocalMachine ROOT unavailable; existing write permission required, no elevation/fallback");
+            std::cout << "TRUST CertAddEncodedCertificateToStore(ADD_NEW) begin" << std::endl;
+            const bool inserted = CertAddEncodedCertificateToStore(store, X509_ASN_ENCODING, der.data(),
+                static_cast<DWORD>(der.size()), CERT_STORE_ADD_NEW, &added) != 0;
+            const DWORD addError = inserted ? ERROR_SUCCESS : GetLastError();
+            std::cout << "TRUST CertAddEncodedCertificateToStore end win32=" << addError << std::endl;
+            check(inserted && added, "temporary container test root could not be added; no replacement/fallback");
+            check(productionRootVisibility(added, true), "generated root not visible through production CurrentUser ROOT reader");
+        } catch (...) {
+            // A failed constructor does not run ~TrustFixture. Remove any root
+            // already inserted before propagating a visibility/setup failure.
+            (void) remove();
+            throw;
         }
 #else
         std::array<unsigned char, 12> random{}; check(RAND_bytes(random.data(), random.size()) == 1, "temporary identity");
@@ -205,14 +255,36 @@ public:
 #ifdef D6R_TRANSPORT_WINDOWS
         bool removed = true;
         if (added) {
+            std::cout << "TRUST CertDuplicateCertificateContext(cleanup identity) begin" << std::endl;
             const auto identity = CertDuplicateCertificateContext(added);
-            removed = CertDeleteCertificateFromStore(added) != 0; added = nullptr;
-            const auto remaining = CertFindCertificateInStore(store, X509_ASN_ENCODING, 0, CERT_FIND_EXISTING, identity, nullptr);
-            removed = removed && !remaining;
-            if (remaining) CertFreeCertificateContext(remaining);
-            CertFreeCertificateContext(identity);
+            const DWORD duplicateError = identity ? ERROR_SUCCESS : GetLastError();
+            std::cout << "TRUST CertDuplicateCertificateContext end win32=" << duplicateError << std::endl;
+            std::cout << "TRUST CertDeleteCertificateFromStore(container test root only) begin" << std::endl;
+            const bool deleted = CertDeleteCertificateFromStore(added) != 0; added = nullptr;
+            const DWORD deleteError = deleted ? ERROR_SUCCESS : GetLastError();
+            std::cout << "TRUST CertDeleteCertificateFromStore end win32=" << deleteError << std::endl;
+            removed = deleted && identity;
+            if (identity) {
+                std::cout << "TRUST CertFindCertificateInStore(physical ROOT removal) begin" << std::endl;
+                const auto remaining = CertFindCertificateInStore(store, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+                                                                  0, CERT_FIND_EXISTING, identity, nullptr);
+                const DWORD findError = remaining ? ERROR_SUCCESS : GetLastError();
+                std::cout << "TRUST CertFindCertificateInStore end present=" << (remaining != nullptr)
+                          << " win32=" << findError << std::endl;
+                removed = removed && !remaining && findError == static_cast<DWORD>(CRYPT_E_NOT_FOUND);
+                if (remaining) CertFreeCertificateContext(remaining);
+                const bool absentFromReader = productionRootVisibility(identity, false);
+                removed = removed && absentFromReader;
+                CertFreeCertificateContext(identity);
+            }
         }
-        if (store) { CertCloseStore(store, 0); store = nullptr; }
+        if (store) {
+            std::cout << "TRUST CertCloseStore(physical ROOT) begin" << std::endl;
+            const bool closed = CertCloseStore(store, 0) != 0; store = nullptr;
+            const DWORD closeError = closed ? ERROR_SUCCESS : GetLastError();
+            std::cout << "TRUST CertCloseStore end win32=" << closeError << std::endl;
+            removed = removed && closed;
+        }
         std::cout << (removed ? "TRUST cleanup confirmed" : "TRUST cleanup FAILED; disposable container destruction required") << std::endl;
         return removed;
 #else
