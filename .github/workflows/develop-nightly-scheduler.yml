@@ -11,13 +11,11 @@ concurrency:
 
 jobs:
   scheduler:
-    name: Scheduler
+    name: Activate Scheduler
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PAT_ACTIONS }}
+      GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v7
       - run: gh workflow disable "${{ github.workflow }}"
-        env:
-          GH_TOKEN: ${{ secrets.PAT_ACTIONS }}
       - run: gh workflow run develop-nightly.yml --ref sanity
-        env:
-          GH_TOKEN: ${{ secrets.PAT_ACTIONS }}
