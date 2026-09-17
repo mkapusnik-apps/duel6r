@@ -70,8 +70,8 @@ fi
 cp "${tmp_build_dir}/duel6r-resolver.exe" "${workspace_dir}/${output_dir}/duel6r-resolver.exe"
 cp -R "${workspace_dir}/resources/." "${workspace_dir}/${output_dir}/"
 cp "${workspace_dir}/README.md" "${workspace_dir}/LICENSE" "${workspace_dir}/${output_dir}/"
-mkdir -p "${workspace_dir}/${output_dir}/docs"
-cp -R "${workspace_dir}/docs/." "${workspace_dir}/${output_dir}/docs/"
+# Remove development documentation left by earlier bundle builds.
+rm -rf "${workspace_dir}/${output_dir}/docs"
 
 python3 - "${workspace_dir}/${output_dir}" <<'PY'
 import pathlib
@@ -266,9 +266,17 @@ import pathlib
 import sys
 
 root = pathlib.Path(sys.argv[1])
+# Shared docs were removed; retain all other records for the opposite platform.
+retained_manifest = root / "linux-x86_64.sha256sums"
+if retained_manifest.exists():
+    records = retained_manifest.read_bytes().splitlines(keepends=True)
+    retained_manifest.write_bytes(b"".join(
+        record for record in records if not record.partition(b"  ")[2].startswith(b"docs/")
+    ))
+
 files = list(root.glob("*.exe")) + list(root.glob("*.dll"))
 files += [root / name for name in ("README.md", "LICENSE", "windows-dependencies.txt")]
-for directory in ("data", "levels", "profiles", "shaders", "sound", "textures", "docs"):
+for directory in ("data", "levels", "profiles", "shaders", "sound", "textures"):
     files.extend(path for path in (root / directory).rglob("*") if path.is_file())
 with (root / "windows-x86_64.sha256sums").open("w") as manifest:
     for path in sorted(files):

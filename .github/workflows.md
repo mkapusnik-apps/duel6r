@@ -79,6 +79,9 @@
 - The workflow stops before compilation when either exact image is unavailable.
 - The workflow packages the shared Linux and Windows files as `duel6r-nightly.zip`.
 - The ZIP root contains the files from `build` without a `build` directory.
+- Both build scripts exclude development documentation in `docs/` from runtime bundles and their platform checksum manifests. They also remove stale `build/docs` content.
+- A single-platform rebuild removes `docs/` records from a retained opposite-platform checksum manifest. It preserves all other records.
+- This exclusion applies to nightly, master release, and local bundles. Runtime resources, `README.md`, and `LICENSE` remain in the bundle.
 - GitHub Actions uses a one-day transport artifact between the build and release jobs.
 - The repository provides the stable `nightly` tag.
 - The release job moves the `nightly` tag to the workflow commit.
