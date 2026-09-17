@@ -14,6 +14,36 @@
 #include "source/client/ConnectionPlan.h"
 #include "source/network/NetworkTrustPolicy.h"
 #include "source/network/SessionTransport.h"
+#include "source/network/PublicSession.h"
+
+D6R_TEST_CASE("public invitations are bounded exact environment credentials and erased on denial") {
+    namespace P = Duel6::Network::PublicSession;
+    const std::vector<std::uint8_t> application{'D', '6', 'R', 'A', 1};
+    const std::string staging = "staging-test-only-0123456789abcdef";
+    const std::string production = "production-test-only-0123456789abcdef";
+    for (const auto &expected : {staging, production, std::string("rotated"), std::string()}) {
+        auto payload = P::wrapAdmission(application, staging);
+        const bool allowed = P::unwrapAdmission(payload, expected);
+        D6R_REQUIRE(allowed == (expected == staging));
+        D6R_REQUIRE(payload == (allowed ? application : std::vector<std::uint8_t>{}));
+    }
+    for (const auto &invalid : {std::string(), std::string(257, 'x'), std::string("a b"),
+                               std::string("a\nb"), std::string("a\0b", 3), std::string("\xc3\xa9")}) {
+        D6R_REQUIRE(!P::validInvite(invalid));
+        D6R_REQUIRE(P::wrapAdmission(application, invalid).empty());
+    }
+    D6R_REQUIRE(P::validInvite(std::string(256, '~')));
+    const auto envelope = P::wrapAdmission(application, staging);
+    for (std::size_t length = 0; length <= staging.size() + 6; ++length) {
+        auto partial = std::vector<std::uint8_t>(envelope.begin(), envelope.begin() + length);
+        D6R_REQUIRE(!P::unwrapAdmission(partial, staging));
+        D6R_REQUIRE(partial.empty());
+    }
+    auto malformed = envelope;
+    malformed[4] = 255; malformed[5] = 255;
+    D6R_REQUIRE(!P::unwrapAdmission(malformed, staging));
+    D6R_REQUIRE(malformed.empty());
+}
 
 namespace {
     using namespace Duel6;

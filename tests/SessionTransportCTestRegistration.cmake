@@ -213,6 +213,27 @@ if (NOT D6R_TRANSPORT_ONLY)
             LABELS "application;integration;network;runtime;presentation;reconnect;regression"
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
             TIMEOUT 180)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(duel6r-public-dedicated-runtime-tests
+                ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedRuntimeTests.cpp)
+        target_include_directories(duel6r-public-dedicated-runtime-tests PRIVATE ${CMAKE_SOURCE_DIR})
+        get_target_property(D6R_PUBLIC_TEST_LIBRARIES duel6r-network-session-runtime-tests LINK_LIBRARIES)
+        target_link_libraries(duel6r-public-dedicated-runtime-tests ${D6R_PUBLIC_TEST_LIBRARIES})
+        add_test(NAME duel6r-public-dedicated-process-tests
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                        $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources)
+        set_tests_properties(duel6r-public-dedicated-process-tests PROPERTIES
+                LABELS "application;integration;network;public;tls;security"
+                TIMEOUT 180)
+        add_test(NAME duel6r-public-dedicated-review-regressions
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                        $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources --review-regressions)
+        set_tests_properties(duel6r-public-dedicated-review-regressions PROPERTIES
+                LABELS "application;integration;network;public;tls;recovery;regression"
+                TIMEOUT 600)
+    endif ()
 endif ()
 
 if (NOT D6R_TRANSPORT_ONLY)
