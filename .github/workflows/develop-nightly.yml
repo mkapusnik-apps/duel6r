@@ -5,7 +5,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   source:
@@ -102,6 +102,12 @@ jobs:
           name: nightly-release-asset
           path: release-assets
 
+      - name: Validate nightly artifact
+        shell: bash
+        run: |
+          test -s release-assets/duel6r-nightly.zip
+          unzip -t release-assets/duel6r-nightly.zip
+
       - name: Move nightly tag
         uses: mkapusnik-apps/commons/git-ref@v1
         with:
@@ -110,7 +116,18 @@ jobs:
           token: ${{ secrets.PAT_ACTIONS }}
           create_if_missing: 'false'
 
-      - name: Create or update nightly release
+      - name: Delete existing nightly release without deleting the tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --paginate --jq '.[] | select(.tag_name == "nightly") | .id')"
+          if [[ -n "${release_id}" ]]; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}"
+          fi
+
+      - name: Publish fresh nightly release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: nightly
