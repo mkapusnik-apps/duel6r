@@ -31,3 +31,5 @@ Visual impact: header and role clarification only. Preserve the participant/rost
 - The host-departure note must not cover results, disabled reasons, or footer actions at 850 by 700.
 
 Representative SS-018 remains a host lobby with three participants, six players, and one unready guest. A local trusted TLS service fixture may exercise the real public admission path. SS-025 remains the retained-result representative.
+
+For this extension, NET-PUB-VIS-AC-001–004 in the [screen inventory](../../screens/README.md#public-pilot-visual-evidence-scope) permit an ordinary completed public result for the SS-025 public profile. Capture it at `docs/design/screenshots/NET-04/NET-04-R.public.png`. Preserve the legacy fourteen-winner/five-departed scenario, artifact, and assessment separately. See the [capture plan](../screenshots/README.md#remaining-representative-scope-and-reproduction). No result behavior or maximum-content requirement changes.

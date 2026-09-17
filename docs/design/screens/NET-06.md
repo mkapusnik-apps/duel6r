@@ -11,3 +11,5 @@ Visual impact is localized role and session-context copy. No new layout or contr
 - Confirmed termination must use the NET-08 or NET-09 presentation rather than claim that results were saved or the session can resume.
 
 SS-020 remains the representative. Acceptance requires complete result access and readable role-correct actions at the supported minimum sizes. A local trusted TLS session can produce this state through an actual completed match.
+
+NET-PUB-VIS-AC-001–004 in the [screen inventory](../../screens/README.md#public-pilot-visual-evidence-scope) permit an ordinary actual completed summary for the SS-020 public profile at `docs/design/screenshots/NET-06/NET-06.public.png`. Preserve the legacy fourteen-winner/maximum-name/departed-winner scenario and its evidence separately. This changes capture scope only, not result requirements or functional regression acceptance. See the [capture plan](../screenshots/README.md#remaining-representative-scope-and-reproduction).
