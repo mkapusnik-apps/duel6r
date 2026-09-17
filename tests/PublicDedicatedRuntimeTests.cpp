@@ -168,13 +168,34 @@ int main(int argc, char **argv) {
                 setup.localPlayerNames = {"Controller"};
                 setup.fixedLevel = "levels/arena.json";
                 setup.roundLimit = 1; setup.quickLiquid = summary;
+                // The lobby can already have this round limit/Quick Liquid
+                // value. Require a distinguishable real update to reach BOTH
+                // clients before sending Ready on their independent streams;
+                // otherwise a later SetupUpdate legitimately clears guest Ready.
+                setup.assistance = !first.snapshot().canonical->settings.assistance;
                 require(first.updateHostSetup(setup), "review setup enqueue");
-                require(pump([&] { return second.snapshot().canonical->settings.quickLiquid == summary
-                    && second.snapshot().canonical->settings.roundLimit == 1; }, 5s), "review setup propagation");
+                require(pump([&] {
+                    for (auto *runtime : {&first, &second}) {
+                        const auto s = runtime->snapshot();
+                        if (!s.canonical || s.canonical->settings.assistance != setup.assistance
+                            || s.canonical->settings.quickLiquid != setup.quickLiquid
+                            || s.canonical->settings.roundLimit != setup.roundLimit
+                            || s.canonical->settings.fixedLevel != setup.fixedLevel
+                            || s.canonical->settings.levelPlan != setup.levelPlan
+                            || s.canonical->settings.mode != setup.mode) return false;
+                    }
+                    return true;
+                }, 5s), "review setup propagation to both clients");
                 first.setReady(true); second.setReady(true);
-                require(pump([&] { const auto s = first.snapshot(); return std::all_of(
-                    s.canonical->participants.begin(), s.canonical->participants.end(),
-                    [](const auto &p) { return p.ready; }); }, 5s), "review readiness");
+                require(pump([&] {
+                    for (auto *runtime : {&first, &second}) {
+                        const auto s = runtime->snapshot();
+                        if (!s.canonical || s.canonical->participants.size() != 2
+                            || !std::all_of(s.canonical->participants.begin(), s.canonical->participants.end(),
+                                           [](const auto &p) { return p.ready; })) return false;
+                    }
+                    return true;
+                }, 5s), "review readiness");
                 first.startMatch();
                 require(pump([&] { return second.snapshot().journey == J::Match; }, 10s), "review active match");
                 if (summary) require(pump([&] { return second.snapshot().journey == J::Summary; }, 90s), "review final summary");
