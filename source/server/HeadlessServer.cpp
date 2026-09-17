@@ -744,14 +744,6 @@ namespace {
             }
             if (received) {
                 LifecycleCredentialPayloadGuard credentialPayload(frame.payload);
-                const auto terminal = config.publicConnection
-                        ? Duel6::Network::PublicSession::terminalReason(frame.payload, admittedSessionId) : std::string_view{};
-                if (!terminal.empty()) {
-                    if (runtimeDependencies.guestRecoveryPresentation)
-                        runtimeDependencies.guestRecoveryPresentation(
-                                Duel6::Network::Lifecycle::GuestJourney::ConnectionFailure, std::nullopt, terminal);
-                    closeClient(); return 0;
-                }
                 const auto decision = processFrame(frame, true);
                 if (const auto finished = publish(decision)) return *finished;
                 if (sessionAdmitted) break;
@@ -906,6 +898,22 @@ namespace {
             catch (...) { break; }
             if (received) {
                 LifecycleCredentialPayloadGuard credentialPayload(frame.payload);
+                // Only the current verified public connection and admitted session
+                // can establish maintenance or controller expiry. A transport close
+                // or an unrelated session identity still follows ambiguous recovery.
+                const auto terminal = config.publicConnection && sessionAdmitted && sessionRecovery
+                        ? Duel6::Network::PublicSession::terminalReason(frame.payload, admittedSessionId)
+                        : std::string_view{};
+                if (!terminal.empty()) {
+                    if (runtimeDependencies.guestRecoveryPresentation) {
+                        try { runtimeDependencies.guestRecoveryPresentation(
+                                Duel6::Network::Lifecycle::GuestJourney::ConnectionFailure, std::nullopt, terminal); }
+                        catch (...) {}
+                    }
+                    output << terminal << '\n';
+                    closeClient();
+                    return 0;
+                }
                 if (const auto ended = Duel6::Network::Lifecycle::deserializeIntentionalHostEnd(frame.payload)) {
                     if (sessionRecovery && sessionRecovery->acceptIntentionalHostEnd(
                             *ended, guestConnectionId, frame.receivedAt)) {

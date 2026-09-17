@@ -2017,7 +2017,7 @@ namespace Duel6 {
             drawText(294, 542, "MATCH SUMMARY • LAST CONFIRMED");
             drawSummary(snap);
         } else {
-            drawText(286, 542, "NETWORK LOBBY • LAST CONFIRMED");
+            drawText(286, snap.publicSession ? 650 : 542, "NETWORK LOBBY • LAST CONFIRMED");
             drawLobby(snap);
         }
         renderer.setViewMatrix(Matrix::IDENTITY);

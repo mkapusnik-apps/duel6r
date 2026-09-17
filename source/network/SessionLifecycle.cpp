@@ -680,7 +680,10 @@ namespace Duel6::Network::Lifecycle {
         std::set<ParticipantId> removals = pendingLeaves;
         try {
             for (auto &[id, participant]: participants)
-                if (!participant.connected && participant.reservation && participant.reservation->expireIfDue())
+                // Accessors used by reconnect authorization may already have expired
+                // and erased the credential. Cleanup must observe that persistent
+                // invalid state, not depend on winning the expiry transition.
+                if (!participant.connected && participant.reservation && !participant.reservation->valid())
                     removals.insert(id);
         } catch (...) {
             pendingLeaves.insert(removals.begin(), removals.end());
