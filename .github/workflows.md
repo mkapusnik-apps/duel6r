@@ -64,6 +64,10 @@
 - These targets include the production transport, server, resolver, host supervisor, and registered test executables.
 - The container verifies the build tools and required Visual C++ runtime libraries before CMake starts.
 - The container puts the Visual C++ runtime libraries beside the native executables before CTest starts.
+- The native tool image includes checksum-pinned FireDaemon OpenSSL 3.5.8 LTS x64
+  headers, MSVC import libraries, DLLs, and command-line tools. CMake uses its explicit
+  installation root. The container copies both OpenSSL runtime DLLs beside the executables
+  before CTest starts. OpenSSL configuration and module paths refer to the image installation.
 - The container runs all CTests that the transport-only configuration registers.
 - The job needs `contents: read` permission.
 - The job does not use repository secrets and does not create an artifact.

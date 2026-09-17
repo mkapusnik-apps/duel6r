@@ -5,6 +5,8 @@ FROM mcr.microsoft.com/dotnet/framework/runtime:4.8.1-windowsservercore-ltsc2025
 ARG CMAKE_VERSION=3.31.8
 ARG NINJA_VERSION=1.12.1
 ARG PYTHON_VERSION=3.13.5
+ARG OPENSSL_VERSION=3.5.8
+ARG OPENSSL_SHA256=A5377866B476C1661F329D3F25FC35912FA5EF01E614043B9B9A27BAF8DD76A4
 
 SHELL ["powershell", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
 
@@ -21,6 +23,18 @@ RUN $ErrorActionPreference = 'Stop'; `
     $process = Start-Process C:\python.exe -ArgumentList '/quiet InstallAllUsers=1 TargetDir=C:\Python313 Include_pip=0 Include_launcher=0 Include_test=0 Shortcuts=0' -Wait -PassThru; `
     if ($process.ExitCode -ne 0) { throw "Python installation failed with exit code $($process.ExitCode)" }; `
     Remove-Item C:\python.exe
+
+RUN $ErrorActionPreference = 'Stop'; `
+    Invoke-WebRequest -UseBasicParsing -UserAgent 'Mozilla/5.0' "https://download.firedaemon.com/FireDaemon-OpenSSL/openssl-${env:OPENSSL_VERSION}.zip" -OutFile C:\openssl.zip; `
+    if ((Get-FileHash C:\openssl.zip -Algorithm SHA256).Hash -ne $env:OPENSSL_SHA256) { throw 'OpenSSL archive checksum mismatch' }; `
+    Expand-Archive C:\openssl.zip C:\openssl; `
+    Move-Item C:\openssl\x64 C:\Tools\OpenSSL; `
+    Move-Item C:\openssl\ssl C:\Tools\OpenSSL\ssl; `
+    Move-Item C:\openssl\LICENSE.txt C:\Tools\OpenSSL\LICENSE.txt; `
+    Remove-Item -Recurse -Force C:\openssl, C:\openssl.zip
+
+ENV OPENSSL_CONF=C:\Tools\OpenSSL\ssl\openssl.cnf
+ENV OPENSSL_MODULES=C:\Tools\OpenSSL\lib\ossl-modules
 
 WORKDIR C:\workspace
 
