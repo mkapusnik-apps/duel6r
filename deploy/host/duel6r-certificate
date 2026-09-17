@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+source /etc/duel6r/environment
+lineage="/etc/letsencrypt/live/${HOSTNAME_TLS}"
+openssl x509 -in "$lineage/cert.pem" -noout -checkend 0 -checkhost "$HOSTNAME_TLS"
+openssl verify -verify_hostname "$HOSTNAME_TLS" -CApath /etc/ssl/certs \
+  -untrusted "$lineage/chain.pem" "$lineage/cert.pem"
+umask 077
+cat "$lineage/fullchain.pem" "$lineage/privkey.pem" > /etc/duel6r/tls.pem.new
+mv /etc/duel6r/tls.pem.new /etc/duel6r/tls.pem
+haproxy -c -f /etc/haproxy/haproxy.cfg
+systemctl try-reload-or-restart haproxy

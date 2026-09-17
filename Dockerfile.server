@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1
+FROM ubuntu:24.04 AS build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake libssl-dev ca-certificates python3 \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY CMakeLists.txt ./
+COPY source/ source/
+COPY resources/ resources/
+COPY tests/ tests/
+RUN cmake -S . -B /build -DCMAKE_BUILD_TYPE=Release \
+    -DD6R_TRANSPORT_ONLY=ON -DBUILD_TESTING=ON \
+    && cmake --build /build -j2 \
+    && ctest --test-dir /build --output-on-failure
+
+FROM ubuntu:24.04
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl3t64 libstdc++6 ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 duel6r \
+    && useradd --uid 10001 --gid 10001 --no-create-home duel6r
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.source="https://github.com/mkapusnik-apps/duel6r" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      cz.netusite.duel.deployment-contract="1"
+COPY --from=build /build/duel6r-server /build/duel6r-resolver /usr/local/bin/
+COPY resources/data/ /opt/duel6r/resources/data/
+COPY resources/levels/ /opt/duel6r/resources/levels/
+COPY LICENSE /opt/duel6r/LICENSE
+USER 10001:10001
+WORKDIR /opt/duel6r
+ENTRYPOINT ["duel6r-server"]
+CMD ["--dedicated", "--transport", "--host=127.0.0.1", "--port=26661", "--resources=/opt/duel6r/resources", "--trusted-proxy-protocol=v2", "--invite-file=/run/secrets/invite", "--readiness-socket=/run/duel6r/ready.sock"]

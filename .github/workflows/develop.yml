@@ -5,9 +5,18 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}
-  cancel-in-progress: true
+  # Do not cancel a run while its final deployment replaces a live service.
+  cancel-in-progress: false
 
 jobs:
+  deploy-staging:
+    needs: [tag]
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    uses: ./.github/workflows/deploy-server.yml
+
   build-images:
     name: Publish exact-SHA build images
     permissions:

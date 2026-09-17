@@ -1,5 +1,29 @@
 # Workflow Lifecycle
 
+## Public dedicated pilot
+
+- See [pilot operations](../deploy/README.md) for infrastructure, authorization, DNS,
+  certificates, invitations, readiness, rollback, cost, and teardown.
+- `develop.yml` calls `deploy-server.yml` after `tag` succeeds.
+- Develop runs no longer cancel active runs: cancellation during service replacement
+  can interrupt activation. Deployment jobs serialize each environment separately.
+- `master-release.yml` builds its Linux tool image from the checked-out source and runs
+  the existing full Linux CTests before it calls the production deployment path.
+- Existing Windows packaging, nightly publication, and PR checks retain their paths.
+- Production uses the protected `production` environment. An operator must configure
+  required reviewers, prevent self-review, and restrict its branch to `master`.
+- The workflow rejects production activation when the required-reviewer rule is absent.
+- Cloud operations are skipped until repository variable `PUBLIC_PILOT_ACTIVATED` is `true`.
+  A skipped deployment is not public readiness.
+- Each environment uses its own WIF deploy identity in project `duel-6-reloaded`.
+- The server image runs the existing headless CTests, records the exact source SHA,
+  and deploys by registry digest. Failed builds do not deploy.
+- The VM checks backend readiness before public TLS starts. CI checks public TLS identity
+  separately. Neither check claims successful player admission or gameplay.
+- Staging starts for replacement and stops afterward, including on activation failure.
+- Manual dispatch from the matching branch redeploys a recorded digest/source pair.
+  Production approval also applies to rollback. Old sessions are never restored.
+
 ## Feature sanity check
 
 - `Feature - Sanity check` starts for a pull request that targets `develop`.
