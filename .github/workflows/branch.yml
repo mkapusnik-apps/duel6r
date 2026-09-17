@@ -14,29 +14,23 @@ jobs:
     runs-on: self-hosted
     permissions:
       contents: read
-      packages: read
+    env:
+      BUILD_IMAGE: duel6r-pr-build:${{ github.run_id }}-${{ github.run_attempt }}
 
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-
-      - name: Pull build image
-        run: docker pull ghcr.io/${{ github.repository }}/build:develop
+      - name: Build Linux tool image from the checked-out source
+        run: docker build --tag "$BUILD_IMAGE" .
 
       - name: Build inside container
         run: |
           bash docker/run-with-daemon-workspace.sh \
             -e BUILD_TESTING=ON \
             -e RUN_TESTS=ON \
-            ghcr.io/${{ github.repository }}/build:develop
+            "$BUILD_IMAGE"
 
       - name: Upload CTest diagnostics
         if: failure()
