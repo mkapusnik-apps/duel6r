@@ -69,6 +69,19 @@
   installation root. The container copies both OpenSSL runtime DLLs beside the executables
   before CTest starts. OpenSSL configuration and module paths refer to the image installation.
 - The container runs all CTests that the transport-only configuration registers.
+- The container build command enables `D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS`.
+  Only the disposable `docker run --rm` invocation receives
+  `D6R_DISPOSABLE_WINDOWS_CONTAINER=1`; the host environment is not changed.
+- The tester-owned CTest registration supplies the explicit Windows trust permission.
+  The test must also recognize the container's real `ContainerType` marker before it
+  accesses CurrentUser ROOT. A missing or unsupported marker fails the job; do not
+  create a marker, disable the guard, or run the test on the host.
+- The temporary root belongs only to the container's user profile. Test cleanup removes
+  it on normal/error exits; Docker auto-removal destroys the profile when the container
+  exits after a failure or test timeout. No host trust store or user profile is mounted.
+- Final native TLS evidence must show `duel6r-portable-tls-tests` passing in the existing
+  `MSVC x64 transport CTests` job. Compilation or an aggregate success without that
+  test's execution is not sufficient for the task's Ready-for-review gate.
 - The job needs `contents: read` permission.
 - The job does not use repository secrets and does not create an artifact.
 - This workflow provides issue acceptance evidence.

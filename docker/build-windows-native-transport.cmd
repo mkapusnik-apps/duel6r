@@ -31,7 +31,7 @@ if not exist "%D6R_VC_RUNTIME_DIR%\vcruntime140.dll" (echo Unable to locate vcru
 echo Visual Studio C++ tools: %D6R_VCTOOLS_VERSION%
 echo Windows SDK: %D6R_WINDOWS_SDK_VERSION%
 
-cmake -S C:\workspace -B C:\workspace\build-windows-native-transport -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DD6R_TRANSPORT_ONLY=ON -DOPENSSL_ROOT_DIR=C:\Tools\OpenSSL
+cmake -S C:\workspace -B C:\workspace\build-windows-native-transport -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DD6R_TRANSPORT_ONLY=ON -DD6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS=ON -DOPENSSL_ROOT_DIR=C:\Tools\OpenSSL
 if errorlevel 1 exit /b %errorlevel%
 
 cmake --build C:\workspace\build-windows-native-transport --config Release
