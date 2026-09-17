@@ -1,12 +1,13 @@
 # UX screenshot coverage and integration evidence
 
-## Public-service extension — pending coverage
+<a id="public-service-extension--pending-coverage"></a>
+## Public-service extension — current coverage
 
-This section owns pending capture and assessment for the public-service extension only. The legacy manifest below retains authority for unchanged baseline artifacts. New captures must use the canonical destinations in this table and replace the same wireframe's artifact on later revisions. Do not create a new screenshot identity for a minor role, copy, or failure variant.
+This section owns capture and assessment for the public-service extension only. The legacy manifest below retains authority for unchanged baseline artifacts. Later recaptures must replace the same public-profile artifact at the destinations below. Do not create a new screenshot identity for a minor role, copy, or failure variant.
 
 The approved [NET-PUB-VIS-AC-001–004 scope](../../screens/README.md#public-pilot-visual-evidence-scope) permits ordinary actual public representatives for NET-05, NET-06, and NET-04-R. Their rows below are public-extension profiles of the existing IDs, not replacements for legacy extreme-scenario definitions. The `.public.png` destinations keep the public artifacts separate from historical legacy files. No new screen or wireframe is introduced.
 
-Seven representatives and fourteen supplemental images have been inspected. The current assessment below records five conforming representatives, two blocked representatives, and three missing representatives. Historical LAN evidence does not establish public-service conformance. No acceptance is assigned to an uncaptured public state.
+All ten public representatives conform within NET-PUB-VIS-AC-001–004: six corrected/new captures plus four unchanged previously assessed captures. UX inspected all six new canonical images and all 38 new supplements. The four reused representatives retain their original provenance and assessment. No required public representative is missing. Historical LAN evidence does not establish public-service conformance; public evidence does not establish legacy extreme-state regression acceptance.
 
 There are no URL routes. Routes below are local UI workflows. The standard profile is the existing desktop retro presentation, full client capture, standard input and font settings. Use 1920 by 1080 for menu representatives and 1280 by 900 for arena-context representatives. Behavioral boundary checks must cover 850 by 700 and 1280 by 720; they do not require a second default representative per wireframe.
 
@@ -46,45 +47,49 @@ QA must also supply observations for custom private-LAN connection, staging addr
 - The accepted capture packet must contain every affected representative and its required metadata and hashes.
 - Supplied behavior evidence must establish transitions that still images cannot prove.
 
-Visual gate: blocked
+Visual gate: satisfied
 
-Reason: NET-03 control/focus presentation and NET-07 active-round notices need correction; SS-019, SS-020, and SS-025 remain uncaptured for the public path. Functional reconciliation is complete; DNS and cloud availability do not block local visual verification. Exact-hash integration requires no second assessment unless presentation source, artifacts, or UX-owned content changes.
+PUI-01–03 are resolved, PUI-04 is resolved, and the three ordinary public representatives are assessed. No further capture is required for this visual scope. Exact-hash integration requires no second assessment unless presentation source, artifacts, or UX-owned content changes. Security, native Windows, functional regression, infrastructure review, and live deployment remain separate team gates.
 
 ### Current artifact assessment
 
-UX inspected the actual seven canonical PNGs and fourteen supplements supplied in `/tmp/opencode/public-gui-capture-report.md`. The supplied report SHA-256 is `6b2f4736003d8d0d98cff81f55f6058622f7334142c773e7847946cf4ab5835d`. All hashes here are supplied by developer, not independently recomputed by UX.
+Current handoff: `/tmp/opencode/public-gui-recapture-report.md`, supplied SHA-256 `c56bab000d1d9b0a9c4008130f2d11e055ca1bcbef929ac5cb430e9d4a7c0713`. Full timestamp/viewport inventory: `/tmp/opencode/public-gui-recapture-inventory.json`, supplied SHA-256 `c44e7677666b98f868e47675d314772496869e86cc7c544ff0fb1aa7ec70525f`. All hashes here are supplied by developer, not independently recomputed by UX.
 
-The production source is `a985ada14a3f514c0158d85a9bc8946c1c00dc03`. Capture checkout is `77f847ab70d53b8562efb56db0a52dc47e6884c8`; the frozen production artifact was unchanged. Environment: Ubuntu 24.04 Docker, network isolation, Xvfb, Release GL4, Lua ON, software rendering, dummy audio, standard font and input profile. The actual GUI binary hash is `1e72ea10403d93b846dd0d3b9c91fbbc94664ac8d4a5b9e6aab290dd0870f80b`.
+The six new artifacts use production source `a69a5adfd8fadb95e2024179bb5ecbd6ab3a62ad`, accepted QA checkpoint `424c4bde8a945f010432b554ad6de4e8c1ddc422`, and capture checkout `074bfe13ef214cea6a61833f2666759c9ab007f4` with unchanged production source. GUI SHA-256: `8d2522f14f083befdbef596a5ff2b4ca7cc44ad01446b50588800158dc22b947`. Environment: Ubuntu 24.04 Docker, network isolation, Xvfb fullscreen, Release GL4, Lua ON, software rendering, dummy audio, standard font/input. Source review and affected QA PASS are supplied team evidence, not tests run by UX.
 
-Public connections used a real dedicated backend through trusted local TLS routes with endpoint identity validation and invitation enforcement. No production/staging DNS or cloud deployment is claimed. Menu representatives used 1920x1080; arena-context representatives used 1280x900. Canonical destinations and reproduction routes remain in the matrix above. SS-017 used explicit paste rather than typing; its production-default endpoint was never connected. Match representatives used six players in actual Deathmatch on Duel 16, one round, Assistance on, Quick Liquid off, and Burnable Trees on.
+SS-015, SS-018, SS-026, and SS-023 reuse unchanged artifacts from `a985ada14a3f514c0158d85a9bc8946c1c00dc03`. Their original handoff is `/tmp/opencode/public-gui-capture-report.md`, SHA-256 `6b2f4736003d8d0d98cff81f55f6058622f7334142c773e7847946cf4ab5835d`. They must not be relabeled as captures from a69a5ad. Earlier SS-017/021/022 hashes are superseded by the table below.
+
+All connected captures use actual admission through trusted local TLS with identity validation and invitation enforcement. The canonical ordinary sequence uses two participants with one player each, Deathmatch, fixed Duel 01, one round, Assistance off, Quick Liquid off, Burnable Trees on, and 1280x900 clients. Guest movement into water produced Host One's real win; the visible result records seed `3355622747484268544`, Duel 01 Mirrored, player 2 as winner. SS-020 and SS-025 are the same session, Host process, and startup viewport with Return to lobby between them. SS-021 is a subsequent active match interrupted and restored before expiry. No fabricated results, forced outcomes, or cloud readiness are claimed. SS-017 and SS-022 use 1920x1080.
 
 | Entry | Current conformance | Supplied image SHA-256 |
 |---|---|---|
 | SS-015 | Conforms for entry hierarchy, scope, complete action captions, initial Connect focus, and containment. | `49dbb5bb8f3c41287f99f7c98e96194c3cf90d89b3b1511985322528de461b2c` |
-| SS-017 | Blocked by PUI-01 and PUI-02 below. Masked value, production hostname, port, consequences, and action/status regions are readable. | `e719c6f6b2c85f8c262af19511479357b77776ae64add0875a12ae3a36115a3a` |
+| SS-017 | Conforms at a69a5ad: selector marker and unfocused field boundaries are visible; empty and masked Invite, row focus, scrolling, validation and footer are contained in boundary supplements. | `a27bc8dc14d3fe083360aab59dee893850fa595454a49ca67fcb248c2da35f44` |
 | SS-018 | Conforms for confirmed Host, endpoint separation, role/connection/readiness columns, ownership, unready participant reason, and actions. Guest supplements retain read-only explanation and owned-control focus. No maximum-roster claim. | `516323aa2e62df68f59153132f24710193c49864b4b23a8d3d1a23ae6b052904` |
 | SS-026 | Conforms for explicit guest consequence, wrapped prompt, focused action/Cancel separation, and public arena context. Host confirmation supplement has the distinct everyone consequence. Still images do not prove input suppression. | `4ce0bd1a31f2f7f51acd2f92c3e558598b307557e79d1b99fc8f057d6d62e5ab` |
-| SS-021 | Blocked by PUI-03 below. Host label, 30-second countdown, retained-state label, consequence and focused End session are otherwise readable and contained. | `bff26ca89595f06253d619093585a2552859952d01e2a59216356fc90fc9300d` |
-| SS-022 | Conforms for fixed security-failure copy, endpoint containment, focused Edit setup, Return to Network, and absence of Retry/bypass. PUI-04 is advisory. | `3038446b1c489cd14a7238ad6ad5b852d50a7ba56c86f02a4aed54d3873cc452` |
+| SS-021 | Conforms at a69a5ad: both active-match notices, Host consequence, positive countdown, last-confirmed context and End action remain readable; both roles and minimum viewports assessed. | `50d933c5d6fe25a41700b573209060db3aa217a47f1f1912057d4fd8876dced7` |
+| SS-022 | Conforms at a69a5ad: fixed security failure, bounded endpoint, Edit setup focus, Return to Network, no Retry/bypass, no generic host-running helper. | `91c04703e12b15eaeaaee8725772821a8ca3e35a9e6b367d37902e9a8a8d6a1b` |
 | SS-023 | Conforms for intentional host-end message, no-resume and no-persistence copy, retained-state context and Return to Network. This is not maintenance or expiry evidence. | `58c5197fed6ad2935b7d4f3302407a516ded3f41a4ea4787ae63cfbbc79fc4bc` |
-| SS-019 | Pending: no public NET-05 representative supplied. Modal-background images do not substitute for the unobstructed representative. | None |
-| SS-020 | Pending: no public completed-summary representative supplied. | None |
-| SS-025 | Pending: no public retained-result representative supplied. Existing historical file is not current public evidence. | None |
+| SS-019 public | Conforms at a69a5ad: unobstructed actual public match, Host/Connected status, script/score notices and actual degraded text readable. No Invisibility-combination claim. | `94f8c4c69ce0f75c055bbfa9209ada2780bd3164b0db2981c8cb025002ff5aca` |
+| SS-020 public | Conforms at a69a5ad: Completed, separate outcomes, Session only/no-persistence notice, actual result access, and role-correct actions. Summary has no endpoint/status region to relabel; no new result field is required. | `de64242e437288f3737f407067691078d5c480b20dbe61d09dc45fcf9f7a9e14` |
+| SS-025 public | Conforms at a69a5ad: same-session retained Completed result, public role/context, cleared readiness, fixed outcome labels/footer and bounded scrollable result region. | `1d4a0f3fae2c4e4f70b860247577302f516c148428994cac2fc0292eb3968b77` |
 
-Menu background identity from the report is `forest-foundry.png` for SS-015/017/018 and `alpine-flood.png` for SS-022. Their hashes are respectively `fa3d12b5dac0508d44596671d54ecdd999b87772b4a58d743bbe25d335b1fef4` and `45be6836764a5e1b0d36aa19abfb884335454a67760dd5b1f6272a56cb49984e`. Runtime asset manifest SHA-256 is `47b967fdb0bb12e97394564906b7c3c0548cfc257d7cf7fb724791270fdb6542`. Arena background filenames were visually identified only; no canonical identity/mirror trace was supplied. Assessment therefore does not establish deterministic fallback equivalence or exact mirror-state conformance. Visible upright player/terrain context has no observed orientation defect.
+Current menu backgrounds are `forest-foundry.png` for SS-017 (also reused SS-015/018), `jungle-channel.png` for new SS-022 and the ordinary summary/retained pair, and `alpine-flood.png` for boundary clients. Their respective hashes are `fa3d12b5dac0508d44596671d54ecdd999b87772b4a58d743bbe25d335b1fef4`, `9f3f57ed5e8b68f50a791fdacfc2a650f9cbcbf62746237586ba50d07f1d6769`, and `45be6836764a5e1b0d36aa19abfb884335454a67760dd5b1f6272a56cb49984e`. New runtime asset manifest SHA-256 is `4c7ec3c33a0230e681d4c5a7e40ae081355374cdd89f502fbc57a9a50e5ea402`. Arena asset identification is visual rather than an instrumented fallback trace. No deterministic fallback or full orientation regression claim is made.
 
-### Findings and required correction
+### Findings — resolved
 
-- **PUI-01 — Blocking, NET-03:** At both 850x700 and 1280x720, the focused first Persons row outline reaches through the next person's text. Keep the complete focus outline and caption within a non-overlapping row region. Preserve both person labels and selection cues. Replace the focused-row supplements after correction.
-- **PUI-02 — Blocking, NET-03:** The new Connection type value has no visible selector affordance. Unfocused address, Port, and Invite have no visible field boundaries; an empty Invite is visually indistinguishable from blank panel space. Reuse the existing network field/selector treatment so users can identify the inputs before focus. Do not add a new flow or infer mode from the endpoint. Replace SS-017 plus minimum-size editable/empty-invite evidence.
-- **PUI-03 — Blocking, NET-07:** The active-match Host reconnect panel shows the Host consequence but omits `Match continues while you reconnect` and `Reserved players receive no input and remain in play`. The owning reconnect contract retains active-session presentation for both public roles. Add these persistent notices without displacing the countdown or End session action. Recapture SS-021 and its 850x700 bound check. Verify the isolated End confirmation separately; the connected Host End supplement does not prove it.
-- **PUI-04 — Advisory, NET-08:** The generic instruction to check that the host session is running is poorly matched to a dedicated service that can create its first session on admission. The authoritative security failure and recovery actions are correct. Prefer omitting the generic player-hosted helper for this public security outcome; retain fixed product-owned copy. No extra recovery behavior is requested.
+- **PUI-01 — Resolved:** Persons row focus no longer crosses neighboring text at either minimum viewport. First, last visible, scrolled and pointer-selected rows fit above the fixed status/footer.
+- **PUI-02 — Resolved:** Public/private selector has an identifiable marker; address, five-digit Port and empty/masked Invite keep visible unfocused boundaries. Maximum-input and overlength-feedback images remain contained. No credential is exposed.
+- **PUI-03 — Resolved:** Both roles show `Match continues while you reconnect` and `Reserved players receive no input and remain in play`. Host consequence, positive countdown and action fit at 850x700 and 1280x720.
+- **PUI-04 — Resolved:** The public security outcome no longer shows the generic player-hosted helper; fixed failure copy and permitted actions remain.
 
-The supplied source-review PASS and 31 passing targets are team evidence, not results independently executed by UX. The developer observations support explicit paste, mode traversal, owned-control access, and the described actual flows. They do not establish maximum input/player cases, controller-device coverage, Windows rendering/security, or every terminal notice. Team must retain the existing functional/security QA gates.
+**Isolated End layering:** Both minimum-size images show part of the inactive recovery End action behind the foreground confirmation. This is retained modal background, not a second foreground action. The complete foreground consequence, End session and Cancel remain readable, separated and unobscured. The request-or-expiry copy does not claim delivery to an unreachable service. With supplied modal input QA and observed Escape cancellation, this is not a visual blocker. This assessment does not require hiding or restyling the background or another capture; it does not authorize underlying pointer/keyboard activation while modal.
+
+Developer observations and supplied affected-state QA support input/focus, protected paste, real outcomes, result scrolling, and recovery/confirmation transitions. UX did not run these tests. The screenshots establish observed presentation, not maximum-player/extreme-result behavior, physical-controller coverage, native Windows security, all terminal notices, or full functional regression. Team retains those separate gates.
 
 ### Remaining representative scope and reproduction
 
-Product approved the evidence-only scope in NET-PUB-VIS-AC-001–004. Ordinary actual captures are now valid for the three public rows. All three remain Pending until supplied and assessed. No new product decision is needed. Existing seven-image assessments and PUI-01–03 blockers remain unchanged.
+Product approved the evidence-only scope in NET-PUB-VIS-AC-001–004. All three ordinary public rows are now captured and conform. The following sequence remains the reproduction recipe, not a request for another capture. No new product decision or visual correction remains.
 
 Practical public capture sequence:
 
@@ -108,9 +113,60 @@ The following scenario definitions, original checkpoints, hashes, and assessment
 
 Ordinary public screenshots do not verify those extremes or establish current functional regression acceptance. Changes beyond public copy/role presentation require team impact assessment and replacement evidence for any affected legacy criteria under NET-PUB-VIS-AC-004. Functional, security, Windows, and deployment gates remain separate.
 
-### Supplemental artifact assessment
+### Current supplemental artifact assessment
 
-All paths in this table are relative to `/tmp/opencode/`. These are inspected actual images, not new wireframe entries. They use the same production artifact and environment as the canonical packet, with fresh processes at 850x700 or 1280x720. Developer owns retention/integration and cleanup; copy unchanged if durable supplemental evidence is required. Do not delete evidence needed for outstanding corrections before handoff.
+All 38 images below were read and assessed. Paths are relative to `/tmp/opencode/`; all use a69a5ad and the current report's environment. `850` means 850x700; `1280` means 1280x720; the two scroll-only files are 1280x900. Inventory timestamps and session reproduction inputs remain in the hashed recapture handoff. These are supplements, not additional default wireframes.
+
+Input rows conform for field affordances, non-overlapping focus, list containment, mask clipping and fixed validation/footer placement. Recovery rows conform for positive countdowns, both active-match notices and role-specific consequences. Active-match rows preserve readable public status. Summary and retained rows conform for distinct outcomes, no-persistence copy, fixed actions/headings, and contained actual scroll access. Security rows preserve the exact failure and permitted actions. No observed blocking defect remains.
+
+Boundary session A has Host at 850x700 and Guest at 1280x720, seed `12182773237827809280`. Boundary session B reverses roles through a new admission, not migration, seed `10548663201201477632`. Each summary/retained pair is the actual same-session result at unchanged startup sizes. Player display names such as Host One or Guest One do not grant roles. The isolated-End rows have the accepted background layering described above.
+
+| Artifact | Assessed state | Supplied SHA-256 |
+|---|---|---|
+| `recapture-850-public-row.png` | Public first-row focus | `540b6bfefabda5bf7da33ccc12acc489ec88bc70ebbfe28488c9a82bad1c7cdd` |
+| `recapture-1280-public-row.png` | Public first-row focus | `d11db38ff5635cef707a8ab8d329bc7800ec3292950dcca7d6f3344585ba9d17` |
+| `recapture-850-scrolled.png` | Public last visible row | `1474e4c3a8dafb2b70a6a2f83100750640208f66f5c1964ea85bf3e8aa7bcee4` |
+| `recapture-1280-scrolled.png` | Public last visible row | `cc4c4b30502f8f6f61bc8dd38ccae919a6525cfe98736add6975155bc3357210` |
+| `recapture-850-pointer.png` | Selected Person04 and local assignment | `fe28b0751039c7cb5c2004451e18c13eaf8758d933ed72fdf78e46aa23ae47ec` |
+| `recapture-1280-pointer.png` | Selected Person04 and local assignment | `244eb06c071ac5a7b24dd12901ae07d2ebf94cdfe67f8ba4a2459b096e0a6c9e` |
+| `recapture-850-lan-row.png` | LAN first-row focus, no Invite | `ec854f8775514b2fb2434892150cd48e1fa4322aa375b3970be502ec50f6a19d` |
+| `recapture-1280-lan-row.png` | LAN first-row focus, no Invite | `1a0e9a4bc8391c2d8937807d36786f4040e2b27e3d26b76688d48f18e7ccce27` |
+| `recapture-850-lan-scrolled.png` | LAN last visible row | `ef2d565f89cda5cc18cd84e9af965ef32cff43ee27d5f6f55968d1ce26b333c9` |
+| `recapture-1280-lan-scrolled.png` | LAN last visible row | `8e6e426f045f7853b27a1ea500af936cde90bfec651eb4df3e1a86c9a03a2413` |
+| `recapture-850-max-input.png` | 253-character address and 256-character mask | `b35a304692ff3f8ac5d3c713e3ea6dc5416d7d5016dac9748ebb7713ea34757a` |
+| `recapture-1280-max-input.png` | 253-character address and 256-character mask | `2d0ab3fedbb205dae59b21badb93a783c0de3230442465959200178195e39eb8` |
+| `recapture-850-overlength.png` | Rejected extra character feedback | `27d3b7b22a29af238434c6fa64ef720e052160882ac3dc91fbf2a6e19d38c793` |
+| `recapture-1280-overlength.png` | Rejected extra character feedback | `bae8f40edc9290b9c1721dc331b56fbdacd7a44b44512f3003f11102b8684820` |
+| `recapture-850-empty-invite.png` | Port edit clears Invite; disabled reason | `e9b91869ebf405798d6a70aa26ca7da53dc6ab5584bb81620795556e8b047959` |
+| `recapture-1280-empty-invite.png` | Port edit clears Invite; disabled reason | `539a80a779e1184dfa27f2a020e5d410f565ac0316c1b53568bf78506d4352fe` |
+| `recapture-850-active.png` | Session A Host active match | `b7be7743774ec8d0028e8e05703d2123aaa0b466762b7e83d897fe8f47af375a` |
+| `recapture-1280-active.png` | Session A Guest active match | `2a7991a4df6b467ae9db5aca1eb6d38e755344dc9566b83f4ca0dda7da534bf5` |
+| `recapture-1280-active-host.png` | Session B Host active match | `1f8a8041e155f2392d6f6509221631716b3bb6fd5f844fb8ec17f9905777dffc` |
+| `recapture-1280-new-controller.png` | Session B fresh confirmed Host | `d56ea6fe5c97b7af2eaf6b0b863cede0ad5c8ecbd14f777f9fa34ca229f4410a` |
+| `recapture-850-host-reconnect.png` | Session A Host recovery | `f01cbcfcdc706937a2312a37a5631b5e2d63140f15f80d26ac44bd2b810d9f92` |
+| `recapture-1280-host-reconnect.png` | Session B Host recovery | `715b70696827e2e0344cb58e5b4bd0fcaf399327c954800c8c24eb7d81a42bf0` |
+| `recapture-850-guest-reconnect.png` | Session B Guest recovery | `620de1a89389bbf1a5337dd4596e1f4ec01de8a3b07e94ac93596a8de170952f` |
+| `recapture-1280-guest-reconnect.png` | Session A Guest recovery | `ede267c0296e9743fbeceb05ffc2235d58f366fcab37a30f83b5bd2086419ac4` |
+| `recapture-850-isolated-end.png` | Session A isolated Host confirmation | `6007734e7e0a39fb7514eea7e32382db50245256d068591a8fd682ca8ad1503d` |
+| `recapture-1280-isolated-end.png` | Session B isolated Host confirmation | `26547d15124cc93788e39fffb35a8f32180329698aba09f134f0821abc8df773` |
+| `recapture-850-summary.png` | Session A Host completed summary | `5151f22b3c527abcceecaf4b7526a8c05b45bc83a7f9671ad4ef72b1a91c61b0` |
+| `recapture-1280-summary-guest.png` | Session A Guest completed summary | `5bd0acb6efe5210ed4cf8a2707dc39413931330545d7ddb3f880d0a1badcd7cf` |
+| `recapture-1280-summary-host.png` | Session B Host completed summary | `eada822dcba8107c16afd9a0f0df1394fc90eb340ed8466b058f837af8490d87` |
+| `recapture-850-summary-guest.png` | Session B Guest completed summary | `05315ec3ebdb57c2c87cb2c633b4d87616028ecfa12e9d33435032f68a460ff3` |
+| `recapture-850-retained.png` | Session A Host retained result | `df66313ef84012c489e293a0cf2d2a83e71bb5ef418f76aa79f32ea4ee86a64b` |
+| `recapture-1280-retained-guest.png` | Session A Guest retained result | `5fbbf0d1d6770606ee87a564cd80e2ee04db31c400086b8dd99b690dcf17ac47` |
+| `recapture-1280-retained-host.png` | Session B Host retained result | `6c8c7f7eba7f9ae23fe0ea9f03558ec530a750a03c48fa49b8ffec700715f453` |
+| `recapture-850-retained-guest.png` | Session B Guest retained result | `bd416a8a48826c5b05283b4a72625a36c7447885d0008c4f18130964fdf3754c` |
+| `recapture-850-security.png` | Wrong endpoint identity | `d7445e133de15054f9ba9257b7dca91de65a5f5eecc79b30a16b0548c6151751` |
+| `recapture-1280-security.png` | Wrong endpoint identity | `7f22e1044e5707818643480a7286026da1a59549a288a3f2163278bd230fc36f` |
+| `recapture-summary-scroll.png` | Canonical summary bottom/right access | `e23327e66dbcf3e4fc74f589044a559f04684eeb94ea14669946b8e3ccaa208e` |
+| `recapture-retained-scroll.png` | Canonical retained-result bottom/right access | `812b417f68e83acc917f12167beb10f2e7ed6518f2922a7ac7615eac601967f5` |
+
+Developer must preserve exact hashes when integrating the canonical artifacts and any required supplemental evidence. Local evidence is sufficient for this assessment; a push or commit is not required. Temporary report/inventory and supplemental cleanup remains developer-owned after evidence integration. No retouching or replacement state is authorized.
+
+### Earlier supplemental artifact assessment — superseded for corrections
+
+The fourteen images below were assessed at a985ada. Their defect findings are historical and resolved by the current recapture; do not use them as evidence of the corrected controls or notices. Paths are relative to `/tmp/opencode/`. The current 38-image assessment is above. Developer owns evidence retention/integration and cleanup.
 
 | Artifact | Assessment | Supplied SHA-256 |
 |---|---|---|

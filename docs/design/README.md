@@ -30,7 +30,7 @@ This directory specifies presentation for the approved public, encrypted, invite
 
 The new SVGs retain existing wireframe IDs. They are the structural references for the extension's changed regions and do not add screen identities. Legacy prose wireframes remain context for unchanged regions, not competing public-mode direction.
 
-The [capture plan](screenshots/README.md#public-service-extension--pending-coverage) owns this extension's pending coverage. Existing accepted baseline evidence stays in its legacy manifest. This is not a migration of historical evidence.
+The [capture matrix and assessment](screenshots/README.md#public-service-extension--pending-coverage) own this extension's current coverage and visual gate. Existing accepted baseline evidence stays in its legacy manifest. This is not a migration of historical evidence.
 
 ## Cross-screen presentation
 
