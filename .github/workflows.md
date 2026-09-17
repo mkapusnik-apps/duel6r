@@ -84,22 +84,28 @@
 - This exclusion applies to nightly, master release, and local bundles. Runtime resources, `README.md`, and `LICENSE` remain in the bundle.
 - GitHub Actions uses a one-day transport artifact between the build and release jobs.
 - The repository provides the stable `nightly` tag.
-- The release job moves the `nightly` tag to the workflow commit.
-- The release job creates the `nightly` release when it does not exist.
-- The release job updates the existing `nightly` release in place when it exists.
+- The release job downloads the artifact and checks that the expected ZIP is nonempty and passes `unzip -t` before it changes the tag or release.
+- The self-hosted release runner needs `unzip` and the GitHub CLI (`gh`).
+- The release job moves the `nightly` tag to the captured sanity commit.
+- Immediately before publication, the job deletes the existing `nightly` release and its assets. It does not delete the tag or other releases.
+- The job lists all release pages, including drafts visible to its write token. A successful list without `nightly` needs no deletion. API and authentication errors fail the job.
+- The job creates a fresh `nightly` release so that its publication date records the new publication.
+- `softprops/action-gh-release@v3` creates a draft, uploads the ZIP, then publishes it. The workflow leaves `draft` unset to enable this sequence.
 - The release is a full release and is explicitly the latest repository release.
 - The release job uploads only `duel6r-nightly.zip`.
-- The release job overwrites an existing asset that has the same file name.
 - Publication is non-transactional.
-- A failure during asset replacement can leave the release without the new asset.
-- Operators can rerun the workflow to recover from a partial publication.
+- Between deletion and publication, the nightly release page and asset download can be unavailable.
+- A failure or manual cancellation after deletion can leave no published nightly release or an incomplete draft. The tag can already point to the new commit.
+- Operators can rerun the failed release job while the one-day artifact is available. The retry deletes a remaining nightly draft before it publishes a fresh release. If the artifact has expired, dispatch the full workflow from `sanity` again.
+- A retry after successful publication also replaces the release. There is no automatic rollback.
 - The release keeps the title `nightly` and does not create a nightly release history.
+- The tag-based release and named asset URLs stay the same after publication. Release and asset IDs change, old ID-based links stop working, and subscribers can receive new-release notifications.
 - A failed build does not change the prior successful nightly release.
 - A package failure does not change the prior successful nightly release.
 - Nightly runs use `${{ github.workflow }}` as the concurrency group.
-- A newer dispatch cancels an active nightly run.
-- Cancellation during asset replacement can leave the release without the new asset.
-- The release job uses `GITHUB_TOKEN` with `contents: write` to update the release.
+- A newer dispatch does not cancel an active nightly run. GitHub can replace an older pending run with a newer pending run.
+- This setting protects the delete-to-publish sequence from automatic cancellation, but not from manual cancellation or runner failure.
+- The release job uses `GITHUB_TOKEN` with `contents: write` to list, delete, and publish the release.
 - `GITHUB_TOKEN` limits release access to the current repository.
 - The release job uses `PAT_ACTIONS` only to move the `nightly` tag.
 - The tag token can start workflows that listen for the tag update.
