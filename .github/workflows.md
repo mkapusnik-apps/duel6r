@@ -74,11 +74,18 @@
   `D6R_DISPOSABLE_WINDOWS_CONTAINER=1`; the host environment is not changed.
 - The tester-owned CTest registration supplies the explicit Windows trust permission.
   The test must also recognize the container's real `ContainerType` marker before it
-  accesses CurrentUser ROOT. A missing or unsupported marker fails the job; do not
+  accesses certificate stores. A missing or unsupported marker fails the job; do not
   create a marker, disable the guard, or run the test on the host.
-- The temporary root belongs only to the container's user profile. Test cleanup removes
-  it on normal/error exits; Docker auto-removal destroys the profile when the container
-  exits after a failure or test timeout. No host trust store or user profile is mounted.
+- The fixture adds only its generated certificate with `CERT_STORE_ADD_NEW` through
+  `CERT_STORE_PROV_SYSTEM_REGISTRY_A` to the disposable container's LocalMachine ROOT.
+  It checks visibility through the unchanged production CurrentUser logical ROOT reader.
+  Cleanup checks removal from both the physical store and the production reader.
+- The Server Core-based image retains its existing ContainerAdministrator default;
+  neither the Dockerfile nor the runner overrides the user or adds elevation for this
+  test. Missing write permission must fail, not trigger an elevation or trust fallback.
+- Test cleanup removes the generated root on normal/error exits. Docker `--rm` destroys
+  the container's writable registry/profile state after failure or test timeout. No host
+  registry, trust store, or user profile is mounted.
 - Final native TLS evidence must show `duel6r-portable-tls-tests` passing in the existing
   `MSVC x64 transport CTests` job. Compilation or an aggregate success without that
   test's execution is not sufficient for the task's Ready-for-review gate.
