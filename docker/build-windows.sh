@@ -266,6 +266,14 @@ import pathlib
 import sys
 
 root = pathlib.Path(sys.argv[1])
+# Shared docs were removed; retain all other records for the opposite platform.
+retained_manifest = root / "linux-x86_64.sha256sums"
+if retained_manifest.exists():
+    records = retained_manifest.read_bytes().splitlines(keepends=True)
+    retained_manifest.write_bytes(b"".join(
+        record for record in records if not record.partition(b"  ")[2].startswith(b"docs/")
+    ))
+
 files = list(root.glob("*.exe")) + list(root.glob("*.dll"))
 files += [root / name for name in ("README.md", "LICENSE", "windows-dependencies.txt")]
 for directory in ("data", "levels", "profiles", "shaders", "sound", "textures"):
