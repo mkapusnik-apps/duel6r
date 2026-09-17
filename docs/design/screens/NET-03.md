@@ -33,6 +33,11 @@ The production hostname is the default, not evidence of service readiness. Stagi
 - Server address must receive the remaining row width after the Port control and the control gap.
 - The Invite field must span the same width as the address field.
 - The Persons and Local Players panels must keep equal heights and independent vertical scrolling.
+- A focused person-row outline must remain clear of the text in every adjacent row.
+- Connection type must retain a visible selector affordance when it is not focused.
+- Server address, Port, and Invite must retain visible field boundaries when they are not focused.
+- An empty Invite field must remain visibly identifiable as an input target.
+- These controls must use the existing network control styling rather than appear as read-only labels.
 - Panel headings, validation text, and footer actions must remain fixed while rows scroll.
 - The footer must retain Connect and Back in editable setup.
 - Connecting must retain only the approved Cancel action and lock setup.

@@ -4,7 +4,9 @@
 
 This section owns pending capture and assessment for the public-service extension only. The legacy manifest below retains authority for unchanged baseline artifacts. New captures must use the canonical destinations in this table and replace the same wireframe's artifact on later revisions. Do not create a new screenshot identity for a minor role, copy, or failure variant.
 
-All entries below are **Pending**. No extension screenshots have been supplied or assessed. Historical LAN evidence does not establish public-service conformance. No image hashes are available for these pending entries.
+The approved [NET-PUB-VIS-AC-001–004 scope](../../screens/README.md#public-pilot-visual-evidence-scope) permits ordinary actual public representatives for NET-05, NET-06, and NET-04-R. Their rows below are public-extension profiles of the existing IDs, not replacements for legacy extreme-scenario definitions. The `.public.png` destinations keep the public artifacts separate from historical legacy files. No new screen or wireframe is introduced.
+
+Seven representatives and fourteen supplemental images have been inspected. The current assessment below records five conforming representatives, two blocked representatives, and three missing representatives. Historical LAN evidence does not establish public-service conformance. No acceptance is assigned to an uncaptured public state.
 
 There are no URL routes. Routes below are local UI workflows. The standard profile is the existing desktop retro presentation, full client capture, standard input and font settings. Use 1920 by 1080 for menu representatives and 1280 by 900 for arena-context representatives. Behavioral boundary checks must cover 850 by 700 and 1280 by 720; they do not require a second default representative per wireframe.
 
@@ -13,10 +15,10 @@ There are no URL routes. Routes below are local UI workflows. The standard profi
 | SS-015 / NET-01 / NET-01 | Main menu → Network (F2); NET-01-PUBLIC-ENTRY | Public invite scope; Connect, Host private LAN, Back; visible initial focus | `docs/design/screenshots/NET-01/NET-01.png` |
 | SS-017 / NET-03 / NET-03 | Network → Connect; NET-03-PUBLIC-EDIT; fresh production default; two local players; type a disposable test invitation without connecting | Explicit Public (encrypted), complete `duel.netusite.cz`, Port 26660, masked Invite, local controls, Connect/Back; no connected claim | `docs/design/screenshots/NET-03/NET-03.png` |
 | SS-018 / NET-04 / NET-04 | First participant connects through public mode to the local trusted TLS fixture; NET-04-PUBLIC-CONTROLLER; admit two guests with two players each; leave one guest unready | Confirmed Host, actual fixture endpoint, separate role/connection/readiness columns; disabled Start reason; host consequence note | `docs/design/screenshots/NET-04/NET-04.png` |
-| SS-025 / NET-04 / NET-04-R | Complete a public match; return to lobby with retained result using existing outcome-extreme reproduction | Public header does not cover historical results, scroll controls, owned-slot editors, or footer | `docs/design/screenshots/NET-04/NET-04-R.png` |
-| SS-019 / NET-05 / NET-05 | Fixture public lobby → actual six-player match; NET-05-PUBLIC; use existing degraded representative procedure through the secure connection | `Public session`; undivided arena and readable status; preserve accepted orientation and Invisibility checks | `docs/design/screenshots/NET-05/NET-05.png` |
+| SS-025 public profile / NET-04 / NET-04-R | Continue the ordinary public SS-020 summary on the same Host at 1280x900; select Return to lobby without starting a new match | Public Host header, cleared readiness, retained completed result and outcome labels; readable results, owned-slot editors, scroll controls when needed, and footer | `docs/design/screenshots/NET-04/NET-04-R.public.png` |
+| SS-019 public profile / NET-05 / NET-05 | Trusted TLS fixture lobby → actual two-participant, two-player Deathmatch, one round; NET-05-PUBLIC; capture Host active play at 1280x900 before an outcome, with no modal | Host, Public session, Connected; undivided arena, readable status/ranking/progress, session-only score and script notices | `docs/design/screenshots/NET-05/NET-05.public.png` |
 | SS-026 / NET-05 / NET-05-C | During the public match, open explicit guest Leave confirmation without accepting | Distinct guest consequence, contained modal, visible action and Cancel; no input leakage | `docs/design/screenshots/NET-05/NET-05-C.png` |
-| SS-020 / NET-06 / NET-06 | Finish an actual limited public match with existing summary reproduction inputs | Correct completed result, session-only persistence notice, role-correct actions; no LAN-only copy | `docs/design/screenshots/NET-06/NET-06.png` |
+| SS-020 public profile / NET-06 / NET-06 | Complete the same one-round public Deathmatch through ordinary gameplay; NET-06-PUBLIC; capture Host at 1280x900 | Completed, separate match/last-round outcomes, Session only and no-persistence notice, role-correct actions, readable result viewport | `docs/design/screenshots/NET-06/NET-06.public.png` |
 | SS-021 / NET-07 / NET-07 | Disconnect the admitted public Host during an actual fixture match; NET-07-PUBLIC-RECONNECT; capture within the original 30-second reservation | Last confirmed arena; Host label, positive countdown, truthful consequence; End session available | `docs/design/screenshots/NET-07/NET-07.png` |
 | SS-022 / NET-08 / NET-08 | Public Connect to a local TLS fixture presenting a trusted-chain certificate with the wrong endpoint identity; NET-08-PUBLIC-SECURITY | Exact TRU-PUB-016 message; Edit setup focused and Return to Network; no Retry or bypass; no invite disclosure | `docs/design/screenshots/NET-08/NET-08.png` |
 | SS-023 / NET-09 / NET-09 | Guest in fixture public match receives an actual accepted intentional End session notice; NET-09-PUBLIC-CONTROLLER-END | Confirmed end panel over last arena; no resume; Return to Network | `docs/design/screenshots/NET-09/NET-09.png` |
@@ -46,7 +48,86 @@ QA must also supply observations for custom private-LAN connection, staging addr
 
 Visual gate: blocked
 
-Reason: current implementation artifacts and behavioral evidence have not been supplied. Functional reconciliation is complete; DNS and cloud availability do not block local visual verification. Exact-hash integration requires no second assessment unless presentation source, artifacts, or UX-owned content changes.
+Reason: NET-03 control/focus presentation and NET-07 active-round notices need correction; SS-019, SS-020, and SS-025 remain uncaptured for the public path. Functional reconciliation is complete; DNS and cloud availability do not block local visual verification. Exact-hash integration requires no second assessment unless presentation source, artifacts, or UX-owned content changes.
+
+### Current artifact assessment
+
+UX inspected the actual seven canonical PNGs and fourteen supplements supplied in `/tmp/opencode/public-gui-capture-report.md`. The supplied report SHA-256 is `6b2f4736003d8d0d98cff81f55f6058622f7334142c773e7847946cf4ab5835d`. All hashes here are supplied by developer, not independently recomputed by UX.
+
+The production source is `a985ada14a3f514c0158d85a9bc8946c1c00dc03`. Capture checkout is `77f847ab70d53b8562efb56db0a52dc47e6884c8`; the frozen production artifact was unchanged. Environment: Ubuntu 24.04 Docker, network isolation, Xvfb, Release GL4, Lua ON, software rendering, dummy audio, standard font and input profile. The actual GUI binary hash is `1e72ea10403d93b846dd0d3b9c91fbbc94664ac8d4a5b9e6aab290dd0870f80b`.
+
+Public connections used a real dedicated backend through trusted local TLS routes with endpoint identity validation and invitation enforcement. No production/staging DNS or cloud deployment is claimed. Menu representatives used 1920x1080; arena-context representatives used 1280x900. Canonical destinations and reproduction routes remain in the matrix above. SS-017 used explicit paste rather than typing; its production-default endpoint was never connected. Match representatives used six players in actual Deathmatch on Duel 16, one round, Assistance on, Quick Liquid off, and Burnable Trees on.
+
+| Entry | Current conformance | Supplied image SHA-256 |
+|---|---|---|
+| SS-015 | Conforms for entry hierarchy, scope, complete action captions, initial Connect focus, and containment. | `49dbb5bb8f3c41287f99f7c98e96194c3cf90d89b3b1511985322528de461b2c` |
+| SS-017 | Blocked by PUI-01 and PUI-02 below. Masked value, production hostname, port, consequences, and action/status regions are readable. | `e719c6f6b2c85f8c262af19511479357b77776ae64add0875a12ae3a36115a3a` |
+| SS-018 | Conforms for confirmed Host, endpoint separation, role/connection/readiness columns, ownership, unready participant reason, and actions. Guest supplements retain read-only explanation and owned-control focus. No maximum-roster claim. | `516323aa2e62df68f59153132f24710193c49864b4b23a8d3d1a23ae6b052904` |
+| SS-026 | Conforms for explicit guest consequence, wrapped prompt, focused action/Cancel separation, and public arena context. Host confirmation supplement has the distinct everyone consequence. Still images do not prove input suppression. | `4ce0bd1a31f2f7f51acd2f92c3e558598b307557e79d1b99fc8f057d6d62e5ab` |
+| SS-021 | Blocked by PUI-03 below. Host label, 30-second countdown, retained-state label, consequence and focused End session are otherwise readable and contained. | `bff26ca89595f06253d619093585a2552859952d01e2a59216356fc90fc9300d` |
+| SS-022 | Conforms for fixed security-failure copy, endpoint containment, focused Edit setup, Return to Network, and absence of Retry/bypass. PUI-04 is advisory. | `3038446b1c489cd14a7238ad6ad5b852d50a7ba56c86f02a4aed54d3873cc452` |
+| SS-023 | Conforms for intentional host-end message, no-resume and no-persistence copy, retained-state context and Return to Network. This is not maintenance or expiry evidence. | `58c5197fed6ad2935b7d4f3302407a516ded3f41a4ea4787ae63cfbbc79fc4bc` |
+| SS-019 | Pending: no public NET-05 representative supplied. Modal-background images do not substitute for the unobstructed representative. | None |
+| SS-020 | Pending: no public completed-summary representative supplied. | None |
+| SS-025 | Pending: no public retained-result representative supplied. Existing historical file is not current public evidence. | None |
+
+Menu background identity from the report is `forest-foundry.png` for SS-015/017/018 and `alpine-flood.png` for SS-022. Their hashes are respectively `fa3d12b5dac0508d44596671d54ecdd999b87772b4a58d743bbe25d335b1fef4` and `45be6836764a5e1b0d36aa19abfb884335454a67760dd5b1f6272a56cb49984e`. Runtime asset manifest SHA-256 is `47b967fdb0bb12e97394564906b7c3c0548cfc257d7cf7fb724791270fdb6542`. Arena background filenames were visually identified only; no canonical identity/mirror trace was supplied. Assessment therefore does not establish deterministic fallback equivalence or exact mirror-state conformance. Visible upright player/terrain context has no observed orientation defect.
+
+### Findings and required correction
+
+- **PUI-01 — Blocking, NET-03:** At both 850x700 and 1280x720, the focused first Persons row outline reaches through the next person's text. Keep the complete focus outline and caption within a non-overlapping row region. Preserve both person labels and selection cues. Replace the focused-row supplements after correction.
+- **PUI-02 — Blocking, NET-03:** The new Connection type value has no visible selector affordance. Unfocused address, Port, and Invite have no visible field boundaries; an empty Invite is visually indistinguishable from blank panel space. Reuse the existing network field/selector treatment so users can identify the inputs before focus. Do not add a new flow or infer mode from the endpoint. Replace SS-017 plus minimum-size editable/empty-invite evidence.
+- **PUI-03 — Blocking, NET-07:** The active-match Host reconnect panel shows the Host consequence but omits `Match continues while you reconnect` and `Reserved players receive no input and remain in play`. The owning reconnect contract retains active-session presentation for both public roles. Add these persistent notices without displacing the countdown or End session action. Recapture SS-021 and its 850x700 bound check. Verify the isolated End confirmation separately; the connected Host End supplement does not prove it.
+- **PUI-04 — Advisory, NET-08:** The generic instruction to check that the host session is running is poorly matched to a dedicated service that can create its first session on admission. The authoritative security failure and recovery actions are correct. Prefer omitting the generic player-hosted helper for this public security outcome; retain fixed product-owned copy. No extra recovery behavior is requested.
+
+The supplied source-review PASS and 31 passing targets are team evidence, not results independently executed by UX. The developer observations support explicit paste, mode traversal, owned-control access, and the described actual flows. They do not establish maximum input/player cases, controller-device coverage, Windows rendering/security, or every terminal notice. Team must retain the existing functional/security QA gates.
+
+### Remaining representative scope and reproduction
+
+Product approved the evidence-only scope in NET-PUB-VIS-AC-001–004. Ordinary actual captures are now valid for the three public rows. All three remain Pending until supplied and assessed. No new product decision is needed. Existing seven-image assessments and PUI-01–03 blockers remain unchanged.
+
+Practical public capture sequence:
+
+1. Start a Host GUI at 1280x900 and a separate Guest through the trusted local TLS fixture. Admit one ordinary short-named player per participant with independent controls. Select Deathmatch, one round, a shipped fixed level, and Quick Liquid off; record the actual settings. Both participants become Ready; Host starts the match.
+2. Capture the Host's unobstructed active arena as `NET-05.public.png`. No Invisibility pickup, held-weapon/degraded combination, maximum roster, or special outcome is needed for this public profile.
+3. Use ordinary movement/shooting to finish the round. A normal elimination or environmental death may produce the actual result. Do not disconnect a participant to force completion, inject results, or substitute an interrupted lobby for NET-06. Capture the completed Host summary as `NET-06.public.png` with outcome labels, persistence notice, and actions visible. Scroll through real result content for the accompanying access observation.
+4. On that same Host, select Return to lobby. Do not restart, resize, or start another match before capturing `NET-04-R.public.png`. Show the retained completed result, public role/context, cleared readiness, and available actions. Guest departure is not required for this public profile.
+5. Assess the same ordinary states at 850x700 and 1280x720 using actual supported client presentations. Supply focused supplementary captures for readability/containment, not additional default representatives. Separate normal sessions at those startup sizes are acceptable; record which session each image represents. Every artifact needs immutable source checkpoint, state, role, viewport/profile, environment, path, and SHA-256. These steps are a capture plan, not a claim that UX executed it.
+
+The completed-summary screen must show public context only in its existing presentation regions; do not add an endpoint to result data or new result columns for evidence. Functional result and action contracts remain unchanged.
+
+#### Preserved legacy extreme coverage
+
+The following scenario definitions, original checkpoints, hashes, and assessment status remain governed by the [legacy manifest](../../screenshots/README.md). This update neither accepts nor invalidates them. No legacy image is renamed, overwritten, or claimed as current public evidence.
+
+| Legacy entry | Preserved scenario | Existing artifact, relative to repository root |
+|---|---|---|
+| [SS-019](../../screenshots/README.md#ss-019) | Six-player degraded recovery with actual Invisibility on body and held weapon; current orientation assessment remains at the legacy manifest's override | `docs/screenshots/NET-05/six-player-lan-degraded-1280x900.png` |
+| [SS-020](../../screenshots/README.md#ss-020) | Fourteen Predator winners with maximum-length names and departed-winner access | `docs/screenshots/NET-06/final-three-round-summary-1280x900.png` |
+| SS-025, [NET-04-R contract](../../screens/network-lobby.md) | Same-host continuation after a five-player winning guest leaves; ten current players distinct from fourteen retained winners | `docs/design/screenshots/NET-04/NET-04-R.png` |
+
+Ordinary public screenshots do not verify those extremes or establish current functional regression acceptance. Changes beyond public copy/role presentation require team impact assessment and replacement evidence for any affected legacy criteria under NET-PUB-VIS-AC-004. Functional, security, Windows, and deployment gates remain separate.
+
+### Supplemental artifact assessment
+
+All paths in this table are relative to `/tmp/opencode/`. These are inspected actual images, not new wireframe entries. They use the same production artifact and environment as the canonical packet, with fresh processes at 850x700 or 1280x720. Developer owns retention/integration and cleanup; copy unchanged if durable supplemental evidence is required. Do not delete evidence needed for outstanding corrections before handoff.
+
+| Artifact | Assessment | Supplied SHA-256 |
+|---|---|---|
+| `public-boundary-850-join.png` | Mask contained; controls affected by PUI-02. | `8acebb15119585606699964cd8a8c763051eb62108863c7efbd957b985342532` |
+| `public-boundary-850-lan.png` | PUI-01: focus outline crosses H2 text; mode and trusted-LAN note readable. | `f82813a66326e664ae01a3820e9b7072934a055db57bcf97040b72c6402052a2` |
+| `public-boundary-850-lobby.png` | Host role, Person focus, status and footer contained. | `4ef2aa3fb891d07cddf61c229da9708eff4877250acc81936cdf02cdf9bb88bf` |
+| `public-boundary-850-reconnect.png` | PUI-03; countdown/action contained; retained-state status readable. | `71ec552c5fad0e6949bd6796442a7bc87fbe6fd8d3a3c79124e5d1eab17c8e59` |
+| `public-boundary-850-end.png` | Connected Host End confirmation and two actions fit. Not isolated End evidence. | `9af0de09ec7cbc8470c1ecfafb44c3d7794dc7768f581a887c8e64df0c42056d` |
+| `public-boundary-850-security.png` | Fixed reason and recovery actions fit; PUI-04 advisory. | `58fee0dba286714539322bb332561f7fed03a47d4171a9064594b329e0b67f93` |
+| `public-boundary-850-edit.png` | Staging address, empty-invite reason and disabled Connect fit; empty field affected by PUI-02. | `28cdc233b93570387599c5d482dfe3522c9203aef61dda10c998df1e752823cc` |
+| `public-boundary-1280-join.png` | Mask contained; controls affected by PUI-02. | `944deb22ea56eee80fecdafb116231644d26786120b454398b9bb0d94e420214` |
+| `public-boundary-1280-lan.png` | PUI-01: focus outline crosses G2 text; mode and trusted-LAN note readable. | `e864f1cbbac16180eb728299540cb25a3fbb0e7e8827fab8d976624be1dcf345` |
+| `public-boundary-1280-lobby.png` | Guest Person focus and read-only explanation are separate and contained. | `d5f7815fbd420b5cb7795947aa4c1033e5cef67f9d879670331bba47cac7371c` |
+| `public-boundary-1280-readonly.png` | Ready focus and read-only settings/status are contained; raster alone does not prove traversal. | `90c5918cd59cbc5c6c7ecf84a05a950f18d1a1e1ce3cb8805ccb80ff21f99c26` |
+| `public-boundary-1280-confirm.png` | Guest consequence and action/Cancel fit; degraded text remains readable below modal. | `5548f2b68ce1624e45c7bcb00a46df5daa0734fce0e19d548248227be767aaf5` |
+| `public-boundary-1280-ended.png` | End reason, no-resume/persistence text and Return fit. | `143de1b3536b6ed0fd788744c13c571dca67767ae0b265a06a2375da19ef0fec` |
+| `public-boundary-1280-security.png` | Fixed reason and recovery actions fit; PUI-04 advisory. | `a639984c5de3b6e24459fe56762ee7a97409cdee160afbe662cb45b5309149d5` |
 
 ## Integrated PR83 visual evidence
 
