@@ -106,6 +106,7 @@ class TlsPeer:
                     backend.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     backend.sendall(proxy_header(self.source))
                     buffers = {client: bytearray(), backend: bytearray()}
+                    malicious_frame_seen = False
                     while not self.stop.is_set():
                         action_path = self.control_root / "action" if self.control_root else None
                         if action_path and not buffers[backend]:
@@ -128,6 +129,8 @@ class TlsPeer:
                         for source in readable:
                             data = source.recv(65536)
                             if not data:
+                                if source is backend and malicious_frame_seen:
+                                    (self.control_root / "attack-rejected").touch()
                                 return
                             if source is client:
                                 self.application_bytes += len(data)
@@ -139,6 +142,9 @@ class TlsPeer:
                                     break
                                 # Only protocol kind/size, never credential-bearing payloads.
                                 self.frames.append(("client" if source is client else "server", kind, size))
+                                if source is client and self.control_root and (self.control_root / "attack.bin").exists():
+                                    if bytes(buffer[12:12 + size]) == (self.control_root / "attack.bin").read_bytes():
+                                        malicious_frame_seen = True
                                 del buffer[:12 + size]
                             (backend if source is client else client).sendall(data)
         except (OSError, ssl.SSLError):
@@ -259,6 +265,8 @@ def main():
     if cases == ["--review-regressions"]:
         cases = [f"notice-{reason}-{phase}" for phase in ("lobby", "match", "summary")
                  for reason in ("maintenance", "controller", "wrong", "eof")] + ["recovery", "expiry"]
+    if cases == ["--authorization-regressions"]:
+        cases = ["attack-start", "attack-setup", "attack-roster", "attack-return", "attack-advance"]
     with tempfile.TemporaryDirectory(prefix="duel6r-public-test-") as temp:
         root = Path(temp)
         shutil.copytree(resources / "data", root / "data")
@@ -287,7 +295,7 @@ def main():
             for scenario in cases:
                 # Independent service instances preserve all negative scenarios
                 # after a production failure without carrying stranded sessions.
-                for name in ("action", "acted", "action.tmp"):
+                for name in ("action", "acted", "action.tmp", "attack.bin", "attack-rejected"):
                     (root / name).unlink(missing_ok=True)
                 with service(server, root, INVITE) as (backend, _):
                     peer = TlsPeer(root / "valid.pem", root / "valid.key", backend, root)

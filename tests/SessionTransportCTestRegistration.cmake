@@ -1,5 +1,38 @@
 include_guard(GLOBAL)
 
+# Windows registration is OFF by default: ordinary native CTest must never
+# alter a developer's user trust store. DevOps may opt in ONLY inside an
+# approved disposable Windows Docker container, with no host trust/profile
+# mounts and no persistent user profile. Inside that container:
+#   set D6R_DISPOSABLE_WINDOWS_CONTAINER=1
+#   cmake ... -DD6R_TRANSPORT_ONLY=ON -DBUILD_TESTING=ON
+#             -DD6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS=ON
+#   cmake --build <build> --target duel6r-portable-tls-tests
+#   ctest --test-dir <build> -R "^duel6r-portable-tls-tests$" --output-on-failure
+# The executable also requires a Windows container marker before trust access.
+# Missing/unsupported isolation markers fail closed; do not bypass the guard.
+# RAII removes the generated CurrentUser root on normal/error exits. Mandatory
+# container destruction removes its profile even after timeout/forced kill.
+# No OpenSSL CLI, Python TLS fixture, GUI, or fake platform macros are needed.
+option(D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS
+        "Opt into temporary CurrentUser TLS trust tests ONLY in disposable Windows Docker containers" OFF)
+if (NOT WIN32 OR D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS)
+    add_executable(duel6r-portable-tls-tests ${CMAKE_SOURCE_DIR}/tests/PortableTlsTests.cpp)
+    target_include_directories(duel6r-portable-tls-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-portable-tls-tests duel6r-network-scaffold)
+    if (WIN32)
+        target_compile_definitions(duel6r-portable-tls-tests PRIVATE D6R_TLS_DISPOSABLE_WINDOWS_OPT_IN)
+        target_link_libraries(duel6r-portable-tls-tests advapi32)
+        add_test(NAME duel6r-portable-tls-tests COMMAND duel6r-portable-tls-tests --allow-disposable-windows-container-test-root)
+    else ()
+        add_test(NAME duel6r-portable-tls-tests COMMAND duel6r-portable-tls-tests)
+    endif ()
+    if (MINGW)
+        set_property(TARGET duel6r-portable-tls-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+    endif ()
+    set_tests_properties(duel6r-portable-tls-tests PROPERTIES LABELS "application;network;tls;security;native" TIMEOUT 90)
+endif ()
+
 add_executable(duel6r-session-transport-tests
         ${CMAKE_SOURCE_DIR}/tests/SessionTransportTests.cpp)
 target_include_directories(duel6r-session-transport-tests PRIVATE ${CMAKE_SOURCE_DIR})
@@ -233,6 +266,13 @@ if (NOT D6R_TRANSPORT_ONLY)
         set_tests_properties(duel6r-public-dedicated-review-regressions PROPERTIES
                 LABELS "application;integration;network;public;tls;recovery;regression"
                 TIMEOUT 600)
+        add_test(NAME duel6r-public-dedicated-authorization-tests
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                        $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources --authorization-regressions)
+        set_tests_properties(duel6r-public-dedicated-authorization-tests PROPERTIES
+                LABELS "application;integration;network;public;tls;authorization;security"
+                TIMEOUT 300)
     endif ()
 endif ()
 

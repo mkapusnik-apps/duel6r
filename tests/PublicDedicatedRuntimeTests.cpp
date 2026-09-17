@@ -1,12 +1,28 @@
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <deque>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <set>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <vector>
+#include "source/client/HostServiceSupervisor.h"
+// Test-only injection into the real established guest writer, bypassing UI and
+// sendHostAction authority suppression. No production diagnostic API is added.
+#define private public
 #include "source/client/NetworkSessionRuntime.h"
+#undef private
 #include "source/network/PublicSession.h"
 
 // Driven by PublicDedicatedProcessTests.py: no credentials in argv or output.
@@ -26,7 +42,7 @@ int main(int argc, char **argv) {
         auto *jump = new TestControl;
         PlayerControls controls("test controller", new TestControl, new TestControl, jump,
                                 new TestControl, new TestControl, new TestControl, new TestControl);
-        Client::NetworkSessionRuntime first, second;
+        Client::NetworkSessionRuntime first, second, observer;
         const auto *secret = std::getenv("D6R_TEST_INVITE");
         auto invitation = [&] {
             auto value = std::make_shared<Network::PublicSession::Secret>();
@@ -37,7 +53,7 @@ int main(int argc, char **argv) {
         auto pump = [&](auto predicate, auto timeout) {
             const auto deadline = std::chrono::steady_clock::now() + timeout;
             do {
-                first.update(); second.update();
+                first.update(); second.update(); observer.update();
                 if (predicate()) return true;
                 std::this_thread::sleep_for(5ms);
             } while (std::chrono::steady_clock::now() < deadline);
@@ -46,7 +62,99 @@ int main(int argc, char **argv) {
         using J = Client::NetworkJourney;
         require(first.join(endpoint, argv[2], {{"Controller", &controls}}, true, invitation()), "join start");
         const std::string scenario = argv[3];
-        if (scenario.compare(0, 7, "notice-") == 0 || scenario == "recovery" || scenario == "expiry") {
+        if (scenario.compare(0, 7, "attack-") == 0) {
+            namespace H = Network::HostComposition;
+            namespace R = Network::Replication;
+            require(pump([&] { return first.snapshot().journey == J::Lobby; }, 12s), "attack controller admission");
+            require(second.join(endpoint, argv[2], {{"Attacker"}}, true, invitation()), "attacker join start");
+            require(pump([&] { return second.snapshot().journey == J::Lobby; }, 12s), "attacker admission");
+            require(observer.join(endpoint, argv[2], {{"Observer"}}, true, invitation()), "observer join start");
+            require(pump([&] { return observer.snapshot().journey == J::Lobby
+                && first.snapshot().canonical->participants.size() == 3; }, 12s), "observer admission");
+            const bool summary = scenario == "attack-return";
+            const bool advance = scenario == "attack-advance";
+            H::Setup setup;
+            setup.localPlayerNames = {"Controller"}; setup.fixedLevel = "levels/arena.json";
+            setup.quickLiquid = summary || advance; setup.roundLimit = advance ? 2 : 1;
+            setup.assistance = !first.snapshot().canonical->settings.assistance;
+            require(first.updateHostSetup(setup), "legitimate setup");
+            require(pump([&] {
+                for (auto *runtime : {&first, &second, &observer}) {
+                    const auto s = runtime->snapshot();
+                    if (!s.canonical || s.canonical->settings.assistance != setup.assistance
+                        || s.canonical->settings.quickLiquid != setup.quickLiquid
+                        || s.canonical->settings.roundLimit != setup.roundLimit) return false;
+                }
+                return true;
+            }, 5s), "setup synchronization");
+            first.setReady(true); second.setReady(true); observer.setReady(true);
+            require(pump([&] { const auto s = first.snapshot(); return std::all_of(s.canonical->participants.begin(),
+                s.canonical->participants.end(), [](const auto &p) { return p.ready; }); }, 5s), "applicable ready lobby");
+            if (summary || advance) {
+                first.startMatch();
+                // Each real TLS participant receives replication independently.
+                // Do not take the controller's baseline merely because the
+                // observer reached FinalSummary: the controller may still hold
+                // RoundSummary, whose legitimate transition is not an attack.
+                const auto applicablePhase = summary ? R::Phase::FinalSummary : R::Phase::RoundSummary;
+                require(pump([&] {
+                    const auto reference = first.snapshot();
+                    if (!reference.canonical || reference.canonical->phase != applicablePhase) return false;
+                    for (auto *runtime : {&first, &second, &observer}) {
+                        const auto s = runtime->snapshot();
+                        if (!s.canonical || s.canonical->phase != applicablePhase
+                            || s.canonical->sessionId != reference.canonical->sessionId
+                            || s.canonical->matchId != reference.canonical->matchId
+                            || s.canonical->currentRoundNumber != reference.canonical->currentRoundNumber
+                            || (summary && !s.canonical->result.available)) return false;
+                        // Keep the bounded rejection observation clear of the
+                        // natural six-second round transition in AdvanceRound.
+                        if (advance && (s.canonical->currentRoundNumber != 1
+                            || s.canonical->roundEndCountdown <= 180)) return false;
+                    }
+                    return true;
+                }, 90s), "all participants synchronized in applicable control phase");
+            }
+            const auto before = *first.snapshot().canonical;
+            auto fingerprint = [](const R::CanonicalState &s) {
+                std::ostringstream out;
+                const auto &v = s.settings;
+                out << s.sessionId << ':' << s.hostParticipantId << ':' << v.mode << ':' << unsigned(v.teamCount)
+                    << ':' << v.friendlyFire << ':' << v.levelPlan << ':' << v.fixedLevel << ':' << unsigned(v.roundLimit)
+                    << ':' << v.assistance << ':' << v.quickLiquid << ':' << v.burnableTrees;
+                for (const auto &p : s.players) out << ':' << p.playerId << ':' << p.ownerParticipantId << ':' << unsigned(p.rosterPosition);
+                return out.str();
+            };
+            std::vector<std::uint8_t> attack;
+            if (scenario == "attack-start") attack = H::serializeAction(H::Kind::StartMatch);
+            else if (scenario == "attack-return") attack = H::serializeAction(H::Kind::ReturnToLobby);
+            else if (scenario == "attack-advance") attack = H::serializeAction(H::Kind::AdvanceRound);
+            else if (scenario == "attack-roster") attack = H::serializeRosterMove(before.players.front().playerId, 1);
+            else if (scenario == "attack-setup") { setup.roundLimit = 9; attack = H::serializeSetupUpdate(setup); }
+            else throw std::runtime_error("unknown attack case");
+            require(!attack.empty(), "empty attack");
+            const auto root = std::filesystem::path(argv[2]);
+            { std::ofstream file(root / "attack.bin", std::ios::binary); file.write(reinterpret_cast<const char *>(attack.data()), attack.size()); }
+            {
+                std::lock_guard<std::mutex> lock(second.mutex);
+                second.pendingGuestCommands.push_back(attack);
+            }
+            require(pump([&] { return std::filesystem::exists(root / "attack-rejected"); }, 3s),
+                    "exact malicious TLS frame and server-side close not observed");
+            const auto after = first.snapshot();
+            require(after.host && !second.snapshot().host && !observer.snapshot().host, "attack changed authority");
+            require(after.canonical && fingerprint(*after.canonical) == fingerprint(before), "attack mutated settings or ownership/roster");
+            require(after.canonical->phase == before.phase && after.canonical->currentRoundNumber == before.currentRoundNumber,
+                    "attack changed applicable phase/round");
+            require(observer.snapshot().journey != J::Reconnecting && observer.snapshot().journey != J::Failure,
+                    "unaffected observer interrupted");
+            if (summary) require(after.canonical->result.serialized == before.result.serialized, "attack replaced completed result");
+            // Real controller authority and the uninvolved participant's stream
+            // remain usable after rejection of the authenticated attacker.
+            first.endSession();
+            require(pump([&] { return observer.snapshot().journey == J::HostEnded; }, 5s), "unaffected participant did not receive legitimate end");
+            std::cout << "PASS exact malicious frame observed over TLS; server rejected; authority/state retained\n";
+        } else if (scenario.compare(0, 7, "notice-") == 0 || scenario == "recovery" || scenario == "expiry") {
             require(pump([&] { return first.snapshot().journey == J::Lobby; }, 12s), "review first admission");
             const auto session = first.snapshot().canonical->sessionId;
             const auto controller = first.snapshot().localParticipantId;
