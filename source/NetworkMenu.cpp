@@ -16,6 +16,9 @@ namespace Duel6 {
     namespace {
         constexpr Int32 CanvasWidth = 850, CanvasHeight = 700;
         constexpr Float32 CanvasMaximumScale = 1.35f;
+        // The 22-pixel outer focus frame needs an 8-pixel gap between person rows.
+        constexpr Int32 JoinPersonRowPitch = 30;
+        constexpr int JoinVisiblePersons = 6;
 
         Float32 canvasScale(Int32 width, Int32 height) {
             return std::min(CanvasMaximumScale,
@@ -767,9 +770,11 @@ namespace Duel6 {
                                       ? focus - fields : 0;
             const int visible = join ? 8 : 10;
             const int rowTop = join ? 358 : 404;
-            const std::size_t firstPerson = static_cast<std::size_t>(std::max(0, focusedPerson - visible + 1));
-            for (std::size_t index = firstPerson; index < availablePersons.size() && index < firstPerson + visible; ++index)
-                if (pointerInside(x, y, 50, rowTop - static_cast<Int32>(index - firstPerson) * 18, 350, 18)) {
+            const int visiblePersons = join ? JoinVisiblePersons : visible;
+            const Int32 personPitch = join ? JoinPersonRowPitch : 18;
+            const std::size_t firstPerson = static_cast<std::size_t>(std::max(0, focusedPerson - visiblePersons + 1));
+            for (std::size_t index = firstPerson; index < availablePersons.size() && index < firstPerson + visiblePersons; ++index)
+                if (pointerInside(x, y, 50, rowTop - static_cast<Int32>(index - firstPerson) * personPitch, 350, 18)) {
                     focus = fields + static_cast<int>(index); activate(); return;
                 }
             const int playerBase = fields + static_cast<int>(availablePersons.size());
@@ -1784,15 +1789,15 @@ namespace Duel6 {
         drawText(x + 24, y + panelHeight - 122,
                  std::to_string(std::max(1u, snap.reconnectSeconds.value_or(1))) + " seconds remaining");
         drawText(x + 24, y + panelHeight - 148, snap.host ? "Host • Your player slots are reserved" : "Your player slots are reserved");
-        if (snap.canonical && (snap.canonical->phase == Network::Replication::Phase::ActiveRound
-                               || snap.canonical->phase == Network::Replication::Phase::RoundSummary)) {
-            if (!snap.host) {
-                drawText(x + 24, y + panelHeight - 174, "Match continues while you reconnect");
-                drawWrappedText(x + 24, y + panelHeight - 198,
-                        "Reserved players receive no input and remain in play", columns, 2);
-            }
+        const bool activeMatch = snap.canonical
+                && (snap.canonical->phase == Network::Replication::Phase::ActiveRound
+                    || snap.canonical->phase == Network::Replication::Phase::RoundSummary);
+        if (activeMatch) {
+            drawText(x + 24, y + panelHeight - 174, "Match continues while you reconnect");
+            drawWrappedText(x + 24, y + panelHeight - 198,
+                    "Reserved players receive no input and remain in play", columns, 2);
         }
-        if (snap.host) drawWrappedText(x + 24, y + panelHeight - 184,
+        if (snap.host) drawWrappedText(x + 24, y + panelHeight - (activeMatch ? 244 : 184),
                 "Reconnect to keep control. If time expires, the session ends.", columns, 2);
         renderer.quadXY(Vector(x + panelWidth / 2 - 100, y + 24), Vector(200, 34), Color(64, 96, 160));
         drawFocusKeyline(x + panelWidth / 2 - 100, y + 24, 200, 34, true);
@@ -2177,22 +2182,28 @@ namespace Duel6 {
             if (!join) drawText(50, 516, "Same machine or LAN • Linux / Windows x86-64");
             Int32 y = 490;
             if (join) {
+                const auto drawField = [&](Int32 x, Int32 bottom, Int32 width, bool focused) {
+                    renderer.quadXY(Vector(x, bottom), Vector(width, 32), Color::WHITE);
+                    renderer.frame(Vector(x, bottom), Vector(width, 32), 1.0f, Color::BLACK);
+                    drawFocusKeyline(x, bottom, width, 32, focused);
+                };
                 drawText(32, 610, "Connection type");
+                drawField(190, 600, 430, focus == 0);
                 drawText(200, 610, publicConnection ? "Public (encrypted)" : "Private LAN (trusted)");
-                drawFocusKeyline(190, 600, 430, 32, focus == 0);
+                drawText(596, 610, "↕");
                 const auto fieldText = [](const std::string &value, std::size_t width, bool active) {
                     auto visible = value.size() > width ? value.substr(value.size() - width) : value;
                     return visible + (active ? "_" : "");
                 };
                 drawText(32, 560, "Server address");
+                drawField(190, 550, 430, focus == 1);
                 drawText(200, 560, fieldText(address, 49, focus == 1));
-                drawFocusKeyline(190, 550, 430, 32, focus == 1);
+                drawField(692, 550, 134, focus == 2);
                 drawText(640, 560, "Port"); drawText(702, 560, fieldText(port, 12, focus == 2));
-                drawFocusKeyline(692, 550, 134, 32, focus == 2);
                 if (publicConnection) {
                     drawText(32, 510, "Invite");
+                    drawField(190, 500, 430, focus == 3);
                     drawText(200, 510, fieldText(std::string(invitation.value.size(), '*'), 49, focus == 3));
-                    drawFocusKeyline(190, 500, 430, 32, focus == 3);
                     drawText(640, 510, "Invite required");
                     drawText(32, 465, "The first admitted participant controls the session.");
                     drawText(32, 441, "Leaving as host ends the session. Server updates may end the session.");
@@ -2209,9 +2220,11 @@ namespace Duel6 {
             const int focusedPerson = focus >= fields && focus < fields + static_cast<int>(availablePersons.size())
                                       ? focus - fields : 0;
             const int visible = join ? 8 : 10;
-            const std::size_t firstPerson = static_cast<std::size_t>(std::max(0, focusedPerson - visible + 1));
+            const int visiblePersons = join ? JoinVisiblePersons : visible;
+            const Int32 personPitch = join ? JoinPersonRowPitch : 18;
+            const std::size_t firstPerson = static_cast<std::size_t>(std::max(0, focusedPerson - visiblePersons + 1));
             y = join ? 362 : 408;
-            for (std::size_t index = firstPerson; index < availablePersons.size() && index < firstPerson + visible; ++index, y -= 18) {
+            for (std::size_t index = firstPerson; index < availablePersons.size() && index < firstPerson + visiblePersons; ++index, y -= personPitch) {
                 const bool selected = std::any_of(localPlayers.begin(), localPlayers.end(), [&](const auto &p) { return p.name == availablePersons[index]; });
                 drawClippedText(54, y, (focus == fields + static_cast<int>(index) ? "> " : "  ") + availablePersons[index]
                                         + (selected ? " • Selected" : " • Add"), 42);
@@ -2287,7 +2300,8 @@ namespace Duel6 {
                             72, 3);
             if (!snap.host) drawClippedText(130, 404,
                     "Endpoint: " + snap.endpoint.host + ':' + std::to_string(snap.endpoint.port), 72);
-            if (!snap.host) drawWrappedText(130, 374,
+            if (!snap.host && !(snap.publicSession && (snap.securityFailure || snap.authorizationRejected)))
+                drawWrappedText(130, 374,
                     "Check that the host session is running and the endpoint is correct.", 72, 2);
             std::string retryReason;
             const bool canRetry = retryEligible(snap, retryReason);
