@@ -33,6 +33,7 @@ RUN /opt/vcpkg/vcpkg install --triplet x64-mingw-dynamic \
         'sdl2-mixer[libmodplug]' \
         sdl2-ttf \
         glew \
+        openssl \
         lua
 
 WORKDIR /workspace

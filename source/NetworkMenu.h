@@ -47,7 +47,10 @@ namespace Duel6 {
         std::uint8_t preferredTeamCount = 2;
         bool preferredFriendlyFire = false;
         SetupScreen setupScreen = SetupScreen::Entry;
-        std::string address = "127.0.0.1";
+        std::string address = "duel.netusite.cz";
+        bool publicConnection = true;
+        Network::PublicSession::Secret invitation;
+        bool invalidInvitationInput = false;
         std::string hostAddress;
         std::vector<std::string> hostAddresses;
         bool hostAddressSelectorOpen = false;
@@ -88,6 +91,10 @@ namespace Duel6 {
         bool localReadyEligible(std::string &reason) const;
         bool endpoint(Network::Endpoint &result) const;
         bool editingEndpoint(const Client::NetworkRuntimeSnapshot &snapshot) const;
+        int setupFields() const;
+        void clearInvitation();
+        void enterText(std::string_view text);
+        void joinEndpoint(const Network::Endpoint &endpoint);
         bool refreshHostAddresses(bool initialSelection);
         std::string serverExecutable() const;
         void drawText(Int32 x, Int32 y, const std::string &text, Color color = Color::BLACK) const;

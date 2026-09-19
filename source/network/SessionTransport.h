@@ -57,6 +57,7 @@ namespace Duel6::Network {
         InboundStalled,
         OutboundStalled,
         IdleTimedOut,
+        SecureConnectionFailed,
         SystemError
     };
 
@@ -175,6 +176,8 @@ namespace Duel6::Network {
         bool enforceNetworkSessionPolicy = false;
         // Applies pending/source admission accounting. Transport-only diagnostics leave this disabled.
         bool enforcePreAdmissionPolicy = false;
+        bool publicTls = false;
+        bool trustedProxyV2 = false;
     };
 
     class TcpConnection {

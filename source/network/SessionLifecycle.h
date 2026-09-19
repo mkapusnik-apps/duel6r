@@ -174,7 +174,7 @@ namespace Duel6::Network::Lifecycle {
     public:
         HostSessionLifecycle(std::uint64_t sessionId, ParticipantId hostParticipantId,
                              ConnectionId hostConnectionId, std::vector<PlayerId> hostOwnedPlayers,
-                             Clock clock = {}, Trust::RandomFill random = {}, HostHooks hooks = {});
+                             Clock clock = {}, Trust::RandomFill random = {}, HostHooks hooks = {}, bool remoteHost = false);
         ~HostSessionLifecycle();
         HostSessionLifecycle(const HostSessionLifecycle &) = delete;
         HostSessionLifecycle &operator=(const HostSessionLifecycle &) = delete;
@@ -244,6 +244,7 @@ namespace Duel6::Network::Lifecycle {
         std::uint64_t nextReservationId = 1;
         std::uint64_t readinessGeneration = 1;
         bool hostReady = false;
+        bool remoteHost = false;
         bool sessionEnded = false;
         bool operationActive = false;
 

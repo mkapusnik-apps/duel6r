@@ -2,6 +2,16 @@
 
 ## Status, purpose, and requirements
 
+### Public pilot functional contract
+
+`NET-04-PUBLIC-CONTROLLER` and `NET-04-PUBLIC-GUEST` implement `NET-PUB-001`–`NET-PUB-015`. Public admission enters this screen from `NET-03`, including for the first participant. The service-confirmed controller receives the existing host match controls; the guest receives existing guest controls. Public participants do not supervise a local server process. Existing roster, readiness, settings, results, and player ownership contracts remain applicable.
+
+The controller uses the existing `End session for everyone?` confirmation. Confirm ends the session and returns the controller to `NET-01`; Cancel leaves the current state unchanged. The controller has no leave action that preserves the session for guests. Guest Leave retains existing behavior. Controller and guest contact loss both enter `NET-07`. Confirmed service terminal outcomes use `NET-08` or `NET-09` as specified by HSL-PUB-005 through HSL-PUB-010.
+
+Functional acceptance: `NET-PUB-AC-001`–`NET-PUB-AC-004` and `HSL-PUB-AC-002` cover role assignment, permission denial, readiness, end confirmation, recovery, and terminal destinations. UX owns role labels and presentation without implying process ownership.
+
+Presentation authority: [NET-04 UX contract](../design/screens/NET-04.md). `Host` is an approved user-facing name for the controller role. Admission, not a client-side choice, assigns that role.
+
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It exposes participant ownership, local-player configuration, host-owned match settings, authoritative roster order, readiness, and retained session results. Issue #32 defines its authoritative setup and result states in [`docs/network-authoritative-headless-match.md`](../network-authoritative-headless-match.md).
 Local-player configuration preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
 It implements `NET-VIS-001`, `NET-VIS-002`, `NET-VIS-009` through `NET-VIS-011`, `NET-VIS-AC-001`, `NET-VIS-AC-004`, and `NET-VIS-AC-005`. It consumes `CMP-VIS-001` through `CMP-VIS-004`, `CMP-VIS-AC-001`, and updated `AC-012` from [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).

@@ -2,6 +2,14 @@
 
 ## Status, purpose, and requirements
 
+### Public pilot functional contract
+
+`NET-01-PUBLIC-ENTRY` extends this screen under `NET-PUB-016`–`NET-PUB-021`. It uses the actions `Connect`, `Host private LAN`, and `Back`. `Connect` opens editable `NET-03` without starting a connection; the first entry uses the public production default. `Host private LAN` opens unchanged `NET-02`. `Back` returns to `MENU-01`. Opening this screen creates no connection. These action names replace the earlier `Join` and `Host` labels below. LAN-only scope copy and the prohibition on dedicated/Internet affordances below do not apply to the approved public pilot. No server browser or matchmaking is added.
+
+Presentation authority: [NET-01 UX contract](../design/screens/NET-01.md). Its proposed action routing is approved by this functional contract.
+
+Functional acceptance: `NET-PUB-AC-005` and `NET-PUB-AC-006` cover these entry destinations and offline independence. UX owns the presentation of the distinction between the invite-only public pilot and trusted private-LAN hosting.
+
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It separates player-hosted network play from local-only Play and implements `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-015`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 Issue #30 must not add this graphical entry or change the current Local Play menu.
 

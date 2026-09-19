@@ -373,6 +373,24 @@ D6R_TEST_CASE("issue-38 host composition framing is deterministic for every UI a
     D6R_REQUIRE(!Network::HostComposition::deserialize(unknown).has_value());
 }
 
+D6R_TEST_CASE("recording renderer preserves textured quad position and UV pairs for layout assertions") {
+    Test::RecordingRenderer recorder;
+    recorder.quadXY(Vector(20, 40), Vector(120, 16), Vector(0, 1), Vector(1, -1),
+                    Material::makeTexture(static_cast<Texture>(1)));
+    D6R_REQUIRE_EQ(1u, recorder.quads.size());
+    const std::array<Vector, 4> positions{Vector(20, 40), Vector(20, 56), Vector(140, 56), Vector(140, 40)};
+    const std::array<Vector, 4> uv{Vector(0, 1), Vector(0, 0), Vector(1, 0), Vector(1, 1)};
+    for (std::size_t index = 0; index < positions.size(); ++index) {
+        D6R_REQUIRE_EQ(positions[index].x, recorder.quads.front().vertices[index].x);
+        D6R_REQUIRE_EQ(positions[index].y, recorder.quads.front().vertices[index].y);
+        D6R_REQUIRE_EQ(positions[index].x, recorder.quads.front().projected[index].x);
+        D6R_REQUIRE_EQ(positions[index].y, recorder.quads.front().projected[index].y);
+        D6R_REQUIRE_EQ(uv[index].x, recorder.quads.front().uv[index].x);
+        D6R_REQUIRE_EQ(uv[index].y, recorder.quads.front().uv[index].y);
+    }
+    D6R_REQUIRE_EQ(140.0f, recorder.draws.front().right);
+}
+
 #ifndef _WIN32
 D6R_TEST_CASE("PR83 capture flat bundle menu Host Join Retry and effective level plans start real matches") {
     using namespace std::chrono_literals;
@@ -418,7 +436,14 @@ D6R_TEST_CASE("PR83 capture flat bundle menu Host Join Retry and effective level
         menu.lastJourney = Client::NetworkJourney::Inactive;
         menu.confirmation = NetworkMenu::Confirmation::None;
         menu.update(0);
-        menu.focus = 5; // Two endpoint fields, one person, one person/control pair, then Start/Connect.
+        // Preserve this regression's private-LAN intent now that Join defaults
+        // to public mode and has an explicit connection-type selector.
+        if (!isHost && menu.publicConnection) {
+            menu.focus = 0; enter(menu);
+            D6R_REQUIRE(!menu.publicConnection);
+        }
+        menu.focus = menu.setupFields() + static_cast<int>(menu.availablePersons.size())
+                     + static_cast<int>(menu.localPlayers.size()) * 2;
     };
     for (unsigned transitions = 0; transitions < 4; ++transitions) {
         const auto port = unusedLoopbackPort();
@@ -518,7 +543,7 @@ D6R_TEST_CASE("PR83 capture Application K2 endpoint text holds do not invoke Bac
     };
     for (const auto screen : {NetworkMenu::SetupScreen::Host, NetworkMenu::SetupScreen::Join}) {
         menu.setupScreen = screen; menu.runtime.current = {}; menu.lastJourney = Client::NetworkJourney::Inactive;
-        menu.focus = screen == NetworkMenu::SetupScreen::Host ? 0 : 1;
+        menu.focus = screen == NetworkMenu::SetupScreen::Host ? 0 : 2;
         menu.port.clear(); menu.update(0);
         for (const char value : std::string("31113")) {
             key(value, true); text(value);
@@ -526,7 +551,7 @@ D6R_TEST_CASE("PR83 capture Application K2 endpoint text holds do not invoke Bac
             key(value, true, true); menu.update(0);
             D6R_REQUIRE(menu.setupScreen == screen);
             D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
-            D6R_REQUIRE_EQ(screen == NetworkMenu::SetupScreen::Host ? 0 : 1, menu.focus);
+            D6R_REQUIRE_EQ(screen == NetworkMenu::SetupScreen::Host ? 0 : 2, menu.focus);
             key(value, false); menu.update(0);
         }
         D6R_REQUIRE_EQ(std::string("31113"), menu.port);
@@ -536,20 +561,20 @@ D6R_TEST_CASE("PR83 capture Application K2 endpoint text holds do not invoke Bac
         for (unsigned frame = 0; frame < 8; ++frame) menu.update(0);
         D6R_REQUIRE(menu.setupScreen == screen);
         key(SDLK_1, false); menu.update(0);
-        if (screen == NetworkMenu::SetupScreen::Host) {
+        if (screen == NetworkMenu::SetupScreen::Host || menu.editingEndpoint(menu.runtime.snapshot())) {
             key(SDLK_TAB, true); key(SDLK_TAB, false); menu.update(0);
         }
         key(SDLK_1, true); menu.update(0);
         D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
         key(SDLK_1, false); menu.update(0);
     }
-    menu.setupScreen = NetworkMenu::SetupScreen::Join; menu.focus = 0; menu.address.clear(); menu.update(0);
+    menu.setupScreen = NetworkMenu::SetupScreen::Join; menu.focus = 1; menu.address.clear(); menu.update(0);
     for (char value : std::string("wsq1.example")) {
         key(value, true); text(value); menu.update(0);
         key(value, false); menu.update(0);
     }
     D6R_REQUIRE_EQ(std::string("wsq1.example"), menu.address);
-    D6R_REQUIRE_EQ(0, menu.focus);
+    D6R_REQUIRE_EQ(1, menu.focus);
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
     menu.runtime.current.journey = Client::NetworkJourney::Match;
     menu.runtime.current.canonical = canonical(91, Network::Replication::Phase::ActiveRound);
@@ -1197,6 +1222,107 @@ D6R_TEST_CASE("PR87 real canonical motion and timed water project through submit
     D6R_REQUIRE_EQ(waterBefore.waterHeight + 1, waterAfter.waterHeight);
     D6R_REQUIRE(waterAfter.waterTop > waterBefore.waterTop);
     D6R_REQUIRE_NEAR(waterBefore.waterBottom, waterAfter.waterBottom, 0.00001f);
+}
+
+D6R_TEST_CASE("public retained lobby heading never overlaps controller role note") {
+    char name[] = "duel6r-public-retained-layout";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    Test::RecordingRenderer recorder;
+    Font font(recorder);
+    font.load("data/font.ttf", application.console);
+    auto &original = *application.service;
+    AppService service(font, original.getConsole(), original.getTextureManager(), original.getVideo(),
+        original.getInput(), original.getControlsManager(), original.getSound(), original.getScriptManager());
+    NetworkMenu menu(service, application.gameResources, {}, [] {});
+    for (const bool host : {false, true}) {
+        for (const auto journey : {Client::NetworkJourney::Reconnecting, Client::NetworkJourney::HostEnded}) {
+            auto &snapshot = menu.runtime.current;
+            snapshot.publicSession = true; snapshot.host = host; snapshot.journey = journey;
+            snapshot.endpoint = {"duel.netusite.cz", 26660};
+            snapshot.canonical = canonical(91, Network::Replication::Phase::Lobby);
+            snapshot.canonical->settings.mode = "Deathmatch";
+            snapshot.reconnectSeconds = 29;
+            recorder.quads.clear();
+            menu.render();
+            struct Bounds { float left, right, bottom, top; };
+            std::optional<Bounds> heading, role;
+            for (const auto &quad : recorder.quads) {
+                const auto entry = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),
+                    [&](const auto &item) { return item.texture == quad.material.getTexture(); });
+                if (entry == font.fontCache.entryList.end()) continue;
+                const bool isHeading = entry->text == "NETWORK LOBBY • LAST CONFIRMED";
+                const bool isRole = entry->text.find(host ? "You control this session." : "The host controls this session.") == 0;
+                if (!isHeading && !isRole) continue;
+                Bounds bounds{quad.projected[0].x, quad.projected[0].x, quad.projected[0].y, quad.projected[0].y};
+                for (const auto &point : quad.projected) {
+                    bounds.left = std::min(bounds.left, point.x); bounds.right = std::max(bounds.right, point.x);
+                    bounds.bottom = std::min(bounds.bottom, point.y); bounds.top = std::max(bounds.top, point.y);
+                }
+                (isHeading ? heading : role) = bounds;
+            }
+            D6R_REQUIRE(heading && role);
+            D6R_REQUIRE(heading->right <= role->left || role->right <= heading->left
+                || heading->top <= role->bottom || role->top <= heading->bottom);
+        }
+    }
+}
+
+D6R_TEST_CASE("public join UI accepts exact typing and explicit paste and clears invitation on endpoint mode and back") {
+    char name[] = "duel6r-public-ui-test";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    NetworkMenu menu(*application.service, application.gameResources, {}, [] {});
+    menu.setupScreen = NetworkMenu::SetupScreen::Join;
+    menu.localPlayers = {player("Local player")};
+    menu.localPlayers.front().controls = &menu.controlsManager.get(0);
+    std::string reason;
+    D6R_REQUIRE(!menu.setupValid(reason));
+    D6R_REQUIRE_EQ(std::string("Enter an invitation"), reason);
+    D6R_REQUIRE(menu.publicConnection);
+    D6R_REQUIRE_EQ(std::string("duel.netusite.cz"), menu.address);
+    D6R_REQUIRE_EQ(std::string("26660"), menu.port);
+    menu.focus = 3;
+    SDL_SetModState(KMOD_NONE);
+    const std::string typed = "Case-Sensitive_test!";
+    menu.textInputEvent(TextInputEvent(typed));
+    D6R_REQUIRE(menu.invitation.value == typed);
+    D6R_REQUIRE_EQ(0, SDL_SetClipboardText("Explicit-Paste"));
+    SDL_SetModState(KMOD_CTRL);
+    menu.keyEvent(KeyPressEvent(SDLK_v, SysEvent::ButtonState::PRESSED, KMOD_CTRL));
+    SDL_SetModState(KMOD_NONE);
+    D6R_REQUIRE(menu.invitation.value == typed + "Explicit-Paste");
+    D6R_REQUIRE(menu.setupValid(reason));
+    SDL_SetClipboardText("");
+    for (const auto &invalid : {std::string(" has-space"), std::string("\xc3\xa9"), std::string(257, 'x')}) {
+        menu.textInputEvent(TextInputEvent(invalid));
+        D6R_REQUIRE(menu.invalidInvitationInput);
+        D6R_REQUIRE(menu.invitation.value == typed + "Explicit-Paste");
+        D6R_REQUIRE(!menu.setupValid(reason));
+        D6R_REQUIRE_EQ(std::string("Use 1–256 printable ASCII characters without spaces."), reason);
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+    }
+    menu.focus = 1;
+    menu.textInputEvent(TextInputEvent(std::string("x")));
+    D6R_REQUIRE(menu.invitation.value.empty());
+    menu.focus = 3;
+    menu.textInputEvent(TextInputEvent(typed));
+    menu.focus = 2;
+    menu.keyEvent(KeyPressEvent(SDLK_BACKSPACE, SysEvent::ButtonState::PRESSED, 0));
+    D6R_REQUIRE(menu.invitation.value.empty());
+    menu.focus = 3;
+    menu.textInputEvent(TextInputEvent(typed));
+    menu.focus = 0;
+    menu.keyEvent(KeyPressEvent(SDLK_RETURN, SysEvent::ButtonState::PRESSED, 0));
+    D6R_REQUIRE(!menu.publicConnection);
+    D6R_REQUIRE(menu.invitation.value.empty());
+    menu.keyEvent(KeyPressEvent(SDLK_RETURN, SysEvent::ButtonState::PRESSED, 0));
+    D6R_REQUIRE(menu.publicConnection);
+    menu.focus = 3;
+    menu.textInputEvent(TextInputEvent(typed));
+    menu.keyEvent(KeyPressEvent(SDLK_ESCAPE, SysEvent::ButtonState::PRESSED, 0));
+    D6R_REQUIRE(menu.invitation.value.empty());
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
 }
 
 D6R_TEST_CASE("PR83 real runtime End from naturally completed final summary drains and discards result") {

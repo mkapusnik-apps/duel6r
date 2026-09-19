@@ -2,6 +2,22 @@
 
 ## Status, purpose, and requirements
 
+### Public pilot functional contract
+
+These public states extend the LAN outcomes below. They apply to both the controller and guests and consume the owning security and lifecycle requirements without redefining their copy.
+
+Presentation authority: [NET-08 UX contract](../design/screens/NET-08.md). The fixed copies in TRU-PUB-009, TRU-PUB-016, HSL-PUB-006, and HSL-PUB-007 are authoritative. New protocol or code identifiers are developer-owned; these functional state IDs are the stable product references. Security and invitation failure offer Edit setup and Return to Network, not direct Retry. A network timeout or resolution failure may offer existing secure Retry only when retained setup remains valid. SIGTERM without an authenticated terminal notice does not select maintenance copy.
+
+| Functional state | Entry and outcome source | Permitted recovery |
+|---|---|---|
+| `NET-08-PUBLIC-SECURITY` | Server identity/encryption failure under TRU-PUB-016, or invitation denial under TRU-PUB-009 | Edit setup to NET-03; Return to Network to NET-01. Invitation denial requires replacement under NET-JOIN-PUB-007. No insecure bypass. |
+| `NET-08-PUBLIC-MAINTENANCE` | Confirmed service maintenance notice under HSL-PUB-007 | HSL-PUB-008; no restoration Retry. |
+| `NET-08-PUBLIC-CONTROLLER-EXPIRED` | Confirmed service expiry notice under HSL-PUB-006 | HSL-PUB-008; no restoration Retry. |
+
+Missing DNS, unreachable service, and timeouts retain existing initial-connection outcomes. They must not be presented as successful deployment, admission, or a known session end. An unconfirmed connection loss during a session remains NET-07 until an authoritative terminal result or the original deadline. Edit setup retains non-secret setup under NET-JOIN-PUB-006. No failure displays invitation or reconnect credentials.
+
+Functional acceptance: `TRU-PUB-AC-001`–`TRU-PUB-AC-003`, `NET-JOIN-PUB-AC-001`, and `HSL-PUB-AC-002` cover rejection, recovery permissions, copy, and truthful failure states. UX owns presentation and feedback.
+
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It gives an actionable and truthful outcome for startup/initial-connection failures and terminal reconnect outcomes. It implements `NET-AC-002`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-011`, `NET-AC-013`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 Issue #30 defines the compatibility and admission outcomes for this screen in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 Issue #30 must not implement this graphical screen.

@@ -634,6 +634,12 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/network/SessionLifecycle.h
         source/network/SessionTransport.cpp
         source/network/SessionTransport.h
+        source/network/PublicSession.cpp
+        source/network/PublicSession.h
+        source/network/TlsStream.cpp
+        source/network/TlsStream.h
+        source/server/DedicatedService.cpp
+        source/server/DedicatedService.h
         source/network/StateReplication.cpp
         source/network/StateReplication.h
         source/network/StateReplicationProtocol.cpp
@@ -687,6 +693,8 @@ if (MINGW)
 endif ()
 
 add_library(duel6r-network-scaffold STATIC ${D6R_NETWORK_SCAFFOLD_SOURCES})
+find_package(OpenSSL 1.1.1 REQUIRED)
+target_link_libraries(duel6r-network-scaffold PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 add_dependencies(duel6r-network-scaffold ${D6R_RESOLVER_APP_NAME})
 target_include_directories(duel6r-network-scaffold PUBLIC ${CMAKE_SOURCE_DIR}/source)
 target_compile_definitions(duel6r-network-scaffold PRIVATE NOMINMAX)
@@ -697,7 +705,7 @@ else ()
             -fno-fast-math -ffp-contract=off -frounding-math)
 endif ()
 if (WIN32)
-    target_link_libraries(duel6r-network-scaffold PUBLIC ws2_32 bcrypt iphlpapi)
+    target_link_libraries(duel6r-network-scaffold PUBLIC ws2_32 bcrypt iphlpapi crypt32)
 else ()
     find_package(Threads REQUIRED)
     target_link_libraries(duel6r-network-scaffold PUBLIC Threads::Threads)

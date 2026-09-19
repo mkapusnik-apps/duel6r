@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="850" height="800" viewBox="0 0 850 800">
+  <title>NET-01 — Network entry</title>
+  <desc>NET-01-PUBLIC-ENTRY. Existing desktop screen identity. Top-left logical coordinates. Connect opens NET-03; Host private LAN opens NET-02; Back returns to MENU-01.</desc>
+  <rect width="850" height="800" fill="white"/>
+  <g fill="none" stroke="black">
+    <rect x="1" y="1" width="848" height="698"/>
+    <rect x="325" y="24" width="200" height="95"/>
+    <rect x="24" y="150" width="802" height="526"/>
+    <rect x="260" y="345" width="330" height="44" stroke-width="2"/>
+    <rect x="260" y="405" width="330" height="44"/>
+    <rect x="260" y="465" width="330" height="44"/>
+    <path d="M24 720H826" stroke-dasharray="5 5"/>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="16">
+    <text x="352" y="75">Banner / version</text>
+    <text x="355" y="192">NETWORK PLAY</text>
+    <text x="160" y="242">Public service: invite required</text>
+    <text x="160" y="275">Custom address and private-LAN hosting remain available</text>
+    <text x="160" y="308">Linux / Windows x86-64</text>
+    <text x="390" y="373">Connect</text>
+    <text x="355" y="433">Host private LAN</text>
+    <text x="402" y="493">Back</text>
+    <text x="40" y="746">ANNOTATIONS: fixed canvas; no scrolling. Read scope, then actions.</text>
+    <text x="40" y="773">Focus: Connect → Host private LAN → Back. Local Play is unchanged.</text>
+  </g>
+</svg>

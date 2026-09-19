@@ -41,8 +41,9 @@ namespace Duel6::Server {
         };
     }
 
-    SessionAllocation::SessionAllocation(std::uint8_t hostLocalPlayers, IdentitySource identities)
-            : identities(identities ? std::move(identities) : sequentialIdentitySource()) {
+    SessionAllocation::SessionAllocation(std::uint8_t hostLocalPlayers, IdentitySource identities, bool dedicated)
+            : identities(identities ? std::move(identities) : sequentialIdentitySource()), dedicated(dedicated) {
+        if (dedicated && hostLocalPlayers == 0) return;
         if (hostLocalPlayers == 0 || hostLocalPlayers > Network::Trust::MaxParticipants)
             throw std::invalid_argument("Host local player count must be in range 1..15");
         AdmittedParticipant host;
@@ -100,6 +101,10 @@ namespace Duel6::Server {
         auto reservation = pending.find(transactionId);
         if (reservation == pending.end()) return false;
         const std::size_t count = reservation->second.playerIds.size();
+        if (dedicated && hostId == 0) {
+            hostId = reservation->second.participantId;
+            reservation->second.localHost = true; // Session role, not ownership of the service process.
+        }
         participants.emplace(reservation->second.participantId, std::move(reservation->second));
         pending.erase(reservation);
         pendingPlayers -= count;
@@ -201,13 +206,14 @@ namespace Duel6::Server {
     AdmissionPolicy::AdmissionPolicy(Network::GameplayManifest frozenHostManifest, std::uint8_t hostLocalPlayers,
                                      IdentitySource identities,
                                      std::shared_ptr<Network::Trust::ConcurrentWorkLimiter> workLimiter,
-                                     ValidationWorkGate validationWorkGate)
-            : manifest(std::move(frozenHostManifest)), sessionAllocation(hostLocalPlayers, std::move(identities)),
+                                     ValidationWorkGate validationWorkGate, bool dedicated)
+            : manifest(std::move(frozenHostManifest)), sessionAllocation(hostLocalPlayers, std::move(identities), dedicated),
               manifestWork(workLimiter ? std::move(workLimiter)
                                        : std::make_shared<Network::Trust::ConcurrentWorkLimiter>()),
-              validationWorkGate(std::move(validationWorkGate)) {
+              validationWorkGate(std::move(validationWorkGate)), dedicated(dedicated) {
         if (!Network::validCanonicalManifest(manifest))
             throw std::invalid_argument("Host gameplay content manifest is invalid");
+        if (dedicated) return;
         const AdmittedParticipant &host = sessionAllocation.hostParticipant();
         authorization.createLocalHost(0, host.participantId);
         if (!authorization.setOwnedSlots(host.participantId, host.playerIds))
@@ -280,7 +286,10 @@ namespace Duel6::Server {
         std::lock_guard<std::mutex> lock(policyMutex);
         if (connection == 0) return false;
         const std::optional<AdmittedParticipant> participant = sessionAllocation.pendingParticipant(transactionId);
-        if (!participant || !authorization.bindGuest(connection, participant->participantId)) return false;
+        if (!participant) return false;
+        if (dedicated && sessionAllocation.participantCount() == 0)
+            authorization.createLocalHost(connection, participant->participantId);
+        else if (!authorization.bindGuest(connection, participant->participantId)) return false;
         if (!authorization.setOwnedSlots(participant->participantId, participant->playerIds)
             || !sessionAllocation.commit(transactionId)) {
             authorization.disconnect(connection);
@@ -301,9 +310,13 @@ namespace Duel6::Server {
         std::lock_guard<std::mutex> lock(policyMutex);
         if (connection == 0 || participantId == 0) return false;
         const auto participants = sessionAllocation.admittedParticipants();
-        const auto found = std::find_if(participants.begin(), participants.end(), [participantId](const auto &value) {
-            return value.participantId == participantId && !value.localHost;
+        const auto found = std::find_if(participants.begin(), participants.end(), [this, participantId](const auto &value) {
+            return value.participantId == participantId && (!value.localHost || dedicated);
         });
+        if (found != participants.end() && dedicated && found->localHost) {
+            authorization.createLocalHost(connection, participantId);
+            return authorization.authorize(connection, Network::Trust::AuthorityAction::HostOnly);
+        }
         return found != participants.end() && authorization.bindGuest(connection, participantId);
     }
 

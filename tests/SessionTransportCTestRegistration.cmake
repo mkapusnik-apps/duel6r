@@ -1,5 +1,43 @@
 include_guard(GLOBAL)
 
+# Windows registration is OFF by default: ordinary native CTest must never
+# alter a developer's trust store. DevOps may opt in ONLY inside an approved
+# disposable Windows Docker container, with no host trust/registry/profile
+# mounts, no persistent user profile, and existing permission to write that
+# container's LocalMachine ROOT. Access denial fails; there is no elevation,
+# CurrentUser write fallback, or protected-root policy change. Inside it:
+#   set D6R_DISPOSABLE_WINDOWS_CONTAINER=1
+#   cmake ... -DD6R_TRANSPORT_ONLY=ON -DBUILD_TESTING=ON
+#             -DD6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS=ON
+#   cmake --build <build> --target duel6r-portable-tls-tests
+#   ctest --test-dir <build> -R "^duel6r-portable-tls-tests$" --output-on-failure
+# The executable also requires a Windows container marker before trust access.
+# Missing/unsupported isolation markers fail closed; do not bypass the guard.
+# Provisioning uses the documented physical LocalMachine ROOT provider; the
+# unchanged production CurrentUser ROOT reader sees its LocalMachine sibling.
+# RAII removes only the generated root on normal/error exits and verifies its
+# absence through both readers. Mandatory container destruction removes its
+# writable registry layer even after timeout/forced kill. Never use a host store.
+# No OpenSSL CLI, Python TLS fixture, GUI, or fake platform macros are needed.
+option(D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS
+        "Opt into temporary container LocalMachine ROOT TLS tests ONLY in disposable Windows Docker containers" OFF)
+if (NOT WIN32 OR D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS)
+    add_executable(duel6r-portable-tls-tests ${CMAKE_SOURCE_DIR}/tests/PortableTlsTests.cpp)
+    target_include_directories(duel6r-portable-tls-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-portable-tls-tests duel6r-network-scaffold)
+    if (WIN32)
+        target_compile_definitions(duel6r-portable-tls-tests PRIVATE D6R_TLS_DISPOSABLE_WINDOWS_OPT_IN)
+        target_link_libraries(duel6r-portable-tls-tests advapi32)
+        add_test(NAME duel6r-portable-tls-tests COMMAND duel6r-portable-tls-tests --allow-disposable-windows-container-test-root)
+    else ()
+        add_test(NAME duel6r-portable-tls-tests COMMAND duel6r-portable-tls-tests)
+    endif ()
+    if (MINGW)
+        set_property(TARGET duel6r-portable-tls-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+    endif ()
+    set_tests_properties(duel6r-portable-tls-tests PROPERTIES LABELS "application;network;tls;security;native" TIMEOUT 90)
+endif ()
+
 add_executable(duel6r-session-transport-tests
         ${CMAKE_SOURCE_DIR}/tests/SessionTransportTests.cpp)
 target_include_directories(duel6r-session-transport-tests PRIVATE ${CMAKE_SOURCE_DIR})
@@ -213,6 +251,34 @@ if (NOT D6R_TRANSPORT_ONLY)
             LABELS "application;integration;network;runtime;presentation;reconnect;regression"
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
             TIMEOUT 180)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(duel6r-public-dedicated-runtime-tests
+                ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedRuntimeTests.cpp)
+        target_include_directories(duel6r-public-dedicated-runtime-tests PRIVATE ${CMAKE_SOURCE_DIR})
+        get_target_property(D6R_PUBLIC_TEST_LIBRARIES duel6r-network-session-runtime-tests LINK_LIBRARIES)
+        target_link_libraries(duel6r-public-dedicated-runtime-tests ${D6R_PUBLIC_TEST_LIBRARIES})
+        add_test(NAME duel6r-public-dedicated-process-tests
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                        $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources)
+        set_tests_properties(duel6r-public-dedicated-process-tests PROPERTIES
+                LABELS "application;integration;network;public;tls;security"
+                TIMEOUT 180)
+        add_test(NAME duel6r-public-dedicated-review-regressions
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                        $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources --review-regressions)
+        set_tests_properties(duel6r-public-dedicated-review-regressions PROPERTIES
+                LABELS "application;integration;network;public;tls;recovery;regression"
+                TIMEOUT 600)
+        add_test(NAME duel6r-public-dedicated-authorization-tests
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                        $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources --authorization-regressions)
+        set_tests_properties(duel6r-public-dedicated-authorization-tests PROPERTIES
+                LABELS "application;integration;network;public;tls;authorization;security"
+                TIMEOUT 300)
+    endif ()
 endif ()
 
 if (NOT D6R_TRANSPORT_ONLY)

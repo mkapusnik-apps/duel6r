@@ -8,6 +8,38 @@ The code remains an experimental scaffold with no playable network session. Thes
 
 ## Supported trust boundary
 
+This section's unauthenticated, unencrypted, private-address restrictions apply to player-hosted LAN mode. Public dedicated mode must instead satisfy the policy below. A public-facing proxy or a private backend address does not make an Internet connection a trusted LAN connection. Existing bounded validation, participant ownership, content restrictions, and non-disclosing diagnostics remain applicable to both modes.
+
+### Encrypted invite-only public pilot
+
+- **TRU-PUB-001** A public connection must encrypt all application traffic between the client and the public service endpoint, including invitation and reconnect credentials.
+- **TRU-PUB-002** Before sending an invitation or application data, the client must validate the server identity for the selected endpoint through a trusted certificate chain.
+- **TRU-PUB-003** Certificate, identity, or encryption failure must stop the attempt without an insecure fallback or a user bypass.
+- **TRU-PUB-004** The public service must require a valid operator-issued invitation before initial session admission or controller assignment.
+- **TRU-PUB-005** An invitation must authorize only its assigned environment.
+- **TRU-PUB-006** An operator must be able to rotate the single shared invitation for each environment without publishing a client release.
+- **TRU-PUB-007** A revoked invitation must fail subsequent initial admission attempts.
+- **TRU-PUB-008** Invitation rotation may restart the service and end its session under the existing interruption contract; ending the session must invalidate every participant's reconnect credentials.
+- **TRU-PUB-009** Missing, invalid, revoked, or wrong-environment invitations must produce `Connection not authorized.` without disclosing which check failed.
+- **TRU-PUB-010** The client must not persist invitation credentials across application restarts.
+- **TRU-PUB-011** Credentials must not appear in source control, shipped artifacts, endpoint URLs, process arguments, logs, diagnostic output, or user-visible failure messages.
+- **TRU-PUB-012** An invitation must not grant operator, deployment, or authority over another participant's players.
+- **TRU-PUB-013** Public operation must retain bounded admission work, connections, queues, and participant input validation.
+- **TRU-PUB-014** Public deployment must not expose an unauthenticated plaintext gameplay listener to untrusted peers.
+- **TRU-PUB-015** Public credentials must not be sent to a LAN-mode endpoint.
+- **TRU-PUB-016** A server identity or encryption failure must use `Secure connection could not be established. Check the endpoint and try again.` and permit Edit setup or Return to Network without an insecure retry option.
+- **TRU-PUB-017** Each environment must accept only its current operator-provisioned high-entropy shared invitation for initial admission after rotation completes.
+- **TRU-PUB-018** A public service may transfer decrypted traffic only within the same trusted machine through a backend that untrusted peers cannot reach or impersonate.
+- **TRU-PUB-019** A trusted backend handoff must preserve public invitation enforcement and bounded abuse controls rather than classify public clients as unauthenticated LAN participants.
+
+Invitation distribution is operator-managed outside the game. Revocation means replacement of the environment's shared invitation; individual invitation issuance or individual-user revocation is not required. The pilot adds no account registration, credential recovery, or identity-based ranking. Public invitation handling is an exception to the LAN-only prohibition on initial-admission credentials, not permission to weaken secret handling. Reconnect remains participant-scoped and cannot be replaced by presenting an invitation. Secret storage and secure generation are implementation/security responsibilities; the input contract in NET-03 does not define credential strength.
+
+| Criterion | Required outcome | Requirements |
+|---|---|---|
+| **TRU-PUB-AC-001** | Valid encrypted connections authenticate the selected server. Untrusted, expired, or wrong-identity certificates fail before invitation disclosure with the fixed security failure; no bypass or plaintext fallback exists. A same-machine decrypted handoff is inaccessible to untrusted peers and retains public admission and abuse controls. | TRU-PUB-001–003, TRU-PUB-014–016, TRU-PUB-018–019 |
+| **TRU-PUB-AC-002** | The current shared invitation admits compatible participants only in its environment. Missing, invalid, replaced, and other-environment invitations produce the same fixed denial and no authority. Rotation with restart needs no client rebuild, rejects the previous invitation after completion, and invalidates ended-session reconnect credentials. No individual-user revocation is claimed. | TRU-PUB-004–009, TRU-PUB-017 |
+| **TRU-PUB-AC-003** | Restart clears client invitation data. Secret-handling review and bounded-abuse observations cover public admission and reconnect without credential disclosure or privilege escalation. | TRU-PUB-010–013 |
+
 First release has no initial-admission authentication, passwords, tokens, certificates, TLS, or encryption. It is supported only between trusted game instances:
 
 - on one trusted machine through IPv4 loopback; or
@@ -42,6 +74,7 @@ Protected assets are host authority, participant and player-slot ownership, cano
 Trust boundaries are:
 
 - **Local host authority:** created only by trusted local session setup. It is never granted by a remote message.
+- **Dedicated controller authority:** created only by the service's first successful authorized admission under NET-PUB-002 through NET-PUB-004. For public mode, this binding replaces the local-host prerequisite for host-only session actions; it grants no service administration or deployment authority.
 - **Transport peer:** every remote connection, frame, message, count, string, name, profile field, and source address is untrusted until its applicable bounded validation succeeds.
 - **Admission:** a transport connection has no committed participant identity, player slot, readiness, or host authority. It may submit exactly one bounded initial request within three seconds. A successful compatibility decision creates only a private provisional reservation. The guest must repeat the exact ordered identity offer in one acceptance before the single total 10-second Connect deadline; the host then commits atomically and sends a final exact `admitted` confirmation.
 - **Participant authority:** after admission, one immutable connection-to-participant binding controls only that participant's readiness, proposals, leave action, person values for existing owned player slots, and those owned player slots. Local control assignments remain participant-local. Host-only actions require the locally created host participant. Disconnect removes the connection's authority while reservation ownership may remain for #36; intentional or expired participant removal clears ownership.

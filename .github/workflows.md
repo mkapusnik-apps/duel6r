@@ -1,5 +1,29 @@
 # Workflow Lifecycle
 
+## Public dedicated pilot
+
+- See [pilot operations](../deploy/README.md) for infrastructure, authorization, DNS,
+  certificates, invitations, readiness, rollback, cost, and teardown.
+- `develop.yml` calls `deploy-server.yml` after `tag` succeeds.
+- Develop runs no longer cancel active runs: cancellation during service replacement
+  can interrupt activation. Deployment jobs serialize each environment separately.
+- `master-release.yml` builds its Linux tool image from the checked-out source and runs
+  the existing full Linux CTests before it calls the production deployment path.
+- Existing Windows packaging, nightly publication, and PR checks retain their paths.
+- Production uses the protected `production` environment. An operator must configure
+  required reviewers, prevent self-review, and restrict its branch to `master`.
+- The workflow rejects production activation when the required-reviewer rule is absent.
+- Cloud operations are skipped until repository variable `PUBLIC_PILOT_ACTIVATED` is `true`.
+  A skipped deployment is not public readiness.
+- Each environment uses its own WIF deploy identity in project `duel-6-reloaded`.
+- The server image runs the existing headless CTests, records the exact source SHA,
+  and deploys by registry digest. Failed builds do not deploy.
+- The VM checks backend readiness before public TLS starts. CI checks public TLS identity
+  separately. Neither check claims successful player admission or gameplay.
+- Staging starts for replacement and stops afterward, including on activation failure.
+- Manual dispatch from the matching branch redeploys a recorded digest/source pair.
+  Production approval also applies to rollback. Old sessions are never restored.
+
 ## Feature sanity check
 
 - `Feature - Sanity check` starts for a pull request that targets `develop`.
@@ -40,7 +64,31 @@
 - These targets include the production transport, server, resolver, host supervisor, and registered test executables.
 - The container verifies the build tools and required Visual C++ runtime libraries before CMake starts.
 - The container puts the Visual C++ runtime libraries beside the native executables before CTest starts.
+- The native tool image includes checksum-pinned FireDaemon OpenSSL 3.5.8 LTS x64
+  headers, MSVC import libraries, DLLs, and command-line tools. CMake uses its explicit
+  installation root. The container copies both OpenSSL runtime DLLs beside the executables
+  before CTest starts. OpenSSL configuration and module paths refer to the image installation.
 - The container runs all CTests that the transport-only configuration registers.
+- The container build command enables `D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS`.
+  Only the disposable `docker run --rm` invocation receives
+  `D6R_DISPOSABLE_WINDOWS_CONTAINER=1`; the host environment is not changed.
+- The tester-owned CTest registration supplies the explicit Windows trust permission.
+  The test must also recognize the container's real `ContainerType` marker before it
+  accesses certificate stores. A missing or unsupported marker fails the job; do not
+  create a marker, disable the guard, or run the test on the host.
+- The fixture adds only its generated certificate with `CERT_STORE_ADD_NEW` through
+  `CERT_STORE_PROV_SYSTEM_REGISTRY_A` to the disposable container's LocalMachine ROOT.
+  It checks visibility through the unchanged production CurrentUser logical ROOT reader.
+  Cleanup checks removal from both the physical store and the production reader.
+- The Server Core-based image retains its existing ContainerAdministrator default;
+  neither the Dockerfile nor the runner overrides the user or adds elevation for this
+  test. Missing write permission must fail, not trigger an elevation or trust fallback.
+- Test cleanup removes the generated root on normal/error exits. Docker `--rm` destroys
+  the container's writable registry/profile state after failure or test timeout. No host
+  registry, trust store, or user profile is mounted.
+- Final native TLS evidence must show `duel6r-portable-tls-tests` passing in the existing
+  `MSVC x64 transport CTests` job. Compilation or an aggregate success without that
+  test's execution is not sufficient for the task's Ready-for-review gate.
 - The job needs `contents: read` permission.
 - The job does not use repository secrets and does not create an artifact.
 - This workflow provides issue acceptance evidence.

@@ -10,6 +10,15 @@ permissions:
   packages: read
 
 jobs:
+  deploy-production:
+    if: github.ref == 'refs/heads/master'
+    needs: [build-release-artifact]
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    uses: ./.github/workflows/deploy-server.yml
+
   build-release-artifact:
     name: Build Release Artifact
     runs-on: ubuntu-latest
@@ -25,8 +34,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull Linux build image
-        run: docker pull ghcr.io/${{ github.repository }}/build:develop
+      - name: Build Linux tool image from the release source
+        run: docker build -t duel6r-release-build:local .
 
       - name: Pull Windows cross build image
         run: docker pull ghcr.io/${{ github.repository }}/build-w64:develop
@@ -35,8 +44,10 @@ jobs:
         run: |
           docker run --rm \
             -e CLEAN_OUTPUT_DIR=ON \
+            -e BUILD_TESTING=ON \
+            -e RUN_TESTS=ON \
             -v "$PWD:/workspace" \
-            ghcr.io/${{ github.repository }}/build:develop
+            duel6r-release-build:local
 
       - name: Build Windows release files inside shared bundle
         run: |

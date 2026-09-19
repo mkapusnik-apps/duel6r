@@ -2,6 +2,14 @@
 
 ## Status, purpose, and requirements
 
+### Public pilot functional contract
+
+`NET-09-PUBLIC-CONTROLLER-END` consumes HSL-PUB-005 for an intentional controller End notice accepted through the current authenticated service connection. It retains the existing fixed host-ended copy and Return to Network destination; in this state the session controller is the host role. It does not mean that the public service process stopped. Controller expiry and maintenance use NET-08, not this screen. Silence or transport loss cannot enter this state.
+
+Functional acceptance: `HSL-PUB-AC-002` distinguishes intentional end from maintenance, expiry, and ambiguous contact loss. UX owns the presentation of the host/controller role.
+
+Presentation authority: [NET-09 UX contract](../design/screens/NET-09.md). Existing host-ended copy applies only to the confirmed intentional controller-end case, not to unexpected controller loss or maintenance.
+
 This blocking overlay is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It presents only a valid intentional host End session notice accepted through the guest's current established session. It implements `NET-AC-003`, `NET-AC-009`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 Its retained arena context implements `NET-VIS-003` through `NET-VIS-010`, `NET-VIS-AC-002` through `NET-VIS-AC-004`, `REP-PRES-001` through `REP-PRES-006`, and `REP-PRES-AC-001` through `REP-PRES-AC-003`.
 

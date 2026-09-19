@@ -33,7 +33,8 @@ namespace Duel6::Server::Authoritative {
     bool AuthoritativePlayerInput::restore(
             Identity participantId, Sender sender, std::function<void()> close) {
         if (participantId == 0 || !sender) return false;
-        connections[participantId] = {std::move(sender), std::move(close), participantId != hostParticipantId};
+        const bool remote = static_cast<bool>(close) || participantId != hostParticipantId;
+        connections[participantId] = {std::move(sender), std::move(close), remote};
         return true;
     }
 
