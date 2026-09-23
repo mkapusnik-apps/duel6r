@@ -1,6 +1,6 @@
 # Workflow Overview
 
-GitHub Actions separates pull-request validation, validation of `develop`, nightly publication, and release packaging. The [workflow files](workflows/) are the source of truth for triggers, job dependencies, permissions, and implementation details.
+GitHub Actions separates pull-request validation, validation of `develop`, nightly publication, release packaging, and storage cleanup. The [workflow files](workflows/) are the source of truth for triggers, job dependencies, permissions, and implementation details.
 
 ## Workflows
 
@@ -12,6 +12,7 @@ GitHub Actions separates pull-request validation, validation of `develop`, night
 | [Develop - Nightly Scheduler](workflows/develop-nightly-scheduler.yml) | Every four hours while enabled, or manual dispatch | Requests a nightly build from `sanity` and disables itself until a later successful develop validation enables it again. |
 | [Develop - Nightly](workflows/develop-nightly.yml) | Dispatch from the `sanity` tag | Packages Linux and Windows runtime files from the captured validated commit using its matching build images, without rerunning application tests. Publishes the combined ZIP as the current `nightly` release. |
 | [Release Artifact](workflows/master-release.yml) | Push to `master` or manual dispatch | Builds and packages a combined Linux and Windows runtime artifact using the `develop` build images. GitHub release asset publication is conditional on a tag-based invocation. |
+| [Storage Cleanup](workflows/storage-cleanup.yml) | Weekly schedule or manual dispatch | Retains current GHCR build images and removes eligible old versions. Manual runs can also remove exact-name legacy Actions artifacts. |
 
 ## Pipeline concept
 
@@ -23,8 +24,14 @@ GitHub Actions separates pull-request validation, validation of `develop`, night
 ## Basic elements and workspace context
 
 - **Containerized execution:** Linux builds and Windows cross-compilation use Docker build environments. Native Windows transport checks exercise the Windows implementation in a native Windows container.
-- **Runners and images:** Self-hosted runners handle pull-request Linux validation, develop builds, and nightly work. GitHub-hosted runners support image publication, native Windows checks, scheduling, tagging, and release-artifact builds. GHCR stores the reusable build images.
-- **Artifacts and diagnostics:** Runtime archives carry packaged output between jobs or to users. Validation workflows retain available test diagnostics and smoke-check evidence separately from release bundles.
+- **Runners and images:** Self-hosted runners handle pull-request Linux validation, develop builds, and nightly work. GitHub-hosted runners support image publication, native Windows checks, scheduling, tagging, release-artifact builds, and storage cleanup. GHCR stores the reusable build images.
+- **Artifacts and diagnostics:** Validation diagnostics, smoke evidence, and master transport artifacts are retained for seven days; nightly transport remains at one day. Global CTest logs are always preserved after a test failure. Per-test logs and screenshots are collected only for mapped failed tests, and graphical harnesses explicitly record their full-frame screenshot provenance. Only those recorded PNGs are retained, so comparison crops, normalized images, row/control extracts, and other generated derivatives are excluded regardless of filename.
 - **Self-hosted Docker workspace contract:** The runner checkout and Docker daemon can occupy different filesystem namespaces, so the checkout path is not assumed to exist on the daemon host. The [workspace helper](../docker/run-with-daemon-workspace.sh) transfers source and build output through the Docker API. This relies on Docker daemon access and storage for the transferred workspace and output; a shared host path is not required.
+
+## Storage cleanup safeguards
+
+- Scheduled runs apply GHCR cleanup; manual runs default to a dry run. The workflow fully inventories both packages and resolves `develop`, `sanity`, and `nightly` before deleting anything, then keeps the newest 10 versions plus protected mutable or exact-SHA tags.
+- GHCR cleanup needs `contents: read`, `packages: write`, and repository package Admin access to `duel6r/build` and `duel6r/build-w64`. Ref, inventory, metadata, authentication, or authorization failures stop cleanup.
+- Legacy Actions artifact cleanup is manual-only, defaults to `skip`, requires `actions: write`, fully paginates the inventory, and deletes only the exact legacy names listed in the workflow. It does not delete current transport artifacts, diagnostics, smoke evidence, Docker build records, or release assets.
 
 This overview describes the pipeline's responsibilities and relationships, not procedures for implementing individual steps.

@@ -36,39 +36,10 @@ if [[ "${run_tests}" == "ON" ]]; then
     fi
 
     if [[ "${diagnostics_ready}" == true ]]; then
-      if [[ -d "${tmp_build_dir}/Testing" ]] \
-          && ! cp -R "${tmp_build_dir}/Testing" "${diagnostics_dir}/Testing"; then
-        echo "Warning: unable to preserve CTest records." >&2
+      if ! "${workspace_dir}/docker/collect-ctest-diagnostics.sh" \
+          "${tmp_build_dir}" "${diagnostics_dir}"; then
+        echo "Warning: unable to complete CTest diagnostic collection." >&2
       fi
-
-      shopt -s globstar nullglob
-      for test_output_name in \
-        shared-arena-behavior \
-        async-menu-background-behavior \
-        menu-redesign-behavior \
-        round-summary-progress \
-        safe-empty-match-start \
-        safe-empty-test-failure; do
-        test_output_dir="${tmp_build_dir}/${test_output_name}"
-        [[ -d "${test_output_dir}" ]] || continue
-
-        for diagnostic_file in \
-          "${test_output_dir}"/**/*.png \
-          "${test_output_dir}"/**/*.stdout \
-          "${test_output_dir}"/**/*.stderr \
-          "${test_output_dir}"/**/*.log \
-          "${test_output_dir}"/**/*-state.txt \
-          "${test_output_dir}"/**/*classifier*.txt \
-          "${test_output_dir}"/**/*classification*.txt; do
-          relative_file="${diagnostic_file#"${tmp_build_dir}/"}"
-          destination_file="${diagnostics_dir}/${relative_file}"
-          if ! mkdir -p "$(dirname "${destination_file}")" \
-              || ! cp "${diagnostic_file}" "${destination_file}"; then
-            echo "Warning: unable to preserve diagnostic file: ${relative_file}" >&2
-          fi
-        done
-      done
-      shopt -u globstar nullglob
       echo "Available CTest diagnostics written to ${diagnostics_dir}" >&2
     fi
     exit "${test_status}"

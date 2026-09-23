@@ -28,6 +28,8 @@ done
 
 rm -rf "$test_root"
 mkdir -p "$test_root"
+source "${workspace_dir}/tests/GraphicalTestScreenshotManifest.sh"
+d6r_enable_screenshot_manifest "$test_root"
 
 export DISPLAY="$display"
 export SDL_AUDIODRIVER=dummy

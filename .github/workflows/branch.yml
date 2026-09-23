@@ -46,6 +46,7 @@ jobs:
           name: ctest-diagnostics
           path: build/ci-diagnostics/
           if-no-files-found: ignore
+          retention-days: 7
 
       - name: Verify build output
         run: test -x build/duel6r

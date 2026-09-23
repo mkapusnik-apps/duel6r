@@ -25,6 +25,8 @@ done
 
 rm -rf "$test_root"
 mkdir -p "$test_root"
+source "${workspace_dir}/tests/GraphicalTestScreenshotManifest.sh"
+d6r_enable_screenshot_manifest "$test_root"
 export DISPLAY="$display" SDL_AUDIODRIVER=dummy LIBGL_ALWAYS_SOFTWARE=1
 
 xvfb_pid=""
@@ -315,6 +317,8 @@ PY
                 "winner summary did not persist across two matching observations"
             convert "${summary_matches[0]}" "${scenario_dir}/summary-early.png"
             convert "${summary_matches[1]}" "${scenario_dir}/summary-late.png"
+            d6r_record_full_screenshot "${scenario_dir}/summary-early.png"
+            d6r_record_full_screenshot "${scenario_dir}/summary-late.png"
             cp "${scenario_dir}/summary-late.png" "${scenario_dir}/summary.png"
             if [[ "$tab_was_held" == true ]]; then
                 cp "${scenario_dir}/summary-early.png" \
@@ -385,6 +389,8 @@ PY
     (( ${#next_round_matches[@]} == 2 )) || fail "next round did not replace the summary frame"
     convert "${next_round_matches[0]}" "${scenario_dir}/next-round-first.png"
     convert "${next_round_matches[1]}" "${scenario_dir}/next-round-settled.png"
+    d6r_record_full_screenshot "${scenario_dir}/next-round-first.png"
+    d6r_record_full_screenshot "${scenario_dir}/next-round-settled.png"
 }
 
 stop_scenario() {
