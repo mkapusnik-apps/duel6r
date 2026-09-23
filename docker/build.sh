@@ -56,7 +56,7 @@ if [[ "${run_tests}" == "ON" ]]; then
           [[ -n "${test_name}" ]] && failed_tests["${test_name}"]=1
         done < "${failed_tests_file}"
       else
-        echo "Warning: CTest failure list is unavailable; screenshots cannot be selected safely." >&2
+        echo "Warning: CTest failure list is unavailable; per-test diagnostics cannot be selected safely." >&2
       fi
 
       for test_output in \
@@ -70,6 +70,8 @@ if [[ "${run_tests}" == "ON" ]]; then
         duel6r-local-play-shit-thrower-sanitizer-tests:local-play-shit-thrower-sanitizer; do
         test_name="${test_output%%:*}"
         test_output_name="${test_output#*:}"
+        [[ -n "${failed_tests[${test_name}]:-}" ]] || continue
+
         test_output_dir="${tmp_build_dir}/${test_output_name}"
         [[ -d "${test_output_dir}" ]] || continue
 
@@ -88,7 +90,6 @@ if [[ "${run_tests}" == "ON" ]]; then
           fi
         done
 
-        [[ -n "${failed_tests[${test_name}]:-}" ]] || continue
         for diagnostic_file in "${test_output_dir}"/**/*.png; do
           case "${diagnostic_file}" in
             *-crop.png|*-normalized.png) continue ;;
