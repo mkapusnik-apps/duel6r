@@ -8,7 +8,7 @@
 - The build compiles the game and runs the full configured `ctest` suite.
 - The workflow verifies `build/duel6r` after the tests pass.
 - The job needs `contents: read` and `packages: read` permissions.
-- The job uploads CTest diagnostics only when the container preserves them after a test failure.
+- The job uploads CTest diagnostics for seven days only when the container preserves them after a test failure.
 - GitHub cancels an older run for the same pull request when a new run starts.
 
 ## Develop sanity
@@ -20,8 +20,9 @@
 - The sanity jobs use the exact Linux image for the pushed commit.
 - The sanity job compiles the game and runs the full configured `ctest` suite.
 - The sanity job verifies output and runs the main-menu smoke check after the tests pass.
-- The sanity job uploads CTest diagnostics only when the container preserves them after a test failure.
+- The sanity job uploads CTest diagnostics for seven days only when the container preserves them after a test failure.
 - An artifact upload error does not replace the primary test failure.
+- The main-menu smoke artifact is retained for seven days.
 - The lint-equivalent job performs a Debug compilation and verifies output.
 - The tag job moves `sanity` after both build jobs succeed.
 - The tag job needs the `PAT_ACTIONS` secret and `contents: write` permission.
@@ -83,6 +84,7 @@
 - A single-platform rebuild removes `docs/` records from a retained opposite-platform checksum manifest. It preserves all other records.
 - This exclusion applies to nightly, master release, and local bundles. Runtime resources, `README.md`, and `LICENSE` remain in the bundle.
 - GitHub Actions uses a one-day transport artifact between the build and release jobs.
+- The master release transport artifact is retained for seven days.
 - The repository provides the stable `nightly` tag.
 - The release job downloads the artifact and checks that the expected ZIP is nonempty and passes `unzip -t` before it changes the tag or release.
 - The self-hosted release runner needs `unzip` and the GitHub CLI (`gh`).
@@ -113,6 +115,22 @@
 - GitHub-hosted jobs use direct bind mounts because their Docker daemon shares the runner host filesystem.
 - Nightly and release publication need the permissions and secrets declared in their workflow files.
 
+## Storage cleanup
+
+- `Storage Cleanup` runs each Monday and supports manual dispatch.
+- Scheduled runs apply the GHCR cleanup policy. Manual runs default to a dry run.
+- The GHCR job needs `contents: read` and `packages: write`.
+- It fully enumerates versions of `duel6r/build` and `duel6r/build-w64` before deletion starts.
+- It keeps the newest 10 versions of each package.
+- It also keeps versions with the mutable `develop` tag or an exact SHA tag for the current `develop` branch, `sanity` tag, or `nightly` tag.
+- A ref lookup or package inventory failure stops the job before any package deletion.
+- The repository must have package Admin access to both GHCR packages. `packages: write` does not grant that access.
+- Manual dispatch provides `skip`, `dry-run`, and `apply` modes for legacy Actions artifact cleanup.
+- Legacy cleanup needs `actions: write` and fully inventories repository artifacts before deletion starts.
+- It matches only `duel6r-master-linux.zip`, `duel6r-nightly-linux`, `duel6r-nightly-linux.zip`, `duel6r-nightly-windows.zip`, and `duel6r-nightly.zip`.
+- It does not match `nightly-release-asset`, current master transport artifacts, GitHub release assets, diagnostics, smoke evidence, or Docker build records.
+- Scheduled runs skip legacy artifact cleanup, so they do not repeatedly inspect artifacts outside the GHCR policy.
+
 ## Failure handling
 
 - Check the native Windows job output for the discovered Visual Studio and Windows SDK versions.
@@ -123,5 +141,7 @@
 - Check for the daemon workspace confirmation before you investigate CMake failures.
 - A missing confirmation indicates a checkout transfer or Docker API failure.
 - A missing `build/duel6r` after a successful container run indicates an output transfer or packaging failure.
-- A failed CTest run stores available CTest records, screenshots, and classifier or log diagnostics in `build/ci-diagnostics`.
+- A failed CTest run stores `LastTest` and `LastTestsFailed` CTest logs in `build/ci-diagnostics`.
+- It stores original stdout, stderr, log, state, and classification files from graphical test output directories.
+- It stores original screenshots only for failed graphical tests. It excludes generated `*-crop.png` and `*-normalized.png` files.
 - Diagnostic copy errors do not replace the saved CTest exit status.

@@ -1,0 +1,159 @@
+name: Storage Cleanup
+
+on:
+  schedule:
+    - cron: '37 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Report GHCR deletions without applying them
+        required: true
+        type: boolean
+        default: true
+      legacy_artifacts:
+        description: Legacy Actions artifact cleanup mode
+        required: true
+        type: choice
+        options:
+          - skip
+          - dry-run
+          - apply
+        default: skip
+
+concurrency:
+  group: storage-cleanup
+  cancel-in-progress: false
+
+jobs:
+  ghcr:
+    name: Clean old GHCR build versions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Inventory and clean package versions
+        uses: actions/github-script@v8
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const packageNames = [`${repo}/build`, `${repo}/build-w64`];
+            const refs = ['develop', 'sanity', 'nightly'];
+            const dryRun = process.env.DRY_RUN === 'true';
+
+            // Resolve every protected ref and enumerate every package before deleting anything.
+            const commits = {};
+            for (const ref of refs) {
+              const response = await github.request('GET /repos/{owner}/{repo}/commits/{ref}', {
+                owner,
+                repo,
+                ref,
+              });
+              commits[ref] = response.data.sha;
+            }
+
+            const protectedTags = new Set([
+              'develop',
+              `sha-${commits.develop}`,
+              `sha-${commits.sanity}`,
+              `sha-${commits.nightly}`,
+            ]);
+            const inventories = [];
+            for (const packageName of packageNames) {
+              const versions = await github.paginate(
+                'GET /orgs/{org}/packages/{package_type}/{package_name}/versions',
+                {
+                  org: owner,
+                  package_type: 'container',
+                  package_name: packageName,
+                  per_page: 100,
+                },
+              );
+              for (const version of versions) {
+                if (!version.id || !version.created_at
+                    || !Array.isArray(version.metadata?.container?.tags)) {
+                  throw new Error(`Incomplete version metadata for ${packageName}; refusing cleanup.`);
+                }
+              }
+              inventories.push({packageName, versions});
+            }
+
+            const plans = inventories.map(({packageName, versions}) => {
+              const newestIds = new Set(
+                [...versions]
+                  .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                  .slice(0, 10)
+                  .map(version => version.id),
+              );
+              const deletions = versions.filter(version => {
+                const tags = version.metadata?.container?.tags ?? [];
+                return !newestIds.has(version.id)
+                  && !tags.some(tag => protectedTags.has(tag));
+              });
+              return {packageName, total: versions.length, deletions};
+            });
+
+            core.info(`Mode: ${dryRun ? 'dry-run' : 'apply'}`);
+            core.info(`Protected tags: ${[...protectedTags].join(', ')}`);
+            for (const plan of plans) {
+              core.info(`${plan.packageName}: ${plan.total} versions inventoried; ${plan.deletions.length} eligible.`);
+              for (const version of plan.deletions) {
+                const tags = version.metadata?.container?.tags ?? [];
+                core.info(`${dryRun ? 'Would delete' : 'Deleting'} ${plan.packageName} version ${version.id} (${tags.join(', ') || 'untagged'}).`);
+                if (!dryRun) {
+                  await github.request(
+                    'DELETE /orgs/{org}/packages/{package_type}/{package_name}/versions/{package_version_id}',
+                    {
+                      org: owner,
+                      package_type: 'container',
+                      package_name: plan.packageName,
+                      package_version_id: version.id,
+                    },
+                  );
+                }
+              }
+            }
+
+  legacy-artifacts:
+    name: Clean legacy Actions artifacts
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.legacy_artifacts != 'skip' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Inventory and clean legacy artifacts
+        uses: actions/github-script@v8
+        env:
+          CLEANUP_MODE: ${{ inputs.legacy_artifacts }}
+        with:
+          script: |
+            const legacyNames = new Set([
+              'duel6r-master-linux.zip',
+              'duel6r-nightly-linux',
+              'duel6r-nightly-linux.zip',
+              'duel6r-nightly-windows.zip',
+              'duel6r-nightly.zip',
+            ]);
+            const apply = process.env.CLEANUP_MODE === 'apply';
+
+            // Complete the inventory before deleting anything.
+            const artifacts = await github.paginate(
+              'GET /repos/{owner}/{repo}/actions/artifacts',
+              {...context.repo, per_page: 100},
+            );
+            const deletions = artifacts.filter(artifact => legacyNames.has(artifact.name));
+
+            core.info(`Mode: ${apply ? 'apply' : 'dry-run'}`);
+            core.info(`${artifacts.length} artifacts inventoried; ${deletions.length} exact legacy-name matches.`);
+            for (const artifact of deletions) {
+              core.info(`${apply ? 'Deleting' : 'Would delete'} artifact ${artifact.id}: ${artifact.name}.`);
+              if (apply) {
+                await github.request(
+                  'DELETE /repos/{owner}/{repo}/actions/artifacts/{artifact_id}',
+                  {...context.repo, artifact_id: artifact.id},
+                );
+              }
+            }

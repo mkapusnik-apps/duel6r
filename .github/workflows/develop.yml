@@ -51,6 +51,7 @@ jobs:
           name: ctest-diagnostics-sanity
           path: build/ci-diagnostics/
           if-no-files-found: ignore
+          retention-days: 7
 
       - name: Verify build output
         run: test -x build/duel6r
@@ -68,6 +69,7 @@ jobs:
           name: main-menu-smoke
           path: build/smoke-main-menu/
           if-no-files-found: ignore
+          retention-days: 7
 
   lint:
     name: Lint-equivalent Build
