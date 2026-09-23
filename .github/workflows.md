@@ -1,127 +1,30 @@
-# Workflow Lifecycle
+# Workflow Overview
 
-## Feature sanity check
+GitHub Actions separates pull-request validation, validation of `develop`, nightly publication, and release packaging. The [workflow files](workflows/) are the source of truth for triggers, job dependencies, permissions, and implementation details.
 
-- `Feature - Sanity check` starts for a pull request that targets `develop`.
-- The workflow checks out the pull request head commit on a self-hosted runner, with the event commit as a safe fallback outside pull request events.
-- The workflow pulls the `develop` Linux build image from GHCR.
-- The build compiles the game and runs the full configured `ctest` suite.
-- The workflow verifies `build/duel6r` after the tests pass.
-- The job needs `contents: read` and `packages: read` permissions.
-- The job uploads CTest diagnostics only when the container preserves them after a test failure.
-- GitHub cancels an older run for the same pull request when a new run starts.
+## Workflows
 
-## Develop sanity
+| Workflow | Trigger | Purpose and main elements |
+| --- | --- | --- |
+| [Feature - Sanity check](workflows/branch.yml) | Pull requests targeting `develop` | Validates the pull-request head with a Linux build and automated tests, plus native Windows transport tests. `Feature Ready` aggregates the two job results. |
+| [Develop - Build Container Image](workflows/develop-build-image.yml) | Reusable workflow call or manual dispatch | Publishes Linux and Windows cross-compilation build images to GHCR. Commit-specific images connect validation and nightly packaging to the same source revision; `develop` image tags support consumers of the current development environment. |
+| [Develop - Sanity](workflows/develop.yml) | Push to `develop` | Publishes build images, runs a Linux build with automated tests and a main-menu smoke check, and performs a Debug compilation as the lint-equivalent check. Success advances `sanity` and enables the nightly scheduler. |
+| [Develop - Nightly Scheduler](workflows/develop-nightly-scheduler.yml) | Every four hours while enabled, or manual dispatch | Requests a nightly build from `sanity` and disables itself until a later successful develop validation enables it again. |
+| [Develop - Nightly](workflows/develop-nightly.yml) | Dispatch from the `sanity` tag | Packages Linux and Windows runtime files from the captured validated commit using its matching build images, without rerunning application tests. Publishes the combined ZIP as the current `nightly` release. |
+| [Release Artifact](workflows/master-release.yml) | Push to `master` or manual dispatch | Builds and packages a combined Linux and Windows runtime artifact using the `develop` build images. GitHub release asset publication is conditional on a tag-based invocation. |
 
-- `Develop - Sanity` starts after a push to `develop`.
-- The workflow calls `Develop - Build Container Image` before the sanity jobs start.
-- The image workflow publishes Linux and Windows images with `sha-<full-commit-SHA>` tags.
-- The image workflow also updates the `develop` image tags for a `develop` branch invocation.
-- The sanity jobs use the exact Linux image for the pushed commit.
-- The sanity job compiles the game and runs the full configured `ctest` suite.
-- The sanity job verifies output and runs the main-menu smoke check after the tests pass.
-- The sanity job uploads CTest diagnostics only when the container preserves them after a test failure.
-- An artifact upload error does not replace the primary test failure.
-- The lint-equivalent job performs a Debug compilation and verifies output.
-- The tag job moves `sanity` after both build jobs succeed.
-- The tag job needs the `PAT_ACTIONS` secret and `contents: write` permission.
-- The tag job enables `develop-nightly-scheduler.yml` with the `PAT_ACTIONS` secret.
+## Pipeline concept
 
-## Native Windows transport evidence
+- Pull-request checks validate proposed changes before integration into `develop`.
+- Develop validation establishes the `sanity` checkpoint. Nightly packaging uses that exact source revision and its build images, rather than whichever commit is newest when packaging runs.
+- The scheduler separates successful validation from publication. The `nightly` tag and release represent the latest published nightly bundle, not a history of nightly releases. Replacement is non-transactional, so publication can temporarily leave the release unavailable.
+- The `master` release-artifact path is separate from nightly publication. It produces a downloadable workflow artifact; a branch push does not itself publish a GitHub release.
 
-- `Evidence - Native Windows Transport` starts manually or for relevant pull request changes that target `develop`.
-- A pull request run checks out the pull request head commit.
-- A manual run checks out the selected workflow commit.
-- GitHub runs the job on `windows-2025` with native `ltsc2025` Windows containers.
-- The host selects the newest Visual Studio instance with an MSVC x64 toolchain, redistributable runtime, and compatible Windows SDK.
-- The host mounts the toolchain, redistributable runtime, and SDK read-only in the container.
-- The host does not compile, test, or run a project binary.
-- The container uses MSVC x64 to build all targets in the transport-only configuration.
-- These targets include the production transport, server, resolver, host supervisor, and registered test executables.
-- The container verifies the build tools and required Visual C++ runtime libraries before CMake starts.
-- The container puts the Visual C++ runtime libraries beside the native executables before CTest starts.
-- The container runs all CTests that the transport-only configuration registers.
-- The job needs `contents: read` permission.
-- The job does not use repository secrets and does not create an artifact.
-- This workflow provides issue acceptance evidence.
-- Repository rules do not require this workflow unless an administrator changes those rules.
-- GitHub cancels an older run for the same pull request when a new run starts.
+## Basic elements and workspace context
 
-## Self-hosted Docker workspace contract
+- **Containerized execution:** Linux builds and Windows cross-compilation use Docker build environments. Native Windows transport checks exercise the Windows implementation in a native Windows container.
+- **Runners and images:** Self-hosted runners handle pull-request Linux validation, develop builds, and nightly work. GitHub-hosted runners support image publication, native Windows checks, scheduling, tagging, and release-artifact builds. GHCR stores the reusable build images.
+- **Artifacts and diagnostics:** Runtime archives carry packaged output between jobs or to users. Validation workflows retain available test diagnostics and smoke-check evidence separately from release bundles.
+- **Self-hosted Docker workspace contract:** The runner checkout and Docker daemon can occupy different filesystem namespaces, so the checkout path is not assumed to exist on the daemon host. The [workspace helper](../docker/run-with-daemon-workspace.sh) transfers source and build output through the Docker API. This relies on Docker daemon access and storage for the transferred workspace and output; a shared host path is not required.
 
-- The self-hosted runner may run in a container that uses a Docker daemon on another filesystem namespace.
-- The runner checkout path does not have to exist at the same path on the Docker daemon host.
-- Self-hosted build steps must not bind mount `$PWD` or `GITHUB_WORKSPACE` into a build container.
-- `docker/run-with-daemon-workspace.sh` transfers the checkout through the Docker API with `docker cp`.
-- The helper confirms that the daemon-side container contains `/workspace/CMakeLists.txt` before it starts the build.
-- The helper replaces `GITHUB_WORKSPACE/build` with `/workspace/build` after the container stops.
-- The helper copies output to a new staging directory before it replaces `GITHUB_WORKSPACE/build`.
-- A failed staging copy keeps the prior runner output.
-- The helper returns the build container status when the container fails.
-- The runner must provide the Docker CLI and access to a Docker daemon.
-- The daemon must permit `docker create`, `docker cp`, `docker start`, and `docker rm` operations.
-- The runner needs enough local storage for one checkout copy and returned build output.
-- A same-path host bind mount is not required.
-- Operators may instead use a bind mount only when the daemon can resolve the checkout path to the same repository content.
-
-## Nightly and release paths
-
-- `Develop - Nightly Scheduler` dispatches `develop-nightly.yml` from the `sanity` tag.
-- The `sanity` tag identifies the exact source commit that passed `Develop - Sanity`.
-- `Develop - Nightly` rejects an invocation when `github.ref` is not `refs/tags/sanity`.
-- The workflow captures `github.sha` before a build job starts.
-- A later movement of the `sanity` tag does not change the captured commit.
-- `Develop - Nightly` builds Linux and Windows files on a self-hosted runner.
-- Both nightly builds use the Docker API workspace transfer helper.
-- The Windows build receives the Linux output and extends the shared bundle.
-- The nightly workflow consumes the exact `sanity` commit and does not rerun application tests.
-- Both nightly builds pull `sha-<captured-sanity-SHA>` images.
-- The workflow stops before compilation when either exact image is unavailable.
-- The workflow packages the shared Linux and Windows files as `duel6r-nightly.zip`.
-- The ZIP root contains the files from `build` without a `build` directory.
-- Both build scripts exclude development documentation in `docs/` from runtime bundles and their platform checksum manifests. They also remove stale `build/docs` content.
-- A single-platform rebuild removes `docs/` records from a retained opposite-platform checksum manifest. It preserves all other records.
-- This exclusion applies to nightly, master release, and local bundles. Runtime resources, `README.md`, and `LICENSE` remain in the bundle.
-- GitHub Actions uses a one-day transport artifact between the build and release jobs.
-- The repository provides the stable `nightly` tag.
-- The release job downloads the artifact and checks that the expected ZIP is nonempty and passes `unzip -t` before it changes the tag or release.
-- The self-hosted release runner needs `unzip` and the GitHub CLI (`gh`).
-- The release job moves the `nightly` tag to the captured sanity commit.
-- Immediately before publication, the job deletes the existing `nightly` release and its assets. It does not delete the tag or other releases.
-- The job lists all release pages, including drafts visible to its write token. A successful list without `nightly` needs no deletion. API and authentication errors fail the job.
-- The job creates a fresh `nightly` release so that its publication date records the new publication.
-- `softprops/action-gh-release@v3` creates a draft, uploads the ZIP, then publishes it. The workflow leaves `draft` unset to enable this sequence.
-- The release is a full release and is explicitly the latest repository release.
-- The release job uploads only `duel6r-nightly.zip`.
-- Publication is non-transactional.
-- Between deletion and publication, the nightly release page and asset download can be unavailable.
-- A failure or manual cancellation after deletion can leave no published nightly release or an incomplete draft. The tag can already point to the new commit.
-- Operators can rerun the failed release job while the one-day artifact is available. The retry deletes a remaining nightly draft before it publishes a fresh release. If the artifact has expired, dispatch the full workflow from `sanity` again.
-- A retry after successful publication also replaces the release. There is no automatic rollback.
-- The release keeps the title `nightly` and does not create a nightly release history.
-- The tag-based release and named asset URLs stay the same after publication. Release and asset IDs change, old ID-based links stop working, and subscribers can receive new-release notifications.
-- A failed build does not change the prior successful nightly release.
-- A package failure does not change the prior successful nightly release.
-- Nightly runs use `${{ github.workflow }}` as the concurrency group.
-- A newer dispatch does not cancel an active nightly run. GitHub can replace an older pending run with a newer pending run.
-- This setting protects the delete-to-publish sequence from automatic cancellation, but not from manual cancellation or runner failure.
-- The release job uses `GITHUB_TOKEN` with `contents: write` to list, delete, and publish the release.
-- `GITHUB_TOKEN` limits release access to the current repository.
-- The release job uses `PAT_ACTIONS` only to move the `nightly` tag.
-- The tag token can start workflows that listen for the tag update.
-- `Release Artifact` builds release files after a push to `master` or a manual dispatch.
-- GitHub-hosted jobs use direct bind mounts because their Docker daemon shares the runner host filesystem.
-- Nightly and release publication need the permissions and secrets declared in their workflow files.
-
-## Failure handling
-
-- Check the native Windows job output for the discovered Visual Studio and Windows SDK versions.
-- A missing tool path indicates that the `windows-2025` image does not contain a required host tool.
-- Exit code `0xC0000135` indicates that Windows cannot load a required runtime library.
-- A mount error indicates a Windows Docker bind-mount or path-access failure.
-- Re-run a failed self-hosted job after Docker daemon access or storage is restored.
-- Check for the daemon workspace confirmation before you investigate CMake failures.
-- A missing confirmation indicates a checkout transfer or Docker API failure.
-- A missing `build/duel6r` after a successful container run indicates an output transfer or packaging failure.
-- A failed CTest run stores available CTest records, screenshots, and classifier or log diagnostics in `build/ci-diagnostics`.
-- Diagnostic copy errors do not replace the saved CTest exit status.
+This overview describes the pipeline's responsibilities and relationships, not procedures for implementing individual steps.
