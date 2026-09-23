@@ -36,73 +36,10 @@ if [[ "${run_tests}" == "ON" ]]; then
     fi
 
     if [[ "${diagnostics_ready}" == true ]]; then
-      shopt -s globstar nullglob
-      for diagnostic_file in \
-        "${tmp_build_dir}"/Testing/Temporary/LastTest.log \
-        "${tmp_build_dir}"/Testing/Temporary/LastTestsFailed.log; do
-        relative_file="${diagnostic_file#"${tmp_build_dir}/"}"
-        destination_file="${diagnostics_dir}/${relative_file}"
-        if ! mkdir -p "$(dirname "${destination_file}")" \
-            || ! cp "${diagnostic_file}" "${destination_file}"; then
-          echo "Warning: unable to preserve CTest record: ${relative_file}" >&2
-        fi
-      done
-
-      declare -A failed_tests=()
-      failed_tests_file="${tmp_build_dir}/Testing/Temporary/LastTestsFailed.log"
-      if [[ -f "${failed_tests_file}" ]]; then
-        while IFS=: read -r _ test_name; do
-          test_name="${test_name%$'\r'}"
-          [[ -n "${test_name}" ]] && failed_tests["${test_name}"]=1
-        done < "${failed_tests_file}"
-      else
-        echo "Warning: CTest failure list is unavailable; per-test diagnostics cannot be selected safely." >&2
+      if ! "${workspace_dir}/docker/collect-ctest-diagnostics.sh" \
+          "${tmp_build_dir}" "${diagnostics_dir}"; then
+        echo "Warning: unable to complete CTest diagnostic collection." >&2
       fi
-
-      for test_output in \
-        shared-arena-behavior:shared-arena-behavior \
-        async-menu-background-behavior:async-menu-background-behavior \
-        menu-redesign-behavior:menu-redesign-behavior \
-        round-summary-progress-behavior:round-summary-progress \
-        safe-empty-match-start:safe-empty-match-start \
-        safe-empty-match-start:safe-empty-test-failure \
-        final-team-summary-behavior:final-team-summary \
-        duel6r-local-play-shit-thrower-sanitizer-tests:local-play-shit-thrower-sanitizer; do
-        test_name="${test_output%%:*}"
-        test_output_name="${test_output#*:}"
-        [[ -n "${failed_tests[${test_name}]:-}" ]] || continue
-
-        test_output_dir="${tmp_build_dir}/${test_output_name}"
-        [[ -d "${test_output_dir}" ]] || continue
-
-        for diagnostic_file in \
-          "${test_output_dir}"/**/*.stdout \
-          "${test_output_dir}"/**/*.stderr \
-          "${test_output_dir}"/**/*.log \
-          "${test_output_dir}"/**/*-state.txt \
-          "${test_output_dir}"/**/*classifier*.txt \
-          "${test_output_dir}"/**/*classification*.txt; do
-          relative_file="${diagnostic_file#"${tmp_build_dir}/"}"
-          destination_file="${diagnostics_dir}/${relative_file}"
-          if ! mkdir -p "$(dirname "${destination_file}")" \
-              || ! cp "${diagnostic_file}" "${destination_file}"; then
-            echo "Warning: unable to preserve diagnostic file: ${relative_file}" >&2
-          fi
-        done
-
-        for diagnostic_file in "${test_output_dir}"/**/*.png; do
-          case "${diagnostic_file}" in
-            *-crop.png|*-normalized.png) continue ;;
-          esac
-          relative_file="${diagnostic_file#"${tmp_build_dir}/"}"
-          destination_file="${diagnostics_dir}/${relative_file}"
-          if ! mkdir -p "$(dirname "${destination_file}")" \
-              || ! cp "${diagnostic_file}" "${destination_file}"; then
-            echo "Warning: unable to preserve screenshot: ${relative_file}" >&2
-          fi
-        done
-      done
-      shopt -u globstar nullglob
       echo "Available CTest diagnostics written to ${diagnostics_dir}" >&2
     fi
     exit "${test_status}"

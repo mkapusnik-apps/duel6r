@@ -771,6 +771,18 @@ if (BUILD_TESTING)
         include(${CMAKE_SOURCE_DIR}/tests/SharedArenaCTestRegistration.cmake)
 
         add_test(
+            NAME ctest-diagnostics-collection
+            COMMAND ${D6R_BASH_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/CTestDiagnosticsCollectionTests.sh
+        )
+        set_tests_properties(
+            ctest-diagnostics-collection
+            PROPERTIES
+            ENVIRONMENT "WORKSPACE_DIR=${CMAKE_SOURCE_DIR}"
+            LABELS "build;regression"
+        )
+
+        add_test(
             NAME safe-empty-match-start
             COMMAND ${D6R_BASH_EXECUTABLE}
                     ${CMAKE_SOURCE_DIR}/tests/SafeEmptyMatchStartTests.sh
