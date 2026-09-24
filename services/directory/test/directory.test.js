@@ -1,7 +1,7 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { Firestore } from '@google-cloud/firestore';
+import { Firestore, Timestamp } from '@google-cloud/firestore';
 import { configuration } from '../src/config.js';
 import { Directory, LEASE_MS, PAGE_SIZE } from '../src/directory.js';
 import { createServer } from '../src/http.js';
@@ -74,32 +74,61 @@ test('restarted sessions receive independent authority and immutable password st
   await assert.rejects(directory.mutate(first.id, first.ownerToken, 1, listing({ passwordRequired: true })), status(400));
 });
 
-test('all active states remain listed through bounded pagination, including expired empty pages', async () => {
-  // Seed deterministic IDs through the emulator to exercise a full expired page.
-  const batch = db.batch();
-  for (let i = 1; i <= PAGE_SIZE * 2 + 2; i++) {
-    batch.set(db.collection(collection).doc(i.toString(16).padStart(32, '0')), {
-      listing: listing({ phase: ['lobby', 'first-round', 'closed'][i % 3],
-        players: i % 2 ? 15 : 2, passwordRequired: i % 2 === 0 }),
-      revision: 1, expiresAt: i <= PAGE_SIZE ? clock : clock + LEASE_MS,
-      ownerHash: 'c'.repeat(64)
-    });
+test('active index pagination ignores substantial expired history and retains every phase', async () => {
+  const expired = 2000;
+  for (let first = 1; first <= expired + PAGE_SIZE + 2; first += 400) {
+    const batch = db.batch();
+    for (let i = first; i < first + 400 && i <= expired + PAGE_SIZE + 2; i++) {
+      const expiresAt = i <= expired ? clock : clock + LEASE_MS;
+      batch.set(db.collection(collection).doc(i.toString(16).padStart(32, '0')), {
+        listing: listing({ phase: ['lobby', 'first-round', 'closed'][i % 3],
+          players: i % 2 ? 15 : 2, passwordRequired: i % 2 === 0 }),
+        revision: 1, expiresAt, leaseExpiry: Timestamp.fromMillis(expiresAt),
+        ownerHash: 'c'.repeat(64)
+      });
+    }
+    await batch.commit();
   }
-  await batch.commit();
   const first = await directory.list();
-  assert.equal(first.listings.length, 0);
+  assert.equal(first.listings.length, PAGE_SIZE);
   assert.ok(first.nextCursor);
   const second = await directory.list(first.nextCursor);
-  const third = await directory.list(second.nextCursor);
-  assert.equal(second.listings.length, PAGE_SIZE);
-  assert.equal(third.listings.length, 2);
-  assert.equal(third.nextCursor, null);
-  assert.equal(new Set([...second.listings, ...third.listings].map(row => row.id)).size, PAGE_SIZE + 2);
-  assert.deepEqual(new Set(second.listings.map(row => row.phase)), new Set(['lobby', 'first-round', 'closed']));
-  const serialized = JSON.stringify(second);
+  assert.equal(second.listings.length, 2);
+  assert.equal(second.nextCursor, null);
+  assert.equal(new Set([...first.listings, ...second.listings].map(row => row.id)).size, PAGE_SIZE + 2);
+  assert.deepEqual(new Set(first.listings.map(row => row.phase)), new Set(['lobby', 'first-round', 'closed']));
+  const serialized = JSON.stringify(first);
   assert.equal(serialized.includes('ownerHash'), false);
   assert.equal(serialized.includes('ownerToken'), false);
   await assert.rejects(directory.list('../cursor'), status(400));
+  await assert.rejects(directory.list(`9999999999999999-${'a'.repeat(32)}`), status(400));
+});
+
+test('expiry cursors survive concurrent renewal, expiry and deletion without walking old history', async () => {
+  const created = [];
+  for (let i = 0; i < PAGE_SIZE + 3; i++) created.push(await directory.register(listing()));
+  const first = await directory.list();
+  const last = first.listings.at(-1);
+  const renewed = created.find(row => row.id === first.listings[0].id);
+  const deleted = created.find(row => row.id === last.id);
+  clock += 20_000;
+  await Promise.all([
+    directory.mutate(renewed.id, renewed.ownerToken, 1, listing({ phase: 'closed' })),
+    directory.mutate(deleted.id, deleted.ownerToken, 1, null)
+  ]);
+  const remaining = await directory.list(first.nextCursor);
+  assert.equal(remaining.listings.length, 4); // three unread rows plus the renewed row
+  assert.equal(remaining.nextCursor, null);
+  assert.ok(remaining.listings.some(row => row.id === renewed.id && row.phase === 'closed'));
+  assert.ok(!remaining.listings.some(row => row.id === deleted.id));
+  clock = created[0].expiresAt;
+  const afterExpiry = await directory.list(first.nextCursor);
+  assert.deepEqual(afterExpiry.listings.map(row => row.id), [renewed.id]);
+  const stored = (await db.collection(collection).doc(renewed.id).get()).data();
+  assert.equal(stored.leaseExpiry.toMillis(), stored.expiresAt);
+  await assert.rejects(directory.mutate(renewed.id, renewed.ownerToken, 1, null), status(409));
+  await directory.mutate(renewed.id, renewed.ownerToken, 2, null);
+  assert.equal((await directory.list()).listings.length, 0);
 });
 
 test('shared quota applies across service instances, recovers next window', async () => {

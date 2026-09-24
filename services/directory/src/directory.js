@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { FieldPath } from '@google-cloud/firestore';
+import { FieldPath, Timestamp } from '@google-cloud/firestore';
 
 export const LEASE_MS = 60_000;
 export const PAGE_SIZE = 25;
@@ -57,7 +57,9 @@ export class Directory {
     this.limits = db.collection(`${collection}Limits`);
   }
 
-  // Shared fixed-window quotas bound database work across stateless instances.
+  // Shared fixed-window quotas bound admitted operations across stateless instances.
+  // Rejected requests still perform quota transactions. Deployment ingress and
+  // scaling limits must bound that work; these quotas are not a database DoS shield.
   // These are deliberately global limits for a small directory, not identities.
   // A busy or abused directory may become unavailable; gameplay remains separate.
   async quota(kind) {
@@ -78,7 +80,9 @@ export class Directory {
     await this.quota('register');
     const id = randomBytes(16).toString('hex');
     const ownerToken = randomBytes(32).toString('hex');
-    const data = { listing, ownerHash: digest(ownerToken), revision: 1, expiresAt: this.now() + LEASE_MS };
+    const expiresAt = this.now() + LEASE_MS;
+    const data = { listing, ownerHash: digest(ownerToken), revision: 1, expiresAt,
+      leaseExpiry: Timestamp.fromMillis(expiresAt) };
     await this.listings.doc(id).create(data);
     return { ...publicListing(id, data), ownerToken };
   }
@@ -101,25 +105,35 @@ export class Directory {
       requireValue(listing.sessionId === data.listing.sessionId);
       // A session password is fixed until session end, including lobby return.
       requireValue(listing.passwordRequired === data.listing.passwordRequired);
-      const replacement = { ...data, listing, revision: revision + 1, expiresAt: this.now() + LEASE_MS };
+      const expiresAt = this.now() + LEASE_MS;
+      const replacement = { ...data, listing, revision: revision + 1, expiresAt,
+        leaseExpiry: Timestamp.fromMillis(expiresAt) };
       tx.set(ref, replacement);
       return publicListing(id, replacement);
     }, { maxAttempts: 3 });
   }
 
   async list(cursor) {
-    requireValue(cursor === undefined || (typeof cursor === 'string' && idPattern.test(cursor)));
+    let position;
+    if (cursor !== undefined) {
+      requireValue(typeof cursor === 'string' && cursor.length <= 64);
+      const match = /^([0-9]{1,16})-([a-f0-9]{32})$/.exec(cursor);
+      requireValue(match !== null && Number.isSafeInteger(Number(match[1])));
+      position = { expiry: Number(match[1]), id: match[2] };
+    }
     await this.quota('read');
-    // Bound scanned records as well as returned records. Even an empty page can
-    // have a next cursor: clients must continue, not silently hide later listings.
-    let query = this.listings.orderBy(FieldPath.documentId()).limit(PAGE_SIZE + 1);
-    if (cursor !== undefined) query = query.startAfter(cursor);
+    const now = this.now();
+    // The index excludes expired history before the result limit is applied.
+    // Renewals can move a row forward across pages. Identity is the stable ID,
+    // not a row position; a traversal is a live view, not a frozen snapshot.
+    let query = this.listings.where('leaseExpiry', '>', Timestamp.fromMillis(now))
+      .orderBy('leaseExpiry').orderBy(FieldPath.documentId()).limit(PAGE_SIZE + 1);
+    if (position) query = query.startAfter(Timestamp.fromMillis(position.expiry), position.id);
     const snapshot = await query.get();
     const page = snapshot.docs.slice(0, PAGE_SIZE);
-    const now = this.now();
     return {
       listings: page.filter(doc => doc.data().expiresAt > now).map(doc => publicListing(doc.id, doc.data())),
-      nextCursor: snapshot.size > PAGE_SIZE ? page.at(-1).id : null
+      nextCursor: snapshot.size > PAGE_SIZE ? `${page.at(-1).data().expiresAt}-${page.at(-1).id}` : null
     };
   }
 }
