@@ -131,8 +131,9 @@ export class Directory {
     if (position) query = query.startAfter(Timestamp.fromMillis(position.expiry), position.id);
     const snapshot = await query.get();
     const page = snapshot.docs.slice(0, PAGE_SIZE);
+    const readTime = this.now();
     return {
-      listings: page.filter(doc => doc.data().expiresAt > now).map(doc => publicListing(doc.id, doc.data())),
+      listings: page.filter(doc => doc.data().expiresAt > readTime).map(doc => publicListing(doc.id, doc.data())),
       nextCursor: snapshot.size > PAGE_SIZE ? `${page.at(-1).data().expiresAt}-${page.at(-1).id}` : null
     };
   }

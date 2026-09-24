@@ -141,6 +141,24 @@ test('shared quota applies across service instances, recovers next window', asyn
   assert.ok((await directory.register(listing())).id);
 });
 
+test('a lease expiring while the real query completes is excluded from the response', async () => {
+  await directory.register(listing());
+  const raced = new Directory(db, { collection, now: () => clock });
+  const collectionRef = raced.listings;
+  // Wrap only query completion to deterministically advance the service clock.
+  // Reads, indexes and stored records still use the real Firestore emulator.
+  raced.listings = { where: (...args) => {
+    let query = collectionRef.where(...args);
+    const chain = {
+      orderBy: (...values) => { query = query.orderBy(...values); return chain; },
+      limit: value => { query = query.limit(value); return chain; },
+      get: async () => { const snapshot = await query.get(); clock += LEASE_MS; return snapshot; }
+    };
+    return chain;
+  } };
+  assert.deepEqual((await raced.list()).listings, []);
+});
+
 test('HTTP lifecycle, non-disclosing rejection, owner headers and no-store responses', async () => {
   const server = createServer(directory);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
