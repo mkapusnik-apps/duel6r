@@ -1,0 +1,14 @@
+{
+  "name": "duel6r-directory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test --test-concurrency=1"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "9.2.0"
+  }
+}
