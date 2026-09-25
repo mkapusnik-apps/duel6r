@@ -1,5 +1,6 @@
 #include "AuthoritativeHostedMatchController.h"
 
+#include <algorithm>
 #include <limits>
 #include <set>
 #include <type_traits>
@@ -103,6 +104,9 @@ namespace Duel6::Server::Authoritative {
                 || !playerInput.appendPlayers(additions)) return false;
             const auto update = replication.appendParticipants(*activeMatch, participants);
             if (!update) return false;
+            for (const auto &participant: participants)
+                readiness.emplace(participant.participantId, participant.ready);
+            advanceLobbyMutationGeneration();
             (void) replicationConnections.broadcast(*update);
             return true;
         }

@@ -1087,10 +1087,10 @@ namespace Duel6 {
                 hostSetup.password.reset();
                 joinFromBrowser = false; browserSelection.reset();
                 if (focus == 0) setupScreen = SetupScreen::Host;
-                else if (focus == 1) { setupScreen = SetupScreen::Join; browserSelection.reset(); }
-                else if (focus == 2) {
+                else if (focus == 2) { setupScreen = SetupScreen::Join; browserSelection.reset(); joinFromBrowser = false; }
+                else if (focus == 1) {
                     setupScreen = SetupScreen::Browser; browser.refresh();
-                    focus = browser.result().listings.empty() ? 2 : 0; return;
+                    focus = browser.result().listings.empty() ? 3 : 0; return;
                 }
                 else { close(); return; }
                 focus = 0; return;
@@ -1261,6 +1261,7 @@ namespace Duel6 {
             } else if (action == 1) {
                 runtime.reset(); setupScreen = snap.host ? SetupScreen::Host : SetupScreen::Join;
                 if (snap.host) (void) refreshHostAddresses(false);
+                if (!snap.host && snap.failure == "Connection not authorized.") { focus = 2; return; }
             }
             else { runtime.reset(); setupScreen = joinFromBrowser ? SetupScreen::Browser : SetupScreen::Entry;
                    if (joinFromBrowser) browser.refresh(); }
@@ -1609,6 +1610,7 @@ namespace Duel6 {
                                   && retryEligible(currentSnapshot, retryReason);
             focus = canRetry && currentSnapshot.host
                     && currentSnapshot.failure == "The selected port is unavailable. Choose another port and try again." ? 1 : 0;
+            if (canRetry && !currentSnapshot.host && currentSnapshot.failure == "Connection not authorized.") focus = 1;
             confirmation = Confirmation::None; scoreOverlay = false;
             const bool stable = currentSnapshot.journey == Client::NetworkJourney::Lobby
                     || currentSnapshot.journey == Client::NetworkJourney::Match
@@ -1737,7 +1739,10 @@ namespace Duel6 {
         drawText(24, 180, selected ? "Session " + selected->sessionId + " • " + selected->endpoint.host + ":"
             + std::to_string(selected->endpoint.port) + " • " + selected->mode : "Selected session");
         drawClippedText(24, 156, reason, 100);
-        drawText(24, 132, "LAN-first. A listing does not guarantee reachability.");
+        drawText(24, 132, selected && Network::Trust::classifyIpv4Literal(selected->endpoint.host)
+                == Network::Trust::EndpointScope::Loopback
+                ? "Same-machine endpoint. Only clients on the host machine can connect."
+                : "LAN-first. A listing does not guarantee reachability.");
         const char *actions[] = {"Join selected", "Refresh", "Direct connect", "Previous page", "Next page", "Back"};
         const bool enabled[] = {selected && selected->joinable() && !browser.stale() && !browser.loading(), !browser.loading(), true,
             browser.hasPrevious() && !browser.loading(), !browser.result().nextCursor.empty() && !browser.stale() && !browser.loading(), true};
@@ -2136,9 +2141,6 @@ namespace Duel6 {
             return;
         }
         drawMenuCanvas(width, height);
-        if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Browser) {
-            drawBrowser(); return;
-        }
         if (!snap.canonical) {
             drawText(50, 542, "LAST CONFIRMED NETWORK CONTEXT");
             renderer.setViewMatrix(Matrix::IDENTITY);
@@ -2276,6 +2278,11 @@ namespace Duel6 {
             drawMatch(snap, width, height); return;
         }
         drawMenuCanvas(width, height);
+        if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Browser) {
+            drawBrowser();
+            renderer.setViewMatrix(Matrix::IDENTITY);
+            return;
+        }
         std::string title = "NETWORK PLAY";
         if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Host) title = "HOST NETWORK SESSION";
         else if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Join) title = "JOIN NETWORK SESSION";
@@ -2293,11 +2300,11 @@ namespace Duel6 {
         drawText(425 - static_cast<Int32>(utf8Length(title)) * 4, 542, title);
 
         if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Entry) {
-            drawText(285, 505, "LAN-first network play"); drawText(285, 480, "Browse or connect directly");
+            drawText(285, 505, "LAN-first player-hosted sessions"); drawText(285, 480, "Directory or direct address");
             drawText(285, 455, "Linux / Windows x86-64");
             drawText(165, 415, "Player-hosted • Lobby 1–15 • Match 2–15 participants and players");
-            drawAction(325, "Host", focus == 0); drawAction(280, "Join", focus == 1);
-            drawAction(235, "Browse sessions", focus == 2); drawAction(190, "Back", focus == 3);
+            drawAction(325, "Host", focus == 0); drawAction(280, "Browse sessions", focus == 1);
+            drawAction(235, "Direct connect", focus == 2); drawAction(190, "Back", focus == 3);
         } else if (snap.journey == Client::NetworkJourney::Inactive) {
             const int fields = 3;
             drawText(50, 516, browserSelection && setupScreen == SetupScreen::Join

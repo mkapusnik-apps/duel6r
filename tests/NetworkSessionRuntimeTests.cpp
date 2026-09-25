@@ -421,6 +421,112 @@ D6R_TEST_CASE("NET-DIR response decoder bounds nesting pages cursors and numeric
 }
 
 #ifndef _WIN32
+D6R_TEST_CASE("NET-DIR reviewed menu dispatch renders browser states and preserves navigation focus") {
+    char name[] = "duel6r-browser-render-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot;
+        std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recording = std::make_unique<Test::RecordingRenderer>();
+    auto &recorder = *recording; video.renderer = std::move(recording);
+    Font font(recorder); font.load("data/font.ttf", application.console);
+    auto &original = *application.service;
+    AppService service(font, original.getConsole(), original.getTextureManager(), video,
+        original.getInput(), original.getControlsManager(), original.getSound(), original.getScriptManager());
+    NetworkMenu menu(service, application.gameResources, {}, [] {});
+    const auto texts = [&] {
+        recorder.draws.clear(); menu.render();
+        std::string result;
+        for (const auto &draw: recorder.draws) {
+            const auto found = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),
+                [&](const auto &entry) { return entry.texture == draw.material.getTexture(); });
+            if (found != font.fontCache.entryList.end()) result += found->text + "\n";
+        }
+        const auto origin = recorder.getViewMatrix() * Vector(0, 0);
+        D6R_REQUIRE_EQ(0.0f, origin.x); D6R_REQUIRE_EQ(0.0f, origin.y);
+        return result;
+    };
+    auto entry = texts();
+    D6R_REQUIRE(entry.find("Host") < entry.find("Browse sessions"));
+    D6R_REQUIRE(entry.find("Browse sessions") < entry.find("Direct connect"));
+    menu.focus = 1; menu.activate();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    D6R_REQUIRE_EQ(3, menu.focus);
+    std::promise<Client::DirectoryPage> response;
+    menu.browser.pending = response.get_future();
+    D6R_REQUIRE(texts().find("Loading sessions...") != std::string::npos);
+    D6R_REQUIRE(!menu.browserFocusEnabled(2));
+    response.set_value({true, {}, {}}); menu.browser.update();
+    D6R_REQUIRE(texts().find("No active sessions listed") != std::string::npos);
+    Client::DirectoryListing row;
+    row.id = std::string(32, 'a'); row.sessionId = std::string(32, 'b');
+    row.endpoint = {"127.0.0.1", 25000}; row.phase = "first-round"; row.mode = "predator";
+    row.players = 2; row.capacity = 15; row.passwordRequired = true;
+    row.expiresAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
+    menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
+    auto results = texts();
+    D6R_REQUIRE(results.find("BROWSE SESSIONS") != std::string::npos);
+    D6R_REQUIRE(results.find("Same-machine endpoint") != std::string::npos);
+    menu.focus = 1; menu.activate();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
+    D6R_REQUIRE_EQ(2, menu.focus);
+    menu.runtime.current.journey = Client::NetworkJourney::Failure;
+    menu.runtime.current.failure = "Connection not authorized.";
+    menu.update(0);
+    std::string reason;
+    D6R_REQUIRE_EQ(menu.retryEligible(menu.runtime.current, reason) ? 1 : 0, menu.focus);
+    menu.activate(); D6R_REQUIRE_EQ(2, menu.focus);
+    menu.back(); menu.browser.page.available = false;
+    D6R_REQUIRE(texts().find("Directory unavailable") != std::string::npos);
+    menu.focus = 3; menu.activate();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
+    D6R_REQUIRE(!menu.browserSelection);
+}
+
+D6R_TEST_CASE("NET-ADM reviewed presenter uses authoritative per-player arrival age for every observer") {
+    char name[] = "duel6r-arrival-render-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot; std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recorder = std::make_unique<Test::RecordingRenderer>();
+    auto &recording = *recorder; video.renderer = std::move(recorder);
+    auto state = canonical(91, Network::Replication::Phase::ActiveRound);
+    Network::Replication::PlayerState existing, arrival;
+    existing.playerId = 101; arrival.playerId = 103;
+    state.players = {existing, arrival}; state.phaseTime = 500;
+    Network::Replication::ContinuingEffectState effect;
+    effect.effectId = 1; effect.playerId = 103; effect.type = "player-arrival"; effect.remaining = 120;
+    state.effects = {effect};
+    // Host/existing/new observers all receive the same authoritative effect; no local first-snapshot timer.
+    for (int observer = 0; observer < 3; ++observer) {
+        CanonicalWorldPresenter presenter(*application.service, application.gameResources);
+        presenter.update(0, &state, {});
+        recording.points.clear(); presenter.renderPlayerEffects(state, existing, 0, 0);
+        D6R_REQUIRE(recording.points.empty());
+        presenter.renderPlayerEffects(state, arrival, 0, 0);
+        D6R_REQUIRE_EQ(std::size_t(15), recording.points.size());
+        const auto initial = recording.points.front().position;
+        D6R_REQUIRE(std::abs(std::sqrt(initial.x * initial.x + initial.y * initial.y) - 0.15f) < 0.001f);
+    }
+    state.effects[0].remaining = 60; state.phaseTime += 60;
+    CanonicalWorldPresenter reconnect(*application.service, application.gameResources);
+    reconnect.update(0, &state, {});
+    recording.points.clear(); reconnect.renderPlayerEffects(state, arrival, 0, 0);
+    D6R_REQUIRE_EQ(std::size_t(15), recording.points.size());
+    const auto point = recording.points.front().position;
+    D6R_REQUIRE(std::abs(std::sqrt(point.x * point.x + point.y * point.y) - 0.525f) < 0.001f);
+    state.effects.clear(); state.phaseTime += 60;
+    recording.points.clear(); reconnect.renderPlayerEffects(state, arrival, 0, 0);
+    D6R_REQUIRE(recording.points.empty());
+}
+
 D6R_TEST_CASE("NET-DIR NET-PASS password setup preserves complete UTF8 input and bounded editable correction") {
     char name[] = "duel6r-password-editor-tests"; char *arguments[] = {name};
     Application application(1, arguments);

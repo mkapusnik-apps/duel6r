@@ -50,8 +50,6 @@ namespace Duel6 {
         Sound::Sample waterSound;
         Network::Replication::Identity highestPresentedEvent = 0;
         Network::Replication::Identity presentedSession = 0;
-        Network::Replication::Identity presentedRound = 0;
-        std::uint64_t presentedRoundStartedAt = 0;
         std::map<Network::Replication::Identity, Network::Replication::WorldEntityState> presentedEntities;
         std::map<Network::Replication::Identity, Float32> playerStatusRemaining;
         std::string loadedLevel;

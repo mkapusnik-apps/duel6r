@@ -771,6 +771,69 @@ D6R_TEST_CASE("NET-ADM real first-round arrival preserves existing world and mod
     }
 }
 
+D6R_TEST_CASE("NET-ADM reviewed live arrival can ready and start a second match without configuration mutation") {
+    ProductionCanonicalResourceRoot resources;
+    auto requested = ProductionCanonicalFixture::canonicalConfig(1, resources.path());
+    auto players = roster(2);
+    const auto content = Duel6::Network::CompatibilityManifestBuilder(resources.path(), {}).build();
+    D6R_REQUIRE(content.valid());
+    auto runtime = std::make_shared<CanonicalMatchRuntime>(requested, players, content.manifest, content.content);
+    auto dependencies = (runtime.get()->*canonicalRuntimeMember(CanonicalDependenciesMember{}))();
+    AuthoritativeHostedMatchController controller(1, dependencies);
+    std::vector<R::ParticipantState> participants;
+    for (const auto &player: players) participants.push_back({player.participantId, player.participantId == 1,
+        R::ConnectionState::Connected, true, {player.playerId}});
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    D6R_REQUIRE(controller.markServiceReady());
+    for (const auto &player: players) D6R_REQUIRE(controller.setParticipantReady(player.participantId, true));
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, content.manifest).code);
+    const auto firstMatch = controller.currentSnapshot()->state.matchId;
+    for (int tick = 0; tick < 125; ++tick) D6R_REQUIRE(controller.advanceOneTick());
+    players = roster(3);
+    participants.push_back({3, false, R::ConnectionState::Connected, false, {103}});
+    D6R_REQUIRE(controller.updateReplicationLobby(participants, players, requested));
+    const auto arrival = controller.currentSnapshot()->state;
+    const auto spawnCount = std::count_if(arrival.effects.begin(), arrival.effects.end(), [](const auto &effect) {
+        return effect.type == "player-arrival";
+    });
+    D6R_REQUIRE_EQ(1, spawnCount);
+    const auto spawn = std::find_if(arrival.effects.begin(), arrival.effects.end(), [](const auto &effect) {
+        return effect.type == "player-arrival";
+    });
+    D6R_REQUIRE_EQ(R::Identity(103), spawn->playerId);
+    D6R_REQUIRE_EQ(std::int64_t(120), spawn->remaining);
+    for (int tick = 0; tick < 30; ++tick) D6R_REQUIRE(controller.advanceOneTick());
+    D6R_REQUIRE(controller.captureReplication());
+    std::vector<std::vector<std::uint8_t>> reconnectPayloads;
+    D6R_REQUIRE(controller.restoreReplication(3, [&](auto payload) {
+        reconnectPayloads.push_back(std::move(payload)); return Duel6::Network::SendResult::Accepted;
+    }));
+    const auto reconnected = deliveredStates(reconnectPayloads).back();
+    const auto resumed = std::find_if(reconnected.effects.begin(), reconnected.effects.end(), [](const auto &effect) {
+        return effect.type == "player-arrival";
+    });
+    D6R_REQUIRE(resumed != reconnected.effects.end());
+    D6R_REQUIRE_EQ(std::int64_t(90), resumed->remaining);
+    controller.match()->establishRoundOutcome({101}, Team::None, false);
+    finishDelay(*controller.match());
+    D6R_REQUIRE(controller.observeMatchOutcome());
+    D6R_REQUIRE(controller.returnToLobby(1));
+    for (const auto &player: players) {
+        D6R_REQUIRE(!controller.participantReady(player.participantId));
+        D6R_REQUIRE(controller.setParticipantReady(player.participantId, true));
+    }
+    auto secondRuntime = std::make_shared<CanonicalMatchRuntime>(requested, players, content.manifest, content.content);
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, content.manifest,
+        (secondRuntime.get()->*canonicalRuntimeMember(CanonicalDependenciesMember{}))()).code);
+    const auto second = controller.currentSnapshot()->state;
+    D6R_REQUIRE(second.matchId != firstMatch);
+    D6R_REQUIRE_EQ(std::size_t(3), second.players.size());
+    for (std::size_t index = 0; index < players.size(); ++index) {
+        D6R_REQUIRE_EQ(players[index].playerId, second.players[index].playerId);
+        D6R_REQUIRE_EQ(players[index].participantId, second.players[index].ownerParticipantId);
+    }
+}
+
 D6R_TEST_CASE("NET-ADM outcome closes admission before delay and rejects an uncommitted arrival") {
     AuthoritativeMatch match;
     const auto players = roster(2);

@@ -968,6 +968,99 @@ D6R_TEST_CASE("AC-016 every incomplete offer terminal path rolls back while acce
     D6R_REQUIRE_EQ(baselinePlayers + 1, policy.allocation().playerCount());
 }
 
+D6R_TEST_CASE("NET-ADM reviewed production admission loop rejects offers crossing outcome including equal clock") {
+    for (const bool equalClock: {false, true}) {
+        const auto host = manifest({{"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+        auto content = std::make_shared<Network::FrozenGameplayContent>();
+        (*content)["data/blocks.json"] = {'{', '}'};
+        (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+        (*content)["levels/a.json"] = {'{', '}'};
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto initial = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        fixture->connection = initial;
+        initial->queue(Network::serializeAdmissionRequest(requestFor(host)), fixture->now + 1ms);
+        auto dependencies = runtimeDependencies(fixture, host);
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(
+            Network::ManifestBuildResult{Network::ManifestStatus::Valid, host, content});
+        dependencies.productionReplicationProtocol = true;
+        std::optional<Network::Lifecycle::ReconnectGrant> grant;
+        initial->onSend = [&](const auto &payload) {
+            if (auto value = Network::Lifecycle::deserializeReconnectGrant(payload)) grant = *value;
+        };
+        std::shared_ptr<FakeAdmissionConnection> arrival;
+        std::optional<Network::AdmissionOfferPayload> pending;
+        bool started = false, outcome = false, rejected = false, confirmed = false, queued = false;
+        Network::TransportTimePoint due{};
+        dependencies.hostReadinessChange = [] { return std::optional<bool>(true); };
+        dependencies.authoritativeRuntimeFactory = [&](const auto &, const auto &players, const auto &) {
+            started = true;
+            due = fixture->now + std::chrono::duration_cast<Network::TransportTimePoint::duration>(
+                std::chrono::duration<double>(1.0 / 60.0));
+            auto snapshot = std::make_shared<Server::Authoritative::CanonicalWorldSnapshot>();
+            snapshot->valid = true; snapshot->stateDigest = 1;
+            for (const auto &definition: players) {
+                Server::Authoritative::CanonicalPlayerSnapshot player;
+                player.playerId = definition.playerId; player.rosterSlot = definition.rosterOrder;
+                player.alive = true; player.life = Server::Authoritative::MaximumLife;
+                snapshot->players.push_back(player);
+            }
+            Server::Authoritative::MatchRuntimeDependencies runtime;
+            runtime.contentPreflight = [](const auto &) { return true; };
+            runtime.worldSnapshot = [snapshot] { return *snapshot; };
+            runtime.worldTick = [&, snapshot](auto, bool) {
+                outcome = true; snapshot->roundOver = true;
+                snapshot->players.back().alive = false; snapshot->players.back().life = 0;
+                ++snapshot->worldTick; ++snapshot->stateDigest; return true;
+            };
+            return runtime;
+        };
+        dependencies.outboundWriter = [&](auto &connection, auto payload) {
+            if (auto value = Network::Lifecycle::deserializeReconnectGrant(payload)) grant = *value;
+            if (payload.size() >= 4 && payload[3] == 'O') {
+                auto offer = Network::deserializeAdmissionOffer(payload);
+                if (&connection == initial.get()) initial->queue(Network::serializeAdmissionAcceptance(offer), fixture->now + 2ms);
+                else pending = offer;
+            }
+            if (payload.size() >= 4 && payload[3] == 'C') {
+                if (&connection == initial.get()) {
+                    D6R_REQUIRE(grant.has_value());
+                    initial->queue(Network::Lifecycle::serializeParticipantAction({grant->sessionId,
+                        grant->participantId, Network::Lifecycle::ParticipantActionKind::Ready}), fixture->now);
+                } else confirmed = true;
+            }
+            if (arrival && &connection == arrival.get() && payload.size() >= 4 && payload[3] == 'S') {
+                rejected = Network::deserializeAdmissionResult(payload).code == Network::AdmissionResultCode::MatchAlreadyStarted;
+            }
+            return connection.send(std::move(payload));
+        };
+        dependencies.wait = [&](auto amount) {
+            if (started && !arrival) {
+                arrival = std::make_shared<FakeAdmissionConnection>(fixture->now);
+                arrival->queue(Network::serializeAdmissionRequest(requestFor(host)), fixture->now);
+                fixture->connection = arrival; fixture->accepted = false;
+                return;
+            }
+            if (pending && !queued) {
+                fixture->now = due + (equalClock ? 0ns : 1ms);
+                if (equalClock || outcome) {
+                    D6R_REQUIRE(!equalClock || !outcome);
+                    arrival->queue(Network::serializeAdmissionAcceptance(*pending), fixture->now);
+                    queued = true;
+                }
+            } else fixture->now += amount;
+            if (rejected || confirmed || fixture->now > Network::TransportTimePoint{} + 2s) fixture->cancelled = true;
+        };
+        std::ostringstream output;
+        Server::HeadlessServer server(runtimeServerConfig(), std::move(dependencies));
+        server.runtimeDependencies.productionReplicationProtocol = true;
+        (void) server.run(output);
+        if (!(started && pending && outcome)) Duel6::Test::fail("started && pending && outcome", __FILE__, __LINE__,
+            output.str() + " started=" + std::to_string(started) + " pending=" + std::to_string(bool(pending))
+            + " outcome=" + std::to_string(outcome));
+        D6R_REQUIRE(rejected && !confirmed && !arrival->succeeded);
+    }
+}
+
 D6R_TEST_CASE("four-message runtime permits immediate acceptance before offer visibility and commits before confirmation") {
     const auto host = manifest({{"levels/a", 1}});
     auto fixture = std::make_shared<RuntimeFixture>();

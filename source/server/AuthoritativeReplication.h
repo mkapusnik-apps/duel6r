@@ -67,6 +67,7 @@ namespace Duel6::Server::Authoritative {
         std::uint64_t highestObservedEventSequence = 0;
         std::uint64_t highestObservedTransitionSequence = 0;
         std::uint8_t observedRound = 0;
+        std::map<Identity, std::uint64_t> playerArrivalTicks;
 
         bool updateFromMatch(const AuthoritativeMatch &match,
                              std::vector<Network::Replication::PresentationEvent> &events);
