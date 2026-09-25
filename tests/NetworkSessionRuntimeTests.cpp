@@ -519,7 +519,7 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     NetworkMenu menu(service, application.gameResources, {}, [] {});
     menu.setupScreen = NetworkMenu::SetupScreen::Browser;
     const auto texts = [&] {
-        recorder.draws.clear(); menu.render(); std::string result;
+        recorder.draws.clear(); recorder.quads.clear(); menu.render(); std::string result;
         for (const auto &draw: recorder.draws) {
             const auto found = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),
                 [&](const auto &entry) { return entry.texture == draw.material.getTexture(); });
@@ -600,15 +600,69 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
         SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
     D6R_REQUIRE_EQ(rows.front().id, menu.selectedListing);
     D6R_REQUIRE(menu.browserFocusEnabled(1));
-    // Pagination must clear a selection from another page and present its new first row.
-    scrollToLast(); menu.focus = 5; menu.activate(); menu.update(0);
+    // Page position is rendered from real cursor navigation, with no invented total.
+    // Traverse paging before the footer, skipping disabled Previous on page one.
+    scrollToLast();
+    auto rendered = texts();
+    D6R_REQUIRE(rendered.find("Page 1\n") != std::string::npos);
+    D6R_REQUIRE(rendered.find("Previous page") < rendered.find("Join selected"));
+    D6R_REQUIRE(rendered.find("Next page") < rendered.find("Join selected"));
+    for (int expected: {5, 1, 2, 3, 6, 0}) {
+        menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, 0));
+        menu.update(0); D6R_REQUIRE_EQ(expected, menu.focus);
+    }
+    for (int expected: {6, 3, 2, 1, 5, 0}) {
+        menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+        menu.update(0); D6R_REQUIRE_EQ(expected, menu.focus);
+    }
+    // The new pointer regions use the same scaled layout as rendering.
+    menu.mouseButtonEvent(MouseButtonEvent(tx + int(600 * scale), ty + int(120 * scale),
+        SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
+    menu.update(0);
     D6R_REQUIRE_EQ(0, menu.browserScroll); D6R_REQUIRE(menu.selectedListing.empty());
-    deliver({true, {rows.front()}, {}});
-    D6R_REQUIRE(texts().find("127.0.0.1:25000") != std::string::npos);
-    menu.focus = 4; menu.activate(); menu.update(0);
+    deliver({true, {rows.front()}, "third-page"});
+    rendered = texts();
+    D6R_REQUIRE(rendered.find("Page 2\n") != std::string::npos);
+    D6R_REQUIRE(rendered.find("127.0.0.1:25000") != std::string::npos);
+    menu.focus = 0; menu.keyEvent(KeyPressEvent(SDLK_DOWN, SysEvent::ButtonState::PRESSED, 0));
+    for (int expected: {4, 5, 1, 2, 3, 6, 0}) {
+        menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, 0));
+        menu.update(0); D6R_REQUIRE_EQ(expected, menu.focus);
+    }
+    // Directional/controller traversal shares the same row -> paging -> footer order.
+    for (int expected: {4, 5, 1, 2, 3, 6, 0}) {
+        menu.moveFocus(1); D6R_REQUIRE_EQ(expected, menu.focus);
+    }
+    menu.browser.received -= std::chrono::seconds(31);
+    for (int expected: {4, 2, 3, 6, 0}) {
+        menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, 0));
+        D6R_REQUIRE_EQ(expected, menu.focus); // stale Next and Join stay excluded
+    }
+    menu.mouseButtonEvent(MouseButtonEvent(tx + int(100 * scale), ty + int(120 * scale),
+        SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
+    menu.update(0);
     deliver({true, rows, {}});
     D6R_REQUIRE_EQ(0, menu.browserScroll);
-    D6R_REQUIRE(texts().find("127.0.0.1:25000") != std::string::npos);
+    rendered = texts();
+    D6R_REQUIRE(rendered.find("Page 1\n") != std::string::npos);
+    D6R_REQUIRE(rendered.find("127.0.0.1:25000") != std::string::npos);
+    const auto textBounds = [&](const std::string &prefix) {
+        for (const auto &quad: recorder.quads) {
+            const auto entry = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),
+                [&](const auto &item) { return item.texture == quad.material.getTexture(); });
+            if (entry == font.fontCache.entryList.end() || entry->text.find(prefix) != 0) continue;
+            // Renderer::quad submits position/UV pairs; these are the first two
+            // position arguments retained by the existing recording helper.
+            return std::make_pair(std::min(quad.vertices[0].y, quad.vertices[2].y),
+                                  std::max(quad.vertices[0].y, quad.vertices[2].y));
+        }
+        Duel6::Test::fail("rendered text bounds", __FILE__, __LINE__, prefix);
+        return std::make_pair(0.0f, 0.0f);
+    };
+    D6R_REQUIRE(textBounds("Join selected").second < textBounds("Previous page").first);
+    D6R_REQUIRE(textBounds("Join selected").second < textBounds("Next page").first);
+    D6R_REQUIRE(textBounds("Page 1").second < textBounds("LAN-first.").first);
+    D6R_REQUIRE(textBounds("Back").second < textBounds("Join selected").first);
 }
 
 D6R_TEST_CASE("NET-ADM reviewed presenter uses authoritative per-player arrival age for every observer") {

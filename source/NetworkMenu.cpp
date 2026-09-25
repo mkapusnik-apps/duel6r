@@ -17,6 +17,20 @@ namespace Duel6 {
         constexpr Int32 CanvasWidth = 850, CanvasHeight = 700;
         constexpr int SetupVisibleRows = 8, SetupFirstRow = 364, SetupHeading = 386;
         constexpr Float32 CanvasMaximumScale = 1.35f;
+        struct BrowserAction {
+            int focus;
+            Int32 x, y, width, height;
+            const char *caption;
+        };
+        // Shared visual, pointer and traversal order: rows, paging, then footer.
+        constexpr BrowserAction BrowserActions[] = {
+            {4, 24, 110, 256, 20, "Previous page"},
+            {5, 560, 110, 256, 20, "Next page"},
+            {1, 24, 74, 256, 32, "Join selected"},
+            {2, 292, 74, 256, 32, "Refresh"},
+            {3, 560, 74, 256, 32, "Direct connect"},
+            {6, 560, 32, 256, 32, "Back"}
+        };
 
         Float32 canvasScale(Int32 width, Int32 height) {
             return std::min(CanvasMaximumScale,
@@ -740,9 +754,9 @@ namespace Duel6 {
                 if (pointerInside(x, y, 24, 466 - row * 22, 802, 22)) {
                     selectedListing = rows[browserScroll + row].id; focus = 0; return;
                 }
-            for (int action = 0; action < 6; ++action)
-                if (pointerInside(x, y, 24 + (action % 3) * 268, action < 3 ? 74 : 32, 256, 32)) {
-                    if (browserFocusEnabled(action + 1)) { focus = action + 1; activate(); }
+            for (const auto &action: BrowserActions)
+                if (pointerInside(x, y, action.x, action.y, action.width, action.height)) {
+                    if (browserFocusEnabled(action.focus)) { focus = action.focus; activate(); }
                     return;
                 }
         } else if (snap.journey == Client::NetworkJourney::Inactive) {
@@ -978,6 +992,17 @@ namespace Duel6 {
 
     void NetworkMenu::moveFocus(int direction) {
         const auto snap = runtime.snapshot();
+        if (confirmation == Confirmation::None && snap.journey == Client::NetworkJourney::Inactive
+            && setupScreen == SetupScreen::Browser) {
+            int position = 0;
+            for (int index = 0; index < 6; ++index)
+                if (BrowserActions[index].focus == focus) position = index + 1;
+            do {
+                position = (position + direction + 7) % 7;
+                focus = position == 0 ? 0 : BrowserActions[position - 1].focus;
+            } while (!browserFocusEnabled(focus));
+            return;
+        }
         int count = 1;
         if (confirmation != Confirmation::None) count = 2;
         else if (snap.journey == Client::NetworkJourney::Inactive) {
@@ -1004,8 +1029,6 @@ namespace Duel6 {
         if (snap.host && snap.journey == Client::NetworkJourney::Lobby
             && (snap.directoryAvailable || snap.directoryRegistering)
             && focus == publicationFocusIndex(snap, localPlayers.size())) focus = (focus + direction + count) % count;
-        if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Browser)
-            while (!browserFocusEnabled(focus)) focus = (focus + direction + count) % count;
         if (confirmation == Confirmation::None && snap.journey == Client::NetworkJourney::Lobby
             && snap.host && snap.canonical && snap.canonical->settings.mode != "Team deathmatch") {
             const int teamFocus = static_cast<int>(localPlayers.size()) * 2 + 2;
@@ -1768,17 +1791,17 @@ namespace Duel6 {
         drawText(24, 180, selected ? "Session " + selected->sessionId + " • " + selected->endpoint.host + ":"
             + std::to_string(selected->endpoint.port) + " • " + selected->mode : "Selected session");
         drawClippedText(24, 156, reason, 100);
-        drawText(24, 132, selected && Network::Trust::classifyIpv4Literal(selected->endpoint.host)
+        drawText(24, 136, selected && Network::Trust::classifyIpv4Literal(selected->endpoint.host)
                 == Network::Trust::EndpointScope::Loopback
                 ? "Same-machine endpoint. Only clients on the host machine can connect."
                 : "LAN-first. A listing does not guarantee reachability.");
-        const char *actions[] = {"Join selected", "Refresh", "Direct connect", "Previous page", "Next page", "Back"};
-        const bool enabled[] = {selected && selected->joinable() && !browser.stale() && !browser.loading(), !browser.loading(), true,
-            browser.hasPrevious() && !browser.loading(), !browser.result().nextCursor.empty() && !browser.stale() && !browser.loading(), true};
-        for (int action = 0; action < 6; ++action) {
-            const Int32 x = 24 + action % 3 * 268, y = action < 3 ? 74 : 32;
-            drawFocusKeyline(x, y, 256, 32, focus == action + 1 && enabled[action]);
-            drawText(x + 8, y + 10, std::string(actions[action]) + (enabled[action] ? "" : " (disabled)"));
+        const std::string page = "Page " + std::to_string(browser.pageNumber());
+        drawText(425 - static_cast<Int32>(utf8Length(page)) * 4, 114, page);
+        for (const auto &action: BrowserActions) {
+            const bool enabled = browserFocusEnabled(action.focus);
+            drawFocusKeyline(action.x, action.y, action.width, action.height, focus == action.focus && enabled);
+            drawText(action.x + 8, action.y + (action.height == 20 ? 4 : 10),
+                std::string(action.caption) + (enabled ? "" : " (disabled)"));
         }
     }
 

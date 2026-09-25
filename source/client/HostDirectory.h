@@ -47,6 +47,7 @@ namespace Duel6::Client {
         bool available() const { return page.available; }
         const DirectoryPage &result() const { return page; }
         bool hasPrevious() const { return !cursors.empty(); }
+        std::size_t pageNumber() const { return cursors.size() + 1; }
     private:
         DirectoryPage page;
         std::future<DirectoryPage> pending;
