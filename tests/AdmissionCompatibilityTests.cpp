@@ -3150,6 +3150,9 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
                 connection->close();
             } catch (...) {
                 hostFailure = std::current_exception();
+                // Logical time is frozen until completion: wake the guest on every
+                // host failure, then join and rethrow the original exception below.
+                cancelGuest = true;
             }
         });
 
@@ -3162,8 +3165,9 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
         dependencies.wait = [&](std::chrono::milliseconds amount) {
             if (probeReceived && !releaseCompletion.exchange(true)) {
                 const auto sentDeadline = std::chrono::steady_clock::now() + 2s;
-                while (!completionSent && std::chrono::steady_clock::now() < sentDeadline)
+                while (!completionSent && !cancelGuest && std::chrono::steady_clock::now() < sentDeadline)
                     std::this_thread::sleep_for(1ms);
+                if (cancelGuest) return;
                 D6R_REQUIRE(completionSent);
                 if (scenario.path == DeliveryPath::SealedDrain) {
                     // The application thread remains blocked until both complete frames are in
@@ -3541,6 +3545,7 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
                 connection->close();
             } catch (...) {
                 hostFailure = std::current_exception();
+                cancelGuest = true;
             }
         });
 
@@ -3558,8 +3563,9 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
         dependencies.wait = [&](std::chrono::milliseconds amount) {
             if (probeReceived && !releaseFrames.exchange(true)) {
                 const auto sentDeadline = std::chrono::steady_clock::now() + 2s;
-                while (!framesSent && std::chrono::steady_clock::now() < sentDeadline)
+                while (!framesSent && !cancelGuest && std::chrono::steady_clock::now() < sentDeadline)
                     std::this_thread::sleep_for(1ms);
+                if (cancelGuest) return;
                 D6R_REQUIRE(framesSent);
                 clock.mainMilliseconds = 10000;
                 return;
@@ -3605,12 +3611,13 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
         };
 
         Server::HeadlessServer guest(config, std::move(dependencies));
-        D6R_REQUIRE_EQ(2, guest.run(output));
+        const auto status = guest.run(output);
         host.join();
         listener.shutdown();
         if (hostFailure) std::rethrow_exception(hostFailure);
 
         std::string result = std::to_string(static_cast<int>(scenario)) + ":";
+        D6R_REQUIRE_EQ(2, status);
         if (output.str() == "admitted\nparticipant-id=10 player-ids=11,12\n") result += "admitted";
         else if (output.str().find(Network::InvalidHostAdmissionMessageIdentifier) == 0) result += "invalid-host";
         else result += "other(" + output.str() + ")";
