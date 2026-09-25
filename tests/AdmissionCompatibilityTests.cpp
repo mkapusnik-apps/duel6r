@@ -304,6 +304,47 @@ namespace {
         return false;
     }
 
+    // These deadline tests retain the real encrypted transport. A successful send
+    // only enqueues writer work; sleeping cannot prove the peer has received it.
+    // After the host has received the initial request, non-application clock calls
+    // are made at guest inbound enqueue (under inputMutex), or terminal publication
+    // (under terminalMutex). A receipt acknowledgement therefore synchronizes the
+    // test's next timestamp/close/seal with the actual transport linearization point.
+    struct AdmissionReceiptClock {
+        const std::thread::id applicationThread = std::this_thread::get_id();
+        const Network::TransportTimePoint epoch = std::chrono::steady_clock::now();
+        std::atomic<std::int64_t> mainMilliseconds{0}, receiveMilliseconds{1};
+        std::atomic<unsigned> receipts{0};
+        std::atomic<bool> observing{false};
+
+        Network::TransportTimePoint now() {
+            if (std::this_thread::get_id() == applicationThread)
+                return epoch + std::chrono::milliseconds(mainMilliseconds.load());
+            const auto received = epoch + std::chrono::milliseconds(receiveMilliseconds.load());
+            if (observing.load()) ++receipts;
+            return received;
+        }
+
+        void awaitReceipt(unsigned expected) {
+            const auto deadline = std::chrono::steady_clock::now() + 2s;
+            while (receipts.load() < expected && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(1ms);
+            D6R_REQUIRE(receipts.load() >= expected);
+        }
+
+        void send(Network::TcpConnection &connection, std::vector<std::uint8_t> payload,
+                  std::chrono::milliseconds receivedAt) {
+            const auto expected = receipts.load() + 1;
+            receiveMilliseconds = receivedAt.count();
+            // The first offer starts this scenario's logical admission timeline.
+            // TLS/scheduler wall time must not age a probe whose receipt is scripted at 1 ms.
+            if (!observing.load()) mainMilliseconds = receivedAt.count();
+            observing = true;
+            D6R_REQUIRE(connection.send(std::move(payload)) == Network::SendResult::Accepted);
+            awaitReceipt(expected);
+        }
+    };
+
     struct ProductionAdmissionPeer {
         std::unique_ptr<Network::TcpClient> client;
         std::shared_ptr<Network::TcpConnection> connection;
@@ -3015,8 +3056,7 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
         D6R_REQUIRE(listener.start({"127.0.0.1", port}));
         D6R_REQUIRE(listener.waitForReady(2s));
 
-        std::atomic<std::int64_t> mainMilliseconds{0};
-        std::atomic<std::int64_t> receiveMilliseconds{1};
+        AdmissionReceiptClock clock;
         std::atomic<bool> probeReceived{false};
         std::atomic<bool> releaseCompletion{false};
         std::atomic<bool> completionSent{false};
@@ -3044,12 +3084,7 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
                 };
                 const auto send = [&](std::vector<std::uint8_t> payload,
                                       std::chrono::milliseconds receivedAt) {
-                    receiveMilliseconds = receivedAt.count();
-                    if (connection->send(std::move(payload)) != Network::SendResult::Accepted)
-                        throw std::runtime_error("deadline test host send failed");
-                    // Keep the injected receipt clock stable until the transport reader has
-                    // accepted the complete frame.
-                    std::this_thread::sleep_for(15ms);
+                    clock.send(*connection, std::move(payload), receivedAt);
                 };
 
                 Network::TransportFrame frame;
@@ -3118,17 +3153,12 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
             }
         });
 
-        const auto guestThread = std::this_thread::get_id();
         auto config = runtimeGuestConfig();
         config.listenEndpoint.port = port;
         Server::AdmissionRuntimeDependencies dependencies;
         dependencies.manifestSource = std::make_shared<FixedManifestSource>(
                 Network::ManifestBuildResult{Network::ManifestStatus::Valid, hostedManifest});
-        dependencies.now = [&, guestThread] {
-            const auto elapsed = std::this_thread::get_id() == guestThread
-                                 ? mainMilliseconds.load() : receiveMilliseconds.load();
-            return Network::Trust::TimePoint{} + std::chrono::milliseconds(elapsed);
-        };
+        dependencies.now = [&] { return clock.now(); };
         dependencies.wait = [&](std::chrono::milliseconds amount) {
             if (probeReceived && !releaseCompletion.exchange(true)) {
                 const auto sentDeadline = std::chrono::steady_clock::now() + 2s;
@@ -3138,13 +3168,14 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
                 if (scenario.path == DeliveryPath::SealedDrain) {
                     // The application thread remains blocked until both complete frames are in
                     // the transport reader's queue, then reaches the admission deadline.
-                    std::this_thread::sleep_for(30ms);
-                    mainMilliseconds = 10000;
+                    clock.mainMilliseconds = 10000;
                     return;
                 }
             }
             std::this_thread::sleep_for(1ms);
-            mainMilliseconds += amount.count();
+            // Before completion, wall-clock polling services real TLS but does not
+            // advance the scripted clock past the fixed offer/probe timestamps.
+            if (completionSent) clock.mainMilliseconds += amount.count();
         };
         dependencies.cancelled = [&] { return cancelGuest.load(); };
         dependencies.localPlayerActions = [&](std::uint64_t) {
@@ -3168,6 +3199,14 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
         D6R_REQUIRE_EQ(2, status);
         D6R_REQUIRE_EQ(0u, localActions.load());
         if (scenario.completion == CompletionFrame::CompleteBeforeDeadline) {
+            if (output.str() != "admitted\nparticipant-id=10 player-ids=11,12\n")
+                Duel6::Test::fail("predeadline admission", __FILE__, __LINE__,
+                    "path=" + std::to_string(static_cast<int>(scenario.path))
+                    + " order=" + std::to_string(static_cast<int>(scenario.order[0]))
+                    + std::to_string(static_cast<int>(scenario.order[1]))
+                    + std::to_string(static_cast<int>(scenario.order[2]))
+                    + " receipts=" + std::to_string(clock.receipts.load())
+                    + " main=" + std::to_string(clock.mainMilliseconds.load()) + " " + output.str());
             D6R_REQUIRE_EQ("admitted\nparticipant-id=10 player-ids=11,12\n", output.str());
             D6R_REQUIRE(presentations.load() >= 1);
         } else {
@@ -3424,8 +3463,7 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
         D6R_REQUIRE(listener.start({"127.0.0.1", port}));
         D6R_REQUIRE(listener.waitForReady(2s));
 
-        std::atomic<std::int64_t> mainMilliseconds{0};
-        std::atomic<std::int64_t> receiveMilliseconds{1};
+        AdmissionReceiptClock clock;
         std::atomic<bool> probeReceived{false};
         std::atomic<bool> releaseFrames{false};
         std::atomic<bool> framesSent{false};
@@ -3451,12 +3489,7 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
                 };
                 const auto send = [&](std::vector<std::uint8_t> payload,
                                       std::chrono::milliseconds receivedAt) {
-                    receiveMilliseconds = receivedAt.count();
-                    if (connection->send(std::move(payload)) != Network::SendResult::Accepted)
-                        throw std::runtime_error("ordered admission host send failed scenario="
-                                + std::to_string(static_cast<int>(scenario)) + " received-at="
-                                + std::to_string(receivedAt.count()));
-                    std::this_thread::sleep_for(15ms);
+                    clock.send(*connection, std::move(payload), receivedAt);
                 };
 
                 Network::TransportFrame frame;
@@ -3492,13 +3525,15 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
                     send(R::serializeReplicationSnapshot(initialSnapshot), 3ms);
                     send(R::serializeQualityResponse(*probe->qualitySequence, 100), 4ms);
                 }
-                framesSent = true;
-
                 if (scenario == Scenario::TerminalClose) {
+                    const auto terminalReceipt = clock.receipts.load() + 1;
                     connection->close();
+                    clock.awaitReceipt(terminalReceipt);
                     hostClosed = true;
+                    framesSent = true;
                     return;
                 }
+                framesSent = true;
                 const auto closeDeadline = std::chrono::steady_clock::now() + 2s;
                 while (!cancelGuest && connection->state() == Network::ClientState::Connected
                        && std::chrono::steady_clock::now() < closeDeadline)
@@ -3509,7 +3544,6 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
             }
         });
 
-        const auto guestThread = std::this_thread::get_id();
         auto config = runtimeGuestConfig();
         config.listenEndpoint.port = port;
         unsigned localActions = 0;
@@ -3520,23 +3554,18 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
         Server::AdmissionRuntimeDependencies dependencies;
         dependencies.manifestSource = std::make_shared<FixedManifestSource>(
                 Network::ManifestBuildResult{Network::ManifestStatus::Valid, hostedManifest});
-        dependencies.now = [&, guestThread] {
-            const auto elapsed = std::this_thread::get_id() == guestThread
-                                 ? mainMilliseconds.load() : receiveMilliseconds.load();
-            return Network::Trust::TimePoint{} + std::chrono::milliseconds(elapsed);
-        };
+        dependencies.now = [&] { return clock.now(); };
         dependencies.wait = [&](std::chrono::milliseconds amount) {
             if (probeReceived && !releaseFrames.exchange(true)) {
                 const auto sentDeadline = std::chrono::steady_clock::now() + 2s;
                 while (!framesSent && std::chrono::steady_clock::now() < sentDeadline)
                     std::this_thread::sleep_for(1ms);
                 D6R_REQUIRE(framesSent);
-                std::this_thread::sleep_for(30ms);
-                mainMilliseconds = 10000;
+                clock.mainMilliseconds = 10000;
                 return;
             }
             std::this_thread::sleep_for(1ms);
-            mainMilliseconds += amount.count();
+            if (framesSent) clock.mainMilliseconds += amount.count();
         };
         dependencies.cancelled = [&] { return cancelGuest.load(); };
         dependencies.localPlayerActions = [&](std::uint64_t playerId) {
@@ -3584,7 +3613,7 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
         std::string result = std::to_string(static_cast<int>(scenario)) + ":";
         if (output.str() == "admitted\nparticipant-id=10 player-ids=11,12\n") result += "admitted";
         else if (output.str().find(Network::InvalidHostAdmissionMessageIdentifier) == 0) result += "invalid-host";
-        else result += "other";
+        else result += "other(" + output.str() + ")";
         result += ":local=" + std::to_string(localActions)
                 + ":current=" + std::to_string(currentPresentations)
                 + ":reconnecting=" + std::to_string(reconnectingPresentations)
