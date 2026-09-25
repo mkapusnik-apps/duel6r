@@ -67,7 +67,8 @@ for this private profile. Each connection owns its TLS, entropy and DRBG context
 record operations are serialized. Configured headers and compiled libraries must
 match. The application uses the Apache-2.0 licensing option; distribution must
 retain applicable notices. The 3.6 LTS branch's support ends in March 2027, requiring
-a supported-version migration before then.
+a supported-version migration before then. The developer and repository maintainers
+own this migration before March 2027.
 
 Secure networking requires x86-64 AES-NI. The private library is built with
 `MBEDTLS_AESNI_C` and `MBEDTLS_AES_USE_HARDWARE_ONLY`, excluding software table AES.
@@ -146,6 +147,83 @@ resetting the match. This is a storage/work bound, not account tracking or a
 person-name-based respawn restriction. The lobby starts a fresh match history.
 
 ## Verification status
+
+### Final acceptance: blocked by environment evidence
+
+Product's final assessment is **Blocked**, solely because feature-required
+Linux/Windows interactive LAN evidence is missing. Source review approved
+`6809885ecfe5dc622f03a1bafec0580ba6157602`; independent local QA passed, and
+[UX accepted all eight supplied representatives](design/screenshots/README.md#current-host-directory-visual-assessment)
+with their original capture lineage and disclosed fixture limits. Product assessed
+the other criteria as satisfied in the observed environments. This does not waive
+the remaining platform gate or certify environments that were not exercised.
+
+The [required acceptance evidence](network-host-directory.md#required-acceptance-evidence)
+for NET-DIR-AC-003, NET-PASS-AC-001 and
+[NET-ADM-AC-001](network-play-first-release.md) still needs **two distinct authorized
+Linux and Windows LAN endpoints, tested in both host directions**. For each
+direction, use a non-production directory and demonstrate a real browser-selected
+password-protected join during round one, visible and controllable arrival without
+resetting the existing world/players, plus a direct secure join. No authorized
+endpoints are currently available. Same-daemon Linux containers, Windows
+cross-compilation and native MSVC unit tests do not substitute for this evidence.
+
+PR #99 must remain draft and issue #98 open until this evidence is supplied and
+the responsible owners approve readiness. No production cloud deployment is
+required or authorized. Configuration is described above; backend/emulator and
+future deployment prerequisites are in
+[Directory container operations](../services/directory/README.md).
+
+### Checkpoint evidence and retained artifacts
+
+The reviewed production candidate is
+[`6809885`](https://github.com/mkapusnik-apps/duel6r/commit/6809885ecfe5dc622f03a1bafec0580ba6157602).
+Its [hosted verification run](https://github.com/mkapusnik-apps/duel6r/actions/runs/36192067073)
+passed the Linux check, native MSVC check and Feature Ready aggregate, as reported
+by Devops. Local backend evidence is 12/12 emulator tests; Linux full-suite
+evidence is 30/30 at the applicable earlier checkpoints, supplemented by focused
+checks for subsequent changes. The latest complete network-session-runtime target
+passed in 88.01 seconds. Deterministic admission tests cover outstanding offers
+crossing the outcome boundary, including equal-clock precedence. These local
+results support, but do not replace, independent QA or hosted verification.
+
+This final documentation/image integration changes no executable behavior.
+The final documentation commit still requires a new Devops hosted-check assessment;
+candidate checks must not be presented as checks of that later SHA.
+
+The following complete Release GL4/Lua-ON bundles both represent source 6809885.
+Manifest records cover their executables, resources, dependencies where applicable,
+and licenses, and have been checked after packaging. The developer owns retention
+and cleanup after the remaining QA consumer; do not rebuild merely for transfer.
+
+| Runtime | Retained Docker-API location | Manifest SHA-256 |
+| --- | --- | --- |
+| Linux x86-64 | `d6r99-6809885-linux:/workspace/build` | `976f9802b292715e8861570fb36d417a54304f5fb1aa5c872c7b51296fb0c8e5` |
+| Windows x86-64 cross bundle | `d6r99-6809885-w64-artifact:/workspace/build` | `1d11b21eb334335dbca02e31647cd20da2a275b311cfc6b9b0c08b5d5277111f` |
+
+The manifest filenames are `linux-x86_64.sha256sums` and
+`windows-x86_64.sha256sums`. Copy a bundle into an independent consumer directory
+and validate its manifest before launch. The Linux tool image is
+`sha256:d6e97be33c3c44744ba057147f5b6dae1c1534273b490edc0ef573b8ab1c1720`;
+the Windows cross image is
+`sha256:6e3bb669d7564791d3d35d9578e515111ba88d0820fee833ee7b96c2084aa278`.
+The Windows bundle passed dependency validation, not interactive Windows QA.
+
+### Nonblocking risks and follow-ups
+
+- The experimental TLS EC-JPAKE profile, 64-bit CCM tag, AES-NI requirement and
+  unlocked active-intermediary limitation described above remain explicit risks.
+  Developer/repository maintainers own supported-library maintenance before March 2027.
+- An original Linux full run passed 29/30 with a charged-bow timing failure while
+  a cross-build ran concurrently. The case and runtime target passed unchanged
+  afterward; subsequent isolated full runs passed 30/30. Contention is suspected,
+  not proven. Developer owns investigation of any recurrence.
+- A capture-session voluntary Leave briefly displayed Reconnecting. Four
+  independent tester checks did not reproduce it; no concrete defect is established.
+  This is an unconfirmed, nonblocking developer-owned follow-up, not a reason to
+  invent a failure or claim the observation resolved.
+
+### Emulator-backed native composition
 
 The `duel6r-directory-client-integration-tests` target consumes a real local
 emulator-backed directory. Run it inside the native build container with the test
