@@ -147,6 +147,28 @@ person-name-based respawn restriction. The lobby starts a fresh match history.
 
 ## Verification status
 
+The `duel6r-directory-client-integration-tests` target consumes a real local
+emulator-backed directory. Run it inside the native build container with the test
+executable **beside the runtime's resolver and server executables**. The resolver
+is intentionally resolved relative to the executable, not from an arbitrary path.
+The backend container can use `--network none`; the native test container shares
+that container's network namespace. Do not publish emulator ports or mount cloud
+credentials. With the backend listening on port 8081 in that isolated namespace:
+
+```sh
+docker exec -w /workspace/build \
+  -e D6R_DIRECTORY_URL=http://127.0.0.1:8081 \
+  -e D6R_DIRECTORY_ALLOW_HTTP=1 \
+  "$NATIVE_TEST_CONTAINER" \
+  /workspace/build/duel6r-directory-client-integration-tests \
+  /workspace/build/duel6r-server /workspace/build
+```
+
+This checks native publication and browsing against the real service, then real
+host readiness, protected directory-selected lobby and live-round joins, and
+shutdown removal. The integration test owns its synthetic host processes; the
+caller owns the temporary service and native test containers.
+
 Developer routine tests cover the real Firestore emulator, secure transport,
 browser eligibility, authoritative arrival, and cutoff behavior. Their existence
 does not imply that all tests or supported platform gates have passed. Use the
