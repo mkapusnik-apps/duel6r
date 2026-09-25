@@ -1099,8 +1099,12 @@ namespace Duel6 {
                 if (focus == 0 || focus == 1) joinSelected();
                 else if (focus == 2) browser.refresh();
                 else if (focus == 3) { setupScreen = SetupScreen::Join; browserSelection.reset(); joinFromBrowser = false; focus = 0; }
-                else if (focus == 4) { browser.previous(); browserScroll = 0; }
-                else if (focus == 5) { browser.next(); browserScroll = 0; }
+                else if (focus == 4) {
+                    if (browserFocusEnabled(4)) { browser.previous(); browserScroll = 0; selectedListing.clear(); }
+                }
+                else if (focus == 5) {
+                    if (browserFocusEnabled(5)) { browser.next(); browserScroll = 0; selectedListing.clear(); }
+                }
                 else { setupScreen = SetupScreen::Entry; focus = 0; }
                 return;
             }
@@ -1456,7 +1460,28 @@ namespace Duel6 {
     void NetworkMenu::update(Float32 elapsedTime) {
         if (runtime.snapshot().journey == Client::NetworkJourney::Inactive
             && (setupScreen == SetupScreen::Host || setupScreen == SetupScreen::Join)) syncSetupScroll();
-        if (setupScreen == SetupScreen::Browser) browser.update();
+        if (setupScreen == SetupScreen::Browser) {
+            const auto &previousRows = browser.result().listings;
+            const auto previous = std::find_if(previousRows.begin(), previousRows.end(),
+                [&](const auto &row) { return row.id == selectedListing; });
+            const auto previousIndex = std::distance(previousRows.begin(), previous);
+            browser.update();
+            const auto &rows = browser.result().listings;
+            browserScroll = std::clamp(browserScroll, 0, std::max(0, static_cast<int>(rows.size()) - 12));
+            const auto selected = std::find_if(rows.begin(), rows.end(),
+                [&](const auto &row) { return row.id == selectedListing; });
+            // Keep a retained selection visible if refresh reorders it, without undoing wheel scrolling.
+            if (selected != rows.end()) {
+                const int index = static_cast<int>(std::distance(rows.begin(), selected));
+                if (index != previousIndex) {
+                    if (index < browserScroll) browserScroll = index;
+                    if (index >= browserScroll + 12) browserScroll = index - 11;
+                }
+            }
+            // A missing identity stays as a tombstone for "Session is no longer listed";
+            // never silently select another host. Failed refresh retains inspection-only rows.
+            if (!browserFocusEnabled(focus)) focus = rows.empty() ? 3 : 0;
+        }
         runtime.suppressGameplayInput(confirmation != Confirmation::None);
         runtime.update();
         const auto currentSnapshot = runtime.snapshot();
@@ -1608,9 +1633,13 @@ namespace Duel6 {
             std::string retryReason;
             const bool canRetry = currentSnapshot.journey == Client::NetworkJourney::Failure
                                   && retryEligible(currentSnapshot, retryReason);
-            focus = canRetry && currentSnapshot.host
-                    && currentSnapshot.failure == "The selected port is unavailable. Choose another port and try again." ? 1 : 0;
-            if (canRetry && !currentSnapshot.host && currentSnapshot.failure == "Connection not authorized.") focus = 1;
+            // Setup navigation chooses its own destination (notably Password after denial).
+            // Preserve that choice when reset() is observed on the following frame.
+            if (currentSnapshot.journey != Client::NetworkJourney::Inactive) {
+                focus = canRetry && currentSnapshot.host
+                        && currentSnapshot.failure == "The selected port is unavailable. Choose another port and try again." ? 1 : 0;
+                if (canRetry && !currentSnapshot.host && currentSnapshot.failure == "Connection not authorized.") focus = 1;
+            }
             confirmation = Confirmation::None; scoreOverlay = false;
             const bool stable = currentSnapshot.journey == Client::NetworkJourney::Lobby
                     || currentSnapshot.journey == Client::NetworkJourney::Match

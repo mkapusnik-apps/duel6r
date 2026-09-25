@@ -479,12 +479,136 @@ D6R_TEST_CASE("NET-DIR reviewed menu dispatch renders browser states and preserv
     menu.update(0);
     std::string reason;
     D6R_REQUIRE_EQ(menu.retryEligible(menu.runtime.current, reason) ? 1 : 0, menu.focus);
+    auto controls = PlayerControls::keyboardControls("K1: Arrows", application.input,
+        SDLK_LEFT, SDLK_RIGHT, SDLK_UP, SDLK_DOWN, SDLK_RCTRL, SDLK_RSHIFT, SDLK_RETURN);
+    menu.localPlayers = {{"Guest", controls.get(), "K1: Arrows"}};
+    const auto originalAddress = menu.address, originalPort = menu.port;
     menu.activate(); D6R_REQUIRE_EQ(2, menu.focus);
+    menu.update(0); // The normal next frame must not overwrite the edit destination.
+    D6R_REQUIRE_EQ(2, menu.focus);
+    menu.textInputEvent(TextInputEvent("corrected-password"));
+    menu.update(0);
+    D6R_REQUIRE_EQ(std::string("corrected-password"), menu.password);
+    D6R_REQUIRE_EQ(originalAddress, menu.address); D6R_REQUIRE_EQ(originalPort, menu.port);
+    D6R_REQUIRE_EQ(std::size_t(1), menu.localPlayers.size());
+    D6R_REQUIRE_EQ(std::string("Guest"), menu.localPlayers.front().name);
+    D6R_REQUIRE(menu.localPlayers.front().controls == controls.get());
+    D6R_REQUIRE(menu.browserSelection && menu.browserSelection->id == row.id);
+    D6R_REQUIRE(texts().find("Password required") != std::string::npos);
     menu.back(); menu.browser.page.available = false;
     D6R_REQUIRE(texts().find("Directory unavailable") != std::string::npos);
     menu.focus = 3; menu.activate();
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
     D6R_REQUIRE(!menu.browserSelection);
+}
+
+D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and input through update and render") {
+    char name[] = "duel6r-browser-shrink-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot; std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recording = std::make_unique<Test::RecordingRenderer>();
+    auto &recorder = *recording; video.renderer = std::move(recording);
+    Font font(recorder); font.load("data/font.ttf", application.console);
+    auto &original = *application.service;
+    AppService service(font, original.getConsole(), original.getTextureManager(), video,
+        original.getInput(), original.getControlsManager(), original.getSound(), original.getScriptManager());
+    NetworkMenu menu(service, application.gameResources, {}, [] {});
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    const auto texts = [&] {
+        recorder.draws.clear(); menu.render(); std::string result;
+        for (const auto &draw: recorder.draws) {
+            const auto found = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),
+                [&](const auto &entry) { return entry.texture == draw.material.getTexture(); });
+            if (found != font.fontCache.entryList.end()) result += found->text + "\n";
+        }
+        return result;
+    };
+    std::vector<Client::DirectoryListing> rows;
+    for (int index = 0; index < 25; ++index) {
+        Client::DirectoryListing row;
+        row.id = std::string(30, 'a') + std::to_string(10 + index); row.sessionId = row.id;
+        row.endpoint = {"127.0.0.1", static_cast<std::uint16_t>(25000 + index)};
+        row.mode = "deathmatch"; row.phase = "lobby"; row.players = 1; row.capacity = 15;
+        row.expiresAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
+        rows.push_back(row);
+    }
+    const auto deliver = [&](Client::DirectoryPage page) {
+        std::promise<Client::DirectoryPage> response;
+        menu.browser.pending = response.get_future();
+        response.set_value(std::move(page)); menu.update(0);
+    };
+    const auto scrollToLast = [&] {
+        menu.browser.requested = std::chrono::steady_clock::now();
+        deliver({true, rows, "next-page"}); menu.focus = 0;
+        for (int index = 0; index < 25; ++index)
+            menu.keyEvent(KeyPressEvent(SDLK_DOWN, SysEvent::ButtonState::PRESSED, 0));
+        D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
+        D6R_REQUIRE(menu.browserScroll > 0);
+    };
+    const auto requestRefresh = [&](bool automatic) {
+        if (automatic) {
+            menu.browser.requested -= std::chrono::seconds(21); menu.update(0);
+        } else { menu.focus = 2; menu.activate(); }
+        D6R_REQUIRE(menu.browser.loading());
+    };
+    for (bool automatic: {false, true}) {
+        for (bool retainSelected: {false, true}) {
+            scrollToLast();
+            requestRefresh(automatic);
+            const auto survivor = retainSelected ? rows.back() : rows.front();
+            deliver({true, {survivor}, {}});
+            D6R_REQUIRE_EQ(0, menu.browserScroll);
+            D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
+            if (!retainSelected) {
+                D6R_REQUIRE(!menu.browserFocusEnabled(1));
+                D6R_REQUIRE(texts().find("Session is no longer listed.") != std::string::npos);
+            }
+            D6R_REQUIRE(texts().find("127.0.0.1:" + std::to_string(survivor.endpoint.port)
+                + " deathmatch " + survivor.sessionId.substr(28)) != std::string::npos);
+            menu.focus = 0; menu.keyEvent(KeyPressEvent(SDLK_DOWN, SysEvent::ButtonState::PRESSED, 0));
+            D6R_REQUIRE_EQ(survivor.id, menu.selectedListing);
+            D6R_REQUIRE(menu.browserFocusEnabled(1));
+        }
+        scrollToLast(); requestRefresh(automatic); deliver({true, {}, {}});
+        D6R_REQUIRE_EQ(0, menu.browserScroll); D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
+        D6R_REQUIRE(texts().find("No active sessions listed") != std::string::npos);
+        requestRefresh(automatic); deliver({true, {rows.front()}, {}});
+        D6R_REQUIRE(texts().find("127.0.0.1:25000 deathmatch aa10") != std::string::npos);
+    }
+    scrollToLast();
+    auto reordered = rows;
+    std::rotate(reordered.begin(), reordered.end() - 1, reordered.end());
+    deliver({true, reordered, {}});
+    D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
+    D6R_REQUIRE_EQ(0, menu.browserScroll);
+    D6R_REQUIRE(texts().find("127.0.0.1:25024 deathmatch aa34") != std::string::npos);
+    scrollToLast(); deliver({}); // Failed refresh retains data but disables joining.
+    D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
+    D6R_REQUIRE(!menu.browserFocusEnabled(1));
+    D6R_REQUIRE(texts().find("Directory unavailable") != std::string::npos);
+    deliver({true, {rows.front()}, {}});
+    const auto &screen = video.getScreen();
+    const auto scale = std::min(1.35f, std::min(float(screen.getClientWidth()) / 850, float(screen.getClientHeight()) / 700));
+    const auto tx = (screen.getClientWidth() - int(850 * scale)) / 2;
+    const auto ty = (screen.getClientHeight() - int(700 * scale)) / 2;
+    menu.mouseButtonEvent(MouseButtonEvent(tx + int(100 * scale), ty + int(474 * scale),
+        SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
+    D6R_REQUIRE_EQ(rows.front().id, menu.selectedListing);
+    D6R_REQUIRE(menu.browserFocusEnabled(1));
+    // Pagination must clear a selection from another page and present its new first row.
+    scrollToLast(); menu.focus = 5; menu.activate(); menu.update(0);
+    D6R_REQUIRE_EQ(0, menu.browserScroll); D6R_REQUIRE(menu.selectedListing.empty());
+    deliver({true, {rows.front()}, {}});
+    D6R_REQUIRE(texts().find("127.0.0.1:25000") != std::string::npos);
+    menu.focus = 4; menu.activate(); menu.update(0);
+    deliver({true, rows, {}});
+    D6R_REQUIRE_EQ(0, menu.browserScroll);
+    D6R_REQUIRE(texts().find("127.0.0.1:25000") != std::string::npos);
 }
 
 D6R_TEST_CASE("NET-ADM reviewed presenter uses authoritative per-player arrival age for every observer") {
