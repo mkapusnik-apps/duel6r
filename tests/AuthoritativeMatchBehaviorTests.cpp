@@ -18,10 +18,11 @@
 #include <tuple>
 #include <vector>
 
+// Keep the production access declaration intact: MSVC includes access in member symbols.
+#include "source/server/AuthoritativeMatch.h"
 // Test-only access permits deterministic version-boundary injection without a
 // production diagnostic seam.
 #define private public
-#include "source/server/AuthoritativeMatch.h"
 #include "source/server/AuthoritativeHostedMatchController.h"
 #include "source/server/AuthoritativeReplication.h"
 #include "source/server/AuthoritativeMatchSerialization.h"
@@ -91,6 +92,16 @@ struct CanonicalPlayersMember {
 
 template struct CanonicalRuntimeMemberAccess<CanonicalDependenciesMember, &CanonicalMatchRuntime::dependencies>;
 template struct CanonicalRuntimeMemberAccess<CanonicalPlayersMember, &CanonicalMatchRuntime::canonicalPlayersById>;
+
+struct MatchOutcomeMember {
+    using Type = void (AuthoritativeMatch::*)(std::vector<Identity>, Team, bool);
+    friend Type canonicalRuntimeMember(MatchOutcomeMember);
+};
+template struct CanonicalRuntimeMemberAccess<MatchOutcomeMember, &AuthoritativeMatch::establishRoundOutcome>;
+
+void establishTestOutcome(AuthoritativeMatch &match, std::vector<Identity> winners, Team team, bool noWinner) {
+    (match.*canonicalRuntimeMember(MatchOutcomeMember{}))(std::move(winners), team, noWinner);
+}
 
 class ScopedAllocationFailure final {
 public:
@@ -814,13 +825,16 @@ D6R_TEST_CASE("NET-ADM reviewed live arrival can ready and start a second match 
     });
     D6R_REQUIRE(resumed != reconnected.effects.end());
     D6R_REQUIRE_EQ(std::int64_t(90), resumed->remaining);
-    controller.match()->establishRoundOutcome({101}, Team::None, false);
+    establishTestOutcome(*controller.match(), {101}, Team::None, false);
     finishDelay(*controller.match());
     D6R_REQUIRE(controller.observeMatchOutcome());
     D6R_REQUIRE(controller.returnToLobby(1));
     for (const auto &player: players) {
         D6R_REQUIRE(!controller.participantReady(player.participantId));
-        D6R_REQUIRE(controller.setParticipantReady(player.participantId, true));
+        auto ready = controller.prepareParticipantReady(player.participantId, true);
+        D6R_REQUIRE(ready.mutation != nullptr);
+        D6R_REQUIRE_EQ(LobbyCommitOutcome::Committed,
+            controller.commitPreparedLobbyMutation(std::move(*ready.mutation)));
     }
     auto secondRuntime = std::make_shared<CanonicalMatchRuntime>(requested, players, content.manifest, content.content);
     D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, content.manifest,
@@ -841,7 +855,7 @@ D6R_TEST_CASE("NET-ADM outcome closes admission before delay and rejects an unco
     D6R_REQUIRE(match.admissionOpen());
     D6R_REQUIRE_EQ(ActionResult::RejectedAuthority, match.appendPlayers(1, {{1, 999, "Not a new participant", 2}}));
     D6R_REQUIRE_EQ(std::size_t(2), match.rosterDefinitions().size());
-    match.establishRoundOutcome({players[0].playerId}, Team::None, false);
+    establishTestOutcome(match, {players[0].playerId}, Team::None, false);
     D6R_REQUIRE(!match.admissionOpen());
     D6R_REQUIRE_EQ(MatchPhase::RoundEndActive, match.phase());
     D6R_REQUIRE_EQ(ActionResult::RejectedPhase, match.appendPlayers(1, {roster(3).back()}));
@@ -883,7 +897,7 @@ D6R_TEST_CASE("NET-ADM departures release admission slots without recycling roun
     D6R_REQUIRE(match->admissionOpen());
     // This case isolates history retention across a completed-round transition.
     // Natural winner evaluation is covered by the mode and production-world cases.
-    match->establishRoundOutcome({}, Team::None, true);
+    establishTestOutcome(*match, {}, Team::None, true);
     D6R_REQUIRE_EQ(std::uint64_t(1), match->playerStatistics().at(players.back().playerId).roundsPlayed);
     D6R_REQUIRE_EQ(ActionResult::Accepted, match->submitHostControl(1, ActionKind::AdvanceRound));
     D6R_REQUIRE(!match->admissionOpen());
