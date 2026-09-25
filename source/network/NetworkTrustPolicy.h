@@ -54,15 +54,15 @@ namespace Duel6::Network::Trust {
     constexpr std::size_t MaxReconnectCredentialGenerationAttempts = 4;
 
     inline constexpr std::string_view LoopbackExposureCopy =
-            "Network session is limited to this machine. No authentication or encryption is used.";
+            "Network session uses a same-machine endpoint. An unlocked connection does not authenticate host identity.";
     inline constexpr std::string_view PrivateLanExposureCopy =
-            "Network session is limited to a private LAN. No authentication or encryption is used. Do not expose this port to the Internet.";
+            "LAN-first network session. Reachability and Internet safety are not guaranteed. An unlocked connection does not authenticate host identity.";
     inline constexpr std::string_view UnsupportedAddressCopy =
-            "Network session cannot use a public or wildcard address. Use loopback or a private LAN address.";
+            "Network session requires an eligible assigned unicast IPv4 listening address.";
     inline constexpr std::string_view ReconnectAuthorizationFailureCopy =
             "Reconnect authorization failed. This session cannot be restored.";
 
-    enum class EndpointScope { Invalid, Loopback, PrivateLan, Unsupported };
+    enum class EndpointScope { Invalid, Loopback, PrivateLan, PublicUnicast, Unsupported };
     EndpointScope classifyIpv4(const std::array<std::uint8_t, 4> &address);
     EndpointScope classifyIpv4Literal(std::string_view value, std::array<std::uint8_t, 4> *address = nullptr);
     struct Ipv4InterfaceRecord {

@@ -9,6 +9,7 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         cmake \
+        libcurl4-openssl-dev \
         libgl1-mesa-dev \
         libglew-dev \
         liblua5.3-dev \
@@ -23,6 +24,13 @@ RUN apt-get update \
         xdotool \
         xvfb \
     && rm -rf /var/lib/apt/lists/*
+
+COPY docker/mbedtls /opt/duel6r-mbedtls
+RUN cmake -S /opt/duel6r-mbedtls -B /opt/mbedtls-build \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/mbedtls \
+    && cmake --build /opt/mbedtls-build --parallel 4 \
+    && cmake --install /opt/mbedtls-build
+ENV CMAKE_PREFIX_PATH=/opt/mbedtls
 
 WORKDIR /workspace
 

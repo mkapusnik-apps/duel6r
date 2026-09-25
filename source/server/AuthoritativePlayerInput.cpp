@@ -37,6 +37,16 @@ namespace Duel6::Server::Authoritative {
         return true;
     }
 
+    bool AuthoritativePlayerInput::appendPlayers(const std::vector<PlayerDefinition> &players) {
+        if (!match) return false;
+        for (const auto &player: players) if (owners.count(player.playerId) || !player.playerId || !player.participantId) return false;
+        for (const auto &player: players) {
+            owners.emplace(player.playerId, player.participantId);
+            highestSequences.emplace(player.playerId, 0);
+        }
+        return true;
+    }
+
     void AuthoritativePlayerInput::clearParticipantInput(Identity participantId) noexcept {
         if (!match) return;
         for (const auto &owner: owners) if (owner.second == participantId) {

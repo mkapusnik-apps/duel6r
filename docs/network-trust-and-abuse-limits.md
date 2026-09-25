@@ -8,6 +8,12 @@ The code remains an experimental scaffold with no playable network session. Thes
 
 ## Supported trust boundary
 
+### Current functional policy
+
+The current target permits valid public-unicast IPv4 connections as well as loopback and private LAN connections. LAN remains the supported environment. The [directory and password contract](network-host-directory.md) owns password enforcement, protected secret exchange, listing ownership, and secret non-disclosure. Its requirements replace the no-password and no-encryption exclusions below. The implementation must not claim Internet safety merely because a password is present.
+
+The address-policy description and CLI copy below describe the earlier private-only implementation, not the current target. Public address rejection and the blanket Internet-exposure prohibition are superseded; all other invalid-address checks remain required. Guest resolution may retain valid public-unicast IPv4 destinations. Existing resource, ownership, and validation bounds remain required. No automatic routing, firewall, or NAT changes are permitted.
+
 First release has no initial-admission authentication, passwords, tokens, certificates, TLS, or encryption. It is supported only between trusted game instances:
 
 - on one trusted machine through IPv4 loopback; or
@@ -27,13 +33,13 @@ An unsupported, unassigned, network, or broadcast listener address emits only th
 
 ### Host listening-address selection
 
-- **TRU-BIND-001** The host application must offer only IPv4 loopback and eligible assigned private RFC1918 IPv4 addresses for listener selection.
-- **TRU-BIND-002** The host application must require an explicit selection before it binds a private LAN address.
+- **TRU-BIND-001** The host application must offer only IPv4 loopback and eligible assigned private or public unicast IPv4 addresses for listener selection.
+- **TRU-BIND-002** The host application must require an explicit selection before it binds a non-loopback address.
 - **TRU-BIND-003** The host application must validate the selected address against current local interface information before listener creation.
 - **TRU-BIND-004** The host application must not create a listener when the selected address is no longer eligible.
 - **TRU-BIND-005** Address enumeration and selection must not change an interface, route, firewall, Docker network, NAT rule, port-forwarding rule, or other network infrastructure.
 - **TRU-BIND-006** Local interface enumeration must not perform peer, host, or session discovery.
-- **TRU-BIND-007** Address selection must not weaken the trusted loopback and private-LAN exposure boundary.
+- **TRU-BIND-007** Address selection must preserve loopback as the default and must not imply that a selected public address guarantees Internet connectivity or security.
 
 ## Assets, actors, and boundaries
 

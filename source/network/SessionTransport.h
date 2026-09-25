@@ -13,6 +13,7 @@
 
 #include "Protocol.h"
 #include "NetworkTrustPolicy.h"
+#include "SecureSession.h"
 
 namespace Duel6::Network {
     constexpr std::uint32_t TransportFramingIdentifier = 0x44365254; // D6RT
@@ -57,7 +58,9 @@ namespace Duel6::Network {
         InboundStalled,
         OutboundStalled,
         IdleTimedOut,
-        SystemError
+        SystemError,
+        NotAuthorized,
+        SecureUnavailable
     };
 
     enum class SendResult {
@@ -175,6 +178,9 @@ namespace Duel6::Network {
         bool enforceNetworkSessionPolicy = false;
         // Applies pending/source admission accounting. Transport-only diagnostics leave this disabled.
         bool enforcePreAdmissionPolicy = false;
+        bool secureSession = false;
+        std::shared_ptr<const SessionPassword> password;
+        SecureSessionLimits secureLimits;
     };
 
     class TcpConnection {

@@ -180,8 +180,8 @@ namespace Duel6 {
         if (playerNames.size() != rosterSlots.size()) throw std::invalid_argument("Headless roster mismatch");
         players.clear();
         headlessPeople.clear();
-        headlessPeople.reserve(playerNames.size());
-        players.reserve(playerNames.size());
+        headlessPeople.reserve(std::max<Size>(D6_NETWORK_ROUND_PLAYER_HISTORY, playerNames.size()));
+        players.reserve(std::max<Size>(D6_NETWORK_ROUND_PLAYER_HISTORY, playerNames.size()));
         for (const auto &name: playerNames) headlessPeople.emplace_back(name, nullptr);
         for (Size index = 0; index < headlessPeople.size(); ++index)
             players.emplace_back(headlessPeople[index], rosterSlots[index]);
@@ -203,6 +203,19 @@ namespace Duel6 {
 
     void Game::endHeadlessRound() {
         if (round) endRound();
+    }
+
+    bool Game::appendHeadlessPlayers(const std::vector<std::string> &names, const std::vector<Size> &slots) {
+        if (!headless || !round || round->hasWinner() || names.empty() || names.size() != slots.size()
+            || players.size() + names.size() > D6_NETWORK_ROUND_PLAYER_HISTORY) return false;
+        // Reserved storage preserves every existing Player/Person pointer, including
+        // projectile owners, assist records, event listeners and Predator identity.
+        for (Size index = 0; index < names.size(); ++index) {
+            headlessPeople.emplace_back(names[index], nullptr);
+            players.emplace_back(headlessPeople.back(), slots[index]);
+            gameMode->initializeArrival(*this, players.back(), round->getWorld(), randomSource);
+        }
+        return true;
     }
 
 #ifndef D6R_HEADLESS_CORE

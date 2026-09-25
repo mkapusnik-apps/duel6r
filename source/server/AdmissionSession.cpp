@@ -217,6 +217,8 @@ namespace Duel6::Server {
     AdmissionOffer AdmissionPolicy::evaluateForOffer(const Network::AdmissionRequest &request,
                                                       AdmissionContext context) {
         if (!context.authorized) return rejectedOffer(Network::AdmissionResultCode::NotAuthorized);
+        if (request.expectedSessionId != 0 && request.expectedSessionId != context.sessionId)
+            return rejectedOffer(Network::AdmissionResultCode::NotAuthorized);
         if (request.protocolVersion != Network::AdmissionProtocolVersion)
             return rejectedOffer(Network::AdmissionResultCode::ProtocolIncompatible);
         if (request.networkReleaseId != Network::NetworkReleaseId)
@@ -244,7 +246,8 @@ namespace Duel6::Server {
 
         std::lock_guard<std::mutex> lock(policyMutex);
         if (matchStarted) return rejectedOffer(Network::AdmissionResultCode::MatchAlreadyStarted);
-        if (!sessionAllocation.hasCapacity(request.localPlayerCount))
+        if (!sessionAllocation.hasCapacity(request.localPlayerCount)
+            || sessionAllocation.playerCount() + sessionAllocation.pendingPlayerCount() + request.localPlayerCount > context.maximumPlayers)
             return rejectedOffer(Network::AdmissionResultCode::SessionFull);
         if (!context.hostPolicyAllows) return rejectedOffer(Network::AdmissionResultCode::HostPolicyRejected);
         return sessionAllocation.reserveGuest(request.localPlayerCount);

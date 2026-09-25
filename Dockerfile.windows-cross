@@ -33,7 +33,16 @@ RUN /opt/vcpkg/vcpkg install --triplet x64-mingw-dynamic \
         'sdl2-mixer[libmodplug]' \
         sdl2-ttf \
         glew \
+        'curl[core,ssl,c-ares]' \
         lua
+
+COPY docker/mbedtls /opt/duel6r-mbedtls
+RUN cmake -S /opt/duel6r-mbedtls -B /opt/mbedtls-build \
+        -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
+        -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/mbedtls-mingw \
+    && cmake --build /opt/mbedtls-build --parallel 4 \
+    && cmake --install /opt/mbedtls-build
 
 WORKDIR /workspace
 

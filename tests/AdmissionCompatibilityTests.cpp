@@ -316,6 +316,13 @@ namespace {
         bool readySent = false;
     };
 
+    Network::SessionTransportDependencies secureAdmissionTransport() {
+        Network::SessionTransportDependencies dependencies;
+        dependencies.secureSession = true;
+        dependencies.enforceNetworkSessionPolicy = true;
+        return dependencies;
+    }
+
     struct ReconnectLeaveBarrier {
         std::mutex mutex;
         std::shared_ptr<Network::TcpConnection> first;
@@ -374,7 +381,7 @@ namespace {
 
     class BarrierClient final : public Server::AdmissionRuntimeClient {
     public:
-        explicit BarrierClient(ReconnectLeaveBarrier &barrier) : barrier(barrier) {}
+        explicit BarrierClient(ReconnectLeaveBarrier &barrier) : barrier(barrier), client(secureAdmissionTransport()) {}
         bool start(const Network::Endpoint &endpoint) override { return client.start(endpoint); }
         bool waitForConnected(std::chrono::milliseconds timeout) override {
             if (!client.waitForConnected(timeout)) return false;
@@ -402,6 +409,7 @@ namespace {
         auto peer = std::make_unique<ProductionAdmissionPeer>();
         Network::SessionTransportDependencies transport;
         transport.enforceNetworkSessionPolicy = true;
+        transport.secureSession = true;
         peer->client = std::make_unique<Network::TcpClient>(std::move(transport));
         D6R_REQUIRE(peer->client->start(endpoint));
         D6R_REQUIRE(peer->client->waitForConnected(2s));
@@ -548,7 +556,7 @@ namespace {
 }
 
 D6R_TEST_CASE("AC-001 AC-002 compatibility constants capabilities and wire format are exact") {
-    D6R_REQUIRE_EQ(1u, Network::AdmissionProtocolVersion);
+    D6R_REQUIRE_EQ(2u, Network::AdmissionProtocolVersion);
     D6R_REQUIRE_EQ("duel6r-network-r1", std::string(Network::NetworkReleaseId));
     const std::vector<std::string> exact{
         "d6r.compatibility-admission.v1", "d6r.gameplay-manifest.v1", "d6r.session-identity.v1"};
@@ -582,6 +590,23 @@ D6R_TEST_CASE("AC-005 AC-006 AC-007 exact compatibility checks are case and whit
     D6R_REQUIRE(policy.evaluate(request).admitted());
 }
 
+D6R_TEST_CASE("NET-DIR selected session is channel-bound and rejected before reservation") {
+    const auto content = manifest({{"levels/a.json", 1}});
+    Server::AdmissionPolicy policy(content, 1);
+    auto request = requestFor(content);
+    request.expectedSessionId = 99;
+    const auto payload = Network::serializeAdmissionRequest(request);
+    D6R_REQUIRE_EQ(UINT64_C(99), Network::deserializeAdmissionRequest(payload).expectedSessionId);
+    Server::AdmissionContext context; context.sessionId = 42;
+    D6R_REQUIRE(policy.offerPayload(payload, context).result.code == Network::AdmissionResultCode::NotAuthorized);
+    D6R_REQUIRE_EQ(std::size_t(0), policy.allocation().pendingParticipantCount());
+    D6R_REQUIRE_EQ(std::size_t(1), policy.allocation().participantCount());
+    request.expectedSessionId = 42;
+    const auto offer = policy.offerPayload(Network::serializeAdmissionRequest(request), context);
+    D6R_REQUIRE(offer.pending());
+    D6R_REQUIRE(policy.rollback(offer.transactionId));
+}
+
 D6R_TEST_CASE("AC-017 admission outcomes retain approved precedence identifiers and fixed copy") {
     using Code = Network::AdmissionResultCode;
     const std::vector<std::tuple<Code, std::string, std::string>> expected{
@@ -592,7 +617,7 @@ D6R_TEST_CASE("AC-017 admission outcomes retain approved precedence identifiers 
         {Code::RequiredCapabilityUnsupported, "required-capability-unsupported", "Network release mismatch. Use the same supported game release as the host."},
         {Code::GameplayContentManifestInvalid, "gameplay-content-manifest-invalid", "Gameplay content manifest is invalid. Use the host's exact supported gameplay content."},
         {Code::GameplayContentMismatch, "gameplay-content-mismatch", "Gameplay content mismatch. Use the host's exact supported gameplay content."},
-        {Code::MatchAlreadyStarted, "match-already-started", "Match already started. Join-in-progress is not supported."},
+        {Code::MatchAlreadyStarted, "match-already-started", "Round-one admission has closed. Join when the host returns to the lobby."},
         {Code::SessionFull, "session-full", "Session is full."},
         {Code::HostPolicyRejected, "host-policy-rejected", "Host rejected the connection."},
         {Code::Admitted, "admitted", ""}};
@@ -1016,7 +1041,8 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
         D6R_REQUIRE(R::validateCanonicalState(scenario.state));
         const auto port = unusedLoopbackPort();
         D6R_REQUIRE(port != 0);
-        Network::TcpListener listener;
+        Network::SessionTransportDependencies secure; secure.secureSession = true;
+        Network::TcpListener listener(Network::MaxTransportConnections, secure);
         D6R_REQUIRE(listener.start({"127.0.0.1", port}));
         D6R_REQUIRE(listener.waitForReady(2s));
 
@@ -1511,6 +1537,7 @@ D6R_TEST_CASE("NET-AC-011 production Headless disconnect reserves and restores t
 
     Network::SessionTransportDependencies transport;
     transport.enforceNetworkSessionPolicy = true;
+    transport.secureSession = true;
     Network::TcpClient retryClient(std::move(transport));
     const bool retryStarted = retryClient.start(hostConfig.listenEndpoint);
     const bool retryConnected = retryStarted && retryClient.waitForConnected(2s);
@@ -2890,7 +2917,8 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
     for (const auto scenario: scenarios) {
         const auto port = unusedLoopbackPort();
         D6R_REQUIRE(port != 0);
-        Network::TcpListener listener;
+        Network::SessionTransportDependencies secure; secure.secureSession = true;
+        Network::TcpListener listener(Network::MaxTransportConnections, secure);
         D6R_REQUIRE(listener.start({"127.0.0.1", port}));
         D6R_REQUIRE(listener.waitForReady(2s));
 
@@ -3298,7 +3326,8 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
 
         const auto port = unusedLoopbackPort();
         D6R_REQUIRE(port != 0);
-        Network::TcpListener listener;
+        Network::SessionTransportDependencies secure; secure.secureSession = true;
+        Network::TcpListener listener(Network::MaxTransportConnections, secure);
         D6R_REQUIRE(listener.start({"127.0.0.1", port}));
         D6R_REQUIRE(listener.waitForReady(2s));
 

@@ -90,6 +90,22 @@ namespace Duel6::Server::Authoritative {
     bool AuthoritativeHostedMatchController::updateReplicationLobby(
             std::vector<Network::Replication::ParticipantState> participants,
             std::vector<PlayerDefinition> roster, MatchConfig settings) {
+        if (currentStage == HostedMatchStage::MatchActive && activeMatch && activeMatch->admissionOpen()) {
+            const auto existing = activeMatch->rosterDefinitions();
+            std::vector<PlayerDefinition> additions;
+            for (auto player: roster)
+                if (std::none_of(existing.begin(), existing.end(), [&](const auto &value) { return value.playerId == player.playerId; }))
+                {
+                    player.rosterOrder = static_cast<std::uint8_t>(existing.size() + additions.size());
+                    additions.push_back(player);
+                }
+            if (activeMatch->appendPlayers(hostParticipantId, additions) != ActionResult::Accepted
+                || !playerInput.appendPlayers(additions)) return false;
+            const auto update = replication.appendParticipants(*activeMatch, participants);
+            if (!update) return false;
+            (void) replicationConnections.broadcast(*update);
+            return true;
+        }
         if (currentStage != HostedMatchStage::Lobby) return false;
         if (explicitReadinessRequired) {
             for (auto &participant: participants) {

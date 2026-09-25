@@ -142,6 +142,7 @@ namespace Duel6 {
         void startHeadlessRound(const std::vector<std::string> &playerNames, const std::string &level,
                                  const std::vector<Size> &rosterSlots, bool mirror, GameMode &gameMode);
         void endHeadlessRound();
+        bool appendHeadlessPlayers(const std::vector<std::string> &names, const std::vector<Size> &slots);
 
 #ifndef D6R_HEADLESS_CORE
         void keyEvent(const KeyPressEvent &event) override;

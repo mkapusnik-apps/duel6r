@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from SecureAdmissionPeer import SecureAdmissionPeer
 import time
 from pathlib import Path
 
@@ -175,13 +176,11 @@ def incomplete_transport_outcomes(executable, base):
         port = unused_port()
         ready = threading.Event()
         def serve():
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-                listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                listener.bind(("127.0.0.1", port)); listener.listen(1); ready.set()
-                connection, _ = listener.accept()
-                with connection:
-                    if not close_immediately:
-                        time.sleep(10.5)
+            with SecureAdmissionPeer(port) as connection:
+                ready.set()
+                connection.handshake()
+                if not close_immediately:
+                    time.sleep(10.5)
         worker = threading.Thread(target=serve)
         worker.start(); assert ready.wait(2)
         return port, worker
@@ -206,20 +205,18 @@ def invalid_and_partial_host_messages(executable, base):
     def serve(payload, partial=False):
         port = unused_port(); ready = threading.Event()
         def worker():
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-                listener.bind(("127.0.0.1", port)); listener.listen(1); ready.set()
-                connection, _ = listener.accept()
-                with connection:
-                    header = connection.recv(12)
-                    if len(header) == 12:
-                        _, _, _, size = struct.unpack("!IHHI", header)
-                        remaining = size
-                        while remaining:
-                            chunk = connection.recv(remaining)
-                            if not chunk: break
-                            remaining -= len(chunk)
-                    wire_size = len(payload) + (10 if partial else 0)
-                    connection.sendall(struct.pack("!IHHI", 0x44365254, 1, 0, wire_size) + payload)
+            with SecureAdmissionPeer(port) as connection:
+                ready.set()
+                header = connection.recv(12)
+                if len(header) == 12:
+                    _, _, _, size = struct.unpack("!IHHI", header)
+                    remaining = size
+                    while remaining:
+                        chunk = connection.recv(remaining)
+                        if not chunk: break
+                        remaining -= len(chunk)
+                wire_size = len(payload) + (10 if partial else 0)
+                connection.sendall(struct.pack("!IHHI", 0x44365254, 1, 0, wire_size) + payload)
         thread = threading.Thread(target=worker); thread.start(); assert ready.wait(2)
         return port, thread
 

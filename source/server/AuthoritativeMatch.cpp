@@ -8,6 +8,7 @@
 
 #include "AuthoritativeMatchValidation.h"
 #include "../math/Math.h"
+#include "../network/NetworkTrustPolicy.h"
 
 namespace Duel6::Server::Authoritative {
     namespace {
@@ -941,6 +942,52 @@ namespace Duel6::Server::Authoritative {
     }
 
     MatchPhase AuthoritativeMatch::phase() const noexcept { return currentPhase; }
+    bool AuthoritativeMatch::admissionOpen() const noexcept {
+        return currentPhase == MatchPhase::ActiveRound && currentRoundDecision.roundNumber == 1
+            && completedRoundCount == 0;
+    }
+
+    std::size_t AuthoritativeMatch::admissionCapacity() const noexcept {
+        const auto admitted = std::count_if(players.begin(), players.end(), [](const auto &player) { return !player.departed; });
+        return std::min<std::size_t>(MaxPlayers, static_cast<std::size_t>(admitted) + MaxPlayerHistory - players.size());
+    }
+
+    ActionResult AuthoritativeMatch::appendPlayers(Identity participantId, const std::vector<PlayerDefinition> &additions) {
+        if (!isHost(participantId)) return ActionResult::RejectedAuthority;
+        if (!admissionOpen()) return ActionResult::RejectedPhase;
+        const auto admitted = std::count_if(players.begin(), players.end(), [](const auto &player) { return !player.departed; });
+        if (additions.empty() || players.size() + additions.size() > MaxPlayerHistory
+            || admitted + additions.size() > MaxPlayers) return ActionResult::RejectedLimit;
+        auto roster = rosterDefinitions();
+        for (const auto &entry: additions) {
+            if (std::any_of(players.begin(), players.end(), [&](const auto &existing) {
+                    return existing.definition.participantId == entry.participantId;
+                })) return ActionResult::RejectedAuthority;
+            if (entry.playerId == 0 || entry.participantId == 0 || !Network::Trust::validParticipantName(entry.displayName)
+                || entry.rosterOrder != roster.size()
+                || std::any_of(roster.begin(), roster.end(), [&](const auto &existing) { return existing.playerId == entry.playerId; }))
+                return ActionResult::RejectedValue;
+            roster.push_back(entry);
+        }
+        try {
+            Math::RandomScope authoritativeScope(*random);
+            if (dependencies.worldAppendPlayers && !dependencies.worldAppendPlayers(additions, *random)) {
+                failRuntime(); return ActionResult::RuntimeFailed;
+            }
+            for (const auto &entry: additions) {
+                PlayerState state; state.definition = entry;
+                state.total.roundsPlayed = 1;
+                if (config.mode == Mode::TeamDeathmatch) state.team = static_cast<Team>(entry.rosterOrder % config.teamCount + 1);
+                players.push_back(std::move(state));
+                acceptedSequences.emplace(SequenceDomain{0, entry.participantId, entry.playerId}, 0);
+                currentRoundDecision.rosterOrder.push_back(entry.playerId);
+            }
+            if (dependencies.worldSnapshot && !synchronizeCanonicalWorld()) {
+                failRuntime(); return ActionResult::RuntimeFailed;
+            }
+            return ActionResult::Accepted;
+        } catch (...) { failRuntime(); return ActionResult::RuntimeFailed; }
+    }
     Tick AuthoritativeMatch::currentTick() const noexcept { return tick; }
     const MatchConfig &AuthoritativeMatch::frozenConfig() const noexcept { return config; }
     std::vector<PlayerDefinition> AuthoritativeMatch::rosterDefinitions() const {

@@ -28,15 +28,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Pull build image
-        run: docker pull ghcr.io/${{ github.repository }}/build:develop
+      - name: Build Linux tool image
+        run: docker build -t duel6r-build:ci-${{ github.run_id }}-${{ github.run_attempt }} .
 
       - name: Build inside container
         run: |
           bash docker/run-with-daemon-workspace.sh \
             -e BUILD_TESTING=ON \
             -e RUN_TESTS=ON \
-            ghcr.io/${{ github.repository }}/build:develop
+            duel6r-build:ci-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload CTest diagnostics
         if: failure()
@@ -50,6 +50,11 @@ jobs:
 
       - name: Verify build output
         run: test -x build/duel6r
+
+      - name: Test directory backend inside container
+        run: |
+          docker build --target verification -t duel6r-directory:ci-${{ github.run_id }}-${{ github.run_attempt }} services/directory
+          docker run --rm --network none duel6r-directory:ci-${{ github.run_id }}-${{ github.run_attempt }}
 
 
   native-windows-transport:

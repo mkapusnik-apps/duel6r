@@ -82,6 +82,7 @@ fi
 cp "${tmp_build_dir}/duel6r-resolver" "${workspace_dir}/${output_dir}/duel6r-resolver"
 cp -R "${workspace_dir}/resources/." "${workspace_dir}/${output_dir}/"
 cp "${workspace_dir}/README.md" "${workspace_dir}/LICENSE" "${workspace_dir}/${output_dir}/"
+cp /opt/mbedtls/share/mbedtls/LICENSE "${workspace_dir}/${output_dir}/mbedtls-LICENSE.txt"
 # Remove development documentation left by earlier bundle builds.
 rm -rf "${workspace_dir}/${output_dir}/docs"
 
@@ -100,7 +101,7 @@ if retained_manifest.exists():
     ))
 
 files = [root / name for name in (
-    "duel6r", "duel6r-server", "duel6r-host-supervisor", "duel6r-resolver", "README.md", "LICENSE"
+    "duel6r", "duel6r-server", "duel6r-host-supervisor", "duel6r-resolver", "README.md", "LICENSE", "mbedtls-LICENSE.txt"
 )]
 for directory in ("data", "levels", "profiles", "shaders", "sound", "textures"):
     files.extend(path for path in (root / directory).rglob("*") if path.is_file())

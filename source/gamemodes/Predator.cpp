@@ -69,4 +69,11 @@ namespace Duel6 {
 
         return false;
     }
+
+    void Predator::initializeArrival(Game &game, Player &player, World &world, RandomSource &randomSource) {
+        GameModeBase::initializeArrival(game, player, world, randomSource);
+        player.setEventListener(*eventListener);
+        player.setBodyAlpha(1.0f);
+        player.pickAmmo(10);
+    }
 }

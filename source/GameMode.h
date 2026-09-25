@@ -55,6 +55,7 @@ namespace Duel6 {
                                                RandomSource &randomSource) const = 0;
 
         virtual bool checkRoundOver(World &world, const std::vector<Player *> &alivePlayers) = 0;
+        virtual void initializeArrival(Game &game, Player &player, World &world, RandomSource &randomSource) = 0;
 
         virtual bool checkForSuddenDeathMode(World &world, const std::vector<Player *> &alivePlayers) const  = 0;
 

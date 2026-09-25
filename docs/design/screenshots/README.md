@@ -1,6 +1,58 @@
-# Integrated PR83 visual evidence
+# Screenshot coverage and assessment
 
-This is an integration index for the authoritative [screenshot manifest](../../screenshots/README.md), not a second specification or assessment. The original integrated manifest had SHA-256 `90f02bf755ecc4c54142d5555aa8e34a644515ee69415a539a62cf23066173b7`; that hash is historical after the current scoped orientation update.
+## Host-directory current capture matrix
+
+This section owns changed coverage for the host-directory extension. It supersedes the legacy representatives only for the affected wireframes below. Unaffected entries remain governed by the [legacy manifest](../../screenshots/README.md). The historical integration index below is not evidence for the extension. Existing artifacts must not be relabeled as new acceptance.
+
+All entries below are **Planned / not assessed**. Developer owns capture and image files. UX has assessed no implementation artifacts for this extension. Product reserves NET-10 and its states in the [browser contract](../../screens/network-browser.md). Routes are native menu workflows, not URLs.
+
+Default presentation: existing retro desktop canvas, normal input profile, complete client area, no accessibility-mode claims. Menu representatives use 1280 × 900; retained-result NET-04-R uses the same viewport. Each destination below is relative to `docs/design/screenshots/`. Replace the representative at the same destination on later capture. Do not add a dated screenshot series. Existing representative IDs are retained where available; new rows use wireframe IDs as unambiguous keys until product integrates inventory numbering.
+
+| Entry / wireframe | Route and reproducible setup | Representative state and expectation | Destination |
+|---|---|---|---|
+| SS-015 / NET-01 | MENU-01 → Network | Host focused; Browse sessions and Direct connect visible; Back available | `NET-01/NET-01.png` |
+| SS-016 / NET-02 | Network → Host; choose an assigned private LAN interface; enter a disposable test password; retain valid local player | NET-02-password; masked password and full selected address; no registration success claim | `NET-02/NET-02.png` |
+| NET-03-E | Network → Browse sessions → select protected open round-one host → Join selected | NET-03-password; Password focused; one local player; endpoint, first-round consequence, Connect and Back visible | `NET-03/NET-03-E.png` |
+| SS-017 / NET-03 | From NET-03-E start a real controlled pending admission attempt | Locked local slots; masked or absent password; truthful Connecting and Cancel; no premature lobby claim | `NET-03/NET-03.png` |
+| SS-018 / NET-04 | Network → Host → confirmed running lobby; make the authorized test directory unavailable without stopping host transport | Host directory warning and Retry publication; direct endpoint and existing lobby actions remain usable; no modal | `NET-04/NET-04.png` |
+| SS-025 / NET-04-R | Complete a real match → return to lobby; keep retained result and confirmed directory state | Listing feedback fits without covering retained outcome rows or actions | `NET-04/NET-04-R.png` |
+| SS-022 / NET-08 | From the browser attempt protected host admission with an incorrect disposable password | NET-08-password-rejected; `Connection not authorized.`; Edit setup focused; Return to browser available; no password echo | `NET-08/NET-08.png` |
+| NET-10 | Network → Browse sessions; register real controlled hosts in lobby, protected open round one, full, later round, and first-round outcome delay | NET-10-results; all listing phases coexist; protected open first-round row selected; Join selected available; independent state columns and selected identity/mode | `NET-10/NET-10.png` |
+
+The baseline SS-019 / NET-05 representative remains owned by the legacy manifest because no arena layout changes. Add a focused arrival supplement to the evidence packet, not another stable matrix row. Capture a real guest joining first-round Predator at 1280 × 900 after complete admission, with the original Predator and current world visible. Store temporary supplements outside the repository unless developer and team approve durable evidence destinations. The final assessment must identify every supplied artifact by exact path and hash.
+
+### Variant checks and minimum evidence
+
+- Developer must demonstrate NET-10-loading, NET-10-results, NET-10-empty, NET-10-stale, and NET-10-unavailable, including failed refresh and expired selected-row removal.
+- Developer must demonstrate that NET-10-stale disables every browser join path until successful refresh under NET-DIR-012.
+- Developer must demonstrate age-triggered stale presentation under NET-DIR-011 and independent Direct connect without stale selection transfer.
+- Developer must demonstrate bounded paging that reaches all active listings under NET-DIR-008.
+- Developer must demonstrate publication retry without a session restart under NET-DIR-015.
+- Developer must demonstrate a selected full session and a selected closed session with readable disabled reasons.
+- Developer must demonstrate that password protection alone does not disable Join selected.
+- Developer must demonstrate a closed first-round outcome-delay listing before the six-second delay finishes.
+- Developer must demonstrate that a return to lobby restores the advertised admission state.
+- Developer must demonstrate NET-03-password through directory and direct paths, password correction, pending admission, and Cancel states.
+- Developer must demonstrate NET-03-live-admission entering the current NET-05 arena without a waiting lobby.
+- Developer must demonstrate NET-08-admission-closed with exact canonical copy and browser-origin return to NET-10 for refresh.
+- Developer must demonstrate a directory-selected unreachable host without a reachability promise.
+- Developer must check the affected menu layouts at 850 × 700 and 1280 × 720 for containment and at 1920 × 1080 for scaled pointer alignment.
+- Developer must check maximum supported local-player counts and long valid endpoint/person values without footer overlap.
+- Developer must check keyboard and controller traversal, list scrolling, selection preservation, disabled focus exclusion, and recovery without a mouse.
+
+One representative is required per stable wireframe. Variant checks may use focused supplemental images or behavioral evidence; they do not create permanent matrix entries. No screenshot may substitute a fabricated table for a reachable implemented state. If the all-state controlled setup is unavailable, report the blocked capture instead of substituting a mockup.
+
+### Evidence packet and acceptance limits
+
+Each supplied artifact must include source checkpoint, capture state, native workflow, supported viewport, presentation profile, environment, exact artifact path, and SHA-256. Include the selected menu-background provenance required by the legacy manifest. Use disposable credentials and exclude secrets from all evidence metadata.
+
+Visual assessment will compare structure with wireframes, interaction presentation with the owning UX specifications, and styling with `docs/design.md`. It will not demand pixel matching to the low-fidelity SVGs. Directory listing is not proof of reachability. Images cannot prove password enforcement, heartbeat expiry, admission race handling, round-one initialization, world continuity, or Predator retention. Behavioral QA owns those checks.
+
+Current conformance: **not assessed; implementation evidence pending**. No prior accepted screenshot satisfies the changed coverage automatically.
+
+## Historical integrated PR83 visual evidence
+
+This historical section is an integration index for the legacy [screenshot manifest](../../screenshots/README.md), not a second assessment. The host-directory matrix above owns the newly affected coverage. The original integrated manifest had SHA-256 `90f02bf755ecc4c54142d5555aa8e34a644515ee69415a539a62cf23066173b7`; that hash is historical after the scoped orientation update.
 
 The [current coverage and assessment](../../screenshots/README.md#network-arena-orientation--current-coverage) accepts the PR #87 replacements for `SS-019`, `SS-021`, `SS-023`, and `SS-026` and three orientation comparison supplements. It is the sole current source for their paths, hashes, reproduction inputs, and assessment limits. Earlier acceptance below for the arena representatives and confirmation supplement is superseded for orientation. Their recorded hashes and PR #83 state/background sidecars identify historical evidence, not the replacement artifacts. Other entries remain unchanged.
 

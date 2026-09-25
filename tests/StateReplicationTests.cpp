@@ -4452,6 +4452,26 @@ D6R_TEST_CASE("REP-017 REP-018 REP-025 production multi-round capture keeps cumu
                 scoreRow(final->state, 102)->cumulativePoints);
 }
 
+D6R_TEST_CASE("NET-ADM replicated departed history does not increase simultaneous admission capacity") {
+    auto state = lobbyState();
+    for (unsigned index = 2; index < 16; ++index) {
+        auto value = state.players.front();
+        value.playerId = 101 + index; value.ownerParticipantId = 20 + index;
+        value.rosterPosition = static_cast<std::uint8_t>(index);
+        state.players.push_back(value);
+        state.participants.push_back({value.ownerParticipantId, false, R::ConnectionState::Connected, false, {value.playerId}});
+        state.score.ranking.push_back(value.playerId);
+    }
+    D6R_REQUIRE(!R::validateCanonicalState(state));
+    state.players.back().lifeState = R::LifeState::Departed;
+    state.players.back().life = 0;
+    D6R_REQUIRE(R::validateCanonicalState(state));
+    const auto decoded = R::deserializeReplicationFrame(R::serializeReplicationSnapshot({1, state}));
+    D6R_REQUIRE(decoded && decoded->snapshot && decoded->snapshot->state.players.size() == 16);
+    for (auto &value: state.players) { value.lifeState = R::LifeState::Departed; value.life = 0; }
+    D6R_REQUIRE(!R::validateCanonicalState(state));
+}
+
 D6R_TEST_CASE("REP canonical validation enforces collection string payload and reference bounds") {
     D6R_REQUIRE(R::validateCanonicalState(activeState()));
     auto tooManyParticipants = activeState();

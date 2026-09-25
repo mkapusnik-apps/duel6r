@@ -162,7 +162,9 @@ namespace Duel6::Network::Trust {
         if (address[0] == 127) return EndpointScope::Loopback;
         if (address[0] == 10 || (address[0] == 172 && address[1] >= 16 && address[1] <= 31)
             || (address[0] == 192 && address[1] == 168)) return EndpointScope::PrivateLan;
-        return EndpointScope::Unsupported;
+        if (address[0] == 0 || address[0] >= 224 || (address[0] == 169 && address[1] == 254))
+            return EndpointScope::Unsupported;
+        return EndpointScope::PublicUnicast;
     }
 
     EndpointScope classifyIpv4Literal(std::string_view value, std::array<std::uint8_t, 4> *result) {
@@ -183,7 +185,7 @@ namespace Duel6::Network::Trust {
     LocalListenerBindDecision decideLocalListenerBind(
             const std::array<std::uint8_t, 4> &address, const std::vector<Ipv4InterfaceRecord> &interfaces) {
         const auto scope = classifyIpv4(address);
-        if (scope != EndpointScope::Loopback && scope != EndpointScope::PrivateLan)
+        if (scope == EndpointScope::Unsupported || scope == EndpointScope::Invalid)
             return LocalListenerBindDecision::UnsupportedAddress;
 
         bool assigned = false;
@@ -289,7 +291,7 @@ namespace Duel6::Network::Trust {
 
     LocalListenerBindDecision localListenerBindDecision(const std::array<std::uint8_t, 4> &address) {
         const auto scope = classifyIpv4(address);
-        if (scope != EndpointScope::Loopback && scope != EndpointScope::PrivateLan)
+        if (scope == EndpointScope::Unsupported || scope == EndpointScope::Invalid)
             return LocalListenerBindDecision::UnsupportedAddress;
         const auto interfaces = localIpv4Interfaces();
         return interfaces ? decideLocalListenerBind(address, *interfaces)
@@ -302,7 +304,8 @@ namespace Duel6::Network::Trust {
         std::vector<std::array<std::uint8_t, 4>> candidates;
         const std::array<std::uint8_t, 4> loopback{127, 0, 0, 1};
         for (const auto &record: *interfaces)
-            if (classifyIpv4(record.address) == EndpointScope::PrivateLan
+            if ((classifyIpv4(record.address) == EndpointScope::PrivateLan
+                 || classifyIpv4(record.address) == EndpointScope::PublicUnicast)
                 && decideLocalListenerBind(record.address, *interfaces) == LocalListenerBindDecision::Allowed)
                 candidates.push_back(record.address);
         std::sort(candidates.begin(), candidates.end());

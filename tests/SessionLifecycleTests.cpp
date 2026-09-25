@@ -68,6 +68,21 @@ namespace {
 
 }
 
+D6R_TEST_CASE("NET-ADM live admission preserves existing readiness and gives no new identity authority to old players") {
+    ManualClock time;
+    CredentialSource source;
+    HostSessionLifecycle host(91, 1, 10, {101}, time.clock(), source.random());
+    D6R_REQUIRE(host.admitGuest(2, 20, {102}, false));
+    D6R_REQUIRE(host.setReady(1, 10, true));
+    D6R_REQUIRE(host.setReady(2, 20, true));
+    const auto arrival = host.admitGuest(3, 30, {103}, false, false);
+    D6R_REQUIRE(arrival);
+    D6R_REQUIRE(host.ready(1) && host.ready(2) && !host.ready(3));
+    D6R_REQUIRE(!host.admitGuest(4, 40, {102}, false, false));
+    D6R_REQUIRE(!host.admitGuest(3, 50, {104}, false, false));
+    D6R_REQUIRE(host.ready(1) && host.ready(2));
+}
+
 D6R_TEST_CASE("lifecycle protocol rejects malformed zero and cross-kind credential messages") {
     CredentialSource source;
     ManualClock time;

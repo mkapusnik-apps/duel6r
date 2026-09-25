@@ -70,27 +70,27 @@ D6R_TEST_CASE("network trust constants retain exact approved limits") {
     D6R_REQUIRE_EQ(4u, MaxReconnectCredentialGenerationAttempts);
 }
 
-D6R_TEST_CASE("listener and guest endpoints fail closed outside loopback and RFC1918") {
+D6R_TEST_CASE("LAN-first endpoints permit public unicast and reject special-use addresses") {
     using Scope = EndpointScope;
     const std::vector<std::pair<std::string, Scope>> corpus{
         {"127.0.0.1", Scope::Loopback}, {"127.0.0.255", Scope::Loopback}, {"127.255.255.254", Scope::Loopback},
         {"10.0.0.1", Scope::PrivateLan}, {"10.0.0.255", Scope::PrivateLan}, {"10.255.255.254", Scope::PrivateLan},
         {"172.16.0.1", Scope::PrivateLan}, {"172.16.0.255", Scope::PrivateLan}, {"172.31.255.254", Scope::PrivateLan},
         {"192.168.0.1", Scope::PrivateLan}, {"192.168.0.255", Scope::PrivateLan}, {"192.168.255.254", Scope::PrivateLan},
-        {"0.0.0.0", Scope::Unsupported}, {"8.8.8.8", Scope::Unsupported},
+        {"0.0.0.0", Scope::Unsupported}, {"8.8.8.8", Scope::PublicUnicast},
         {"169.254.1.1", Scope::Unsupported}, {"224.0.0.1", Scope::Unsupported},
         {"239.255.255.255", Scope::Unsupported}, {"255.255.255.255", Scope::Unsupported},
-        {"172.15.0.1", Scope::Unsupported}, {"172.32.0.1", Scope::Unsupported},
+        {"172.15.0.1", Scope::PublicUnicast}, {"172.32.0.1", Scope::PublicUnicast},
         {"", Scope::Invalid}, {"1.2.3", Scope::Invalid}, {"1.2.3.4.5", Scope::Invalid},
         {"01.2.3.4", Scope::Invalid}, {"256.2.3.4", Scope::Invalid}, {"1..3.4", Scope::Invalid},
         {"1.2.3.4x", Scope::Invalid}, {"-1.2.3.4", Scope::Invalid}};
     for (const auto &entry: corpus) D6R_REQUIRE(classifyIpv4Literal(entry.first) == entry.second);
 
-    D6R_REQUIRE_EQ("Network session is limited to this machine. No authentication or encryption is used.",
+    D6R_REQUIRE_EQ("Network session uses a same-machine endpoint. An unlocked connection does not authenticate host identity.",
                    std::string(LoopbackExposureCopy));
-    D6R_REQUIRE_EQ("Network session is limited to a private LAN. No authentication or encryption is used. Do not expose this port to the Internet.",
+    D6R_REQUIRE_EQ("LAN-first network session. Reachability and Internet safety are not guaranteed. An unlocked connection does not authenticate host identity.",
                    std::string(PrivateLanExposureCopy));
-    D6R_REQUIRE_EQ("Network session cannot use a public or wildcard address. Use loopback or a private LAN address.",
+    D6R_REQUIRE_EQ("Network session requires an eligible assigned unicast IPv4 listening address.",
                    std::string(UnsupportedAddressCopy));
 }
 
@@ -114,7 +114,8 @@ D6R_TEST_CASE("NET-02 production listener address enumeration is stable loopback
     D6R_REQUIRE(std::adjacent_find(first->begin(), first->end()) == first->end());
     for (const auto &address: *first) {
         D6R_REQUIRE(classifyIpv4Literal(address) == EndpointScope::Loopback
-                    || classifyIpv4Literal(address) == EndpointScope::PrivateLan);
+                    || classifyIpv4Literal(address) == EndpointScope::PrivateLan
+                    || classifyIpv4Literal(address) == EndpointScope::PublicUnicast);
         std::array<std::uint8_t, 4> parsed{};
         std::size_t offset = 0;
         for (std::size_t index = 0; index < parsed.size(); ++index) {
@@ -136,6 +137,8 @@ D6R_TEST_CASE("pure local bind decisions honor interface prefixes and platform r
     };
 
     D6R_REQUIRE(decide({127, 0, 0, 1}, {{{127, 0, 0, 1}, 8, std::nullopt}}) == Decision::Allowed);
+    D6R_REQUIRE(decide({8, 8, 8, 8}, {{{8, 8, 8, 8}, 24, std::nullopt}}) == Decision::Allowed);
+    D6R_REQUIRE(decide({8, 8, 8, 8}, {{{8, 8, 8, 9}, 24, std::nullopt}}) == Decision::NotAssigned);
     D6R_REQUIRE(decide({10, 1, 2, 3}, {{{10, 1, 2, 3}, 8, {{10, 255, 255, 255}}}}) == Decision::Allowed);
     D6R_REQUIRE(decide({192, 168, 4, 9}, {{{192, 168, 4, 9}, 24, std::nullopt}}) == Decision::Allowed);
     D6R_REQUIRE(decide({10, 9, 8, 7}, {{{10, 9, 8, 6}, 24, {{10, 9, 8, 255}}}}) == Decision::NotAssigned);
@@ -201,7 +204,7 @@ D6R_TEST_CASE("hostname syntax and resolver policy enforce exact boundaries befo
         ++resolverCalls;
         return Network::ResolveOutcome{};
     };
-    for (const std::string host: {"0.0.0.0", "8.8.8.8", "224.0.0.1", "169.254.1.1", "bad host"}) {
+    for (const std::string host: {"0.0.0.0", "255.255.255.255", "224.0.0.1", "169.254.1.1", "bad host"}) {
         Network::TcpListener listener(1, rejectedDependencies);
         D6R_REQUIRE(listener.start({host, 26660}));
         D6R_REQUIRE(!listener.waitForReady(1s));
@@ -217,6 +220,7 @@ D6R_TEST_CASE("hostname syntax and resolver policy enforce exact boundaries befo
         std::vector<Network::ResolvedIpv4Endpoint> results(64, {{10, 1, 2, 3}, port});
         results[0] = {{8, 8, 8, 8}, port};
         results[1] = {{127, 0, 0, 1}, port};
+        results[2] = {{224, 0, 0, 1}, port};
         return Network::ResolveOutcome{Network::ResolveStatus::Resolved, results};
     };
     clientDependencies.connect = [&](const auto &results, auto, const auto &) {
@@ -224,7 +228,7 @@ D6R_TEST_CASE("hostname syntax and resolver policy enforce exact boundaries befo
         D6R_REQUIRE_EQ(63u, results.size());
         D6R_REQUIRE(std::all_of(results.begin(), results.end(), [](const auto &endpoint) {
             const auto scope = classifyIpv4(endpoint.address);
-            return scope == EndpointScope::Loopback || scope == EndpointScope::PrivateLan;
+            return scope == EndpointScope::Loopback || scope == EndpointScope::PrivateLan || scope == EndpointScope::PublicUnicast;
         }));
         return Network::ConnectOutcome{Network::ConnectStatus::ConnectionRefused, -1};
     };
