@@ -174,6 +174,8 @@ if (NOT D6R_TRANSPORT_ONLY)
     add_executable(duel6r-directory-client-integration-tests
             ${CMAKE_SOURCE_DIR}/tests/DirectoryClientIntegrationTests.cpp)
     target_include_directories(duel6r-directory-client-integration-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    # This headless test owns its ordinary main; transitive SDL headers must not rename it.
+    target_compile_definitions(duel6r-directory-client-integration-tests PRIVATE SDL_MAIN_HANDLED)
     target_link_libraries(duel6r-directory-client-integration-tests PRIVATE
             duel6r-game-engine duel6r-network-scaffold)
     if (MINGW)
