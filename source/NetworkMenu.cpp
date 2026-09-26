@@ -15,7 +15,7 @@
 namespace Duel6 {
     namespace {
         constexpr Int32 CanvasWidth = 850, CanvasHeight = 700;
-        constexpr int SetupVisibleRows = 8, SetupFirstRow = 364;
+        constexpr int SetupVisibleRows = 8, SetupFirstRow = 364, SetupHeading = 386;
         constexpr Float32 CanvasMaximumScale = 1.35f;
         struct BrowserAction {
             int focus;
