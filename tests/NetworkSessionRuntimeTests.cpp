@@ -666,6 +666,208 @@ D6R_TEST_CASE("UX-NET round result wraps complete outcomes above countdown and k
     D6R_REQUIRE_EQ(std::size_t(15), rankings.size());
 }
 
+namespace {
+    // Draw-submission/input diagnostics, not native capture or live admission evidence.
+    struct ReviewMenuFixture {
+        char name[32] = "network-review-tests";
+        char *arguments[1] = {name};
+        Application application{1, arguments};
+        Video &video = application.service->getVideo();
+        struct RestoreRenderer {
+            std::unique_ptr<Renderer> &slot; std::unique_ptr<Renderer> original;
+            ~RestoreRenderer() { slot = std::move(original); }
+        } restore{video.renderer, std::move(video.renderer)};
+        static Test::RecordingRenderer &install(Video &video) {
+            auto renderer = std::make_unique<Test::RecordingRenderer>();
+            auto &result = *renderer; video.renderer = std::move(renderer); return result;
+        }
+        Test::RecordingRenderer &recorder = install(video);
+        Font font{recorder};
+        AppService &original = *application.service;
+        AppService service{font, original.getConsole(), original.getTextureManager(), video,
+            original.getInput(), original.getControlsManager(), original.getSound(), original.getScriptManager()};
+        NetworkMenu menu{service, application.gameResources, {}, [] {}};
+        ReviewMenuFixture() {
+            font.load("data/font.ttf", application.console);
+            video.screen = ScreenParameters(850, 700, 24, 24, 0, false);
+            const auto &controls = service.getControlsManager().get(0);
+            menu.localPlayers = {{"Ada", &controls, controls.getDescription()}};
+            menu.runtime.players = menu.localPlayers; menu.runtime.sampledActions.resize(1);
+        }
+        void draw() {
+            recorder.frames.clear(); recorder.lines.clear(); recorder.draws.clear(); recorder.quads.clear();
+            menu.render();
+        }
+        bool text(const std::string &value) const {
+            return std::any_of(recorder.draws.begin(), recorder.draws.end(), [&](const auto &draw) {
+                return std::any_of(font.fontCache.entryList.begin(), font.fontCache.entryList.end(), [&](const auto &entry) {
+                    return entry.texture == draw.material.getTexture() && entry.text == value;
+                });
+            });
+        }
+        bool frame(int x, int y, int width, int height, int thickness) const {
+            return std::any_of(recorder.frames.begin(), recorder.frames.end(), [&](const auto &f) {
+                return f.position.x == x && f.position.y == y && f.size.x == width && f.size.y == height
+                    && f.width == thickness && f.color == Color::BLACK;
+            });
+        }
+        void key(SDL_Keycode key) { menu.keyEvent(KeyPressEvent(key, SysEvent::ButtonState::PRESSED, 0)); }
+        void click(int x, int y, bool down = true) {
+            menu.mouseButtonEvent(MouseButtonEvent(x, y, SysEvent::MouseButton::LEFT,
+                down ? SysEvent::ButtonState::PRESSED : SysEvent::ButtonState::RELEASED, false));
+        }
+        void lobby(bool host = true, bool retained = false) {
+            auto state = canonical(91, Network::Replication::Phase::Lobby);
+            state.hostParticipantId = 1; state.settings.mode = "Deathmatch";
+            state.participants = {{1, true, Network::Replication::ConnectionState::Connected, true, {101}},
+                                  {2, false, Network::Replication::ConnectionState::Connected, false, {102}}};
+            for (unsigned i = 0; i < 2; ++i) {
+                Network::Replication::PlayerState player;
+                player.playerId = 101 + i; player.ownerParticipantId = 1 + i;
+                player.rosterPosition = i; player.displayName = i ? "Lin" : "Ada";
+                state.players.push_back(player);
+            }
+            state.result.available = retained; state.result.state = retained ? "Completed" : "";
+            menu.runtime.current.host = host; menu.runtime.current.localParticipantId = host ? 1 : 2;
+            menu.runtime.current.journey = Client::NetworkJourney::Lobby; menu.runtime.current.canonical = state;
+            menu.lastJourney = menu.lastStableJourney = Client::NetworkJourney::Lobby;
+            menu.focus = 0;
+        }
+    };
+
+    struct ReviewController {
+        ReviewMenuFixture &fixture;
+        int device;
+        SDL_Joystick *joystick;
+        explicit ReviewController(ReviewMenuFixture &fixture) : fixture(fixture) {
+            SDL_VirtualJoystickDesc descriptor{};
+            descriptor.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
+            descriptor.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;
+            descriptor.naxes = SDL_CONTROLLER_AXIS_MAX; descriptor.nbuttons = SDL_CONTROLLER_BUTTON_MAX;
+            descriptor.name = "Review controller";
+            device = SDL_JoystickAttachVirtualEx(&descriptor); D6R_REQUIRE(device >= 0);
+            joystick = SDL_JoystickOpen(device); D6R_REQUIRE(joystick != nullptr);
+            fixture.application.processEvents(fixture.menu); fixture.menu.update(0);
+            D6R_REQUIRE(!fixture.application.input.getJoys().empty());
+        }
+        ~ReviewController() { SDL_JoystickClose(joystick); SDL_JoystickDetachVirtual(device); }
+        void pulse(SDL_GameControllerButton button) {
+            for (bool down: {true, false}) {
+                D6R_REQUIRE_EQ(0, SDL_JoystickSetVirtualButton(joystick, button, down));
+                SDL_JoystickUpdate(); fixture.application.processEvents(fixture.menu); fixture.menu.update(0);
+            }
+        }
+    };
+}
+
+D6R_TEST_CASE("UX-NET review disabled focused setup start and missing-controller Ready stay visible and blocked") {
+    ReviewMenuFixture f;
+    ReviewController controller(f);
+    auto &menu = f.menu;
+    for (auto screen: {NetworkMenu::SetupScreen::Host, NetworkMenu::SetupScreen::Join}) {
+        menu.setupScreen = screen; menu.port.clear(); menu.focus = 4;
+        controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+        D6R_REQUIRE_EQ(5, menu.focus); // Baseline traversal still reaches disabled Start/Connect.
+        f.draw(); D6R_REQUIRE(f.frame(275, 82, 300, 32, 1)); D6R_REQUIRE(f.frame(273, 80, 304, 36, 2));
+        f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(425, 98);
+        controller.pulse(SDL_CONTROLLER_BUTTON_A);
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+        D6R_REQUIRE_EQ(5, menu.focus); D6R_REQUIRE(!menu.runtime.supervisor);
+        f.key(SDLK_UP); D6R_REQUIRE_EQ(4, menu.focus);
+        f.key(SDLK_TAB); D6R_REQUIRE_EQ(5, menu.focus);
+    }
+    f.lobby(); menu.runtime.supervisor = std::make_unique<Client::HostServiceSupervisor>();
+    menu.focus = 13; f.key(SDLK_TAB); D6R_REQUIRE_EQ(14, menu.focus);
+    f.draw(); D6R_REQUIRE(f.frame(408, 54, 210, 24, 1)); D6R_REQUIRE(f.frame(406, 52, 214, 28, 2));
+    D6R_REQUIRE(f.text("Waiting for Guest 2 to be ready."));
+    f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(500, 66); controller.pulse(SDL_CONTROLLER_BUTTON_A);
+    D6R_REQUIRE(menu.runtime.pendingHostCommands.empty());
+    D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Lobby);
+
+    // Model a removed binding absent from the current control registry, through
+    // the existing removal/rescan hook. This is not physical hotplug evidence.
+    f.lobby(false); menu.runtime.supervisor.reset(); menu.focus = 2;
+    menu.localPlayers[0].controlDescription = "Removed controller binding";
+    menu.joyDeviceRemovedEvent(JoyDeviceRemovedEvent(-1));
+    D6R_REQUIRE(menu.localPlayers[0].controls == nullptr); D6R_REQUIRE_EQ(2, menu.focus);
+    f.draw(); D6R_REQUIRE(f.frame(40, 168, 220, 24, 1)); D6R_REQUIRE(f.frame(38, 166, 224, 28, 2));
+    f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(150, 180); controller.pulse(SDL_CONTROLLER_BUTTON_A);
+    D6R_REQUIRE_EQ(2, menu.focus); D6R_REQUIRE(menu.runtime.pendingGuestCommands.empty());
+    D6R_REQUIRE(!menu.runtime.current.canonical->participants[1].ready);
+}
+
+D6R_TEST_CASE("UX-NET review retained host reorder help is inert until baseline keyboard or controller focus") {
+    ReviewMenuFixture f;
+    ReviewController controller(f);
+    auto &menu = f.menu;
+    f.lobby(true, true); menu.runtime.supervisor = std::make_unique<Client::HostServiceSupervisor>();
+    const std::string help = "Reorder: Tab/↑↓/pad ↑↓; Enter/Space/Confirm";
+    const auto unchanged = lobbyConfigurationFingerprint(menu.runtime.snapshot());
+    f.draw(); D6R_REQUIRE(f.text(help)); D6R_REQUIRE(!f.frame(40, 386, 360, 24, 2));
+    f.click(100, 398); f.click(100, 398, false);
+    D6R_REQUIRE_EQ(0, menu.focus); D6R_REQUIRE(menu.runtime.pendingHostCommands.empty());
+    for (int i = 0; i < 12 && menu.focus != 12; ++i) f.key(SDLK_TAB);
+    D6R_REQUIRE_EQ(12, menu.focus); f.draw();
+    D6R_REQUIRE(f.text("> Reorder 1. Ada")); D6R_REQUIRE(f.frame(40, 386, 360, 24, 2));
+    f.key(SDLK_SPACE);
+    D6R_REQUIRE_EQ(std::size_t(1), menu.runtime.pendingHostCommands.size());
+    D6R_REQUIRE(menu.runtime.pendingHostCommands.front() == Network::HostComposition::serializeRosterMove(101, 1));
+    menu.runtime.pendingHostCommands.clear();
+    f.key(SDLK_UP); D6R_REQUIRE_EQ(11, menu.focus);
+    controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN); D6R_REQUIRE_EQ(12, menu.focus);
+    controller.pulse(SDL_CONTROLLER_BUTTON_A);
+    D6R_REQUIRE_EQ(std::size_t(1), menu.runtime.pendingHostCommands.size());
+    D6R_REQUIRE(menu.runtime.pendingHostCommands.front() == Network::HostComposition::serializeRosterMove(101, 1));
+    menu.runtime.pendingHostCommands.clear();
+    f.click(100, 398); D6R_REQUIRE_EQ(std::size_t(1), menu.runtime.pendingHostCommands.size());
+    f.click(100, 398, false); D6R_REQUIRE_EQ(std::size_t(1), menu.runtime.pendingHostCommands.size());
+    D6R_REQUIRE(menu.runtime.pendingHostCommands.front() == Network::HostComposition::serializeRosterMove(101, 1));
+    D6R_REQUIRE_EQ(unchanged, lobbyConfigurationFingerprint(menu.runtime.snapshot()));
+    menu.runtime.pendingHostCommands.clear();
+    f.lobby(false, true); f.draw(); D6R_REQUIRE(!f.text(help));
+    D6R_REQUIRE(f.text("Host settings and authoritative roster order are read-only."));
+    f.click(100, 398); D6R_REQUIRE_EQ(0, menu.focus);
+    D6R_REQUIRE(menu.runtime.pendingHostCommands.empty());
+}
+
+D6R_TEST_CASE("UX-NET review active Tab score is informational while retained and final results retain controls") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    menu.runtime.current.canonical = canonical(91, Network::Replication::Phase::ActiveRound);
+    menu.runtime.current.journey = Client::NetworkJourney::Match;
+    menu.lastJourney = menu.lastStableJourney = Client::NetworkJourney::Match;
+    menu.scoreOverlay = true;
+    // Exercise the actual result drawing without depending on world fixture assets.
+    menu.drawResult(*menu.runtime.current.canonical, false);
+    D6R_REQUIRE(!f.text("<") && !f.text(">") && !f.text("PgUp/PgDn • ←/→"));
+    D6R_REQUIRE(f.text("Columns 0–0/0 • Rows 0–0/0"));
+    D6R_REQUIRE(!f.frame(48, 64, 560, 26, 2));
+    D6R_REQUIRE(std::none_of(f.recorder.lines.begin(), f.recorder.lines.end(), [](const auto &line) {
+        return line.start.y >= 66 && line.start.y <= 88;
+    }));
+    for (auto key: {SDLK_LEFT, SDLK_RIGHT, SDLK_PAGEUP, SDLK_PAGEDOWN}) f.key(key);
+    f.click(62, 76); f.click(586, 76); menu.mouseWheelEvent(MouseWheelEvent(200, 150, 1, -1));
+    D6R_REQUIRE_EQ(0, menu.summaryScroll); D6R_REQUIRE_EQ(0, menu.summaryHorizontal);
+    D6R_REQUIRE_EQ(0, menu.focus); D6R_REQUIRE_EQ(0u, menu.consumedKeyboardActions);
+    f.application.input.setPressed(SDLK_RIGHT, true); menu.update(0);
+    D6R_REQUIRE((menu.runtime.sampledActions[0] & Network::Input::MoveRight) != 0);
+    D6R_REQUIRE(!menu.runtime.gameplayInputSuppressed);
+    f.application.input.setPressed(SDLK_RIGHT, false); menu.update(0);
+    f.key(SDLK_TAB); D6R_REQUIRE(!menu.scoreOverlay);
+    menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, 0, true));
+    D6R_REQUIRE(!menu.scoreOverlay); f.key(SDLK_TAB); D6R_REQUIRE(menu.scoreOverlay);
+    for (bool retained: {true, false}) {
+        menu.runtime.current.journey = retained ? Client::NetworkJourney::Lobby : Client::NetworkJourney::Summary;
+        menu.runtime.current.canonical->phase = retained ? Network::Replication::Phase::Lobby : Network::Replication::Phase::FinalSummary;
+        menu.runtime.current.canonical->result.available = true;
+        menu.focus = retained ? 4 : 1;
+        f.recorder.draws.clear(); f.recorder.frames.clear(); f.recorder.lines.clear();
+        menu.drawResult(*menu.runtime.current.canonical, retained);
+        D6R_REQUIRE(f.text("<") && f.text(">") && f.text("PgUp/PgDn • ←/→"));
+        D6R_REQUIRE(f.frame(48, retained ? 137 : 122, 560, 26, 2));
+    }
+}
+
 D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and input through update and render") {
     char name[] = "duel6r-browser-shrink-tests"; char *arguments[] = {name};
     Application application(1, arguments);

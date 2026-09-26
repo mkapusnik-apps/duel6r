@@ -98,6 +98,6 @@ Entry workflow: MENU-01 → Network → Browse sessions. This is a native workfl
 
 ## Visual acceptance
 
-The representative must show an open lobby, a protected open first round, a full session, and a closed started session together. The selected protected first-round row must still offer Join selected. A reviewer must be able to identify the endpoint, occupancy, phase, protection, and admission independently. A still image does not prove heartbeat expiry, host-side password enforcement, or exact admission closure timing.
+The representative must show at least two actual owned listings: a protected joinable session and an admission-closed session. The selected protected row must offer Join selected. A reviewer must be able to identify the endpoint, occupancy, phase, protection, and admission independently. Open-lobby, open-first-round, full, and closed variants remain focused checks; they need not coexist in the representative. A still image does not prove heartbeat expiry, host-side password enforcement, or exact admission closure timing.
 
 The selected and focused row must remain distinguishable without color, and every footer and page action must remain identifiable when unfocused. Focused QA must cover all five functional states, both page directions, no-selection and removed-selection states, disabled joining reasons, retained selection on refresh, long endpoints, and independent direct setup. The [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix) defines the representative and evidence limits.

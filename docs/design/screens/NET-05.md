@@ -13,7 +13,7 @@ The [shared visual baseline](../../design.md#unified-network-presentation) appli
 - **UX-NET-05-005** Confirmation must retain Confirm-action-first focus and its existing opening-input protection.
 - **UX-NET-05-006** NET-05-S must retain the existing score-overlay placement over the arena without adding a menu banner or backdrop.
 - **UX-NET-05-007** NET-05-S must keep its authoritative-score title, session scope, current result-state labels, and existing result viewport separate.
-- **UX-NET-05-008** NET-05-S must use fixed headings and existing scroll controls around a white inset body without inventing completed-result rows when none exist.
+- **UX-NET-05-008** NET-05-S must use fixed headings and a white inset body without presenting unsupported scrolling as an enabled action or inventing completed-result rows when none exist.
 - **UX-NET-05-009** NET-05-R must retain its client-relative centered panel below the top arena edge and above network status and session actions.
 - **UX-NET-05-010** NET-05-R must keep round progress above its blue SCORE strip and ranking body.
 - **UX-NET-05-011** NET-05-R must keep round outcome and phase/countdown text below the ranking without overlap.
@@ -24,6 +24,8 @@ The [shared visual baseline](../../design.md#unified-network-presentation) appli
 - **UX-NET-05-016** Extra outcome rows must reduce the visible ranking height while its existing scrolling keeps every ranking row reachable.
 
 The ranking-color exception in UX-NET-05-012 preserves gameplay semantics and avoids low-contrast yellow-on-white rows. It does not permit a separate button or focus theme. Panel frames and action controls still use the shared menu vocabulary. Confirmation over NET-04, NET-06, or NET-07 uses NET-05-C's structure with the owning screen's existing prompt and consequences.
+
+NET-05-S has no supported scroll handlers in the baseline. It may retain truthful row/column position information as plain non-actionable text. Retained arrow symbols must not have enabled bevels, focus outlines, pointer targets, or shortcut promises. This correction must not add handlers, focus stops, or shortcuts. Tab retains its existing discrete overlay toggle. Working result navigation in NET-04-R and NET-06 and ranking navigation in NET-05-R must remain unchanged.
 
 ## First-round arrival
 
@@ -39,6 +41,8 @@ Entry from `NET-03-live-admission` uses the existing arena layout without a new 
 
 ## Acceptance
 
-The live representative must retain the complete arena, degraded status, and readable framed session action. NET-05-C must expose complete consequence copy and both actions at 1280 × 720. NET-05-S must show the real pre-winner score state without claiming completion. NET-05-R must show a real non-final frozen phase with separate progress, outcome, countdown, ranking, and host actions. Capture routes are in the [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix).
+The live representative must retain the complete arena, truthful Connected status, and readable framed session action. Two players are sufficient for the default styling representative; a specific bonus, level, mirror, or degraded condition is not required in that image. NET-05-C must expose complete consequence copy and both actions at 1280 × 720. NET-05-S must show the real pre-winner score state without claiming completion or supported scrolling. NET-05-R must show a real non-final frozen phase with separate progress, outcome, positive countdown, ranking, and host actions. Capture routes are in the [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix).
 
 Focused QA must cover the active first second, guest absence of Advance round, all ranking modes and maximum rows, long winner names, opening/held/repeated confirmation input, Tab toggling, all confirmation contexts, degraded/resynchronizing status, and first-round arrival. Arrival is a supplemental state, not another representative. A still cannot prove unchanged gameplay, recovery timing, Predator retention, input consumption, or admission boundaries.
+
+The simpler live representative does not replace degraded/resynchronizing containment checks or certify Invisibility, orientation, or maximum-player behavior. These checks follow the evidence-scope rules in the current matrix. The NET-05-S check must confirm that no unsupported arrow looks enabled and no new input is consumed for scrolling.

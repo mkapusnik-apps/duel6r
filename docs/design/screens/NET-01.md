@@ -9,7 +9,7 @@ The [shared visual baseline](../../design.md#unified-network-presentation) appli
 - **UX-NET-01-001** The NETWORK PLAY heading must occupy the primary panel title strip above scope copy.
 - **UX-NET-01-002** The four actions must remain in one centered column with their existing 300 by 32 logical px bounds and 13 logical px vertical gaps.
 - **UX-NET-01-003** Scope copy must remain separate from the first action by at least one text row.
-- **UX-NET-01-004** A focused action must retain the same surface and caption alignment as the other enabled actions.
+- **UX-NET-01-004** A focused enabled action must retain the same surface and caption alignment as the other enabled actions.
 - **UX-NET-01-005** An unavailable action must retain a readable boundary and its existing reason without moving Back off screen.
 
 - The screen must retain its banner, scope region, and centered action column.

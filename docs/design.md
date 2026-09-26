@@ -277,10 +277,10 @@ These numbered requirements take precedence over conflicting older appearance ex
 - **UX-NET-006** Editable fields and selectable list bodies must use `field-surface` with an inset light-and-dark frame before they receive focus.
 - **UX-NET-007** Table column headings must use `menu-label-surface` and remain visible while rows scroll.
 - **UX-NET-008** Selected list rows must use `selection` and `selection-text` with the existing textual selection marker where one is provided.
-- **UX-NET-009** Every existing actionable control must have a persistent square button or field boundary without requiring focus or pointer hover.
+- **UX-NET-009** Every existing actionable control must have a persistent square button or field boundary without requiring focus or pointer hover, except NET-04-R roster reordering, whose persistent capability indication must follow UX-NET-04-008.
 - **UX-NET-010** Enabled buttons must use the MENU-01 raised frame, `menu-surface`, and centered `text-default` captions.
 - **UX-NET-011** A pressed button must reverse its frame and offset its caption by 1 logical px without changing activation timing or repeat behavior.
-- **UX-NET-012** Focus must use a continuous 2-logical-pixel black outer keyline without replacing the normal button or field surface with a different focus color.
+- **UX-NET-012** Every focused control, including a disabled control focused by baseline traversal or state retention, must use a continuous 2-logical-pixel black outer keyline without replacing its normal or disabled surface with a different focus color.
 - **UX-NET-013** A disabled action must use a flat frame, readable black text, and its persistent existing disabled reason.
 - **UX-NET-014** Read-only values must retain an explicit ownership or locked-state label without an actionable raised frame.
 - **UX-NET-015** A new visual arrow, checkbox, or button region must not imply an action that the functional contract and current interaction do not provide.
@@ -289,10 +289,12 @@ These numbered requirements take precedence over conflicting older appearance ex
 - **UX-NET-018** The displayed control bounds and pointer activation bounds must coincide after the existing canvas transform.
 - **UX-NET-019** Added frames and headings must fit within the owning region without covering a value, status, adjacent focus outline, or footer.
 - **UX-NET-020** A constrained body must reduce its visible row count before it reduces text size or moves fixed status and actions off screen.
-- **UX-NET-021** Each list or result viewport must contain long values and expose its existing scrolling and position feedback without splitting UTF-8 characters.
+- **UX-NET-021** Each list or result viewport must contain long values without splitting UTF-8 characters and expose only the scrolling and position feedback supported in its current interaction context.
 - **UX-NET-022** Contextual panels must use the same grey surface, blue heading strip, and framed actions while retaining their existing client-relative placement and underlying context.
 - **UX-NET-023** Live network status, world rendering, ranking, player indicators, and arena camera must retain their existing gameplay presentation.
-- **UX-NET-024** Keyboard, controller, pointer, disabled-focus exclusion, modal focus, and confirmation-arming semantics must remain unchanged.
+- **UX-NET-024** Keyboard, controller, pointer, baseline focus traversal and retention, modal focus, and confirmation-arming semantics must remain unchanged.
+
+Focus and availability are separate states. A disabled control that has baseline focus must retain the focus keyline, flat frame, readable label, and existing reason without accepting activation. This rule does not add disabled controls to traversal where the baseline skips them. NET-04-R must explain its existing host reorder access path without making its focus-dependent action permanently clickable. NET-05-S has no supported scroll handlers; its retained position information must remain non-actionable under UX-NET-05-008. Working navigation in NET-04-R, NET-06, and NET-05-R remains unchanged.
 
 The standard 16 px text and 18 px list-row rhythm remain the default. Compact 20–24 px row controls must keep at least 2 logical px of caption space on each side. Existing 32–40 px primary actions may retain their size. This change does not force the local menu's 25 px roster buttons onto network footers. Fields must preserve the visible value width after their frame and padding are allocated. Main-menu bevels are a visual reference, not permission to import its pointer-release activation or held-spinner repetition.
 
@@ -505,15 +507,17 @@ Acceptance: an accepted intentional host End notice must produce the representat
 - A focused network control must add a continuous 2-logical-pixel black outer keyline outside its normal frame.
 - The focus keyline must not change the control size or move adjacent content.
 - A disabled network control must keep readable text, use a flat frame instead of the raised actionable frame, and show one persistent nearby reason.
-- A disabled network control must not receive focus or pointer activation.
+- A disabled network control must not accept activation through any input method.
+- A disabled network control must retain visible focus when baseline traversal or state retention gives it focus.
 - A network text field must show its complete value when the value fits.
 - A focused text field may scroll its text horizontally to keep the insertion position visible.
 - An unfocused text field must clip an overlong value inside the field and must not draw into an adjacent region.
 - A network list or table must keep its heading visible while its body scrolls vertically.
 - A network list or table must not increase row height to fit a long participant or player name.
 - A long participant or player value must clip inside its column.
-- A horizontally wide result table must provide an explicit horizontal scroll control inside the result region.
-- A scroll control must remain keyboard- and controller-operable and must show visible position feedback.
+- A horizontally wide result table with supported horizontal navigation must retain its explicit horizontal scroll control inside the result region.
+- A supported scroll control must retain its existing input methods and visible position feedback.
+- NET-05-S must not imply scrolling through an enabled arrow, focus target, or shortcut hint.
 - A blocking network panel must keep at least 16 px between its outer edge and each client edge.
 - A blocking network panel must wrap prose at word boundaries and may break an unspaced endpoint at a character boundary.
 - A blocking network panel must keep its heading, current status, and primary recovery action visible when body content scrolls.
@@ -600,8 +604,8 @@ Acceptance: an accepted intentional host End notice must produce the representat
 - Target network screens must define a deterministic keyboard and controller focus order, preserve a visible focused-control state, and allow primary, Back, Cancel, Retry, Ready, and Return actions without a mouse.
 - Focus must not rely only on color, and status changes must remain as visible text rather than transient color or motion alone.
 - Starting, cancelling, failure, Retry eligibility, and cleanup status must remain available as persistent text.
-- A disabled Retry control must show a persistent textual reason and must not receive focus.
-- Unsupported actions must be absent rather than represented by ambiguous disabled affordances.
+- A disabled Retry control must show a persistent textual reason and preserve its baseline focus behavior.
+- Unsupported actions must not appear enabled; retained NET-05-S position information must follow its explicit non-actionable treatment.
 - Round-end phase, automatic-advance timing, result state, match outcome, last completed-round outcome, no-winner state, script exclusion, and no-persistence status must remain visible as text.
 - Result tables must use text headings for ranking criteria and values.
 - Result tables must not rely only on row order or color to communicate rank, team, winner, or departed state.

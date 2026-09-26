@@ -1799,7 +1799,8 @@ namespace Duel6 {
         renderer.quadXY(Vector(x, y), Vector(width, height), Color(192));
         if (enabled) drawBevel(x, y, width, height, pressed);
         else renderer.frame(Vector(x, y), Vector(width, height), 1, Color::BLACK);
-        drawFocusKeyline(x, y, width, height, selected && enabled);
+        // Availability does not change baseline traversal or retained focus.
+        drawFocusKeyline(x, y, width, height, selected);
         drawText(x + (width - static_cast<Int32>(utf8Length(text)) * 8) / 2 + pressed,
                  y + (height - 16) / 2 - pressed, text);
     }
@@ -2180,7 +2181,10 @@ namespace Duel6 {
             if (!roster.empty() && !(snap.host && focus >= rosterFocusBase
                     && focus < rosterFocusBase + static_cast<int>(roster.size()))) {
                 const auto &player = roster[std::min<std::size_t>(setupScroll, roster.size() - 1)];
-                drawClippedText(42, 390, "Roster " + std::to_string(player.rosterPosition + 1) + "/"
+                if (snap.host) {
+                    // Help only: the existing reorder target appears after traversal.
+                    drawText(42, 390, "Reorder: Tab/↑↓/pad ↑↓; Enter/Space/Confirm");
+                } else drawClippedText(42, 390, "Roster " + std::to_string(player.rosterPosition + 1) + "/"
                         + std::to_string(roster.size()) + " • " + player.displayName + " • "
                         + participantLabel(state, player.ownerParticipantId), 44);
             }
@@ -2335,22 +2339,25 @@ namespace Duel6 {
             const std::size_t horizontal = std::min<std::size_t>(appliedHorizontal, utf8Length(lines[index]));
             drawText(50, y, utf8Slice(lines[index], horizontal, 94));
         }
-        const auto snap = runtime.snapshot();
-        const bool focused = focus == resultFocusIndex(snap, localPlayers.size());
-        drawButton(50, bottom + 4, 32, 22, "<", false, true,
-                   state.phase != Network::Replication::Phase::FinalSummary && !retained);
-        renderer.quadXY(Vector(82, bottom + 4), Vector(492, 22), Color(170));
-        drawButton(574, bottom + 4, 32, 22, ">", false, true,
-                   state.phase != Network::Replication::Phase::FinalSummary && !retained);
-        if (bounds.horizontal != 0) {
-            const Float32 track = 476.0f;
-            const Float32 thumbWidth = std::max(24.0f, track * 94.0f / static_cast<Float32>(bounds.widest));
-            const Float32 position = static_cast<Float32>(appliedHorizontal) /
-                    static_cast<Float32>(bounds.horizontal) * (track - thumbWidth);
-            renderer.quadXY(Vector(90.0f + position, static_cast<Float32>(bottom + 9)),
-                            Vector(thumbWidth, 12.0f), Color(192));
+        // Active-play Tab is informational: it has no result-scroll handlers.
+        // Keep the existing controls only in the two navigable result contexts.
+        if (retained || finalSummary) {
+            const auto snap = runtime.snapshot();
+            const bool focused = focus == resultFocusIndex(snap, localPlayers.size());
+            drawButton(50, bottom + 4, 32, 22, "<", false);
+            renderer.quadXY(Vector(82, bottom + 4), Vector(492, 22), Color(170));
+            drawButton(574, bottom + 4, 32, 22, ">", false);
+            if (bounds.horizontal != 0) {
+                const Float32 track = 476.0f;
+                const Float32 thumbWidth = std::max(24.0f, track * 94.0f / static_cast<Float32>(bounds.widest));
+                const Float32 position = static_cast<Float32>(appliedHorizontal) /
+                        static_cast<Float32>(bounds.horizontal) * (track - thumbWidth);
+                renderer.quadXY(Vector(90.0f + position, static_cast<Float32>(bottom + 9)),
+                                Vector(thumbWidth, 12.0f), Color(192));
+            }
+            drawFocusKeyline(50, bottom + 4, 556, 22, focused);
+            drawText(620, bottom + 8, "PgUp/PgDn • ←/→");
         }
-        drawFocusKeyline(50, bottom + 4, 556, 22, focused);
         const std::string position = "Columns " + std::to_string(bounds.widest == 0 ? 0 : appliedHorizontal + 1) + "–"
                 + std::to_string(std::min(bounds.widest, appliedHorizontal + 94)) + "/"
                 + std::to_string(bounds.widest) + " • Rows "
@@ -2358,7 +2365,6 @@ namespace Duel6 {
                 + std::to_string(std::min(lines.size(), first + bounds.visibleRows)) + "/"
                 + std::to_string(lines.size());
         drawText(330 - static_cast<Int32>(utf8Length(position)) * 4, bottom + 8, position);
-        drawText(620, bottom + 8, "PgUp/PgDn • ←/→");
     }
 
     void NetworkMenu::drawConfirmation() const {
