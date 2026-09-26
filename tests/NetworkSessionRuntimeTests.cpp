@@ -502,6 +502,170 @@ D6R_TEST_CASE("NET-DIR reviewed menu dispatch renders browser states and preserv
     D6R_REQUIRE(!menu.browserSelection);
 }
 
+D6R_TEST_CASE("UX-NET native frames preserve scaled press activation fields selection and modal protection") {
+    char name[] = "duel6r-network-style-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot; std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recording = std::make_unique<Test::RecordingRenderer>();
+    auto &recorder = *recording; video.renderer = std::move(recording);
+    Font font(recorder); font.load("data/font.ttf", application.console);
+    auto &original = *application.service;
+    AppService service(font, original.getConsole(), original.getTextureManager(), video,
+        original.getInput(), original.getControlsManager(), original.getSound(), original.getScriptManager());
+    NetworkMenu menu(service, application.gameResources, {}, [] {});
+    const auto clear = [&] {
+        recorder.quads.clear(); recorder.draws.clear(); recorder.frames.clear(); recorder.lines.clear();
+    };
+    const auto fill = [&](int x, int y, int w, int h, Color color) {
+        return std::any_of(recorder.quads.begin(), recorder.quads.end(), [&](const auto &q) {
+            return q.material.getTexture() == Texture{} && q.material.getColor() == color
+                && q.vertices[0].x == x && q.vertices[0].y == y
+                && q.vertices[2].x == x + w && q.vertices[2].y == y + h;
+        });
+    };
+    const auto textPosition = [&](const std::string &text) {
+        for (const auto &q: recorder.quads) {
+            const auto found = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),
+                [&](const auto &entry) { return entry.texture == q.material.getTexture() && entry.text == text; });
+            if (found != font.fontCache.entryList.end()) return q.vertices[0];
+        }
+        Test::fail("caption rendered", __FILE__, __LINE__, text); return Vector();
+    };
+    const auto click = [&](int x, int y, bool pressed) {
+        const auto &s = video.getScreen();
+        const float scale = std::min(1.35f, std::min(float(s.getClientWidth()) / 850, float(s.getClientHeight()) / 700));
+        const int tx = (s.getClientWidth() - int(850 * scale)) / 2;
+        const int ty = (s.getClientHeight() - int(700 * scale)) / 2;
+        menu.mouseButtonEvent(MouseButtonEvent(tx + int(x * scale), ty + int(y * scale),
+            SysEvent::MouseButton::LEFT, pressed ? SysEvent::ButtonState::PRESSED : SysEvent::ButtonState::RELEASED, false));
+    };
+    // Recording geometry checks cover the floor, modern minimum and scale cap;
+    // these are not raster screenshots or physical-display claims.
+    for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
+        video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        menu.runtime.current = {}; menu.setupScreen = NetworkMenu::SetupScreen::Entry; menu.focus = 0;
+        menu.pointerHeld = false;
+        clear(); menu.render();
+        D6R_REQUIRE(fill(26, 548, 798, 18, Color(0, 0, 200)));
+        for (int i = 0; i < 4; ++i) D6R_REQUIRE(fill(275, 325 - i * 45, 300, 32, Color(192)));
+        D6R_REQUIRE(!recorder.lines.empty());
+        D6R_REQUIRE(recorder.lines.front().color == Color(235));
+        click(274, 336, true); // Immediately outside the displayed control.
+        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+        click(425, 336, false); // Release alone never activates.
+        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+        click(425, 336, true);
+        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host); // On press, not release.
+        clear(); menu.render();
+        D6R_REQUIRE(fill(224, 486, 586, 24, Color::WHITE));
+        D6R_REQUIRE(fill(224, 458, 586, 24, Color::WHITE));
+        D6R_REQUIRE(fill(224, 430, 586, 24, Color::WHITE));
+        D6R_REQUIRE(fill(48, 206, 354, 176, Color::WHITE));
+        D6R_REQUIRE(fill(428, 206, 394, 176, Color::WHITE));
+        click(223, 440, true); D6R_REQUIRE_EQ(0, menu.focus);
+        click(225, 440, true); D6R_REQUIRE_EQ(2, menu.focus);
+        menu.textInputEvent(TextInputEvent("disposable"));
+        clear(); menu.render();
+        textPosition("**********");
+        D6R_REQUIRE(fill(275, 82, 300, 32, Color(192))); // Disabled Start still has a surface and boundary.
+        D6R_REQUIRE(std::any_of(recorder.frames.begin(), recorder.frames.end(), [](const auto &frame) {
+            return frame.position.x == 275 && frame.position.y == 82 && frame.width == 1;
+        }));
+        menu.password.clear();
+    }
+    menu.pointerHeld = false; menu.focus = 0;
+    clear(); menu.drawButton(100, 100, 160, 32, "Action", true);
+    const auto normal = textPosition("Action");
+    application.input.setPressed(SDLK_RETURN, true);
+    clear(); menu.drawButton(100, 100, 160, 32, "Action", true);
+    const auto pressed = textPosition("Action");
+    D6R_REQUIRE_EQ(normal.x + 1, pressed.x); D6R_REQUIRE_EQ(normal.y - 1, pressed.y);
+    D6R_REQUIRE(recorder.lines.front().color == Color::BLACK);
+    application.input.setPressed(SDLK_RETURN, false);
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    Client::DirectoryListing row;
+    row.id = std::string(32, 'a'); row.sessionId = std::string(32, 'b'); row.endpoint = {"127.0.0.1", 26660};
+    row.phase = "lobby"; row.mode = "deathmatch"; row.players = 1; row.capacity = 15;
+    row.expiresAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
+    menu.browser.page = {true, {row}, {}}; menu.browser.received = std::chrono::steady_clock::now();
+    menu.selectedListing = row.id; menu.focus = 0;
+    clear(); menu.render();
+    D6R_REQUIRE(fill(30, 466, 790, 22, Color(0, 0, 200)));
+    D6R_REQUIRE(fill(28, 490, 794, 20, Color(170)));
+    D6R_REQUIRE(std::any_of(recorder.frames.begin(), recorder.frames.end(), [](const auto &f) {
+        return f.position.x == 28 && f.position.y == 464 && f.width == 2;
+    }));
+    menu.browser.received -= std::chrono::seconds(31);
+    click(100, 80, true); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    menu.runtime.current.journey = Client::NetworkJourney::Match;
+    menu.runtime.current.canonical = canonical(91, Network::Replication::Phase::ActiveRound);
+    menu.showConfirmation(NetworkMenu::Confirmation::Leave);
+    application.input.setPressed(SDLK_RETURN, true);
+    clear(); menu.drawConfirmation();
+    D6R_REQUIRE(!menu.confirmationInputArmed);
+    menu.keyEvent(KeyPressEvent(SDLK_RETURN, SysEvent::ButtonState::PRESSED, 0));
+    D6R_REQUIRE(menu.confirmation == NetworkMenu::Confirmation::Leave);
+    D6R_REQUIRE(menu.runtime.pendingGuestCommands.empty());
+    application.input.setPressed(SDLK_RETURN, false);
+    menu.back(); D6R_REQUIRE(menu.confirmation == NetworkMenu::Confirmation::None);
+    D6R_REQUIRE(menu.runtime.pendingGuestCommands.empty());
+}
+
+D6R_TEST_CASE("UX-NET round result wraps complete outcomes above countdown and keeps ranking scroll reachable") {
+    char name[] = "duel6r-round-style-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot; std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recording = std::make_unique<Test::RecordingRenderer>();
+    auto &recorder = *recording; video.renderer = std::move(recording);
+    Font font(recorder); font.load("data/font.ttf", application.console);
+    auto &original = *application.service;
+    AppService service(font, original.getConsole(), original.getTextureManager(), video,
+        original.getInput(), original.getControlsManager(), original.getSound(), original.getScriptManager());
+    NetworkMenu menu(service, application.gameResources, {}, [] {});
+    auto state = canonical(91, Network::Replication::Phase::RoundSummary);
+    state.players.clear(); state.score.ranking.clear(); state.score.winner = {};
+    state.settings.roundLimit = 3; state.completedRounds = 1; state.roundEndCountdown = 240;
+    for (unsigned i = 0; i < 15; ++i) {
+        Network::Replication::PlayerState player{};
+        player.playerId = i + 1; player.displayName = std::string(63, char('A' + i)) + char('a' + i);
+        state.players.push_back(player); state.score.ranking.push_back(player.playerId);
+        if (i < 14) state.score.winner.winnerPlayerIds.push_back(player.playerId);
+    }
+    menu.runtime.current.journey = Client::NetworkJourney::Match;
+    menu.runtime.current.canonical = state;
+    video.screen = ScreenParameters(1280, 720, 24, 24, 0, false);
+    std::set<std::string> rankings;
+    for (int step = 0; step < 20; ++step) {
+        recorder.quads.clear(); menu.drawRoundSummary(menu.runtime.snapshot(), 1280, 720);
+        std::string outcomeText; float lowestOutcome = 720, phaseTop = 0;
+        for (const auto &q: recorder.quads) {
+            const auto entry = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),
+                [&](const auto &item) { return item.texture == q.material.getTexture(); });
+            if (entry == font.fontCache.entryList.end()) continue;
+            if (entry->text.find("Round outcome:") == 0 || entry->text.size() >= 63) {
+                outcomeText += entry->text; lowestOutcome = std::min(lowestOutcome, q.vertices[0].y);
+            }
+            if (entry->text.find("Round frozen") == 0) phaseTop = q.vertices[2].y;
+            for (unsigned i = 0; i < 15; ++i)
+                if (entry->text.find(std::to_string(i + 1) + ". ") == 0) rankings.insert(std::to_string(i + 1));
+        }
+        D6R_REQUIRE(phaseTop > 0 && phaseTop < lowestOutcome);
+        for (unsigned i = 0; i < 14; ++i) D6R_REQUIRE(outcomeText.find(state.players[i].displayName) != std::string::npos);
+        menu.mouseWheelEvent(MouseWheelEvent(0, 0, 0, -1));
+    }
+    D6R_REQUIRE(menu.rankingScroll > 0);
+    D6R_REQUIRE_EQ(std::size_t(15), rankings.size());
+}
+
 D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and input through update and render") {
     char name[] = "duel6r-browser-shrink-tests"; char *arguments[] = {name};
     Application application(1, arguments);

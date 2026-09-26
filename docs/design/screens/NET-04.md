@@ -1,8 +1,28 @@
-# NET-04 — Lobby listing feedback
+# NET-04 — Lobby and retained results
 
 Functional contract: [network-lobby](../../screens/network-lobby.md). Existing requirements NET-OWN-002–009 remain applicable. [NET-DIR-001–007 and NET-DIR-015](../../network-host-directory.md) own registration and recovery. Structural sources: [NET-04](../../screens/wireframes/network-lobby.md) and [NET-04-R](../wireframes/NET-04/NET-04-R.svg).
 
-This is a localized text refinement. It does not change the roster, settings, retained-result region, or action hierarchy.
+## Presentation and allocation
+
+The [shared visual baseline](../../design.md#unified-network-presentation) applies to both existing wireframes. It changes panel and control appearance without changing the roster, settings, results, or action hierarchy.
+
+- **UX-NET-04-001** The fixed session header must keep endpoint, role, totals, and directory feedback above the body.
+- **UX-NET-04-002** The main body must retain its approximately two-thirds membership/roster and one-third host-settings allocation with an 8-logical-pixel gap.
+- **UX-NET-04-003** Participant and roster sections must use fixed column headings over white inset bodies.
+- **UX-NET-04-004** Role, Connection, Readiness, and Owned must remain separate participant columns.
+- **UX-NET-04-005** An owned person or control value must have an editable boundary while another participant's value retains its read-only presentation.
+- **UX-NET-04-006** Host settings must use framed existing value controls without adding new spinner arrows or toggle targets.
+- **UX-NET-04-007** Guest settings must retain their read-only explanation without actionable raised frames.
+- **UX-NET-04-008** Ready, Start match, Leave or End session, roster-order controls, and eligible Retry publication must each have a persistent action boundary.
+- **UX-NET-04-009** The disabled Start reason and script-policy text must remain outside the roster and settings bodies above the footer.
+- **UX-NET-04-010** NET-04-R must retain its approximately 215-logical-pixel result region below current membership and settings.
+- **UX-NET-04-011** The retained result must use a separate title strip and fixed outcome labels above its scrolling white result body.
+- **UX-NET-04-012** Current membership and historical result identities must remain in visibly separate regions.
+- **UX-NET-04-013** Added group frames must reduce visible body rows before they cover result scrolling controls, readiness, or the footer.
+
+Reading order remains session status, current membership and settings, retained results when present, persistent feedback, and actions. Existing focus traversal remains unchanged even where role-specific traversal differs from the spatial reading order. The older NET-04-R SVG omits the common banner for diagram space; this does not authorize removing the current banner or version.
+
+## Listing feedback
 
 - Host status must distinguish the running session from its directory listing.
 - Host status must use `Directory: Registering…`, `Directory: Listed`, or `Directory: Unavailable` from confirmed registration state.
@@ -20,4 +40,8 @@ This is a localized text refinement. It does not change the roster, settings, re
 - The same feedback rules must apply to NET-04-R.
 - The UI must not claim that a listed session is reachable from every machine.
 
-Acceptance requires a running host lobby with directory failure and a retained-result lobby with listing feedback. Behavioral QA must prove that heartbeat failure does not terminate direct or local play. No new wireframe is needed for these status variants.
+## Acceptance
+
+The lobby representative must show a running host, directory failure, separately readable participant columns, and an unready participant's disabled Start reason. The retained-result representative must separate current membership from Completed history and keep the outcome headings, scroll feedback, readiness, and footer visible. Behavioral QA must prove that publication failure does not terminate the session. No new wireframe is needed for these status variants.
+
+Focused QA must cover guest-owned editing, guest read-only settings, maximum membership, non-Team hidden settings, all Team settings, interrupted results, departed winners, long UTF-8 names, both result-scroll extremes, publication retry focus, and host/guest confirmations. The representative routes and supported viewports are in the [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix).

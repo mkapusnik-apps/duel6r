@@ -4,6 +4,18 @@ Functional contract: [network-join](../../screens/network-join.md), including NE
 
 ## Shared setup
 
+The [shared visual baseline](../../design.md#unified-network-presentation) applies. NET-03-E retains the endpoint, setup, and footer relationships in its SVG. The existing NET-03 legacy diagram remains authoritative for the separate locked connecting task.
+
+- **UX-NET-03-001** Editable setup must use a fixed endpoint region, two equal-height setup panels, and a fixed feedback/action region.
+- **UX-NET-03-002** Address, Port, and Password labels must align in a left column beside separately framed white value regions.
+- **UX-NET-03-003** Password help and directory context must remain outside the editable value regions.
+- **UX-NET-03-004** The two setup panels must use the same list and row-action treatment as NET-02 without importing host-only controls.
+- **UX-NET-03-005** Connect and Back must remain in their existing centered action column below validation and admission context.
+- **UX-NET-03-006** Connecting must replace editable setup with one full-width locked local-player panel beneath the retained endpoint.
+- **UX-NET-03-007** Locked connecting rows must keep separate Slot, Person, and Control columns with a persistent locked/read-only label.
+- **UX-NET-03-008** Connecting must keep its status, deadline text, and sole framed Cancel action below the roster without clipping the fifteenth row.
+- **UX-NET-03-009** Long endpoint and player values must remain inside their regions without covering the Port, control, or status text.
+
 - Directory selection must reuse the existing join task instead of adding a password dialog.
 - The directory path must prefill the selected endpoint.
 - Directory context must retain the advertised session identity under NET-DIR-014.
@@ -37,3 +49,5 @@ Functional contract: [network-join](../../screens/network-join.md), including NE
 ## Acceptance
 
 NET-03-E is a distinct structural variant because editable setup contains endpoint, password, and roster actions absent from the existing connecting layout. No password overlay is needed. Contextual Back and NET-08 browser recovery provide the return-to-browser path required by NET-DIR-014. Password entry and correction remain outside the connection deadline under NET-PASS-003. The UI must use `Connection not authorized.` for NET-08-password-rejected rather than disclose which secret check failed.
+
+The editable representative must show the required-password focus and first-round context without obscuring Connect or Back. The connecting representative must use an actual pending attempt with retained endpoint and locked slots, not a replacement screen or injected runtime state. Focused QA must cover direct entry, invalid fields, optional password, Cancel retention, fifteen locked slots, and long valid input. Capture details are in the [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix).

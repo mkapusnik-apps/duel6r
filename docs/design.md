@@ -7,6 +7,8 @@ Screen-specific requirements are in [`docs/screens`](screens/README.md).
 Screenshot evidence is in [`docs/screenshots`](screenshots/README.md).
 The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a second source of truth.
 
+The current NET-01 through NET-10 visual requirements are in [Unified network presentation](#unified-network-presentation). The [network capture matrix](design/screenshots/README.md#network-presentation-current-capture-matrix) marks all 16 affected representatives Pending. Earlier network acceptance below and in historical packets applies only to the earlier presentation.
+
 The approved product requirements are the source of truth for visual-impact changes.
 The current native implementation remains the source for unchanged visual details.
 The fixed product baseline is the current product-owned `docs/features.md` content.
@@ -258,6 +260,91 @@ The following values come from renderer and GUI source.
 - Invalid actions may produce no visible change unless a blocking message is documented for that action.
 
 ### Target network controls and status
+
+#### Unified network presentation
+
+This section owns the approved network visual baseline. `UX-NET-*` identifiers define presentation only. They apply to NET-01 through NET-10, including contextual panels and confirmations. The native MENU-01 is the appearance reference; its local actions and input behavior are not network requirements. The current [network functional contracts](screens/README.md) and [directory contract](network-host-directory.md) retain authority over behavior, copy, permissions, and transitions. Their explicit directory, password, public-address, and round-one-admission updates supersede older exclusions below.
+
+The existing screen documents and wireframes retain their identities and locations. The [UX index](design/README.md#screen-specifications) identifies the owning presentation sections. The [current capture matrix](design/screenshots/README.md#network-presentation-current-capture-matrix) supersedes older representative selections for this visual change. Legacy diagrams define content relationships, not production colors or exact pixel geometry. No legacy migration is authorized.
+
+These numbered requirements take precedence over conflicting older appearance examples only. They do not override functional contracts. `Must` identifies acceptance requirements; `should` identifies a recommendation; `may` identifies a permitted presentation choice.
+
+- **UX-NET-001** Menu-context network screens must retain the existing centered 850 by 700 canvas, scale cap, background session, banner, runtime version, and perimeter keyline.
+- **UX-NET-002** Menu-context content must remain inside the 24-logical-pixel side and bottom margins below the existing banner and version.
+- **UX-NET-003** Each primary menu panel must use `menu-surface` instead of a separate pale inner-card surface.
+- **UX-NET-004** Each named content group must use the existing two-line raised frame and an 18-logical-pixel `menu-panel-header` strip with `menu-panel-header-text`.
+- **UX-NET-005** Panel headings must keep at least 4 logical px of horizontal inner space from the frame.
+- **UX-NET-006** Editable fields and selectable list bodies must use `field-surface` with an inset light-and-dark frame before they receive focus.
+- **UX-NET-007** Table column headings must use `menu-label-surface` and remain visible while rows scroll.
+- **UX-NET-008** Selected list rows must use `selection` and `selection-text` with the existing textual selection marker where one is provided.
+- **UX-NET-009** Every existing actionable control must have a persistent square button or field boundary without requiring focus or pointer hover.
+- **UX-NET-010** Enabled buttons must use the MENU-01 raised frame, `menu-surface`, and centered `text-default` captions.
+- **UX-NET-011** A pressed button must reverse its frame and offset its caption by 1 logical px without changing activation timing or repeat behavior.
+- **UX-NET-012** Focus must use a continuous 2-logical-pixel black outer keyline without replacing the normal button or field surface with a different focus color.
+- **UX-NET-013** A disabled action must use a flat frame, readable black text, and its persistent existing disabled reason.
+- **UX-NET-014** Read-only values must retain an explicit ownership or locked-state label without an actionable raised frame.
+- **UX-NET-015** A new visual arrow, checkbox, or button region must not imply an action that the functional contract and current interaction do not provide.
+- **UX-NET-016** Standalone action captions must keep at least 4 logical px of clear inner space on each side at standard 16-logical-pixel text height.
+- **UX-NET-017** Adjacent control bounds must keep at least 8 logical px of clear space except existing compact list-row controls, whose separate bounds and focus outlines must not overlap.
+- **UX-NET-018** The displayed control bounds and pointer activation bounds must coincide after the existing canvas transform.
+- **UX-NET-019** Added frames and headings must fit within the owning region without covering a value, status, adjacent focus outline, or footer.
+- **UX-NET-020** A constrained body must reduce its visible row count before it reduces text size or moves fixed status and actions off screen.
+- **UX-NET-021** Each list or result viewport must contain long values and expose its existing scrolling and position feedback without splitting UTF-8 characters.
+- **UX-NET-022** Contextual panels must use the same grey surface, blue heading strip, and framed actions while retaining their existing client-relative placement and underlying context.
+- **UX-NET-023** Live network status, world rendering, ranking, player indicators, and arena camera must retain their existing gameplay presentation.
+- **UX-NET-024** Keyboard, controller, pointer, disabled-focus exclusion, modal focus, and confirmation-arming semantics must remain unchanged.
+
+The standard 16 px text and 18 px list-row rhythm remain the default. Compact 20–24 px row controls must keep at least 2 logical px of caption space on each side. Existing 32–40 px primary actions may retain their size. This change does not force the local menu's 25 px roster buttons onto network footers. Fields must preserve the visible value width after their frame and padding are allocated. Main-menu bevels are a visual reference, not permission to import its pointer-release activation or held-spinner repetition.
+
+##### Fixed visual acceptance
+
+- **UX-NET-AC-01** Every affected representative must show the same MENU-01 panel, field, list, and button vocabulary without a pale inner-card or alternate blue-grey focus theme.
+- **UX-NET-AC-02** A reviewer must distinguish an editable value, a selectable row, an enabled action, a disabled action, and a read-only value before moving focus.
+- **UX-NET-AC-03** Each supported viewport must contain complete headings, current status, disabled reasons, and action captions without overlap or text-size reduction.
+- **UX-NET-AC-04** Each focused control must retain a visible non-color focus cue distinct from row selection.
+- **UX-NET-AC-05** Header and footer bounds must remain fixed while their owning body scrolls.
+- **UX-NET-AC-06** Contextual overlays must preserve visible arena, lobby, or summary context outside their bounds.
+- **UX-NET-AC-07** Styling must not expose unavailable actions or change activation, focus order, role permissions, admission, readiness, result semantics, or recovery destinations.
+- **UX-NET-AC-08** All 16 wireframes in the current matrix must have one reviewed native implementation representative before visual acceptance.
+
+##### NET-06 — Completed summary presentation
+
+Functional authority: [NET-06](screens/network-summary.md), including NET-AC-010, NET-AC-011, and NET-AC-014–018. Structural authority: existing [NET-06 diagram](screens/wireframes/network-summary.md). This owning section specifies the changed styling and allocation without moving the legacy document. The current implementation uses a menu summary context; the diagram's older arena-background example does not require a context change.
+
+- **UX-NET-06-001** The summary must retain its menu canvas and banner rather than introduce an arena-background transition.
+- **UX-NET-06-002** The summary must present its title strip above fixed result-state, persistence, match-outcome, and last-round-outcome rows.
+- **UX-NET-06-003** The fixed identity rows must remain above a white inset result viewport with separately labeled outcome, settings, round, and cumulative sections.
+- **UX-NET-06-004** The result viewport must retain its sticky heading, horizontal scroll control, vertical navigation, and row/column position feedback.
+- **UX-NET-06-005** The result viewport must end at least 8 logical px above the host action column or guest waiting-status region.
+- **UX-NET-06-006** The host action column must retain Return to lobby before End session, while the guest footer retains waiting status and Leave.
+- **UX-NET-06-007** Outcome overflow must use the existing bounded winner-count heading and complete scrollable identity rows rather than a smaller font or winner emphasis on ranking rows.
+
+Acceptance: the Completed representative must expose outcome rows and persistent identity above the result body, with scrolling feedback and both host actions unobscured. Focused QA must check the guest footer, 14 Predator winners, departed identities, 64 UTF-8-byte names, and both scroll extremes. Confirmation uses NET-05-C's shared panel treatment without changing this screen's consequence copy or focus order.
+
+##### NET-07 — Reconnect presentation
+
+Functional authority: [NET-07](screens/network-reconnect.md), including NET-OWN-008–009 and NET-AC-012–013. Structural authority: existing [NET-07 diagram](screens/wireframes/network-reconnect.md).
+
+- **UX-NET-07-001** The centered reconnect panel must retain a maximum width of 640 client px and at least 16 client px of edge clearance.
+- **UX-NET-07-002** A fixed blue heading strip must precede the endpoint, positive countdown, reservation status, and context-dependent continuation copy.
+- **UX-NET-07-003** The panel must keep the countdown and framed Leave session action visible while long supporting copy wraps inside the body.
+- **UX-NET-07-004** The panel must retain the last confirmed context without adding a full menu canvas over an arena.
+- **UX-NET-07-005** Leave confirmation must use NET-05-C's shared panel treatment with this state's existing reservation consequence.
+
+Acceptance: a real interrupted guest connection must show a positive countdown and focused Leave session above the retained arena. Focused QA must check lobby/summary backgrounds, a long endpoint, and Leave/Cancel while the original deadline continues. A still does not prove countdown progression or deadline retention.
+
+##### NET-09 — Intentional host-end presentation
+
+Functional authority: [NET-09](screens/network-host-ended.md), including NET-AC-014 and NET-AC-016–019. Structural authority: existing [NET-09 diagram](screens/wireframes/network-host-ended.md).
+
+- **UX-NET-09-001** The centered host-end panel must retain a maximum width of 640 client px and at least 16 client px of edge clearance.
+- **UX-NET-09-002** The blue heading strip must use the existing HOST ENDED SESSION heading above the fixed terminal explanation.
+- **UX-NET-09-003** The panel must keep its single framed Return to Network action visible below the context-dependent persistence copy.
+- **UX-NET-09-004** The panel must retain the last confirmed context without adding a countdown or progress treatment.
+
+Acceptance: an accepted intentional host End notice must produce the representative; crash, silence, timeout, or forced termination is not a substitute. Focused QA must check the lobby variant without match-result copy and the summary/reconnect contexts. Return to Network must retain its existing initial focus and supported inputs.
+
+#### Existing network constraints
 
 - `MENU-01`, `NET-01`–`NET-04`, and `NET-08` must use the retro 850 by 700 logical canvas and the same uniform scaling, centered presentation, photographic background, scrim, keyline, type, square controls, and compact density as the local menu.
 - `NET-05`–`NET-07` may overlay the undivided shared arena or summary context where their screen specifications require it; they must not introduce player-specific viewports.

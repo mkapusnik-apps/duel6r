@@ -1,6 +1,23 @@
 # NET-10 — Session browser
 
-Status: product-reserved target screen. Functional contract: [network-browser](../../screens/network-browser.md), implementing [NET-DIR-001–016 and NET-DIR-AC-001–004](../../network-host-directory.md). Wireframe: [NET-10](../wireframes/NET-10/NET-10.svg).
+Status: implemented task; unified presentation pending evidence. Functional contract: [network-browser](../../screens/network-browser.md), implementing [NET-DIR-001–016 and NET-DIR-AC-001–004](../../network-host-directory.md). Wireframe: [NET-10](../wireframes/NET-10/NET-10.svg).
+
+## Presentation requirements
+
+The [shared visual baseline](../../design.md#unified-network-presentation) applies.
+
+- **UX-NET-10-001** BROWSE SESSIONS must occupy a blue title strip above the fixed directory-status row.
+- **UX-NET-10-002** The session table must use an inset white body with a separate fixed grey heading strip.
+- **UX-NET-10-003** The selected row must use the standard selection fill and text while retaining its textual marker and separate focused-row outline.
+- **UX-NET-10-004** The endpoint column must retain the largest width without reducing the complete Players, Phase, Password, or Admission headings.
+- **UX-NET-10-005** The selected-session region must remain below the list and above page navigation with enough height for endpoint, eligibility, and reachability text.
+- **UX-NET-10-006** Previous page and Next page must use visible button boundaries on either side of the current page label.
+- **UX-NET-10-007** The page label must show the available current page number without inventing a total page count.
+- **UX-NET-10-008** Join selected, Refresh, and Direct connect must retain the existing first footer row, with Back on the second row at the right.
+- **UX-NET-10-009** The list must give up visible rows before page controls, selected-session details, or footer captions overlap.
+- **UX-NET-10-010** Empty, loading, stale, and unavailable feedback must remain inside the same list/status allocation without changing footer placement.
+
+The SVG uses approximate allocation. UX-NET-10-005 through UX-NET-10-008 fix the existing selected-details, paging, and two-row footer relationship; their controls retain the current traversal. No new sorting, filtering, total-count query, or row-activation behavior is introduced.
 
 ## Task and structure
 
@@ -82,3 +99,5 @@ Entry workflow: MENU-01 → Network → Browse sessions. This is a native workfl
 ## Visual acceptance
 
 The representative must show an open lobby, a protected open first round, a full session, and a closed started session together. The selected protected first-round row must still offer Join selected. A reviewer must be able to identify the endpoint, occupancy, phase, protection, and admission independently. A still image does not prove heartbeat expiry, host-side password enforcement, or exact admission closure timing.
+
+The selected and focused row must remain distinguishable without color, and every footer and page action must remain identifiable when unfocused. Focused QA must cover all five functional states, both page directions, no-selection and removed-selection states, disabled joining reasons, retained selection on refresh, long endpoints, and independent direct setup. The [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix) defines the representative and evidence limits.

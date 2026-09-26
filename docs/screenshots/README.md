@@ -1,5 +1,9 @@
 # Implementation screenshot manifest
 
+## Current network presentation coverage
+
+The [network presentation matrix](../design/screenshots/README.md#network-presentation-current-capture-matrix) is the sole current coverage and conformance source for the NET-01 through NET-10 visual unification. All 16 affected wireframes require new implementation evidence. Prior network assessments in this file remain historical for this change; their hashes identify the earlier presentation only. Existing legacy image destinations remain unchanged. Unaffected Local Play entries retain their status unless their presentation source changes.
+
 ## Network arena orientation — current coverage
 
 This section is the current status override for the affected existing matrix entries. Earlier `Conforms` claims, packet acceptance, and accepted-entry totals below are historical for `SS-019`, `SS-021`, `SS-023`, and `SS-026`. Their previous files and hashes are superseded evidence, not proof of corrected orientation. The earlier confirmation supplement is also superseded for arena orientation. All other entries retain their current status.
