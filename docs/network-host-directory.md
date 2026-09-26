@@ -62,4 +62,24 @@ This contract does not authorize cloud deployment, provisioning, accounts, billi
 
 ## Required acceptance evidence
 
-Team must supply evidence tied to an immutable checkpoint and observation context. Independent QA must cover real browser-to-host and direct joins, round-one boundaries, directory failure/expiry, password rejection, and reconnect. Developer routine results may support deterministic lifecycle and limit cases. Reviewer evidence must address admission authority, secure mechanisms, secret handling, and listing ownership. Linux and Windows LAN evidence must cover each host direction where platform behavior differs. UX assessment and implementation screenshots must cover the changed screen states. No production cloud deployment is required or implied by these criteria.
+Team must supply evidence tied to an immutable checkpoint and observation context. Independent QA must cover real browser-to-host and direct joins, round-one boundaries, directory failure/expiry, password rejection, and reconnect. Developer routine results may support deterministic lifecycle and limit cases. Reviewer evidence must address admission authority, secure mechanisms, secret handling, and listing ownership. UX assessment and implementation screenshots must cover the changed screen states. No production cloud deployment is required or implied by these criteria.
+
+### Deferred nightly platform evidence
+
+The user has approved deferring only the remaining interactive QA on distinct Linux and Windows LAN endpoints, with each operating system as host, to nightly testing. This evidence is not a prerequisite for feature PR readiness or feature-scope product acceptance. The evidence remains required for the applicable overall network-release and deployment claims. No functional acceptance criterion or supported-platform requirement is removed.
+
+The user plans the later testing. Team and testing own execution and the evidence handoff. The handoff must identify the immutable nightly source checkpoint, artifact identities, endpoint environments, scenarios, and observations.
+
+On two distinct LAN endpoints, testing must cover Linux host to Windows guest and Windows host to Linux guest. Each direction must demonstrate:
+
+- Browser-selected password-protected admission to the intended host.
+- Round-one arrival with the new player controllable and visible on both endpoints, without resetting existing gameplay.
+- Direct joining through the secure admission path.
+
+These checks complete the deferred platform evidence for NET-DIR-AC-003, NET-PASS-AC-001, and NET-ADM-AC-001. Existing invariant mode, timing, hazard, paging, and failure evidence need not be repeated unless the nightly implementation materially changes the relevant behavior. The deferred checks must remain recorded as not executed until results are supplied. This deferral does not authorize production cloud deployment.
+
+### Current feature acceptance
+
+Product acceptance is Accepted for the revised feature scope. This assessment uses the supplied evidence for source checkpoint `6809885ecfe5dc622f03a1bafec0580ba6157602`, its supplied documentation-only equivalent `4a0e5001ac8452afdfded5f9894ec6ad2987aecc`, independent Linux QA, reviewer approval, satisfied UX assessment, and reported exact-head CI results of 30 Linux, 12 backend, and 15 native Windows checks. Previously satisfied criterion assessments remain valid for unchanged behavior.
+
+Distinct Linux/Windows interactive LAN checks in both host directions remain not executed and deferred to nightly testing. Feature acceptance does not mark them passed and does not establish overall network-release readiness. The existing recorded security-maintenance and unconfirmed scheduling risks remain follow-up items; this evidence deferral does not resolve them.

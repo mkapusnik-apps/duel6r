@@ -148,15 +148,18 @@ person-name-based respawn restriction. The lobby starts a fresh match history.
 
 ## Verification status
 
-### Final acceptance: blocked by environment evidence
+### Final acceptance: accepted for the revised feature scope
 
-Product's final assessment is **Blocked**, solely because feature-required
-Linux/Windows interactive LAN evidence is missing. Source review approved
+Product's final assessment is **Accepted** for the revised feature scope. The user
+approved deferring only the remaining distinct-endpoint Linux/Windows interactive
+LAN evidence to nightly testing under the
+[canonical deferral](network-host-directory.md#deferred-nightly-platform-evidence).
+Those checks remain **not executed**, not passed. Source review approved
 `6809885ecfe5dc622f03a1bafec0580ba6157602`; independent local QA passed, and
 [UX accepted all eight supplied representatives](design/screenshots/README.md#current-host-directory-visual-assessment)
 with their original capture lineage and disclosed fixture limits. Product assessed
-the other criteria as satisfied in the observed environments. This does not waive
-the remaining platform gate or certify environments that were not exercised.
+the other criteria as satisfied in the observed environments. This does not remove
+supported-platform requirements or certify environments that were not exercised.
 
 The [required acceptance evidence](network-host-directory.md#required-acceptance-evidence)
 for NET-DIR-AC-003, NET-PASS-AC-001 and
@@ -165,11 +168,16 @@ Linux and Windows LAN endpoints, tested in both host directions**. For each
 direction, use a non-production directory and demonstrate a real browser-selected
 password-protected join during round one, visible and controllable arrival without
 resetting the existing world/players, plus a direct secure join. No authorized
-endpoints are currently available. Same-daemon Linux containers, Windows
+endpoints are currently available. The user plans later testing; team and testing
+own execution and the immutable nightly checkpoint/artifact/environment evidence
+handoff. Same-daemon Linux containers, Windows
 cross-compilation and native MSVC unit tests do not substitute for this evidence.
 
-PR #99 must remain draft and issue #98 open until this evidence is supplied and
-the responsible owners approve readiness. No production cloud deployment is
+This deferred evidence is no longer a prerequisite for feature PR readiness or
+feature-scope product acceptance; it remains required for applicable overall
+network-release and deployment claims. Team confirmed the Ready-for-review gate
+satisfied with exact approved documentation integration. Issue #98 remains open
+until normal closure through the merged PR. No production cloud deployment is
 required or authorized. Configuration is described above; backend/emulator and
 future deployment prerequisites are in
 [Directory container operations](../services/directory/README.md).
@@ -180,16 +188,21 @@ The reviewed production candidate is
 [`6809885`](https://github.com/mkapusnik-apps/duel6r/commit/6809885ecfe5dc622f03a1bafec0580ba6157602).
 Its [hosted verification run](https://github.com/mkapusnik-apps/duel6r/actions/runs/36192067073)
 passed the Linux check, native MSVC check and Feature Ready aggregate, as reported
-by Devops. Local backend evidence is 12/12 emulator tests; Linux full-suite
+by Devops. The documentation/image head
+[`4a0e500`](https://github.com/mkapusnik-apps/duel6r/commit/4a0e5001ac8452afdfded5f9894ec6ad2987aecc)
+also has [green hosted checks](https://github.com/mkapusnik-apps/duel6r/actions/runs/36195662751).
+Local backend evidence is 12/12 emulator tests; Linux full-suite
 evidence is 30/30 at the applicable earlier checkpoints, supplemented by focused
 checks for subsequent changes. The latest complete network-session-runtime target
 passed in 88.01 seconds. Deterministic admission tests cover outstanding offers
 crossing the outcome boundary, including equal-clock precedence. These local
 results support, but do not replace, independent QA or hosted verification.
 
-This final documentation/image integration changes no executable behavior.
-The final documentation commit still requires a new Devops hosted-check assessment;
-candidate checks must not be presented as checks of that later SHA.
+This acceptance-status documentation update changes no executable behavior.
+Its new head requires Devops hosted-check assessment for the merge gate;
+earlier checks must not be presented as checks of that later SHA. Feature Ready
+is a merge requirement, not a prerequisite for the explicitly authorized transition
+to ready for review. Pending checks are not passing checks.
 
 The following complete Release GL4/Lua-ON bundles both represent source 6809885.
 Manifest records cover their executables, resources, dependencies where applicable,
