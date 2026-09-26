@@ -23,7 +23,9 @@ namespace Duel6 {
         void keyEvent(const KeyPressEvent &event) override;
         void textInputEvent(const TextInputEvent &event) override;
         void mouseButtonEvent(const MouseButtonEvent &event) override;
-        void mouseMotionEvent(const MouseMotionEvent &) override {}
+        void mouseMotionEvent(const MouseMotionEvent &event) override {
+            pointerX = event.getX(); pointerY = event.getY();
+        }
         void mouseWheelEvent(const MouseWheelEvent &event) override;
         void joyDeviceAddedEvent(const JoyDeviceAddedEvent &) override;
         void joyDeviceRemovedEvent(const JoyDeviceRemovedEvent &) override;
@@ -79,6 +81,13 @@ namespace Duel6 {
         Client::NetworkJourney lastJourney = Client::NetworkJourney::Inactive;
         Client::NetworkJourney lastStableJourney = Client::NetworkJourney::Inactive;
         bool previousRetryEligible = false;
+        // Presentation only: remember a pointer hold, never defer activation to release.
+        bool pointerHeld = false;
+        Int32 pointerX = 0, pointerY = 0;
+        SetupScreen pointerScreen = SetupScreen::Entry;
+        Confirmation pointerConfirmation = Confirmation::None;
+        Client::NetworkJourney pointerJourney = Client::NetworkJourney::Inactive;
+        mutable Client::NetworkJourney renderingJourney = Client::NetworkJourney::Inactive;
 
         void beforeStart(Context *) override;
         void beforeClose(Context *) override;
@@ -105,7 +114,12 @@ namespace Duel6 {
         void drawWrappedText(Int32 x, Int32 y, const std::string &text,
                              std::size_t charactersPerLine, std::size_t maximumLines,
                              Color color = Color::BLACK) const;
-        void drawAction(Int32 y, const std::string &text, bool selected) const;
+        void drawBevel(Int32 x, Int32 y, Int32 width, Int32 height, bool inset = false) const;
+        void drawPanel(Int32 x, Int32 y, Int32 width, Int32 height, const std::string &title) const;
+        void drawField(Int32 x, Int32 y, Int32 width, Int32 height, bool selected = false) const;
+        void drawButton(Int32 x, Int32 y, Int32 width, Int32 height, const std::string &text,
+                        bool selected, bool enabled = true, bool clientSpace = false) const;
+        void drawAction(Int32 y, const std::string &text, bool selected, bool enabled = true) const;
         void drawFocusKeyline(Int32 x, Int32 y, Int32 width, Int32 height, bool selected) const;
         void drawMenuCanvas(Int32 width, Int32 height) const;
         void drawPlayers(const Network::Replication::CanonicalState &state, bool host = false) const;

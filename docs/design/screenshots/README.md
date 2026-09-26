@@ -1,6 +1,200 @@
 # Screenshot coverage and assessment
 
+## Network presentation current capture matrix
+
+This section is the sole current capture matrix for the NET-01 through NET-10 presentation unification. It supersedes every earlier network conformance claim in this file and the [legacy manifest](../../screenshots/README.md) for these affected wireframes. The older packets below remain historical references with their original hashes. They do not prove the unified presentation. No local-play representative is invalidated unless implementation changes its presentation source.
+
+**Current conformance: all 16 representatives conform for their supplied states; V-01 through V-05 are closed.** The [current assessment](#current-native-visual-assessment) combines five new or replacement representatives from source `a740254ee6ceaf5b55914abdf695e76f4766c1fd` with eleven unchanged accepted representatives from `e5f5517a56c426104f4cfb73c19058844db0d874`. Their original capture lineage is retained. The approved [shared visual baseline](../../design.md#unified-network-presentation), [screen index](../README.md#screen-specifications), and linked wireframes remain fixed. Existing functional contracts remain unchanged. NET-02-P, NET-05-S, and NET-05-R cover existing materially different layouts, not new functional states. All screen and wireframe identities remain unchanged.
+
+### Fixed criteria and scoped correction
+
+The approved scope correction fixes three presentation criteria: NET-05-S must not advertise unsupported scrolling; NET-04-R must identify host reordering without adding an always-clickable control; and baseline disabled-but-focused controls must retain visible focus without traversal changes. These criteria and the representative profiles below are now fixed.
+
+Only prior criteria or evidence that require enabled NET-05-S scroll arrows, a permanently actionable NET-04-R reorder control, or hidden focus on a baseline-focused disabled control are invalidated by this correction. Such evidence cannot establish those corrected presentation details. Exact historical capture-profile mandates are superseded by the profiles below; otherwise conforming native evidence is not invalidated merely because its incidental player count, round count, or countdown differs. The 16 representatives were already Pending; this correction adds no entries and does not reset unrelated checks. Working navigation in NET-04-R, NET-06, and NET-05-R remains required. Unchanged world, gameplay, and unrelated interaction evidence retains its original scope and provenance.
+
+### Presentation and reproduction profile
+
+- All entries use the actual native desktop client, standard input profile, existing font and default network visuals, and complete client area without external chrome.
+- Menu entries use the existing scaled 850 by 700 logical canvas inside a 1280 by 900 client.
+- Arena entries use a 1280 by 900 client except NET-05-C, which uses 1280 by 720.
+- Preferred reproducible environment is Release GL4, Lua ON, Linux Docker, software OpenGL, Xvfb, and dummy audio, with actual environment versions recorded.
+- One representative is required per wireframe; focused edge-state checks below do not add permanent matrix rows.
+- Existing legacy artifact destinations remain unchanged because no migration is authorized.
+- Each new wireframe uses `docs/design/screenshots/<screen-id>/<wireframe-id>.png`.
+- A destination is a planned replacement path, not evidence that the artifact has been captured.
+- Legacy filenames remain unchanged even when their historical player count, round count, degraded state, or countdown differs from the replacement's actual state.
+- The manifest and evidence packet must describe the actual captured state rather than infer it from a filename or an older diagram example.
+
+### Matrix
+
+This matrix specifies reproduction targets; the current assessment below owns each row's conformance and actual artifact hash. Paths are repository-relative. A stated test endpoint is an input for an authorized owned session, not a public service or a claim of reachability.
+
+| Entry / screen / wireframe | Native route and reproduction inputs | Required captured state and visible expectation | Client viewport | Artifact destination |
+|---|---|---|---|---|
+| SS-015 / NET-01 / [NET-01](../wireframes/NET-01/NET-01.svg) | Start client → MENU-01 → Network (F2). | Initial Host focus; four framed actions, scope text, title strip, banner/version. | 1280 × 900 | `docs/design/screenshots/NET-01/NET-01.png` |
+| SS-016 / NET-02 / [NET-02](../wireframes/NET-02/NET-02.svg) | Network → Host; select an assigned private interface; Port 26660; select two valid local persons/controls; enter a disposable optional password. | NET-02-password; Password focused and masked; full selected IPv4; framed endpoint and setup regions; valid Start and Back visible. | 1280 × 900 | `docs/design/screenshots/NET-02/NET-02.png` |
+| NET-02-P / NET-02 / [NET-02-P](../wireframes/NET-02/NET-02-P.svg) | From valid NET-02, activate Start session; capture any actual pending-startup frame before confirmed readiness, including an unaltered full-client frame selected from native recording. | Starting session and timing help; Cancel focused; no editable setup, second Start, or success claim. No minimum display duration is required for the image. | 1280 × 900 | `docs/design/screenshots/NET-02/NET-02-P.png` |
+| NET-03-E / NET-03 / [NET-03-E](../wireframes/NET-03/NET-03-E.svg) | Network → Browse sessions → select an actual protected open first-round host → Join selected; retain one valid local person/control. | NET-03-password; required-password focus, masked input when entered, endpoint, first-round consequence, Connect and Back. | 1280 × 900 | `docs/design/screenshots/NET-03/NET-03-E.png` |
+| SS-017 / NET-03 / [NET-03](../../screens/wireframes/network-join.md) | Network → Direct connect; Address 127.0.0.1, Port 26660, two local persons/controls → Connect to an authorized owned listener that accepts transport but withholds a complete admission result. | Actual Connecting before its deadline; retained endpoint; two locked slot/person/control rows; truthful status and focused Cancel. | 1280 × 900 | `docs/design/screenshots/NET-03/NET-03.png` |
+| SS-018 / NET-04 / [NET-04](../../screens/wireframes/network-lobby.md) | Host plus guest, one slot each; valid Deathmatch/two-round setup; leave the guest unready; make only the authorized test directory unavailable while transport remains active. | Host lobby; two players/two participants; publication failure and Retry publication; separate participant columns; owned and remote values; disabled Start reason; framed settings/actions. | 1280 × 900 | `docs/design/screenshots/NET-04/NET-04.png` |
+| SS-025 / NET-04 / [NET-04-R](../wireframes/NET-04/NET-04-R.svg) | Complete the NET-06 representative's actual two-round match; host Return to lobby in the same session; retain the result and confirmed directory state; keep focus outside Reorder. | Completed retained result; current membership distinct from history; fixed outcome labels; working result navigation and position feedback; readiness/footer; plain host reorder capability and access-path indication without an always-clickable target. | 1280 × 900 | `docs/design/screenshots/NET-04/NET-04-R.png` |
+| SS-019 / NET-05 / [NET-05](../../screens/wireframes/network-match.md) | Host plus guest, one slot each; actual Deathmatch on any supported shipped level; capture guest during active Connected play. The same two-round match may supply NET-05-S/R and NET-06. | Two-player complete shared arena; truthful Connected status; unchanged gameplay HUD; framed Leave session action. No mandatory Invisibility, degraded state, level, or mirror value. Record the actual state despite the historical filename. | 1280 × 900 | `docs/screenshots/NET-05/six-player-lan-degraded-1280x900.png` |
+| SS-026 / NET-05 / [NET-05-C](../wireframes/NET-05/NET-05-C.svg) | In actual guest active play, open Leave session with Escape; capture before acceptance; cancel after capture. | Bounded confirmation over arena; full consequence; Leave session focused before Cancel; both framed controls visible. | 1280 × 720 | `docs/design/screenshots/NET-05/NET-05-C.png` |
+| NET-05-S / NET-05 / [NET-05-S](../wireframes/NET-05/NET-05-S.svg) | Host plus guest, one slot each, in actual Deathmatch; before the first round has a winner, press Tab once. The common two-round setup may be reused. | Real pre-winner overlay; Session only/In progress and actual available values; fixed labels/body; optional truthful non-actionable position text; no enabled scroll-arrow affordance, new shortcut, focus target, or fabricated completed row. | 1280 × 900 | `docs/design/screenshots/NET-05/NET-05-S.png` |
+| NET-05-R / NET-05 / [NET-05-R](../wireframes/NET-05/NET-05-R.svg) | Two-player, two-round Deathmatch; finish round one by normal play; capture host after the first active second and before automatic advance, without activating Advance round. | Frozen non-final result; Rounds 1\|2, actual outcome, any positive next-round countdown, ranking with working navigation, framed Advance round and End session. | 1280 × 900 | `docs/design/screenshots/NET-05/NET-05-R.png` |
+| SS-020 / NET-06 / [NET-06](../../screens/wireframes/network-summary.md) | Host plus guest, one slot each; complete both Deathmatch rounds through actual gameplay; capture host before Return to lobby. | Genuine Completed summary in existing menu context; Session only and no-persistence copy; separate match/last-round outcomes; actual rows; working result navigation, fixed position feedback, and host actions. Record two completed rounds despite the historical filename. | 1280 × 900 | `docs/screenshots/NET-06/final-three-round-summary-1280x900.png` |
+| SS-021 / NET-07 / [NET-07](../../screens/wireframes/network-reconnect.md) | Interrupt an authorized owned guest connection during active play; capture any actual positive two-digit seconds-remaining value, such as 23; restore before expiry after capture. | Actual reconnect; Last confirmed state context; countdown/reservation/continuation text; grey framed panel and focused Leave session. Record the exact displayed value rather than claim 24 from the historical filename. | 1280 × 900 | `docs/screenshots/NET-07/reconnecting-24s-1280x900.png` |
+| SS-022 / NET-08 / [NET-08](../../screens/wireframes/network-failure.md) | Browse an actual protected host → Join selected → enter an incorrect disposable password → Connect. | NET-08-password-rejected; exact non-disclosing failure; Edit setup focused; actual Retry eligibility and reason; browser return control; no password echo. | 1280 × 900 | `docs/design/screenshots/NET-08/NET-08.png` |
+| SS-023 / NET-09 / [NET-09](../../screens/wireframes/network-host-ended.md) | During a real match, host opens and intentionally confirms End session; capture the receiving guest. | Accepted intentional host-end notice over retained arena; fixed terminal/no-resume/no-persistence copy; focused Return to Network. | 1280 × 900 | `docs/screenshots/NET-09/host-ended-1280x900.png` |
+| NET-10 / NET-10 / [NET-10](../wireframes/NET-10/NET-10.svg) | Network → Browse sessions through the authorized isolated backend; use at least two actual owned listings, one protected joinable session and one admission-closed session; select the protected row. | Populated NET-10-results; all independent columns; white inset table, grey headings, blue selected row plus non-color focus/selection; details; actual current page without invented total; all footer buttons. Loading/unavailable alone cannot substitute. | 1280 × 900 | `docs/design/screenshots/NET-10/NET-10.png` |
+
+The default style sequence uses two participants with one player each and a two-round Deathmatch. A completed final result and a non-final round result remain distinct required states. Historical six-player, Invisibility, three-round, exact-24-second, and simultaneous multi-listing combinations are not prerequisites for these new representatives. Names, valid endpoint literals, and menu backgrounds need not match historical images; the packet must record actual inputs. Browser-origin setup and rejection must still use real browser workflows, not relabeled direct attempts.
+
+NET-06 and NET-04-R use ordinary completed results for default style coverage; fourteen-winner Predator, departed identities, and maximum-result checks remain required below. NET-05-S must show whatever data the actual pre-winner state provides, including an empty body when applicable. Capture must not manufacture populated rows to resemble a diagram. The NET-10 diagram illustrates additional supported variants but does not require all of them in one image. Legacy diagram numbers are examples, not a reason to mislabel the approved current capture.
+
+### Review and capture preflight
+
+1. Team and developer must review implementation against the owning `UX-NET-*` requirements before capture.
+2. Developer must check the proposed source checkpoint for consistent shared controls, clipping, focus bounds, and role-specific actions.
+3. Developer must verify each planned route reaches the required state through the native application.
+4. Developer must report an unreachable state before attempting a substitute or changing the capture setup.
+5. Developer must capture only after review and reachability preflight pass.
+
+NET-02-P must use actual host startup. An unaltered full-client frame from native capture recording is acceptable; the packet must identify the recording and frame time. A short capture window is not permission to inject a runtime state, add a production delay, freeze the application into a substitute state, or show a mock screen. If the pending state cannot be captured, report the limitation before considering a team-approved controlled startup boundary. NET-03 permits the existing owned pending-listener setup because the actual client is genuinely awaiting admission. It is not successful-admission evidence. No network infrastructure change is implied.
+
+NET-10 defaults to actual owned sessions. If mixed real-host states cannot be sustained, developer must request explicit team approval for disclosed native-rendered directory metadata fixtures. The earlier packet's fixture approval does not automatically authorize this capture. A permitted metadata fixture proves layout only, not live reachability, host lifecycle, or admission timing. No fabricated UI, retouched screenshot, composed pixels, or fallback image is acceptable.
+
+### Focused edge-state checks
+
+These checks need a source-tied developer/tester report. Use supplemental native images only when required to demonstrate a disputed visual state. Keep temporary supplements outside the repository unless their durable retention is separately approved.
+
+| Surface | Required focused checks without new representative rows |
+|---|---|
+| Shared desktop presentation | All changed menu layouts at 850 × 700 and 1280 × 720; 1920 × 1080 scale-cap/pointer alignment; fields and buttons focused, unfocused, pressed, disabled, and read-only; no font reduction or clipped focus outlines. |
+| Input preservation | Keyboard/controller traversal, reverse traversal, pointer bounds, existing press-versus-release activation, repeat behavior, baseline disabled-focus behavior, visible disabled-but-focused state without activation, focus retention, and opening-input protection. |
+| NET-01–03 | Empty available-person list; maximum supported slots; long names/control labels; valid and invalid endpoint; selector open/scroll/Back; stale interface; direct versus browser password focus; Starting/Cancelling; Cancel retention. |
+| NET-04 / NET-04-R | Host/guest permissions; 15 participants/players; Team settings shown versus absent; readiness clearing; publication retry; completed/interrupted result; departed identities; full 64 UTF-8-byte names; working vertical/horizontal result navigation; host reorder indication before focus and baseline action/target after focus; no new clickable help region. |
+| NET-05 / NET-05-C/S/R | Normal/degraded/resynchronizing status; all three modes; first-second active versus frozen phase; guest absence of Advance; long outcome and maximum ranking; preserved NET-05-R navigation; Tab toggling; NET-05-S has no enabled scroll arrows, new focus targets, shortcuts, or handlers; no hidden action activation; confirmation over arena/lobby/summary/reconnect; first-round arrival. |
+| NET-06 | Host/guest footer; 14 Predator winners including departed winners; complete outcome identities; all result sections and scroll extremes; non-winning rank leader receives no champion treatment. |
+| NET-07 / NET-09 | Lobby and summary retained backgrounds; long reconnect endpoint; positive countdown; Leave/Cancel; host end with and without match activity; no unexpected-failure substitute for intentional end. |
+| NET-08 | Enabled Retry; cleanup-disabled Retry; invalid setup; restart-required result; port conflict; expired reconnect; closed admission; longest canonical reason; browser versus direct recovery destinations. |
+| NET-10 | Loading, results, empty, stale, unavailable; open lobby, open first round, full, closed, and protected selection; disabled reasons; both page directions and current page; removed selection; refresh focus retention; long endpoints; independent Direct connect. |
+
+The new appearance must not alter behavior to make a check pass. Team routes any functional discrepancy to product and behavioral QA. Static images do not prove network timing, input behavior, authoritative ownership, or gameplay continuity.
+
+The simpler NET-05 image is Connected-state styling evidence only. Degraded and resynchronizing containment remain focused requirements and need not coincide with Invisibility. If status allocation, adjacent action bounds, or consuming shared rendering changes, developer must supply fresh targeted evidence for the affected status layout. Unchanged world rendering, Invisibility, orientation, and gameplay may retain prior scoped evidence with source/QA confirmation of unchanged behavior; the new image does not re-prove those properties. No supported player count, result extreme, or functional state is removed by the representative simplifications.
+
+### Evidence and assessment
+
+For every representative or supplied supplement, developer must provide source checkpoint, branch, capture state, exact native workflow and relevant inputs, supported viewport/profile, environment, artifact path, and SHA-256. Identify uncommitted presentation-source differences. Menu evidence must include the selected background filename, runtime asset manifest identity, and application-session identifier. Arena evidence must record actual level/mirror state, session/match/round identity and nearby accepted tick where available. Use disposable credentials and do not include secret values or unredacted logs.
+
+UX assesses structure against the owning wireframe, component appearance against `docs/design.md`, and interaction presentation against the owning UX section. Wireframes are low fidelity; pixel matching is not required. Each row remains Pending until supplied evidence is inspected. Exact-hash integration without presentation-source or assessed-content changes does not require another assessment. A presentation correction invalidates only its affected consumers; a changed shared presentation primitive requires reassessment of every affected consumer. Unrelated local evidence is retained unless its presentation changes.
+
+### Current native visual assessment
+
+Current source-reviewed checkpoint: `a740254ee6ceaf5b55914abdf695e76f4766c1fd`, branch `feature/unify-network-menu-design`. UX inspected the five new/replacement canonical PNGs and all ten focused supplements in `/tmp/opencode/pr100-a740254-capture/supplements/`. The eleven earlier accepted rows retain their original `e5f5517a56c426104f4cfb73c19058844db0d874` hashes, captures, and assessment; developer reports hash verification and reviewer maps their presentation as unaffected. They are not relabeled as a740254 captures or a new uninterrupted session. No implementation, product requirement, wireframe, or image was changed by this assessment.
+
+Evidence packets contain `README.md` and `manifest.json` at these paths:
+
+- Current focused packet: `/tmp/opencode/pr100-a740254-capture/`; supplied manifest SHA-256 `99f03d3c5ddd8865725b900571343df741695671dfb0902652f45259b235ac16`.
+- Original packet: `/tmp/opencode/pr100-e5f5517-capture/`; supplied manifest SHA-256 `72cc41f6450c5a33ad5721384cd59aad56ef527965cd366ed38b971e1e718004`.
+
+All hashes in this assessment are developer-supplied; UX has no hashing tool and did not independently recompute them. The manifests record per-image application sessions, capture times, viewport, workflow, source freeze, runtime/asset identity, and menu-background diagnostics. Developer must preserve the packets or equivalent provenance handoffs through integration and cleanup. The original rejected NET-02, NET-03-E, NET-04, and NET-05-R hashes remain in the original packet; their canonical destinations now contain the accepted replacements below.
+
+The new client SHA-256 is `4180e9f6d2e14eb23cb424b4fe2ed454773f1273e1bb6875a0aabca07b4272cd`; server SHA-256 is `8e44c16f00991974e40c4603000de0210b283f186ed9ee5ed814d59aca3e7008`; runtime manifest SHA-256 is `3e40bb93c01eae24a01978a7b579c9d9494afd4b8c54079c22ff865f1c60c054`. The eleven reused rows retain their original runtime and asset identities rather than these new values.
+
+Both packets use actual Release GL4, Lua ON, Ubuntu 24.04 Docker, SDL 2.30.0, Mesa llvmpipe LLVM 20.1.2, OpenGL 4.5 Core Mesa 25.2.8, dummy audio, and Xvfb. Representatives are complete 1280 × 900 client areas except the reused NET-05-C at 1280 × 720. New NET-02 and NET-04 floor supplements are 850 × 700. The packets report no crop, retouch, composition, or source/runtime mutation during capture. Directory listings and completed results are real, not synthetic metadata or injected outcomes. Startup uses the explicitly authorized real-child-only boundary described below.
+
+#### Representative results
+
+Artifact paths are exactly the canonical destinations in the matrix. `Conforms` is limited to the supplied state, viewport, and this styling scope; it is not certification of uncaptured functional or platform variants. Source key **a740254** applies only to NET-02, NET-02-P, NET-03-E, NET-04, and NET-05-R. All other rows retain source **e5f5517** and their original assessment.
+
+| Wireframe / entry | Supplied SHA-256 | Result and observed presentation |
+|---|---|---|
+| NET-01 / SS-015 | `cc928a6b53b8af656bf3d1c283d88932c5a9529ab09ad1e552717328a6d26667` | Conforms. Four recognizable beveled actions, Host focus, scope copy, banner/version, and title strip are contained. |
+| NET-02 / SS-016 | `ad6e6c5a875b2da3a128ac55da7d626a83790110b1cbc4c45179854524354b67` | Conforms / a740254. Corrected endpoint separation, complete private address, masked focused password, two owned slots, setup panels, and actions remain contained. |
+| NET-02-P | `dd3f0527910b2e9ef1063418a2afc184cb7a82be7f91c9fafc0749b6124a1d92` | Conforms / a740254. Genuine Starting session status, ten-second help, and sole focused Cancel are visible without editable setup or a readiness claim. |
+| NET-03-E | `f6cd05be569c20840d8fa856943bd206aa3842982446b6f5894971c9f1c83b1d` | Conforms / a740254. Password required is outside the editable field; corrected gaps, masked focus, actual protected first-round context, owned Elm slot, Connect, and Back remain readable. |
+| NET-03 / SS-017 | `26e92e082eef97d94a79dfbec8e9033212137b5fabc64db65c7e470173d949cb` | Conforms. Retained direct endpoint, two locked rows, connecting/deadline text, and focused Cancel are separate and contained. This is pending transport/admission, not successful admission. |
+| NET-04 / SS-018 | `4ad94bfe4ff24316006d70a9357309b9a4d8187f30f574fa5837fb17fa4ff24b` | Conforms / a740254. Complete inset Order heading and corrected roster/Ready separation; Maple ready/Oak unready, publication failure, ownership, settings, and disabled Start reason remain clear. |
+| NET-04-R / SS-025 | `089ef802a1dbbc0c807bcd8ce9264fe4b07017ca098f9b4dfe682ff18c3c9e55` | Conforms. Plain host reorder access help is visible with person focus outside Reorder; completed outcome history, current membership, settings, result navigation, readiness, and footer remain separate. |
+| NET-05 / SS-019 | `6dc432ef9dd4663d7d098f493ebae2bc9f7ab79f265382d8eee78196a9393c12` | Conforms for two-player Connected plus actual degraded indication. Complete shared arena, framed Leave action, and both status groups remain visible. This is not historical six-player or Invisibility evidence. |
+| NET-05-C / SS-026 | `ddf95f1a5d608d843c6d77f667c1c8801eecdf24c74f1ecdd5821dd53b5b61eb` | Conforms at 1280 × 720. Centered bounded panel, full wrapped consequence, initial Leave focus, separate Cancel, and retained arena/status remain readable. |
+| NET-05-S | `3cef766f269ef447a8512fe58cadf3a2ef04973aefe2b28507f900f40ad0beb8` | Conforms. Genuine In progress/Pending state, empty white body, fixed labels, and plain zero-row/column information; no enabled scroll arrows or shortcut promise. |
+| NET-05-R | `4ac2ee8dd3ff0f1dcee7e395ac44c51601d41180121a80c9bdf99e00908ac250` | Conforms / a740254. Actual first completed frozen result shows Rounds 1\|2, Maple winner, and next round in 4s. Progress, score, ranking, outcome, phase, status, and host actions remain separate. |
+| NET-06 / SS-020 | `3906d240091f9497b2339540b2037068f6e9ca0439f79b22cdc90a8f89f27be5` | Conforms for actual two-round completion. Session-only/no-persistence labels, separate outcomes, three outcome rows, settings, round history, scroll feedback, and focused Return action are contained. |
+| NET-07 / SS-021 | `7a5640f8e10bf79b7b3e5c83a2448f236dea7c90caec6734530243fde3abd3e2` | Conforms. Actual 26 seconds remaining, reservation and continuation text, Last confirmed state, and focused Leave action; filename does not imply 24 seconds. |
+| NET-08 / SS-022 | `fefcc954c6b03ccb3960fd3d7160a1c3d05d5cde45ccb039d0a13c453918811c` | Conforms for browser-origin password rejection. Exact non-disclosing reason, endpoint/instructions, three framed recovery actions, and Edit setup focus are clear; no secret shown. |
+| NET-09 / SS-023 | `b6cd0c0091a0e2c9a32d884cbebac7e7e9bc0100838131d9847288d53bd792b6` | Conforms. Intentional host-end panel retains arena context and shows terminal/no-resume/no-persistence copy with focused Return to Network. |
+| NET-10 | `44b69e55b8952c481c82d1a57b63ebc67447c873d988016d5995929ccff4d57b` | Conforms for actual populated results. Protected open row and closed row, independent columns, blue selection plus non-color marker/focus, selected details, Page 1, disabled paging, and two-row footer are contained. |
+
+#### Closed findings
+
+All five findings are closed against the fixed requirements. No requirement or acceptance threshold was weakened. Source areas refer to the localized correction, not an instruction to make further changes.
+
+| Finding | Affected row / source area | Closure evidence |
+|---|---|---|
+| V-01 / CAP-01 | NET-04; `source/NetworkMenu.cpp`, `drawLobby`; UX-NET-019, UX-NET-AC-03, UX-NET-04-003 | Closed. The replacement contains the complete Order heading with right clearance. The 850 × 700 guest-lobby supplement confirms heading containment at the floor. |
+| V-02 / CAP-02 | NET-05-R; `drawRoundSummary`; UX-NET-05-010 and fixed matrix state | Closed. Product approved the localized counter-presentation correction; no scope decision remains pending. The genuine first frozen result now shows 1\|2. Same-recording supplements show the first active delay at 1\|2, subsequent active Round 2/2, and later frozen 2\|2; normal automatic advancement is reported without Advance input. |
+| V-03 / CAP-03 | NET-02-P; UX-NET-02-010–011, UX-NET-AC-08 | Closed. The native Starting representative uses the team-authorized external real-child-only boundary with unmodified GUI/deadline. Ready and Cancel preflight observations accompany it. |
+| V-04 | NET-03-E; editable setup password rendering; UX-NET-03-003 | Closed. Password required is plain help outside the white value region; mask, focus, first-round context, and actions remain contained. |
+| V-05 | NET-02, NET-03-E, normal NET-04; endpoint geometry and roster/Ready allocation; UX-NET-017 | Closed. The source-reviewed 8-logical-pixel geometry is visible in the replacements and 850 × 700 supplements. Disabled focus remains visible; supplied pointer-strip/gap and blocked-activation observations support the unchanged input behavior. |
+
+#### Authorized startup evidence
+
+The accepted NET-02-P frame was captured while the exact owned server child was stopped before any listener/readiness. The supplied `barrier-capture.json` records child PID 311 under GUI PID 29, stable process start identity, matching server SHA-256, no listener while stopped, and GUI running/sleeping rather than stopped. The measured hold was 0.908619 seconds. Capture from 14:29:54.931196 to 14:29:55.306286 UTC completed before release at 14:29:55.416675 UTC on 2026-09-26. The same server PID/executable subsequently became listening, as reported by developer and team.
+
+The external pidfd SIGSTOP/SIGCONT mechanism was explicitly authorized by team. A separate guard bounded release; readiness and Cancel preflights were reported successful. Neither the GUI nor its ten-second deadline was paused or altered. No preload, replacement server, status injection, memory write, or production instrumentation was used. UX read the capture report and inspected the native Starting, readiness-lobby, and returned-setup images; UX did not execute the helper or independently rerun lifecycle QA. This is genuine pending-state presentation evidence under a disclosed controlled environment, not a claim about ordinary startup duration.
+
+#### New focused supplements
+
+All paths below are relative to `/tmp/opencode/pr100-a740254-capture/supplements/`. All use a740254 and the Linux software-GL environment above. Each image was inspected. These supplements add no stable matrix entries and do not replace the eleven retained e5f5517 representatives.
+
+| Inspected artifact | Viewport | Supplied SHA-256 | Assessment and limit |
+|---|---|---|---|
+| `barrier-readiness-lobby.png` | 1280 × 900 | `143454f80ae030f18200e1308e1df0b1f6e79607d36bb2b4b304d37216c89f26` | Actual established lobby after the readiness preflight; heading and Ready separation are contained. Process continuity comes from the supplied reports, not pixels alone. |
+| `barrier-cancel-setup.png` | 1280 × 900 | `2b36ff1a2938753d8c783b67edbd035388b5875fd18f3a53fe155155b3eff615` | Returned editable setup retains two local slots, private interface, and Port focus with corrected spacing. Child reaping is developer evidence. |
+| `NET-04-floor-guest.png` | 850 × 700 | `5d364db0b20eb4adb8252e422c6eda95e21a7117343dd86bc76407f8cabcfe94` | Complete Order heading, roster/Ready separation, owned field focus, read-only remote settings, and Leave remain contained. |
+| `NET-04-disabled-focus.png` | 1280 × 900 | `bbc229e3f2c848ad504d1f8d00fad4a0a205e0092aac35c7ee02a38d96ad1b5a` | Disabled Start retains its focus keyline and unready reason with corrected normal-lobby geometry. |
+| `round1-active-delay.png` | 1280 × 900 | `00775e34a467d5d604bcc205b4f3a87b918c0221c2c5a3243cd72c76b0514320` | Maple outcome, 1\|2 progress, and World active 1s are separate and readable before the frozen phase. |
+| `normal-advance-round2.png` | 1280 × 900 | `c5579ce6f178caa500849f4125415da1dea45cd1a8d46abcedeedf4725ad3fc1` | Active Round 2/2 returns to the normal arena progress region; supplied recording lineage reports automatic advance without an Advance input. |
+| `round2-frozen.png` | 1280 × 900 | `580daf5a90dbecf4704633fb4e1f2cbc1c276bc1f3ef0f7830c3a49a1cda3392` | Later progress correctly shows 2\|2. This is counter-bound evidence, not a new assessment of unchanged final-delay action/copy semantics. |
+| `completed-match-proof.png` | 1280 × 900 | `61864e2edb747c145dd9ea0d0c7dd25aea6a7326a3564acba0900e0853dcaf49` | Actual Completed two-round result identifies Maple as winner on normal Duel 16 and mirrored Duel 28; supports new NET-05-R provenance, not replacement of the retained NET-06 image. |
+| `NET-02-floor-disabled.png` | 850 × 700 | `32dc506d47f00c90e91f2c2d6672c53e37d11871d1abb1489b1284e59724e472` | Correct endpoint gaps, empty lists, persistent no-player reason, disabled focused Start, and Back fit without overlap. |
+| `protected-first-round.png` | 1280 × 900 | `739126b2d5f94d6ddfcc8868f8b7e5ef45e0cf78fa4068b1e419a1ce3ca38e50` | Actual active first-round host context supports the new browser-origin NET-03-E state; no new admission-timing or world-parity claim. |
+
+#### Earlier supplemental observations
+
+All paths below are relative to `/tmp/opencode/pr100-e5f5517-capture/supplements/`. All retain source e5f5517; viewport is 1280 × 900 except the stated floor image. None creates another stable matrix entry. Their observations below describe the original bytes: V-01/V-05 geometry failures and missing-startup references are historical and resolved by the a740254 evidence above. Unchanged result-scroll, reorder, and arena observations retain their earlier limited scope.
+
+| Inspected artifact | Supplied SHA-256 | Assessment and limit |
+|---|---|---|
+| `host-a-lobby-inspect.png` | `b25d77c6cc4202a957ed468855008aa593d4419f123fae2fea6658cafaca7a12` | Confirms V-01 and V-05 in a host-alone normal lobby; owned-field focus and disabled Start reason remain visible. |
+| `NET-06-scroll-edge.png` | `18e626f9e65149f7f146ade63b01f8839caf42f792658146e25dd2ce91918c0a` | Conforms for supplied scroll state: columns 10–103/103 and rows 7–19/19 remain contained; fixed identity and actions remain visible. Leading clipped text is the intentional horizontal offset, not a new clipping failure. Does not establish every content extreme. |
+| `NET-04-R-reorder-focused.png` | `b645e6d7c40625642d5b3d1acb1262f7eed39eb911ed7265653e7e9171d8fc51` | Conforms for focused Reorder presentation, identifying position 1 and Ivy while results/actions remain contained. Together with NET-04-R it shows help before focus and the baseline action after focus; it does not independently prove absence of an invisible pointer target. |
+| `NET-04-disabled-focus.png` | `56003e7ae3306546e4bfee439b9b3279bb77916c1eade9e9939a6c1c7225ee50` | Disabled Start visibly retains focus and readable reason. This corrected focus detail conforms; normal-lobby V-01/V-05 remain visible. Reported blocked activation belongs to developer/behavioral evidence. |
+| `guest-a-restored.png` | `668424d063223770f06467b3c7a3d91c09dfe0a844a8a61e286f57c725e10e1b` | Connected plus degraded text, arena, and framed Leave action remain contained after reported restoration. A still does not prove deadline or temporal recovery behavior. |
+| `arena-a-inspect.png` | `8c3b69f9575e68b12c8b0199806779063b9ef6db1db559146ae95a4e018ba73d` | Player indicators, full arena, degraded status, and Leave action remain visibly separate. Not new numerical opacity or deterministic-background evidence. |
+| `NET-02-floor-disabled.png` | `6d057a69b3e731a0d4de2a5ac0153d2bb021e5d0ba8105d111bfa1310326cecd` | At 850 × 700, empty lists, no-player reason, disabled focused Start, and Back remain contained. Focus detail conforms; V-05 endpoint spacing remains nonconforming. |
+| `startup-after-final-attempt.png` | `b7c6530182fdef00f7280545b514e42d1e72c57e0fcd9f4adfc8e9502685a6a4` | Shows the established lobby, not Starting; cannot satisfy NET-02-P. Also reproduces the normal-lobby heading/spacing findings. |
+
+#### Provenance and acceptance limits
+
+Source, capture state, viewport/profile, environment, exact paths, and supplied image hashes are sufficient to assess the visible styling of these supplied states. Source approval and frozen-runtime integrity are team/developer assertions; UX did not rerun those checks. The actual 26-second reconnect, two-round results, and Connected plus degraded frame are recorded truthfully rather than inferred from legacy filenames.
+
+Missing canonical match/round IDs, near-frame ticks, Session A level/mirror identity, and arena-background filename prevent new claims about authoritative timing, deterministic background selection, orientation parity, or uninterrupted world continuity. They do not prevent assessment of the visible panel/control styling. Menu-background diagnostics are not evidence of an arena background. Session B level/mirror and outcomes are visible in the supplied final result; no unsupported identity or tick is inferred.
+
+The earlier eight supplements and the ten new focused supplements were inspected in their respective assessments. Recording archives were reported but were not unpacked or played by UX; the supplied extracted frames and their per-frame metadata were inspected. V-02 is now a product-approved localized correction with accepted replacement evidence, not a pending scope decision. The new first-round counter and subsequent visible states agree with the supplied normal-progression report. Independent QA and source approval remain supporting team evidence, not tests executed by UX.
+
+The accepted NET-05 legacy filename still contains a two-player Connected/degraded frame, NET-06 still contains the original two-round Ivy/Juniper completion, and NET-07 still shows 26 seconds. No file was renamed or relabeled to imply a different actual state. Missing physical-controller, maximum-content, and other viewport/platform exercises are not declared passed by these images. Linux software-GL evidence does not establish distinct-machine Windows/Linux LAN or physical-GPU coverage. These are unchanged scope limits, not new capture mandates or unresolved V-01–V-05 blockers.
+
+No new requirement or capture-profile change is introduced. All 16 stable representatives now conform for their supplied states, with five a740254 captures and eleven unchanged e5f5517 captures. No additional visual recapture is requested. Exact-hash integration without further presentation-source, artifact, or assessed UX-content changes needs no second assessment. Reassess only changed presentation consumers or changed evidence.
+
+Visual gate: satisfied
+
 ## Host-directory current capture matrix
+
+Historical for the network presentation unification above. All conformance and gate statements in the following prior packets apply only to their original presentation baseline.
 
 This section owns changed coverage for the host-directory extension. It supersedes the legacy representatives only for the affected wireframes below. Unaffected entries remain governed by the [legacy manifest](../../screenshots/README.md). The historical integration index below is not evidence for the extension. Existing artifacts must not be relabeled as new acceptance.
 
@@ -179,3 +373,130 @@ These secret-free, read-only capture observations are not fixtures or a verifica
 | [Corrected guest state](NET-04/retained-state.txt) | `a9b5ef6fc3557629cf874cb66878dd0b0495135c86cd7876ca3053d6ccb0c27c` |
 
 Product acceptance and source approval cover `6aebaf2`. Behavioral acceptance uses the supplied 317 distinct cross-checkpoint cases plus four focused localized checks; these are not summed into a new distinct-case count. Exact-final-head hosted checks and authorization to leave draft remain separate gates.
+
+## Durable delivery record — PR #100
+
+This developer integration record preserves the reproducible provenance and acceptance scope for [PR #100](https://github.com/mkapusnik-apps/duel6r/pull/100). It does not revise the UX assessment above. The preceding UX-authored manifest was integrated verbatim from intake SHA-256 `2038a8467ce830ef9e4c313b53f01dc8151cb521d6b32c3a36235b64b6def8c0`; `docs/design.md` had intake SHA-256 `67033e57b67c77a848d0c24e0db313f42f03490f9e8faaba08cc18026bacc000`. Only this technical delivery appendix was added to the assessed manifest text.
+
+### Permanent evidence and retired temporary inputs
+
+The sixteen canonical PNG destinations in the current matrix are the permanent image evidence. Final integration verifies their exact assessed SHA-256 values from the representative-results table. Five originate from `a740254ee6ceaf5b55914abdf695e76f4766c1fd` (**A**); eleven retain `e5f5517a56c426104f4cfb73c19058844db0d874` (**E**) provenance. Neither source is relabeled as the later documentation/evidence-only delivery commit.
+
+The `/tmp/opencode/pr100-*` packet paths in the assessment are historical inspection locations, not permanent links or runtime dependencies. Those task-local packets, supplement image files, recordings, helper scripts and containers are retired after exact integration and completed assessment. Their relevant identities, observed states, hashes, capture lineage and limits are preserved here and in the assessment tables above. No temporary recording, helper, test infrastructure, or undocumented supplemental-image collection is committed. The supplement filenames above identify the inspected inputs; they do **not** claim that those PNGs are shipped in the repository. Preexisting historical committed evidence elsewhere in this manifest is unchanged.
+
+### Runtime identity and reproduction configuration
+
+Both capture lineages used Linux x86-64, Ubuntu 24.04, Release GL4, Lua enabled, `BUILD_TESTING=ON`, GNU 13.3.0, SDL 2.30.0, SDL_mixer 2.8.0, SDL_ttf 2.22.0 and SDL_image 2.8.2. Actual rendering reported Mesa llvmpipe (LLVM 20.1.2, 256 bits), OpenGL 4.5 Core, Mesa 25.2.8-0ubuntu0.24.04.2. Xvfb supplied separate 24-bit displays; SDL dummy audio was used. The shared build image identity was `sha256:d6e97be33c3c44744ba057147f5b6dae1c1534273b490edc0ef573b8ab1c1720`. The runtime banner reported version 5.5.0; the source SHA, not that banner, identifies these captures.
+
+| Runtime identity | E capture lineage | A capture lineage |
+|---|---|---|
+| Client SHA-256 | `d932fea087a6bd66a4db0053634bfdab3d19fced439914f55968f3b76b40da39` | `4180e9f6d2e14eb23cb424b4fe2ed454773f1273e1bb6875a0aabca07b4272cd` |
+| Linux runtime manifest SHA-256 | `a466b57b87f0e2025f6d95e659bd75509e0da53aa1b19ba5d2293069f9a0c678` | `3e40bb93c01eae24a01978a7b579c9d9494afd4b8c54079c22ff865f1c60c054` |
+| Server SHA-256 | `8e44c16f00991974e40c4603000de0210b283f186ed9ee5ed814d59aca3e7008` | Same unchanged server |
+| Resolver SHA-256 | `0cba785c55988a06fa3da5921fa89a4f19317f2a70d713459b11a5959455759f` | Same unchanged resolver |
+| Host supervisor SHA-256 | `d7d30e9df7abe4b565d46161ebf28fbf0c92c1a4c39de5c1ba54ef895caf80da` | Same unchanged supervisor |
+
+The A runtime archive had SHA-256 `26f317a7628ad076d8429be85aa1c5d28af429b9be5285cc1485f9abaf2f56be`. Archives are not permanent deliverables of this evidence-only integration. Capture consumers used the actual flat runtime at `/workspace/runtime`, with sibling server, resolver and supervisor executables and `data`, `levels`, `profiles`, `shaders`, `sound` and `textures` directories. Each application ran from its own disposable copy and private display. The source/runtime were immutable during capture; the worktree contained pending PNG changes but no uncommitted application, test or build-source changes.
+
+Rebuild and verify through Docker only, following the repository workspace-transfer contract. The captured configuration was generated inside the build container with:
+
+```sh
+cmake -S /workspace -B /workspace/build-verify -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DD6R_RENDERER=gl4 -DD6R_WITH_LUA=ON
+cmake --build /workspace/build-verify --parallel 12
+```
+
+Both consumers and the master runtime passed their Linux manifest integrity checks after capture. No build was repeated merely for final documentation/image integration.
+
+### Application-session and background provenance
+
+Application-session UUIDs below are capture-harness launch identifiers, **not** canonical network session IDs. All dates and times in this appendix are UTC on **2026-09-26**. Background filenames are under `textures/menu-backgrounds/`, observed from the actual startup console diagnostic and retained for that application session; no background override was used. For arena captures the listed menu image is session provenance, not a claim about the visible arena background.
+
+| Key | Source / application-session UUID | Application start UTC | Selected menu background |
+|---|---|---|---|
+| E-HA | E / `79e87f9a-b67d-4837-95ed-81cc8c7aade6` | 12:54:09.240437 | `jungle-channel.png` |
+| E-GA | E / `1a9b7780-655a-4e03-8970-302cabcb6866` | 12:55:24.239577 | `jungle-channel.png` |
+| E-PJ | E / `83974d48-40d4-4e88-8dd1-d92ae79bebd5` | 13:02:20.509289 | `alpine-flood.png` |
+| E-HB | E / `9abfced9-7666-4bc6-81cc-cc506cc9d3bc` | 13:02:20.772771 | `jungle-channel.png` |
+| E-GB | E / `ad614f8e-5f0d-43bf-bc7a-2652c4136d18` | 13:04:32.850669 | `alpine-flood.png` |
+| E-V | E / `9dbc2505-d80c-437b-88bb-0c767c3df22b` | 12:58:54.727153 | `forest-foundry.png` |
+| A-PH | A / `fcfc009d-1200-4f9e-9e0d-3a8591ae2237` | 14:25:00.679659 | `alpine-flood.png` |
+| A-V | A / `1f20c2ad-33ef-459a-bbfe-5e51ba19f1ac` | 14:27:55.151574 | `alpine-flood.png` |
+| A-MH | A / `3d3f958c-c777-4aff-816f-a4ec10dd1321` | 14:32:40.403206 | `forest-foundry.png` |
+
+### Exact representative lineage
+
+Paths and PNG hashes are the current matrix and representative-results table above. Each interval records capture-command start and completion, not a GPU-consumed canonical tick. Frames are complete native client images, not crops or composites.
+
+| Wireframe | Session key | Viewport | Capture interval UTC | Actual route and state |
+|---|---|---|---|---|
+| NET-01 | E-HA | 1280x900 | 12:54:36.647541–12:54:37.002716 | MENU-01 → F2; initial Host focus and four network actions. |
+| NET-02 | A-PH | 1280x900 | 14:25:08.348763–14:25:08.711292 | Host setup; Cedar/Dogwood, K1 Arrows, assigned private `172.17.0.5:26660`, focused masked optional password. |
+| NET-02-P | A-PH | 1280x900 | 14:29:54.931196–14:29:55.306286 | Genuine Starting and focused Cancel under the authorized child-only pre-readiness barrier below. |
+| NET-03-E | A-V | 1280x900 | 14:29:54.860540–14:29:55.336989 | Browse → actual protected open first-round host `127.0.0.1:29200` → Join selected; Elm/K1 Arrows, focused mask, external Password required cue. |
+| NET-03 | E-PJ | 1280x900 | 13:02:27.633117–13:02:28.061142 | Direct connect to owned withholding listener `127.0.0.1:26660`; Fir/Hazel locked, K1 Arrows, genuine pending admission and Cancel. |
+| NET-04 | A-MH | 1280x900 | 14:32:54.271531–14:32:54.731217 | Two-round Deathmatch lobby at `127.0.0.1:29220`; Maple ready/Oak unready, one slot each, separate unavailable directory endpoint. |
+| NET-04-R | E-HB | 1280x900 | 13:13:52.635723–13:13:53.442657 | Host Return to lobby after actual two-round completion; Listed, first result row/column, person focus outside Reorder. |
+| NET-05 | E-GA | 1280x900 | 13:00:12.449335–13:00:13.286218 | Birch guest, Alder host, one slot each; actual active round 1/2, Connected plus degraded indication. No forced bonus. |
+| NET-05-C | E-GB | 1280x720 | 13:05:47.264769–13:05:48.251292 | Juniper guest opened Leave with Escape during active round 1/2; initial Leave focus, captured before acceptance, then cancelled. |
+| NET-05-S | E-HA | 1280x900 | 13:00:14.047677–13:00:14.794753 | Alder host pressed Tab once before a winner; genuine In progress/Pending result with empty body and informational position text. |
+| NET-05-R | A-MH | 1280x900 | 14:38:50.003359–14:38:50.714457 | Second ordinary match in this session, first non-final win by Maple; normal Duel 16, Rounds 1\|2, frozen countdown 4s. |
+| NET-06 | E-HB | 1280x900 | 13:09:29.297630–13:09:30.187333 | Ivy host, Juniper guest; genuine Completed two-round Deathmatch, before Return to lobby. |
+| NET-07 | E-GA | 1280x900 | 13:02:29.533996–13:02:30.563110 | Owned opaque forwarding interrupted; actual 26s reservation countdown and last-confirmed arena; restored before expiry. |
+| NET-08 | E-V | 1280x900 | 13:02:24.347076–13:02:24.877354 | Real browser-origin incorrect-password rejection from protected `127.0.0.1:29100`; Edit setup focused, no secret displayed. |
+| NET-09 | E-GA | 1280x900 | 13:11:26.484074–13:11:28.284433 | Guest received intentional host End during active play after reconnect restoration; retained arena and terminal panel. |
+| NET-10 | E-V | 1280x900 | 13:09:33.474298–13:09:34.150068 | Actual protected joinable first-round listing `127.0.0.1:29100` selected, plus closed completed session `127.0.0.1:29130`; Page 1, real backend. |
+
+The E Alder/Birch session used Deathmatch, two rounds, Assistance and Burnable Trees on, Quick Liquid off, and Random level. The guest connected through an owned opaque TCP forwarder at `127.0.0.1:29110` to the host at port 29100. Its real directory session ID was `0000000000000000398ed76900046220`; the same target supplied E-V browser/rejection evidence. No stream contents were decoded or retained. The interruption closed only owned forwarding links, and restoration preserved the active session.
+
+The E Ivy/Juniper session at port 29130 used two rounds with Quick Liquid on. Actual final results identify mirrored Duel 16 won by Juniper, then mirrored Duel 28 won by Ivy; final winner Ivy. Its real directory session ID was `0000000000000000394d7ec80ac35a0d`. These results supply NET-06 and the same-session NET-04-R; they are not replaced by the newer Maple/Oak match.
+
+The A protected first-round host used Alder/Birch at port 29200 and real directory session ID `000000000000000082c04051978e29cd`. A-V selected that actual listing; it was not a relabeled direct attempt. Directory consumers shared the devops-owned isolated backend network namespace, with `D6R_DIRECTORY_URL=http://127.0.0.1:8081` and `D6R_DIRECTORY_ALLOW_HTTP=1`. No synthetic listing, cloud credentials, deployment or shared-backend shutdown was used. A-MH instead used its own unavailable directory endpoint `http://127.0.0.1:1`, as authorized, without stopping gameplay transport or the shared backend.
+
+The A Maple/Oak session used one K1 Arrows slot per process, Deathmatch, two rounds, Random level, Assistance/Quick Liquid/Burnable Trees on. The first ordinary match had no first-round winner and was not substituted for the requested win. The second match was started through native Return to lobby, Ready and Start. Oak then held Right for three seconds as ordinary gameplay. Maple won on normal/unmirrored Duel 16 and then mirrored Duel 28. No outcome injection, diagnostic level, simulation control or manual Advance was used. NET-05-R is the unchanged recorded frame `round-win-progression-0018.png`; the inspected sequence also showed active end-delay 1\|2 at 14:38:47.807177, normal active Round 2/2 at 14:38:55.087438, later frozen 2\|2 at 14:39:07.459223, and genuine completion at 14:41:56.322885. The recording archive identity was `7b72cb5213396e0bb7082d00c2eb1c44a23553705767bee6a57f781cca00cb64`; the archive is retired, not a committed artifact.
+
+Canonical near-frame match/round IDs and ticks were not exported, and the unregistered Maple/Oak session has no recorded directory ID. E session A's precise random level/mirror and arena-background filename were not independently identified. No missing value is inferred from legacy filenames or generated for this record. The visible styling acceptance does not establish additional deterministic-world, timing, physical-controller, physical-GPU or distinct-machine Windows/Linux LAN claims.
+
+### Reproducible child-barrier procedure and measurements
+
+The actual mechanism was external Linux pidfd signaling, not the earlier proposed preload approach. No helper code was loaded into the GUI or server. For an owned GUI launch, an external watcher identified a child by exact executable path, expected GUI parent and process start identity, opened a pidfd and revalidated identity. Before SIGSTOP, it transferred a duplicate pidfd to a separate release guard. After the stop it verified state `T`, the unchanged server ELF hash and absence of a listening socket; a missed pre-readiness boundary would be rejected and immediately released rather than used as capture evidence. The GUI was only observed and remained in `R`/`S` states.
+
+The watcher targeted a 0.9s hold, independent of image capture. The guard had a fixed 1.25s release deadline and would SIGCONT the same process if the watcher failed. No GUI pause, deadline override, protocol/status write, process-memory write, replacement service or outcome injection was used. Native Start, Cancel and subsequent readiness were handled by the unchanged application. Fallback failure injection was not claimed. Reproduction must remain in a disposable, owned test environment; this is not ordinary startup-latency evidence or permanent instrumentation.
+
+| Attempt | GUI PID / start ticks | Child PID / start ticks | Stop request UTC | Release UTC | Measured hold | Observed result |
+|---|---|---|---|---|---|---|
+| Readiness | 29 / 9808229 | 164 / 9815793 | 14:26:16.714128 | 14:26:17.615566 | 0.901469139s | Same child/executable listened at `172.17.0.5:26660`; native lobby showed the two local players. |
+| Cancel | 29 / 9808229 | 236 / 9825619 | 14:27:54.978074 | 14:27:55.881498 | 0.903459405s | Cancel input completed at 14:27:55.572160 while held; subsequent child inspection was empty and editable setup retained both players. |
+| Representative | 29 / 9808229 | 311 / 9837572 | 14:29:54.508092 | 14:29:55.416675 | 0.908618680s | NET-02-P capture completed during the hold; the same child/start identity/executable subsequently listened normally. |
+
+All holds remained below two seconds and within the original ten-second GUI startup deadline. The owned executable was `duel6r-server` in the private runtime copy, with SHA-256 `8e44c16f00991974e40c4603000de0210b283f186ed9ee5ed814d59aca3e7008` before and while stopped. The temporary watcher source identity was `c7ab61d782a2dc7159ba73b5acedbc01239ecfeb25a7d6c1160d701b6a4fc5f7`; it is not committed. PIDs and start ticks are historical observations, never reusable process-control targets. Ready and Cancel reports and their native images were assessed before cleanup; their accepted observations and image hashes remain in the current assessment above.
+
+### Behavioral evidence and acceptance carryforward
+
+The following are separate evidence classes; image inspection is not represented as execution of behavioral tests.
+
+| Evidence / gate | Immutable source and accepted result |
+|---|---|
+| Source review | Team reports approved at A, no remaining source blockers. |
+| Independent QA | Team reports **SATISFIED**, scoped diagnostic coverage plus triangulation of 23 native images, with no broad remaining behavioral blockers. This is independent-team evidence, not developer-authored QA; no unsupported test-count total is invented. |
+| UX | **Visual gate satisfied, 16/16** for the exact mixed-source hashes and limits above. V-01 through V-05 closed; no further recapture requested. |
+| Product | Team reports **ACCEPTED at A**, with documentation/evidence-only carryforward authorized. |
+| Ready for review | Team explicitly confirmed all Ready gates satisfied and authorized the transition after exact final-head/target verification. Hosted Ready is **N/A**. |
+| Merge | Hosted checks remain **Merge-only**, owned by devops after the final evidence push. This manifest does not claim their result or a merge authorization. |
+
+Developer verification at A: complete Docker build returned exit status 0; twelve distinct selected cases passed across the following literal `D6R_TEST_FILTER` values. Each filter ran the registered `duel6r-network-session-runtime-tests` CTest with `LIBGL_ALWAYS_SOFTWARE=1`, `SDL_AUDIODRIVER=dummy`, `--output-on-failure -V` and the real flat-bundle harness. No broad application suite was repeated for evidence-only finalization.
+
+| Filter | Distinct cases | Local result |
+|---|---:|---|
+| `UX-NET` | 7 | Passed, 8.19s |
+| `NET-DIR NET-PASS` | 2 | Passed, 2.54s |
+| `NET-DIR reviewed menu dispatch` | 1 | Passed, 1.34s |
+| `PR83 capture flat bundle` | 1 | Passed, 1.93s |
+| `PR83 summary and retained result` | 1 | Passed, 2.78s |
+
+New diagnostics covered field gaps and external password help, 850x700/1280x720/1920x1080 coordinate transforms and hit bounds, inert gaps/release, selector rows, caption inset, moved Ready and unchanged retained Ready. Round tests used current/completed values 1/0 and 2/1 in active/frozen end-delay phases, correct denominators, exactly one progress label, unchanged producer fields, and unchanged final/retained/Tab semantics. Their recording renderer is a draw-submission diagnostic, not screenshot evidence. Earlier exact-E full network-runtime/unit/font CTests passed 3/3 in 94.92s and retain their unaffected scope.
+
+A separate native A smoke used two actual clients at 1280x900, selected Password before clicking the new Host Port top stripe at logical y=514 or Join Port at y=484, and verified the resulting real listener/connection. Ready was activated at y=166, below the old target, followed by successful normal Start and active-context End; the owned server was reaped and both clients exited cleanly. The native report identity was `230b205fcf1153fa15d0cec23956a46dad68978a1f5276daf561011288dea05b`; the selected-case log identity was `e66c8dd8566e15930a088374dafa85e2dba81a814ac4acb0bf2cfb79b86e892d`. These temporary files are retired after their results are preserved here. Missing-binding controller diagnostics do not claim physical hotplug coverage. Existing non-fatal compiler warnings were not expanded into unrelated fixes.
+
+The accepted supplement observations additionally cover native disabled focus/blocked activation, the 850x700 endpoint gap remaining non-interactive, current normal-lobby containment, retained-result scroll extremes, baseline focused Reorder, protected first-round context, child-barrier readiness/Cancel, and normal round progression. Their source/viewport/hash/state limits are preserved in the assessment's supplemental tables. Temporary supplemental pixels and recordings are intentionally not permanent repository dependencies.
+
+Final integration is restricted to these documents and the sixteen assessed PNGs. Application, test, resource and build trees must remain identical to A; matching source review, QA and product acceptance therefore carry forward without an application rebuild. Capture consumers, dedicated build containers and task-local scripts/recordings are developer cleanup responsibilities after durable integration. Shared/preexisting Docker images, resources, worktrees and unrelated artifacts are not cleanup targets. The directory backend was separately owned and removed by devops. No merge, force push, amended commit or skipped check is authorized by this record.

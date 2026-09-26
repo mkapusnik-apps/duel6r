@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="850" viewBox="0 0 900 850">
+  <title>NET-02-P — Host startup progress</title>
+  <desc>Existing Starting and Cancelling states on the fixed 850 by 700 menu canvas. Starting shows status, timing help and Cancel. Cancelling keeps status in the same region and has no actionable control. Top-left diagram coordinates.</desc>
+  <rect width="900" height="850" fill="white"/>
+  <g fill="none" stroke="black">
+    <rect x="25" y="20" width="850" height="700"/>
+    <rect x="350" y="25" width="200" height="95"/>
+    <rect x="49" y="152" width="802" height="544"/>
+    <path d="M49 176H851"/>
+    <rect x="300" y="388" width="300" height="32"/>
+    <rect x="298" y="386" width="304" height="36" stroke-width="2"/>
+    <path d="M25 744H875" stroke-dasharray="5 5"/>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="16" text-anchor="middle">
+    <text x="450" y="77">Existing banner</text>
+    <text x="450" y="138">Runtime version</text>
+    <text x="450" y="169">HOST NETWORK SESSION</text>
+    <text x="450" y="282">Starting session…</text>
+    <text x="450" y="312">Startup can take up to 10 seconds.</text>
+    <text x="450" y="409">Cancel</text>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="14">
+    <text x="25" y="773">ANNOTATIONS — structural allocation only; not production styling.</text>
+    <text x="25" y="795">Read heading → persistent status → timing help → Cancel. No scrolling or editable setup.</text>
+    <text x="25" y="817">Cancelling variant: Cancelling session… in the status region; no activatable control.</text>
+    <text x="25" y="839">NET-02 / UX-NET-02-010–011. Cancel completion restores retained editable setup.</text>
+  </g>
+</svg>

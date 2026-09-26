@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1080" viewBox="0 0 1280 1080">
+  <title>NET-05-S — Pre-winner authoritative score overlay</title>
+  <desc>Existing Tab score overlay on a 1280 by 900 client before a round winner. Retain the existing lower-left score-panel placement, fixed identity labels, and bounded result viewport. Optional truthful position text is non-actionable because this overlay has no supported scroll handlers. No menu canvas, banner, completed-data fixture, new focus target, or new shortcut. Top-left diagram coordinates.</desc>
+  <rect width="1280" height="1080" fill="white"/>
+  <g fill="none" stroke="black">
+    <rect x="1" y="1" width="1278" height="898"/>
+    <rect x="970" y="24" width="285" height="145"/>
+    <path d="M50 340H180V280H300V390H480 M830 380H960V315H1225"/>
+    <rect x="32" y="450" width="786" height="388" fill="white"/>
+    <path d="M32 476H818 M42 546H808 M42 572H808 M42 610H808"/>
+    <rect x="42" y="610" width="766" height="194"/>
+    <rect x="1096" y="782" width="168" height="34"/>
+    <rect x="16" y="844" width="1248" height="40"/>
+    <path d="M16 924H1264" stroke-dasharray="5 5"/>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="16">
+    <text x="24" y="45">Existing events</text><text x="525" y="45">Existing round progress</text>
+    <text x="986" y="50">Existing live ranking</text>
+    <text x="420" y="220">ONE UNDIVIDED SHARED ARENA</text>
+    <text x="50" y="469">AUTHORITATIVE SCORE • Session only</text>
+    <text x="50" y="499">State: In progress</text>
+    <text x="50" y="521">Match outcome: Pending</text>
+    <text x="50" y="543">Existing last-round outcome, when available</text>
+    <text x="50" y="567">Existing result section heading</text>
+    <text x="50" y="595">Existing column headings remain fixed</text>
+    <text x="62" y="650">Only result rows actually available from the current state</text>
+    <text x="62" y="678">No completed-result fixture or invented empty-state message</text>
+    <text x="62" y="749">[Diagram annotation: bounded body; no supported scrolling]</text>
+    <text x="50" y="829">[Optional truthful row / column position; plain non-actionable text]</text>
+    <text x="1105" y="805">End session</text>
+    <text x="24" y="862">Host • LAN session • Connected</text>
+    <text x="825" y="862">Session only scores • Optional scripts disabled</text>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="14">
+    <text x="16" y="954">ANNOTATIONS — placeholders describe existing content; they are not new UI copy.</text>
+    <text x="16" y="981">Read identity → section → columns → body → optional position text. No enabled scroll-arrow affordance.</text>
+    <text x="16" y="1008">Tab retains its existing toggle. Do not add scroll handlers, focus targets, shortcuts, or completed rows.</text>
+    <text x="16" y="1035">At smaller supported clients retain current placement and contain the body above network status.</text>
+    <text x="16" y="1062">NET-05 / UX-NET-05-006–008. Actual functional state and available values govern capture.</text>
+  </g>
+</svg>
