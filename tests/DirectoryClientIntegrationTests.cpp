@@ -14,6 +14,10 @@
 #include <unistd.h>
 #endif
 
+#ifdef main
+#error Directory client integration test entry point must remain main, not SDL_main.
+#endif
+
 namespace {
 using namespace Duel6::Client;
 using namespace std::chrono_literals;
