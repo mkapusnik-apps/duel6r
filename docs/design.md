@@ -7,7 +7,7 @@ Screen-specific requirements are in [`docs/screens`](screens/README.md).
 Screenshot evidence is in [`docs/screenshots`](screenshots/README.md).
 The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a second source of truth.
 
-The current NET-01 through NET-10 visual requirements are in [Unified network presentation](#unified-network-presentation). The [network capture matrix and assessment](design/screenshots/README.md#network-presentation-current-capture-matrix) own the current status of all 16 affected representatives. Earlier network acceptance below and in historical packets applies only to the earlier presentation.
+The current NET-01 through NET-10 visual requirements are in [Unified network presentation](#unified-network-presentation). The [network capture matrix and assessment](design/screenshots/README.md#network-presentation-current-capture-matrix) accept all 16 representatives for their supplied states at reviewed source `a740254ee6ceaf5b55914abdf695e76f4766c1fd`: five new captures and eleven unchanged captures retaining original `e5f5517a56c426104f4cfb73c19058844db0d874` provenance. V-01 through V-05 are closed; V-02 used the product-approved localized counter correction. The manifest owns exact hashes and acceptance limits. Earlier network acceptance below and in historical packets applies only to the earlier presentation.
 
 The approved product requirements are the source of truth for visual-impact changes.
 The current native implementation remains the source for unchanged visual details.
