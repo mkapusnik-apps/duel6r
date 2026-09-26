@@ -561,8 +561,8 @@ D6R_TEST_CASE("UX-NET native frames preserve scaled press activation fields sele
         click(425, 336, true);
         D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host); // On press, not release.
         clear(); menu.render();
-        D6R_REQUIRE(fill(224, 486, 586, 24, Color::WHITE));
-        D6R_REQUIRE(fill(224, 458, 586, 24, Color::WHITE));
+        D6R_REQUIRE(fill(224, 494, 586, 24, Color::WHITE));
+        D6R_REQUIRE(fill(224, 462, 586, 24, Color::WHITE));
         D6R_REQUIRE(fill(224, 430, 586, 24, Color::WHITE));
         D6R_REQUIRE(fill(48, 206, 354, 176, Color::WHITE));
         D6R_REQUIRE(fill(428, 206, 394, 176, Color::WHITE));
@@ -633,7 +633,8 @@ D6R_TEST_CASE("UX-NET round result wraps complete outcomes above countdown and k
     NetworkMenu menu(service, application.gameResources, {}, [] {});
     auto state = canonical(91, Network::Replication::Phase::RoundSummary);
     state.players.clear(); state.score.ranking.clear(); state.score.winner = {};
-    state.settings.roundLimit = 3; state.completedRounds = 1; state.roundEndCountdown = 240;
+    state.settings.roundLimit = 3; state.currentRoundNumber = 1;
+    state.completedRounds = 0; state.roundEndCountdown = 240;
     for (unsigned i = 0; i < 15; ++i) {
         Network::Replication::PlayerState player{};
         player.playerId = i + 1; player.displayName = std::string(63, char('A' + i)) + char('a' + i);
@@ -760,6 +761,130 @@ namespace {
     };
 }
 
+D6R_TEST_CASE("UX-NET geometry keeps endpoint gaps external password help and Ready hit bounds aligned") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    const auto textPosition = [&](const std::string &text) {
+        for (const auto &quad: f.recorder.quads) {
+            const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                [&](const auto &entry) { return entry.texture == quad.material.getTexture() && entry.text == text; });
+            if (entry != f.font.fontCache.entryList.end()) return quad.vertices[0];
+        }
+        Test::fail("text rendered", __FILE__, __LINE__, text); return Vector();
+    };
+    const auto fill = [&](int x, int y, int w, int h, Color color) {
+        return std::any_of(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &quad) {
+            return quad.material.getTexture() == Texture{} && quad.material.getColor() == color
+                && quad.vertices[0].x == x && quad.vertices[0].y == y
+                && quad.vertices[2].x == x+w && quad.vertices[2].y == y+h;
+        });
+    };
+    const auto click = [&](int x, int y, bool down = true) {
+        const auto &screen = f.video.getScreen();
+        const float scale = std::min(1.35f, std::min(float(screen.getClientWidth())/850, float(screen.getClientHeight())/700));
+        const int tx = (screen.getClientWidth()-int(850*scale))/2;
+        const int ty = (screen.getClientHeight()-int(700*scale))/2;
+        menu.mouseButtonEvent(MouseButtonEvent(tx+int(x*scale), ty+int(y*scale), SysEvent::MouseButton::LEFT,
+            down ? SysEvent::ButtonState::PRESSED : SysEvent::ButtonState::RELEASED, false));
+    };
+    for (const auto &size: {std::pair{850,700}, std::pair{1280,720}, std::pair{1920,1080}}) {
+        f.video.screen = ScreenParameters(size.first,size.second,24,24,0,false);
+        for (auto setup: {NetworkMenu::SetupScreen::Host, NetworkMenu::SetupScreen::Join}) {
+            menu.runtime.current = {}; menu.setupScreen = setup;
+            menu.hostAddress = menu.address = "127.0.0.1"; menu.port = "26660";
+            menu.hostAddresses.clear(); menu.password = "masked";
+            menu.browserSelection = Client::DirectoryListing{};
+            menu.browserSelection->passwordRequired = true;
+            f.draw();
+            for (int y: {494,462,430}) D6R_REQUIRE(fill(224,y,586,24,Color::WHITE));
+            D6R_REQUIRE_EQ(8,494-(462+24)); D6R_REQUIRE_EQ(8,462-(430+24));
+            D6R_REQUIRE(f.text("******"));
+            D6R_REQUIRE_EQ(setup == NetworkMenu::SetupScreen::Join, f.text("Password required"));
+            if (setup == NetworkMenu::SetupScreen::Join) {
+                const auto cue = textPosition("Password required");
+                D6R_REQUIRE_EQ(600.0f,cue.x); D6R_REQUIRE(cue.y+16 <= 430);
+                D6R_REQUIRE(cue.x+f.font.getTextWidth("Password required",16) < 810);
+                menu.browserSelection->passwordRequired = false; f.draw();
+                D6R_REQUIRE(!f.text("Password required")); // Direct/optional setup is unchanged.
+            }
+            menu.focus = 2; click(300,506,false); D6R_REQUIRE_EQ(2,menu.focus);
+            click(300,506); D6R_REQUIRE_EQ(0,menu.focus);
+            click(300,474); D6R_REQUIRE_EQ(1,menu.focus);
+            click(300,442); D6R_REQUIRE_EQ(2,menu.focus);
+            click(300,490); D6R_REQUIRE_EQ(2,menu.focus); // Eight-pixel gaps are not controls.
+            click(300,458); D6R_REQUIRE_EQ(2,menu.focus);
+            if (setup == NetworkMenu::SetupScreen::Host) {
+                menu.hostAddresses = {"127.0.0.1","192.168.0.2"}; menu.hostAddressHighlight = 0;
+                menu.focus = 1; f.key(SDLK_RETURN); D6R_REQUIRE(menu.hostAddressSelectorOpen);
+                f.draw(); D6R_REQUIRE(fill(224,438,586,22,Color::WHITE));
+                click(300,426); D6R_REQUIRE(!menu.hostAddressSelectorOpen);
+                D6R_REQUIRE_EQ(std::string("192.168.0.2"),menu.hostAddress);
+                D6R_REQUIRE_EQ(1,menu.focus);
+            }
+        }
+        f.lobby(false); menu.runtime.pendingGuestCommands.clear(); f.draw();
+        const auto order = textPosition("Order");
+        D6R_REQUIRE_EQ(520.0f,order.x);
+        D6R_REQUIRE(order.x+f.font.getTextWidth("Order",16) <= 564-4); // Inner heading right padding.
+        D6R_REQUIRE(fill(40,164,220,24,Color(192)));
+        D6R_REQUIRE_EQ(8,196-(164+24)); // Panel, not only inset body, clears Ready.
+        click(150,190); D6R_REQUIRE_EQ(0,menu.focus); D6R_REQUIRE(menu.runtime.pendingGuestCommands.empty());
+        click(150,166); D6R_REQUIRE_EQ(2,menu.focus);
+        D6R_REQUIRE_EQ(std::size_t(1),menu.runtime.pendingGuestCommands.size());
+        click(150,166,false); D6R_REQUIRE_EQ(std::size_t(1),menu.runtime.pendingGuestCommands.size());
+        const auto ready = Network::Lifecycle::deserializeParticipantAction(menu.runtime.pendingGuestCommands.front());
+        D6R_REQUIRE(ready && ready->kind == Network::Lifecycle::ParticipantActionKind::Ready);
+        f.lobby(false,true); f.draw(); D6R_REQUIRE(fill(40,54,220,24,Color(192))); // Accepted retained layout unchanged.
+    }
+}
+
+D6R_TEST_CASE("UX-NET round progress uses current authoritative round during active and frozen end delay") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    struct Case { unsigned current, completed, limit, countdown; };
+    for (const auto &test: {Case{1,0,2,360},Case{1,0,2,240},Case{2,1,3,360},Case{2,1,3,240},Case{2,1,2,1}}) {
+        auto state = canonical(91,Network::Replication::Phase::RoundSummary);
+        state.currentRoundNumber = test.current; state.completedRounds = test.completed;
+        state.settings.roundLimit = test.limit; state.roundEndCountdown = test.countdown;
+        state.score.winner.noWinner = true;
+        menu.runtime.current.journey = Client::NetworkJourney::Match;
+        menu.runtime.current.canonical = state;
+        f.draw(); // Real drawMatch dispatch, including its top-HUD suppression.
+        const std::string expected = "Rounds: "+std::to_string(test.current)+"|"+std::to_string(test.limit);
+        std::size_t progress = 0, topHudProgress = 0;
+        for (const auto &draw: f.recorder.draws) {
+            const auto entry = std::find_if(f.font.fontCache.entryList.begin(),f.font.fontCache.entryList.end(),
+                [&](const auto &entry) { return entry.texture == draw.material.getTexture(); });
+            if (entry == f.font.fontCache.entryList.end()) continue;
+            if (entry->text.find("Rounds: ") == 0) { ++progress; D6R_REQUIRE_EQ(expected,entry->text); }
+            if (entry->text.find("Round "+std::to_string(test.current)+"/") == 0) ++topHudProgress;
+        }
+        D6R_REQUIRE_EQ(std::size_t(1),progress); D6R_REQUIRE_EQ(std::size_t(0),topHudProgress);
+        D6R_REQUIRE_EQ(test.current,unsigned(menu.runtime.current.canonical->currentRoundNumber));
+        D6R_REQUIRE_EQ(test.completed,unsigned(menu.runtime.current.canonical->completedRounds));
+        D6R_REQUIRE_EQ(test.countdown,unsigned(menu.runtime.current.canonical->roundEndCountdown));
+        D6R_REQUIRE(f.text(test.countdown > 300 ? "World active • 1s"
+            : "Round frozen • Next round in "+std::to_string((test.countdown+59)/60)+"s"));
+    }
+    // Other result consumers retain completed-round semantics, not the new numerator.
+    auto state = canonical(91,Network::Replication::Phase::FinalSummary);
+    state.currentRoundNumber = 2; state.completedRounds = 1; state.settings.roundLimit = 3;
+    state.round = Network::Replication::RoundState{}; state.result.available = true;
+    for (auto phase: {Network::Replication::Phase::FinalSummary, Network::Replication::Phase::Lobby,
+                     Network::Replication::Phase::ActiveRound}) {
+        state.phase = phase; menu.runtime.current.canonical = state;
+        menu.runtime.current.journey = phase == Network::Replication::Phase::FinalSummary ? Client::NetworkJourney::Summary
+            : phase == Network::Replication::Phase::Lobby ? Client::NetworkJourney::Lobby : Client::NetworkJourney::Match;
+        menu.scoreOverlay = phase == Network::Replication::Phase::ActiveRound;
+        f.draw();
+        D6R_REQUIRE(f.text("Last completed round 1: Pending"));
+        D6R_REQUIRE(!f.text("Rounds: 2|3"));
+    }
+    state.phase = Network::Replication::Phase::RoundSummary; state.settings.roundLimit = 0;
+    menu.runtime.current.canonical = state; menu.scoreOverlay = false; f.draw();
+    D6R_REQUIRE(!f.text("Rounds: 2|0"));
+}
+
 D6R_TEST_CASE("UX-NET review disabled focused setup start and missing-controller Ready stay visible and blocked") {
     ReviewMenuFixture f;
     ReviewController controller(f);
@@ -790,7 +915,7 @@ D6R_TEST_CASE("UX-NET review disabled focused setup start and missing-controller
     menu.localPlayers[0].controlDescription = "Removed controller binding";
     menu.joyDeviceRemovedEvent(JoyDeviceRemovedEvent(-1));
     D6R_REQUIRE(menu.localPlayers[0].controls == nullptr); D6R_REQUIRE_EQ(2, menu.focus);
-    f.draw(); D6R_REQUIRE(f.frame(40, 168, 220, 24, 1)); D6R_REQUIRE(f.frame(38, 166, 224, 28, 2));
+    f.draw(); D6R_REQUIRE(f.frame(40, 164, 220, 24, 1)); D6R_REQUIRE(f.frame(38, 162, 224, 28, 2));
     f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(150, 180); controller.pulse(SDL_CONTROLLER_BUTTON_A);
     D6R_REQUIRE_EQ(2, menu.focus); D6R_REQUIRE(menu.runtime.pendingGuestCommands.empty());
     D6R_REQUIRE(!menu.runtime.current.canonical->participants[1].ready);

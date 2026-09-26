@@ -4,7 +4,7 @@
 
 This section is the sole current capture matrix for the NET-01 through NET-10 presentation unification. It supersedes every earlier network conformance claim in this file and the [legacy manifest](../../screenshots/README.md) for these affected wireframes. The older packets below remain historical references with their original hashes. They do not prove the unified presentation. No local-play representative is invalidated unless implementation changes its presentation source.
 
-**Current conformance: Pending for all 16 entries. No new implementation artifacts have been supplied or assessed.** The approved [shared visual baseline](../../design.md#unified-network-presentation), [screen index](../README.md#screen-specifications), and linked wireframes define assessment. Existing functional contracts remain unchanged. NET-02-P, NET-05-S, and NET-05-R add explicit coverage for existing materially different layouts, not new functional states. All other screen and wireframe identities remain unchanged.
+**Current conformance: 11 representatives conform for their supplied states, 4 are nonconforming, and NET-02-P remains missing.** The [current assessment](#current-native-visual-assessment) covers all 15 supplied representatives and eight supplements at source `e5f5517a56c426104f4cfb73c19058844db0d874`. The approved [shared visual baseline](../../design.md#unified-network-presentation), [screen index](../README.md#screen-specifications), and linked wireframes remain fixed. Existing functional contracts remain unchanged. NET-02-P, NET-05-S, and NET-05-R cover existing materially different layouts, not new functional states. All screen and wireframe identities remain unchanged.
 
 ### Fixed criteria and scoped correction
 
@@ -27,7 +27,7 @@ Only prior criteria or evidence that require enabled NET-05-S scroll arrows, a p
 
 ### Matrix
 
-Every row is Pending. Paths are repository-relative. A stated test endpoint is an input for an authorized owned session, not a public service or a claim of reachability.
+This matrix specifies reproduction targets; the current assessment below owns each row's conformance and actual artifact hash. Paths are repository-relative. A stated test endpoint is an input for an authorized owned session, not a public service or a claim of reachability.
 
 | Entry / screen / wireframe | Native route and reproduction inputs | Required captured state and visible expectation | Client viewport | Artifact destination |
 |---|---|---|---|---|
@@ -88,7 +88,75 @@ The simpler NET-05 image is Connected-state styling evidence only. Degraded and 
 
 For every representative or supplied supplement, developer must provide source checkpoint, branch, capture state, exact native workflow and relevant inputs, supported viewport/profile, environment, artifact path, and SHA-256. Identify uncommitted presentation-source differences. Menu evidence must include the selected background filename, runtime asset manifest identity, and application-session identifier. Arena evidence must record actual level/mirror state, session/match/round identity and nearby accepted tick where available. Use disposable credentials and do not include secret values or unredacted logs.
 
-UX will assess structure against the existing or new owning wireframe, component appearance against `docs/design.md`, and interaction presentation against the owning UX section. Wireframes are low fidelity; pixel matching is not required. Each row remains Pending until supplied evidence is inspected. Exact-hash integration without presentation-source or assessed-content changes does not require another assessment. Changed shared presentation invalidates every consuming representative; unrelated local evidence is retained unless its presentation changes.
+UX assesses structure against the owning wireframe, component appearance against `docs/design.md`, and interaction presentation against the owning UX section. Wireframes are low fidelity; pixel matching is not required. Each row remains Pending until supplied evidence is inspected. Exact-hash integration without presentation-source or assessed-content changes does not require another assessment. A presentation correction invalidates only its affected consumers; a changed shared presentation primitive requires reassessment of every affected consumer. Unrelated local evidence is retained unless its presentation changes.
+
+### Current native visual assessment
+
+UX inspected all 15 canonical native PNGs at the destinations in the matrix and all eight supplemental images in `/tmp/opencode/pr100-e5f5517-capture/supplements/`. Source-approved frozen checkpoint: `e5f5517a56c426104f4cfb73c19058844db0d874`, branch `feature/unify-network-menu-design`. No implementation, product requirement, wireframe, or image was changed by this assessment.
+
+Evidence packet: `/tmp/opencode/pr100-e5f5517-capture/README.md` and `manifest.json`. Supplied manifest SHA-256: `72cc41f6450c5a33ad5721384cd59aad56ef527965cd366ed38b971e1e718004`. Image hashes below are developer-supplied; UX has no hashing tool and did not independently recompute them. The manifest records per-image application sessions, capture times, viewport, workflow, source freeze, runtime/asset identity, and menu-background diagnostics. Developer must preserve the packet or its equivalent provenance handoff through integration and cleanup.
+
+Environment: actual Release GL4, Lua ON, Ubuntu 24.04 Docker, SDL 2.30.0, Mesa llvmpipe LLVM 20.1.2, OpenGL 4.5 Core Mesa 25.2.8, dummy audio, and Xvfb. Representatives are complete 1280 × 900 client areas except NET-05-C at 1280 × 720. The NET-02 floor supplement is 850 × 700. The packet reports no crop, retouch, composition, old-image substitution, or source/runtime mutation during capture. Directory listings and completed results are reported as real, not synthetic metadata or injected outcomes.
+
+#### Representative results
+
+Artifact paths are exactly the canonical destinations in the matrix. `Conforms` is limited to the supplied state, viewport, and this styling scope; it is not certification of uncaptured functional or platform variants.
+
+| Wireframe / entry | Supplied SHA-256 | Result and observed presentation |
+|---|---|---|
+| NET-01 / SS-015 | `cc928a6b53b8af656bf3d1c283d88932c5a9529ab09ad1e552717328a6d26667` | Conforms. Four recognizable beveled actions, Host focus, scope copy, banner/version, and title strip are contained. |
+| NET-02 / SS-016 | `6681bf3f6088488951935ef5eb6a8288c12aea14b0cac53a20492163313fdea1` | Nonconforming: V-05 endpoint-row spacing. Fields, mask, full private address, two setup panels, and actions are otherwise readable. |
+| NET-02-P | None; not captured | Pending/missing: V-03. The post-start lobby supplement is not pending-startup evidence. |
+| NET-03-E | `ab59694928aa9c7a5adee53b6bb5675ffa0f889874b1a722df27e060142247bc` | Nonconforming: V-04 password requirement inside editable field and V-05 endpoint-row spacing. Actual protected first-round context, owned setup, and footer remain readable. |
+| NET-03 / SS-017 | `26e92e082eef97d94a79dfbec8e9033212137b5fabc64db65c7e470173d949cb` | Conforms. Retained direct endpoint, two locked rows, connecting/deadline text, and focused Cancel are separate and contained. This is pending transport/admission, not successful admission. |
+| NET-04 / SS-018 | `f075981b0758d9e0178f3e615cc770c5963dae1a81fa45dbf971da152cedbd56` | Nonconforming: V-01 clipped Order heading and V-05 roster/Ready spacing. Publication failure, participant columns, ownership, guest unready reason, and actions otherwise remain clear. |
+| NET-04-R / SS-025 | `089ef802a1dbbc0c807bcd8ce9264fe4b07017ca098f9b4dfe682ff18c3c9e55` | Conforms. Plain host reorder access help is visible with person focus outside Reorder; completed outcome history, current membership, settings, result navigation, readiness, and footer remain separate. |
+| NET-05 / SS-019 | `6dc432ef9dd4663d7d098f493ebae2bc9f7ab79f265382d8eee78196a9393c12` | Conforms for two-player Connected plus actual degraded indication. Complete shared arena, framed Leave action, and both status groups remain visible. This is not historical six-player or Invisibility evidence. |
+| NET-05-C / SS-026 | `ddf95f1a5d608d843c6d77f667c1c8801eecdf24c74f1ecdd5821dd53b5b61eb` | Conforms at 1280 × 720. Centered bounded panel, full wrapped consequence, initial Leave focus, separate Cancel, and retained arena/status remain readable. |
+| NET-05-S | `3cef766f269ef447a8512fe58cadf3a2ef04973aefe2b28507f900f40ad0beb8` | Conforms. Genuine In progress/Pending state, empty white body, fixed labels, and plain zero-row/column information; no enabled scroll arrows or shortcut promise. |
+| NET-05-R | `ef1edefff0baeb26a9323e0de9907d9f2af2872f04f31c3e14a41ed558ebc9bd` | Nonconforming: V-02 shows Rounds 0\|2 for the actual first completed frozen result. Score, colored ranking, Juniper outcome, 4-second countdown, and host actions otherwise fit. |
+| NET-06 / SS-020 | `3906d240091f9497b2339540b2037068f6e9ca0439f79b22cdc90a8f89f27be5` | Conforms for actual two-round completion. Session-only/no-persistence labels, separate outcomes, three outcome rows, settings, round history, scroll feedback, and focused Return action are contained. |
+| NET-07 / SS-021 | `7a5640f8e10bf79b7b3e5c83a2448f236dea7c90caec6734530243fde3abd3e2` | Conforms. Actual 26 seconds remaining, reservation and continuation text, Last confirmed state, and focused Leave action; filename does not imply 24 seconds. |
+| NET-08 / SS-022 | `fefcc954c6b03ccb3960fd3d7160a1c3d05d5cde45ccb039d0a13c453918811c` | Conforms for browser-origin password rejection. Exact non-disclosing reason, endpoint/instructions, three framed recovery actions, and Edit setup focus are clear; no secret shown. |
+| NET-09 / SS-023 | `b6cd0c0091a0e2c9a32d884cbebac7e7e9bc0100838131d9847288d53bd792b6` | Conforms. Intentional host-end panel retains arena context and shows terminal/no-resume/no-persistence copy with focused Return to Network. |
+| NET-10 | `44b69e55b8952c481c82d1a57b63ebc67447c873d988016d5995929ccff4d57b` | Conforms for actual populated results. Protected open row and closed row, independent columns, blue selection plus non-color marker/focus, selected details, Page 1, disabled paging, and two-row footer are contained. |
+
+#### Consolidated blockers and narrow correction scope
+
+These findings apply existing fixed requirements; they do not change them.
+
+| Finding | Affected rows and sources | Observable failure / required correction | Replacement evidence |
+|---|---|---|---|
+| V-01 / packet CAP-01 | NET-04 / SS-018; `source/NetworkMenu.cpp`, `drawLobby`, normal roster heading at approximately lines 2133–2137; UX-NET-019, UX-NET-AC-03, UX-NET-04-003 | Order reaches the right roster frame and its final character has no contained right clearance. Source places the five-character heading at logical x=526 against panel right x=566, beyond the inner heading region. Keep the full heading inside its column with visible clearance; do not truncate the column label or add an action. | Replace NET-04 after the heading and V-05 spacing corrections. Recheck the same normal-lobby heading at the compatibility floor; no retained-result recapture is required if its presentation is unchanged. |
+| V-02 / packet CAP-02 | NET-05-R; `source/NetworkMenu.cpp`, `drawRoundSummary`, progress derived from `state.completedRounds` at approximately line 2019; UX-NET-05-010 and fixed NET-05-R matrix state | The first frozen completed-round result displays Rounds 0\|2 instead of 1\|2. Product is investigating the behavior/scope. Do not relabel this as a different round, weaken the matrix, or infer a simulation fix from the screenshot. Team must obtain the product resolution and developer correction. | Replace only NET-05-R for a localized progress-presentation correction; expand regression scope only if the approved correction changes other consumers or progression. |
+| V-03 / packet CAP-03 | NET-02-P; UX-NET-02-010–011, UX-NET-AC-08 | No actual pending-startup image was supplied. Ordinary startup attempts and recording reports do not substitute for the required visible state. | Supply one genuine Starting frame after team approves any needed controlled process-start boundary. |
+| V-04 | NET-03-E; `source/NetworkMenu.cpp`, editable setup password rendering at approximately lines 2466–2470; UX-NET-03-003 and existing protected-session cue requirement | Password required is appended to the mask inside the white editable Password field. It is directory-derived help, not part of the editable value. Move the existing cue outside that value region while preserving mask, focus, input behavior, and footer containment. | Replace NET-03-E. Check direct/optional-password setup for regression if the shared endpoint block changes. |
+| V-05 | NET-02, NET-03-E, and normal NET-04; `source/NetworkMenu.cpp`, endpoint field loop at approximately lines 2449–2450 and `drawLobby` roster/Ready bounds at approximately lines 2133–2137 and 2218; UX-NET-017 | Endpoint fields are 24 logical px high on a 28 px pitch, leaving 4 px rather than the required 8 px between controls. In the normal lobby, the roster field starts at y=198 and Ready ends at y=192, leaving 6 px; the surrounding roster panel leaves only 4 px. Reserve the required 8 px without reducing text, changing activation semantics, or covering fixed feedback/actions. These standalone form/footer controls are not the compact list-row exception. | Replace NET-02, NET-03-E, and NET-04 after localized geometry fixes; replace the affected NET-02 floor supplement and recheck pointer/focus alignment. Preserve unaffected representatives. |
+
+#### Supplemental observations
+
+All paths below are relative to `/tmp/opencode/pr100-e5f5517-capture/supplements/`. All use the frozen checkpoint and environment above; viewport is 1280 × 900 except the stated floor image. None creates another stable matrix entry.
+
+| Inspected artifact | Supplied SHA-256 | Assessment and limit |
+|---|---|---|
+| `host-a-lobby-inspect.png` | `b25d77c6cc4202a957ed468855008aa593d4419f123fae2fea6658cafaca7a12` | Confirms V-01 and V-05 in a host-alone normal lobby; owned-field focus and disabled Start reason remain visible. |
+| `NET-06-scroll-edge.png` | `18e626f9e65149f7f146ade63b01f8839caf42f792658146e25dd2ce91918c0a` | Conforms for supplied scroll state: columns 10–103/103 and rows 7–19/19 remain contained; fixed identity and actions remain visible. Leading clipped text is the intentional horizontal offset, not a new clipping failure. Does not establish every content extreme. |
+| `NET-04-R-reorder-focused.png` | `b645e6d7c40625642d5b3d1acb1262f7eed39eb911ed7265653e7e9171d8fc51` | Conforms for focused Reorder presentation, identifying position 1 and Ivy while results/actions remain contained. Together with NET-04-R it shows help before focus and the baseline action after focus; it does not independently prove absence of an invisible pointer target. |
+| `NET-04-disabled-focus.png` | `56003e7ae3306546e4bfee439b9b3279bb77916c1eade9e9939a6c1c7225ee50` | Disabled Start visibly retains focus and readable reason. This corrected focus detail conforms; normal-lobby V-01/V-05 remain visible. Reported blocked activation belongs to developer/behavioral evidence. |
+| `guest-a-restored.png` | `668424d063223770f06467b3c7a3d91c09dfe0a844a8a61e286f57c725e10e1b` | Connected plus degraded text, arena, and framed Leave action remain contained after reported restoration. A still does not prove deadline or temporal recovery behavior. |
+| `arena-a-inspect.png` | `8c3b69f9575e68b12c8b0199806779063b9ef6db1db559146ae95a4e018ba73d` | Player indicators, full arena, degraded status, and Leave action remain visibly separate. Not new numerical opacity or deterministic-background evidence. |
+| `NET-02-floor-disabled.png` | `6d057a69b3e731a0d4de2a5ac0153d2bb021e5d0ba8105d111bfa1310326cecd` | At 850 × 700, empty lists, no-player reason, disabled focused Start, and Back remain contained. Focus detail conforms; V-05 endpoint spacing remains nonconforming. |
+| `startup-after-final-attempt.png` | `b7c6530182fdef00f7280545b514e42d1e72c57e0fcd9f4adfc8e9502685a6a4` | Shows the established lobby, not Starting; cannot satisfy NET-02-P. Also reproduces the normal-lobby heading/spacing findings. |
+
+#### Provenance and acceptance limits
+
+Source, capture state, viewport/profile, environment, exact paths, and supplied image hashes are sufficient to assess the visible styling of these supplied states. Source approval and frozen-runtime integrity are team/developer assertions; UX did not rerun those checks. The actual 26-second reconnect, two-round results, and Connected plus degraded frame are recorded truthfully rather than inferred from legacy filenames.
+
+Missing canonical match/round IDs, near-frame ticks, Session A level/mirror identity, and arena-background filename prevent new claims about authoritative timing, deterministic background selection, orientation parity, or uninterrupted world continuity. They do not prevent assessment of the visible panel/control styling. Menu-background diagnostics are not evidence of an arena background. Session B level/mirror and outcomes are visible in the supplied final result; no unsupported identity or tick is inferred.
+
+All eight supplements were inspected. Recording archives were reported but were not unpacked or independently reviewed by UX. NET-05-R is assessed from its supplied native frame and the stated first-round provenance; the visible counter mismatch remains blocked pending product resolution. Missing physical-controller, maximum-content, and other viewport/platform exercises are not declared passed by these images; retain the source-tied focused QA requirements and existing scoped evidence rather than adding a new broad screenshot phase.
+
+No new requirement or capture-profile change is introduced. Reassess only replacement images, changed presentation consumers, and affected UX content. Exact-hash integration of conforming rows without further presentation changes needs no second assessment. The overall gate remains blocked by V-01 through V-05.
 
 Visual gate: blocked
 

@@ -16,6 +16,9 @@ namespace Duel6 {
     namespace {
         constexpr Int32 CanvasWidth = 850, CanvasHeight = 700;
         constexpr int SetupVisibleRows = 8, SetupFirstRow = 364, SetupHeading = 386;
+        constexpr Int32 EndpointFirstBottom = 494, EndpointPitch = 32, EndpointHeight = 24;
+        constexpr Int32 InterfaceFirstOption = EndpointFirstBottom - EndpointPitch - 24;
+        constexpr Int32 LobbyReadyBottom = 164;
         constexpr Float32 CanvasMaximumScale = 1.35f;
         struct BrowserAction {
             int focus;
@@ -805,7 +808,7 @@ namespace Duel6 {
                 const std::size_t maximumFirst = hostAddresses.size() > visible ? hostAddresses.size() - visible : 0;
                 const std::size_t first = std::min(hostAddressScroll, maximumFirst);
                 for (std::size_t row = 0; row < visible; ++row) {
-                    if (pointerInside(x, y, 224, 434 - static_cast<Int32>(row) * 22, 586, 22)) {
+                    if (pointerInside(x, y, 224, InterfaceFirstOption - static_cast<Int32>(row) * 22, 586, 22)) {
                         hostAddressHighlight = first + row;
                         hostAddress = hostAddresses[hostAddressHighlight];
                         hostAddressSelectionBecameInvalid = false;
@@ -816,9 +819,9 @@ namespace Duel6 {
                 }
                 return;
             }
-            if (pointerInside(x, y, 224, 486, 586, 24)) { focus = 0; return; }
-            if (pointerInside(x, y, 224, 430, 586, 24)) { focus = 2; return; }
-            if (pointerInside(x, y, 224, 458, 586, 24)) {
+            if (pointerInside(x, y, 224, EndpointFirstBottom, 586, EndpointHeight)) { focus = 0; return; }
+            if (pointerInside(x, y, 224, EndpointFirstBottom - 2 * EndpointPitch, 586, EndpointHeight)) { focus = 2; return; }
+            if (pointerInside(x, y, 224, EndpointFirstBottom - EndpointPitch, 586, EndpointHeight)) {
                 focus = 1;
                 if (setupScreen == SetupScreen::Host) activate();
                 return;
@@ -905,7 +908,7 @@ namespace Duel6 {
                 }
             }
             const int readyIndex = static_cast<int>(localPlayers.size()) * 2;
-            if (pointerInside(x, y, 40, retained ? 54 : 168, 220, 24)) {
+            if (pointerInside(x, y, 40, retained ? 54 : LobbyReadyBottom, 220, 24)) {
                 std::string reason; if (localReadyEligible(reason)) { focus = readyIndex; activate(); }
                 return;
             }
@@ -2016,7 +2019,7 @@ namespace Duel6 {
         const Int32 bottom = top - panelHeight;
         const Int32 left = (width - panelWidth) / 2;
         drawPanel(left, bottom, panelWidth, panelHeight, "");
-        const std::string rounds = "Rounds: " + std::to_string(state.completedRounds) + "|"
+        const std::string rounds = "Rounds: " + std::to_string(state.currentRoundNumber) + "|"
                 + std::to_string(state.settings.roundLimit);
         if (state.settings.roundLimit > 0)
             drawText(left + panelWidth - 16 - static_cast<Int32>(utf8Length(rounds)) * 8, top - 24, rounds);
@@ -2133,7 +2136,7 @@ namespace Duel6 {
             drawPanel(40, 196, 526, 188, "PLAYERS AND CONTROLS");
             renderer.quadXY(Vector(42, 344), Vector(522, 20), Color(170));
             drawText(44, 346, "Pos  Owner       Person                  Control");
-            drawText(526, 346, "Order");
+            drawText(520, 346, "Order");
             drawField(42, 198, 522, 144);
             std::vector<Network::Replication::PlayerState> visiblePlayers = state.players;
             std::sort(visiblePlayers.begin(), visiblePlayers.end(), [](const auto &left, const auto &right) {
@@ -2215,7 +2218,7 @@ namespace Duel6 {
                             (selected ? "> " : "  ") + settingRows[index], retainedResult ? 24 : 26);
         }
         std::string readyReason;
-        drawButton(40, retainedResult ? 54 : 168, 220, 24, "Ready / Not ready", focus == readyIndex,
+        drawButton(40, retainedResult ? 54 : LobbyReadyBottom, 220, 24, "Ready / Not ready", focus == readyIndex,
                    localReadyEligible(readyReason));
         if (!snap.host && retainedResult) {
             const auto &status = state.messages.status;
@@ -2443,31 +2446,32 @@ namespace Duel6 {
             drawAction(235, "Direct connect", focus == 2); drawAction(190, "Back", focus == 3);
         } else if (snap.journey == Client::NetworkJourney::Inactive) {
             const int fields = 3;
-            drawText(50, 516, browserSelection && setupScreen == SetupScreen::Join
+            drawText(50, 524, browserSelection && setupScreen == SetupScreen::Join
                 ? "Selected session: " + browserSelection->endpoint.host + ":" + std::to_string(browserSelection->endpoint.port)
                 : "LAN-first • Linux/Windows x86-64 • Session only • Optional scripts disabled");
             for (int field = 0; field < fields; ++field)
-                drawField(224, 486 - field * 28, 586, 24, focus == field);
-            Int32 y = 490;
+                drawField(224, EndpointFirstBottom - field * EndpointPitch, 586, EndpointHeight, focus == field);
+            Int32 y = EndpointFirstBottom + 4;
             if (setupScreen == SetupScreen::Join) {
                 drawText(50, y, "Address:");
                 drawClippedText(228, y, address + (focus == 0 ? " <" : ""), 72);
-                y -= 28;
+                y -= EndpointPitch;
                 drawText(50, y, "Port:");
                 drawText(228, y, port + (focus == 1 ? " <" : ""));
             } else {
                 drawText(50, y, "Port:");
                 drawText(228, y, port + (focus == 0 ? " <" : ""));
-                y -= 28;
+                y -= EndpointPitch;
                 drawText(50, y, "Listening interface:");
                 drawClippedText(228, y, listeningAddressLabel(hostAddress)
                         + (focus == 1 ? (hostAddressSelectorOpen ? " < Select" : " < Enter opens") : ""), 72);
             }
             drawText(50, 434, setupScreen == SetupScreen::Host ? "Password (optional):" : "Password:");
-            drawText(228, 434, std::string(std::min<std::size_t>(utf8Length(password), 40), '*')
-                + (browserSelection && setupScreen == SetupScreen::Join && browserSelection->passwordRequired ? " • Password required" : ""));
+            drawText(228, 434, std::string(std::min<std::size_t>(utf8Length(password), 40), '*'));
             drawText(50, 410, setupScreen == SetupScreen::Host ? "Leave empty for no password."
                 : "Enter a password only if the host requires one.");
+            if (browserSelection && setupScreen == SetupScreen::Join && browserSelection->passwordRequired)
+                drawText(600, 410, "Password required");
             drawPanel(46, 202, 358, 202, "PERSONS");
             drawPanel(426, 202, 398, 202, "LOCAL PLAYERS AND CONTROLS");
             drawField(48, 206, 354, 176);
@@ -2509,7 +2513,7 @@ namespace Duel6 {
                 const std::size_t first = std::min(hostAddressScroll, maximumFirst);
                 for (std::size_t row = 0; row < visible; ++row) {
                     const std::size_t index = first + row;
-                    const Int32 optionY = 434 - static_cast<Int32>(row) * 22;
+                    const Int32 optionY = InterfaceFirstOption - static_cast<Int32>(row) * 22;
                     drawField(224, optionY, 586, 22);
                     if (index == hostAddressHighlight)
                         renderer.quadXY(Vector(226, optionY + 2), Vector(582, 18), Color(0, 0, 200));

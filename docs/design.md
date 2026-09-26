@@ -7,7 +7,7 @@ Screen-specific requirements are in [`docs/screens`](screens/README.md).
 Screenshot evidence is in [`docs/screenshots`](screenshots/README.md).
 The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a second source of truth.
 
-The current NET-01 through NET-10 visual requirements are in [Unified network presentation](#unified-network-presentation). The [network capture matrix](design/screenshots/README.md#network-presentation-current-capture-matrix) marks all 16 affected representatives Pending. Earlier network acceptance below and in historical packets applies only to the earlier presentation.
+The current NET-01 through NET-10 visual requirements are in [Unified network presentation](#unified-network-presentation). The [network capture matrix and assessment](design/screenshots/README.md#network-presentation-current-capture-matrix) own the current status of all 16 affected representatives. Earlier network acceptance below and in historical packets applies only to the earlier presentation.
 
 The approved product requirements are the source of truth for visual-impact changes.
 The current native implementation remains the source for unchanged visual details.
