@@ -44,6 +44,8 @@ namespace Duel6::Server::Authoritative {
         std::optional<Network::Replication::IncrementalUpdate> setParticipantConnection(
                 Identity participantId, Network::Replication::ConnectionState connection);
         std::optional<Network::Replication::IncrementalUpdate> beginMatch(const AuthoritativeMatch &match);
+        std::optional<Network::Replication::IncrementalUpdate> appendParticipants(
+            const AuthoritativeMatch &match, const std::vector<Network::Replication::ParticipantState> &participants);
         std::optional<Network::Replication::IncrementalUpdate> capture(const AuthoritativeMatch &match);
         std::optional<Network::Replication::IncrementalUpdate> markResultParticipantsDeparted(
                 const std::vector<Identity> &participantIds);
@@ -65,6 +67,7 @@ namespace Duel6::Server::Authoritative {
         std::uint64_t highestObservedEventSequence = 0;
         std::uint64_t highestObservedTransitionSequence = 0;
         std::uint8_t observedRound = 0;
+        std::map<Identity, std::uint64_t> playerArrivalTicks;
 
         bool updateFromMatch(const AuthoritativeMatch &match,
                              std::vector<Network::Replication::PresentationEvent> &events);

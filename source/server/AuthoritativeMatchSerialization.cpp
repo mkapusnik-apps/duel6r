@@ -71,7 +71,7 @@ namespace Duel6::Server::Authoritative {
     }
 
     std::optional<std::string> serializeSessionResult(const SessionResult &result) {
-        if (result.players.size() > MaxPlayers || result.rounds.size() > 99
+        if (result.players.size() > MaxPlayerHistory || result.rounds.size() > 99
             || result.teams.size() > 4 || result.completedRounds != result.rounds.size()) return std::nullopt;
         Json json;
         if (!json.append("{")

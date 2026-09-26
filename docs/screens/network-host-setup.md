@@ -2,6 +2,8 @@
 
 ## Status, purpose, and requirements
 
+Current functional target: `NET-02-password` is the optional password setup state under [NET-PASS-001](../network-host-directory.md). The host must be able to start without a password or set a session password before startup. Publication must follow NET-DIR-001 and NET-DIR-015; directory failure must not convert a ready host into a failed host. Listening-address eligibility follows the updated NET-HOST-IF-002 and NET-HOST-IF-003. These targets supersede earlier password and public-address exclusions. Functional acceptance uses NET-PASS-AC-001, NET-DIR-AC-001, and NET-AC-002; UX owns controls and presentation.
+
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It collects the listening interface, direct listening port, and host local players before creating a player-hosted session. It implements `NET-AC-001`, updated `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-009`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-019`, `NET-HOST-IF-001` through `NET-HOST-IF-012`, and `NET-HOST-IF-AC-001` through `NET-HOST-IF-AC-006` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 It preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
 It implements `NET-VIS-001`, `NET-VIS-002`, `NET-VIS-009` through `NET-VIS-011`, `NET-VIS-AC-001`, `NET-VIS-AC-004`, and `NET-VIS-AC-005`. It also consumes `CMP-VIS-001` through `CMP-VIS-004`, `CMP-VIS-AC-001`, and updated `AC-012` from [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).

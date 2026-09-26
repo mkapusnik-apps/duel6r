@@ -373,7 +373,417 @@ D6R_TEST_CASE("issue-38 host composition framing is deterministic for every UI a
     D6R_REQUIRE(!Network::HostComposition::deserialize(unknown).has_value());
 }
 
+D6R_TEST_CASE("NET-DIR browser retains failed results but never grants stale eligibility") {
+    using Clock = std::chrono::steady_clock;
+    Client::DirectoryBrowser browser;
+    D6R_REQUIRE(browser.stale());
+    Client::DirectoryListing row;
+    row.id = std::string(32, 'a'); row.sessionId = std::string(32, 'b');
+    row.endpoint = {"127.0.0.1", 25000}; row.mode = "predator"; row.phase = "first-round";
+    row.players = 2; row.capacity = 15; row.passwordRequired = true;
+    row.expiresAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
+    browser.page = {true, {row}, {}};
+    browser.requested = browser.received = Clock::now();
+    D6R_REQUIRE(!browser.stale() && row.joinable());
+    auto full = row; full.players = full.capacity; D6R_REQUIRE(!full.joinable());
+    auto closed = row; closed.phase = "closed"; D6R_REQUIRE(!closed.joinable());
+    auto expired = row; expired.expiresAt = 0; D6R_REQUIRE(!expired.joinable());
+    browser.received -= std::chrono::seconds(30);
+    D6R_REQUIRE(browser.stale());
+    browser.received = Clock::now();
+    std::promise<Client::DirectoryPage> response;
+    browser.pending = response.get_future();
+    D6R_REQUIRE(browser.loading());
+    response.set_value({}); browser.update();
+    D6R_REQUIRE(browser.stale() && !browser.loading());
+    D6R_REQUIRE_EQ(std::size_t(1), browser.result().listings.size());
+    D6R_REQUIRE_EQ(row.id, browser.result().listings[0].id);
+}
+
+D6R_TEST_CASE("NET-DIR response decoder bounds nesting pages cursors and numeric fields") {
+    const std::string row = "{\"id\":\"" + std::string(32, 'a') + "\",\"sessionId\":\"" + std::string(32, 'b')
+        + "\",\"address\":\"127.0.0.1\",\"port\":25000,\"mode\":\"predator\",\"phase\":\"closed\","
+          "\"players\":2,\"capacity\":15,\"passwordRequired\":true,\"revision\":1,\"expiresAt\":2000000000000}";
+    const std::string valid = "{\"listings\":[" + row + "],\"nextCursor\":null}";
+    D6R_REQUIRE(Client::decodeDirectoryPage(valid).available);
+    D6R_REQUIRE(!Client::decodeDirectoryPage(valid + "{}").available);
+    D6R_REQUIRE(!Client::decodeDirectoryPage(std::string(20000, '[') + std::string(20000, ']')).available);
+    D6R_REQUIRE(!Client::decodeDirectoryPage(std::string(65537, ' ')).available);
+    std::string fractional = valid;
+    fractional.replace(fractional.find("\"players\":2"), std::string("\"players\":2").size(), "\"players\":2.5");
+    D6R_REQUIRE(!Client::decodeDirectoryPage(fractional).available);
+    std::string tooMany = "{\"listings\":[";
+    for (int index = 0; index < 26; ++index) tooMany += (index == 0 ? "" : ",") + row;
+    tooMany += "],\"nextCursor\":null}";
+    D6R_REQUIRE(!Client::decodeDirectoryPage(tooMany).available);
+    D6R_REQUIRE(!Client::decodeDirectoryPage("{\"listings\":[],\"nextCursor\":\"../bad\"}").available);
+}
+
 #ifndef _WIN32
+D6R_TEST_CASE("NET-DIR reviewed menu dispatch renders browser states and preserves navigation focus") {
+    char name[] = "duel6r-browser-render-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot;
+        std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recording = std::make_unique<Test::RecordingRenderer>();
+    auto &recorder = *recording; video.renderer = std::move(recording);
+    Font font(recorder); font.load("data/font.ttf", application.console);
+    auto &original = *application.service;
+    AppService service(font, original.getConsole(), original.getTextureManager(), video,
+        original.getInput(), original.getControlsManager(), original.getSound(), original.getScriptManager());
+    NetworkMenu menu(service, application.gameResources, {}, [] {});
+    const auto texts = [&] {
+        recorder.draws.clear(); menu.render();
+        std::string result;
+        for (const auto &draw: recorder.draws) {
+            const auto found = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),
+                [&](const auto &entry) { return entry.texture == draw.material.getTexture(); });
+            if (found != font.fontCache.entryList.end()) result += found->text + "\n";
+        }
+        const auto origin = recorder.getViewMatrix() * Vector(0, 0);
+        D6R_REQUIRE_EQ(0.0f, origin.x); D6R_REQUIRE_EQ(0.0f, origin.y);
+        return result;
+    };
+    auto entry = texts();
+    D6R_REQUIRE(entry.find("Host") < entry.find("Browse sessions"));
+    D6R_REQUIRE(entry.find("Browse sessions") < entry.find("Direct connect"));
+    menu.focus = 1; menu.activate();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    D6R_REQUIRE_EQ(3, menu.focus);
+    std::promise<Client::DirectoryPage> response;
+    menu.browser.pending = response.get_future();
+    D6R_REQUIRE(texts().find("Loading sessions...") != std::string::npos);
+    D6R_REQUIRE(!menu.browserFocusEnabled(2));
+    response.set_value({true, {}, {}}); menu.browser.update();
+    D6R_REQUIRE(texts().find("No active sessions listed") != std::string::npos);
+    Client::DirectoryListing row;
+    row.id = std::string(32, 'a'); row.sessionId = std::string(32, 'b');
+    row.endpoint = {"127.0.0.1", 25000}; row.phase = "first-round"; row.mode = "predator";
+    row.players = 2; row.capacity = 15; row.passwordRequired = true;
+    row.expiresAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
+    menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
+    auto results = texts();
+    D6R_REQUIRE(results.find("BROWSE SESSIONS") != std::string::npos);
+    D6R_REQUIRE(results.find("Same-machine endpoint") != std::string::npos);
+    menu.focus = 1; menu.activate();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
+    D6R_REQUIRE_EQ(2, menu.focus);
+    menu.runtime.current.journey = Client::NetworkJourney::Failure;
+    menu.runtime.current.failure = "Connection not authorized.";
+    menu.update(0);
+    std::string reason;
+    D6R_REQUIRE_EQ(menu.retryEligible(menu.runtime.current, reason) ? 1 : 0, menu.focus);
+    auto controls = PlayerControls::keyboardControls("K1: Arrows", application.input,
+        SDLK_LEFT, SDLK_RIGHT, SDLK_UP, SDLK_DOWN, SDLK_RCTRL, SDLK_RSHIFT, SDLK_RETURN);
+    menu.localPlayers = {{"Guest", controls.get(), "K1: Arrows"}};
+    const auto originalAddress = menu.address, originalPort = menu.port;
+    menu.activate(); D6R_REQUIRE_EQ(2, menu.focus);
+    menu.update(0); // The normal next frame must not overwrite the edit destination.
+    D6R_REQUIRE_EQ(2, menu.focus);
+    menu.textInputEvent(TextInputEvent("corrected-password"));
+    menu.update(0);
+    D6R_REQUIRE_EQ(std::string("corrected-password"), menu.password);
+    D6R_REQUIRE_EQ(originalAddress, menu.address); D6R_REQUIRE_EQ(originalPort, menu.port);
+    D6R_REQUIRE_EQ(std::size_t(1), menu.localPlayers.size());
+    D6R_REQUIRE_EQ(std::string("Guest"), menu.localPlayers.front().name);
+    D6R_REQUIRE(menu.localPlayers.front().controls == controls.get());
+    D6R_REQUIRE(menu.browserSelection && menu.browserSelection->id == row.id);
+    D6R_REQUIRE(texts().find("Password required") != std::string::npos);
+    menu.back(); menu.browser.page.available = false;
+    D6R_REQUIRE(texts().find("Directory unavailable") != std::string::npos);
+    menu.focus = 3; menu.activate();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
+    D6R_REQUIRE(!menu.browserSelection);
+}
+
+D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and input through update and render") {
+    char name[] = "duel6r-browser-shrink-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot; std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recording = std::make_unique<Test::RecordingRenderer>();
+    auto &recorder = *recording; video.renderer = std::move(recording);
+    Font font(recorder); font.load("data/font.ttf", application.console);
+    auto &original = *application.service;
+    AppService service(font, original.getConsole(), original.getTextureManager(), video,
+        original.getInput(), original.getControlsManager(), original.getSound(), original.getScriptManager());
+    NetworkMenu menu(service, application.gameResources, {}, [] {});
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    const auto texts = [&] {
+        recorder.draws.clear(); recorder.quads.clear(); menu.render(); std::string result;
+        for (const auto &draw: recorder.draws) {
+            const auto found = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),
+                [&](const auto &entry) { return entry.texture == draw.material.getTexture(); });
+            if (found != font.fontCache.entryList.end()) result += found->text + "\n";
+        }
+        return result;
+    };
+    std::vector<Client::DirectoryListing> rows;
+    for (int index = 0; index < 25; ++index) {
+        Client::DirectoryListing row;
+        row.id = std::string(30, 'a') + std::to_string(10 + index); row.sessionId = row.id;
+        row.endpoint = {"127.0.0.1", static_cast<std::uint16_t>(25000 + index)};
+        row.mode = "deathmatch"; row.phase = "lobby"; row.players = 1; row.capacity = 15;
+        row.expiresAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
+        rows.push_back(row);
+    }
+    const auto deliver = [&](Client::DirectoryPage page) {
+        std::promise<Client::DirectoryPage> response;
+        menu.browser.pending = response.get_future();
+        response.set_value(std::move(page)); menu.update(0);
+    };
+    const auto scrollToLast = [&] {
+        menu.browser.requested = std::chrono::steady_clock::now();
+        deliver({true, rows, "next-page"}); menu.focus = 0;
+        for (int index = 0; index < 25; ++index)
+            menu.keyEvent(KeyPressEvent(SDLK_DOWN, SysEvent::ButtonState::PRESSED, 0));
+        D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
+        D6R_REQUIRE(menu.browserScroll > 0);
+    };
+    const auto requestRefresh = [&](bool automatic) {
+        if (automatic) {
+            menu.browser.requested -= std::chrono::seconds(21); menu.update(0);
+        } else { menu.focus = 2; menu.activate(); }
+        D6R_REQUIRE(menu.browser.loading());
+    };
+    for (bool automatic: {false, true}) {
+        for (bool retainSelected: {false, true}) {
+            scrollToLast();
+            requestRefresh(automatic);
+            const auto survivor = retainSelected ? rows.back() : rows.front();
+            deliver({true, {survivor}, {}});
+            D6R_REQUIRE_EQ(0, menu.browserScroll);
+            D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
+            if (!retainSelected) {
+                D6R_REQUIRE(!menu.browserFocusEnabled(1));
+                D6R_REQUIRE(texts().find("Session is no longer listed.") != std::string::npos);
+            }
+            D6R_REQUIRE(texts().find("127.0.0.1:" + std::to_string(survivor.endpoint.port)
+                + " deathmatch " + survivor.sessionId.substr(28)) != std::string::npos);
+            menu.focus = 0; menu.keyEvent(KeyPressEvent(SDLK_DOWN, SysEvent::ButtonState::PRESSED, 0));
+            D6R_REQUIRE_EQ(survivor.id, menu.selectedListing);
+            D6R_REQUIRE(menu.browserFocusEnabled(1));
+        }
+        scrollToLast(); requestRefresh(automatic); deliver({true, {}, {}});
+        D6R_REQUIRE_EQ(0, menu.browserScroll); D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
+        D6R_REQUIRE(texts().find("No active sessions listed") != std::string::npos);
+        requestRefresh(automatic); deliver({true, {rows.front()}, {}});
+        D6R_REQUIRE(texts().find("127.0.0.1:25000 deathmatch aa10") != std::string::npos);
+    }
+    scrollToLast();
+    auto reordered = rows;
+    std::rotate(reordered.begin(), reordered.end() - 1, reordered.end());
+    deliver({true, reordered, {}});
+    D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
+    D6R_REQUIRE_EQ(0, menu.browserScroll);
+    D6R_REQUIRE(texts().find("127.0.0.1:25024 deathmatch aa34") != std::string::npos);
+    scrollToLast(); deliver({}); // Failed refresh retains data but disables joining.
+    D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
+    D6R_REQUIRE(!menu.browserFocusEnabled(1));
+    D6R_REQUIRE(texts().find("Directory unavailable") != std::string::npos);
+    deliver({true, {rows.front()}, {}});
+    const auto &screen = video.getScreen();
+    const auto scale = std::min(1.35f, std::min(float(screen.getClientWidth()) / 850, float(screen.getClientHeight()) / 700));
+    const auto tx = (screen.getClientWidth() - int(850 * scale)) / 2;
+    const auto ty = (screen.getClientHeight() - int(700 * scale)) / 2;
+    menu.mouseButtonEvent(MouseButtonEvent(tx + int(100 * scale), ty + int(474 * scale),
+        SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
+    D6R_REQUIRE_EQ(rows.front().id, menu.selectedListing);
+    D6R_REQUIRE(menu.browserFocusEnabled(1));
+    // Page position is rendered from real cursor navigation, with no invented total.
+    // Traverse paging before the footer, skipping disabled Previous on page one.
+    scrollToLast();
+    auto rendered = texts();
+    D6R_REQUIRE(rendered.find("Page 1\n") != std::string::npos);
+    D6R_REQUIRE(rendered.find("Previous page") < rendered.find("Join selected"));
+    D6R_REQUIRE(rendered.find("Next page") < rendered.find("Join selected"));
+    for (int expected: {5, 1, 2, 3, 6, 0}) {
+        menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, 0));
+        menu.update(0); D6R_REQUIRE_EQ(expected, menu.focus);
+    }
+    for (int expected: {6, 3, 2, 1, 5, 0}) {
+        menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+        menu.update(0); D6R_REQUIRE_EQ(expected, menu.focus);
+    }
+    // The new pointer regions use the same scaled layout as rendering.
+    menu.mouseButtonEvent(MouseButtonEvent(tx + int(600 * scale), ty + int(120 * scale),
+        SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
+    menu.update(0);
+    D6R_REQUIRE_EQ(0, menu.browserScroll); D6R_REQUIRE(menu.selectedListing.empty());
+    deliver({true, {rows.front()}, "third-page"});
+    rendered = texts();
+    D6R_REQUIRE(rendered.find("Page 2\n") != std::string::npos);
+    D6R_REQUIRE(rendered.find("127.0.0.1:25000") != std::string::npos);
+    menu.focus = 0; menu.keyEvent(KeyPressEvent(SDLK_DOWN, SysEvent::ButtonState::PRESSED, 0));
+    for (int expected: {4, 5, 1, 2, 3, 6, 0}) {
+        menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, 0));
+        menu.update(0); D6R_REQUIRE_EQ(expected, menu.focus);
+    }
+    // Directional/controller traversal shares the same row -> paging -> footer order.
+    for (int expected: {4, 5, 1, 2, 3, 6, 0}) {
+        menu.moveFocus(1); D6R_REQUIRE_EQ(expected, menu.focus);
+    }
+    menu.browser.received -= std::chrono::seconds(31);
+    for (int expected: {4, 2, 3, 6, 0}) {
+        menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, 0));
+        D6R_REQUIRE_EQ(expected, menu.focus); // stale Next and Join stay excluded
+    }
+    menu.mouseButtonEvent(MouseButtonEvent(tx + int(100 * scale), ty + int(120 * scale),
+        SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
+    menu.update(0);
+    deliver({true, rows, {}});
+    D6R_REQUIRE_EQ(0, menu.browserScroll);
+    rendered = texts();
+    D6R_REQUIRE(rendered.find("Page 1\n") != std::string::npos);
+    D6R_REQUIRE(rendered.find("127.0.0.1:25000") != std::string::npos);
+    const auto textBounds = [&](const std::string &prefix) {
+        for (const auto &quad: recorder.quads) {
+            const auto entry = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),
+                [&](const auto &item) { return item.texture == quad.material.getTexture(); });
+            if (entry == font.fontCache.entryList.end() || entry->text.find(prefix) != 0) continue;
+            // Renderer::quad submits position/UV pairs; these are the first two
+            // position arguments retained by the existing recording helper.
+            return std::make_pair(std::min(quad.vertices[0].y, quad.vertices[2].y),
+                                  std::max(quad.vertices[0].y, quad.vertices[2].y));
+        }
+        Duel6::Test::fail("rendered text bounds", __FILE__, __LINE__, prefix);
+        return std::make_pair(0.0f, 0.0f);
+    };
+    D6R_REQUIRE(textBounds("Join selected").second < textBounds("Previous page").first);
+    D6R_REQUIRE(textBounds("Join selected").second < textBounds("Next page").first);
+    D6R_REQUIRE(textBounds("Page 1").second < textBounds("LAN-first.").first);
+    D6R_REQUIRE(textBounds("Back").second < textBounds("Join selected").first);
+}
+
+D6R_TEST_CASE("NET-ADM reviewed presenter uses authoritative per-player arrival age for every observer") {
+    char name[] = "duel6r-arrival-render-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot; std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recorder = std::make_unique<Test::RecordingRenderer>();
+    auto &recording = *recorder; video.renderer = std::move(recorder);
+    auto state = canonical(91, Network::Replication::Phase::ActiveRound);
+    Network::Replication::PlayerState existing, arrival;
+    existing.playerId = 101; arrival.playerId = 103;
+    state.players = {existing, arrival}; state.phaseTime = 500;
+    Network::Replication::ContinuingEffectState effect;
+    effect.effectId = 1; effect.playerId = 103; effect.type = "player-arrival"; effect.remaining = 120;
+    state.effects = {effect};
+    // Host/existing/new observers all receive the same authoritative effect; no local first-snapshot timer.
+    for (int observer = 0; observer < 3; ++observer) {
+        CanonicalWorldPresenter presenter(*application.service, application.gameResources);
+        presenter.update(0, &state, {});
+        recording.points.clear(); presenter.renderPlayerEffects(state, existing, 0, 0);
+        D6R_REQUIRE(recording.points.empty());
+        presenter.renderPlayerEffects(state, arrival, 0, 0);
+        D6R_REQUIRE_EQ(std::size_t(15), recording.points.size());
+        const auto initial = recording.points.front().position;
+        D6R_REQUIRE(std::abs(std::sqrt(initial.x * initial.x + initial.y * initial.y) - 0.15f) < 0.001f);
+    }
+    state.effects[0].remaining = 60; state.phaseTime += 60;
+    CanonicalWorldPresenter reconnect(*application.service, application.gameResources);
+    reconnect.update(0, &state, {});
+    recording.points.clear(); reconnect.renderPlayerEffects(state, arrival, 0, 0);
+    D6R_REQUIRE_EQ(std::size_t(15), recording.points.size());
+    const auto point = recording.points.front().position;
+    D6R_REQUIRE(std::abs(std::sqrt(point.x * point.x + point.y * point.y) - 0.525f) < 0.001f);
+    state.effects.clear(); state.phaseTime += 60;
+    recording.points.clear(); reconnect.renderPlayerEffects(state, arrival, 0, 0);
+    D6R_REQUIRE(recording.points.empty());
+}
+
+D6R_TEST_CASE("NET-DIR NET-PASS password setup preserves complete UTF8 input and bounded editable correction") {
+    char name[] = "duel6r-password-editor-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    NetworkMenu menu(*application.service, application.gameResources, {}, [] {});
+    menu.setupScreen = NetworkMenu::SetupScreen::Host; menu.focus = 2;
+    menu.textInputEvent(TextInputEvent(u8"së"));
+    D6R_REQUIRE_EQ(std::string(u8"së"), menu.password);
+    menu.keyEvent(KeyPressEvent(SDLK_BACKSPACE, SysEvent::ButtonState::PRESSED, 0));
+    D6R_REQUIRE_EQ(std::string("s"), menu.password);
+    menu.password = std::string(127, 'x');
+    menu.textInputEvent(TextInputEvent(u8"ë"));
+    D6R_REQUIRE_EQ(std::size_t(127), menu.password.size());
+    menu.password = u8"a password ë";
+    Network::HostComposition::Setup setup;
+    setup.localPlayerNames = {"Host"};
+    setup.password = std::make_shared<Network::SessionPassword>(menu.password);
+    const auto decoded = Network::HostComposition::deserialize(Network::HostComposition::serializeSetup(setup));
+    D6R_REQUIRE(decoded && decoded->setup && decoded->setup->password);
+    D6R_REQUIRE_EQ(menu.password, std::string(decoded->setup->password->value()));
+}
+
+D6R_TEST_CASE("NET-DIR browser selection blocks stale full closed and removed sessions") {
+    char name[] = "duel6r-browser-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    NetworkMenu menu(*application.service, application.gameResources, {}, [] {});
+    Client::DirectoryListing row;
+    row.id = std::string(32, 'a'); row.sessionId = std::string(32, 'b');
+    row.endpoint = {"127.0.0.1", 25000}; row.mode = "predator"; row.phase = "first-round";
+    row.players = 2; row.capacity = 15; row.passwordRequired = true;
+    row.expiresAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
+    menu.browser.page = {true, {row}, {}};
+    menu.browser.received = std::chrono::steady_clock::now();
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser; menu.selectedListing = row.id;
+    menu.browser.page.available = false; menu.joinSelected();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    menu.browser.page.available = true; menu.browser.page.listings[0].players = 15; menu.joinSelected();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    menu.browser.page.listings[0] = row; menu.browser.page.listings[0].phase = "closed"; menu.joinSelected();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    menu.browser.page.listings[0] = row; menu.joinSelected();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
+    D6R_REQUIRE_EQ(2, menu.focus);
+    D6R_REQUIRE(menu.browserSelection && menu.browserSelection->id == row.id);
+    menu.focus = 0; menu.textInputEvent(TextInputEvent("1"));
+    D6R_REQUIRE(!menu.browserSelection && menu.joinFromBrowser);
+    menu.back(); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    menu.browser.page.listings.clear(); menu.joinSelected();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    D6R_REQUIRE_EQ(row.id, menu.selectedListing);
+}
+
+D6R_TEST_CASE("NET-DIR NET-PASS setup rosters retain scrolling and pointer removal below password help") {
+    char name[] = "duel6r-setup-roster-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    NetworkMenu menu(*application.service, application.gameResources, {}, [] {});
+    menu.setupScreen = NetworkMenu::SetupScreen::Host;
+    for (int index = 0; index < 15; ++index) {
+        const auto name = "Player " + std::to_string(index);
+        menu.availablePersons.push_back(name); menu.localPlayers.push_back(player(name));
+    }
+    menu.focus = 3 + 15 + 14 * 2;
+    menu.syncSetupScroll(); D6R_REQUIRE_EQ(7, menu.setupPlayersScroll);
+    menu.focus = 3 + 14;
+    menu.syncSetupScroll(); D6R_REQUIRE_EQ(7, menu.setupPersonsScroll);
+    const auto &screen = application.service->getVideo().getScreen();
+    const float scale = std::min(1.35f, std::min(float(screen.getClientWidth()) / 850, float(screen.getClientHeight()) / 700));
+    const int tx = (screen.getClientWidth() - int(850 * scale)) / 2;
+    const int ty = (screen.getClientHeight() - int(700 * scale)) / 2;
+    menu.mouseWheelEvent(MouseWheelEvent(tx + int(200 * scale), ty + int(300 * scale), 0, 3));
+    D6R_REQUIRE_EQ(4, menu.setupPersonsScroll);
+    D6R_REQUIRE_EQ(std::size_t(15), menu.localPlayers.size());
+    menu.mouseButtonEvent(MouseButtonEvent(tx + int(760 * scale), ty + int(218 * scale),
+        SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
+    D6R_REQUIRE_EQ(std::size_t(14), menu.localPlayers.size());
+    D6R_REQUIRE_EQ(std::size_t(15), menu.availablePersons.size());
+    D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+}
+
 D6R_TEST_CASE("PR83 capture flat bundle menu Host Join Retry and effective level plans start real matches") {
     using namespace std::chrono_literals;
     D6R_REQUIRE(!std::filesystem::exists("resources"));
@@ -418,7 +828,7 @@ D6R_TEST_CASE("PR83 capture flat bundle menu Host Join Retry and effective level
         menu.lastJourney = Client::NetworkJourney::Inactive;
         menu.confirmation = NetworkMenu::Confirmation::None;
         menu.update(0);
-        menu.focus = 5; // Two endpoint fields, one person, one person/control pair, then Start/Connect.
+        menu.focus = 6; // Endpoint and password fields, one person, one control/remove pair, then Start/Connect.
     };
     for (unsigned transitions = 0; transitions < 4; ++transitions) {
         const auto port = unusedLoopbackPort();
@@ -539,6 +949,7 @@ D6R_TEST_CASE("PR83 capture Application K2 endpoint text holds do not invoke Bac
         if (screen == NetworkMenu::SetupScreen::Host) {
             key(SDLK_TAB, true); key(SDLK_TAB, false); menu.update(0);
         }
+        key(SDLK_TAB, true); key(SDLK_TAB, false); menu.update(0); // Leave the new password editor.
         key(SDLK_1, true); menu.update(0);
         D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
         key(SDLK_1, false); menu.update(0);
@@ -846,6 +1257,120 @@ D6R_TEST_CASE("PR83 real runtime End drains update from lobby and active match a
             return host.snapshot().journey == Client::NetworkJourney::Inactive;
         }));
     }
+}
+
+D6R_TEST_CASE("NET-PASS NET-ADM real protected direct and selected-session joins enforce password and enter live round") {
+    using namespace std::chrono_literals;
+    for (const std::string mode: {"Deathmatch", "Predator", "Team deathmatch"}) {
+        Client::NetworkSessionRuntime host, guest, arrival;
+        const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
+        Network::HostComposition::Setup setup;
+        setup.localPlayerNames = {"Host"}; setup.fixedLevel = "levels/duel_01.json";
+        setup.mode = mode; setup.teamCount = mode == "Team deathmatch" ? 2 : 0;
+        setup.quickLiquid = false; setup.roundLimit = 2;
+        setup.password = std::make_shared<Network::SessionPassword>("test-session-password");
+        D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}));
+        D6R_REQUIRE(pumpRuntimes(host, guest, arrival, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+        for (const std::string password: {"", "incorrect"}) {
+            D6R_REQUIRE(guest.join(endpoint, D6R_TEST_RESOURCE_DIR, {player("Guest")}, std::make_shared<Network::SessionPassword>(password)));
+            D6R_REQUIRE(pumpRuntimes(host, guest, arrival, 10s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Failure; }));
+            D6R_REQUIRE_EQ(std::string("Connection not authorized."), guest.snapshot().failure);
+            D6R_REQUIRE_EQ(std::size_t(1), host.snapshot().canonical->players.size());
+            guest.reset();
+        }
+        D6R_REQUIRE(guest.join(endpoint, D6R_TEST_RESOURCE_DIR, {player("Guest")}, setup.password));
+        D6R_REQUIRE(pumpRuntimes(host, guest, arrival, 10s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Lobby; }));
+        host.setReady(true); guest.setReady(true);
+        D6R_REQUIRE(pumpRuntimes(host, guest, arrival, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
+        host.startMatch();
+        D6R_REQUIRE(pumpRuntimes(host, guest, arrival, 10s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Match; }));
+        const auto before = *host.snapshot().canonical;
+        D6R_REQUIRE(before.phase == Network::Replication::Phase::ActiveRound && before.round);
+        D6R_REQUIRE(arrival.join(endpoint, D6R_TEST_RESOURCE_DIR, {player("Arrival one"), player("Arrival two")},
+            setup.password, Client::directorySessionId(before.sessionId)));
+        D6R_REQUIRE(pumpRuntimes(host, guest, arrival, 10s, [&] {
+            const auto state = arrival.snapshot();
+            return state.journey == Client::NetworkJourney::Match && state.canonical && state.canonical->players.size() == 4;
+        }));
+        const auto after = *arrival.snapshot().canonical;
+        D6R_REQUIRE_EQ(before.matchId, after.matchId);
+        D6R_REQUIRE(after.round && after.round->roundId == before.round->roundId);
+        D6R_REQUIRE(after.phaseTime >= before.phaseTime);
+        D6R_REQUIRE_EQ(std::uint8_t(1), after.currentRoundNumber);
+        for (const auto &existing: before.players) {
+            const auto found = std::find_if(after.players.begin(), after.players.end(), [&](const auto &p) { return p.playerId == existing.playerId; });
+            D6R_REQUIRE(found != after.players.end());
+            D6R_REQUIRE_EQ(existing.ownerParticipantId, found->ownerParticipantId);
+            D6R_REQUIRE_EQ(existing.team, found->team);
+            if (mode == "Predator") D6R_REQUIRE_EQ(existing.presentationAlpha, found->presentationAlpha);
+        }
+        const auto owner = std::find_if(after.participants.begin(), after.participants.end(), [&](const auto &participant) {
+            return participant.participantId == arrival.snapshot().localParticipantId;
+        });
+        D6R_REQUIRE(owner != after.participants.end() && owner->ownedPlayerIds.size() == 2);
+        host.endSession();
+        D6R_REQUIRE(pumpRuntimes(host, guest, arrival, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
+    }
+}
+
+D6R_TEST_CASE("NET-PASS real wrong selected session never allocates or admits a player") {
+    using namespace std::chrono_literals;
+    Client::NetworkSessionRuntime host, guest, unused;
+    const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
+    Network::HostComposition::Setup setup;
+    setup.localPlayerNames = {"Host"}; setup.fixedLevel = "levels/duel_01.json";
+    setup.password = std::make_shared<Network::SessionPassword>("scope-test-password");
+    D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+    const auto id = host.snapshot().canonical->sessionId;
+    D6R_REQUIRE(guest.join(endpoint, D6R_TEST_RESOURCE_DIR, {player("Guest")}, setup.password,
+        Client::directorySessionId(id == 1 ? 2 : id ^ 1)));
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Failure; }));
+    D6R_REQUIRE_EQ(std::string("Connection not authorized."), guest.snapshot().failure);
+    D6R_REQUIRE_EQ(std::size_t(1), host.snapshot().canonical->players.size());
+    D6R_REQUIRE_EQ(std::size_t(1), host.snapshot().canonical->participants.size());
+    guest.reset();
+    D6R_REQUIRE(guest.join(endpoint, D6R_TEST_RESOURCE_DIR, {player("Guest")}, setup.password, Client::directorySessionId(id)));
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Lobby; }));
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
+}
+
+D6R_TEST_CASE("NET-PASS key lifetime exhaustion restores reserved protected players without respawn") {
+    using namespace std::chrono_literals;
+    Client::NetworkSessionRuntime host, guest, unused;
+    guest.sessionLimits.lifetime = 4s;
+    const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
+    Network::HostComposition::Setup setup;
+    setup.localPlayerNames = {"Host"}; setup.fixedLevel = "levels/duel_01.json";
+    setup.quickLiquid = false; setup.roundLimit = 2;
+    setup.password = std::make_shared<Network::SessionPassword>("rotation-fixture");
+    D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+    D6R_REQUIRE(guest.join(endpoint, D6R_TEST_RESOURCE_DIR, {player("Guest")}, setup.password));
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Lobby; }));
+    host.setReady(true); guest.setReady(true);
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
+    host.startMatch();
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Match; }));
+    const auto participant = guest.snapshot().localParticipantId;
+    const auto before = *guest.snapshot().canonical;
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 8s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Reconnecting; }));
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 3s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Match; }));
+    const auto after = *guest.snapshot().canonical;
+    D6R_REQUIRE_EQ(participant, guest.snapshot().localParticipantId);
+    D6R_REQUIRE_EQ(before.sessionId, after.sessionId);
+    D6R_REQUIRE_EQ(before.matchId, after.matchId);
+    D6R_REQUIRE(before.round && after.round && before.round->roundId == after.round->roundId);
+    D6R_REQUIRE(after.phaseTime > before.phaseTime);
+    D6R_REQUIRE_EQ(before.players.size(), after.players.size());
+    for (std::size_t index = 0; index < before.players.size(); ++index) {
+        D6R_REQUIRE_EQ(before.players[index].playerId, after.players[index].playerId);
+        D6R_REQUIRE_EQ(before.players[index].ownerParticipantId, after.players[index].ownerParticipantId);
+        D6R_REQUIRE(!after.players[index].invulnerable);
+    }
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
 }
 
 D6R_TEST_CASE("PR83 canonical held weapon draw alpha distinguishes invisibility from Predator") {

@@ -2,6 +2,8 @@
 
 ## Status, purpose, and requirements
 
+Current functional target: this screen must also provide entry to `NET-10` for central browsing under [NET-DIR-009](../network-host-directory.md). Host, direct Join, and Back remain available independently of directory availability. Earlier browser/password exclusions do not apply. UX owns the presentation of the additional action.
+
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It separates player-hosted network play from local-only Play and implements `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-015`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 Issue #30 must not add this graphical entry or change the current Local Play menu.
 

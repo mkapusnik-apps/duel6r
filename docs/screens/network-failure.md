@@ -2,6 +2,8 @@
 
 ## Status, purpose, and requirements
 
+Current functional target: `NET-08-password-rejected` uses `Connection not authorized.` and permits Edit setup to correct the password while retaining non-secret join setup. `NET-08-admission-closed` retains identifier `match-already-started` but replaces its old copy with `Round-one admission has closed. Join when the host returns to the lobby.` Browser-origin failures must also permit return to `NET-10` for refresh. Directory read failures remain in `NET-10`; they must not imply that an active game has ended. Functional acceptance uses [NET-DIR-AC-003 and NET-PASS-AC-001](../network-host-directory.md) and NET-ADM-AC-003. These rules supersede conflicting legacy copy below.
+
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It gives an actionable and truthful outcome for startup/initial-connection failures and terminal reconnect outcomes. It implements `NET-AC-002`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-011`, `NET-AC-013`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 Issue #30 defines the compatibility and admission outcomes for this screen in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 Issue #30 must not implement this graphical screen.

@@ -56,6 +56,8 @@ namespace Duel6::Client {
             })) return false;
         reset();
         HostServiceDependencies dependencies;
+        passwordRequired = setup.password && setup.password->required();
+        publisher = std::make_unique<DirectoryPublisher>();
         dependencies.lifecycleObserver = [this](const auto &value) { observeHostLifecycle(value); };
         dependencies.sessionPayloadObserver = [this](const auto &payload) { receiveHostPayload(payload); };
         supervisor = std::make_unique<HostServiceSupervisor>(std::move(dependencies));
@@ -79,7 +81,9 @@ namespace Duel6::Client {
     }
 
     bool NetworkSessionRuntime::join(const Network::Endpoint &endpoint, const std::string &resourcePath,
-                                     std::vector<NetworkLocalPlayer> localPlayers) {
+                                     std::vector<NetworkLocalPlayer> localPlayers,
+                                     std::shared_ptr<const Network::SessionPassword> password,
+                                     std::string expectedSessionId) {
         if (localPlayers.empty() || localPlayers.size() > Network::MaxNetworkPlayers
             || !std::all_of(localPlayers.begin(), localPlayers.end(), [](const auto &player) {
                 return Network::Trust::validParticipantName(player.name);
@@ -93,11 +97,26 @@ namespace Duel6::Client {
             current.journey = NetworkJourney::Starting;
         }
         guestCancelled = false;
-        guestWorker = std::thread([this, endpoint, resourcePath] {
+        guestWorker = std::thread([this, endpoint, resourcePath, password = std::move(password), expectedSessionId = std::move(expectedSessionId)] {
             Server::ServerConfig config; config.admissionClient = true; config.listenEndpoint = endpoint;
             config.resourcePath = resourcePath; config.localPlayers = static_cast<std::uint8_t>(players.size());
             for (const auto &player: players) config.localPlayerNames.push_back(player.name);
             Server::AdmissionRuntimeDependencies dependencies;
+            dependencies.sessionPassword = password;
+            dependencies.secureLimits = sessionLimits;
+            if (!expectedSessionId.empty()) {
+                try {
+                    if (expectedSessionId.size() != 32 || expectedSessionId.substr(0, 16) != std::string(16, '0'))
+                        throw std::invalid_argument("Invalid selected session.");
+                    dependencies.expectedSessionId = std::stoull(expectedSessionId.substr(16), nullptr, 16);
+                    if (dependencies.expectedSessionId == 0) throw std::invalid_argument("Invalid selected session.");
+                } catch (...) {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    current.journey = NetworkJourney::Failure;
+                    current.failure = "Selected session changed. Return to the browser and refresh.";
+                    return;
+                }
+            }
             dependencies.cancelled = [this] { return guestCancelled.load(); };
             dependencies.guestAdmission = [this](auto participant, const auto &playerIds) {
                 std::lock_guard<std::mutex> lock(mutex);
@@ -303,6 +322,29 @@ namespace Duel6::Client {
 
     void NetworkSessionRuntime::update() {
         drainHostCommands();
+        if (publisher && supervisor && supervisor->snapshot().state != HostServiceState::Active
+            && supervisor->snapshot().state != HostServiceState::Starting) publisher.reset();
+        if (publisher && supervisor && supervisor->snapshot().state == HostServiceState::Active) {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (current.canonical) {
+                DirectoryListing listing;
+                const auto &state = *current.canonical;
+                listing.sessionId = directorySessionId(state.sessionId);
+                listing.endpoint = current.endpoint;
+                listing.capacity = 15;
+                for (const auto &player: state.players)
+                    if (player.lifeState != Network::Replication::LifeState::Departed) ++listing.players;
+                listing.passwordRequired = passwordRequired;
+                listing.mode = state.settings.mode == "Predator" ? "predator" : state.settings.mode == "Team deathmatch" ? "teams" : "deathmatch";
+                listing.phase = state.phase == Network::Replication::Phase::Lobby ? "lobby"
+                    : state.phase == Network::Replication::Phase::ActiveRound && state.currentRoundNumber == 1 ? "first-round" : "closed";
+                if (listing.phase == "first-round") listing.capacity = static_cast<unsigned>(
+                    std::min<std::size_t>(15, listing.players + Network::Replication::MaxReplicatedPlayers - state.players.size()));
+                publisher->update(std::move(listing));
+                current.directoryAvailable = publisher->available();
+                current.directoryRegistering = publisher->busy() && !current.directoryAvailable;
+            }
+        }
         std::vector<std::pair<Network::Replication::Identity, std::size_t>> bindings;
         std::uint64_t tick = 0; Network::Replication::Identity participant = 0;
         {
@@ -482,6 +524,7 @@ namespace Duel6::Client {
         if (guestWorker.joinable()) guestWorker.join();
     }
     void NetworkSessionRuntime::reset() {
+        publisher.reset();
         stopGuest();
         if (supervisor) { supervisor->applicationExit(); supervisor.reset(); }
         std::lock_guard<std::mutex> lock(mutex);
@@ -492,4 +535,6 @@ namespace Duel6::Client {
         hostInput.reset(); hostPresentation.reset(); deferredHostPresentation.reset();
         deferredHostPresentationUpdates = 0; submittedHostTick.reset();
     }
+
+    void NetworkSessionRuntime::retryPublication() { if (publisher) publisher->retry(); }
 }

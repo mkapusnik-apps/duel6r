@@ -22,6 +22,16 @@ RUN $ErrorActionPreference = 'Stop'; `
     if ($process.ExitCode -ne 0) { throw "Python installation failed with exit code $($process.ExitCode)" }; `
     Remove-Item C:\python.exe
 
+RUN $ErrorActionPreference = 'Stop'; `
+    Invoke-WebRequest -UseBasicParsing 'https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2' -OutFile C:\mbedtls.tar.bz2; `
+    if ((Get-FileHash C:\mbedtls.tar.bz2 -Algorithm SHA256).Hash -ne 'a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6') { throw 'Mbed TLS archive checksum mismatch' }; `
+    New-Item -ItemType Directory -Force C:\Tools\mbedtls-source | Out-Null; `
+    tar -xf C:\mbedtls.tar.bz2 -C C:\Tools\mbedtls-source --strip-components=1; `
+    if ($LASTEXITCODE -ne 0) { throw 'Mbed TLS extraction failed' }; `
+    Remove-Item C:\mbedtls.tar.bz2
+
+COPY docker/mbedtls C:\Tools\duel6r-mbedtls
+
 WORKDIR C:\workspace
 
 COPY docker/build-windows-native-transport.cmd C:\Tools\build-windows-native-transport.cmd

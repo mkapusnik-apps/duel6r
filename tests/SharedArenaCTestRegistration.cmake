@@ -29,6 +29,7 @@ add_executable(
     ${D6R_NETWORK_SCAFFOLD_SOURCES}
 )
 target_include_directories(duel6r-networking-windows-contract-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(duel6r-networking-windows-contract-tests PRIVATE duel6r-network-scaffold)
 target_compile_definitions(duel6r-networking-windows-contract-tests PRIVATE _WIN32)
 
 add_test(NAME networking-windows-command-line-contract COMMAND duel6r-networking-windows-contract-tests)

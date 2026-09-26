@@ -162,7 +162,7 @@ def ordinary_startup_has_no_listener(executable):
         probe.settimeout(1); assert probe.connect_ex(("127.0.0.1", port)) != 0
 
 def unsupported_listener_addresses_are_rejected_before_listen(executable):
-    expected = "Network session cannot use a public or wildcard address. Use loopback or a private LAN address.\n"
+    expected = "Network session requires an eligible assigned unicast IPv4 listening address.\n"
     for host in ("0.0.0.0", "8.8.8.8", "169.254.1.1", "224.0.0.1", "255.255.255.255",
                  "10.0.0.255", "172.16.0.255", "192.168.0.255"):
         port = unused_port()

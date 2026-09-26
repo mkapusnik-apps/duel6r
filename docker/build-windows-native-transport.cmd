@@ -31,7 +31,14 @@ if not exist "%D6R_VC_RUNTIME_DIR%\vcruntime140.dll" (echo Unable to locate vcru
 echo Visual Studio C++ tools: %D6R_VCTOOLS_VERSION%
 echo Windows SDK: %D6R_WINDOWS_SDK_VERSION%
 
-cmake -S C:\workspace -B C:\workspace\build-windows-native-transport -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DD6R_TRANSPORT_ONLY=ON
+cmake -S C:\Tools\duel6r-mbedtls -B C:\Tools\mbedtls-build -G Ninja -DFETCHCONTENT_SOURCE_DIR_MBEDTLS=C:/Tools/mbedtls-source -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=C:/Tools/mbedtls
+if errorlevel 1 exit /b %errorlevel%
+cmake --build C:\Tools\mbedtls-build --parallel 4
+if errorlevel 1 exit /b %errorlevel%
+cmake --install C:\Tools\mbedtls-build
+if errorlevel 1 exit /b %errorlevel%
+
+cmake -S C:\workspace -B C:\workspace\build-windows-native-transport -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DD6R_TRANSPORT_ONLY=ON -DCMAKE_PREFIX_PATH=C:/Tools/mbedtls
 if errorlevel 1 exit /b %errorlevel%
 
 cmake --build C:\workspace\build-windows-native-transport --config Release

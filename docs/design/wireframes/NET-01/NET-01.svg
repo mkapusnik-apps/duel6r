@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="800" viewBox="0 0 900 800">
+  <title>NET-01 — Network entry</title>
+  <desc>850 by 700 logical desktop canvas. Fixed header and centered action column. Reading and focus order: Host, Browse sessions, Direct connect, Back. No scrolling.</desc>
+  <rect width="900" height="800" fill="white"/>
+  <g fill="none" stroke="black">
+    <rect x="25" y="20" width="850" height="700"/>
+    <rect x="350" y="45" width="200" height="95"/>
+    <rect x="295" y="345" width="310" height="36" stroke-width="2"/>
+    <rect x="295" y="389" width="310" height="36"/>
+    <rect x="295" y="433" width="310" height="36"/>
+    <rect x="295" y="477" width="310" height="36"/>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="16" text-anchor="middle">
+    <text x="450" y="98">Existing banner / version</text>
+    <text x="450" y="180">NETWORK PLAY</text>
+    <text x="450" y="225">LAN-first player-hosted sessions</text>
+    <text x="450" y="251">Directory or direct address</text>
+    <text x="450" y="277">Linux / Windows x86-64</text>
+    <text x="450" y="318">Lobby 1–15 • Match 2–15 participants and players</text>
+    <text x="450" y="369">Host</text>
+    <text x="450" y="413">Browse sessions</text>
+    <text x="450" y="457">Direct connect</text>
+    <text x="450" y="501">Back</text>
+  </g>
+  <text x="25" y="760" font-family="sans-serif" font-size="14">Annotation: Double outline marks initial focus. Preserve existing desktop scale and style.</text>
+</svg>

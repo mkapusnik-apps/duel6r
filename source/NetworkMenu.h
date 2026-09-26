@@ -9,6 +9,7 @@
 #include "AppService.h"
 #include "CanonicalWorldPresenter.h"
 #include "client/NetworkSessionRuntime.h"
+#include "client/HostDirectory.h"
 
 namespace Duel6 {
     class NetworkMenu final : public Context {
@@ -30,7 +31,7 @@ namespace Duel6 {
         void render() const override;
 
     private:
-        enum class SetupScreen { Entry, Host, Join };
+        enum class SetupScreen { Entry, Host, Join, Browser };
         enum class Confirmation { None, Leave, End };
         AppService &service;
         Renderer &renderer;
@@ -48,6 +49,12 @@ namespace Duel6 {
         bool preferredFriendlyFire = false;
         SetupScreen setupScreen = SetupScreen::Entry;
         std::string address = "127.0.0.1";
+        std::string password;
+        Client::DirectoryBrowser browser;
+        std::string selectedListing;
+        std::optional<Client::DirectoryListing> browserSelection;
+        bool joinFromBrowser = false;
+        int browserScroll = 0;
         std::string hostAddress;
         std::vector<std::string> hostAddresses;
         bool hostAddressSelectorOpen = false;
@@ -57,6 +64,7 @@ namespace Duel6 {
         std::string port = std::to_string(Network::DefaultServerPort);
         int focus = 0;
         int setupScroll = 0;
+        int setupPersonsScroll = 0, setupPlayersScroll = 0;
         int summaryScroll = 0;
         int summaryHorizontal = 0;
         int rankingScroll = 0;
@@ -79,6 +87,7 @@ namespace Duel6 {
         void back();
         void moveFocus(int direction);
         void syncLobbyScroll(const Client::NetworkRuntimeSnapshot &snapshot);
+        void syncSetupScroll();
         void rescanControls();
         void cycleControl(std::size_t playerIndex, int direction = 1);
         void cyclePerson(std::size_t playerIndex, int direction = 1);
@@ -99,7 +108,7 @@ namespace Duel6 {
         void drawAction(Int32 y, const std::string &text, bool selected) const;
         void drawFocusKeyline(Int32 x, Int32 y, Int32 width, Int32 height, bool selected) const;
         void drawMenuCanvas(Int32 width, Int32 height) const;
-        void drawPlayers(const Network::Replication::CanonicalState &state) const;
+        void drawPlayers(const Network::Replication::CanonicalState &state, bool host = false) const;
         void drawMatch(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height,
                        bool interactive = true, const std::string &connectionState = "Connected",
                        bool showLiveNetworkState = true) const;
@@ -112,6 +121,10 @@ namespace Duel6 {
         void drawHostEndedPanel(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;
         void drawResult(const Network::Replication::CanonicalState &state, bool retained) const;
         void drawConfirmation() const;
+        void drawBrowser() const;
+        void selectBrowserRow(int direction);
+        void joinSelected();
+        bool browserFocusEnabled(int index) const;
     };
 }
 

@@ -264,6 +264,23 @@ namespace Duel6::Server::Authoritative {
         return issued;
     }
 
+    std::optional<R::IncrementalUpdate> AuthoritativeReplication::appendParticipants(
+            const AuthoritativeMatch &match, const std::vector<R::ParticipantState> &participants) {
+        if (!match.admissionOpen() || state.phase != R::Phase::ActiveRound || !state.round) return std::nullopt;
+        const auto before = *this;
+        for (const auto &participant: participants) {
+            const auto existing = std::find_if(state.participants.begin(), state.participants.end(),
+                [&](const auto &value) { return value.participantId == participant.participantId; });
+            if (existing == state.participants.end()) state.participants.push_back(participant);
+        }
+        state.round->rosterOrder = match.roundDecision().rosterOrder;
+        std::vector<R::PresentationEvent> events;
+        if (!updateFromMatch(match, events)) { *this = before; return std::nullopt; }
+        auto update = publisher.publish(state, std::move(events));
+        if (!update) *this = before;
+        return update;
+    }
+
     bool AuthoritativeReplication::updateFromMatch(const AuthoritativeMatch &match,
                                                     std::vector<R::PresentationEvent> &events) {
         if (state.matchId == 0) return false;
@@ -289,6 +306,7 @@ namespace Duel6::Server::Authoritative {
         else state.roundEndCountdown = 0;
         if (!interrupted && observedRound != state.currentRoundNumber) {
             state.entities.clear(); state.effects.clear();
+            playerArrivalTicks.clear();
             worldIdentities.clear();
             highestObservedEventSequence = 0; highestObservedTransitionSequence = 0;
             observedRound = state.currentRoundNumber;
@@ -401,6 +419,19 @@ namespace Duel6::Server::Authoritative {
                 state.entities.push_back(entity);
             }
             state.effects.clear();
+            // Persist each authoritative arrival's age in snapshots as well as updates.
+            // A late observer or reconnect must not restart existing players' effects.
+            for (const auto &player: state.players) {
+                const auto arrival = playerArrivalTicks.emplace(player.playerId, state.phaseTime).first->second;
+                const auto age = state.phaseTime - arrival;
+                if (player.lifeState != R::LifeState::Alive || age >= 120) continue;
+                R::ContinuingEffectState effect;
+                effect.effectId = worldIdentity(state.round->roundId, (UINT64_C(0xfc) << 48u) | player.playerId);
+                effect.type = "player-arrival";
+                effect.playerId = player.playerId;
+                effect.remaining = static_cast<std::int64_t>(120 - age);
+                state.effects.push_back(std::move(effect));
+            }
             for (const auto &player: state.players) if (!player.activeBonus.empty() && player.bonusRemaining > 0) {
                 R::ContinuingEffectState effect;
                 effect.effectId = worldIdentity(state.round->roundId, (UINT64_C(0xff) << 48u) | player.playerId);

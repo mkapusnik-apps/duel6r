@@ -158,11 +158,14 @@ namespace {
     class ProductionAdmissionListener final : public Duel6::Server::AdmissionRuntimeListener {
     public:
         ProductionAdmissionListener(std::size_t maxConnections, bool preAdmission,
-                                    Duel6::Network::Trust::Clock now) {
+                                    Duel6::Network::Trust::Clock now,
+                                    std::shared_ptr<const Duel6::Network::SessionPassword> password = {}) {
             Duel6::Network::SessionTransportDependencies dependencies;
             dependencies.now = std::move(now);
             dependencies.enforceNetworkSessionPolicy = true;
             dependencies.enforcePreAdmissionPolicy = preAdmission;
+            dependencies.secureSession = preAdmission;
+            dependencies.password = std::move(password);
             listener = std::make_unique<Duel6::Network::TcpListener>(maxConnections, std::move(dependencies));
         }
         bool start(const Duel6::Network::Endpoint &endpoint) override { return listener->start(endpoint); }
@@ -328,6 +331,13 @@ namespace {
         catch (...) {}
         if (!client) return 2;
         const auto closeClient = [&] { try { client->close(); } catch (...) {} };
+        const auto endedCopy = [&]() -> const char * {
+            try {
+                if (client->failure() == Duel6::Network::TransportFailure::NotAuthorized)
+                    return "Connection not authorized.\n";
+            } catch (...) {}
+            return "Connection ended before admission completed.\n";
+        };
         const auto cancelClient = [&] {
             try { client->cancel(); } catch (...) {}
             closeClient();
@@ -371,13 +381,15 @@ namespace {
             Duel6::Network::TransportTimePoint terminalAt{};
             try { if (interrupted) terminalAt = interrupted->terminalAt(); } catch (...) {}
             if (terminalAt != Duel6::Network::TransportTimePoint{} && terminalAt < deadline) {
-                output << "Connection ended before admission completed.\n";
+                output << endedCopy();
                 closeClient();
                 return 2;
             }
             Duel6::Network::TransportFailure failure = Duel6::Network::TransportFailure::SystemError;
             try { failure = client->failure(); } catch (...) {}
-            if (failure == Duel6::Network::TransportFailure::ResolveFailed)
+            if (failure == Duel6::Network::TransportFailure::SecureUnavailable)
+                output << Duel6::Network::SecureNetworkingUnavailableCopy << '\n';
+            else if (failure == Duel6::Network::TransportFailure::ResolveFailed)
                 output << "Host name could not be resolved.\n";
             else if (failure == Duel6::Network::TransportFailure::ConnectionRefused
                      || failure == Duel6::Network::TransportFailure::Unreachable)
@@ -392,12 +404,13 @@ namespace {
         try { connection = client->connection(); } catch (...) {}
         if (cancelAttempt()) return 2;
         if (!connection) {
-            output << "Connection ended before admission completed.\n";
+            output << endedCopy();
             closeClient();
             return 2;
         }
-        const auto request = Duel6::Network::makeLocalAdmissionRequest(
+        auto request = Duel6::Network::makeLocalAdmissionRequest(
                 config.localPlayers, std::move(manifest), config.localPlayerNames);
+        request.expectedSessionId = runtimeDependencies.expectedSessionId;
         if (runtimeNow(runtimeDependencies) >= deadline) {
             if (cancelAttempt()) return 2;
             output << "Connection timed out.\n";
@@ -410,7 +423,7 @@ namespace {
         catch (...) {}
         if (requestSent != Duel6::Network::SendResult::Accepted) {
             if (cancelAttempt()) return 2;
-            output << "Connection ended before admission completed.\n";
+            output << endedCopy();
             closeClient();
             return 2;
         }
@@ -448,6 +461,7 @@ namespace {
         std::optional<std::uint64_t> submittedInputTick;
         bool inputMatchStarted = false;
         const auto acceptedIdentityIsCurrent = [&](const Duel6::Network::Replication::CanonicalState &state) {
+            if (runtimeDependencies.expectedSessionId != 0 && state.sessionId != runtimeDependencies.expectedSessionId) return false;
             if (!acceptedOffer) return false;
             const auto participant = std::find_if(
                     state.participants.begin(), state.participants.end(), [&](const auto &value) {
@@ -470,8 +484,10 @@ namespace {
             const auto *initial = replicatedConnection.initialAdmissionState();
             if (!initial)
                 return GuestFrameDecision();
-            if (initial->phase != Duel6::Network::Replication::Phase::Lobby)
+            if (initial->sessionId != reconnectGrant->sessionId)
                 return GuestFrameDecision(GuestDecision::InvalidHost);
+            // Admission may have committed in round one. The calibrated snapshot
+            // must reflect the current state, even if an outcome followed commit.
             if (!replicatedLevelsMatchManifest(initial->settings, initial->round,
                                                request.gameplayManifest))
                 return GuestFrameDecision(GuestDecision::InvalidHost);
@@ -524,6 +540,14 @@ namespace {
                     }
                 }
 
+                // A provisional offer is not admission. The round-one outcome can
+                // close the window before commitment and invalidate that offer.
+                if (!admissionConfirmation) {
+                    try {
+                        const auto rejection = Duel6::Network::deserializeAdmissionResult(frame.payload);
+                        if (!rejection.admitted()) return GuestFrameDecision(GuestDecision::Rejected, rejection);
+                    } catch (...) {}
+                }
                 if (const auto grant = Duel6::Network::Lifecycle::deserializeReconnectGrant(frame.payload)) {
                     if (reconnectGrant || grant->participantId != acceptedOffer->participantId)
                         throw std::invalid_argument("Invalid reconnect grant");
@@ -647,7 +671,7 @@ namespace {
                     closeClient();
                     return 2;
                 case GuestDecision::Ended:
-                    output << "Connection ended before admission completed.\n";
+                    output << endedCopy();
                     closeClient();
                     return 2;
                 case GuestDecision::None:
@@ -681,7 +705,7 @@ namespace {
             try { snapshot = connection->sealAndDrainInput(); }
             catch (...) {
                 if (cancelAttempt()) return 2;
-                output << "Connection ended before admission completed.\n";
+                output << endedCopy();
                 closeClient();
                 return 2;
             }
@@ -704,7 +728,7 @@ namespace {
             attempt.finish();
             if (snapshot.terminalAt != Duel6::Network::TransportTimePoint{}
                 && snapshot.terminalAt < deadline) {
-                output << "Connection ended before admission completed.\n";
+                output << endedCopy();
             } else {
                 output << "Connection timed out.\n";
             }
@@ -725,7 +749,7 @@ namespace {
             try { received = connection->receive(frame); }
             catch (...) {
                 if (cancelAttempt()) return 2;
-                output << "Connection ended before admission completed.\n";
+                output << endedCopy();
                 closeClient();
                 return 2;
             }
@@ -1212,16 +1236,20 @@ namespace Duel6::Server {
             && this->config.tickRate != Network::Responsiveness::AuthoritativeTicksPerSecond)
             throw std::invalid_argument("Supported network matches require the fixed 60 Hz tick rate");
         if (!this->runtimeDependencies.clientFactory) {
-            this->runtimeDependencies.clientFactory = [safeClock] {
+            this->runtimeDependencies.clientFactory = [this, safeClock] {
                 Network::SessionTransportDependencies dependencies;
                 dependencies.now = safeClock;
                 dependencies.enforceNetworkSessionPolicy = true;
+                dependencies.secureSession = true;
+                dependencies.password = this->runtimeDependencies.sessionPassword;
+                dependencies.secureLimits = this->runtimeDependencies.secureLimits;
                 return std::make_unique<ProductionAdmissionClient>(std::move(dependencies));
             };
         }
         if (!this->runtimeDependencies.listenerFactory) {
-            this->runtimeDependencies.listenerFactory = [safeClock](std::size_t maximum, bool preAdmission) {
-                return std::make_unique<ProductionAdmissionListener>(maximum, preAdmission, safeClock);
+            this->runtimeDependencies.listenerFactory = [this, safeClock](std::size_t maximum, bool preAdmission) {
+                return std::make_unique<ProductionAdmissionListener>(maximum, preAdmission, safeClock,
+                        this->runtimeDependencies.sessionPassword);
             };
         }
         if (!this->runtimeDependencies.outboundWriter) {
@@ -1377,7 +1405,8 @@ namespace Duel6::Server {
         const bool loopbackHostname = config.listenEndpoint.host == "localhost";
         if (loopbackHostname) endpointScope = Network::Trust::EndpointScope::Loopback;
         if ((endpointScope != Network::Trust::EndpointScope::Loopback
-             && endpointScope != Network::Trust::EndpointScope::PrivateLan)
+             && endpointScope != Network::Trust::EndpointScope::PrivateLan
+             && endpointScope != Network::Trust::EndpointScope::PublicUnicast)
             || (!loopbackHostname
                 && Network::Trust::localListenerBindDecision(listenAddress)
                    != Network::Trust::LocalListenerBindDecision::Allowed)) {
@@ -1413,6 +1442,8 @@ namespace Duel6::Server {
                     if (!message || message->kind != Network::HostComposition::Kind::Setup || !message->setup
                         || message->setup->localPlayerNames.size() != config.localPlayers) break;
                     graphicalHostSetup = std::move(*message->setup);
+                    runtimeDependencies.sessionPassword = graphicalHostSetup->password;
+                    Network::Trust::secureEraseMemory(payload->data(), payload->size());
                     break;
                 }
                 try { runtimeDependencies.wait(std::chrono::milliseconds(5)); } catch (...) { break; }
@@ -1769,7 +1800,8 @@ namespace Duel6::Server {
             if (started.code == Authoritative::OutcomeCode::SettingsInvalid
                 || started.code == Authoritative::OutcomeCode::ContentUnavailable) return true;
             if (started.code != Authoritative::OutcomeCode::None) return false;
-            admissionPolicy->setMatchStarted(true);
+            // Gameplay start does not close first-round admission.
+            admissionPolicy->setMatchStarted(false);
             nextMatchTick = runtimeNow(runtimeDependencies) + matchTickDuration;
             return true;
         };
@@ -2085,6 +2117,16 @@ namespace Duel6::Server {
             for (auto iterator = connections.begin(); iterator != connections.end();) {
                 auto &runtime = *iterator;
                 auto &connection = runtime.transport;
+                const bool admissionOpen = !hostedMatch
+                    || hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby
+                    || (hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive
+                        && hostedMatch->match() && hostedMatch->match()->admissionOpen());
+                if (admissionPolicy && hostedMatch) admissionPolicy->setMatchStarted(!admissionOpen);
+                // An outcome established by a due simulation tick precedes a join
+                // commit at that instant. Drain due ticks before considering admission.
+                if (!runtime.admitted && admissionOpen && hostedMatch
+                    && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive
+                    && runtimeNow(runtimeDependencies) >= nextMatchTick) { ++iterator; continue; }
                 const auto rollback = [&] {
                     if (runtime.transactionId == 0 || !admissionPolicy) return;
                     const std::uint64_t transaction = runtime.transactionId;
@@ -2094,6 +2136,12 @@ namespace Duel6::Server {
                     observe(AdmissionLifecycleStage::TransactionRolledBack, runtime.connectionId, transaction);
                 };
                 try {
+                if (!runtime.admitted && runtime.transactionId != 0 && !admissionOpen) {
+                    Network::AdmissionResult closed;
+                    closed.code = Network::AdmissionResultCode::MatchAlreadyStarted;
+                    write(*connection, Network::serializeAdmissionResult(closed));
+                    rollback(); connection->requestClose();
+                }
                 if (!runtime.requestReceived && runtimeNow(runtimeDependencies) >= runtime.requestDeadline) {
                     connection->requestClose();
                 }
@@ -2183,7 +2231,11 @@ namespace Duel6::Server {
                                 runtime.requestedPlayerNames =
                                         Network::deserializeAdmissionRequest(frame.payload).localPlayerNames;
                             } catch (...) { runtime.requestedPlayerNames.clear(); }
-                            AdmissionOffer offer = admissionPolicy->offerPayload(frame.payload);
+                            AdmissionContext context;
+                            context.sessionId = lifecycleSessionId;
+                            if (hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive && hostedMatch->match())
+                                context.maximumPlayers = hostedMatch->match()->admissionCapacity();
+                            AdmissionOffer offer = admissionPolicy->offerPayload(frame.payload, context);
                             if (offer.pending()) {
                                 runtime.transactionId = offer.transactionId;
                                 runtime.offer = {offer.result.participantId, offer.result.playerIds};
@@ -2218,9 +2270,11 @@ namespace Duel6::Server {
                                     Network::deserializeAdmissionAcceptance(frame.payload);
                             accepted = frame.receivedAt < runtime.attemptDeadline
                                        && Network::sameAdmissionIdentitySet(acceptance, runtime.offer)
-                                       && observe(AdmissionLifecycleStage::AcceptanceReceived,
-                                                  runtime.connectionId, runtime.transactionId)
-                                       && admissionPolicy->commit(runtime.transactionId, runtime.connectionId);
+                                        && observe(AdmissionLifecycleStage::AcceptanceReceived,
+                                                   runtime.connectionId, runtime.transactionId)
+                                        && (!hostedMatch || hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby
+                                            || (hostedMatch->match() && hostedMatch->match()->admissionOpen()))
+                                        && admissionPolicy->commit(runtime.transactionId, runtime.connectionId);
                         } catch (...) {}
                         if (accepted) {
                             runtime.admitted = true;
@@ -2231,7 +2285,8 @@ namespace Duel6::Server {
                             if (sessionLifecycle) {
                                 lifecycleGrant = sessionLifecycle->admitGuest(
                                         runtime.offer.participantId, runtime.connectionId,
-                                        runtime.offer.playerIds, false);
+                                        runtime.offer.playerIds, false,
+                                        !hostedMatch || hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby);
                                 if (lifecycleGrant)
                                     participantConnections[runtime.offer.participantId] = runtime.connectionId;
                             }

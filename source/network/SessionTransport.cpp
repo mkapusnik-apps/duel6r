@@ -851,7 +851,9 @@ namespace Duel6::Network {
         Impl(SocketHandle socket, OutboundTransportDependencies outbound, TransportTimePoint acceptedAt,
               std::function<TransportTimePoint()> now = {},
               std::array<std::uint8_t, 4> source = {},
-              std::shared_ptr<Trust::PendingAdmissionLimiter::Reservation> admissionReservation = {})
+              std::shared_ptr<Trust::PendingAdmissionLimiter::Reservation> admissionReservation = {},
+              bool encrypted = false, bool server = false,
+              std::shared_ptr<const SessionPassword> password = {}, SecureSessionLimits secureLimits = {})
                 : socket(socket), outbound(std::move(outbound)), now(std::move(now)), source(source),
                   acceptanceTime(acceptedAt), admissionReservation(std::move(admissionReservation)),
                   lastInboundActivity(acceptedAt), lastOutboundProgress(acceptedAt), lastLivenessPing(acceptedAt) {
@@ -862,7 +864,16 @@ namespace Duel6::Network {
                 closeSocketOnce();
                 return;
             }
-            reader = std::thread([this] { readLoop(); });
+            if (encrypted) secure = std::make_unique<SecureSession>(static_cast<std::intptr_t>(socket), server, std::move(password), secureLimits);
+            reader = std::thread([this, server] {
+                if (secure && !secure->handshake(Clock::now() + std::chrono::seconds(server ? 3 : 10),
+                        [this] { return stop.load() || closeRequested.load(); })) {
+                    fail(TransportFailure::NotAuthorized);
+                    return;
+                }
+                secureReady.store(true);
+                readLoop();
+            });
             writer = std::thread([this] { writeLoop(); });
         }
 
@@ -1039,6 +1050,8 @@ namespace Duel6::Network {
         };
 
         SocketHandle socket;
+        std::unique_ptr<SecureSession> secure;
+        std::atomic<bool> secureReady{false};
         const OutboundTransportDependencies outbound;
         const std::function<TransportTimePoint()> now;
         std::atomic<bool> socketClosed{false};
@@ -1141,7 +1154,8 @@ namespace Duel6::Network {
             std::size_t offset = 0;
             Clock::time_point progress = Clock::now();
             while (offset < size && !stop.load()) {
-                if (!waitSocket(socket, false, std::chrono::milliseconds(100))) {
+                if (secure && secure->expired()) { fail(TransportFailure::PeerClosed); return false; }
+                if (!(secure && secure->pending()) && !waitSocket(socket, false, std::chrono::milliseconds(100))) {
                     auto now = Clock::now();
                     const auto lastActivity = lastTransportActivity();
                     if (now - lastActivity >= ReceiveIdleDeadline) {
@@ -1155,11 +1169,15 @@ namespace Duel6::Network {
                     }
                     continue;
                 }
+                std::ptrdiff_t count;
+                if (secure) count = secure->receive(target + offset, size - offset);
+                else {
 #ifdef D6R_TRANSPORT_WINDOWS
-                int count = recv(socket, reinterpret_cast<char *>(target + offset), static_cast<int>(size - offset), 0);
+                    count = recv(socket, reinterpret_cast<char *>(target + offset), static_cast<int>(size - offset), 0);
 #else
-                ssize_t count = recv(socket, target + offset, size - offset, 0);
+                    count = recv(socket, target + offset, size - offset, 0);
 #endif
+                }
                 if (count > 0) {
                     offset += static_cast<std::size_t>(count);
                     progress = Clock::now();
@@ -1168,6 +1186,11 @@ namespace Duel6::Network {
                     fail(TransportFailure::PeerClosed);
                     return false;
                 } else {
+                    if (secure) {
+                        if (count == -2) continue;
+                        fail(TransportFailure::ProtocolViolation);
+                        return false;
+                    }
                     int error = socketError();
                     if (!wouldBlock(error) && !interrupted(error)) {
                         fail(TransportFailure::SystemError);
@@ -1268,6 +1291,11 @@ namespace Duel6::Network {
         }
 
         OutboundSendOutcome sendFrameSegment(std::uint16_t kind, const std::uint8_t *data, std::size_t size) const {
+            if (secure) {
+                const auto count = secure->send(data, size);
+                if (count > 0) return {OutboundSendStatus::Sent, static_cast<std::size_t>(count)};
+                return count == -2 ? OutboundSendOutcome{OutboundSendStatus::WouldBlock, 0} : OutboundSendOutcome{};
+            }
             if (outbound.send) {
                 OutboundSendOutcome outcome = outbound.send(static_cast<std::intptr_t>(socket), kind, data, size);
                 if ((outcome.status == OutboundSendStatus::Sent && (outcome.bytes == 0 || outcome.bytes > size))
@@ -1339,6 +1367,8 @@ namespace Duel6::Network {
         }
 
         void writeLoop() {
+            while (!secureReady.load() && !stop.load() && !closeRequested.load())
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
             while (!stop.load()) {
                 PendingFrame frame;
                 bool controlFrame = false;
@@ -1481,6 +1511,9 @@ namespace Duel6::Network {
 
         void connectLoop() {
             const auto deadline = dependencyNow(dependencies) + StartupDeadline;
+            if (dependencies.secureSession && !SecureSession::supported(dependencies.secureLimits.hardwarePermitted)) {
+                finishFailure(TransportFailure::SecureUnavailable); return;
+            }
             const Trust::EndpointScope literalScope = Trust::classifyIpv4Literal(endpoint.host);
             const bool policyEndpointInvalid = dependencies.enforceNetworkSessionPolicy
                                                && (!Trust::validGuestEndpointName(endpoint.host)
@@ -1506,7 +1539,7 @@ namespace Duel6::Network {
                 resolution.endpoints.erase(std::remove_if(resolution.endpoints.begin(), resolution.endpoints.end(),
                         [](const ResolvedIpv4Endpoint &resolved) {
                             const auto scope = Trust::classifyIpv4(resolved.address);
-                            return scope != Trust::EndpointScope::Loopback && scope != Trust::EndpointScope::PrivateLan;
+                            return scope == Trust::EndpointScope::Unsupported || scope == Trust::EndpointScope::Invalid;
                         }), resolution.endpoints.end());
                 if (resolution.endpoints.empty()) {
                     finishFailure(TransportFailure::InvalidEndpoint);
@@ -1531,7 +1564,8 @@ namespace Duel6::Network {
                 auto active = std::shared_ptr<TcpConnection>(new TcpConnection(
                         std::make_unique<TcpConnection::Impl>(static_cast<SocketHandle>(outcome.nativeSocket),
                                                                dependencies.outbound,
-                                                               dependencyNow(dependencies), dependencies.now)));
+                                                               dependencyNow(dependencies), dependencies.now, std::array<std::uint8_t, 4>{},
+                                                               nullptr, dependencies.secureSession, false, dependencies.password, dependencies.secureLimits)));
                 if (active->state() != ClientState::Connected) {
                     if (active->terminalAt() != TransportTimePoint{}) {
                         std::lock_guard<std::mutex> lock(mutex);
@@ -1689,12 +1723,16 @@ namespace Duel6::Network {
 
         void listenLoop() {
             const auto deadline = dependencyNow(dependencies) + StartupDeadline;
+            if (dependencies.secureSession && !SecureSession::supported(dependencies.secureLimits.hardwarePermitted)) {
+                fail(TransportFailure::SecureUnavailable); return;
+            }
             std::array<std::uint8_t, 4> requestedAddress{};
             const auto requestedScope = Trust::classifyIpv4Literal(endpoint.host, &requestedAddress);
             const bool loopbackHostname = endpoint.host == "localhost";
             const bool policyEndpointInvalid = dependencies.enforceNetworkSessionPolicy
                                                && requestedScope != Trust::EndpointScope::Loopback
-                                               && requestedScope != Trust::EndpointScope::PrivateLan
+                                                && requestedScope != Trust::EndpointScope::PrivateLan
+                                                && requestedScope != Trust::EndpointScope::PublicUnicast
                                                && !loopbackHostname;
             if (!socketRuntime().ready() || endpoint.host.empty() || endpoint.host.find('\0') != std::string::npos
                 || endpoint.host.size() > MaxProtocolStringBytes || policyEndpointInvalid
@@ -1774,7 +1812,7 @@ namespace Duel6::Network {
                 std::shared_ptr<Trust::PendingAdmissionLimiter::Reservation> admissionReservation;
                 if (dependencies.enforceNetworkSessionPolicy) {
                     const auto peerScope = Trust::classifyIpv4(peerAddress);
-                    if (peerScope != Trust::EndpointScope::Loopback && peerScope != Trust::EndpointScope::PrivateLan) {
+                    if (peerScope == Trust::EndpointScope::Unsupported || peerScope == Trust::EndpointScope::Invalid) {
                         closeSocket(accepted);
                         continue;
                     }
@@ -1799,7 +1837,7 @@ namespace Duel6::Network {
                 auto connection = std::shared_ptr<TcpConnection>(new TcpConnection(
                         std::make_unique<TcpConnection::Impl>(accepted, dependencies.outbound, acceptedAt,
                                                                dependencies.now, peerAddress,
-                                                               std::move(admissionReservation))));
+                                                               std::move(admissionReservation), dependencies.secureSession, true, dependencies.password, dependencies.secureLimits)));
                 connections.push_back(connection);
                 pending.push_back(connection);
             }

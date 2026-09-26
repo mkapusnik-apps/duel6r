@@ -1,5 +1,6 @@
 #ifndef DUEL6_SERVER_AUTHORITATIVEMATCHTYPES_H
 #define DUEL6_SERVER_AUTHORITATIVEMATCHTYPES_H
+#include "../Defines.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -11,6 +12,8 @@ namespace Duel6::Server::Authoritative {
     using Tick = std::uint64_t;
 
     constexpr std::size_t MaxPlayers = 15;
+    // Bounded round history is separate from the simultaneously admitted roster.
+    constexpr std::size_t MaxPlayerHistory = D6_NETWORK_ROUND_PLAYER_HISTORY;
     constexpr std::size_t MaxParticipants = 15;
     constexpr std::size_t MaxLevels = 256;
     constexpr std::size_t MaxActions = 65536;

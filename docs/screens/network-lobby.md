@@ -2,6 +2,8 @@
 
 ## Status, purpose, and requirements
 
+Current functional target: admission closes and reopens under [NET-ADM-001 through NET-ADM-005](../network-play-first-release.md), not at host Start. New admission while gameplay runs enters `NET-05` directly. Lobby readiness behavior is unchanged. The host must be able to read publication availability and retry failed publication under NET-DIR-015 without ending the session. Functional acceptance uses NET-AC-007 and NET-DIR-AC-004.
+
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It exposes participant ownership, local-player configuration, host-owned match settings, authoritative roster order, readiness, and retained session results. Issue #32 defines its authoritative setup and result states in [`docs/network-authoritative-headless-match.md`](../network-authoritative-headless-match.md).
 Local-player configuration preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
 It implements `NET-VIS-001`, `NET-VIS-002`, `NET-VIS-009` through `NET-VIS-011`, `NET-VIS-AC-001`, `NET-VIS-AC-004`, and `NET-VIS-AC-005`. It consumes `CMP-VIS-001` through `CMP-VIS-004`, `CMP-VIS-AC-001`, and updated `AC-012` from [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).

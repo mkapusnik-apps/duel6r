@@ -135,6 +135,9 @@ namespace Duel6::Server {
     };
 
     struct AdmissionRuntimeDependencies {
+        std::shared_ptr<const Network::SessionPassword> sessionPassword;
+        Network::SecureSessionLimits secureLimits;
+        std::uint64_t expectedSessionId = 0;
         Network::Trust::Clock now;
         std::function<bool()> cancelled;
         std::function<void(std::chrono::milliseconds)> wait;

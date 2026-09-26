@@ -105,6 +105,8 @@ set(D6R_SOURCES
         source/client/LocalPlayerInputSession.h
         source/client/NetworkSessionRuntime.cpp
         source/client/NetworkSessionRuntime.h
+        source/client/HostDirectory.cpp
+        source/client/HostDirectory.h
         source/ConsoleCommands.cpp
         source/ConsoleCommands.h
         source/Context.cpp
@@ -687,6 +689,18 @@ if (MINGW)
 endif ()
 
 add_library(duel6r-network-scaffold STATIC ${D6R_NETWORK_SCAFFOLD_SOURCES})
+find_package(MbedTLS 3.6.7 EXACT CONFIG REQUIRED)
+if (UNIX AND NOT APPLE)
+    set(CMAKE_BUILD_RPATH "$ORIGIN/lib")
+    set(CMAKE_INSTALL_RPATH "$ORIGIN/lib")
+endif ()
+target_sources(duel6r-network-scaffold PRIVATE source/network/SecureSession.cpp)
+target_link_libraries(duel6r-network-scaffold PUBLIC MbedTLS::mbedtls MbedTLS::mbedx509 MbedTLS::mbedcrypto)
+if (NOT D6R_TRANSPORT_ONLY)
+    find_package(CURL 7.85 REQUIRED)
+    target_include_directories(duel6r-game-engine PUBLIC ${CURL_INCLUDE_DIRS})
+    target_link_libraries(duel6r-game-engine PUBLIC ${CURL_LIBRARIES})
+endif ()
 add_dependencies(duel6r-network-scaffold ${D6R_RESOLVER_APP_NAME})
 target_include_directories(duel6r-network-scaffold PUBLIC ${CMAKE_SOURCE_DIR}/source)
 target_compile_definitions(duel6r-network-scaffold PRIVATE NOMINMAX)

@@ -29,6 +29,8 @@ namespace Duel6::Server {
     struct AdmissionContext {
         bool authorized = true;
         bool hostPolicyAllows = true;
+        std::size_t maximumPlayers = Network::Trust::MaxParticipants;
+        std::uint64_t sessionId = 0;
     };
 
     struct AdmissionOffer {

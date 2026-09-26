@@ -171,6 +171,14 @@ set_tests_properties(duel6r-session-lifecycle-tests PROPERTIES
         TIMEOUT 30)
 
 if (NOT D6R_TRANSPORT_ONLY)
+    add_executable(duel6r-directory-client-integration-tests
+            ${CMAKE_SOURCE_DIR}/tests/DirectoryClientIntegrationTests.cpp)
+    target_include_directories(duel6r-directory-client-integration-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-directory-client-integration-tests PRIVATE
+            duel6r-game-engine duel6r-network-scaffold)
+    if (MINGW)
+        set_property(TARGET duel6r-directory-client-integration-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+    endif ()
     add_executable(duel6r-network-session-runtime-tests
             ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
             ${CMAKE_SOURCE_DIR}/tests/NetworkSessionRuntimeTests.cpp)
@@ -284,6 +292,12 @@ if (UNIX)
 endif ()
 
 if (UNIX OR WIN32)
+    add_executable(duel6r-secure-test-peer ${CMAKE_SOURCE_DIR}/tests/SecureAdmissionPeer.cpp)
+    target_include_directories(duel6r-secure-test-peer PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-secure-test-peer PRIVATE duel6r-network-scaffold)
+    if (MINGW)
+        set_property(TARGET duel6r-secure-test-peer APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+    endif ()
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(
             NAME duel6r-authoritative-match-process-tests
@@ -325,6 +339,7 @@ if (UNIX OR WIN32)
     )
     set_tests_properties(duel6r-admission-process-tests PROPERTIES
             LABELS "application;integration;network;admission;process"
+            ENVIRONMENT "D6R_TEST_SECURE_PEER=$<TARGET_FILE:duel6r-secure-test-peer>"
             TIMEOUT 45)
 
     add_test(

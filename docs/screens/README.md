@@ -1,6 +1,8 @@
 # Screen inventory
 
 This inventory is authoritative for product screens and materially distinct full-screen visual states.
+
+The current directory/password and round-one admission target affects `NET-01`, `NET-02`, `NET-03`, `NET-04`, `NET-05`, and `NET-08`; their earlier acceptance does not cover these changed states. `NET-10` is the [host browser](network-browser.md), governed by [NET-DIR-001 through NET-DIR-016 and their acceptance criteria](../network-host-directory.md). Its states are `NET-10-loading`, `NET-10-results`, `NET-10-empty`, `NET-10-stale`, and `NET-10-unavailable`. Existing screen contracts identify password, live-arrival, and admission-closed variants. UX owns their visual specifications; no legacy screen migration is required.
 The target baseline uses the shared arena view requirements in `docs/features.md`.
 The product has no implemented URL routes.
 Each route value below therefore names a reproducible local workflow.

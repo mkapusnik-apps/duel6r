@@ -2,6 +2,8 @@
 
 ## Status, purpose, and requirements
 
+Current functional target: entry may also come from `NET-10` with the selected listing and endpoint. `NET-03-password` permits password entry and correction under [NET-PASS-001 through NET-PASS-007](../network-host-directory.md). `NET-03-live-admission` enters `NET-05` after complete round-one admission under NET-ADM-011. Lobby admission still enters `NET-04`. All initial snapshot references below mean the current authoritative lobby or match state as applicable. The former browser, password, public-address, and blanket join-in-progress exclusions are superseded. Functional acceptance uses NET-DIR-AC-003, NET-PASS-AC-001, NET-ADM-AC-001, and NET-ADM-AC-003. The user must be able to return to `NET-10` and refresh after a failed listing selection.
+
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It configures a guest's direct endpoint and local players, then truthfully reports connection progress. It implements `NET-AC-001`, `NET-AC-002`, `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 It preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
 It implements `NET-VIS-001`, `NET-VIS-002`, `NET-VIS-009` through `NET-VIS-011`, `NET-VIS-AC-001`, `NET-VIS-AC-004`, and `NET-VIS-AC-005`. It also consumes `CMP-VIS-001` through `CMP-VIS-004`, `CMP-VIS-AC-001`, and updated `AC-012` from [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).

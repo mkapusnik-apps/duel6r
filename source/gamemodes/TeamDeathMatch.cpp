@@ -74,6 +74,7 @@ namespace Duel6 {
             level.findStartingPositions(startingPositions);
             const Size layerSpan = startingPositions.size() / static_cast<Size>(teamsCount);
             const Int32 randomizer = Math::random(teamsCount, randomSource, "team-spawn-rotation");
+            startingAreaRotation = randomizer;
             std::vector<bool> available(startingPositions.size(), true);
             for (Player &player : players) {
                 auto &ammoRange = game.getSettings().getAmmoRange();
@@ -113,6 +114,7 @@ namespace Duel6 {
 
         Int32 layerSpan = Int32(startingPositions.size()) / teamsCount;
         Int32 randomizer = Math::random(teamsCount, randomSource, "team-spawn-rotation");
+        startingAreaRotation = randomizer;
         for (Player &player : players) {
             auto &ammoRange = game.getSettings().getAmmoRange();
             Int32 ammo = Math::random(ammoRange.first, ammoRange.second, randomSource, "starting-ammo");
@@ -140,6 +142,21 @@ namespace Duel6 {
         for (auto &player : players) {
             player.setEventListener(*eventListener);
         }
+    }
+
+    void TeamDeathMatch::initializeArrival(Game &game, Player &player, World &world, RandomSource &randomSource) {
+        Level::StartingPositionList positions;
+        world.getLevel().findStartingPositions(positions);
+        const Size span = positions.size() / static_cast<Size>(teamsCount);
+        if (span == 0) throw std::runtime_error("No team arrival position.");
+        const Size team = (player.getRosterSlot() + static_cast<Size>(startingAreaRotation)) % static_cast<Size>(teamsCount);
+        const auto position = positions[team * span + Math::random(static_cast<Int32>(span), randomSource, "arrival-team-position")];
+        const auto &range = game.getSettings().getAmmoRange();
+        player.startRound(world, position.first, position.second,
+            Math::random(range.first, range.second, randomSource, "arrival-ammo"),
+            Weapon::getRandomEnabled(game.getSettings(), randomSource));
+        teamMap.emplace(&player, &getPlayerTeam(static_cast<Int32>(player.getRosterSlot())));
+        player.setEventListener(*eventListener);
     }
 
     bool TeamDeathMatch::checkRoundOver(World &world, const std::vector<Player *> &alivePlayers) {

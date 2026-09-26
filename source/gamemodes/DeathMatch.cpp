@@ -52,6 +52,11 @@ namespace Duel6 {
         return false;
     }
 
+    void DeathMatch::initializeArrival(Game &game, Player &player, World &world, RandomSource &randomSource) {
+        GameModeBase::initializeArrival(game, player, world, randomSource);
+        player.setEventListener(*eventListener);
+    }
+
     void DeathMatch::updateElo(std::vector<Player> &players) const {
         const double K = 20.0;
 

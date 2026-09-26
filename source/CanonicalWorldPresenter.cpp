@@ -232,14 +232,8 @@ namespace Duel6 {
         if (presentedSession != state->sessionId) {
             presentedSession = state->sessionId;
             highestPresentedEvent = 0;
-            presentedRound = 0;
-            presentedRoundStartedAt = 0;
             presentedEntities.clear();
             playerStatusRemaining.clear();
-        }
-        if (state->round && presentedRound != state->round->roundId) {
-            presentedRound = state->round->roundId;
-            presentedRoundStartedAt = state->phaseTime;
         }
         for (const auto playerId: state->messages.currentPlayerIndicators)
             playerStatusRemaining[playerId] = 5.0f;
@@ -446,10 +440,12 @@ namespace Duel6 {
             const Network::Replication::CanonicalState &state,
             const Network::Replication::PlayerState &player, Float32 x, Float32 y) const {
         if (player.lifeState != Network::Replication::LifeState::Alive) return;
-        const std::uint64_t roundAge = state.phaseTime >= presentedRoundStartedAt
-                                       ? state.phaseTime - presentedRoundStartedAt : 120;
-        if (state.round && state.round->roundId == presentedRound && roundAge < 120) {
-            const Float32 radius = 0.15f + 0.75f * static_cast<Float32>(roundAge) / 120.0f;
+        const auto arrival = std::find_if(state.effects.begin(), state.effects.end(), [&](const auto &effect) {
+            return effect.playerId == player.playerId && effect.type == "player-arrival" && effect.remaining > 0;
+        });
+        if (arrival != state.effects.end()) {
+            const auto age = 120 - std::clamp<std::int64_t>(arrival->remaining, 0, 120);
+            const Float32 radius = 0.15f + 0.75f * static_cast<Float32>(age) / 120.0f;
             for (Int32 angle = 0; angle < 360; angle += 24) {
                 const Vector point = Vector(x, y) + radius * Vector::direction(angle);
                 renderer.point(Vector(point.x, point.y, 0.7f), 3.0f, Color::YELLOW);
@@ -463,7 +459,7 @@ namespace Duel6 {
             }
         }
         for (const auto &effect: state.effects) {
-            if (effect.playerId != player.playerId || effect.remaining <= 0) continue;
+            if (effect.playerId != player.playerId || effect.remaining <= 0 || effect.type == "player-arrival") continue;
             const Color color = effect.type == "invisibility" ? Color(192, 192, 192)
                     : effect.type == "invulnerability" ? Color::RED : Color::MAGENTA;
             renderer.point(Vector(x + 0.5f, y + 1.08f, 0.72f), 4.0f, color);

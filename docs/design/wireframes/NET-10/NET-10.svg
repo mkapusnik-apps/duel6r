@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="850" viewBox="0 0 900 850">
+  <title>NET-10 — All active sessions browser</title>
+  <desc>NET-10-results. Fixed header, scrolling session rows with separate phase, protection and admission columns, bounded page navigation, selected-session detail, and fixed actions. Protected first-round selection remains joinable. NET-10-loading, NET-10-empty, NET-10-stale and NET-10-unavailable use the same body. Stale rows are inspection-only; joining requires a successful refresh.</desc>
+  <rect width="900" height="850" fill="white"/>
+  <g fill="none" stroke="black">
+    <rect x="25" y="20" width="850" height="700"/>
+    <rect x="350" y="40" width="200" height="95"/>
+    <rect x="49" y="222" width="802" height="266"/>
+    <path d="M49 252H851 M301 222V488 M373 222V488 M503 222V488 M623 222V488 M835 252V488"/>
+    <rect x="51" y="282" width="782" height="30" stroke-width="2"/>
+    <rect x="838" y="258" width="10" height="65"/>
+    <rect x="57" y="455" width="90" height="25"/>
+    <rect x="245" y="455" width="70" height="25"/>
+    <rect x="49" y="504" width="802" height="109"/>
+    <rect x="49" y="640" width="184" height="36"/>
+    <rect x="249" y="640" width="140" height="36"/>
+    <rect x="405" y="640" width="210" height="36"/>
+    <rect x="631" y="640" width="140" height="36"/>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="14">
+    <text x="365" y="92">Existing banner / version</text>
+    <text x="367" y="177" font-size="16">BROWSE SESSIONS</text>
+    <text x="49" y="207">Sessions listed</text>
+    <text x="57" y="242">Session / endpoint</text><text x="308" y="242">Players</text>
+    <text x="381" y="242">Phase</text><text x="511" y="242">Password</text><text x="631" y="242">Admission</text>
+    <text x="57" y="273">192.168.1.20:26660</text><text x="309" y="273">2 / 15</text><text x="381" y="273">Lobby</text><text x="511" y="273">None</text><text x="631" y="273">Open</text>
+    <text x="57" y="302">&gt; 192.168.1.24:26660</text><text x="309" y="302">4 / 15</text><text x="381" y="302">Round 1</text><text x="511" y="302">Required</text><text x="631" y="302">Open</text>
+    <text x="57" y="333">192.168.1.28:26660</text><text x="309" y="333">15 / 15</text><text x="381" y="333">Lobby</text><text x="511" y="333">Required</text><text x="631" y="333">Full</text>
+    <text x="57" y="363">192.168.1.32:26660</text><text x="309" y="363">6 / 15</text><text x="381" y="363">Round 2</text><text x="511" y="363">None</text><text x="631" y="363">Closed</text>
+    <text x="57" y="393">192.168.1.36:26660</text><text x="309" y="393">3 / 15</text><text x="381" y="393">Round 1 ended</text><text x="511" y="393">Required</text><text x="631" y="393">Closed</text>
+    <text x="67" y="473">Previous</text><text x="159" y="473">Page 1 / 2</text><text x="261" y="473">Next</text>
+    <text x="333" y="473">Rows scroll; headings stay visible</text>
+    <text x="61" y="528">Selected: session 2 • Predator • 192.168.1.24:26660</text>
+    <text x="61" y="551">Password required. Round 1 in progress; play immediately if admitted.</text>
+    <text x="61" y="574">The host confirms availability when you connect.</text>
+    <text x="61" y="597">LAN-first. A listing does not guarantee reachability.</text>
+    <text x="94" y="663">Join selected</text><text x="291" y="663">Refresh</text>
+    <text x="460" y="663">Direct connect</text><text x="685" y="663">Back</text>
+    <text x="25" y="753">Annotation: One layout for loading, results, empty, stale, and unavailable. No filters.</text>
+    <text x="25" y="775">Stale: Join selected disabled; show Refresh before joining. Direct connect stays independent.</text>
+    <text x="25" y="797">Selected details wrap or scroll. Row selection never bypasses NET-03 local-player setup.</text>
+    <text x="25" y="819">Example endpoints are illustrative, not service configuration or reachability evidence.</text>
+  </g>
+</svg>

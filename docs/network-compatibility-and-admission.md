@@ -32,7 +32,7 @@ First release must use these exact values:
 
 | Field | Exact value |
 |---|---|
-| Admission protocol version | unsigned integer `1` |
+| Admission protocol version | unsigned integer `2` |
 | Network release ID | `duel6r-network-r1` |
 
 The network release ID is the only build-compatibility value. The admission request must not use a separate build-version compatibility field.
@@ -67,6 +67,14 @@ Each participant compatibility claim must contain:
 - the canonical gameplay-content manifest.
 
 The executable owns the protocol version and supported capability set. The supported release artifact owns the network release ID.
+
+Issue #98 advances the admission wire version to `2` for selected-session binding.
+The `D6RA` request ends with an unsigned big-endian 64-bit expected session identity,
+after the manifest entries. Explicit direct joining uses zero; browser-selected
+joining uses the advertised nonzero identity. This field travels inside the secure
+channel. A mismatch is an authorization rejection before any reservation or
+commit. The confirmed snapshot and reconnect grant must identify the same session.
+Session-ID equality is not cryptographic host authentication for unlocked first contact.
 
 The host owns the required capability set and authoritative gameplay-content baseline. Each guest owns its compatibility claim.
 
@@ -294,6 +302,8 @@ Missing the three-second request deadline must close the connection without admi
 
 ## Timing, cancellation, and incomplete admission
 
+The current admission window is defined by `NET-ADM-001` through `NET-ADM-012` in [network play](network-play-first-release.md). These requirements replace the prior no-join-in-progress rule. Initial snapshot references in this document mean a current lobby snapshot for lobby admission or a current match snapshot for round-one admission. All ownership, calibration, compatibility, and connection-deadline checks remain required. The `match-already-started` identifier remains stable, but its copy is `Round-one admission has closed. Join when the host returns to the lobby.` Password authorization follows [NET-PASS-001 through NET-PASS-007](network-host-directory.md) at the existing authorization stage.
+
 The guest's 10-second deadline includes resolution, connection, compatibility, capacity, host admission, clock calibration, and initial lobby snapshot validation.
 
 For production networking, a final `admitted` message alone is not a complete valid admission result. The result must include all three success inputs from the guest admission flow.
@@ -413,7 +423,7 @@ These commands provide process-level protocol evidence only. Successful output r
 - **AC-020:** A complete valid rejection or production success received before the deadline must take precedence over a later transport symptom. An offer or final confirmation alone must not report success.
 - **AC-021:** Missing calibration or another required success input at the 10-second deadline must produce `Connection timed out.`. Frames received at or after the deadline must not replace that outcome.
 - **AC-022:** A transport close before complete admission must produce `Connection ended before admission completed.`.
-- **AC-023:** An admission attempt after match start must receive the fixed join-in-progress rejection.
+- **AC-023:** New admission must follow NET-AC-007 and NET-ADM-AC-003, including rejection of an uncommitted offer at the first-round outcome boundary.
 - **AC-024:** Local Play must start and complete without starting or requiring a network service.
 - **AC-025:** Completion of issue #30 alone must not justify a claim that network play is available or ready for release.
 - **CMP-VIS-AC-001:** Admission ignores profile, skin, animation-resource, visual-resource, and cosmetic-asset differences. After admission, each supported client uses the built-in default network visual set without loading peer content as a fallback.
