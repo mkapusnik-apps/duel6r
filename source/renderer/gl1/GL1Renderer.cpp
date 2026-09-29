@@ -237,11 +237,18 @@ namespace Duel6 {
     }
 
     void GL1Renderer::point(const Vector &position, Float32 size, const Color &color) {
+        points(&position, 1, size, color);
+    }
+
+    void GL1Renderer::points(const Vector *positions, Int32 count, Float32 size, const Color &color) {
+        if (count <= 0) return;
         glColor4ub(color.getRed(), color.getGreen(), color.getBlue(), color.getAlpha());
         glPointSize(size);
 
         glBegin(GL_POINTS);
-        glVertex3f(position.x, position.y, position.z);
+        for (Int32 i = 0; i < count; ++i) {
+            glVertex3f(positions[i].x, positions[i].y, positions[i].z);
+        }
         glEnd();
 
         glPointSize(1.0f);
@@ -249,12 +256,20 @@ namespace Duel6 {
     }
 
     void GL1Renderer::line(const Vector &from, const Vector &to, Float32 width, const Color &color) {
+        const Vector positions[] = {from, to};
+        lines(positions, 2, width, color);
+    }
+
+    void GL1Renderer::lines(const Vector *positions, Int32 count, Float32 width, const Color &color) {
+        if (count < 2) return;
+        count -= count % 2;
         glColor4ub(color.getRed(), color.getGreen(), color.getBlue(), color.getAlpha());
         glLineWidth(width);
 
         glBegin(GL_LINES);
-        glVertex3f(from.x, from.y, from.z);
-        glVertex3f(to.x, to.y, to.z);
+        for (Int32 i = 0; i < count; ++i) {
+            glVertex3f(positions[i].x, positions[i].y, positions[i].z);
+        }
         glEnd();
 
         glLineWidth(1.0f);

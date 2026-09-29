@@ -132,6 +132,22 @@ namespace Duel6 {
 
         virtual void line(const Vector &from, const Vector &to, Float32 width, const Color &color) = 0;
 
+        // Immediate, ordered batches with one shared size/width and color.
+        // Non-positive counts are no-ops; lines ignores an unpaired final vertex.
+        // Backends without a batch implementation retain the scalar behavior.
+        virtual void points(const Vector *positions, Int32 count, Float32 size, const Color &color) {
+            for (Int32 i = 0; i < count; ++i) {
+                point(positions[i], size, color);
+            }
+        }
+
+        virtual void lines(const Vector *positions, Int32 count, Float32 width, const Color &color) {
+            if (count < 2) return;
+            for (Int32 i = 0; i < count - 1; i += 2) {
+                line(positions[i], positions[i + 1], width, color);
+            }
+        }
+
         virtual void frame(const Vector &position, const Vector &size, Float32 width, const Color &color) = 0;
 
         virtual std::unique_ptr<RendererBuffer> makeBuffer(const FaceList &faceList) = 0;
