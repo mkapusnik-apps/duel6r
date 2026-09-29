@@ -221,35 +221,46 @@ namespace Duel6 {
     }
 
     void GL4Renderer::point(const Vector &position, Float32 size, const Color &color) {
+        points(&position, 1, size, color);
+    }
+
+    void GL4Renderer::points(const Vector *positions, Int32 count, Float32 size, const Color &color) {
+        if (count <= 0) return;
         glBindVertexArray(colorVao);
         colorProgram.bind();
 
-        colorPoints[0].xyz = position;
-        updateColorBuffer(1);
+        glBindBuffer(GL_ARRAY_BUFFER, colorVbo);
+        glBufferData(GL_ARRAY_BUFFER, count * sizeof(Vector), positions, GL_STREAM_DRAW);
 
         Float32 colorData[4] = {color.getRed() / 255.0f, color.getGreen() / 255.0f, color.getBlue() / 255.0f,
                                 color.getAlpha() / 255.0f};
         colorProgram.setUniform("color", colorData);
 
         glPointSize(size);
-        glDrawArrays(GL_POINTS, 0, 1);
+        glDrawArrays(GL_POINTS, 0, count);
         glPointSize(1);
     }
 
     void GL4Renderer::line(const Vector &from, const Vector &to, Float32 width, const Color &color) {
+        const Vector positions[] = {from, to};
+        lines(positions, 2, width, color);
+    }
+
+    void GL4Renderer::lines(const Vector *positions, Int32 count, Float32 width, const Color &color) {
+        if (count < 2) return;
+        count -= count % 2;
         glBindVertexArray(colorVao);
         colorProgram.bind();
 
-        colorPoints[0].xyz = from;
-        colorPoints[1].xyz = to;
-        updateColorBuffer(2);
+        glBindBuffer(GL_ARRAY_BUFFER, colorVbo);
+        glBufferData(GL_ARRAY_BUFFER, count * sizeof(Vector), positions, GL_STREAM_DRAW);
 
         Float32 colorData[4] = {color.getRed() / 255.0f, color.getGreen() / 255.0f, color.getBlue() / 255.0f,
                                 color.getAlpha() / 255.0f};
         colorProgram.setUniform("color", colorData);
 
         glLineWidth(width);
-        glDrawArrays(GL_LINES, 0, 2);
+        glDrawArrays(GL_LINES, 0, count);
         glLineWidth(1.0f);
     }
 

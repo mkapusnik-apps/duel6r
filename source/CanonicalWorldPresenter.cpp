@@ -446,17 +446,21 @@ namespace Duel6 {
         if (arrival != state.effects.end()) {
             const auto age = 120 - std::clamp<std::int64_t>(arrival->remaining, 0, 120);
             const Float32 radius = 0.15f + 0.75f * static_cast<Float32>(age) / 120.0f;
+            Vector points[15];
             for (Int32 angle = 0; angle < 360; angle += 24) {
                 const Vector point = Vector(x, y) + radius * Vector::direction(angle);
-                renderer.point(Vector(point.x, point.y, 0.7f), 3.0f, Color::YELLOW);
+                points[angle / 24] = Vector(point.x, point.y, 0.7f);
             }
+            renderer.points(points, 15, 3.0f, Color::YELLOW);
         }
         if (player.invulnerable) {
             const Int32 phase = static_cast<Int32>((state.phaseTime * 6u) % 360u);
+            Vector points[24];
             for (Int32 angle = phase; angle < phase + 360; angle += 15) {
                 const Vector point = Vector(x + 0.5f, y + 0.5f) + 0.72f * Vector::direction(angle % 360);
-                renderer.point(Vector(point.x, point.y, 0.71f), 2.0f, Color::RED);
+                points[(angle - phase) / 15] = Vector(point.x, point.y, 0.71f);
             }
+            renderer.points(points, 24, 2.0f, Color::RED);
         }
         for (const auto &effect: state.effects) {
             if (effect.playerId != player.playerId || effect.remaining <= 0 || effect.type == "player-arrival") continue;

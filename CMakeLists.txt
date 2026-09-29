@@ -895,4 +895,19 @@ if (D6R_WITH_LUA)
         include_directories(${HEADERS_LUA}/lua5.3)
     endif (WIN32 AND NOT MINGW)
 endif (D6R_WITH_LUA)
+
+if (BUILD_TESTING AND UNIX AND NOT APPLE AND (D6R_RENDERER STREQUAL "gl4" OR D6R_RENDERER STREQUAL "gl1"))
+    add_executable(duel6r-renderer-batch-tests tests/TestMain.cpp tests/RendererBatchTests.cpp)
+    target_include_directories(duel6r-renderer-batch-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-renderer-batch-tests
+            duel6r-game-engine duel6r-network-scaffold
+            ${LIB_OPEN_GL} ${LIB_GLEW} ${LIB_SDL2} ${LIB_SDL2_IMAGE})
+    add_test(NAME renderer-batch-behavior
+            COMMAND ${D6R_TEST_XVFB_RUN_EXECUTABLE} -a $<TARGET_FILE:duel6r-renderer-batch-tests>)
+    set_tests_properties(renderer-batch-behavior PROPERTIES
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
+            ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1"
+            LABELS "application;rendering;regression"
+            TIMEOUT 60)
+endif ()
 endif ()
