@@ -99,7 +99,7 @@ the ES3 build attempted during this review failed in unchanged `Video.cpp` becau
 contains stale renderer-interface declarations; ES2 was not built or run. Their
 source receives only the shared scalar batch fallback in this change.
 
-## Verification
+## Historical verification reported before PR preparation
 
 - GL4 and GL1 Release game builds passed in Docker.
 - New `renderer-batch-behavior` CTest passed on both backends. It compares exact
@@ -110,7 +110,8 @@ source receives only the shared scalar batch fallback in this change.
 - Existing GL4 `duel6r-tests` passed all 15 cases.
 - Existing GL4 `shared-arena-behavior` passed Deathmatch, Predator and all Team
   configurations through 15 players, including ranking, score table and menu return.
-- Existing GL4 `duel6r-network-session-runtime-tests` passed.
+- Existing GL4 `duel6r-network-session-runtime-tests` was reported passing in the
+  historical run; this is not a fresh full-suite pass for the PR checkpoint.
 - The final pixel tests were rerun after removing temporary timing instrumentation.
   Production GL4/GL1 code was unchanged between timing and final verification.
 - ES3 build verification was blocked as described above. Physical GPU testing and
@@ -118,3 +119,27 @@ source receives only the shared scalar batch fallback in this change.
 
 The new regression is registered with CTest for Linux GL4/GL1 builds and therefore
 runs in the existing Docker test workflow. No timing threshold is used in CI.
+
+## PR checkpoint verification and timeout diagnosis
+
+Fresh local Docker verification of `0c64dc85e4f4ef10f4f6c601e54abd74650f4a89`
+passed GL4/GL1 Release game builds and exact-pixel batch tests, plus GL4
+`duel6r-tests` and `shared-arena-behavior`. The full GL4 network-session runtime
+suite passed 37 of 38 cases: the charged-bow round-end case failed its three-second
+state wait at `tests/NetworkSessionRuntimeTests.cpp:2486`. Its isolated retry
+passed on the unchanged artifact; the initial suite failure remains part of the
+evidence.
+
+A focused control alternated 12 runs per revision in the same Docker container,
+without changing assertions, timeouts, or introducing artificial load. The
+retained candidate artifact passed 12/12; an unmodified Release GL4 build of the
+PR base `dd2e5dcc8b2b1177323ba650a8f458c029b4967f` passed 11/12 and reproduced the
+identical assertion failure on run 9. This establishes a pre-existing intermittent
+failure, not a clean full-suite result. The case pumps runtime updates and checks
+snapshots; it does not render the changed player-effect primitives. Its test,
+runtime, transport, and server/gameplay sources are unchanged by this PR.
+
+The failure is therefore assessed as nonblocking for renderer batching, with the
+underlying missed state predicate remaining a separate runtime/test-reliability
+follow-up. No gameplay changes, test weakening, or renderer workaround were made.
+These are routine local results, not independent QA or hosted-CI evidence.
