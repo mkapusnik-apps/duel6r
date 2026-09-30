@@ -26,6 +26,9 @@
 #include <intrin.h>
 #elif defined(__x86_64__)
 #include <cpuid.h>
+#elif defined(__linux__) && defined(__aarch64__)
+#include <sys/auxv.h>
+#include <asm/hwcap.h>
 #endif
 
 #if MBEDTLS_VERSION_NUMBER < 0x03060700 || MBEDTLS_VERSION_NUMBER >= 0x03070000
@@ -37,8 +40,19 @@
 #if defined(MBEDTLS_USE_PSA_CRYPTO) || defined(MBEDTLS_SSL_PROTO_TLS1_3)
 #error "The private session TLS profile requires PSA-backed TLS and TLS 1.3 disabled."
 #endif
-#if !defined(MBEDTLS_AESNI_C) || !defined(MBEDTLS_AES_USE_HARDWARE_ONLY)
-#error "The private TLS profile requires AES-NI and hardware-only AES; software table AES is forbidden."
+#if !defined(MBEDTLS_AES_USE_HARDWARE_ONLY)
+#error "The private TLS profile requires hardware-only AES; software table AES is forbidden."
+#endif
+#if defined(__x86_64__) || defined(_M_X64)
+#if !defined(MBEDTLS_AESNI_C)
+#error "The x86_64 private TLS profile requires AES-NI."
+#endif
+#elif defined(__linux__) && defined(__aarch64__)
+#if !defined(MBEDTLS_AESCE_C)
+#error "The Linux AArch64 private TLS profile requires ARM Crypto Extensions."
+#endif
+#else
+#error "Unsupported private TLS architecture."
 #endif
 
 namespace Duel6::Network {
@@ -77,16 +91,23 @@ namespace Duel6::Network {
         if (!hardwarePermitted) return false;
         // This uses no crypto or entropy. AES-NI works with the SSE state that
         // supported x86-64 operating systems already preserve; AVX is not used.
-        bool aesni = false;
+        bool hardwareAes = false;
 #if defined(_MSC_VER) && defined(_M_X64)
         int registers[4]{};
         __cpuid(registers, 0);
-        if (registers[0] >= 1) { __cpuid(registers, 1); aesni = (registers[2] & (1 << 25)) != 0; }
+        if (registers[0] >= 1) { __cpuid(registers, 1); hardwareAes = (registers[2] & (1 << 25)) != 0; }
 #elif defined(__x86_64__)
         unsigned eax = 0, ebx = 0, ecx = 0, edx = 0;
-        aesni = __get_cpuid(1, &eax, &ebx, &ecx, &edx) != 0 && (ecx & bit_AES) != 0;
+        hardwareAes = __get_cpuid(1, &eax, &ebx, &ecx, &edx) != 0 && (ecx & bit_AES) != 0;
+#elif defined(__linux__) && defined(__aarch64__)
+        // Linux advertises instructions usable by this process, including OS
+        // SIMD support. getauxval returns zero for a missing capability entry.
+        // Upstream hardware-only AESCE bypasses its own runtime detection.
+        const unsigned long capabilities = getauxval(AT_HWCAP);
+        const unsigned long required = HWCAP_ASIMD | HWCAP_AES;
+        hardwareAes = (capabilities & required) == required;
 #endif
-        return aesni && mbedtls_ssl_ciphersuite_from_id(CipherSuites[0]) != nullptr;
+        return hardwareAes && mbedtls_ssl_ciphersuite_from_id(CipherSuites[0]) != nullptr;
     }
 
     SessionPassword::SessionPassword(const std::string &value) {

@@ -21,6 +21,7 @@ The current packaging layout may contain both operating systems in one archive. 
 | Target | Required executable components | Integrity inventory |
 |---|---|---|
 | Linux x86-64 | `duel6r`, `duel6r-server`, `duel6r-host-supervisor`, `duel6r-resolver` | `linux-x86_64.sha256sums` |
+| Linux AArch64 (Pi 5 candidate, separate bundle) | `duel6r`, `duel6r-server`, `duel6r-host-supervisor`, `duel6r-resolver` | `linux-aarch64.sha256sums` |
 | Windows x86-64 | `duel6r.exe`, `duel6r-server.exe`, `duel6r-host-supervisor.exe`, `duel6r-resolver.exe`, bundled DLLs | `windows-x86_64.sha256sums`, `windows-dependencies.txt` |
 
 Both layouts also require `data/`, `levels/`, `profiles/`, `shaders/`, `sound/`, and `textures/`; `README.md`, `LICENSE`, and `docs/` ship with the package. Preserve execute permissions on Linux. The server, supervisor, and resolver are player-hosted implementation components, not a supported standalone or dedicated deployment. Start the graphical client, not a diagnostic server command.

@@ -70,11 +70,15 @@ retain applicable notices. The 3.6 LTS branch's support ends in March 2027, requ
 a supported-version migration before then. The developer and repository maintainers
 own this migration before March 2027.
 
-Secure networking requires x86-64 AES-NI. The private library is built with
-`MBEDTLS_AESNI_C` and `MBEDTLS_AES_USE_HARDWARE_ONLY`, excluding software table AES.
-The application checks CPUID leaf 1's AES bit using the platform compiler's CPUID
-intrinsic **before any Mbed context initialization, entropy polling or CTR-DRBG
-seeding**. This covers both CCM record encryption and CTR-DRBG's AES use. There is
+Secure networking requires x86-64 AES-NI or Linux AArch64 with ARM AES and ASIMD
+capabilities (the approved Raspberry Pi 5 64-bit extension). The private library
+selects `MBEDTLS_AESNI_C` on x86-64 or `MBEDTLS_AESCE_C` on Linux AArch64, always
+with `MBEDTLS_AES_USE_HARDWARE_ONLY`, excluding software table AES.
+The application checks CPUID leaf 1's AES bit on x86-64, or the Linux
+`getauxval(AT_HWCAP)` AES and ASIMD bits on AArch64, **before any Mbed context
+initialization, entropy polling or CTR-DRBG seeding**. Unavailable capabilities
+fail closed. No global ARM crypto instruction requirement may bypass this check.
+This covers both CCM record encryption and CTR-DRBG's AES use. There is
 no software-AES fallback. Missing capability disables secure connection/listener
 startup with fixed local feedback; Local Play is unaffected. Tests may restrict
 hardware capability but cannot override a negative physical CPU check. This is
@@ -224,7 +228,7 @@ The Windows bundle passed dependency validation, not interactive Windows QA.
 
 ### Nonblocking risks and follow-ups
 
-- The experimental TLS EC-JPAKE profile, 64-bit CCM tag, AES-NI requirement and
+- The experimental TLS EC-JPAKE profile, 64-bit CCM tag, hardware-AES requirement and
   unlocked active-intermediary limitation described above remain explicit risks.
   Developer/repository maintainers own supported-library maintenance before March 2027.
 - An original Linux full run passed 29/30 with a charged-bow timing failure while

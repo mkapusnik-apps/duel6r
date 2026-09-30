@@ -10,7 +10,11 @@
 
 namespace Duel6::Network {
     inline constexpr const char *SecureNetworkingUnavailableCopy =
+#if defined(__linux__) && defined(__aarch64__)
+        "Secure networking is unavailable. ARM AES and ASIMD are required.";
+#else
         "Secure networking is unavailable. An x86-64 CPU with AES-NI is required.";
+#endif
     struct SecureSessionLimits {
         std::uint64_t recordsPerDirection = UINT64_C(1) << 20;
         std::uint64_t plaintextBytesPerDirection = UINT64_C(1) << 30;

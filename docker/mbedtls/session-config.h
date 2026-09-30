@@ -6,15 +6,18 @@
 #ifndef DUEL6R_SESSION_MBEDTLS_CONFIG_H
 #define DUEL6R_SESSION_MBEDTLS_CONFIG_H
 
-/* The application must reject CPUs without AES-NI before any TLS/RNG init.
+/* The application must reject CPUs without hardware AES before any TLS/RNG init.
  * Hardware-only mode removes public AES software fallback and bypasses the
  * library's CPU detection. GCC/MinGW x64 use assembly; MSVC uses intrinsics.
  */
-#if !defined(__x86_64__) && !defined(_M_X64)
-#error "The private session TLS profile requires x86_64 with runtime AES-NI admission."
-#endif
 #define MBEDTLS_HAVE_ASM
+#if defined(__x86_64__) || defined(_M_X64)
 #define MBEDTLS_AESNI_C
+#elif defined(__linux__) && defined(__aarch64__)
+#define MBEDTLS_AESCE_C
+#else
+#error "The private session TLS profile requires x86_64 AES-NI or Linux AArch64 AES admission."
+#endif
 #define MBEDTLS_AES_USE_HARDWARE_ONLY
 #define MBEDTLS_AES_ROM_TABLES
 #define MBEDTLS_ECP_DP_SECP256R1_ENABLED

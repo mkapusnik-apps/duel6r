@@ -3,11 +3,12 @@
 Build Mbed TLS 3.6.7 from the official release archive. `CMakeLists.txt` pins
 its SHA-256. Do not use GitHub's generated source snapshots; they omit release
 inputs. The same `session-config.h` is installed with the static libraries on
-all three platforms.
+all supported platforms.
 
 | Platform | Installed prefix | Preparation |
 | --- | --- | --- |
 | Linux x64 | `/opt/mbedtls` | Root Dockerfile |
+| Linux AArch64 (Pi 5) | `/opt/mbedtls` | Root Dockerfile, native ARM64 Docker |
 | MinGW x64 | `/opt/mbedtls-mingw` | Windows cross Dockerfile |
 | MSVC x64 | `C:/Tools/mbedtls` | Native Windows container entrypoint, after mounted compiler setup |
 
@@ -25,18 +26,22 @@ renegotiation and test entropy are not enabled. The exported `mbedx509` target
 is retained for upstream dependency compatibility; certificate parsing is not
 enabled in this private configuration.
 
-Session transport requires an x86_64 CPU with AES-NI. The shared header enables
-`MBEDTLS_AESNI_C`, `MBEDTLS_HAVE_ASM` and `MBEDTLS_AES_USE_HARDWARE_ONLY`:
-GCC/MinGW x64 use upstream assembly;
-MSVC x64 uses intrinsics. No global `-maes`, `-march=native`, or AVX requirement
-is added. Hardware-only mode removes software fallback from public AES key/block
-operations, but bypasses upstream CPU detection and assumes AES-NI is available.
+Session transport follows the [canonical hardware AES policy](../../docs/network-directory-implementation.md#password-and-credential-protection).
+The shared header selects `MBEDTLS_AESNI_C` on x86_64 or `MBEDTLS_AESCE_C` on Linux
+AArch64, with `MBEDTLS_HAVE_ASM` and `MBEDTLS_AES_USE_HARDWARE_ONLY` on both.
+GCC/MinGW x64 use upstream assembly; MSVC x64 uses intrinsics. AArch64 uses
+upstream ARM Crypto Extension intrinsics with function-scoped compiler targeting.
+No global `-maes`, `-march=native`, ARM `+crypto`, or AVX requirement is added.
+Hardware-only mode removes software fallback from public AES key/block operations,
+but bypasses upstream CPU detection and assumes hardware AES is available.
 
 The application must check CPU AES support before any TLS/RNG initialization
 and reject unsupported CPUs without starting secure transport.
 Use compiler/platform CPU detection, not the internal, non-public
 `mbedtls_aesni_has_support` API (hardware-only mode replaces it with constant
-true internally). Accepted sessions use AES-NI for key expansion, CTR-DRBG and
+true internally), nor the equivalent private AESCE API. Linux AArch64 admission
+uses `getauxval(AT_HWCAP)` and requires both `HWCAP_AES` and `HWCAP_ASIMD`.
+Accepted sessions use hardware AES for key expansion, CTR-DRBG and
 CCM. Calling these operations without the precheck can cause an illegal
 instruction on a non-AES CPU. The build alone does not enforce admission.
 
@@ -61,7 +66,7 @@ does not replace native Windows execution.
 
 ## Upstream capability inspection
 
-On an AES-NI-capable CPU, in a disposable Linux build container, enable upstream programs in its existing
+On a supported hardware-AES CPU, in a disposable Linux build container, enable upstream programs in its existing
 dependency build (this does not enable application tests):
 
 ```sh
@@ -79,7 +84,8 @@ the mismatched exchange must fail the handshake. Use `--network none` and no
 published ports. Stop the server and remove the container after inspection.
 These upstream programs accept passwords in arguments; use disposable synthetic
 values only, never real session secrets.
-They do not implement the application's non-AES CPU rejection policy.
+They do not implement the application's non-AES CPU rejection policy. Never run
+them on a CPU without the required AES capability.
 
 ## Security and maintenance boundary
 
@@ -90,10 +96,12 @@ Do not claim general Internet security from this build or capability smoke.
 Assign update ownership and a maintenance decision before March 2027. The
 release promises 3.6 LTS support until at least that date, not indefinitely.
 No cloud provisioning or deployment is part of this configuration.
-Upstream's software table AES is vulnerable to timing attacks. AES-NI admission
+Upstream's software table AES is vulnerable to timing attacks. Hardware AES admission
 is mandatory, including for CTR-DRBG; it does not remove other security-review
 requirements. Native MSVC execution and non-AES CPU rejection need separate
-runtime evidence, not an inference from a successful build on an AES-NI CPU.
+runtime evidence, not an inference from a successful build on an AES-capable CPU.
+The ARM extension likewise requires native Pi 5 and independent security evidence;
+QEMU known-answer and transport tests are not hardware certification.
 
 Sources: [3.6.7 release and checksum](https://github.com/Mbed-TLS/mbedtls/releases/tag/mbedtls-3.6.7),
 [upstream Thread configuration](https://github.com/Mbed-TLS/mbedtls/blob/mbedtls-3.6.7/configs/config-thread.h),
