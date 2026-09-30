@@ -39,6 +39,10 @@ deployment and automatic publication into the existing mixed x86 nightly ZIP.
 Specification status: ready. Full platform acceptance requires PI5-001–005;
 cross-compilation or software-rendered screenshots alone are insufficient.
 
+Current evidence: [physical Pi 5 verification](verification/raspberry-pi5-physical.md)
+records the pushed checkpoint, native test results, real V3D observations and
+remaining acceptance gaps. Support remains under validation; the PR is draft.
+
 ## Build and runtime baseline
 
 The build uses Ubuntu 24.04 userspace. Use a native ARM64 Docker daemon on Pi 5
