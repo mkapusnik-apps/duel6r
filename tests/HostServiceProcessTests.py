@@ -97,6 +97,19 @@ class HostServiceProcesses(unittest.TestCase):
         self.assertNotIn("guest", result.stdout + result.stderr)
         self.assertEqual("", result.stderr)
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows hosted Winsock environment")
+    def test_windows_hosted_child_can_listen_with_isolated_environment(self):
+        result = subprocess.run(
+            [str(SUPERVISOR), f"--server={CHILD}", "--resources=network-ready", "--end-after-ready"],
+            cwd=str(CHILD.parent), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=5, check=False,
+            env={"SystemRoot": r"C:\missing-windows", "PATH": r"C:\unused-path",
+                 "D6R_TEST_PARENT_SECRET": "must-not-be-inherited"})
+        self.assertEqual(0, result.returncode, result)
+        self.assertIn("host-service-active\n", result.stdout)
+        self.assertIn("intentional-host-end\n", result.stdout)
+        self.assertEqual("", result.stderr)
+
     def test_cancel_before_readiness_is_not_reported_as_failure(self):
         result = self.run_case("timeout", "--cancel-immediately")
         self.assertEqual((0, "", ""), (result.returncode, result.stdout, result.stderr))

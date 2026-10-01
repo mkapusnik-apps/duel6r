@@ -661,6 +661,16 @@ namespace Duel6::Client {
         std::vector<std::string> arguments = serverArguments(config);
         if (!std::filesystem::path(config.serverExecutable).is_absolute()) return nullptr;
 #ifdef D6R_TRANSPORT_WINDOWS
+        // Winsock providers can refer to %SystemRoot%. Build the minimal environment
+        // from the OS, without inheriting caller-controlled paths or credentials.
+        std::array<wchar_t, 32768> windowsDirectory{};
+        const UINT directoryLength = GetSystemWindowsDirectoryW(
+                windowsDirectory.data(), static_cast<UINT>(windowsDirectory.size()));
+        if (directoryLength == 0 || directoryLength >= windowsDirectory.size()) return nullptr;
+        std::wstring environment = L"SystemRoot=";
+        environment.append(windowsDirectory.data(), directoryLength);
+        environment.push_back(L'\0');
+        environment.push_back(L'\0');
         SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
         HANDLE parentStatusRead = nullptr, childStatusWrite = nullptr;
         HANDLE childControlRead = nullptr, parentControlWrite = nullptr;
@@ -728,12 +738,11 @@ namespace Duel6::Client {
                                                                  PROC_THREAD_ATTRIBUTE_JOB_LIST, &job,
                                                                  sizeof(job), nullptr, nullptr);
         PROCESS_INFORMATION process{};
-        std::array<wchar_t, 2> emptyEnvironment{{L'\0', L'\0'}};
         const BOOL created = attributesReady && !executable.empty()
                              && CreateProcessW(executable.c_str(), mutableCommand.data(), nullptr, nullptr, TRUE,
                                                CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT
                                                | EXTENDED_STARTUPINFO_PRESENT,
-                                               emptyEnvironment.data(), nullptr,
+                                               environment.data(), nullptr,
                                                &startup.StartupInfo, &process);
         if (startup.lpAttributeList) DeleteProcThreadAttributeList(startup.lpAttributeList);
         CloseHandle(nullInput); CloseHandle(nullOutput); CloseHandle(childStatusWrite); CloseHandle(childControlRead);

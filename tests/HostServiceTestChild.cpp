@@ -22,6 +22,7 @@ extern char **environ;
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <winsock2.h>
 #include <windows.h>
 #endif
 
@@ -185,6 +186,31 @@ int main(int count, char **arguments) {
         if (!publishMarker(pidFile, std::to_string(descendant) + "\n")) return 82;
     }
 #else
+    if (mode == "network-ready") {
+        std::array<wchar_t, 32768> expectedRoot{}, actualRoot{};
+        const UINT expectedLength = GetSystemWindowsDirectoryW(
+                expectedRoot.data(), static_cast<UINT>(expectedRoot.size()));
+        const DWORD actualLength = GetEnvironmentVariableW(
+                L"SystemRoot", actualRoot.data(), static_cast<DWORD>(actualRoot.size()));
+        wchar_t unexpected[2]{};
+        if (!expectedLength || expectedLength >= expectedRoot.size()
+            || !actualLength || actualLength >= actualRoot.size()
+            || std::wstring(expectedRoot.data()) != actualRoot.data()
+            || GetEnvironmentVariableW(L"PATH", unexpected, 2)
+            || GetEnvironmentVariableW(L"D6R_TEST_PARENT_SECRET", unexpected, 2)) return 84;
+        WSADATA data{};
+        if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return 85;
+        const SOCKET listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        const bool ready = listener != INVALID_SOCKET
+                           && bind(listener, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) == 0
+                           && listen(listener, 1) == 0;
+        if (listener != INVALID_SOCKET) closesocket(listener);
+        WSACleanup();
+        if (!ready || !channel->send(Duel6::Network::HostServiceStatusCode::Ready)) return 86;
+    }
     if (mode == "tree") {
         const std::string pidFile = gameplayScriptFromArguments(count, arguments);
         std::array<wchar_t, 32768> executable{};
