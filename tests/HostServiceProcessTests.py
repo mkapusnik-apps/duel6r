@@ -3,6 +3,7 @@
 
 import os
 import pathlib
+import shutil
 import signal
 import socket
 import subprocess
@@ -136,18 +137,59 @@ class HostServiceProcesses(unittest.TestCase):
                 self.assertEqual("", result.stderr)
                 self.assert_listener_released(port)
 
-    def test_real_server_one_player_readiness_and_cleanup(self):
-        port = self.available_port()
-        result = subprocess.run(
-            [str(SUPERVISOR), f"--server={SERVER}", f"--resources={RESOURCES}",
+    def stage_gameplay_resources(self, root):
+        # Windows CI bind-mounts C:\workspace. The manifest's pinned ancestor
+        # contract deliberately rejects reparse/cross-volume traversal, so use
+        # ordinary container-local files, like AdmissionProcessTests does.
+        # Preserve the shipped bytes; do not replace them with a synthetic map
+        # or bypass the production manifest builder.
+        for directory in ("data", "levels"):
+            source = RESOURCES / directory
+            destination = root / directory
+            shutil.copytree(source, destination)
+            source_files = {path.relative_to(source) for path in source.rglob("*") if path.is_file()}
+            copied_files = {path.relative_to(destination) for path in destination.rglob("*") if path.is_file()}
+            self.assertTrue(source_files)
+            self.assertEqual(source_files, copied_files)
+            for relative in source_files:
+                self.assertEqual((source / relative).read_bytes(), (destination / relative).read_bytes())
+
+    def run_real_server(self, root, resource_argument, port):
+        return subprocess.run(
+            [str(SUPERVISOR), f"--server={SERVER}", f"--resources={resource_argument}",
              "--host=127.0.0.1", f"--port={port}", "--local-players=1", "--end-after-ready"],
-            cwd=str(SERVER.parent), text=True, stdout=subprocess.PIPE,
+            cwd=str(root), text=True, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, timeout=14, check=False)
-        self.assertEqual(0, result.returncode, result)
-        self.assertIn("host-service-active\n", result.stdout)
-        self.assertEqual(1, result.stdout.count("intentional-host-end\n"))
-        self.assertEqual("", result.stderr)
-        self.assert_listener_released(port)
+
+    def test_real_server_one_player_readiness_and_cleanup(self):
+        with tempfile.TemporaryDirectory(prefix="duel6r hosted resources ") as directory:
+            root = pathlib.Path(directory).resolve()
+            self.stage_gameplay_resources(root)
+            # Cover an absolute path with spaces and the graphical host's flat
+            # bundle working-directory convention without changing content.
+            for resources in (str(root), "."):
+                with self.subTest(relative_root=resources == "."):
+                    port = self.available_port()
+                    result = self.run_real_server(root, resources, port)
+                    self.assertEqual(0, result.returncode, result)
+                    self.assertIn("host-service-active\n", result.stdout)
+                    self.assertEqual(1, result.stdout.count("intentional-host-end\n"))
+                    self.assertEqual("", result.stderr)
+                    self.assert_listener_released(port)
+
+    def test_real_server_missing_gameplay_content_still_fails_closed(self):
+        with tempfile.TemporaryDirectory(prefix="duel6r hosted resources ") as directory:
+            root = pathlib.Path(directory).resolve()
+            self.stage_gameplay_resources(root)
+            (root / "data" / "blocks.json").unlink()
+            port = self.available_port()
+            result = self.run_real_server(root, ".", port)
+            self.assertEqual(2, result.returncode, result)
+            self.assertEqual("host-gameplay-content-manifest-invalid\n"
+                             "Hosted gameplay content is invalid. Restore the supported gameplay content "
+                             "and restart the application.\n", result.stdout)
+            self.assertEqual("", result.stderr)
+            self.assert_listener_released(port)
 
     def test_cancel_before_readiness_is_not_reported_as_failure(self):
         result = self.run_case("timeout", "--cancel-immediately")
