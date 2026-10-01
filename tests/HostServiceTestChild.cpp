@@ -1,6 +1,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -8,12 +9,12 @@
 #include <vector>
 
 #include "source/network/HostServiceControlProtocol.h"
+#include "source/network/SessionTransport.h"
 #include "source/server/HostedServiceChannel.h"
 
 #ifndef _WIN32
 #include <cerrno>
 #include <csignal>
-#include <cstdlib>
 #include <fcntl.h>
 #include <unistd.h>
 extern char **environ;
@@ -125,6 +126,44 @@ int main(int count, char **arguments) {
     const auto channel = Duel6::Server::HostedServiceChannel::fromCommandLine(count, arguments);
     if (!channel || !channel->active()) return 70;
     const std::string mode = modeFromArguments(count, arguments);
+    if (mode == "listener-environment") {
+        if (std::getenv("D6R_TEST_PARENT_SECRET")) return 86;
+#ifdef _WIN32
+        std::array<wchar_t, 32768> expected{}, actual{};
+        const UINT expectedLength = GetSystemWindowsDirectoryW(expected.data(), static_cast<UINT>(expected.size()));
+        const DWORD actualLength = GetEnvironmentVariableW(L"SystemRoot", actual.data(), static_cast<DWORD>(actual.size()));
+        if (!expectedLength || expectedLength >= expected.size() || !actualLength
+            || actualLength >= actual.size()
+            || std::wstring(expected.data(), expectedLength) != std::wstring(actual.data(), actualLength)) return 87;
+        if (GetEnvironmentVariableW(L"PATH", actual.data(), static_cast<DWORD>(actual.size())) != 0) return 88;
+#else
+        if (environ && environ[0]) return 87;
+#endif
+        Duel6::Network::Endpoint endpoint{"127.0.0.1", 0};
+        for (int index = 1; index < count; ++index) {
+            const std::string argument = arguments[index] ? arguments[index] : "";
+            if (argument.compare(0, 7, "--port=") == 0)
+                endpoint.port = static_cast<std::uint16_t>(std::stoul(argument.substr(7)));
+        }
+        Duel6::Network::SessionTransportDependencies dependencies;
+        dependencies.enforceNetworkSessionPolicy = true;
+        Duel6::Network::TcpListener listener(1, dependencies);
+        if (!listener.start(endpoint) || !listener.waitForReady(std::chrono::seconds(3))) return 89;
+        Duel6::Network::TcpClient client;
+        if (!client.start(endpoint) || !client.waitForConnected(std::chrono::seconds(3))) return 90;
+        std::shared_ptr<Duel6::Network::TcpConnection> accepted;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+        while (!accepted && std::chrono::steady_clock::now() < deadline) {
+            accepted = listener.acceptConnection();
+            if (!accepted) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        if (!accepted || !channel->send(Duel6::Network::HostServiceStatusCode::Ready)) return 91;
+        while (!channel->stopRequested()) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        client.close();
+        accepted->close();
+        listener.shutdown();
+        return 0;
+    }
     if (mode == "raw-partial" || mode == "raw-truncated" || mode == "raw-oversized"
         || mode == "raw-malformed" || mode == "raw-malformed-then-specific") {
         const auto valid = Duel6::Network::encodeHostServiceStatus(

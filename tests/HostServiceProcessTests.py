@@ -4,6 +4,7 @@
 import os
 import pathlib
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -13,7 +14,9 @@ import unittest
 
 SUPERVISOR = pathlib.Path(sys.argv[1]).resolve()
 CHILD = pathlib.Path(sys.argv[2]).resolve()
-EXTRA_ARGUMENTS = sys.argv[3:]
+SERVER = pathlib.Path(sys.argv[3]).resolve()
+RESOURCES = pathlib.Path(sys.argv[4]).resolve()
+EXTRA_ARGUMENTS = sys.argv[5:]
 ORPHAN_STRESS = "--orphan-stress" in EXTRA_ARGUMENTS
 EXTRA_ARGUMENTS = [argument for argument in EXTRA_ARGUMENTS if argument != "--orphan-stress"]
 sys.argv = [sys.argv[0]]
@@ -96,6 +99,55 @@ class HostServiceProcesses(unittest.TestCase):
         self.assertNotIn("NET-09", result.stdout + result.stderr)
         self.assertNotIn("guest", result.stdout + result.stderr)
         self.assertEqual("", result.stderr)
+
+    @staticmethod
+    def available_port():
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            return probe.getsockname()[1]
+
+    def assert_listener_released(self, port):
+        with socket.socket() as probe:
+            if sys.platform == "win32":
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            else:
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind(("127.0.0.1", port))
+            probe.listen(1)
+
+    def test_supervised_real_listener_has_os_environment_without_parent_secrets(self):
+        port = self.available_port()
+        # The supervisor must derive SystemRoot from the OS even when its own
+        # environment is missing it or supplies a bogus override. Never log it.
+        for system_root in (None, "Z:\\not-the-system-directory"):
+            with self.subTest(system_root_present=system_root is not None):
+                environment = {"PATH": "/test/path-that-must-not-be-used",
+                               "D6R_TEST_PARENT_SECRET": "must-not-reach-child"}
+                if system_root is not None:
+                    environment["SystemRoot"] = system_root
+                result = subprocess.run(
+                    [str(SUPERVISOR), f"--server={CHILD}", "--resources=listener-environment",
+                     f"--port={port}", "--local-players=1", "--end-after-ready"],
+                    cwd=str(CHILD.parent), text=True, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, timeout=12, check=False, env=environment)
+                self.assertEqual(0, result.returncode, result)
+                self.assertIn("host-service-active\n", result.stdout)
+                self.assertEqual(1, result.stdout.count("intentional-host-end\n"))
+                self.assertEqual("", result.stderr)
+                self.assert_listener_released(port)
+
+    def test_real_server_one_player_readiness_and_cleanup(self):
+        port = self.available_port()
+        result = subprocess.run(
+            [str(SUPERVISOR), f"--server={SERVER}", f"--resources={RESOURCES}",
+             "--host=127.0.0.1", f"--port={port}", "--local-players=1", "--end-after-ready"],
+            cwd=str(SERVER.parent), text=True, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, timeout=14, check=False)
+        self.assertEqual(0, result.returncode, result)
+        self.assertIn("host-service-active\n", result.stdout)
+        self.assertEqual(1, result.stdout.count("intentional-host-end\n"))
+        self.assertEqual("", result.stderr)
+        self.assert_listener_released(port)
 
     def test_cancel_before_readiness_is_not_reported_as_failure(self):
         result = self.run_case("timeout", "--cancel-immediately")
