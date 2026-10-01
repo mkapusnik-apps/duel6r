@@ -4,7 +4,7 @@ set -euo pipefail
 workspace_dir="${WORKSPACE_DIR:-/workspace}"
 output_dir="build"
 build_type="${BUILD_TYPE:-Release}"
-renderer="${D6R_RENDERER:-gl4}"
+renderer="${D6R_RENDERER:-}"
 with_lua="${D6R_WITH_LUA:-ON}"
 build_testing="${BUILD_TESTING:-ON}"
 run_tests="${RUN_TESTS:-OFF}"
@@ -16,11 +16,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+renderer_options=()
+if [[ -n "${renderer}" ]]; then
+  renderer_options+=("-DD6R_RENDERER=${renderer}")
+fi
 cmake -S "${workspace_dir}" -B "${tmp_build_dir}" \
   -DCMAKE_BUILD_TYPE="${build_type}" \
   -DBUILD_TESTING="${build_testing}" \
-  -DD6R_RENDERER="${renderer}" \
-  -DD6R_WITH_LUA="${with_lua}"
+  -DD6R_WITH_LUA="${with_lua}" \
+  "${renderer_options[@]}"
 
 cmake --build "${tmp_build_dir}" -j"$(nproc)"
 
@@ -89,6 +93,7 @@ rm -rf "${workspace_dir}/${output_dir}/docs"
 python3 - "${workspace_dir}/${output_dir}" <<'PY'
 import hashlib
 import pathlib
+import platform
 import sys
 
 root = pathlib.Path(sys.argv[1])
@@ -105,7 +110,13 @@ files = [root / name for name in (
 )]
 for directory in ("data", "levels", "profiles", "shaders", "sound", "textures"):
     files.extend(path for path in (root / directory).rglob("*") if path.is_file())
-with (root / "linux-x86_64.sha256sums").open("w") as manifest:
+architecture = platform.machine().lower()
+if architecture not in ("x86_64", "aarch64"):
+    raise SystemExit(f"Unsupported Linux bundle architecture: {architecture}")
+# The two Linux architectures have identical filenames and cannot share a bundle.
+for previous in root.glob("linux-*.sha256sums"):
+    previous.unlink()
+with (root / f"linux-{architecture}.sha256sums").open("w") as manifest:
     for path in sorted(files):
         manifest.write(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root).as_posix()}\n")
 PY

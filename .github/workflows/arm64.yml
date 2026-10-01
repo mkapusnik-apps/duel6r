@@ -1,0 +1,74 @@
+name: Linux ARM64 - Pi 5 candidate
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  arm64:
+    name: Native ARM64 build and CTests
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Build native tool image
+        run: docker build -t duel6r-build:arm64 .
+      - name: Build and test default ARM renderer
+        run: |
+          bash docker/run-with-daemon-workspace.sh \
+            -e BUILD_TYPE=Release -e BUILD_TESTING=ON -e RUN_TESTS=ON \
+            -e CLEAN_OUTPUT_DIR=ON duel6r-build:arm64
+      - name: Validate separate ARM bundle
+        run: |
+          docker run --rm --entrypoint bash \
+            -v "$PWD/build:/bundle:ro" -w /bundle duel6r-build:arm64 \
+            -c 'test "$(uname -m)" = aarch64 && sha256sum -c linux-aarch64.sha256sums && ! test -e linux-x86_64.sha256sums'
+      - name: Smoke the ARM bundle without modifying the candidate
+        run: |
+          docker run --rm --network none --entrypoint bash \
+            -v "$PWD:/workspace" \
+            -e BUILD_DIR=/tmp/arm-smoke -e SMOKE_DIR=/workspace/smoke-arm64 \
+            duel6r-build:arm64 \
+            -c 'mkdir /tmp/arm-smoke && cp -a build/. /tmp/arm-smoke/ && duel6r-main-menu-smoke'
+      - name: Archive ARM bundle preserving executable permissions
+        run: |
+          docker run --rm --entrypoint bash \
+            -v "$PWD:/workspace" duel6r-build:arm64 \
+            -c 'tar -czf duel6r-linux-aarch64.tar.gz -C build . && sha256sum duel6r-linux-aarch64.tar.gz > duel6r-linux-aarch64.tar.gz.sha256'
+      - name: Upload ARM candidate (not Pi hardware acceptance)
+        uses: actions/upload-artifact@v7
+        with:
+          name: duel6r-linux-aarch64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            duel6r-linux-aarch64.tar.gz
+            duel6r-linux-aarch64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload ARM smoke observations
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: arm64-software-renderer-smoke
+          path: smoke-arm64/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload failed CTest diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: arm64-ctest-diagnostics
+          path: build/ci-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7

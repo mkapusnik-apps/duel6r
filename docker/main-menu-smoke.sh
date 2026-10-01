@@ -185,9 +185,18 @@ done
 
 xdotool windowfocus "$window_id" 2>>"${smoke_dir}/automation.log" || true
 xdotool windowactivate "$window_id" 2>>"${smoke_dir}/automation.log" || true
-sleep 2
-
-capture_root "${smoke_dir}/main-menu.png"
+# SDL creates its window before assets and the first menu frame are ready.
+# ARM/software rendering may take longer than a fixed two-second sleep. Keep
+# the same non-blank assertion, but wait boundedly for the first rendered frame.
+for _ in {1..60}; do
+  kill -0 "$app_pid" >/dev/null 2>&1 || fail "game exited before the first menu frame"
+  capture_root "${smoke_dir}/main-menu.png"
+  ready_colors="$(identify -format '%k' "${smoke_dir}/main-menu.png")"
+  if [[ "$ready_colors" =~ ^[0-9]+$ ]] && (( ready_colors >= 16 )); then
+    break
+  fi
+  sleep 0.5
+done
 check_image "${smoke_dir}/main-menu.png" "main-menu"
 
 read -r click_x click_y < <(window_point 662 472)

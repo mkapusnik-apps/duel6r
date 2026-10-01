@@ -1,5 +1,18 @@
 include_guard(GLOBAL)
 
+add_executable(duel6r-hardware-crypto-tests ${CMAKE_SOURCE_DIR}/tests/HardwareCryptoTests.cpp)
+target_include_directories(duel6r-hardware-crypto-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(duel6r-hardware-crypto-tests PRIVATE duel6r-network-scaffold)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND D6R_PLATFORM STREQUAL "arm64")
+    target_compile_definitions(duel6r-hardware-crypto-tests PRIVATE D6R_TEST_WRAP_AUXV)
+    target_link_libraries(duel6r-hardware-crypto-tests PRIVATE "-Wl,--wrap=getauxval")
+endif ()
+if (MINGW)
+    set_property(TARGET duel6r-hardware-crypto-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
+add_test(NAME duel6r-hardware-crypto-tests COMMAND duel6r-hardware-crypto-tests)
+set_tests_properties(duel6r-hardware-crypto-tests PROPERTIES LABELS "application;network;security" TIMEOUT 30)
+
 add_executable(duel6r-session-transport-tests
         ${CMAKE_SOURCE_DIR}/tests/SessionTransportTests.cpp)
 target_include_directories(duel6r-session-transport-tests PRIVATE ${CMAKE_SOURCE_DIR})

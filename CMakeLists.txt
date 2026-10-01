@@ -63,7 +63,12 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DD6_DEBUG")
 
 # Switches
 set(D6R_RENDERERS gl1 gl4 es2 es3)
-set(D6R_RENDERER "gl4" CACHE STRING "Renderer")  # Renderer: gl1/gl4/es2
+set(D6R_DEFAULT_RENDERER "gl4")
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND D6R_PLATFORM STREQUAL "arm64")
+    # Mesa V3D on Raspberry Pi 5 supports desktop compatibility GL, not GL 4.3.
+    set(D6R_DEFAULT_RENDERER "gl1")
+endif ()
+set(D6R_RENDERER "${D6R_DEFAULT_RENDERER}" CACHE STRING "Renderer")
 set_property (CACHE D6R_RENDERER PROPERTY STRINGS ${D6R_RENDERERS})
 set(D6R_WITH_LUA ON)     # Enable/disable lua scripting
 option(D6R_TRANSPORT_ONLY "Build only the native session transport and its tests" OFF)
