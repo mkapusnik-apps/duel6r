@@ -363,6 +363,8 @@ if (UNIX OR WIN32)
                     ${CMAKE_SOURCE_DIR}/tests/HostServiceProcessTests.py
                     $<TARGET_FILE:${D6R_HOST_SUPERVISOR_APP_NAME}>
                     $<TARGET_FILE:duel6r-host-service-test-child>
+                    $<TARGET_FILE:${D6R_SERVER_APP_NAME}>
+                    ${CMAKE_SOURCE_DIR}/resources
     )
     set_tests_properties(duel6r-host-service-process-tests PROPERTIES
             LABELS "application;integration;network;host-service;process"
@@ -375,6 +377,8 @@ if (UNIX OR WIN32)
                         ${CMAKE_SOURCE_DIR}/tests/HostServiceProcessTests.py
                         $<TARGET_FILE:${D6R_HOST_SUPERVISOR_APP_NAME}>
                         $<TARGET_FILE:duel6r-host-service-test-child>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}>
+                        ${CMAKE_SOURCE_DIR}/resources
                         --orphan-stress
         )
         set_tests_properties(duel6r-host-service-orphan-process-tests PROPERTIES
