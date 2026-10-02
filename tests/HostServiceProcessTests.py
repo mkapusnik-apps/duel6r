@@ -3,6 +3,7 @@
 
 import os
 import pathlib
+import select
 import shutil
 import signal
 import socket
@@ -323,9 +324,20 @@ class HostServiceProcesses(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux process-group descendant observation")
     def test_parent_sigkill_does_not_orphan_owned_descendant(self):
+        self.check_parent_sigkill_descendant("tree")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux EOF before signal dispatch")
+    def test_control_eof_before_parent_signal_does_not_orphan_descendant(self):
+        self.check_parent_sigkill_descendant("tree-eof-before-signal")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux real application stop handler")
+    def test_application_stop_before_eof_poll_does_not_orphan_descendant(self):
+        self.check_parent_sigkill_descendant("tree-application-stop")
+
+    def check_parent_sigkill_descendant(self, mode):
         with tempfile.TemporaryDirectory(prefix="duel6r-host-tree-") as directory:
             marker = pathlib.Path(directory) / "descendant.pid"
-            process = subprocess.Popen([str(SUPERVISOR), f"--server={CHILD}", "--resources=tree",
+            process = subprocess.Popen([str(SUPERVISOR), f"--server={CHILD}", f"--resources={mode}",
                                         f"--gameplay-script={marker}"], cwd=str(CHILD.parent),
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env={})
             deadline = time.monotonic() + 3
@@ -339,9 +351,67 @@ class HostServiceProcesses(unittest.TestCase):
                 process.communicate(timeout=3)
                 self.assert_linux_process_terminated(
                     descendant, descendant_start_time, time.monotonic() + 3,
-                    f"owned descendant {descendant} remained active after parent SIGKILL")
+                    "owned descendant remained active after parent SIGKILL")
             finally:
                 self.kill_linux_process_if_matching(descendant, descendant_start_time)
+                self.close_process_streams(process)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux authenticated owned-group guard")
+    def test_unowned_group_and_replaced_control_descriptor_reject_channel(self):
+        for mode in ("unowned-group", "unowned-control"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory(prefix="duel6r-host-guard-") as directory:
+                marker = pathlib.Path(directory) / "guard.txt"
+                result = self.run_case(mode, f"--gameplay-script={marker}")
+                self.assertTrue(marker.exists(), "ownership guard probe did not complete")
+                self.assertEqual("rejected\n", marker.read_text(encoding="ascii"))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux forked ownership-token guard")
+    def test_forked_channel_signal_cannot_kill_original_owned_group(self):
+        with tempfile.TemporaryDirectory(prefix="duel6r-host-fork-guard-") as directory:
+            marker = pathlib.Path(directory) / "guard.txt"
+            process = subprocess.Popen([str(SUPERVISOR), f"--server={CHILD}", "--resources=fork-signal-guard",
+                                        f"--gameplay-script={marker}"], cwd=str(CHILD.parent),
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env={})
+            try:
+                deadline = time.monotonic() + 3
+                while not marker.exists() and time.monotonic() < deadline: time.sleep(.01)
+                self.assertTrue(marker.exists(), "forked signal killed the original owned leader")
+                self.assertEqual("guarded\n", marker.read_text(encoding="ascii"))
+            finally:
+                if process.poll() is None: process.send_signal(signal.SIGTERM)
+                self.close_process_streams(process)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux real application parent-loss cleanup")
+    def test_real_server_parent_sigkill_releases_owned_listener(self):
+        with tempfile.TemporaryDirectory(prefix="duel6r-host-crash-resources-") as directory:
+            root = pathlib.Path(directory).resolve()
+            self.stage_gameplay_resources(root)
+            port = self.available_port()
+            process = subprocess.Popen([str(SUPERVISOR), f"--server={SERVER}", f"--resources={root}",
+                                        f"--port={port}", "--local-players=1"], cwd=root,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={})
+            child = start = None
+            try:
+                output = b""
+                deadline = time.monotonic() + 3
+                while b"host-service-active\n" not in output and time.monotonic() < deadline:
+                    readable, _, _ = select.select([process.stdout], [], [], .01)
+                    if readable:
+                        data = os.read(process.stdout.fileno(), 4096)
+                        if not data: break
+                        output += data
+                self.assertIn(b"host-service-active\n", output)
+                children = pathlib.Path(f"/proc/{process.pid}/task/{process.pid}/children").read_text().split()
+                self.assertEqual(1, len(children))
+                child = int(children[0])
+                _, start = self.linux_process_metadata(child)
+                process.kill()
+                process.communicate(timeout=3)
+                self.assert_linux_process_terminated(child, start, time.monotonic() + 3,
+                                                     "real owned service survived parent SIGKILL")
+                self.assert_listener_released(port)
+            finally:
+                if child is not None: self.kill_linux_process_if_matching(child, start)
                 self.close_process_streams(process)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux process-group descendant observation")
@@ -421,6 +491,8 @@ if __name__ == "__main__":
         names = [
             "test_parent_sigkill_does_not_orphan_owned_child",
             "test_parent_sigkill_does_not_orphan_owned_descendant",
+            "test_control_eof_before_parent_signal_does_not_orphan_descendant",
+            "test_application_stop_before_eof_poll_does_not_orphan_descendant",
             "test_normal_shutdown_cleans_owned_descendant_process_tree",
         ]
         suite = unittest.TestSuite(HostServiceProcesses(name) for name in names)

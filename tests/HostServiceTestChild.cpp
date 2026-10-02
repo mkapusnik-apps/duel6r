@@ -16,6 +16,7 @@
 #include <cerrno>
 #include <csignal>
 #include <fcntl.h>
+#include <sys/wait.h>
 #include <unistd.h>
 extern char **environ;
 #else
@@ -27,6 +28,10 @@ extern char **environ;
 #endif
 
 namespace {
+#ifndef _WIN32
+volatile std::sig_atomic_t applicationStop = 0;
+void requestApplicationStop(int) { applicationStop = 1; }
+#endif
 std::string modeFromArguments(int count, char **arguments) {
     constexpr const char *prefix = "--resources=";
     for (int index = 1; index < count; ++index) {
@@ -214,14 +219,44 @@ int main(int count, char **arguments) {
         }
         if (!channel->send(Duel6::Network::HostServiceStatusCode::Ready)) return 80;
     }
-    if (mode == "tree") {
+    if (mode == "tree" || mode == "tree-eof-before-signal" || mode == "tree-application-stop") {
         const std::string pidFile = gameplayScriptFromArguments(count, arguments);
         const pid_t descendant = fork();
         if (descendant < 0) return 81;
         if (descendant == 0) {
             for (;;) pause();
         }
+        if (mode == "tree-eof-before-signal") {
+            // Select control EOF before parent-death signal dispatch without
+            // extending the original process-identity/termination deadline.
+            sigset_t mask; sigemptyset(&mask); sigaddset(&mask, SIGTERM);
+            if (sigprocmask(SIG_BLOCK, &mask, nullptr) != 0) return 92;
+        } else if (mode == "tree-application-stop") {
+            // The real HeadlessServer installs its application SIGTERM stop
+            // handler after channel setup and may exit before polling EOF.
+            std::signal(SIGTERM, requestApplicationStop);
+        }
         if (!publishMarker(pidFile, std::to_string(descendant) + "\n")) return 82;
+    }
+    if (mode == "unowned-group" || mode == "unowned-control") {
+        const std::string marker = gameplayScriptFromArguments(count, arguments);
+        if (mode == "unowned-group") {
+            if (setpgid(0, getpgid(getppid())) != 0) return 93;
+        } else {
+            if (close(4) != 0 || open("/dev/null", O_RDONLY) != 4) return 94;
+        }
+        const auto rejected = Duel6::Server::HostedServiceChannel::fromCommandLine(count, arguments);
+        if (!publishMarker(marker, rejected ? "accepted\n" : "rejected\n")) return 83;
+        return rejected ? 83 : 0;
+    }
+    if (mode == "fork-signal-guard") {
+        const pid_t descendant = fork();
+        if (descendant < 0) return 81;
+        if (descendant == 0) { raise(SIGTERM); _exit(95); }
+        int status = 0;
+        pid_t reaped;
+        do { reaped = waitpid(descendant, &status, 0); } while (reaped < 0 && errno == EINTR);
+        if (reaped != descendant || !publishMarker(gameplayScriptFromArguments(count, arguments), "guarded\n")) return 83;
     }
 #else
     if (mode == "tree") {
@@ -262,6 +297,9 @@ int main(int count, char **arguments) {
 
     // "timeout" deliberately never reports status. All long-lived modes cooperate with Stop.
     for (;;) {
+#ifndef _WIN32
+        if (applicationStop) return 0;
+#endif
         if (channel->stopRequested()) return 0;
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
