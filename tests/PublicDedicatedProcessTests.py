@@ -262,6 +262,11 @@ def main():
     client, server, resources = map(lambda value: Path(value).resolve(), sys.argv[1:4])
     review = len(sys.argv) > 4
     cases = sys.argv[4:]
+    end_eof_regressions = cases == ["--end-eof-regressions"]
+    if end_eof_regressions:
+        # Repeat the actual three-participant active-match End/EOF journey in
+        # isolated services. Keep its normal arena, input and original deadlines.
+        cases = ["flow"] * 6
     if cases == ["--review-regressions"]:
         cases = [f"notice-{reason}-{phase}" for phase in ("lobby", "match", "summary")
                  for reason in ("maintenance", "controller", "wrong", "eof")] + ["recovery", "expiry", "summary-return"]
@@ -271,7 +276,7 @@ def main():
         root = Path(temp)
         shutil.copytree(resources / "data", root / "data")
         (root / "levels").mkdir()
-        width, height = (10, 3) if review else (24, 8)
+        width, height = (10, 3) if review and not end_eof_regressions else (24, 8)
         blocks = [int(x in (0, width - 1) or y in (0, height - 1))
                   for y in range(height) for x in range(width)]
         (root / "levels" / "arena.json").write_text(json.dumps(

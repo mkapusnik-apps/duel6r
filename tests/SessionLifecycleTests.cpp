@@ -128,6 +128,74 @@ D6R_TEST_CASE("public controller reservation expiry ends everyone at exactly 30 
     D6R_REQUIRE(host.reconnect(requestFor(*controller), 11).outcome != ReconnectOutcome::Accepted);
 }
 
+D6R_TEST_CASE("public failed restore and restore crossing deadline never manufacture intentional host end") {
+    for (bool crossesDeadline : {false, true}) {
+        ManualClock time;
+        CredentialSource source;
+        HostHooks hooks;
+        std::vector<std::vector<std::uint8_t>> notices;
+        unsigned discarded = 0;
+        hooks.disconnect = [](ParticipantId) { return true; };
+        hooks.restoreCurrent = [&](ParticipantId, ConnectionId) {
+            if (crossesDeadline) time.advance(1ms);
+            return crossesDeadline;
+        };
+        hooks.sendIntentionalHostEnd = [&](ConnectionId, const auto &payload) {
+            notices.push_back(payload); return true;
+        };
+        hooks.discardSession = [&] { ++discarded; };
+        HostSessionLifecycle host(96, 1, 10, {1}, time.clock(), source.random(), hooks, true);
+        const auto controller = host.admitGuest(1, 10, {1}, false);
+        const auto guest = host.admitGuest(2, 20, {2}, false);
+        D6R_REQUIRE(controller && guest && host.transportClosed(1, 10));
+        time.advance(29999ms);
+        const auto result = host.reconnect(requestFor(*controller), 11);
+        D6R_REQUIRE(result.outcome == (crossesDeadline ? ReconnectOutcome::Expired : ReconnectOutcome::RestoreFailed));
+        D6R_REQUIRE(!result.nextGrant);
+        host.processLifecycleBatch(Phase::ActiveRound);
+        D6R_REQUIRE(host.ended());
+        D6R_REQUIRE_EQ(1u, discarded);
+        D6R_REQUIRE_EQ(0u, host.retainedPlayerCount());
+        D6R_REQUIRE_EQ(1u, notices.size());
+        D6R_REQUIRE(!deserializeIntentionalHostEnd(notices.front()));
+        D6R_REQUIRE(PublicSession::terminalReason(notices.front(), 96) == PublicSession::ControllerExpired);
+        D6R_REQUIRE(host.reconnect(requestFor(*controller), 12).outcome != ReconnectOutcome::Accepted);
+        D6R_REQUIRE(host.reconnect(requestFor(*guest), 21).outcome != ReconnectOutcome::Accepted);
+        D6R_REQUIRE(!host.endSession(1, 10).accepted && !host.endSession(2, 20).accepted);
+        HostSessionLifecycle fresh(97, 3, 30, {3}, time.clock(), source.random(), {}, true);
+        D6R_REQUIRE(fresh.admitGuest(3, 30, {3}, false));
+        D6R_REQUIRE(!fresh.ready(3) && !fresh.ended());
+        D6R_REQUIRE(fresh.reconnect(requestFor(*controller), 31).outcome != ReconnectOutcome::Accepted);
+        D6R_REQUIRE(fresh.endSession(3, 30).accepted);
+    }
+}
+
+D6R_TEST_CASE("public connected and authenticated reserved Leave retain intentional cause") {
+    for (bool reserved : {false, true}) {
+        ManualClock time;
+        CredentialSource source;
+        HostHooks hooks;
+        std::vector<std::vector<std::uint8_t>> notices;
+        hooks.disconnect = [](ParticipantId) { return true; };
+        hooks.sendIntentionalHostEnd = [&](ConnectionId, const auto &payload) { notices.push_back(payload); return true; };
+        HostSessionLifecycle host(98, 1, 10, {1}, time.clock(), source.random(), hooks, true);
+        const auto controller = host.admitGuest(1, 10, {1}, false);
+        D6R_REQUIRE(controller && host.admitGuest(2, 20, {2}, false));
+        if (reserved) {
+            D6R_REQUIRE(host.transportClosed(1, 10));
+            time.advance(29999ms);
+            D6R_REQUIRE(host.queueReservedLeave(requestFor(*controller), 11));
+        } else D6R_REQUIRE(host.queueIntentionalLeave(1, 10));
+        host.processLifecycleBatch(Phase::Lobby);
+        D6R_REQUIRE(host.ended() && !notices.empty());
+        for (const auto &notice : notices) {
+            const auto parsed = deserializeIntentionalHostEnd(notice);
+            D6R_REQUIRE(parsed && parsed->sessionId == 98);
+            D6R_REQUIRE(PublicSession::terminalReason(notice, 98).empty());
+        }
+    }
+}
+
 namespace {
     void expiryObservedBeforeBatch(bool viaReconnect, std::chrono::milliseconds observationTime) {
         ManualClock time;

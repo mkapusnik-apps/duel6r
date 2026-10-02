@@ -407,7 +407,7 @@ namespace Duel6::Network::Lifecycle {
                 (void) current->second.reservation->consumeSuspended();
                 current->second.reservation.reset();
             }
-            pendingLeaves.insert(request.participantId);
+            pendingRemovals.insert(request.participantId);
             return reject(restoredAt >= *deadline ? ReconnectOutcome::Expired : ReconnectOutcome::RestoreFailed);
         }
         current->second.connectionId = connectionId; current->second.connected = true;
@@ -428,7 +428,8 @@ namespace Duel6::Network::Lifecycle {
         if (sessionEnded || operationActive || found == participants.end() || !found->second.connected
             || found->second.connectionId != connectionId) return false;
         OperationGuard operation(operationActive);
-        return pendingLeaves.insert(participantId).second;
+        intentionalLeaves.insert(participantId);
+        return pendingRemovals.insert(participantId).second;
     }
 
     bool HostSessionLifecycle::queueReservedLeave(
@@ -447,7 +448,8 @@ namespace Duel6::Network::Lifecycle {
                                                 request.participantId, request.reservationId)) {
             close(attemptConnectionId); return false;
         }
-        const bool queued = pendingLeaves.insert(request.participantId).second;
+        intentionalLeaves.insert(request.participantId);
+        const bool queued = pendingRemovals.insert(request.participantId).second;
         close(attemptConnectionId);
         return queued;
     }
@@ -665,7 +667,7 @@ namespace Duel6::Network::Lifecycle {
         found->second.reservationId = found->second.rollbackReservationId;
         found->second.rollbackReservationId = 0;
         const bool reservationRestored = found->second.reservation->restoreSuspended();
-        if (!reservationRestored) pendingLeaves.insert(participantId);
+        if (!reservationRestored) pendingRemovals.insert(participantId);
         found->second.connected = false;
         advanceReadinessGeneration();
         bool disconnected = true;
@@ -679,7 +681,7 @@ namespace Duel6::Network::Lifecycle {
     RemovalOutcome HostSessionLifecycle::processLifecycleBatch(Phase phase) {
         if (sessionEnded || operationActive || phase == Phase::Ended) return RemovalOutcome::NothingChanged;
         OperationGuard operation(operationActive);
-        std::set<ParticipantId> removals = pendingLeaves;
+        std::set<ParticipantId> removals = pendingRemovals;
         try {
             for (auto &[id, participant]: participants)
                 // Accessors used by reconnect authorization may already have expired
@@ -688,11 +690,11 @@ namespace Duel6::Network::Lifecycle {
                 if (!participant.connected && participant.reservation && !participant.reservation->valid())
                     removals.insert(id);
         } catch (...) {
-            pendingLeaves.insert(removals.begin(), removals.end());
+            pendingRemovals.insert(removals.begin(), removals.end());
             return RemovalOutcome::Failed;
         }
         if (remoteHost && removals.count(hostParticipantId)) {
-            const auto payload = pendingLeaves.count(hostParticipantId)
+            const auto payload = intentionalLeaves.count(hostParticipantId)
                     ? serializeIntentionalHostEnd({sessionId}) : PublicSession::terminalNotice(sessionId, false);
             sessionEnded = true;
             for (const auto &[id, participant]: participants) {
@@ -703,17 +705,18 @@ namespace Duel6::Network::Lifecycle {
             try { if (hooks.discardSession) hooks.discardSession(); } catch (...) {}
             return RemovalOutcome::NothingChanged;
         }
-        pendingLeaves.clear();
+        pendingRemovals.clear();
         if (removals.empty()) return RemovalOutcome::NothingChanged;
         std::vector<ParticipantId> batch(removals.begin(), removals.end());
         bool applied = false;
         try { applied = hooks.removeBatch && hooks.removeBatch(batch, phase); } catch (...) { applied = false; }
         if (!applied) {
-            pendingLeaves.insert(removals.begin(), removals.end());
+            pendingRemovals.insert(removals.begin(), removals.end());
             return RemovalOutcome::Failed;
         }
         std::vector<ConnectionId> connectionsToClose;
         for (ParticipantId id: batch) {
+            intentionalLeaves.erase(id);
             const auto found = participants.find(id);
             if (found == participants.end()) continue;
             if (found->second.connected) connectionsToClose.push_back(found->second.connectionId);
@@ -796,7 +799,8 @@ namespace Duel6::Network::Lifecycle {
         try { if (hooks.closeConnection) hooks.closeConnection(connectionId); } catch (...) {}
     }
     void HostSessionLifecycle::clearAll() noexcept {
-        pendingLeaves.clear();
+        pendingRemovals.clear();
+        intentionalLeaves.clear();
         auto removed = std::move(participants);
         participants.clear();
         for (auto &[id, participant]: removed) {

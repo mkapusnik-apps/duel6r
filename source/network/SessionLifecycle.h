@@ -240,7 +240,10 @@ namespace Duel6::Network::Lifecycle {
         Trust::RandomFill random;
         HostHooks hooks;
         std::map<ParticipantId, Participant> participants;
-        std::set<ParticipantId> pendingLeaves;
+        std::set<ParticipantId> pendingRemovals;
+        // Only authenticated explicit Leave actions establish intentional cause.
+        // Failed restoration and expiry share removal membership, not that cause.
+        std::set<ParticipantId> intentionalLeaves;
         std::uint64_t nextReservationId = 1;
         std::uint64_t readinessGeneration = 1;
         bool hostReady = false;

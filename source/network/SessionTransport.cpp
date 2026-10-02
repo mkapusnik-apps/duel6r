@@ -904,7 +904,7 @@ namespace Duel6::Network {
                 if (sensitive) Trust::secureEraseMemory(payload.data(), payload.size());
                 return SendResult::Closing;
             }
-            if (current != ClientState::Connected) {
+            if (current != ClientState::Connected || failedTlsOutputDrain.load()) {
                 if (sensitive) Trust::secureEraseMemory(payload.data(), payload.size());
                 return SendResult::NotConnected;
             }
@@ -935,7 +935,7 @@ namespace Duel6::Network {
                             return AdmissionAcceptanceEnqueueResult::NotQueued;
                         std::lock_guard<std::mutex> outputLock(outputMutex);
                         ClientState currentState = state.load();
-                        if (currentState != ClientState::Connected
+                        if (currentState != ClientState::Connected || failedTlsOutputDrain.load()
                             || applicationOutput.size() + activeApplicationFrames >= MaxQueuedTransportFrames
                             || outputBytes + activeApplicationBytes + payload.size()
                                > MaxQueuedTransportPayloadBytes)
@@ -999,6 +999,7 @@ namespace Duel6::Network {
 
             if (writer.joinable() && writer.get_id() != std::this_thread::get_id()) writer.join();
             stop.store(true);
+            inputSealChanged.notify_all();
             if (!socketClosed.load()) shutdownSocket(socket);
             if (reader.joinable() && reader.get_id() != std::this_thread::get_id()) reader.join();
             closeSocketOnce();
@@ -1009,6 +1010,10 @@ namespace Duel6::Network {
 
         void requestClose() {
             std::lock_guard<std::mutex> terminalLock(terminalMutex);
+            // A failed TLS write can race a valid final incoming record. The
+            // reader retains only the existing graceful-close budget to finish
+            // that stream; explicit close() still stops and joins it immediately.
+            if (failedTlsOutputDrain.load() && state.load() == ClientState::Connected) return;
             ClientState expected = ClientState::Connected;
             if (state.compare_exchange_strong(expected, ClientState::Closing)) {
                 closeDeadline = Clock::now() + GracefulCloseDeadline;
@@ -1061,6 +1066,8 @@ namespace Duel6::Network {
         const std::function<TransportTimePoint()> now;
         std::atomic<bool> socketClosed{false};
         std::atomic<bool> stop{false};
+        std::atomic<bool> failedTlsOutputDrain{false};
+        std::atomic<Clock::time_point> failedTlsOutputDeadline{};
         std::atomic<bool> closeRequested{false};
         std::mutex terminalMutex;
         const std::array<std::uint8_t, 4> source;
@@ -1144,9 +1151,28 @@ namespace Duel6::Network {
             outputChanged.notify_all();
         }
 
+        bool tlsOutputDrainExpired() const {
+            return failedTlsOutputDrain.load() && Clock::now() >= failedTlsOutputDeadline.load();
+        }
+
+        bool waitForUnsealedInput(std::unique_lock<std::mutex> &lock) {
+            while (inputSealed && !stop.load() && state.load() == ClientState::Connected) {
+                if (tlsOutputDrainExpired()) {
+                    lock.unlock(); fail(TransportFailure::SystemError); return false;
+                }
+                // Sealing must not leave a failed writer's receive drain parked
+                // forever. Normal admission still waits for resume/close; the
+                // failed TLS path retains the same absolute close deadline.
+                inputSealChanged.wait_until(lock, failedTlsOutputDrain.load()
+                        ? failedTlsOutputDeadline.load() : Clock::now() + std::chrono::milliseconds(100));
+            }
+            return !stop.load() && state.load() == ClientState::Connected;
+        }
+
         void queueControl(std::uint16_t kind) {
             std::lock_guard<std::mutex> lock(outputMutex);
-            if (stop.load() || controlOutput.size() + activeControlFrames >= MaxQueuedControlFrames) return;
+            if (stop.load() || failedTlsOutputDrain.load()
+                || controlOutput.size() + activeControlFrames >= MaxQueuedControlFrames) return;
             if ((activeControlFrames != 0 && activeControlKind == kind)
                 || std::any_of(controlOutput.begin(), controlOutput.end(), [kind](const PendingFrame &frame) {
                     return frame.kind == kind;
@@ -1159,6 +1185,7 @@ namespace Duel6::Network {
             std::size_t offset = 0;
             Clock::time_point progress = Clock::now();
             while (offset < size && !stop.load()) {
+                if (tlsOutputDrainExpired()) { fail(TransportFailure::SystemError); return false; }
                 if (secure && secure->expired()) { fail(TransportFailure::PeerClosed); return false; }
                 if (!tls && !(secure && secure->pending()) && !waitSocket(socket, false, std::chrono::milliseconds(100))) {
                     auto now = Clock::now();
@@ -1235,14 +1262,12 @@ namespace Duel6::Network {
                 }
                 if (kind == ApplicationFrame) {
                     std::unique_lock<std::mutex> lock(inputMutex);
-                    inputSealChanged.wait(lock, [&] {
-                        return !inputSealed || stop.load() || state.load() != ClientState::Connected;
-                    });
-                    if (stop.load() || state.load() != ClientState::Connected) break;
+                    if (!waitForUnsealedInput(lock)) break;
                 }
                 bool aggregateReserved = false;
                 const auto aggregateBlockedSince = Clock::now();
                 while (!(aggregateReserved = Trust::processQueueBudget().reserve(payloadSize)) && !stop.load()) {
+                    if (tlsOutputDrainExpired()) { fail(TransportFailure::SystemError); return; }
                     if (Clock::now() - aggregateBlockedSince >= ProgressDeadline) {
                         fail(TransportFailure::InboundStalled, true);
                         return;
@@ -1266,12 +1291,18 @@ namespace Duel6::Network {
                 }
 
                 std::unique_lock<std::mutex> lock(inputMutex);
-                inputSealChanged.wait(lock, [&] {
-                    return !inputSealed || stop.load() || state.load() != ClientState::Connected;
-                });
+                if (!waitForUnsealedInput(lock)) {
+                    Trust::processQueueBudget().release(payload.size());
+                    break;
+                }
                 const auto blockedSince = Clock::now();
                 while ((input.size() >= MaxQueuedTransportFrames
-                        || inputBytes + payload.size() > MaxQueuedTransportPayloadBytes) && !stop.load()) {
+                         || inputBytes + payload.size() > MaxQueuedTransportPayloadBytes) && !stop.load()) {
+                    if (tlsOutputDrainExpired()) {
+                        lock.unlock();
+                        Trust::processQueueBudget().release(payload.size());
+                        fail(TransportFailure::SystemError); return;
+                    }
                     if (Clock::now() - blockedSince >= ProgressDeadline) {
                         lock.unlock();
                         Trust::processQueueBudget().release(payload.size());
@@ -1359,6 +1390,17 @@ namespace Duel6::Network {
                     continue;
                 }
                 if (outcome.status == OutboundSendStatus::Failed) {
+                    if (tls) {
+                        std::lock_guard<std::mutex> lock(terminalMutex);
+                        if (state.load() == ClientState::Connected && !stop.load()) {
+                            // Do not shutdown the read half from the writer.
+                            // EOF or this fixed existing close budget ends the
+                            // drain; new application/control sends fail.
+                            failedTlsOutputDeadline.store(Clock::now() + GracefulCloseDeadline);
+                            failedTlsOutputDrain.store(true);
+                            return false;
+                        }
+                    }
                     fail(TransportFailure::SystemError);
                     return false;
                 }

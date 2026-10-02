@@ -286,6 +286,13 @@ if (NOT D6R_TRANSPORT_ONLY)
         set_tests_properties(duel6r-public-dedicated-process-tests PROPERTIES
                 LABELS "application;integration;network;public;tls;security"
                 TIMEOUT 180)
+        add_test(NAME duel6r-public-dedicated-end-eof-regressions
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                        $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources --end-eof-regressions)
+        set_tests_properties(duel6r-public-dedicated-end-eof-regressions PROPERTIES
+                LABELS "application;integration;network;public;tls;recovery;regression"
+                TIMEOUT 180)
         add_test(NAME duel6r-public-dedicated-review-regressions
                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
                         $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>

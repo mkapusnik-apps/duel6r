@@ -43,6 +43,17 @@ namespace Duel6 {
 
         std::string onOff(bool value) { return value ? "On" : "Off"; }
 
+        bool publicSecurityFailure(const Client::NetworkRuntimeSnapshot &snapshot) {
+            return snapshot.publicSession && (snapshot.securityFailure || snapshot.authorizationRejected
+                || snapshot.failure == Network::PublicSession::SecurityFailure
+                || snapshot.failure == "Connection not authorized.");
+        }
+
+        bool publicSessionEnded(const Client::NetworkRuntimeSnapshot &snapshot) {
+            return snapshot.publicSession && (snapshot.failure == Network::PublicSession::Maintenance
+                || snapshot.failure == Network::PublicSession::ControllerExpired);
+        }
+
         std::string listeningAddressLabel(const std::string &address) {
             if (address.empty()) return "Select an eligible interface";
             return address + (address == "127.0.0.1" ? " (Same machine)" : " (Selected interface)");
@@ -641,6 +652,10 @@ namespace Duel6 {
 
     bool NetworkMenu::retryEligible(
             const Client::NetworkRuntimeSnapshot &snapshot, std::string &reason) const {
+        if (publicSecurityFailure(snapshot)) {
+            reason = "Edit setup before you retry.";
+            return false;
+        }
         if (!snapshot.retryAllowed) {
             reason = "Edit setup before you retry.";
             if (snapshot.retryBlockReason == Client::NetworkRetryBlockReason::CleanupInProgress)
@@ -1059,7 +1074,7 @@ namespace Duel6 {
                 || focus != resultFocusIndex(snap, localPlayers.size()))) {
             const auto maximum = snap.canonical && snap.canonical->result.available
                     ? std::max(snap.canonical->players.size(), snap.canonical->participants.size()) - 1
-                    : snap.canonical ? lobbyMaximumScroll(*snap.canonical, snap.host) : 0;
+                    : snap.canonical ? lobbyMaximumScroll(*snap.canonical, snap.host || snap.publicSession) : 0;
             setupScroll = std::clamp(setupScroll - event.getAmountY(), 0, static_cast<int>(maximum));
             focus = static_cast<int>(localPlayers.size()) * 2;
             return;
@@ -1165,7 +1180,7 @@ namespace Duel6 {
             if (focus >= rosterBase && focus < rosterBase + static_cast<int>(roster.size()))
                 selected = static_cast<std::size_t>(focus - rosterBase);
         }
-        const int maximum = static_cast<int>(lobbyMaximumScroll(*snap.canonical, snap.host));
+        const int maximum = static_cast<int>(lobbyMaximumScroll(*snap.canonical, snap.host || snap.publicSession));
         setupScroll = std::clamp(setupScroll, 0, maximum);
         if (!selected) return;
         if (*selected < static_cast<std::size_t>(setupScroll)) setupScroll = static_cast<int>(*selected);
@@ -1387,8 +1402,10 @@ namespace Duel6 {
                 if (snap.host && !snap.publicSession) (void) refreshHostAddresses(false);
                 if (!snap.host && snap.failure == "Connection not authorized.") { focus = 2; return; }
             }
-            else { clearInvitation(); runtime.reset(); setupScreen = joinFromBrowser ? SetupScreen::Browser : SetupScreen::Entry;
-                   if (joinFromBrowser) browser.refresh(); }
+            else { clearInvitation(); runtime.reset();
+                   const bool returnToBrowser = joinFromBrowser && !snap.publicSession;
+                   setupScreen = returnToBrowser ? SetupScreen::Browser : SetupScreen::Entry;
+                   if (returnToBrowser) browser.refresh(); }
             focus = 0;
         }
     }
@@ -2153,7 +2170,7 @@ namespace Duel6 {
                     "Reserved players receive no input and remain in play", columns, 2);
         }
         if (snap.publicSession && snap.host)
-            drawWrappedText(x + 24, y + 86, "Leaving as host ends the session.", columns, 2);
+            drawWrappedText(x + 24, y + 86, "Reconnect to keep control. If time expires, the session ends.", columns, 2);
         drawButton(x + panelWidth / 2 - 100, y + 24, 200, 34, snap.host ? "End session" : "Leave session", true, true, true);
     }
 
@@ -2180,12 +2197,18 @@ namespace Duel6 {
 
     void NetworkMenu::drawLobby(const Client::NetworkRuntimeSnapshot &snap) const {
         const auto &state = *snap.canonical;
-        drawClippedText(42, snap.host ? 528 : 516, (snap.host ? "Host" : "Guest")
-                                 + std::string(snap.publicSession ? " • Public session • " : " • Network session • ")
-                                + snap.endpoint.host + ":" + std::to_string(snap.endpoint.port) + " • "
-                                + std::to_string(state.participants.size()) + " participants • "
-                                + std::to_string(state.players.size()) + " players", 96);
-        if (snap.host && snap.publicSession) drawText(42, 504, "Leaving as host ends the session.");
+        if (snap.publicSession) {
+            drawText(42, 528, std::string(snap.host ? "Host" : "Guest") + " • Public session • "
+                     + std::to_string(state.participants.size()) + " participants • "
+                     + std::to_string(state.players.size()) + " players");
+            drawClippedText(42, 508, "Endpoint: " + snap.endpoint.host + ":" + std::to_string(snap.endpoint.port), 96);
+            drawWrappedText(42, 488, snap.host ? "You control this session. Leaving ends it for everyone."
+                                             : "The host controls this session. It ends when the host leaves.", 96, 2);
+        } else drawClippedText(42, snap.host ? 528 : 516, (snap.host ? "Host" : "Guest")
+                               + std::string(" • Network session • ") + snap.endpoint.host + ":"
+                               + std::to_string(snap.endpoint.port) + " • "
+                               + std::to_string(state.participants.size()) + " participants • "
+                               + std::to_string(state.players.size()) + " players", 96);
         if (snap.host && !snap.publicSession) {
             if (snap.directoryAvailable || snap.directoryRegistering)
                 drawText(42, 504, snap.directoryAvailable ? "Directory: Listed" : "Directory: Registering…");
@@ -2194,14 +2217,14 @@ namespace Duel6 {
             if (!snap.directoryAvailable && !snap.directoryRegistering)
                 drawText(42, 484, "Session is still running. Share the endpoint for direct connection.");
         }
-        const Int32 participantTop = snap.host ? 476 : 500;
+        const Int32 participantTop = snap.host || snap.publicSession ? 476 : 500;
         const Int32 participantBottom = state.result.available ? 410 : 392;
         drawPanel(40, participantBottom, 358, participantTop - participantBottom, "PARTICIPANTS");
         renderer.quadXY(Vector(42, participantTop - 40), Vector(354, 20), Color(170));
         drawText(44, participantTop - 36, "Role"); drawText(142, participantTop - 36, "Connection");
         drawText(254, participantTop - 36, "Readiness"); drawText(350, participantTop - 36, "Owned");
         drawField(42, participantBottom + 2, 354, participantTop - 42 - participantBottom);
-        drawPlayers(state, snap.host);
+        drawPlayers(state, snap.host || snap.publicSession);
         const Int32 settingsBottom = state.result.available ? 350 : 232;
         const Int32 settingsLeft = state.result.available ? 406 : LobbySettingLeft - 6;
         const Int32 settingsWidth = 816 - settingsLeft;
@@ -2463,9 +2486,13 @@ namespace Duel6 {
         const Int32 panelHeight = std::min<Int32>(260, height - 32);
         const Int32 left = (width - panelWidth) / 2, bottom = (height - panelHeight) / 2;
         const Int32 buttonWidth = std::min<Int32>(230, (panelWidth - 80) / 2);
-        const auto journey = runtime.snapshot().journey;
+        const auto snapshot = runtime.snapshot();
+        const auto journey = snapshot.journey;
         const std::string prompt = confirmation == Confirmation::End ? "End session for everyone?" : "Leave session?";
-        const std::string consequence = confirmation == Confirmation::End ? std::string()
+        const std::string consequence = confirmation == Confirmation::End
+                ? snapshot.publicSession && journey == Client::NetworkJourney::Reconnecting
+                    ? "Reconnect will stop. The session ends when the service receives the request or the reconnect time expires."
+                    : std::string()
                 : journey == Client::NetworkJourney::Reconnecting
                   ? "Your reserved players will be removed now and reconnect will stop."
                 : journey == Client::NetworkJourney::Match
@@ -2515,7 +2542,8 @@ namespace Duel6 {
         else if (snap.journey == Client::NetworkJourney::Lobby) title = "NETWORK LOBBY";
         else if (snap.journey == Client::NetworkJourney::Summary) title = "MATCH SUMMARY";
         else if (snap.journey == Client::NetworkJourney::Reconnecting) title = "RECONNECTING";
-        else if (snap.journey == Client::NetworkJourney::Failure) title = snap.host ? "SESSION ENDED" : "CONNECTION FAILED";
+        else if (snap.journey == Client::NetworkJourney::Failure)
+            title = (snap.publicSession ? publicSessionEnded(snap) : snap.host) ? "SESSION ENDED" : "CONNECTION FAILED";
         else if (snap.journey == Client::NetworkJourney::HostEnded && snap.canonical
                  && snap.canonical->phase == Network::Replication::Phase::Lobby) title = "NETWORK LOBBY";
         else if (snap.journey == Client::NetworkJourney::HostEnded && snap.canonical
@@ -2654,17 +2682,20 @@ namespace Duel6 {
         } else if (snap.journey == Client::NetworkJourney::Failure) {
             drawWrappedText(130, 470, snap.failure.empty() ? "Connection could not be completed." : snap.failure,
                             72, 3);
-            if (!snap.host || snap.publicSession) drawClippedText(130, 404,
+            if ((!snap.host || snap.publicSession) && !snap.canonical && snap.localParticipantId == 0
+                && snap.retryBlockReason != Client::NetworkRetryBlockReason::TerminalReconnect
+                && snap.retryBlockReason != Client::NetworkRetryBlockReason::EndedSession) drawClippedText(130, 404,
                     "Endpoint: " + snap.endpoint.host + ':' + std::to_string(snap.endpoint.port), 72);
             if (!snap.host && !snap.publicSession) drawWrappedText(130, 374,
                     "Check that the host session is running and the endpoint is correct.", 72, 2);
             std::string retryReason;
             const bool canRetry = retryEligible(snap, retryReason);
             int selected = 0;
-            drawButton(54, 270, 220, 34, canRetry ? "Retry" : "Retry unavailable", canRetry && focus == selected++, canRetry);
+            if (!publicSecurityFailure(snap))
+                drawButton(54, 270, 220, 34, canRetry ? "Retry" : "Retry unavailable", canRetry && focus == selected++, canRetry);
             drawButton(315, 270, 220, 34, "Edit setup", focus == selected++);
-            drawButton(576, 270, 220, 34, joinFromBrowser ? "Return to browser" : "Return to Network", focus == selected);
-            if (!canRetry) drawWrappedText(54, 238, retryReason, 92, 4);
+            drawButton(576, 270, 220, 34, joinFromBrowser && !snap.publicSession ? "Return to browser" : "Return to Network", focus == selected);
+            if (!canRetry && !publicSecurityFailure(snap)) drawWrappedText(54, 238, retryReason, 92, 4);
         }
         if (confirmation != Confirmation::None) drawConfirmation();
         renderer.setViewMatrix(Matrix::IDENTITY);

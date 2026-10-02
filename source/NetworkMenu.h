@@ -112,7 +112,7 @@ namespace Duel6 {
         bool editingEndpoint(const Client::NetworkRuntimeSnapshot &snapshot) const;
         int setupFields() const { return setupScreen == SetupScreen::Join ? 4 : 3; }
         int setupFirstRow() const { return setupScreen == SetupScreen::Join && publicConnection ? 292 : 364; }
-        int setupVisibleRows() const { return setupScreen == SetupScreen::Join && publicConnection ? 5 : 8; }
+        int setupVisibleRows() const { return setupScreen == SetupScreen::Join && publicConnection ? 4 : 8; }
         void clearInvitation();
         void enterDirectSetup();
         void joinEndpoint(const Network::Endpoint &endpoint);
