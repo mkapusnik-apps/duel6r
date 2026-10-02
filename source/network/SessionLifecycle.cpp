@@ -342,6 +342,13 @@ namespace Duel6::Network::Lifecycle {
             || found->second.connectionId != connectionId || !found->second.reservation) return false;
         OperationGuard operation(operationActive);
         if (!found->second.reservation->activate()) return false;
+        try { found->second.reservationDeadline = found->second.reservation->deadline(); }
+        catch (...) { found->second.reservationDeadline.reset(); }
+        found->second.removalCause = RemovalCause::Unselected;
+        if (remoteHost && participantId == hostParticipantId && !found->second.reservationDeadline) {
+            found->second.removalCause = RemovalCause::UnknownFailure;
+            pendingRemovals.insert(participantId);
+        }
         found->second.connected = false;
         advanceReadinessGeneration();
         bool disconnected = true;
@@ -369,10 +376,10 @@ namespace Duel6::Network::Lifecycle {
         std::optional<TimePoint> deadline;
         try { deadline = found->second.reservation->deadline(); } catch (...) {}
         if (!deadline) return reject(ReconnectOutcome::AuthorizationFailed);
-        TimePoint now = TimePoint::max();
+        std::optional<TimePoint> now;
         try { now = clock(); } catch (...) {}
-        if (now >= *deadline) {
-            try { found->second.reservation->expireIfDue(); } catch (...) {}
+        if (!now || *now >= *deadline) {
+            if (now) try { found->second.reservation->expireIfDue(); } catch (...) {}
             return reject(ReconnectOutcome::AuthorizationFailed);
         }
         Trust::ReconnectAuthorizationResult proof;
@@ -398,17 +405,20 @@ namespace Duel6::Network::Lifecycle {
         bool restored = false;
         try { restored = hooks.restoreCurrent && hooks.restoreCurrent(request.participantId, connectionId); }
         catch (...) { restored = false; }
-        TimePoint restoredAt = TimePoint::max();
+        std::optional<TimePoint> restoredAt;
         try { restoredAt = clock(); } catch (...) {}
         const auto current = participants.find(request.participantId);
-        if (!restored || restoredAt >= *deadline || sessionEnded || current == participants.end()) {
+        const bool expired = restoredAt && *restoredAt >= *deadline;
+        if (!restored || !restoredAt || expired || sessionEnded || current == participants.end()) {
             try { if (hooks.disconnect) (void) hooks.disconnect(request.participantId); } catch (...) {}
             if (current != participants.end()) {
                 (void) current->second.reservation->consumeSuspended();
                 current->second.reservation.reset();
+                current->second.removalCause = expired ? RemovalCause::Expired
+                        : restoredAt && !restored ? RemovalCause::RestorationFailed : RemovalCause::UnknownFailure;
             }
             pendingRemovals.insert(request.participantId);
-            return reject(restoredAt >= *deadline ? ReconnectOutcome::Expired : ReconnectOutcome::RestoreFailed);
+            return reject(expired ? ReconnectOutcome::Expired : ReconnectOutcome::RestoreFailed);
         }
         current->second.connectionId = connectionId; current->second.connected = true;
         if (remoteHost && request.participantId == hostParticipantId) hostConnectionId = connectionId;
@@ -650,6 +660,7 @@ namespace Duel6::Network::Lifecycle {
         const bool consumed = found->second.rollbackReservation->consumeSuspended();
         found->second.rollbackReservation.reset();
         found->second.rollbackReservationId = 0;
+        found->second.reservationDeadline.reset();
         if (!consumed) failSession();
         return consumed;
     }
@@ -666,8 +677,19 @@ namespace Duel6::Network::Lifecycle {
         found->second.reservation = std::move(found->second.rollbackReservation);
         found->second.reservationId = found->second.rollbackReservationId;
         found->second.rollbackReservationId = 0;
-        const bool reservationRestored = found->second.reservation->restoreSuspended();
-        if (!reservationRestored) pendingRemovals.insert(participantId);
+        bool reservationRestored = false, rollbackUnknown = false;
+        try { reservationRestored = found->second.reservation->restoreSuspended(); }
+        catch (...) { rollbackUnknown = true; }
+        if (!reservationRestored) {
+            std::optional<TimePoint> failedAt;
+            if (!rollbackUnknown) try { failedAt = clock(); } catch (...) {}
+            const bool expired = failedAt && found->second.reservationDeadline
+                    && *failedAt >= *found->second.reservationDeadline;
+            found->second.removalCause = expired ? RemovalCause::Expired
+                    : failedAt ? RemovalCause::RestorationFailed : RemovalCause::UnknownFailure;
+            found->second.reservation.reset();
+            pendingRemovals.insert(participantId);
+        }
         found->second.connected = false;
         advanceReadinessGeneration();
         bool disconnected = true;
@@ -694,7 +716,24 @@ namespace Duel6::Network::Lifecycle {
             return RemovalOutcome::Failed;
         }
         if (remoteHost && removals.count(hostParticipantId)) {
-            const auto payload = intentionalLeaves.count(hostParticipantId)
+            const auto controller = participants.find(hostParticipantId);
+            bool expired = controller != participants.end()
+                    && controller->second.removalCause == RemovalCause::Expired;
+            if (controller != participants.end()
+                && controller->second.removalCause == RemovalCause::Unselected
+                && controller->second.reservationDeadline) {
+                try { expired = clock() >= *controller->second.reservationDeadline; } catch (...) {}
+            }
+            const bool intentional = intentionalLeaves.count(hostParticipantId) != 0;
+            if (!intentional && !expired) {
+                // A selected restoration/unknown failure stays a failure even
+                // when a delayed cleanup batch runs after the old deadline.
+                // Existing reconnect rejection/ambiguous loss provides recovery;
+                // no intentional, expiry or maintenance notice is justified.
+                failSession();
+                return RemovalOutcome::NothingChanged;
+            }
+            const auto payload = intentional
                     ? serializeIntentionalHostEnd({sessionId}) : PublicSession::terminalNotice(sessionId, false);
             sessionEnded = true;
             for (const auto &[id, participant]: participants) {

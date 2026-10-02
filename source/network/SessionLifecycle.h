@@ -220,6 +220,7 @@ namespace Duel6::Network::Lifecycle {
         bool ended() const noexcept;
 
     private:
+        enum class RemovalCause { Unselected, RestorationFailed, UnknownFailure, Expired };
         struct Participant {
             ConnectionId connectionId = 0;
             std::vector<PlayerId> players;
@@ -229,6 +230,10 @@ namespace Duel6::Network::Lifecycle {
             std::unique_ptr<Trust::ReconnectReservation> reservation;
             std::uint64_t rollbackReservationId = 0;
             std::unique_ptr<Trust::ReconnectReservation> rollbackReservation;
+            // Keep the actual armed deadline even if a credential accessor erases
+            // an expired reservation. Invalid credentials alone prove no cause.
+            std::optional<TimePoint> reservationDeadline;
+            RemovalCause removalCause = RemovalCause::Unselected;
         };
 
         std::shared_ptr<const void> instanceLifetime;
