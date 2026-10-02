@@ -1411,6 +1411,11 @@ namespace Duel6::Network::Replication {
                 || !validText(state.messages.status, 256, true)
                 || !validText(state.result.state, 64, true)) return false;
             if (!withinPayloadLimit(state)) return false;
+            const auto activePlayers = std::count_if(state.players.begin(), state.players.end(), [](const auto &player) {
+                    return player.lifeState != LifeState::Departed;
+                });
+            if (activePlayers > static_cast<std::ptrdiff_t>(MaxActiveReplicatedPlayers)
+                || (state.phase != Phase::Ended && activePlayers == 0)) return false;
             if (state.phase == Phase::Lobby) {
                 if (state.result.available != (state.matchId != 0)) return false;
             } else if (state.matchId == 0) return false;
@@ -1428,8 +1433,8 @@ namespace Duel6::Network::Replication {
             std::size_t hosts = 0;
             std::set<Identity> ownedPlayerIds;
             for (const auto &participant: state.participants) {
-                if (!validConnectionState(participant.connection)
-                    || participant.ownedPlayerIds.size() > MaxReplicatedPlayers) return false;
+                if (!validConnectionState(participant.connection) || participant.ownedPlayerIds.empty()
+                    || participant.ownedPlayerIds.size() > MaxActiveReplicatedPlayers) return false;
                 if (participant.host) { ++hosts; if (participant.participantId != state.hostParticipantId) return false; }
                 if (!uniqueNonzero(participant.ownedPlayerIds, [](Identity value) { return value; })) return false;
                 for (Identity player: participant.ownedPlayerIds)

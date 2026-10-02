@@ -41,6 +41,7 @@ WINDOWS_SYSTEM_DLLS = {
     "opengl32.dll",
     "powrprof.dll",
     "rpcrt4.dll",
+    "secur32.dll",
     "setupapi.dll",
     "shell32.dll",
     "shlwapi.dll",

@@ -1,35 +1,61 @@
-# NET-04 — Public-service lobby
+# NET-04 — Lobby and retained results
 
-Functional authority: [NET-04](../../screens/network-lobby.md), states `NET-04-PUBLIC-CONTROLLER` and `NET-04-PUBLIC-GUEST`, NET-PUB-001–015. Wireframes: [NET-04](../wireframes/NET-04/NET-04.svg) and unchanged [NET-04-R](../wireframes/NET-04/NET-04-R.svg). Existing host-alone, readiness, read-only, and retained-result variants remain applicable.
+Functional authority: [NET-04](../../screens/network-lobby.md), `NET-OWN-002`–`NET-OWN-009`, `NET-DIR-001`–`NET-DIR-007/015`, and `NET-PUB-001`–`NET-PUB-015`. Pilot states: `NET-04-PUBLIC-CONTROLLER` and `NET-04-PUBLIC-GUEST`. Structural sources: [NET-04](../wireframes/NET-04/NET-04.svg) and develop's [NET-04-R](../wireframes/NET-04/NET-04-R.svg).
 
-Visual impact: header and role clarification only. Preserve the participant/roster and settings allocation, retained result region, readiness controls, and action footer.
+Visual impact: preserve develop's unified groups, controls, retained results, and reorder indication. Add role and consequence copy only in the pilot header.
 
-- The header must show the confirmed role as `Host` or `Guest`.
-- The endpoint must occupy a separate bounded header line from role and membership totals.
-- Public sessions must use `Public session`, not `LAN session`.
-- The host note must state `You control this session. Leaving ends it for everyone.`
-- The guest note must state `The host controls this session. It ends when the host leaves.`
-- These notes must use at most two wrapped lines above the body.
-- The public host must not be described as running the server on this computer.
-- The Invite value must not appear in this screen.
-- Participant Role, Connection, Readiness, and owned-player count must remain separate columns.
-- Guest match settings must remain visibly read-only and must not receive focus.
-- Host-only controls must appear only after authoritative role confirmation.
-- Existing disabled reasons must remain next to the relevant action.
-- The screen must not add a transfer-host action or an automatic migration claim.
-- The End session confirmation must explain its effect on everyone.
-- The guest Leave confirmation must retain its distinct participant-only consequence.
+## Presentation and allocation
+
+The [unified visual baseline](../../design.md#unified-network-presentation) applies to both wireframes.
+
+- **UX-NET-04-001** The fixed header must keep endpoint, role, totals, and applicable status above the body.
+- **UX-NET-04-002** The body must retain approximately two-thirds membership/roster and one-third host settings with an 8-logical-pixel gap.
+- **UX-NET-04-003** Participant and roster sections must use fixed headings above inset list bodies.
+- **UX-NET-04-004** Role, Connection, Readiness, and Owned must remain separate participant columns.
+- **UX-NET-04-005** Owned editable values must retain a field boundary distinct from remote read-only values.
+- **UX-NET-04-006** Host settings must retain framed value controls without new arrows or toggle targets.
+- **UX-NET-04-007** Guest settings must retain a read-only explanation without actionable frames.
+- **UX-NET-04-008** Existing actions must retain persistent boundaries, except NET-04-R's focus-dependent reorder action, which must retain its persistent host-only capability indication.
+- **UX-NET-04-009** The disabled Start reason and script-policy text must remain above the footer outside the body lists.
+- **UX-NET-04-010** NET-04-R must retain approximately 215 logical pixels for results below current membership and settings.
+- **UX-NET-04-011** Retained results must keep a separate title strip and fixed outcome labels above their scrolling body.
+- **UX-NET-04-012** Current membership and historical identities must remain in separate regions.
+- **UX-NET-04-013** Added header copy and frames must reduce visible body rows before they cover results, readiness, or footer actions.
+- **UX-NET-04-014** NET-04-R must identify host reordering before focus reaches that action.
+- **UX-NET-04-015** Reorder help must retain the existing Tab/Up/Down or controller-direction access path followed by Enter/Space or Confirm.
+- **UX-NET-04-016** Reorder help must remain non-interactive without a button frame or input target.
+- **UX-NET-04-017** The actual Reorder action must retain baseline focus-dependent visibility, current-player identification, pointer behavior, and outcome.
+- **UX-NET-04-018** Guests must retain the read-only roster explanation without host reorder help.
+
+Reading order remains header, current membership/settings, retained results when present, feedback, and actions. Keep the banner/version even where the older retained-result diagram omits it for space. Keep baseline traversal, including visible focus retained on a disabled action without activation.
+
+## Player-hosted listing feedback
+
+- Player-hosted status must distinguish the session from its directory listing.
+- It must use confirmed `Directory: Registering…`, `Directory: Listed`, or `Directory: Unavailable` state.
+- Publication failure must retain `Session is still running. Share the endpoint for direct connection.`
+- Eligible Retry publication must remain beside directory feedback and separate from Start match.
+- Pending publication retry must retain persistent progress and prevent duplicate activation.
+- Retry publication must retain its position after existing lobby actions in traversal.
+- Status overflow may take one body row without moving fixed results or actions.
+- Listing feedback must not open a modal or promise endpoint reachability.
+- NET-04-R must retain the same feedback treatment.
+
+## Dedicated pilot role presentation
+
+- Pilot headers must show `Public session` and the service-confirmed `Host` or `Guest` role.
+- Endpoint must occupy a separate bounded line from role and totals.
+- Host guidance must say `You control this session. Leaving ends it for everyone.`
+- Guest guidance must say `The host controls this session. It ends when the host leaves.`
+- The guidance must wrap within at most two reserved header lines.
+- A pilot Host must not be described as running the server process on this computer.
+- Host controls must appear only after authoritative role confirmation.
+- The pilot must not show a directory listing claim or Retry publication target.
+- Invitation values must remain absent.
+- End session must retain its everyone consequence confirmation.
+- Guest Leave must retain its participant-only consequence confirmation.
+- The UI must not add host transfer or migration.
 
 ## Acceptance
 
-- First admission and later admission must show the respective confirmed roles without an intermediate false Host claim.
-- A guest must not receive editable host settings or an End session target.
-- A host-alone lobby must remain distinct from a ready-to-start match.
-- Long endpoint text must wrap or clip only inside its header region.
-- Up to 15 participant and player rows must remain scrollable under fixed headings.
-- NET-04-R must retain its existing historical-result allocation and complete outcome access.
-- The host-departure note must not cover results, disabled reasons, or footer actions at 850 by 700.
-
-Representative SS-018 remains a host lobby with three participants, six players, and one unready guest. A local trusted TLS service fixture may exercise the real public admission path. SS-025 remains the retained-result representative.
-
-For this extension, NET-PUB-VIS-AC-001–004 in the [screen inventory](../../screens/README.md#public-pilot-visual-evidence-scope) permit an ordinary completed public result for the SS-025 public profile. Capture it at `docs/design/screenshots/NET-04/NET-04-R.public.png`. Preserve the legacy fourteen-winner/five-departed scenario, artifact, and assessment separately. See the [capture plan](../screenshots/README.md#remaining-representative-scope-and-reproduction). No result behavior or maximum-content requirement changes.
+Preserve complete headings, owned-slot editing, guest read-only settings, readiness reasons, result access, and footer at both minimum sizes. Long endpoints must stay inside the header. Maximum membership must scroll under fixed headings. Ordinary completed public results may represent pilot copy; they do not replace maximum-name, fourteen-winner, departed-winner, or interrupted-result checks. Verify player-hosted publication recovery and pilot absence of publication actions separately. Capture and state dependencies are in the [coordinated matrix](../screenshots/README.md#network-presentation-current-capture-matrix).

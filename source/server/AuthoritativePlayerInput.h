@@ -23,6 +23,7 @@ namespace Duel6::Server::Authoritative {
         explicit AuthoritativePlayerInput(Identity hostParticipantId,
                                           std::function<TimePoint()> clock = {});
         bool beginMatch(AuthoritativeMatch &match, const std::vector<PlayerDefinition> &roster);
+        bool appendPlayers(const std::vector<PlayerDefinition> &players);
         bool restore(Identity participantId, Sender sender, std::function<void()> close = {});
         void disconnect(Identity participantId) noexcept;
         void revokePlayer(Identity playerId) noexcept;

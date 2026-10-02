@@ -2,6 +2,8 @@
 
 ## Status, purpose, and requirements
 
+`NET-08-password-rejected` uses `Connection not authorized.` and permits Edit setup to correct the player-host password while retaining non-secret join setup. `NET-08-admission-closed` retains identifier `match-already-started` with `Round-one admission has closed. Join when the host returns to the lobby.` Browser-origin failures must also permit return to `NET-10` for refresh. Directory read failures remain in `NET-10` and must not imply that an active game has ended. Functional acceptance uses [NET-DIR-AC-003 and NET-PASS-AC-001](../network-host-directory.md) and NET-ADM-AC-003.
+
 ### Public pilot functional contract
 
 These public states extend the LAN outcomes below. They apply to both the controller and guests and consume the owning security and lifecycle requirements without redefining their copy.
@@ -93,7 +95,7 @@ The runtime must stop at the first applicable complete host result in the table 
 | 5 | `required-capability-unsupported` | `Network release mismatch. Use the same supported game release as the host.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 6 | `gameplay-content-manifest-invalid` | `Gameplay content manifest is invalid. Use the host's exact supported gameplay content.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 7 | `gameplay-content-mismatch` | `Gameplay content mismatch. Use the host's exact supported gameplay content.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
-| 8 | `match-already-started` | `Match already started. Join-in-progress is not supported.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
+| 8 | `match-already-started` | `Round-one admission has closed. Join when the host returns to the lobby.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`; browser-origin recovery → `NET-10` for refresh. |
 | 9 | `session-full` | `Session is full.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 10 | `host-policy-rejected` | `Host rejected the connection.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 11 | `admitted` | No rejection copy. | Enter `NET-04` only after exact final-confirmation validation; do not show `NET-08`. |

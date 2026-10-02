@@ -25,6 +25,8 @@ done
 
 rm -rf "$test_root"
 mkdir -p "$test_root"
+source "${workspace_dir}/tests/GraphicalTestScreenshotManifest.sh"
+d6r_enable_screenshot_manifest "$test_root"
 export DISPLAY="$display" SDL_AUDIODRIVER=dummy LIBGL_ALWAYS_SOFTWARE=1
 
 xvfb_pid=""
@@ -162,7 +164,19 @@ start_scenario() {
     fail_if_app_exited "$label window startup"
     [[ -n "$window_id" ]] || fail "$label application window not found"
     xdotool windowfocus "$window_id" windowactivate "$window_id" >/dev/null 2>&1 || true
-    sleep 1
+    local menu_ready=false
+    for _ in {1..60}; do
+        fail_if_app_exited "$label first menu frame"
+        import -window root "${scenario_dir}/menu-ready.png"
+        local colors
+        colors="$(identify -format '%k' "${scenario_dir}/menu-ready.png")"
+        if [[ "$colors" =~ ^[0-9]+$ ]] && (( colors >= 16 )); then
+            menu_ready=true
+            break
+        fi
+        sleep 0.25
+    done
+    [[ "$menu_ready" == true ]] || fail "$label did not render its first menu frame"
 
     # Select Predator (the second mode), start all maps, and answer the resume
     # or clear-statistics prompt when this scenario has one.
@@ -216,8 +230,41 @@ hold_active_tab() {
     # only occurred when displayScoreTab was still true as the round ended.
     xdotool keydown --window "$window_id" Tab
     tab_held=true
-    sleep 0.25
-    import -window root "${scenario_dir}/active-tab-held.png"
+    # Collect distinct early render opportunities without PNG compression or
+    # semantic analysis consuming the live round. A fixed 250 ms observation
+    # can still show the previous arena frame while software GL uploads glyphs.
+    for index in {1..8}; do
+        fail_if_app_exited "active Tab rendering"
+        candidate_path="$(printf '%s/active-tab-candidate-%02d.ppm' "$scenario_dir" "$index")"
+        import -window root "ppm:${candidate_path}"
+        sleep 0.15
+    done
+}
+
+select_active_tab_frame() {
+    # Defer classification until after the round's winner/continuation evidence
+    # is safely captured. Require the same unchanged active-score predicate.
+    python3 - "${workspace_dir}/tests/RoundSummaryProgressImageAssertions.py" \
+            "$scenario_dir" >"${scenario_dir}/active-tab-match.txt" <<'PY'
+import glob
+import importlib.util
+import os
+import sys
+spec = importlib.util.spec_from_file_location("round_assertions", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+for path in sorted(glob.glob(os.path.join(sys.argv[2], "active-tab-candidate-*.ppm"))):
+    image = module.pixels(path)
+    if module.blue_strip_bands(image) == [(350, 386)] and module.has_top_progress(image)[0]:
+        print(path)
+        break
+else:
+    raise SystemExit("No early held-Tab observation satisfies the active-score predicate")
+PY
+    local matched
+    matched="$(<"${scenario_dir}/active-tab-match.txt")"
+    convert "$matched" "${scenario_dir}/active-tab-held.png"
+    d6r_record_full_screenshot "${scenario_dir}/active-tab-held.png"
     cp "${scenario_dir}/active-tab-held.png" "${scenario_dir}/active-tab.png"
 }
 
@@ -315,6 +362,8 @@ PY
                 "winner summary did not persist across two matching observations"
             convert "${summary_matches[0]}" "${scenario_dir}/summary-early.png"
             convert "${summary_matches[1]}" "${scenario_dir}/summary-late.png"
+            d6r_record_full_screenshot "${scenario_dir}/summary-early.png"
+            d6r_record_full_screenshot "${scenario_dir}/summary-late.png"
             cp "${scenario_dir}/summary-late.png" "${scenario_dir}/summary.png"
             if [[ "$tab_was_held" == true ]]; then
                 cp "${scenario_dir}/summary-early.png" \
@@ -385,6 +434,8 @@ PY
     (( ${#next_round_matches[@]} == 2 )) || fail "next round did not replace the summary frame"
     convert "${next_round_matches[0]}" "${scenario_dir}/next-round-first.png"
     convert "${next_round_matches[1]}" "${scenario_dir}/next-round-settled.png"
+    d6r_record_full_screenshot "${scenario_dir}/next-round-first.png"
+    d6r_record_full_screenshot "${scenario_dir}/next-round-settled.png"
 }
 
 stop_scenario() {
@@ -404,6 +455,7 @@ start_scenario first 0 5 ""
 hold_active_tab
 wait_for_summary 1 5
 stop_scenario
+select_active_tab_frame
 
 start_scenario resumed 2 5 y
 wait_for_summary 3 5

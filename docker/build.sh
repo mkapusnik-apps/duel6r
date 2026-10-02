@@ -4,7 +4,7 @@ set -euo pipefail
 workspace_dir="${WORKSPACE_DIR:-/workspace}"
 output_dir="build"
 build_type="${BUILD_TYPE:-Release}"
-renderer="${D6R_RENDERER:-gl4}"
+renderer="${D6R_RENDERER:-}"
 with_lua="${D6R_WITH_LUA:-ON}"
 build_testing="${BUILD_TESTING:-ON}"
 run_tests="${RUN_TESTS:-OFF}"
@@ -16,11 +16,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+renderer_options=()
+if [[ -n "${renderer}" ]]; then
+  renderer_options+=("-DD6R_RENDERER=${renderer}")
+fi
 cmake -S "${workspace_dir}" -B "${tmp_build_dir}" \
   -DCMAKE_BUILD_TYPE="${build_type}" \
   -DBUILD_TESTING="${build_testing}" \
-  -DD6R_RENDERER="${renderer}" \
-  -DD6R_WITH_LUA="${with_lua}"
+  -DD6R_WITH_LUA="${with_lua}" \
+  "${renderer_options[@]}"
 
 cmake --build "${tmp_build_dir}" -j"$(nproc)"
 
@@ -36,39 +40,10 @@ if [[ "${run_tests}" == "ON" ]]; then
     fi
 
     if [[ "${diagnostics_ready}" == true ]]; then
-      if [[ -d "${tmp_build_dir}/Testing" ]] \
-          && ! cp -R "${tmp_build_dir}/Testing" "${diagnostics_dir}/Testing"; then
-        echo "Warning: unable to preserve CTest records." >&2
+      if ! "${workspace_dir}/docker/collect-ctest-diagnostics.sh" \
+          "${tmp_build_dir}" "${diagnostics_dir}"; then
+        echo "Warning: unable to complete CTest diagnostic collection." >&2
       fi
-
-      shopt -s globstar nullglob
-      for test_output_name in \
-        shared-arena-behavior \
-        async-menu-background-behavior \
-        menu-redesign-behavior \
-        round-summary-progress \
-        safe-empty-match-start \
-        safe-empty-test-failure; do
-        test_output_dir="${tmp_build_dir}/${test_output_name}"
-        [[ -d "${test_output_dir}" ]] || continue
-
-        for diagnostic_file in \
-          "${test_output_dir}"/**/*.png \
-          "${test_output_dir}"/**/*.stdout \
-          "${test_output_dir}"/**/*.stderr \
-          "${test_output_dir}"/**/*.log \
-          "${test_output_dir}"/**/*-state.txt \
-          "${test_output_dir}"/**/*classifier*.txt \
-          "${test_output_dir}"/**/*classification*.txt; do
-          relative_file="${diagnostic_file#"${tmp_build_dir}/"}"
-          destination_file="${diagnostics_dir}/${relative_file}"
-          if ! mkdir -p "$(dirname "${destination_file}")" \
-              || ! cp "${diagnostic_file}" "${destination_file}"; then
-            echo "Warning: unable to preserve diagnostic file: ${relative_file}" >&2
-          fi
-        done
-      done
-      shopt -u globstar nullglob
       echo "Available CTest diagnostics written to ${diagnostics_dir}" >&2
     fi
     exit "${test_status}"
@@ -111,21 +86,37 @@ fi
 cp "${tmp_build_dir}/duel6r-resolver" "${workspace_dir}/${output_dir}/duel6r-resolver"
 cp -R "${workspace_dir}/resources/." "${workspace_dir}/${output_dir}/"
 cp "${workspace_dir}/README.md" "${workspace_dir}/LICENSE" "${workspace_dir}/${output_dir}/"
-mkdir -p "${workspace_dir}/${output_dir}/docs"
-cp -R "${workspace_dir}/docs/." "${workspace_dir}/${output_dir}/docs/"
+cp /opt/mbedtls/share/mbedtls/LICENSE "${workspace_dir}/${output_dir}/mbedtls-LICENSE.txt"
+# Remove development documentation left by earlier bundle builds.
+rm -rf "${workspace_dir}/${output_dir}/docs"
 
 python3 - "${workspace_dir}/${output_dir}" <<'PY'
 import hashlib
 import pathlib
+import platform
 import sys
 
 root = pathlib.Path(sys.argv[1])
+# Shared docs were removed; retain all other records for the opposite platform.
+retained_manifest = root / "windows-x86_64.sha256sums"
+if retained_manifest.exists():
+    records = retained_manifest.read_bytes().splitlines(keepends=True)
+    retained_manifest.write_bytes(b"".join(
+        record for record in records if not record.partition(b"  ")[2].startswith(b"docs/")
+    ))
+
 files = [root / name for name in (
-    "duel6r", "duel6r-server", "duel6r-host-supervisor", "duel6r-resolver", "README.md", "LICENSE"
+    "duel6r", "duel6r-server", "duel6r-host-supervisor", "duel6r-resolver", "README.md", "LICENSE", "mbedtls-LICENSE.txt"
 )]
-for directory in ("data", "levels", "profiles", "shaders", "sound", "textures", "docs"):
+for directory in ("data", "levels", "profiles", "shaders", "sound", "textures"):
     files.extend(path for path in (root / directory).rglob("*") if path.is_file())
-with (root / "linux-x86_64.sha256sums").open("w") as manifest:
+architecture = platform.machine().lower()
+if architecture not in ("x86_64", "aarch64"):
+    raise SystemExit(f"Unsupported Linux bundle architecture: {architecture}")
+# The two Linux architectures have identical filenames and cannot share a bundle.
+for previous in root.glob("linux-*.sha256sums"):
+    previous.unlink()
+with (root / f"linux-{architecture}.sha256sums").open("w") as manifest:
     for path in sorted(files):
         manifest.write(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root).as_posix()}\n")
 PY

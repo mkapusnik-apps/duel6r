@@ -279,14 +279,17 @@ namespace Duel6 {
             Vector playerCentre = player.getCentre();
             playerCentre.z = 0.5;
             Vector lastPoint;
+            Vector segments[72];
             for (Int32 u = 0; u < 37; u++) {
                 Float32 spike = (u % 2 == 0) ? 0.95f : 1.05f;
                 Vector pos = playerCentre + spike * radius * Vector::direction(u * 10);
                 if (u > 0) {
-                    renderer.line(lastPoint, pos, 3.0f, Color::YELLOW);
+                    segments[2 * (u - 1)] = lastPoint;
+                    segments[2 * (u - 1) + 1] = pos;
                 }
                 lastPoint = pos;
             }
+            renderer.lines(segments, 72, 3.0f, Color::YELLOW);
         }
 
         renderer.enableDepthTest(true);
@@ -451,11 +454,13 @@ namespace Duel6 {
         Float32 radius = player.getDimensions().length() / 2.0f;
         Int32 p = Int32(player.getBonusRemainingTime() * 30) % 360;
 
+        Vector points[24];
         for (Int32 uh = p; uh < 360 + p; uh += 15) {
             Int32 u = uh % 360;
             Vector pos = playerCentre + radius * Vector::direction(u);
-            renderer.point(Vector(pos.x, pos.y, 0.5f), 2.0f, Color::RED);
+            points[(uh - p) / 15] = Vector(pos.x, pos.y, 0.5f);
         }
+        renderer.points(points, 24, 2.0f, Color::RED);
     }
 
     void WorldRenderer::invulRings(const std::vector<Player> &players) const {

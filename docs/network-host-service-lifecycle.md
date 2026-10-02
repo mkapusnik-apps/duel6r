@@ -16,7 +16,7 @@ Local Play remains subject to [`features.md`](features.md). This document does n
 
 ## Terms
 
-The ownership, supervision, orphan-prevention, and dedicated-hosting exclusions in the player-hosted sections below apply only to LAN hosting. For the public pilot, the operator owns the service and the first admitted participant controls the session under `NET-PUB-001`–`NET-PUB-021`. A dedicated participant must not launch, adopt, stop, or supervise the remote service process. Public gameplay and recovery retain the existing service-authoritative clock and guest recovery contract unless the requirements below state a difference.
+The ownership, supervision, and orphan-prevention rules in the player-hosted sections below apply only to player-hosted operation. For the public pilot, the operator owns the service and the first admitted participant controls the session under `NET-PUB-001`–`NET-PUB-023`. A dedicated participant must not launch, adopt, stop, or supervise the remote service process. Both modes retain the current round-one admission, service-authoritative clock, and recovery contracts unless HSL-PUB states a difference. The current player-host password and protected-secret contract is in [network-host-directory.md](network-host-directory.md).
 
 ### Dedicated service lifecycle
 
@@ -250,7 +250,7 @@ This specification defines required outcomes. It does not prescribe an operating
 
 ## Secret and configuration handling
 
-First release introduces no startup password, authentication token, certificate, or reconnect credential.
+Player-host password handling must follow NET-PASS. The earlier no-startup-password exclusion does not apply to that approved path. Dedicated invitation handling must follow TRU-PUB. Neither path permits secrets in process arguments or diagnostics.
 
 The host application may provide only validated, non-secret startup configuration to the hosted service. It must not place a secret in startup arguments.
 
@@ -258,7 +258,7 @@ The product must not place a secret in an environment value, generated command, 
 
 Future issue #36 reconnect credentials must not become startup configuration. The hosted service must create and manage them under the trust policy.
 
-If a later approved feature requires a host-service secret, that feature must define a separate safe transfer contract before implementation.
+The approved player-host password path uses its protected transfer contract. This document does not authorize another host-service secret transfer mechanism.
 
 ## Local Play independence
 
@@ -292,12 +292,12 @@ The affected target states are `NET-02` and `NET-08`. This document does not cha
 ## Non-goals
 
 - Graphical implementation of `NET-02`, `NET-04`, or `NET-08`.
-- Dedicated-server startup, packaging, operation, or adoption.
+- Dedicated-server process adoption or supervision by a participant. HSL-PUB owns the operator-run pilot lifecycle.
 - Automatic service restart or restoration of an ended session.
 - Host migration.
 - Guest reconnect implementation or reconnect credential exchange.
 - Gameplay simulation, replication, remote input, scoring, or persistence implementation.
-- Internet, NAT traversal, discovery, matchmaking, accounts, authentication, encryption, or public hosting.
+- NAT traversal, automatic LAN discovery, matchmaking, accounts, and general Internet-safety claims. NET-DIR, NET-PASS, and TRU-PUB own approved browsing and secret protection.
 - Changes to Local Play.
 - A playable-networking or release-readiness claim.
 

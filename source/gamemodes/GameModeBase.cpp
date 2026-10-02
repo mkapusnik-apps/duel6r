@@ -87,6 +87,17 @@ namespace Duel6 {
         return result;
     }
 
+    void GameModeBase::initializeArrival(Game &game, Player &player, World &world, RandomSource &randomSource) {
+        Level::StartingPositionList positions;
+        world.getLevel().findStartingPositions(positions);
+        if (positions.empty()) throw std::runtime_error("No arrival position.");
+        const auto position = positions[Math::random(static_cast<Int32>(positions.size()), randomSource, "arrival-position")];
+        const auto &range = game.getSettings().getAmmoRange();
+        player.startRound(world, position.first, position.second,
+            Math::random(range.first, range.second, randomSource, "arrival-ammo"),
+            Weapon::getRandomEnabled(game.getSettings(), randomSource));
+    }
+
     bool GameModeBase::checkForSuddenDeathMode(World &world, const std::vector<Player *> &alivePlayers) const {
         return quickLiquid || (alivePlayers.size() == 2 && world.getPlayers().size() > 2);
     }

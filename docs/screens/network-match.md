@@ -2,6 +2,8 @@
 
 ## Status, purpose, and requirements
 
+`NET-05-live-arrival` accepts a newly admitted guest during round one under [NET-ADM-001 through NET-ADM-012](../network-play-first-release.md) in either hosting mode. The client must show the current arena with the new owned players immediately playable, not waiting or spectating. Existing clients must receive the same authoritative additions without world reset. Later-round admission stays closed; reconnect remains available under existing rules. Functional acceptance uses NET-ADM-AC-001 through NET-ADM-AC-003.
+
 ### Public pilot functional contract
 
 `NET-05-PUBLIC` applies the existing authoritative match behavior under `NET-PUB-008`. The dedicated controller has the existing host's session-control permissions, not service-process ownership. Controller End uses the confirmation and destinations in the [NET-04 public contract](network-lobby.md). Guest Leave preserves existing guest removal. Controller or guest contact loss enters `NET-07`; confirmed maintenance or controller-expiry notices enter `NET-08`; confirmed intentional controller end enters the other participants' `NET-09`. No public-mode action changes local statistics or Elo.

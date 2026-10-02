@@ -3,6 +3,12 @@ FROM ubuntu:24.04 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake libssl-dev ca-certificates python3 \
     && rm -rf /var/lib/apt/lists/*
+COPY docker/mbedtls /opt/duel6r-mbedtls
+RUN cmake -S /opt/duel6r-mbedtls -B /opt/mbedtls-build \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/mbedtls \
+    && cmake --build /opt/mbedtls-build --parallel 4 \
+    && cmake --install /opt/mbedtls-build
+ENV CMAKE_PREFIX_PATH=/opt/mbedtls
 WORKDIR /src
 COPY CMakeLists.txt ./
 COPY source/ source/
@@ -27,6 +33,7 @@ COPY --from=build /build/duel6r-server /build/duel6r-resolver /usr/local/bin/
 COPY resources/data/ /opt/duel6r/resources/data/
 COPY resources/levels/ /opt/duel6r/resources/levels/
 COPY LICENSE /opt/duel6r/LICENSE
+COPY --from=build /opt/mbedtls/share/mbedtls/LICENSE /opt/duel6r/mbedtls-LICENSE.txt
 USER 10001:10001
 WORKDIR /opt/duel6r
 ENTRYPOINT ["duel6r-server"]

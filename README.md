@@ -72,6 +72,13 @@ The build images are published to GitHub Container Registry by the `Develop - Bu
 
 ## Supported platforms
 
+Raspberry Pi 5 64-bit Linux support is under validation. See the
+[platform contract, Docker build and acceptance requirements](docs/raspberry-pi5.md).
+Linux AArch64 defaults to `gl1`; x86-64 keeps `gl4`. Secure networking uses
+hardware AES on both architectures and does not fall back to software AES.
+ARM bundles are separate from the existing x86 nightly release. Raspberry Pi 4
+and 32-bit ARM are not included in this extension.
+
 The game has been tested on the following platforms:
 - **MS Windows** with Visual Studio 2017 and MinGW 64 compilers
 - **Linux** with GCC 7.1 compiler

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="940" viewBox="0 0 900 940">
   <title>NET-04-R — Lobby with retained complete outcomes</title>
-  <desc>Top-left wireframe coordinates. Fixed 850 by 700 logical menu canvas. Current membership and settings remain above a bounded retained-result region. Result rows scroll independently of outcome labels and footer actions.</desc>
+  <desc>Top-left wireframe coordinates. Fixed 850 by 700 logical menu canvas. Current membership and settings remain above a bounded retained-result region. Result rows retain working scrolling independently of outcome labels and footer actions. Plain host-only help identifies the existing reorder access path; the actual reorder action and pointer target remain focus-dependent. Values illustrate content extremes, not the required capture dataset.</desc>
   <rect width="900" height="940" fill="white"/>
   <g fill="none" stroke="black" stroke-width="1">
     <rect x="25" y="20" width="850" height="700"/>
@@ -31,13 +31,13 @@
     <text x="62" y="243">Position    Person    Owner    Local control</text>
     <text x="62" y="270">1             Ada        Host      Keyboard [edit]</text>
     <text x="62" y="299">2             Cora       Guest     Read-only</text>
-    <text x="62" y="325">Remaining current rows scroll here</text>
+    <text x="62" y="315">Host reorder: focus Reorder with Tab/Up/Down</text>
+    <text x="62" y="333">or controller directions; Enter/Space / Confirm</text>
     <text x="594" y="125">HOST MATCH SETTINGS</text>
     <text x="594" y="160">Mode: Predator  [previous / next]</text>
     <text x="594" y="190">Level plan • Rounds</text>
     <text x="594" y="220">Assistance • Quick Liquid</text>
     <text x="594" y="250">Burnable Trees</text>
-    <text x="594" y="280">Roster-order controls</text>
     <text x="594" y="325">Settings stay within this region</text>
     <text x="62" y="384">RETAINED RESULT • Session only • Completed</text>
     <text x="62" y="408">Match outcome: 14 winners • See outcome rows</text>
@@ -57,7 +57,7 @@
     <text x="25" y="820">Keep current membership separate from historical winners. Use retained identities after removal.</text>
     <text x="25" y="846">Keep headings/footer fixed. Scroll all outcome winners, then settings, rounds and cumulative results.</text>
     <text x="25" y="872">Preserve full 64 UTF-8-byte names and IDs. Clip only the viewport; do not split UTF-8 characters.</text>
-    <text x="25" y="898">Use existing keyboard/controller/pointer scrolling and focus. Keep logical layout at supported sizes.</text>
-    <text x="25" y="924">Requirements: NET-RES-001/002/AC-001. Functional contract: docs/screens/network-lobby.md.</text>
+    <text x="25" y="898">Host reorder help is not clickable. Only baseline focus reveals the Reorder action and current person.</text>
+    <text x="25" y="924">UX-NET-04-008/014–018; retain existing result navigation. Diagram values are not capture requirements.</text>
   </g>
 </svg>

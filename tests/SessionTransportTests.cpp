@@ -1398,6 +1398,227 @@ void concreteSealAndDrainRacesReceiveWithoutLossOrDuplication() {
 }
 }
 
+namespace {
+class EncryptedWireRelay {
+public:
+    EncryptedWireRelay(std::uint16_t listenPort, std::uint16_t targetPort, bool corruptApplication = false)
+        : listener(::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) {
+        CHECK(listener.get() != InvalidRawSocket);
+        sockaddr_in address{}; address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK); address.sin_port = htons(listenPort);
+        CHECK(::bind(listener.get(), reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0);
+        CHECK(::listen(listener.get(), 1) == 0);
+        worker = std::thread([this, targetPort, corruptApplication] {
+            try {
+                RawSocketOwner incoming(::accept(listener.get(), nullptr, nullptr));
+                if (incoming.get() == InvalidRawSocket) return;
+                RawSocketOwner outgoing(connectRaw(targetPort));
+                while (!stop.load()) {
+                    fd_set readable; FD_ZERO(&readable);
+                    FD_SET(incoming.get(), &readable); FD_SET(outgoing.get(), &readable);
+                    timeval timeout{}; timeout.tv_usec = 20000;
+                    const int ready = select(static_cast<int>(std::max(incoming.get(), outgoing.get()) + 1), &readable, nullptr, nullptr, &timeout);
+                    if (ready < 0) return;
+                    for (const bool forward: {true, false}) {
+                        const auto source = forward ? incoming.get() : outgoing.get();
+                        const auto target = forward ? outgoing.get() : incoming.get();
+                        if (!FD_ISSET(source, &readable)) continue;
+                        std::array<std::uint8_t, 8192> buffer{};
+                        const auto count = ::recv(source, reinterpret_cast<char *>(buffer.data()), static_cast<int>(buffer.size()), 0);
+                        if (count <= 0) return;
+                        if (forward) {
+                            if (corruptApplication) {
+                                for (int index = 0; index < count; ++index) {
+                                    if (bodyRemaining != 0) {
+                                        if (recordHeader[0] == 23 && !tampered.exchange(true)) buffer[index] ^= 0x80;
+                                        --bodyRemaining;
+                                    } else {
+                                        recordHeader[headerUsed++] = buffer[index];
+                                        if (headerUsed == 5) {
+                                            bodyRemaining = (std::size_t(recordHeader[3]) << 8u) | recordHeader[4];
+                                            headerUsed = 0;
+                                        }
+                                    }
+                                }
+                            }
+                            std::lock_guard<std::mutex> lock(mutex);
+                            CHECK(captured.size() + static_cast<std::size_t>(count) <= 65536);
+                            captured.insert(captured.end(), buffer.begin(), buffer.begin() + count);
+                        }
+                        sendAll(target, buffer.data(), static_cast<std::size_t>(count));
+                    }
+                }
+            } catch (...) { failed.store(true); }
+        });
+    }
+    ~EncryptedWireRelay() {
+        stop.store(true); shutdownRaw(listener.get());
+        if (worker.joinable()) worker.join();
+    }
+    std::vector<std::uint8_t> wire() {
+        CHECK(!failed.load());
+        std::lock_guard<std::mutex> lock(mutex); return captured;
+    }
+    bool corrupted() const { return tampered.load(); }
+private:
+    RawSocketOwner listener;
+    std::thread worker;
+    std::mutex mutex;
+    std::vector<std::uint8_t> captured;
+    std::atomic<bool> stop{false}, failed{false};
+    std::atomic<bool> tampered{false};
+    std::array<std::uint8_t, 5> recordHeader{};
+    std::size_t headerUsed = 0, bodyRemaining = 0;
+};
+
+void secureWireRejectsReplay() {
+    SessionTransportDependencies secure;
+    secure.secureSession = true;
+    const std::string password = "replay-test-session-secret";
+    secure.password = std::make_shared<SessionPassword>(password);
+    const auto hostPort = unusedPort();
+    TcpListener listener(4, secure); startListener(listener, hostPort);
+    const auto proxyPort = unusedPort();
+    EncryptedWireRelay relay(proxyPort, hostPort);
+    TcpClient client(secure);
+    CHECK(client.start({"127.0.0.1", proxyPort}));
+    requireConnected(client, "encrypted relay client");
+    auto host = awaitAccept(listener);
+    const std::string credential = "opaque-reconnect-credential-fixture";
+    CHECK(client.connection()->sendSensitive(std::vector<std::uint8_t>(credential.begin(), credential.end())) == SendResult::Accepted);
+    TransportFrame frame;
+    CHECK(waitUntil([&] { return host->receive(frame); }, 4s));
+    CHECK(std::string(frame.payload.begin(), frame.payload.end()) == credential);
+    const auto wire = relay.wire();
+    CHECK(!wire.empty());
+    CHECK(std::search(wire.begin(), wire.end(), password.begin(), password.end()) == wire.end());
+    CHECK(std::search(wire.begin(), wire.end(), credential.begin(), credential.end()) == wire.end());
+    client.close(); host->close();
+    RawSocketOwner replay(connectRaw(hostPort));
+    auto replayHost = awaitAccept(listener);
+    sendAll(replay.get(), wire.data(), wire.size());
+    CHECK(waitUntil([&] { return replayHost->state() == ClientState::Failed; }, 4s));
+    CHECK(!replayHost->receive(frame));
+    listener.shutdown();
+}
+
+void secureSessionPasswordAdmission() {
+    for (const auto &passwords: std::vector<std::pair<std::string, std::string>>{
+            {"", ""}, {"session-test", "session-test"}, {"session-test", "wrong"}, {"session-test", ""}}) {
+        SessionTransportDependencies hostDependencies, guestDependencies;
+        hostDependencies.secureSession = guestDependencies.secureSession = true;
+        hostDependencies.password = std::make_shared<SessionPassword>(passwords.first);
+        guestDependencies.password = std::make_shared<SessionPassword>(passwords.second);
+        TcpListener listener(15, hostDependencies);
+        const auto port = unusedPort(); startListener(listener, port);
+        TcpClient client(guestDependencies);
+        CHECK(client.start({"127.0.0.1", port}));
+        requireConnected(client, "secure session TCP connection");
+        std::shared_ptr<TcpConnection> host;
+        CHECK(waitUntil([&] { host = listener.acceptConnection(); return bool(host); }, NativeObserverWait));
+        auto guest = client.connection(); CHECK(guest);
+        CHECK(guest->sendSensitive({1, 4, 9, 16}) == SendResult::Accepted);
+        TransportFrame received;
+        if (passwords.first == passwords.second) {
+            CHECK(waitUntil([&] { return host->receive(received); }, 4s));
+            CHECK(received.payload == std::vector<std::uint8_t>({1, 4, 9, 16}));
+            CHECK(host->sendSensitive({25, 36}) == SendResult::Accepted);
+            CHECK(waitUntil([&] { return guest->receive(received); }, NativeObserverWait));
+            CHECK(received.payload == std::vector<std::uint8_t>({25, 36}));
+        } else {
+            CHECK(waitUntil([&] { return guest->state() == ClientState::Failed; }, 4s));
+            CHECK(guest->failure() == TransportFailure::NotAuthorized);
+            CHECK(!host->receive(received));
+        }
+        client.close(); listener.shutdown();
+    }
+}
+
+void secureTamperAndDowngradeFailClosed() {
+    SessionTransportDependencies secure; secure.secureSession = true;
+    secure.password = std::make_shared<SessionPassword>("tamper-fixture");
+    const auto port = unusedPort(); TcpListener listener(4, secure); startListener(listener, port);
+    const auto relayPort = unusedPort(); EncryptedWireRelay relay(relayPort, port, true);
+    TcpClient client(secure); CHECK(client.start({"127.0.0.1", relayPort}));
+    requireConnected(client, "tamper peer");
+    auto host = awaitAccept(listener);
+    CHECK(client.connection()->sendSensitive({1, 2, 3, 4}) == SendResult::Accepted);
+    CHECK(waitUntil([&] { return host->state() == ClientState::Failed; }, 4s));
+    CHECK(relay.corrupted());
+    TransportFrame frame; CHECK(!host->receive(frame));
+    client.close(); host->close();
+    RawSocketOwner plain(connectRaw(port)); auto rejected = awaitAccept(listener);
+    sendFrame(plain.get(), {1, 2, 3});
+    CHECK(waitUntil([&] { return rejected->state() == ClientState::Failed; }, 4s));
+    CHECK(!rejected->receive(frame));
+    listener.shutdown();
+}
+
+void secureSessionKeyBudgets() {
+    for (unsigned variant = 0; variant < 3; ++variant) {
+        SessionTransportDependencies limited, standard;
+        limited.secureSession = standard.secureSession = true;
+        if (variant == 0) limited.secureLimits.plaintextBytesPerDirection = 128;
+        if (variant == 1) limited.secureLimits.recordsPerDirection = 16;
+        if (variant == 2) limited.secureLimits.lifetime = 2s;
+        const auto port = unusedPort();
+        TcpListener listener(4, limited); startListener(listener, port);
+        TcpClient client(standard); CHECK(client.start({"127.0.0.1", port}));
+        requireConnected(client, "limited secure connection");
+        auto host = awaitAccept(listener);
+        CHECK(client.connection()->send({42}) == SendResult::Accepted);
+        TransportFrame received;
+        CHECK(waitUntil([&] { return host->receive(received); }, NativeObserverWait));
+        CHECK(received.payload == std::vector<std::uint8_t>{42});
+        if (variant != 2) {
+            for (unsigned attempt = 0; attempt < 64 && client.connection()->state() == ClientState::Connected; ++attempt)
+                (void) client.connection()->send(std::vector<std::uint8_t>(16, 7));
+        }
+        CHECK(waitUntil([&] { return host->state() != ClientState::Connected; }, 4s));
+        CHECK(host->failure() != TransportFailure::NotAuthorized); // Rotation is not a password rejection.
+        client.close(); listener.shutdown();
+    }
+}
+
+void secureUnsupportedHardwareFailsClosed() {
+    CHECK(!SecureSession::supported(false));
+    SecureSessionLimits denied;
+    denied.hardwarePermitted = false;
+    SecureSession direct(-1, false, std::make_shared<SessionPassword>("synthetic"), denied);
+    CHECK(!direct.handshake(std::chrono::steady_clock::now() + 1s, [] { return false; }));
+    CHECK(direct.expired());
+    std::uint8_t byte = 0;
+    CHECK(direct.send(&byte, 1) == -1);
+    CHECK(direct.receive(&byte, 1) == -1);
+    SessionTransportDependencies dependencies;
+    dependencies.secureSession = true;
+    dependencies.secureLimits = denied;
+    std::atomic<unsigned> resolutions{0};
+    dependencies.resolve = [&](const auto &, auto, auto, const auto &) {
+        ++resolutions; return ResolveOutcome{};
+    };
+    const auto port = unusedPort();
+    TcpListener rejected(4, dependencies);
+    CHECK(rejected.start({"127.0.0.1", port}));
+    CHECK(!rejected.waitForReady(1s));
+    CHECK(rejected.failure() == TransportFailure::SecureUnavailable);
+    TcpClient client(dependencies);
+    CHECK(client.start({"127.0.0.1", port}));
+    CHECK(!client.waitForConnected(1s));
+    CHECK(client.failure() == TransportFailure::SecureUnavailable);
+    CHECK(resolutions == 0); // No crypto, resolver, listener or plaintext fallback.
+    TcpListener probe;
+    startListener(probe, port);
+    probe.shutdown();
+    SecureSessionLimits noEntropy;
+    noEntropy.entropyPermitted = false;
+    SecureSession entropyFailure(-1, false, {}, noEntropy);
+    CHECK(!entropyFailure.handshake(std::chrono::steady_clock::now() + 1s, [] { return false; }));
+    CHECK(entropyFailure.expired());
+    CHECK(entropyFailure.send(&byte, 1) == -1);
+}
+}
+
 int main() {
 #ifdef D6R_TRANSPORT_WINDOWS
     WSADATA data{}; if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return 2;
@@ -1427,6 +1648,11 @@ int main() {
     }
 #endif
     const std::vector<std::pair<const char *, void (*)()>> tests = {
+        {"secure encrypted wire hides credentials and rejects cross-connection replay", secureWireRejectsReplay},
+        {"secure session password and unlocked exchange", secureSessionPasswordAdmission},
+        {"secure session enforces byte record and lifetime budgets", secureSessionKeyBudgets},
+        {"secure unsupported hardware fails before crypto or sockets", secureUnsupportedHardwareFailsClosed},
+        {"secure channel rejects ciphertext tampering and plaintext downgrade", secureTamperAndDowngradeFailClosed},
         {"mandatory socket configuration failure", mandatorySocketConfigurationFailure},
         {"aged queue receives fresh progress window", agedConnectionGetsFreshInboundQueueWindow},
         {"continuous one-way output liveness", continuousOneWayOutputKeepsReceiveQuietPeerAlive},
@@ -1445,11 +1671,17 @@ int main() {
         {"malformed isolation", malformedPeersAreIsolated},
         {"stalls and liveness", stallsAndLiveness}, {"close and shutdown bounds", closeAndShutdownBounds}};
     int failures = 0;
-    for (const auto &test: tests) try { test.second(); std::cout << "[PASS] " << test.first << '\n'; }
+    std::size_t executed = 0;
+    const char *filter = std::getenv("D6R_TEST_FILTER");
+    for (const auto &test: tests) {
+        if (filter && std::string(test.first).find(filter) == std::string::npos) continue;
+        ++executed;
+        try { test.second(); std::cout << "[PASS] " << test.first << '\n'; }
         catch (const std::exception &error) { ++failures; std::cerr << "[FAIL] " << test.first << "\n  " << error.what() << '\n'; }
+    }
 #ifdef D6R_TRANSPORT_WINDOWS
     WSACleanup();
 #endif
-    std::cout << "Executed " << tests.size() << " transport test(s), failures: " << failures << '\n';
+    std::cout << "Executed " << executed << " transport test(s), failures: " << failures << '\n';
     return failures == 0 ? 0 : 1;
 }

@@ -28,6 +28,8 @@ done
 
 rm -rf "$test_root"
 mkdir -p "$test_root"
+source "${workspace_dir}/tests/GraphicalTestScreenshotManifest.sh"
+d6r_enable_screenshot_manifest "$test_root"
 
 export DISPLAY="$display"
 export SDL_AUDIODRIVER=dummy
@@ -218,8 +220,21 @@ PY
     done
     [[ -n "$window_id" ]] || fail "$label window was not found"
     xdotool windowfocus "$window_id" windowactivate "$window_id" 2>/dev/null || true
-    sleep 1
-    import -window root "${scenario_dir}/menu.png"
+    # Window creation precedes texture/font initialization, especially on Pi.
+    # Never compare the first mode's black startup frame to a later ready menu.
+    local menu_ready=false
+    for _ in {1..60}; do
+        kill -0 "$app_pid" >/dev/null 2>&1 || fail "$label exited before its first menu frame"
+        import -window root "${scenario_dir}/menu.png"
+        local colors
+        colors="$(identify -format '%k' "${scenario_dir}/menu.png")"
+        if [[ "$colors" =~ ^[0-9]+$ ]] && (( colors >= 16 )); then
+            menu_ready=true
+            break
+        fi
+        sleep 0.25
+    done
+    [[ "$menu_ready" == true ]] || fail "$label did not render its first menu frame"
 
     # The logical mode spinner is scaled by 9/7 and centered at X=93 in this
     # 1280x900 Release viewport. Exercise the rendered arrow's aligned hitbox.

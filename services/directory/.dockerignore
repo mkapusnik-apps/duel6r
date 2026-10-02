@@ -1,0 +1,9 @@
+*
+!Dockerfile
+!package.json
+!package-lock.json
+!firebase.json
+!src/
+!src/**
+!test/
+!test/**

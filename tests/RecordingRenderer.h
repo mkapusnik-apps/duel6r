@@ -64,8 +64,16 @@ public:
         draws.push_back({material, blend, p2.x});
         recordQuad({p0, p1, p2, p3}, {t0, t1, t2, t3}, material);
     }
-    void point(const Vector &, Float32, const Color &) override {}
-    void line(const Vector &, const Vector &, Float32, const Color &) override {}
+    struct Point { Vector position; Float32 size; Color color; };
+    std::vector<Point> points;
+    void point(const Vector &position, Float32 size, const Color &color) override {
+        points.push_back({position, size, color});
+    }
+    struct Line { Vector start, end; Float32 width; Color color; };
+    std::vector<Line> lines;
+    void line(const Vector &start, const Vector &end, Float32 width, const Color &color) override {
+        lines.push_back({start, end, width, color});
+    }
     void frame(const Vector &position, const Vector &size, Float32 width, const Color &color) override {
         frames.push_back({position, size, width, color});
     }

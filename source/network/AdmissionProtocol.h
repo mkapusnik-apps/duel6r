@@ -12,7 +12,7 @@
 #include "CompatibilityManifest.h"
 
 namespace Duel6::Network {
-    constexpr std::uint32_t AdmissionProtocolVersion = 1;
+    constexpr std::uint32_t AdmissionProtocolVersion = 2;
     inline constexpr std::string_view NetworkReleaseId = "duel6r-network-r1";
     inline constexpr std::array<std::string_view, 3> RequiredAdmissionCapabilities{{
             "d6r.compatibility-admission.v1",
@@ -27,6 +27,7 @@ namespace Duel6::Network {
         std::uint8_t localPlayerCount = 1;
         std::vector<std::string> localPlayerNames;
         GameplayManifest gameplayManifest;
+        std::uint64_t expectedSessionId = 0; // Zero only for explicit direct joining.
     };
 
     enum class AdmissionResultCode : std::uint16_t {

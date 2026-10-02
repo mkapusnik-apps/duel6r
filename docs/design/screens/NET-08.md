@@ -1,26 +1,48 @@
-# NET-08 — Public connection or session failure
+# NET-08 — Failure and recovery
 
-Functional authority: [NET-08](../../screens/network-failure.md). Structural wireframe: existing [NET-08](../../screens/wireframes/network-failure.md). No layout change is proposed.
+Functional authority: [NET-08](../../screens/network-failure.md), `NET-PASS-003/004`, `NET-DIR-014`, `NET-ADM-002`–`NET-ADM-005`, the [trust policy](../../network-trust-and-abuse-limits.md), and the [lifecycle contract](../../network-host-service-lifecycle.md). Structural source: existing [NET-08](../../screens/wireframes/network-failure.md).
 
-- The panel must keep state heading, confirmed reason, recovery instruction, and actions in that reading order.
-- The failure reason must use product's fixed, non-disclosing copy.
-- Invite rejection and secure-connection failure must not expose the submitted invite or transport diagnostics.
-- An attempted public endpoint may appear only in the existing bounded initial-connection context row.
-- Retry must appear enabled only when the approved outcome allows another attempt.
-- An ended session must not offer Retry as if it restores that session.
-- Edit setup must return to the approved setup destination without implying restoration.
-- Disabled Retry must show its persistent reason and remain outside focus traversal.
-- Deployment-related wording must appear only for an authenticated, approved deployment outcome.
-- DNS not yet configured must use the actual resolution failure rather than a deployment or authorization claim.
+Visual impact: preserve develop's unified failure panel and browser recovery. Add pilot-specific outcomes without new controls or disclosure.
 
-## State presentation
+## Presentation and allocation
 
-The [trust policy](../../network-trust-and-abuse-limits.md) owns exact security and authorization messages. The [lifecycle contract](../../network-host-service-lifecycle.md) owns exact expiry and maintenance messages. Render their copy verbatim; do not replace `controller` in fixed outcome messages with the UI role label `Host`.
+- **UX-NET-08-001** The CONNECTION FAILED or SESSION ENDED title strip must remain above the reason region.
+- **UX-NET-08-002** Confirmed reason must remain separate from endpoint and recovery instructions.
+- **UX-NET-08-003** Recovery controls must retain equal-height frames in existing reading order when captions fit.
+- **UX-NET-08-004** Controls must wrap in reading order before text or focus crosses panel bounds.
+- **UX-NET-08-005** Disabled Retry must retain a flat frame, readable caption, and persistent nearby reason.
+- **UX-NET-08-006** Severity must remain explicit in text without replacing fixed outcome copy.
+- **UX-NET-08-007** Title and recovery actions must remain visible during body overflow.
 
-| State | Heading | Action presentation |
+## Player-hosted and browser recovery
+
+- Authoritative rejection must take precedence over an older open-admission listing.
+- `NET-08-password-rejected` must show `Connection not authorized.`
+- Edit setup after password rejection must retain endpoint and local players and focus Password.
+- Submitted or expected passwords must remain absent.
+- Capacity failure must not appear as a password error.
+- `NET-08-admission-closed` must show `Round-one admission has closed. Join when the host returns to the lobby.`
+- Unreachable transport must retain `Host unreachable.` without a listing-based success claim.
+- Browser-origin failure must retain Return to browser after Edit setup in reading and focus order.
+- Return to Network must retain its NET-01 destination.
+- Retry must follow the confirmed outcome and input eligibility.
+
+## Dedicated pilot outcomes
+
+| Functional state | Heading | Recovery presentation |
 |---|---|---|
-| `NET-08-PUBLIC-SECURITY` | CONNECTION FAILED | Edit setup first and focused; Return to Network second; no Retry action or bypass. |
-| `NET-08-PUBLIC-MAINTENANCE` | SESSION ENDED | Disabled Retry with the existing ended-session reason; Edit setup focused; Return to Network. |
-| `NET-08-PUBLIC-CONTROLLER-EXPIRED` | SESSION ENDED | Disabled Retry with the existing ended-session reason; Edit setup focused; Return to Network. |
+| `NET-08-PUBLIC-SECURITY` | CONNECTION FAILED | Edit setup first and focused; Return to Network; no Retry or bypass |
+| `NET-08-PUBLIC-MAINTENANCE` | SESSION ENDED | Ended-session Retry treatment; Edit setup focused; Return to Network |
+| `NET-08-PUBLIC-CONTROLLER-EXPIRED` | SESSION ENDED | Ended-session Retry treatment; Edit setup focused; Return to Network |
 
-Existing resolution and timeout variants retain their contract's secure Retry eligibility. SS-022 remains the representative and must use an actual secure-connection failure from a wrong-identity test certificate. Verify Edit setup recovery separately. Auth denial, maintenance notice, and controller-expiry copy require QA observations, not additional default screenshots for the same wireframe.
+- Security and authorization must use product's exact non-disclosing copy.
+- Pilot admission failure must not show generic player-hosted startup advice.
+- Attempted endpoint may appear only in the bounded initial-connection context row.
+- Invitation and reconnect credentials must remain absent.
+- Confirmed ended-session recovery must not imply restoration.
+- Maintenance wording must require the authenticated product-owned outcome.
+- Resolution failure must not be relabeled as maintenance or authorization failure.
+- Fixed outcome copy must retain `controller` where product uses that term.
+- Any baseline-focused disabled Retry must keep its focus outline without activation.
+
+Do not offer an insecure fallback for any connection type. The service type does not determine the security failure cause. The [coordinated matrix](../screenshots/README.md#network-presentation-current-capture-matrix) keeps one representative and requires focused real-path checks for browser/password and terminal pilot outcomes. No screenshot may substitute silence for an authenticated maintenance or controller-expiry notice.

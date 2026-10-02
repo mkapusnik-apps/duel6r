@@ -47,6 +47,7 @@ namespace Duel6 {
                              RandomSource &randomSource) override;
 
         bool checkRoundOver(World &world, const std::vector<Player *> &alivePlayers) override;
+        void initializeArrival(Game &game, Player &player, World &world, RandomSource &randomSource) override;
 
         void updateElo(std::vector<Player> &players) const override;
     };

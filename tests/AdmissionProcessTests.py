@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from SecureAdmissionPeer import SecureAdmissionPeer
 import time
 from pathlib import Path
 
@@ -62,7 +63,9 @@ def run_client(executable, root, port):
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=12, check=False)
 
 
-def process_smoke(executable, base):
+def process_smoke(executable, base, client_executable=None):
+    # A second architecture's unmodified server binary can act as the client.
+    client_executable = client_executable or executable
     host_root, guest_root, changed_root = base / "host", base / "guest", base / "changed"
     runtime_root = Path(executable).resolve().parent
     resources(host_root, runtime_root)
@@ -93,7 +96,7 @@ def process_smoke(executable, base):
         assert 2.5 <= pending_elapsed < 4.5, pending_elapsed
 
         compatible = subprocess.Popen(
-            [executable, "--admission-client", "--host=127.0.0.1", f"--port={port}",
+            [client_executable, "--admission-client", "--host=127.0.0.1", f"--port={port}",
              f"--resources={guest_root}", "--local-players=2"],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         admitted_output = wait_line(compatible, "admitted")
@@ -111,7 +114,7 @@ def process_smoke(executable, base):
                 f"admitted client did not remain connected: rc={compatible.returncode} "
                 f"output={admitted_output + identity_line + remaining!r} "
                 f"server-rc={server.poll()} server-output={server_output!r}")
-        rejected = run_client(executable, changed_root, port)
+        rejected = run_client(client_executable, changed_root, port)
         assert rejected.returncode == 2
         assert rejected.stdout == "gameplay-content-mismatch\nGameplay content mismatch. Use the host's exact supported gameplay content.\n"
     finally:
@@ -175,13 +178,11 @@ def incomplete_transport_outcomes(executable, base):
         port = unused_port()
         ready = threading.Event()
         def serve():
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-                listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                listener.bind(("127.0.0.1", port)); listener.listen(1); ready.set()
-                connection, _ = listener.accept()
-                with connection:
-                    if not close_immediately:
-                        time.sleep(10.5)
+            with SecureAdmissionPeer(port) as connection:
+                ready.set()
+                connection.handshake()
+                if not close_immediately:
+                    time.sleep(10.5)
         worker = threading.Thread(target=serve)
         worker.start(); assert ready.wait(2)
         return port, worker
@@ -206,20 +207,18 @@ def invalid_and_partial_host_messages(executable, base):
     def serve(payload, partial=False):
         port = unused_port(); ready = threading.Event()
         def worker():
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-                listener.bind(("127.0.0.1", port)); listener.listen(1); ready.set()
-                connection, _ = listener.accept()
-                with connection:
-                    header = connection.recv(12)
-                    if len(header) == 12:
-                        _, _, _, size = struct.unpack("!IHHI", header)
-                        remaining = size
-                        while remaining:
-                            chunk = connection.recv(remaining)
-                            if not chunk: break
-                            remaining -= len(chunk)
-                    wire_size = len(payload) + (10 if partial else 0)
-                    connection.sendall(struct.pack("!IHHI", 0x44365254, 1, 0, wire_size) + payload)
+            with SecureAdmissionPeer(port) as connection:
+                ready.set()
+                header = connection.recv(12)
+                if len(header) == 12:
+                    _, _, _, size = struct.unpack("!IHHI", header)
+                    remaining = size
+                    while remaining:
+                        chunk = connection.recv(remaining)
+                        if not chunk: break
+                        remaining -= len(chunk)
+                wire_size = len(payload) + (10 if partial else 0)
+                connection.sendall(struct.pack("!IHHI", 0x44365254, 1, 0, wire_size) + payload)
         thread = threading.Thread(target=worker); thread.start(); assert ready.wait(2)
         return port, thread
 
@@ -252,13 +251,16 @@ def invalid_and_partial_host_messages(executable, base):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: AdmissionProcessTests.py /path/to/duel6r-server")
+    if len(sys.argv) not in (2, 3):
+        raise SystemExit("usage: AdmissionProcessTests.py HOST_SERVER [INTEROP_CLIENT_SERVER]")
     with tempfile.TemporaryDirectory(prefix="duel6r-admission-process-") as directory:
         base = Path(directory)
-        invalid_host_fails_before_listener(sys.argv[1], base)
-        invalid_guest_fails_before_connection(sys.argv[1], base)
-        process_smoke(sys.argv[1], base)
-        incomplete_transport_outcomes(sys.argv[1], base)
-        invalid_and_partial_host_messages(sys.argv[1], base)
+        if len(sys.argv) == 3:
+            process_smoke(sys.argv[1], base, sys.argv[2])
+        else:
+            invalid_host_fails_before_listener(sys.argv[1], base)
+            invalid_guest_fails_before_connection(sys.argv[1], base)
+            process_smoke(sys.argv[1], base)
+            incomplete_transport_outcomes(sys.argv[1], base)
+            invalid_and_partial_host_messages(sys.argv[1], base)
     print("actual-process compatible and rejected admission behavior passed")

@@ -304,6 +304,47 @@ namespace {
         return false;
     }
 
+    // These deadline tests retain the real encrypted transport. A successful send
+    // only enqueues writer work; sleeping cannot prove the peer has received it.
+    // After the host has received the initial request, non-application clock calls
+    // are made at guest inbound enqueue (under inputMutex), or terminal publication
+    // (under terminalMutex). A receipt acknowledgement therefore synchronizes the
+    // test's next timestamp/close/seal with the actual transport linearization point.
+    struct AdmissionReceiptClock {
+        const std::thread::id applicationThread = std::this_thread::get_id();
+        const Network::TransportTimePoint epoch = std::chrono::steady_clock::now();
+        std::atomic<std::int64_t> mainMilliseconds{0}, receiveMilliseconds{1};
+        std::atomic<unsigned> receipts{0};
+        std::atomic<bool> observing{false};
+
+        Network::TransportTimePoint now() {
+            if (std::this_thread::get_id() == applicationThread)
+                return epoch + std::chrono::milliseconds(mainMilliseconds.load());
+            const auto received = epoch + std::chrono::milliseconds(receiveMilliseconds.load());
+            if (observing.load()) ++receipts;
+            return received;
+        }
+
+        void awaitReceipt(unsigned expected) {
+            const auto deadline = std::chrono::steady_clock::now() + 2s;
+            while (receipts.load() < expected && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(1ms);
+            D6R_REQUIRE(receipts.load() >= expected);
+        }
+
+        void send(Network::TcpConnection &connection, std::vector<std::uint8_t> payload,
+                  std::chrono::milliseconds receivedAt) {
+            const auto expected = receipts.load() + 1;
+            receiveMilliseconds = receivedAt.count();
+            // The first offer starts this scenario's logical admission timeline.
+            // TLS/scheduler wall time must not age a probe whose receipt is scripted at 1 ms.
+            if (!observing.load()) mainMilliseconds = receivedAt.count();
+            observing = true;
+            D6R_REQUIRE(connection.send(std::move(payload)) == Network::SendResult::Accepted);
+            awaitReceipt(expected);
+        }
+    };
+
     struct ProductionAdmissionPeer {
         std::unique_ptr<Network::TcpClient> client;
         std::shared_ptr<Network::TcpConnection> connection;
@@ -315,6 +356,13 @@ namespace {
         bool admitted = false;
         bool readySent = false;
     };
+
+    Network::SessionTransportDependencies secureAdmissionTransport() {
+        Network::SessionTransportDependencies dependencies;
+        dependencies.secureSession = true;
+        dependencies.enforceNetworkSessionPolicy = true;
+        return dependencies;
+    }
 
     struct ReconnectLeaveBarrier {
         std::mutex mutex;
@@ -374,7 +422,7 @@ namespace {
 
     class BarrierClient final : public Server::AdmissionRuntimeClient {
     public:
-        explicit BarrierClient(ReconnectLeaveBarrier &barrier) : barrier(barrier) {}
+        explicit BarrierClient(ReconnectLeaveBarrier &barrier) : barrier(barrier), client(secureAdmissionTransport()) {}
         bool start(const Network::Endpoint &endpoint) override { return client.start(endpoint); }
         bool waitForConnected(std::chrono::milliseconds timeout) override {
             if (!client.waitForConnected(timeout)) return false;
@@ -402,6 +450,7 @@ namespace {
         auto peer = std::make_unique<ProductionAdmissionPeer>();
         Network::SessionTransportDependencies transport;
         transport.enforceNetworkSessionPolicy = true;
+        transport.secureSession = true;
         peer->client = std::make_unique<Network::TcpClient>(std::move(transport));
         D6R_REQUIRE(peer->client->start(endpoint));
         D6R_REQUIRE(peer->client->waitForConnected(2s));
@@ -548,7 +597,7 @@ namespace {
 }
 
 D6R_TEST_CASE("AC-001 AC-002 compatibility constants capabilities and wire format are exact") {
-    D6R_REQUIRE_EQ(1u, Network::AdmissionProtocolVersion);
+    D6R_REQUIRE_EQ(2u, Network::AdmissionProtocolVersion);
     D6R_REQUIRE_EQ("duel6r-network-r1", std::string(Network::NetworkReleaseId));
     const std::vector<std::string> exact{
         "d6r.compatibility-admission.v1", "d6r.gameplay-manifest.v1", "d6r.session-identity.v1"};
@@ -582,6 +631,23 @@ D6R_TEST_CASE("AC-005 AC-006 AC-007 exact compatibility checks are case and whit
     D6R_REQUIRE(policy.evaluate(request).admitted());
 }
 
+D6R_TEST_CASE("NET-DIR selected session is channel-bound and rejected before reservation") {
+    const auto content = manifest({{"levels/a.json", 1}});
+    Server::AdmissionPolicy policy(content, 1);
+    auto request = requestFor(content);
+    request.expectedSessionId = 99;
+    const auto payload = Network::serializeAdmissionRequest(request);
+    D6R_REQUIRE_EQ(UINT64_C(99), Network::deserializeAdmissionRequest(payload).expectedSessionId);
+    Server::AdmissionContext context; context.sessionId = 42;
+    D6R_REQUIRE(policy.offerPayload(payload, context).result.code == Network::AdmissionResultCode::NotAuthorized);
+    D6R_REQUIRE_EQ(std::size_t(0), policy.allocation().pendingParticipantCount());
+    D6R_REQUIRE_EQ(std::size_t(1), policy.allocation().participantCount());
+    request.expectedSessionId = 42;
+    const auto offer = policy.offerPayload(Network::serializeAdmissionRequest(request), context);
+    D6R_REQUIRE(offer.pending());
+    D6R_REQUIRE(policy.rollback(offer.transactionId));
+}
+
 D6R_TEST_CASE("AC-017 admission outcomes retain approved precedence identifiers and fixed copy") {
     using Code = Network::AdmissionResultCode;
     const std::vector<std::tuple<Code, std::string, std::string>> expected{
@@ -592,7 +658,7 @@ D6R_TEST_CASE("AC-017 admission outcomes retain approved precedence identifiers 
         {Code::RequiredCapabilityUnsupported, "required-capability-unsupported", "Network release mismatch. Use the same supported game release as the host."},
         {Code::GameplayContentManifestInvalid, "gameplay-content-manifest-invalid", "Gameplay content manifest is invalid. Use the host's exact supported gameplay content."},
         {Code::GameplayContentMismatch, "gameplay-content-mismatch", "Gameplay content mismatch. Use the host's exact supported gameplay content."},
-        {Code::MatchAlreadyStarted, "match-already-started", "Match already started. Join-in-progress is not supported."},
+        {Code::MatchAlreadyStarted, "match-already-started", "Round-one admission has closed. Join when the host returns to the lobby."},
         {Code::SessionFull, "session-full", "Session is full."},
         {Code::HostPolicyRejected, "host-policy-rejected", "Host rejected the connection."},
         {Code::Admitted, "admitted", ""}};
@@ -943,6 +1009,99 @@ D6R_TEST_CASE("AC-016 every incomplete offer terminal path rolls back while acce
     D6R_REQUIRE_EQ(baselinePlayers + 1, policy.allocation().playerCount());
 }
 
+D6R_TEST_CASE("NET-ADM reviewed production admission loop rejects offers crossing outcome including equal clock") {
+    for (const bool equalClock: {false, true}) {
+        const auto host = manifest({{"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+        auto content = std::make_shared<Network::FrozenGameplayContent>();
+        (*content)["data/blocks.json"] = {'{', '}'};
+        (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+        (*content)["levels/a.json"] = {'{', '}'};
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto initial = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        fixture->connection = initial;
+        initial->queue(Network::serializeAdmissionRequest(requestFor(host)), fixture->now + 1ms);
+        auto dependencies = runtimeDependencies(fixture, host);
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(
+            Network::ManifestBuildResult{Network::ManifestStatus::Valid, host, content});
+        dependencies.productionReplicationProtocol = true;
+        std::optional<Network::Lifecycle::ReconnectGrant> grant;
+        initial->onSend = [&](const auto &payload) {
+            if (auto value = Network::Lifecycle::deserializeReconnectGrant(payload)) grant = *value;
+        };
+        std::shared_ptr<FakeAdmissionConnection> arrival;
+        std::optional<Network::AdmissionOfferPayload> pending;
+        bool started = false, outcome = false, rejected = false, confirmed = false, queued = false;
+        Network::TransportTimePoint due{};
+        dependencies.hostReadinessChange = [] { return std::optional<bool>(true); };
+        dependencies.authoritativeRuntimeFactory = [&](const auto &, const auto &players, const auto &) {
+            started = true;
+            due = fixture->now + std::chrono::duration_cast<Network::TransportTimePoint::duration>(
+                std::chrono::duration<double>(1.0 / 60.0));
+            auto snapshot = std::make_shared<Server::Authoritative::CanonicalWorldSnapshot>();
+            snapshot->valid = true; snapshot->stateDigest = 1;
+            for (const auto &definition: players) {
+                Server::Authoritative::CanonicalPlayerSnapshot player;
+                player.playerId = definition.playerId; player.rosterSlot = definition.rosterOrder;
+                player.alive = true; player.life = Server::Authoritative::MaximumLife;
+                snapshot->players.push_back(player);
+            }
+            Server::Authoritative::MatchRuntimeDependencies runtime;
+            runtime.contentPreflight = [](const auto &) { return true; };
+            runtime.worldSnapshot = [snapshot] { return *snapshot; };
+            runtime.worldTick = [&, snapshot](auto, bool) {
+                outcome = true; snapshot->roundOver = true;
+                snapshot->players.back().alive = false; snapshot->players.back().life = 0;
+                ++snapshot->worldTick; ++snapshot->stateDigest; return true;
+            };
+            return runtime;
+        };
+        dependencies.outboundWriter = [&](auto &connection, auto payload) {
+            if (auto value = Network::Lifecycle::deserializeReconnectGrant(payload)) grant = *value;
+            if (payload.size() >= 4 && payload[3] == 'O') {
+                auto offer = Network::deserializeAdmissionOffer(payload);
+                if (&connection == initial.get()) initial->queue(Network::serializeAdmissionAcceptance(offer), fixture->now + 2ms);
+                else pending = offer;
+            }
+            if (payload.size() >= 4 && payload[3] == 'C') {
+                if (&connection == initial.get()) {
+                    D6R_REQUIRE(grant.has_value());
+                    initial->queue(Network::Lifecycle::serializeParticipantAction({grant->sessionId,
+                        grant->participantId, Network::Lifecycle::ParticipantActionKind::Ready}), fixture->now);
+                } else confirmed = true;
+            }
+            if (arrival && &connection == arrival.get() && payload.size() >= 4 && payload[3] == 'S') {
+                rejected = Network::deserializeAdmissionResult(payload).code == Network::AdmissionResultCode::MatchAlreadyStarted;
+            }
+            return connection.send(std::move(payload));
+        };
+        dependencies.wait = [&](auto amount) {
+            if (started && !arrival) {
+                arrival = std::make_shared<FakeAdmissionConnection>(fixture->now);
+                arrival->queue(Network::serializeAdmissionRequest(requestFor(host)), fixture->now);
+                fixture->connection = arrival; fixture->accepted = false;
+                return;
+            }
+            if (pending && !queued) {
+                fixture->now = due + (equalClock ? 0ns : 1ms);
+                if (equalClock || outcome) {
+                    D6R_REQUIRE(!equalClock || !outcome);
+                    arrival->queue(Network::serializeAdmissionAcceptance(*pending), fixture->now);
+                    queued = true;
+                }
+            } else fixture->now += amount;
+            if (rejected || confirmed || fixture->now > Network::TransportTimePoint{} + 2s) fixture->cancelled = true;
+        };
+        std::ostringstream output;
+        Server::HeadlessServer server(runtimeServerConfig(), std::move(dependencies));
+        server.runtimeDependencies.productionReplicationProtocol = true;
+        (void) server.run(output);
+        if (!(started && pending && outcome)) Duel6::Test::fail("started && pending && outcome", __FILE__, __LINE__,
+            output.str() + " started=" + std::to_string(started) + " pending=" + std::to_string(bool(pending))
+            + " outcome=" + std::to_string(outcome));
+        D6R_REQUIRE(rejected && !confirmed && !arrival->succeeded);
+    }
+}
+
 D6R_TEST_CASE("four-message runtime permits immediate acceptance before offer visibility and commits before confirmation") {
     const auto host = manifest({{"levels/a", 1}});
     auto fixture = std::make_shared<RuntimeFixture>();
@@ -1016,7 +1175,8 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
         D6R_REQUIRE(R::validateCanonicalState(scenario.state));
         const auto port = unusedLoopbackPort();
         D6R_REQUIRE(port != 0);
-        Network::TcpListener listener;
+        Network::SessionTransportDependencies secure; secure.secureSession = true;
+        Network::TcpListener listener(Network::MaxTransportConnections, secure);
         D6R_REQUIRE(listener.start({"127.0.0.1", port}));
         D6R_REQUIRE(listener.waitForReady(2s));
 
@@ -1511,6 +1671,7 @@ D6R_TEST_CASE("NET-AC-011 production Headless disconnect reserves and restores t
 
     Network::SessionTransportDependencies transport;
     transport.enforceNetworkSessionPolicy = true;
+    transport.secureSession = true;
     Network::TcpClient retryClient(std::move(transport));
     const bool retryStarted = retryClient.start(hostConfig.listenEndpoint);
     const bool retryConnected = retryStarted && retryClient.waitForConnected(2s);
@@ -2890,12 +3051,12 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
     for (const auto scenario: scenarios) {
         const auto port = unusedLoopbackPort();
         D6R_REQUIRE(port != 0);
-        Network::TcpListener listener;
+        Network::SessionTransportDependencies secure; secure.secureSession = true;
+        Network::TcpListener listener(Network::MaxTransportConnections, secure);
         D6R_REQUIRE(listener.start({"127.0.0.1", port}));
         D6R_REQUIRE(listener.waitForReady(2s));
 
-        std::atomic<std::int64_t> mainMilliseconds{0};
-        std::atomic<std::int64_t> receiveMilliseconds{1};
+        AdmissionReceiptClock clock;
         std::atomic<bool> probeReceived{false};
         std::atomic<bool> releaseCompletion{false};
         std::atomic<bool> completionSent{false};
@@ -2923,12 +3084,7 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
                 };
                 const auto send = [&](std::vector<std::uint8_t> payload,
                                       std::chrono::milliseconds receivedAt) {
-                    receiveMilliseconds = receivedAt.count();
-                    if (connection->send(std::move(payload)) != Network::SendResult::Accepted)
-                        throw std::runtime_error("deadline test host send failed");
-                    // Keep the injected receipt clock stable until the transport reader has
-                    // accepted the complete frame.
-                    std::this_thread::sleep_for(15ms);
+                    clock.send(*connection, std::move(payload), receivedAt);
                 };
 
                 Network::TransportFrame frame;
@@ -2994,36 +3150,36 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
                 connection->close();
             } catch (...) {
                 hostFailure = std::current_exception();
+                // Logical time is frozen until completion: wake the guest on every
+                // host failure, then join and rethrow the original exception below.
+                cancelGuest = true;
             }
         });
 
-        const auto guestThread = std::this_thread::get_id();
         auto config = runtimeGuestConfig();
         config.listenEndpoint.port = port;
         Server::AdmissionRuntimeDependencies dependencies;
         dependencies.manifestSource = std::make_shared<FixedManifestSource>(
                 Network::ManifestBuildResult{Network::ManifestStatus::Valid, hostedManifest});
-        dependencies.now = [&, guestThread] {
-            const auto elapsed = std::this_thread::get_id() == guestThread
-                                 ? mainMilliseconds.load() : receiveMilliseconds.load();
-            return Network::Trust::TimePoint{} + std::chrono::milliseconds(elapsed);
-        };
+        dependencies.now = [&] { return clock.now(); };
         dependencies.wait = [&](std::chrono::milliseconds amount) {
             if (probeReceived && !releaseCompletion.exchange(true)) {
                 const auto sentDeadline = std::chrono::steady_clock::now() + 2s;
-                while (!completionSent && std::chrono::steady_clock::now() < sentDeadline)
+                while (!completionSent && !cancelGuest && std::chrono::steady_clock::now() < sentDeadline)
                     std::this_thread::sleep_for(1ms);
+                if (cancelGuest) return;
                 D6R_REQUIRE(completionSent);
                 if (scenario.path == DeliveryPath::SealedDrain) {
                     // The application thread remains blocked until both complete frames are in
                     // the transport reader's queue, then reaches the admission deadline.
-                    std::this_thread::sleep_for(30ms);
-                    mainMilliseconds = 10000;
+                    clock.mainMilliseconds = 10000;
                     return;
                 }
             }
             std::this_thread::sleep_for(1ms);
-            mainMilliseconds += amount.count();
+            // Before completion, wall-clock polling services real TLS but does not
+            // advance the scripted clock past the fixed offer/probe timestamps.
+            if (completionSent) clock.mainMilliseconds += amount.count();
         };
         dependencies.cancelled = [&] { return cancelGuest.load(); };
         dependencies.localPlayerActions = [&](std::uint64_t) {
@@ -3047,6 +3203,14 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
         D6R_REQUIRE_EQ(2, status);
         D6R_REQUIRE_EQ(0u, localActions.load());
         if (scenario.completion == CompletionFrame::CompleteBeforeDeadline) {
+            if (output.str() != "admitted\nparticipant-id=10 player-ids=11,12\n")
+                Duel6::Test::fail("predeadline admission", __FILE__, __LINE__,
+                    "path=" + std::to_string(static_cast<int>(scenario.path))
+                    + " order=" + std::to_string(static_cast<int>(scenario.order[0]))
+                    + std::to_string(static_cast<int>(scenario.order[1]))
+                    + std::to_string(static_cast<int>(scenario.order[2]))
+                    + " receipts=" + std::to_string(clock.receipts.load())
+                    + " main=" + std::to_string(clock.mainMilliseconds.load()) + " " + output.str());
             D6R_REQUIRE_EQ("admitted\nparticipant-id=10 player-ids=11,12\n", output.str());
             D6R_REQUIRE(presentations.load() >= 1);
         } else {
@@ -3298,12 +3462,12 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
 
         const auto port = unusedLoopbackPort();
         D6R_REQUIRE(port != 0);
-        Network::TcpListener listener;
+        Network::SessionTransportDependencies secure; secure.secureSession = true;
+        Network::TcpListener listener(Network::MaxTransportConnections, secure);
         D6R_REQUIRE(listener.start({"127.0.0.1", port}));
         D6R_REQUIRE(listener.waitForReady(2s));
 
-        std::atomic<std::int64_t> mainMilliseconds{0};
-        std::atomic<std::int64_t> receiveMilliseconds{1};
+        AdmissionReceiptClock clock;
         std::atomic<bool> probeReceived{false};
         std::atomic<bool> releaseFrames{false};
         std::atomic<bool> framesSent{false};
@@ -3329,12 +3493,7 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
                 };
                 const auto send = [&](std::vector<std::uint8_t> payload,
                                       std::chrono::milliseconds receivedAt) {
-                    receiveMilliseconds = receivedAt.count();
-                    if (connection->send(std::move(payload)) != Network::SendResult::Accepted)
-                        throw std::runtime_error("ordered admission host send failed scenario="
-                                + std::to_string(static_cast<int>(scenario)) + " received-at="
-                                + std::to_string(receivedAt.count()));
-                    std::this_thread::sleep_for(15ms);
+                    clock.send(*connection, std::move(payload), receivedAt);
                 };
 
                 Network::TransportFrame frame;
@@ -3370,13 +3529,15 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
                     send(R::serializeReplicationSnapshot(initialSnapshot), 3ms);
                     send(R::serializeQualityResponse(*probe->qualitySequence, 100), 4ms);
                 }
-                framesSent = true;
-
                 if (scenario == Scenario::TerminalClose) {
+                    const auto terminalReceipt = clock.receipts.load() + 1;
                     connection->close();
+                    clock.awaitReceipt(terminalReceipt);
                     hostClosed = true;
+                    framesSent = true;
                     return;
                 }
+                framesSent = true;
                 const auto closeDeadline = std::chrono::steady_clock::now() + 2s;
                 while (!cancelGuest && connection->state() == Network::ClientState::Connected
                        && std::chrono::steady_clock::now() < closeDeadline)
@@ -3384,10 +3545,10 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
                 connection->close();
             } catch (...) {
                 hostFailure = std::current_exception();
+                cancelGuest = true;
             }
         });
 
-        const auto guestThread = std::this_thread::get_id();
         auto config = runtimeGuestConfig();
         config.listenEndpoint.port = port;
         unsigned localActions = 0;
@@ -3398,23 +3559,19 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
         Server::AdmissionRuntimeDependencies dependencies;
         dependencies.manifestSource = std::make_shared<FixedManifestSource>(
                 Network::ManifestBuildResult{Network::ManifestStatus::Valid, hostedManifest});
-        dependencies.now = [&, guestThread] {
-            const auto elapsed = std::this_thread::get_id() == guestThread
-                                 ? mainMilliseconds.load() : receiveMilliseconds.load();
-            return Network::Trust::TimePoint{} + std::chrono::milliseconds(elapsed);
-        };
+        dependencies.now = [&] { return clock.now(); };
         dependencies.wait = [&](std::chrono::milliseconds amount) {
             if (probeReceived && !releaseFrames.exchange(true)) {
                 const auto sentDeadline = std::chrono::steady_clock::now() + 2s;
-                while (!framesSent && std::chrono::steady_clock::now() < sentDeadline)
+                while (!framesSent && !cancelGuest && std::chrono::steady_clock::now() < sentDeadline)
                     std::this_thread::sleep_for(1ms);
+                if (cancelGuest) return;
                 D6R_REQUIRE(framesSent);
-                std::this_thread::sleep_for(30ms);
-                mainMilliseconds = 10000;
+                clock.mainMilliseconds = 10000;
                 return;
             }
             std::this_thread::sleep_for(1ms);
-            mainMilliseconds += amount.count();
+            if (framesSent) clock.mainMilliseconds += amount.count();
         };
         dependencies.cancelled = [&] { return cancelGuest.load(); };
         dependencies.localPlayerActions = [&](std::uint64_t playerId) {
@@ -3454,15 +3611,16 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
         };
 
         Server::HeadlessServer guest(config, std::move(dependencies));
-        D6R_REQUIRE_EQ(2, guest.run(output));
+        const auto status = guest.run(output);
         host.join();
         listener.shutdown();
         if (hostFailure) std::rethrow_exception(hostFailure);
 
         std::string result = std::to_string(static_cast<int>(scenario)) + ":";
+        D6R_REQUIRE_EQ(2, status);
         if (output.str() == "admitted\nparticipant-id=10 player-ids=11,12\n") result += "admitted";
         else if (output.str().find(Network::InvalidHostAdmissionMessageIdentifier) == 0) result += "invalid-host";
-        else result += "other";
+        else result += "other(" + output.str() + ")";
         result += ":local=" + std::to_string(localActions)
                 + ":current=" + std::to_string(currentPresentations)
                 + ":reconnecting=" + std::to_string(reconnectingPresentations)

@@ -88,6 +88,10 @@ namespace Duel6 {
 
         void line(const Vector &from, const Vector &to, Float32 width, const Color &color) override;
 
+        void points(const Vector *positions, Int32 count, Float32 size, const Color &color) override;
+
+        void lines(const Vector *positions, Int32 count, Float32 width, const Color &color) override;
+
         void triangle(const Vector &p1, const Vector &p2, const Vector &p3, const Color &color) override;
 
         void triangle(const Vector &p1, const Vector &t1,

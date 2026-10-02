@@ -264,7 +264,7 @@ def main():
     cases = sys.argv[4:]
     if cases == ["--review-regressions"]:
         cases = [f"notice-{reason}-{phase}" for phase in ("lobby", "match", "summary")
-                 for reason in ("maintenance", "controller", "wrong", "eof")] + ["recovery", "expiry"]
+                 for reason in ("maintenance", "controller", "wrong", "eof")] + ["recovery", "expiry", "summary-return"]
     if cases == ["--authorization-regressions"]:
         cases = ["attack-start", "attack-setup", "attack-roster", "attack-return", "attack-advance"]
     with tempfile.TemporaryDirectory(prefix="duel6r-public-test-") as temp:

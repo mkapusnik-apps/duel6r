@@ -1,8 +1,8 @@
 # NET-07 — Public connection loss
 
-Functional authority: [NET-07](../../screens/network-reconnect.md). Structural wireframe: existing [NET-07](../../screens/wireframes/network-reconnect.md). No layout change is proposed.
+Functional authority: [NET-07](../../screens/network-reconnect.md). Structural wireframe: existing [NET-07](../../screens/wireframes/network-reconnect.md). Use develop's [unified reconnect presentation](../../design.md#net-07--reconnect-presentation), including its title strip, framed actions, client-relative placement, and retained context. No layout change is proposed.
 
-State `NET-07-PUBLIC-RECONNECT` covers Host and Guest under NET-PUB-010–012 and HSL-PUB-006–010. The private-LAN reconnect contract remains unchanged. The public service owns both roles' fixed 30-second reservation deadlines.
+State `NET-07-PUBLIC-RECONNECT` covers Host and Guest under NET-PUB-010–012 and HSL-PUB-006–010. Develop's player-hosted reconnect contract remains unchanged. The dedicated service owns both roles' fixed 30-second reservation deadlines.
 
 - The panel must retain the last confirmed context without presenting it as live.
 - A confirmed public reservation must use the existing positive countdown arrangement for either role.
@@ -21,3 +21,5 @@ State `NET-07-PUBLIC-RECONNECT` covers Host and Guest under NET-PUB-010–012 an
 - Existing modal focus, confirmation, and 16-pixel client-edge clearance must remain unchanged.
 
 Acceptance requires a genuine Host connection-loss capture and QA evidence for guest recovery, Host restoration, expiry, and End during isolation. SS-021 remains the representative wireframe entry with a Host reservation and a positive countdown. The Host action occupies the existing guest action slot; no new layout is needed. Focus must start on the role-appropriate action. Do not substitute a simulated static overlay for an unreachable state.
+
+The [coordinated matrix](../screenshots/README.md#network-presentation-current-capture-matrix) requires native Windows pilot evidence. Prior Linux recovery screenshots do not close that requirement. Preserve baseline focus retention and confirmation-arming semantics.

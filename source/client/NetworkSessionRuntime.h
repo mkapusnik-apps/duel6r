@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "HostServiceSupervisor.h"
+#include "HostDirectory.h"
 #include "../input/PlayerControls.h"
 #include "../network/HostCompositionProtocol.h"
 #include "../network/NetworkResponsiveness.h"
@@ -56,6 +57,8 @@ namespace Duel6::Client {
         std::string status;
         std::string failure;
         bool retryAllowed = false;
+        bool directoryAvailable = false;
+        bool directoryRegistering = false;
         NetworkRetryBlockReason retryBlockReason = NetworkRetryBlockReason::None;
     };
 
@@ -68,7 +71,9 @@ namespace Duel6::Client {
                        const Network::HostComposition::Setup &setup,
                        std::vector<NetworkLocalPlayer> players);
         bool join(const Network::Endpoint &endpoint, const std::string &resourcePath,
-                  std::vector<NetworkLocalPlayer> players, bool publicSession = false,
+                  std::vector<NetworkLocalPlayer> players,
+                  std::shared_ptr<const Network::SessionPassword> password = {},
+                  std::string expectedSessionId = {}, bool publicSession = false,
                   std::shared_ptr<Network::PublicSession::Secret> invitation = {});
         void cancel();
         void leave();
@@ -86,6 +91,7 @@ namespace Duel6::Client {
         void suppressGameplayInput(bool suppressed);
         NetworkRuntimeSnapshot snapshot() const;
         void reset();
+        void retryPublication();
 
     private:
         mutable std::mutex mutex;
@@ -109,6 +115,9 @@ namespace Duel6::Client {
         unsigned deferredHostPresentationUpdates = 0;
         std::optional<std::uint64_t> submittedHostTick;
         std::unique_ptr<HostServiceSupervisor> supervisor;
+        std::unique_ptr<DirectoryPublisher> publisher;
+        bool passwordRequired = false;
+        Network::SecureSessionLimits sessionLimits;
         std::thread guestWorker;
         std::atomic<bool> guestCancelled{false};
 

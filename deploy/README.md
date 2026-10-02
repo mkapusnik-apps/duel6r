@@ -243,7 +243,9 @@ docker build -f Dockerfile.server --build-arg SOURCE_REVISION=FULL_SOURCE_SHA \
 docker compose -f deploy/compose.yaml config --no-interpolate
 ```
 
-The Docker build runs the existing 18 headless CTests at the application checkpoint.
+The Docker build runs the headless CTests registered at the selected source checkpoint.
+It uses the pinned static Mbed TLS dependency for private sessions and retains
+OpenSSL for public TLS. The runtime image includes the Mbed TLS license.
 Use existing actionlint, ShellCheck, HAProxy configuration checks, and Terraform
 `fmt -check`/`validate` in containers. Backend readiness and a TLS handshake do not
 replace encrypted admission, gameplay, isolation, interruption, or rollback observations.

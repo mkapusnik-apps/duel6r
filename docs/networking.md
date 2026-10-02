@@ -2,7 +2,7 @@
 
 ## Status
 
-The approved target now includes the encrypted, invite-only public dedicated pilot in [network-play-first-release.md](network-play-first-release.md). Its deployment boundary is in [network-deployments.md](network-deployments.md). Public mode is a distinct target, not permission to expose the existing unencrypted transport or diagnostic server. Existing private-address implementation descriptions below remain LAN/prototype context. They do not establish public implementation, provisioned resources, active DNS, or live availability. Public repository acceptance and live-service acceptance are separate gates.
+The current functional target includes the player-host directory, optional password, eligible public IPv4 endpoints, round-one joining, and the encrypted invite-only dedicated pilot. [Network play](network-play-first-release.md), [directory/password admission](network-host-directory.md), and [trust policy](network-trust-and-abuse-limits.md) own those contracts. Player-hosted secret protection must remain intact; the dedicated pilot additionally requires trusted server identity and environment-scoped invitations without fallback. Historical private-only and unencrypted descriptions below are prototype context, not current functional authority. Repository acceptance and live-service activation remain separate gates under [network deployments](network-deployments.md). No reconciliation or historical checkpoint establishes live availability or final-candidate acceptance.
 
 The networking code includes a production TCP session-transport layer, compatibility admission, a player-hosted service supervisor, an authoritative headless match runtime, and the graphical issue #38 network journeys in `duel6r`. The graphical journeys are implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. The networking product remains an experimental, incomplete prototype and does not establish a complete playable network release. Local `Play (F1)` and every existing local game journey remain independent of the network journey.
 
@@ -131,7 +131,7 @@ The transport API is `source/network/SessionTransport.h`. `SessionTransportDepen
 
 The legacy in-process prototype handshake requests still contain their prototype protocol version, scaffold build version, and a non-empty client name so existing prototype helpers remain source compatible. They are not used by command-line compatibility admission and have no release-compatibility authority. The implemented replacement contract is defined in [`docs/network-compatibility-and-admission.md`](network-compatibility-and-admission.md).
 
-Authentication and encryption are intentionally excluded from first release. Non-empty authentication tokens are rejected by serializers, connection planning, handshake validation, and server construction. `duel6r-server` rejects token command-line options so secrets cannot be exposed through generated process command lines or process listings. This is safe only within the supported trusted loopback/private-LAN boundary.
+The prototype token path does not provide current password or invitation admission. NET-PASS and TRU-PUB own current authentication and encryption requirements. Their protected paths must not fall back to the plaintext prototype or place secrets in process arguments or diagnostics.
 
 ## Prototype serializer format and safeguards
 

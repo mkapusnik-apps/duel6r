@@ -307,7 +307,7 @@ namespace Duel6::Network::Lifecycle {
     }
 
     std::optional<ReconnectGrant> HostSessionLifecycle::admitGuest(ParticipantId participantId,
-            ConnectionId connectionId, std::vector<PlayerId> ownedPlayers, bool readyValue) {
+            ConnectionId connectionId, std::vector<PlayerId> ownedPlayers, bool readyValue, bool lobby) {
         if (sessionEnded || operationActive || participantId == 0 || (!remoteHost && participantId == hostParticipantId) || connectionId == 0
             || ownedPlayers.empty() || participants.size() >= MaximumLifecycleParticipants - (remoteHost ? 0 : 1)
             || participants.count(participantId) || nextReservationId == 0
@@ -323,8 +323,10 @@ namespace Duel6::Network::Lifecycle {
         if (!reservation) return std::nullopt;
         ReconnectGrant grant{sessionId, participantId, reservationId, reservation->credential()};
         (void) readyValue;
-        hostReady = false;
-        for (auto &[id, participant]: participants) participant.ready = false;
+        if (lobby) {
+            hostReady = false;
+            for (auto &[id, participant]: participants) participant.ready = false;
+        }
         Participant participant;
         participant.connectionId = connectionId; participant.players = std::move(ownedPlayers);
         participant.ready = false; participant.reservationId = reservationId;

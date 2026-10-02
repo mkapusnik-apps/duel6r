@@ -1,5 +1,6 @@
 #ifndef DUEL6_NETWORK_STATEREPLICATION_H
 #define DUEL6_NETWORK_STATEREPLICATION_H
+#include "../Defines.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -13,8 +14,9 @@ namespace Duel6::Network::Replication {
     using Identity = std::uint64_t;
     using StateVersion = std::uint64_t;
 
-    constexpr std::size_t MaxReplicatedParticipants = 15;
-    constexpr std::size_t MaxReplicatedPlayers = 15;
+    constexpr std::size_t MaxReplicatedParticipants = D6_NETWORK_ROUND_PLAYER_HISTORY;
+    constexpr std::size_t MaxReplicatedPlayers = D6_NETWORK_ROUND_PLAYER_HISTORY;
+    constexpr std::size_t MaxActiveReplicatedPlayers = 15;
     constexpr std::size_t MaxReplicatedEntities = 100000;
     constexpr std::size_t MaxReplicatedEvents = 4096;
     constexpr std::size_t MaxReplicatedMessages = 256;

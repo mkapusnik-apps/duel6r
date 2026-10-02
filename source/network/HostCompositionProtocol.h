@@ -5,10 +5,11 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include "SecureSession.h"
 
 namespace Duel6::Network::HostComposition {
     constexpr std::uint32_t ProtocolIdentifier = 0x44364843u; // D6HC
-    constexpr std::uint16_t ProtocolVersion = 2;
+    constexpr std::uint16_t ProtocolVersion = 3;
     constexpr std::size_t MaximumDisplayNameBytes = 64;
 
     enum class Kind : std::uint16_t {
@@ -38,6 +39,7 @@ namespace Duel6::Network::HostComposition {
         bool assistance = true;
         bool quickLiquid = true;
         bool burnableTrees = true;
+        std::shared_ptr<const SessionPassword> password;
     };
 
     struct Message {

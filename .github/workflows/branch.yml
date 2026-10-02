@@ -14,23 +14,29 @@ jobs:
     runs-on: self-hosted
     permissions:
       contents: read
-    env:
-      BUILD_IMAGE: duel6r-pr-build:${{ github.run_id }}-${{ github.run_attempt }}
+      packages: read
 
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Build Linux tool image from the checked-out source
-        run: docker build --tag "$BUILD_IMAGE" .
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build Linux tool image
+        run: docker build -t duel6r-build:ci-${{ github.run_id }}-${{ github.run_attempt }} .
 
       - name: Build inside container
         run: |
           bash docker/run-with-daemon-workspace.sh \
             -e BUILD_TESTING=ON \
             -e RUN_TESTS=ON \
-            "$BUILD_IMAGE"
+            duel6r-build:ci-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload CTest diagnostics
         if: failure()
@@ -40,9 +46,15 @@ jobs:
           name: ctest-diagnostics
           path: build/ci-diagnostics/
           if-no-files-found: ignore
+          retention-days: 7
 
       - name: Verify build output
         run: test -x build/duel6r
+
+      - name: Test directory backend inside container
+        run: |
+          docker build --target verification -t duel6r-directory:ci-${{ github.run_id }}-${{ github.run_attempt }} services/directory
+          docker run --rm --network none duel6r-directory:ci-${{ github.run_id }}-${{ github.run_attempt }}
 
 
   native-windows-transport:

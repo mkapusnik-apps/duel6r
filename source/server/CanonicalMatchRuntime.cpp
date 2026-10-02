@@ -112,6 +112,9 @@ namespace Duel6::Server::Authoritative {
             return self->setPlayerInput(playerId, mask);
         };
         result.worldRemove = [self](Identity playerId) { return self->removePlayer(playerId); };
+        result.worldAppendPlayers = [self](const std::vector<PlayerDefinition> &players, RandomSource &randomSource) {
+            return self->appendPlayers(players, randomSource);
+        };
         result.worldRemoveBatch = [self](const std::vector<Identity> &playerIds) {
             return self->removePlayers(playerIds);
         };
@@ -389,6 +392,32 @@ namespace Duel6::Server::Authoritative {
         return true;
     }
 
+    bool CanonicalMatchRuntime::appendPlayers(const std::vector<PlayerDefinition> &players, RandomSource &randomSource) {
+        if (!game || &game->getRandomSource() != &randomSource || authoritativeRound != 1 || game->getRound().hasWinner()) return false;
+        std::vector<std::string> names;
+        std::vector<Size> slots;
+        for (const auto &player: players) {
+            if (canonicalPlayersById.count(player.playerId)) return false;
+            names.push_back(player.displayName); slots.push_back(player.rosterOrder);
+        }
+        const auto originalSize = game->getPlayers().size();
+        if (!game->appendHeadlessPlayers(names, slots)) return false;
+        Level::StartingPositionList positions;
+        game->getRound().getWorld().getLevel().findStartingPositions(positions);
+        for (Size index = 0; index < players.size(); ++index) {
+            const auto &definition = players[index];
+            auto &player = game->getPlayers()[originalSize + index];
+            roster.push_back(definition); activeRoster.push_back(definition);
+            canonicalPlayersById.emplace(definition.playerId, &player);
+            heldInputsByPlayerId.emplace(definition.playerId, 0);
+            const auto position = std::find(positions.begin(), positions.end(), Level::StartingPosition(
+                static_cast<Int32>(std::floor(player.getPosition().x)), static_cast<Int32>(std::floor(player.getPosition().y))));
+            if (position == positions.end()) return false;
+            spawnIdentities[definition.playerId] = static_cast<std::uint32_t>(std::distance(positions.begin(), position));
+        }
+        return true;
+    }
+
     bool CanonicalMatchRuntime::removePlayers(const std::vector<Identity> &playerIds) {
         if (!game || playerIds.empty()) return false;
         const std::set<Identity> unique(playerIds.begin(), playerIds.end());
@@ -477,6 +506,9 @@ namespace Duel6::Server::Authoritative {
             if (active == activeRoster.end()) {
                 CanonicalPlayerSnapshot player;
                 player.playerId = definition.playerId;
+                player.rosterSlot = definition.rosterOrder;
+                player.team = config.mode == Mode::TeamDeathmatch
+                    ? static_cast<Team>(definition.rosterOrder % config.teamCount + 1) : Team::None;
                 player.departed = true;
                 result.players.push_back(player);
                 digestValue(digest, definition.playerId);

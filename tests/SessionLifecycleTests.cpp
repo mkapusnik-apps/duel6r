@@ -205,6 +205,49 @@ D6R_TEST_CASE("public expiry observed by accessor after deadline before lifecycl
     expiryObservedBeforeBatch(false, 30001ms);
 }
 
+D6R_TEST_CASE("player-hosted expiry remains removable after another observer erased its credential") {
+    for (bool accessor : {false, true}) {
+        for (auto phase : {Phase::Lobby, Phase::ActiveRound, Phase::NonFinalRoundSummary, Phase::FinalSummary}) {
+            ManualClock time;
+            CredentialSource source;
+            HostHooks hooks;
+            unsigned batches = 0;
+            hooks.disconnect = [](ParticipantId) { return true; };
+            hooks.removeBatch = [&](const auto &ids, Phase observed) {
+                D6R_REQUIRE(ids == std::vector<ParticipantId>{2});
+                D6R_REQUIRE(observed == phase); ++batches; return true;
+            };
+            HostSessionLifecycle host(95, 1, 10, {1, 3}, time.clock(), source.random(), hooks);
+            const auto grant = host.admitGuest(2, 20, {2}, false);
+            D6R_REQUIRE(grant && host.transportClosed(2, 20));
+            time.advance(30000ms);
+            if (accessor) D6R_REQUIRE(!host.reserved(2));
+            else D6R_REQUIRE(host.reconnect(requestFor(*grant), 21).outcome != ReconnectOutcome::Accepted);
+            const auto result = host.processLifecycleBatch(phase);
+            D6R_REQUIRE(result != RemovalOutcome::NothingChanged && result != RemovalOutcome::Failed);
+            D6R_REQUIRE_EQ(1u, batches);
+            D6R_REQUIRE_EQ(2u, host.retainedPlayerCount());
+            D6R_REQUIRE(!host.ended());
+            D6R_REQUIRE(host.processLifecycleBatch(phase) == RemovalOutcome::NothingChanged);
+        }
+    }
+}
+
+D6R_TEST_CASE("NET-ADM live admission preserves existing readiness and gives no new identity authority to old players") {
+    ManualClock time;
+    CredentialSource source;
+    HostSessionLifecycle host(91, 1, 10, {101}, time.clock(), source.random());
+    D6R_REQUIRE(host.admitGuest(2, 20, {102}, false));
+    D6R_REQUIRE(host.setReady(1, 10, true));
+    D6R_REQUIRE(host.setReady(2, 20, true));
+    const auto arrival = host.admitGuest(3, 30, {103}, false, false);
+    D6R_REQUIRE(arrival);
+    D6R_REQUIRE(host.ready(1) && host.ready(2) && !host.ready(3));
+    D6R_REQUIRE(!host.admitGuest(4, 40, {102}, false, false));
+    D6R_REQUIRE(!host.admitGuest(3, 50, {104}, false, false));
+    D6R_REQUIRE(host.ready(1) && host.ready(2));
+}
+
 D6R_TEST_CASE("lifecycle protocol rejects malformed zero and cross-kind credential messages") {
     CredentialSource source;
     ManualClock time;

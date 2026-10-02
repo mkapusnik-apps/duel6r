@@ -197,6 +197,7 @@ namespace Duel6::Network {
             writer.text(entry.logicalPath, Trust::MaxLogicalPathBytes);
             writer.raw(entry.contentIdentity);
         }
+        writer.uint64(request.expectedSessionId);
         return writer.finish();
     }
 
@@ -239,6 +240,7 @@ namespace Duel6::Network {
             entry.contentIdentity = reader.fixed<ContentIdentityBytes>();
             request.gameplayManifest.push_back(std::move(entry));
         }
+        request.expectedSessionId = reader.uint64();
         reader.expectFinished();
         return request;
     }
@@ -329,7 +331,7 @@ namespace Duel6::Network {
             case AdmissionResultCode::GameplayContentMismatch:
                 return "Gameplay content mismatch. Use the host's exact supported gameplay content.";
             case AdmissionResultCode::MatchAlreadyStarted:
-                return "Match already started. Join-in-progress is not supported.";
+                return "Round-one admission has closed. Join when the host returns to the lobby.";
             case AdmissionResultCode::SessionFull: return "Session is full.";
             case AdmissionResultCode::HostPolicyRejected: return "Host rejected the connection.";
             case AdmissionResultCode::Admitted: return {};

@@ -1,166 +1,53 @@
-# Workflow Lifecycle
+# Workflow Overview
 
-## Public dedicated pilot
+GitHub Actions separates pull-request validation, validation of `develop`, nightly publication, release packaging, and storage cleanup. The [workflow files](workflows/) are the source of truth for triggers, job dependencies, permissions, and implementation details.
 
-- See [pilot operations](../deploy/README.md) for infrastructure, authorization, DNS,
-  certificates, invitations, readiness, rollback, cost, and teardown.
-- `develop.yml` calls `deploy-server.yml` after `tag` succeeds.
-- Develop runs no longer cancel active runs: cancellation during service replacement
-  can interrupt activation. Deployment jobs serialize each environment separately.
-- `master-release.yml` builds its Linux tool image from the checked-out source and runs
-  the existing full Linux CTests before it calls the production deployment path.
-- Existing Windows packaging, nightly publication, and PR checks retain their paths.
-- Production uses the protected `production` environment. An operator must configure
-  required reviewers, prevent self-review, and restrict its branch to `master`.
-- The workflow rejects production activation when the required-reviewer rule is absent.
-- Cloud operations are skipped until repository variable `PUBLIC_PILOT_ACTIVATED` is `true`.
-  A skipped deployment is not public readiness.
-- Each environment uses its own WIF deploy identity in project `duel-6-reloaded`.
-- The server image runs the existing headless CTests, records the exact source SHA,
-  and deploys by registry digest. Failed builds do not deploy.
-- The VM checks backend readiness before public TLS starts. CI checks public TLS identity
-  separately. Neither check claims successful player admission or gameplay.
-- Staging starts for replacement and stops afterward, including on activation failure.
-- Manual dispatch from the matching branch redeploys a recorded digest/source pair.
-  Production approval also applies to rollback. Old sessions are never restored.
+## Workflows
 
-## Feature sanity check
+| Workflow | Trigger | Purpose and main elements |
+| --- | --- | --- |
+| [Feature - Sanity check](workflows/branch.yml) | Pull requests targeting `develop` | Validates the pull-request head with a Linux build and automated tests, containerized directory backend tests against the Firestore emulator, and native Windows transport tests. `Feature Ready` aggregates the two job results. |
+| [Linux ARM64 - Pi 5 candidate](workflows/arm64.yml) | Pull requests and pushes to `develop`, or manual dispatch | Native ARM64 Docker compilation, hardware-AES known-answer and existing CTests using the default `gl1` renderer. Uploads a separate architecture-labelled candidate. Software-rendered CI does not certify Pi 5 V3D, peripherals, performance or independent crypto review. |
+| [Develop - Build Container Image](workflows/develop-build-image.yml) | Reusable workflow call or manual dispatch | Publishes Linux and Windows cross-compilation build images to GHCR. Commit-specific images connect validation and nightly packaging to the same source revision; `develop` image tags support consumers of the current development environment. |
+| [Develop - Sanity](workflows/develop.yml) | Push to `develop` | Publishes build images, runs a Linux build with automated tests and a main-menu smoke check, and performs a Debug compilation as the lint-equivalent check. Success advances `sanity`, enables the nightly scheduler, and permits the gated staging deployment path. |
+| [Develop - Nightly Scheduler](workflows/develop-nightly-scheduler.yml) | Every four hours while enabled, or manual dispatch | Requests a nightly build from `sanity` and disables itself until a later successful develop validation enables it again. |
+| [Develop - Nightly](workflows/develop-nightly.yml) | Dispatch from the `sanity` tag | Packages Linux and Windows runtime files from the captured validated commit using its matching build images, without rerunning application tests. Publishes the combined ZIP as the current `nightly` release. |
+| [Release Artifact](workflows/master-release.yml) | Push to `master` or manual dispatch | Builds its Linux tool image from the checkout, runs the full Linux CTests, and packages Linux and Windows runtime files. Successful packaging permits the gated production deployment path on `master`. GitHub release asset publication is conditional on a tag-based invocation. |
+| [Deploy dedicated pilot](workflows/deploy-server.yml) | Reusable workflow call or manual dispatch from `develop` or `master` | Prepares the authorized staging or production deployment. Requires explicit activation; production also requires environment approval. |
+| [Storage Cleanup](workflows/storage-cleanup.yml) | Weekly schedule or manual dispatch | Retains current GHCR build images and removes eligible old versions. Manual runs can also remove exact-name legacy Actions artifacts. |
 
-- `Feature - Sanity check` starts for a pull request that targets `develop`.
-- The workflow checks out the pull request head commit on a self-hosted runner, with the event commit as a safe fallback outside pull request events.
-- The workflow pulls the `develop` Linux build image from GHCR.
-- The build compiles the game and runs the full configured `ctest` suite.
-- The workflow verifies `build/duel6r` after the tests pass.
-- The job needs `contents: read` and `packages: read` permissions.
-- The job uploads CTest diagnostics only when the container preserves them after a test failure.
-- GitHub cancels an older run for the same pull request when a new run starts.
+## Pipeline concept
 
-## Develop sanity
+- Pull-request checks validate proposed changes before integration into `develop`.
+- Develop validation establishes the `sanity` checkpoint. Nightly packaging uses that exact source revision and its build images, rather than whichever commit is newest when packaging runs.
+- The scheduler separates successful validation from publication. The `nightly` tag and release represent the latest published nightly bundle, not a history of nightly releases. Replacement is non-transactional, so publication can temporarily leave the release unavailable.
+- The `master` release-artifact path is separate from nightly publication. It produces a downloadable workflow artifact; a branch push does not itself publish a GitHub release.
 
-- `Develop - Sanity` starts after a push to `develop`.
-- The workflow calls `Develop - Build Container Image` before the sanity jobs start.
-- The image workflow publishes Linux and Windows images with `sha-<full-commit-SHA>` tags.
-- The image workflow also updates the `develop` image tags for a `develop` branch invocation.
-- The sanity jobs use the exact Linux image for the pushed commit.
-- The sanity job compiles the game and runs the full configured `ctest` suite.
-- The sanity job verifies output and runs the main-menu smoke check after the tests pass.
-- The sanity job uploads CTest diagnostics only when the container preserves them after a test failure.
-- An artifact upload error does not replace the primary test failure.
-- The lint-equivalent job performs a Debug compilation and verifies output.
-- The tag job moves `sanity` after both build jobs succeed.
-- The tag job needs the `PAT_ACTIONS` secret and `contents: write` permission.
-- The tag job enables `develop-nightly-scheduler.yml` with the `PAT_ACTIONS` secret.
+## Basic elements and workspace context
 
-## Native Windows transport evidence
+- **Containerized execution:** Linux builds and Windows cross-compilation use Docker build environments. Native Windows transport checks exercise the Windows implementation in a native Windows container.
+- **Runners and images:** Self-hosted runners handle pull-request Linux validation, develop builds, and nightly work. GitHub-hosted runners support image publication, native Windows checks, scheduling, tagging, release-artifact builds, and storage cleanup. GHCR stores the reusable build images.
+- **Artifacts and diagnostics:** Validation diagnostics, smoke evidence, and master transport artifacts are retained for seven days; nightly transport remains at one day. Global CTest logs are always preserved after a test failure. Per-test logs and screenshots are collected only for mapped failed tests, and graphical harnesses explicitly record their full-frame screenshot provenance. Only those recorded PNGs are retained, so comparison crops, normalized images, row/control extracts, and other generated derivatives are excluded regardless of filename.
+- **Self-hosted Docker workspace contract:** The runner checkout and Docker daemon can occupy different filesystem namespaces, so the checkout path is not assumed to exist on the daemon host. The [workspace helper](../docker/run-with-daemon-workspace.sh) transfers source and build output through the Docker API. This relies on Docker daemon access and storage for the transferred workspace and output; a shared host path is not required.
+- **Directory backend:** The Linux pull-request job builds the [verification container](../services/directory/README.md) from a Docker build context, without a checkout bind mount. Firebase CLI runs the application tests against the local Firestore emulator with a demo project and no cloud credentials. No deployment runs in this workflow.
+- **Native dependencies:** Pull-request Linux validation builds its tool image from the checkout. Linux, MinGW and native MSVC use the same [pinned private Mbed TLS configuration](../docker/mbedtls/README.md). The native Windows container builds its static dependency after mounted MSVC setup; the existing native CTests remain required by the workflow. Directory HTTPS uses separate libcurl builds. Public TLS uses a separate OpenSSL dependency. Windows bundle packaging follows transitive DLL imports; Mbed TLS is static and its license is included in both bundles.
+- **Native public TLS checks:** The native Windows container retains the existing disposable-container opt-in for public TLS CTests. It retains certificate-store guards and cleanup. No host trust store or profile is mounted. Transport checks do not replace an interactive Windows dedicated-session journey.
 
-- `Evidence - Native Windows Transport` starts manually or for relevant pull request changes that target `develop`.
-- A pull request run checks out the pull request head commit.
-- A manual run checks out the selected workflow commit.
-- GitHub runs the job on `windows-2025` with native `ltsc2025` Windows containers.
-- The host selects the newest Visual Studio instance with an MSVC x64 toolchain, redistributable runtime, and compatible Windows SDK.
-- The host mounts the toolchain, redistributable runtime, and SDK read-only in the container.
-- The host does not compile, test, or run a project binary.
-- The container uses MSVC x64 to build all targets in the transport-only configuration.
-- These targets include the production transport, server, resolver, host supervisor, and registered test executables.
-- The container verifies the build tools and required Visual C++ runtime libraries before CMake starts.
-- The container puts the Visual C++ runtime libraries beside the native executables before CTest starts.
-- The native tool image includes checksum-pinned FireDaemon OpenSSL 3.5.8 LTS x64
-  headers, MSVC import libraries, DLLs, and command-line tools. CMake uses its explicit
-  installation root. The container copies both OpenSSL runtime DLLs beside the executables
-  before CTest starts. OpenSSL configuration and module paths refer to the image installation.
-- The container runs all CTests that the transport-only configuration registers.
-- The container build command enables `D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS`.
-  Only the disposable `docker run --rm` invocation receives
-  `D6R_DISPOSABLE_WINDOWS_CONTAINER=1`; the host environment is not changed.
-- The tester-owned CTest registration supplies the explicit Windows trust permission.
-  The test must also recognize the container's real `ContainerType` marker before it
-  accesses certificate stores. A missing or unsupported marker fails the job; do not
-  create a marker, disable the guard, or run the test on the host.
-- The fixture adds only its generated certificate with `CERT_STORE_ADD_NEW` through
-  `CERT_STORE_PROV_SYSTEM_REGISTRY_A` to the disposable container's LocalMachine ROOT.
-  It checks visibility through the unchanged production CurrentUser logical ROOT reader.
-  Cleanup checks removal from both the physical store and the production reader.
-- The Server Core-based image retains its existing ContainerAdministrator default;
-  neither the Dockerfile nor the runner overrides the user or adds elevation for this
-  test. Missing write permission must fail, not trigger an elevation or trust fallback.
-- Test cleanup removes the generated root on normal/error exits. Docker `--rm` destroys
-  the container's writable registry/profile state after failure or test timeout. No host
-  registry, trust store, or user profile is mounted.
-- Final native TLS evidence must show `duel6r-portable-tls-tests` passing in the existing
-  `MSVC x64 transport CTests` job. Compilation or an aggregate success without that
-  test's execution is not sufficient for the task's Ready-for-review gate.
-- The job needs `contents: read` permission.
-- The job does not use repository secrets and does not create an artifact.
-- This workflow provides issue acceptance evidence.
-- Repository rules do not require this workflow unless an administrator changes those rules.
-- GitHub cancels an older run for the same pull request when a new run starts.
+## Public dedicated pilot authorization
 
-## Self-hosted Docker workspace contract
+- See [pilot operations](../deploy/README.md) for prerequisites, identity, DNS, certificates, invitations, costs, rollback, and teardown. Repository reconciliation does not authorize live activation.
+- Cloud deployment is skipped until an operator sets `PUBLIC_PILOT_ACTIVATED=true`. A skipped deployment is not public readiness.
+- Develop calls the staging path after `tag` succeeds. Its runs are not cancelled during service replacement. Deployment jobs serialize each environment separately.
+- Master calls the production path after tested release packaging succeeds. Production uses the protected `production` environment and refuses activation without a configured required-reviewer rule.
+- Each environment uses its own WIF identity, invitation authority, and session state in project `duel-6-reloaded`. Production and staging remain separate.
+- The dedicated image builds from the selected source, runs existing headless CTests, records its source SHA, and deploys by registry digest. Failed builds do not deploy.
+- Backend readiness and verified TLS identity are separate checks. Neither proves invitation admission or gameplay.
+- Staging starts for deployment and stops afterward, including on activation failure. Manual rollback requires a recorded digest/source pair and the same production approval. Replacement does not restore sessions.
 
-- The self-hosted runner may run in a container that uses a Docker daemon on another filesystem namespace.
-- The runner checkout path does not have to exist at the same path on the Docker daemon host.
-- Self-hosted build steps must not bind mount `$PWD` or `GITHUB_WORKSPACE` into a build container.
-- `docker/run-with-daemon-workspace.sh` transfers the checkout through the Docker API with `docker cp`.
-- The helper confirms that the daemon-side container contains `/workspace/CMakeLists.txt` before it starts the build.
-- The helper replaces `GITHUB_WORKSPACE/build` with `/workspace/build` after the container stops.
-- The helper copies output to a new staging directory before it replaces `GITHUB_WORKSPACE/build`.
-- A failed staging copy keeps the prior runner output.
-- The helper returns the build container status when the container fails.
-- The runner must provide the Docker CLI and access to a Docker daemon.
-- The daemon must permit `docker create`, `docker cp`, `docker start`, and `docker rm` operations.
-- The runner needs enough local storage for one checkout copy and returned build output.
-- A same-path host bind mount is not required.
-- Operators may instead use a bind mount only when the daemon can resolve the checkout path to the same repository content.
+## Storage cleanup safeguards
 
-## Nightly and release paths
+- Scheduled runs apply GHCR cleanup; manual runs default to a dry run. The workflow fully inventories both packages and resolves `develop`, `sanity`, and `nightly` before deleting anything, then keeps the newest 10 versions plus protected mutable or exact-SHA tags.
+- GHCR cleanup needs `contents: read`, `packages: write`, and repository package Admin access to `duel6r/build` and `duel6r/build-w64`. Ref, inventory, metadata, authentication, or authorization failures stop cleanup.
+- Legacy Actions artifact cleanup is manual-only, defaults to `skip`, requires `actions: write`, fully paginates the inventory, and deletes only the exact legacy names listed in the workflow. It does not delete current transport artifacts, diagnostics, smoke evidence, Docker build records, or release assets.
 
-- `Develop - Nightly Scheduler` dispatches `develop-nightly.yml` from the `sanity` tag.
-- The `sanity` tag identifies the exact source commit that passed `Develop - Sanity`.
-- `Develop - Nightly` rejects an invocation when `github.ref` is not `refs/tags/sanity`.
-- The workflow captures `github.sha` before a build job starts.
-- A later movement of the `sanity` tag does not change the captured commit.
-- `Develop - Nightly` builds Linux and Windows files on a self-hosted runner.
-- Both nightly builds use the Docker API workspace transfer helper.
-- The Windows build receives the Linux output and extends the shared bundle.
-- The nightly workflow consumes the exact `sanity` commit and does not rerun application tests.
-- Both nightly builds pull `sha-<captured-sanity-SHA>` images.
-- The workflow stops before compilation when either exact image is unavailable.
-- The workflow packages the shared Linux and Windows files as `duel6r-nightly.zip`.
-- The ZIP root contains the files from `build` without a `build` directory.
-- GitHub Actions uses a one-day transport artifact between the build and release jobs.
-- The repository provides the stable `nightly` tag.
-- The release job moves the `nightly` tag to the workflow commit.
-- The release job creates the `nightly` release when it does not exist.
-- The release job updates the existing `nightly` release in place when it exists.
-- The release is a full release and is explicitly the latest repository release.
-- The release job uploads only `duel6r-nightly.zip`.
-- The release job overwrites an existing asset that has the same file name.
-- Publication is non-transactional.
-- A failure during asset replacement can leave the release without the new asset.
-- Operators can rerun the workflow to recover from a partial publication.
-- The release keeps the title `nightly` and does not create a nightly release history.
-- A failed build does not change the prior successful nightly release.
-- A package failure does not change the prior successful nightly release.
-- Nightly runs use `${{ github.workflow }}` as the concurrency group.
-- A newer dispatch cancels an active nightly run.
-- Cancellation during asset replacement can leave the release without the new asset.
-- The release job uses `GITHUB_TOKEN` with `contents: write` to update the release.
-- `GITHUB_TOKEN` limits release access to the current repository.
-- The release job uses `PAT_ACTIONS` only to move the `nightly` tag.
-- The tag token can start workflows that listen for the tag update.
-- `Release Artifact` builds release files after a push to `master` or a manual dispatch.
-- GitHub-hosted jobs use direct bind mounts because their Docker daemon shares the runner host filesystem.
-- Nightly and release publication need the permissions and secrets declared in their workflow files.
-
-## Failure handling
-
-- Check the native Windows job output for the discovered Visual Studio and Windows SDK versions.
-- A missing tool path indicates that the `windows-2025` image does not contain a required host tool.
-- Exit code `0xC0000135` indicates that Windows cannot load a required runtime library.
-- A mount error indicates a Windows Docker bind-mount or path-access failure.
-- Re-run a failed self-hosted job after Docker daemon access or storage is restored.
-- Check for the daemon workspace confirmation before you investigate CMake failures.
-- A missing confirmation indicates a checkout transfer or Docker API failure.
-- A missing `build/duel6r` after a successful container run indicates an output transfer or packaging failure.
-- A failed CTest run stores available CTest records, screenshots, and classifier or log diagnostics in `build/ci-diagnostics`.
-- Diagnostic copy errors do not replace the saved CTest exit status.
+This overview describes the pipeline's responsibilities and relationships, not procedures for implementing individual steps.

@@ -8,7 +8,13 @@ The code remains an experimental scaffold with no playable network session. Thes
 
 ## Supported trust boundary
 
-This section's unauthenticated, unencrypted, private-address restrictions apply to player-hosted LAN mode. Public dedicated mode must instead satisfy the policy below. A public-facing proxy or a private backend address does not make an Internet connection a trusted LAN connection. Existing bounded validation, participant ownership, content restrictions, and non-disclosing diagnostics remain applicable to both modes.
+### Current functional policy
+
+The current target permits valid public-unicast IPv4 connections as well as loopback and private LAN connections. LAN remains the supported player-hosted environment. The [directory and password contract](network-host-directory.md) owns player-host password enforcement, protected secret exchange, listing ownership, and secret non-disclosure. Its requirements replace the no-password and no-encryption exclusions in the historical description below. A password must not imply Internet safety.
+
+The public dedicated pilot must also satisfy TRU-PUB below. The unlocked player-host first-contact limitation must not weaken the pilot's trusted-certificate identity requirement. A public-facing proxy or a private backend address does not make a public client a trusted LAN participant. Existing bounded validation, participant ownership, content restrictions, and non-disclosing diagnostics remain applicable to both modes.
+
+The historical private-only address policy and CLI copy below are not the current target. Public-address rejection and the blanket Internet-exposure prohibition are superseded. All other invalid-address checks remain required. Guest resolution may retain valid public-unicast IPv4 destinations. No automatic routing, firewall, or NAT changes are permitted.
 
 ### Encrypted invite-only public pilot
 
@@ -26,7 +32,7 @@ This section's unauthenticated, unencrypted, private-address restrictions apply 
 - **TRU-PUB-012** An invitation must not grant operator, deployment, or authority over another participant's players.
 - **TRU-PUB-013** Public operation must retain bounded admission work, connections, queues, and participant input validation.
 - **TRU-PUB-014** Public deployment must not expose an unauthenticated plaintext gameplay listener to untrusted peers.
-- **TRU-PUB-015** Public credentials must not be sent to a LAN-mode endpoint.
+- **TRU-PUB-015** Dedicated-pilot invitation credentials must not be sent to a player-hosted-mode endpoint.
 - **TRU-PUB-016** A server identity or encryption failure must use `Secure connection could not be established. Check the endpoint and try again.` and permit Edit setup or Return to Network without an insecure retry option.
 - **TRU-PUB-017** Each environment must accept only its current operator-provisioned high-entropy shared invitation for initial admission after rotation completes.
 - **TRU-PUB-018** A public service may transfer decrypted traffic only within the same trusted machine through a backend that untrusted peers cannot reach or impersonate.
@@ -40,7 +46,9 @@ Invitation distribution is operator-managed outside the game. Revocation means r
 | **TRU-PUB-AC-002** | The current shared invitation admits compatible participants only in its environment. Missing, invalid, replaced, and other-environment invitations produce the same fixed denial and no authority. Rotation with restart needs no client rebuild, rejects the previous invitation after completion, and invalidates ended-session reconnect credentials. No individual-user revocation is claimed. | TRU-PUB-004–009, TRU-PUB-017 |
 | **TRU-PUB-AC-003** | Restart clears client invitation data. Secret-handling review and bounded-abuse observations cover public admission and reconnect without credential disclosure or privilege escalation. | TRU-PUB-010–013 |
 
-First release has no initial-admission authentication, passwords, tokens, certificates, TLS, or encryption. It is supported only between trusted game instances:
+### Historical private-only transport context
+
+The earlier transport had no initial-admission authentication, passwords, tokens, certificates, TLS, or encryption. It was supported only between trusted game instances:
 
 - on one trusted machine through IPv4 loopback; or
 - on a trusted private RFC1918 IPv4 LAN through an explicitly selected private interface address.
@@ -59,13 +67,13 @@ An unsupported, unassigned, network, or broadcast listener address emits only th
 
 ### Host listening-address selection
 
-- **TRU-BIND-001** The host application must offer only IPv4 loopback and eligible assigned private RFC1918 IPv4 addresses for listener selection.
-- **TRU-BIND-002** The host application must require an explicit selection before it binds a private LAN address.
+- **TRU-BIND-001** The host application must offer only IPv4 loopback and eligible assigned private or public unicast IPv4 addresses for listener selection.
+- **TRU-BIND-002** The host application must require an explicit selection before it binds a non-loopback address.
 - **TRU-BIND-003** The host application must validate the selected address against current local interface information before listener creation.
 - **TRU-BIND-004** The host application must not create a listener when the selected address is no longer eligible.
 - **TRU-BIND-005** Address enumeration and selection must not change an interface, route, firewall, Docker network, NAT rule, port-forwarding rule, or other network infrastructure.
 - **TRU-BIND-006** Local interface enumeration must not perform peer, host, or session discovery.
-- **TRU-BIND-007** Address selection must not weaken the trusted loopback and private-LAN exposure boundary.
+- **TRU-BIND-007** Address selection must preserve loopback as the default and must not imply that a selected public address guarantees Internet connectivity or security.
 
 ## Assets, actors, and boundaries
 
@@ -82,7 +90,7 @@ Trust boundaries are:
 - **Resolver helper:** the packaged helper is started by an explicit executable path with direct arguments and no shell, bounded output, restricted inherited handles, fail-closed supervision, and the existing process-global cap of 32 active or delayed helpers.
 - **Diagnostics:** peer-facing copy and trusted local diagnostics are separate. The diagnostic API accepts only a trusted timestamp, local connection number, enumerated stage/category/limit name, and bounded counters.
 
-This model limits accidental exposure and straightforward resource abuse by reachable peers. It does not provide confidentiality, peer identity, anti-cheat, resistance to a malicious local administrator, or public-service hardening.
+These resource controls limit accidental exposure and straightforward resource abuse by reachable peers. NET-PASS and TRU-PUB own the applicable encryption and authentication guarantees. They do not establish personal identity, anti-cheat, resistance to a malicious local administrator, or complete public-service hardening.
 
 ### Admitted player-slot authority
 
@@ -188,4 +196,4 @@ This issue does not implement credential exchange, persistence, command-line tra
 - #38 owns graphical network UI and must reuse the fixed copy. No graphical screens, wireframes, or screenshots are changed by #39.
 - #33 and #32 own applying action/input/authority/rate decisions to authoritative gameplay.
 
-Non-goals are authentication, encryption, Internet safety, accounts, public hosting, hostile-machine isolation, anti-cheat, public VPN/relay/NAT traversal, compatibility fields, lobby/simulation implementation, reconnect exchange, and graphical UI. Full network play remains downstream of #27.
+This resource policy does not own compatibility fields, lobby/simulation implementation, reconnect exchange, or graphical UI. NET-PASS and TRU-PUB own approved secret protection and public-pilot admission. Accounts, general Internet-safety claims, hostile-machine isolation, anti-cheat, relays, and NAT traversal remain excluded. Full network-release validation remains downstream of #27.

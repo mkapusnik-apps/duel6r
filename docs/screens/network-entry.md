@@ -2,9 +2,11 @@
 
 ## Status, purpose, and requirements
 
+This screen provides entry to `NET-10` for central browsing under [NET-DIR-009](../network-host-directory.md). Host, direct Join, and Back remain available independently of directory availability. Browser and password behavior follows the current directory contract. UX owns presentation of the additional action.
+
 ### Public pilot functional contract
 
-`NET-01-PUBLIC-ENTRY` extends this screen under `NET-PUB-016`–`NET-PUB-021`. It uses the actions `Connect`, `Host private LAN`, and `Back`. `Connect` opens editable `NET-03` without starting a connection; the first entry uses the public production default. `Host private LAN` opens unchanged `NET-02`. `Back` returns to `MENU-01`. Opening this screen creates no connection. These action names replace the earlier `Join` and `Host` labels below. LAN-only scope copy and the prohibition on dedicated/Internet affordances below do not apply to the approved public pilot. No server browser or matchmaking is added.
+`NET-01-PUBLIC-ENTRY` extends this screen under `NET-PUB-016`–`NET-PUB-021` without replacing Host, Join, browser, or Back behavior. Join opens editable `NET-03` without starting a connection. First direct public setup uses the production default. Host opens player-hosted `NET-02`. Back returns to `MENU-01`. Opening this screen creates no connection. The dedicated pilot adds no administrator or matchmaking action.
 
 Presentation authority: [NET-01 UX contract](../design/screens/NET-01.md). Its proposed action routing is approved by this functional contract.
 
@@ -33,7 +35,7 @@ Entry is `MENU-01` → `Network (F2)`. Host continues to `NET-02`, Join continue
 - Default focus is Host; Host opens `NET-02`, Join opens `NET-03`, and Back returns to `MENU-01`.
 - Returning from setup or a recoverable failure restores this screen with no active session claim.
 - If network initialization is unavailable, Host and Join are disabled with `Network runtime unavailable`; Back remains enabled.
-- No discovery, matchmaking, Internet, account, password, dedicated-server, join-in-progress, or migration action may appear.
+- No automatic LAN discovery, matchmaking, account, or migration action may appear. NET-DIR, NET-PASS, NET-ADM, and NET-PUB govern approved browsing, admission, and public setup.
 
 ## Copy, focus, and input
 

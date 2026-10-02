@@ -1,7 +1,90 @@
 # UX screenshot coverage and integration evidence
 
+## Network presentation current capture matrix
+
+This is the sole current capture matrix for the reconciled network presentation. It replaces the earlier draft capture plan, not the historical artifact bytes or their provenance. Develop's sixteen wireframes remain in scope. NET-03-P adds the materially different pilot invitation task, for seventeen representatives in one coordinated matrix. Minor role, endpoint, focus, and failure variants do not add default rows.
+
+**Current conformance: Pending for every row. Capture is not released.** Team must declare functional closure of the frozen merged candidate before developer captures canonical evidence. No merged candidate presentation source or current capture packet has been supplied to UX. The unavailable native Windows graphical dedicated journey blocks the pilot evidence. Linux draft captures, command-line checks, and mocks cannot substitute for that journey. No public deployment is requested.
+
+The [UX index](../README.md) owns presentation-source links. The [product inventory](../../screens/README.md) owns functional states and native workflows. Routes below are native workflows, not URLs. Use product's reconciled state mappings and report any mismatch before capture. The unchanged incoming NET-02, NET-02-P, NET-05-S, NET-05-R, and NET-10 sources must be integrated from develop at their canonical paths. Missing sources block pre-freeze closure.
+
+### Profiles and environment dependencies
+
+- `D` means actual native desktop client, standard font/input, complete 1280 by 900 client area, unified network presentation and existing default network visuals. The existing Linux Docker GL4/Lua/software-GL profile may supply player-hosted/browser rows.
+- `W` means the same presentation on native Windows with the dedicated graphical client path, not a Linux client or a command-line harness. Use 1280 by 900 except the NET-05-C confirmation at 1280 by 720.
+- Both profiles retain the 850 by 700 logical menu canvas, standard scaling, and current session background. No mobile, high-contrast, screen-reader, or text-scaling profile is introduced.
+- `H` means actual owned player-hosted sessions and the authorized task-isolated directory. Team/developer must supply namespace, backend candidate identity, stable endpoint mapping, and actual listing/scenario inputs. Do not use the public production directory.
+- `P` means an actual task-isolated dedicated service through the production secure client path. Team/developer must supply namespace, backend candidate identity, stable hostname/IP and port mapping, trusted certificate identity, and scenario setup. Preserve identity validation, invitation enforcement, authoritative role assignment, and shared security. UX does not provision or change this environment.
+- `P-pending` means an authorized owned secure listener that keeps a genuine connection/admission attempt pending without a success claim. Record the disclosed boundary and actual deadline. Do not replace the UI or inject a status.
+- No environment, fixture, or recorded endpoint may imply production or staging deployment acceptance. Use disposable credentials and omit their values from metadata.
+
+### Coordinated matrix
+
+All destinations are relative to the repository root. Replace the representative for the same stable wireframe. Historical provenance retains its original checkpoint and hash. A reused canonical path must not be cited as still containing the historical bytes after replacement. Do not rename old evidence to imply candidate provenance or create a dated or platform-specific screenshot campaign.
+
+| Entry / screen / wireframe | Functional state and native route / setup | Profile / dependency | Expected visible result | Canonical destination | Current conformance |
+|---|---|---|---|---|---|
+| SS-015 / NET-01 / NET-01 | NET-01-PUBLIC-ENTRY; MENU-01 → Network (F2), no connection | D / none | Host focus; Host, Browse sessions, Direct connect, Back; reconciled scope, title, banner/version | `docs/design/screenshots/NET-01/NET-01.png` | Pending |
+| SS-016 / NET-02 / NET-02 | NET-02-password; Network → Host; eligible assigned private interface, Port 26660, two local slots, disposable optional password | D / H | Full interface literal, masked Password focus, separate setup panels, valid Start and Back | `docs/design/screenshots/NET-02/NET-02.png` | Pending |
+| NET-02-P / NET-02 / NET-02-P | Existing Starting state; activate Start from valid NET-02; use an actual pending frame before readiness | D / H | Starting and timing help; sole Cancel focus; no editable setup or readiness claim | `docs/design/screenshots/NET-02/NET-02-P.png` | Pending |
+| NET-03-E / NET-03 / NET-03-E | NET-03-password; Browse sessions → actual protected open Round 1 listing → Join selected; one valid local slot | D / H | Selected endpoint preserved; Password focus/mask; first-round immediate-play consequence; Connect and contextual Back | `docs/design/screenshots/NET-03/NET-03-E.png` | Pending |
+| NET-03-P / NET-03 / NET-03-P | NET-03-PUBLIC-EDIT; Direct connect → approved pilot setup; fresh production default, one local slot, disposable masked invitation; do not connect to production | W / none | Editable production Address and five-digit Port; distinct Invite and service type; consequences; no verified connection claim | `docs/design/screenshots/NET-03/NET-03-P.png` | Pending; Windows path unavailable |
+| SS-017 / NET-03 / NET-03 | NET-03-PUBLIC-CONNECTING; pilot custom owned endpoint → Connect with two valid local slots; capture inside the real pending attempt | W / P-pending | Retained endpoint; locked Slot/Person/Control rows; truthful Connecting, deadline text and sole Cancel; no invitation | `docs/design/screenshots/NET-03/NET-03.png` | Pending; Windows path unavailable |
+| SS-018 / NET-04 / NET-04 | NET-04-PUBLIC-CONTROLLER; first authoritative pilot admission; two guests, two players each, one unready guest | W / P | Confirmed Host, actual endpoint, separate membership columns, host consequence, disabled Start reason; no listing claim | `docs/design/screenshots/NET-04/NET-04.png` | Pending; Windows journey unavailable |
+| SS-025 / NET-04 / NET-04-R | Same pilot Host after the SS-020 completed result → Return to lobby without restart/resize/new match; focus outside Reorder | W / P | Retained Completed result distinct from current membership; cleared readiness; outcome/navigation/footer; non-interactive host reorder access help | `docs/design/screenshots/NET-04/NET-04-R.png` | Pending; Windows journey unavailable |
+| SS-019 / NET-05 / NET-05 | NET-05-PUBLIC; actual two-participant, one-slot-each Deathmatch; two rounds; capture Host during Connected active play | W / P | Whole arena, confirmed Host/Public session/Connected, readable unchanged HUD/status and framed End action | `docs/design/screenshots/NET-05/NET-05.png` | Pending; Windows journey unavailable |
+| SS-026 / NET-05 / NET-05-C | NET-05-PUBLIC with existing guest Leave confirmation; actual guest active play → open confirmation, do not accept | W at 1280 by 720 / P | Complete participant-only consequence, initial Leave focus, separate Cancel, bounded panel above retained arena | `docs/design/screenshots/NET-05/NET-05-C.png` | Pending; Windows journey unavailable |
+| NET-05-S / NET-05 / NET-05-S | NET-05-PUBLIC with existing pre-winner score overlay; actual match before first winner → Tab once | W / P | Real In progress/Pending data, even if empty; fixed labels/body; no enabled unsupported scrolling | `docs/design/screenshots/NET-05/NET-05-S.png` | Pending; Windows journey unavailable |
+| NET-05-R / NET-05 / NET-05-R | NET-05-PUBLIC with existing non-final result; normal completion of round one of two; capture Host after first active second and before auto-advance | W / P | Rounds 1\|2; actual outcome; positive frozen-phase countdown; ranking navigation; Advance round and End | `docs/design/screenshots/NET-05/NET-05-R.png` | Pending; Windows journey unavailable |
+| SS-020 / NET-06 / NET-06 | NET-06-PUBLIC; complete both rounds through normal play; capture Host before Return to lobby | W / P | Menu summary, Completed/Session only/no-persistence labels, distinct outcomes, actual result access, role-correct footer | `docs/design/screenshots/NET-06/NET-06.png` | Pending; Windows journey unavailable |
+| SS-021 / NET-07 / NET-07 | NET-07-PUBLIC-RECONNECT; interrupt admitted pilot controller during active play; capture positive reservation countdown; restore before expiry | W / P | Last confirmed context; Host, countdown, reservation and both active-play notices; host consequence and End action | `docs/design/screenshots/NET-07/NET-07.png` | Pending; Windows journey unavailable |
+| SS-022 / NET-08 / NET-08 | NET-08-PUBLIC-SECURITY; actual pilot Connect to owned trusted-chain certificate with wrong endpoint identity | W / P | Product's fixed security failure, bounded endpoint, Edit setup focus, Return to Network, no Retry/bypass/player-hosted helper or secret | `docs/design/screenshots/NET-08/NET-08.png` | Pending; Windows secure path unavailable |
+| SS-023 / NET-09 / NET-09 | NET-09-PUBLIC-CONTROLLER-END; pilot Host intentionally confirms End; capture Guest after accepted end notice during actual match | W / P | Confirmed intentional cause over retained arena; no resume; context-correct persistence text; Return to Network focus | `docs/design/screenshots/NET-09/NET-09.png` | Pending; Windows journey unavailable |
+| NET-10 / NET-10 / NET-10 | NET-10-results; Browse sessions; at least two actual owned player-hosted listings, protected joinable and admission-closed; protected row selected | D / H | Independent endpoint/occupancy/phase/password/admission columns; selection distinct from focus; current page/details; footer; no pilot listing | `docs/design/screenshots/NET-10/NET-10.png` | Pending |
+
+The common two-round pilot sequence may supply NET-05, NET-05-C/S/R, NET-06, and NET-04-R. Use a separate actual three-participant lobby for NET-04. Ordinary results are valid representatives only for the declared visual scope. Do not manufacture winners, force admission, inject result data, retouch pixels, or use a failed/unreachable route as another row's state.
+
+### Required focused checks within this matrix
+
+These checks do not add permanent representative rows or require a Cartesian platform/state matrix. Supply source-tied behavioral observations and focused native images when needed to resolve visual uncertainty. Include those artifacts in the same evidence packet.
+
+- Check changed menu and contextual layouts at 850 by 700 and 1280 by 720 and scaled pointer alignment at 1920 by 1080.
+- Preserve baseline disabled-focus retention, traversal, reverse traversal, keyboard/controller activation, pointer bounds, and opening-input protection.
+- Check fresh pilot defaults, typed staging/custom endpoints, browser endpoint preservation, mode changes, masked typing/paste, maximum input, clearing, Cancel retention, and failure recovery.
+- Check player-hosted optional/required passwords, truthful unlocked-direct identity guidance, pending connection, fifteen locked slots, browser Back, password rejection, closed round-one admission, and real first-round arrival without an intermediate lobby.
+- Check player-hosted publication failure/retry while transport remains running; pilot screens must have no directory-publication controls.
+- Check confirmed pilot Guest permissions, both role confirmations, host-alone lobby, dedicated round-one arrival, both role reconnect states, host restoration, isolated End, expiry, and authenticated maintenance. Abrupt loss must remain distinct from a confirmed terminal cause.
+- Preserve develop's NET-04-R host reorder indication, working result navigation, NET-05-S non-actionable position text, and NET-05-R active/frozen distinction.
+- Check long endpoints, full UTF-8 names, maximum roster/ranking, fourteen Predator winners including departed identities, both result-scroll extremes, interrupted results, degraded/resynchronizing status, and all supported modes.
+- Check all five browser states, stale/full/closed/unknown disabled reasons, paging, removed selection, refresh focus retention, and independent Direct connect.
+
+Historical degraded/Invisibility/held-weapon, fourteen-winner, and departed-winner scenarios retain their functional obligations. The ordinary rows above do not certify them. Team must assess impact on unchanged world/interaction evidence rather than silently reuse it as candidate regression acceptance.
+
+### Capture release and evidence contract
+
+1. Team must finish product reconciliation and integrate develop's authoritative design system, screen contracts, and unchanged UX sources.
+2. Team must supply the merged candidate source checkpoint for pre-freeze presentation review.
+3. Team must declare functional closure of that frozen candidate before releasing this matrix to developer.
+4. Developer must preflight each actual route and report any unreachable state without substituting it.
+5. Team must provide the authorized H/P environments and resolve the native Windows dedicated journey blocker.
+6. Developer must supply every representative and required focused observation as one coordinated evidence set.
+
+Each artifact must identify source checkpoint, capture state, role, native route and relevant inputs, viewport/profile, environment, exact path, and SHA-256. Multiplayer evidence must also identify task namespace, backend candidate, stable endpoint/transport mapping, and scenario-specific setup. Record runtime/asset identity, menu background and application session; record actual level/mirror and session/match/round/tick where available. Do not print invitations, passwords, reconnect credentials, or unredacted logs. Developer owns temporary evidence cleanup.
+
+UX will assess structure against wireframes, presentation against owning screen specifications, and appearance against develop's unified design system. Pixel resemblance to a low-fidelity diagram is not an acceptance condition. A still cannot prove secure identity validation, role authority, timing, input suppression, or functional closure. Exact-hash integration needs no second campaign if presentation source and assessed content remain unchanged. A presentation-source change requires team to retire affected evidence before replacement capture.
+
+No candidate artifact has been supplied or assessed in this invocation. No current artifact SHA-256 is asserted. Old draft artifact hashes below identify historical bytes only.
+
+Pre-freeze UX alignment: blocked
+
+Visual gate: blocked
+
+## Historical draft evidence
+
+All conformance and gate statements below apply only to their recorded old checkpoints. They are not acceptance of the merged candidate or its native Windows dedicated journey. Their earlier capture recipes are superseded by the single current matrix above. Keep the original paths and hashes as historical references; developer owns image replacement after closure.
+
 <a id="public-service-extension--pending-coverage"></a>
-## Public-service extension — current coverage
+## Public-service extension — historical draft coverage
 
 This section owns capture and assessment for the public-service extension only. The legacy manifest below retains authority for unchanged baseline artifacts. Later recaptures must replace the same public-profile artifact at the destinations below. Do not create a new screenshot identity for a minor role, copy, or failure variant.
 
@@ -47,7 +130,7 @@ QA must also supply observations for custom private-LAN connection, staging addr
 - The accepted capture packet must contain every affected representative and its required metadata and hashes.
 - Supplied behavior evidence must establish transitions that still images cannot prove.
 
-Visual gate: satisfied
+Historical draft gate at its recorded checkpoint: satisfied. This is not candidate acceptance.
 
 PUI-01–03 are resolved, PUI-04 is resolved, and the three ordinary public representatives are assessed. No further capture is required for this visual scope. Exact-hash integration requires no second assessment unless presentation source, artifacts, or UX-owned content changes. Security, native Windows, functional regression, infrastructure review, and live deployment remain separate team gates.
 

@@ -37,6 +37,18 @@ if (NOT WIN32 OR D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS)
     endif ()
     set_tests_properties(duel6r-portable-tls-tests PROPERTIES LABELS "application;network;tls;security;native" TIMEOUT 90)
 endif ()
+add_executable(duel6r-hardware-crypto-tests ${CMAKE_SOURCE_DIR}/tests/HardwareCryptoTests.cpp)
+target_include_directories(duel6r-hardware-crypto-tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(duel6r-hardware-crypto-tests PRIVATE duel6r-network-scaffold)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND D6R_PLATFORM STREQUAL "arm64")
+    target_compile_definitions(duel6r-hardware-crypto-tests PRIVATE D6R_TEST_WRAP_AUXV)
+    target_link_libraries(duel6r-hardware-crypto-tests PRIVATE "-Wl,--wrap=getauxval")
+endif ()
+if (MINGW)
+    set_property(TARGET duel6r-hardware-crypto-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
+add_test(NAME duel6r-hardware-crypto-tests COMMAND duel6r-hardware-crypto-tests)
+set_tests_properties(duel6r-hardware-crypto-tests PROPERTIES LABELS "application;network;security" TIMEOUT 30)
 
 add_executable(duel6r-session-transport-tests
         ${CMAKE_SOURCE_DIR}/tests/SessionTransportTests.cpp)
@@ -209,6 +221,16 @@ set_tests_properties(duel6r-session-lifecycle-tests PROPERTIES
         TIMEOUT 30)
 
 if (NOT D6R_TRANSPORT_ONLY)
+    add_executable(duel6r-directory-client-integration-tests
+            ${CMAKE_SOURCE_DIR}/tests/DirectoryClientIntegrationTests.cpp)
+    target_include_directories(duel6r-directory-client-integration-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    # This headless test owns its ordinary main; transitive SDL headers must not rename it.
+    target_compile_definitions(duel6r-directory-client-integration-tests PRIVATE SDL_MAIN_HANDLED)
+    target_link_libraries(duel6r-directory-client-integration-tests PRIVATE
+            duel6r-game-engine duel6r-network-scaffold)
+    if (MINGW)
+        set_property(TARGET duel6r-directory-client-integration-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+    endif ()
     add_executable(duel6r-network-session-runtime-tests
             ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
             ${CMAKE_SOURCE_DIR}/tests/NetworkSessionRuntimeTests.cpp)
@@ -350,6 +372,12 @@ if (UNIX)
 endif ()
 
 if (UNIX OR WIN32)
+    add_executable(duel6r-secure-test-peer ${CMAKE_SOURCE_DIR}/tests/SecureAdmissionPeer.cpp)
+    target_include_directories(duel6r-secure-test-peer PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-secure-test-peer PRIVATE duel6r-network-scaffold)
+    if (MINGW)
+        set_property(TARGET duel6r-secure-test-peer APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+    endif ()
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(
             NAME duel6r-authoritative-match-process-tests
@@ -391,6 +419,7 @@ if (UNIX OR WIN32)
     )
     set_tests_properties(duel6r-admission-process-tests PROPERTIES
             LABELS "application;integration;network;admission;process"
+            ENVIRONMENT "D6R_TEST_SECURE_PEER=$<TARGET_FILE:duel6r-secure-test-peer>"
             TIMEOUT 45)
 
     add_test(
@@ -399,6 +428,8 @@ if (UNIX OR WIN32)
                     ${CMAKE_SOURCE_DIR}/tests/HostServiceProcessTests.py
                     $<TARGET_FILE:${D6R_HOST_SUPERVISOR_APP_NAME}>
                     $<TARGET_FILE:duel6r-host-service-test-child>
+                    $<TARGET_FILE:${D6R_SERVER_APP_NAME}>
+                    ${CMAKE_SOURCE_DIR}/resources
     )
     set_tests_properties(duel6r-host-service-process-tests PROPERTIES
             LABELS "application;integration;network;host-service;process"
@@ -411,6 +442,8 @@ if (UNIX OR WIN32)
                         ${CMAKE_SOURCE_DIR}/tests/HostServiceProcessTests.py
                         $<TARGET_FILE:${D6R_HOST_SUPERVISOR_APP_NAME}>
                         $<TARGET_FILE:duel6r-host-service-test-child>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}>
+                        ${CMAKE_SOURCE_DIR}/resources
                         --orphan-stress
         )
         set_tests_properties(duel6r-host-service-orphan-process-tests PROPERTIES

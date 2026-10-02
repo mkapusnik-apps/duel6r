@@ -119,7 +119,9 @@ Presentation-only background selection is not an authoritative level decision.
 
 The service may start a match only when the first-release match-start invariants are true.
 
-The service must receive one frozen valid roster, one valid setting set, and one valid level plan before it creates the first round.
+The service must receive one valid initial roster, one valid setting set, and one valid level plan before it creates the first round.
+
+The service must apply `NET-ADM-001` through `NET-ADM-012` in [network play](network-play-first-release.md) for round-one additions. These requirements own late spawn, mode assignment, statistics, and the admission cutoff. Settings remain frozen. Determinism comparisons must include the same authoritative admission decisions and times as well as the same initial roster and actions. `NET-ADM-AC-001` through `NET-ADM-AC-003` supplement AHM-AC-004, AHM-AC-012, AHM-AC-017, AHM-AC-018, and AHM-AC-020 through AHM-AC-022.
 
 The service must clear a retained prior result before it starts the new match.
 

@@ -121,6 +121,9 @@ namespace Duel6::Network::HostComposition {
         writer.boolean(setup.assistance);
         writer.boolean(setup.quickLiquid);
         writer.boolean(setup.burnableTrees);
+        std::string password = setup.password ? setup.password->value() : "";
+        writer.text(password, 128);
+        Trust::secureEraseMemory(password.data(), password.size());
         return writer.take();
     }
 
@@ -193,6 +196,9 @@ namespace Duel6::Network::HostComposition {
                 setup.assistance = reader.boolean();
                 setup.quickLiquid = reader.boolean();
                 setup.burnableTrees = reader.boolean();
+                auto password = reader.text(128);
+                setup.password = std::make_shared<SessionPassword>(password);
+                Trust::secureEraseMemory(password.data(), password.size());
                 if (!reader.done() || !validMode(setup.mode) || !validLevelPlan(setup.levelPlan)
                     || setup.roundLimit == 0 || setup.roundLimit > 99 || !validTeamSettings(setup))
                     return std::nullopt;

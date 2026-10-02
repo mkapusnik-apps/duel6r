@@ -1,38 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="850" height="850" viewBox="0 0 850 850">
-  <title>NET-03 — Connection setup with endpoint and invite</title>
-  <desc>NET-03-PUBLIC-EDIT. Existing desktop wireframe identity. Required explicit connection type, separate address and Port, masked Invite, and existing local setup. Connecting locks setup and focuses Cancel.</desc>
-  <rect width="850" height="850" fill="white"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="840" viewBox="0 0 900 840">
+  <title>NET-03 — Locked connecting task</title>
+  <desc>850 by 700 logical desktop canvas. Common player-hosted and pilot pending connection. Fixed banner, retained endpoint, locked full-width local roster, status and sole Cancel action. Reading order top to bottom. Cancel receives focus. No editable endpoint or credential controls.</desc>
+  <rect width="900" height="840" fill="white"/>
   <g fill="none" stroke="black">
-    <rect x="1" y="1" width="848" height="698"/>
-    <rect x="190" y="72" width="430" height="30"/>
-    <rect x="190" y="120" width="430" height="32"/>
-    <rect x="692" y="120" width="134" height="32"/>
-    <rect x="190" y="168" width="430" height="32"/>
-    <rect x="24" y="290" width="397" height="252"/>
-    <rect x="429" y="290" width="397" height="252"/>
-    <path d="M24 324H421 M429 324H826"/>
-    <rect x="40" y="495" width="110" height="30"/>
-    <rect x="445" y="495" width="110" height="30"/>
-    <rect x="24" y="620" width="180" height="40"/>
-    <rect x="220" y="620" width="180" height="40"/>
-    <path d="M24 720H826" stroke-dasharray="5 5"/>
+    <rect x="25" y="20" width="850" height="700"/>
+    <rect x="350" y="40" width="200" height="95"/>
+    <rect x="49" y="300" width="802" height="300"/>
+    <path d="M49 326H851 M110 326V600 M470 326V600"/>
+    <rect x="298" y="663" width="304" height="36" stroke-width="2"/>
   </g>
   <g fill="black" font-family="sans-serif" font-size="16">
-    <text x="24" y="42">CONNECT TO NETWORK SESSION</text>
-    <text x="24" y="94">Connection type</text><text x="204" y="94">Public (encrypted) [selector]</text>
-    <text x="24" y="143">Server address</text><text x="204" y="143">duel.netusite.cz</text><text x="642" y="143">Port</text><text x="708" y="143">26660</text>
-    <text x="24" y="190">Invite</text><text x="204" y="190">********</text><text x="642" y="190">Invite required</text>
-    <text x="24" y="233">The first admitted participant controls the session.</text>
-    <text x="24" y="255">Leaving as host ends the session. Server updates may end the session.</text>
-    <text x="40" y="313">LOCAL PERSONS</text><text x="445" y="313">LOCAL PLAYERS / CONTROLS</text>
-    <text x="40" y="356">Ada [selected]</text><text x="40" y="384">Bruno</text>
-    <text x="445" y="356">1 Ada             Keyboard</text><text x="445" y="384">2 Bruno          Controller 1</text>
-    <text x="65" y="516">Add</text><text x="465" y="516">Remove</text>
-    <text x="24" y="580">Validation / connection status (persistent; wrap inside this region)</text>
-    <text x="80" y="646">Connect</text><text x="280" y="646">Back</text>
-    <text x="24" y="747">ANNOTATIONS: endpoint and footer fixed; list bodies scroll independently.</text>
-    <text x="24" y="775">Private LAN (trusted): hide Invite; show trusted-LAN note in its reserved row.</text>
-    <text x="24" y="803">Connecting locks setup and replaces footer actions with Cancel.</text>
-    <text x="24" y="831">Invite is masked; no usable credential belongs in screenshot evidence.</text>
+    <text x="360" y="92">Existing banner / version</text>
+    <text x="290" y="180">CONNECT TO NETWORK SESSION</text>
+    <text x="49" y="219">Address: selected endpoint retained</text>
+    <text x="49" y="245">Port: 26660</text>
+    <text x="49" y="275">Connection attempt • Local players locked / read-only</text>
+    <text x="61" y="319">Slot</text><text x="122" y="319">Person</text><text x="482" y="319">Control</text>
+    <text x="61" y="352">1</text><text x="122" y="352">Ada</text><text x="482" y="352">Keyboard 1</text>
+    <text x="61" y="379">2</text><text x="122" y="379">Bruno</text><text x="482" y="379">Controller 1</text>
+    <text x="61" y="581">Remaining locked rows • Up to 15 slots</text>
+    <text x="49" y="624">Connecting…</text>
+    <text x="49" y="646">Existing total-attempt deadline text</text>
+    <text x="421" y="687">Cancel</text>
+  </g>
+  <g font-family="sans-serif" font-size="14">
+    <text x="25" y="757">ANNOTATIONS: Fixed endpoint, roster headings, status and action. No credential text.</text>
+    <text x="25" y="784">No editing or second Connect. Cancel returns to the owning editable variant with permitted retention.</text>
+    <text x="25" y="811">Use an actual pending attempt. No success claim until verified identity and complete admission.</text>
   </g>
 </svg>

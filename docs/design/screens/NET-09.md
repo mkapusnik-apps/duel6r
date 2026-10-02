@@ -1,6 +1,6 @@
 # NET-09 — Confirmed session end
 
-Functional authority: [NET-09](../../screens/network-host-ended.md). Structural wireframe: existing [NET-09](../../screens/wireframes/network-host-ended.md). No layout change is proposed.
+Functional authority: [NET-09](../../screens/network-host-ended.md). Structural wireframe: existing [NET-09](../../screens/wireframes/network-host-ended.md). Use develop's [unified intentional-end presentation](../../design.md#net-09--intentional-host-end-presentation), including the framed Return action and retained context. No layout change is proposed.
 
 State `NET-09-PUBLIC-CONTROLLER-END` consumes HSL-PUB-005 and HSL-PUB-012. It uses the existing fixed host-ended copy for a confirmed intentional controller end, including a received normal-shutdown request. Controller expiry and confirmed maintenance use NET-08. Ambiguous loss uses NET-07.
 
@@ -14,3 +14,5 @@ State `NET-09-PUBLIC-CONTROLLER-END` consumes HSL-PUB-005 and HSL-PUB-012. It us
 - Keyboard and controller Back must use the approved Return to Network behavior.
 
 SS-023 remains the representative: a real accepted intentional end notice over an arena context. Normal shutdown, expiry, and deployment cases require behavioral evidence for their distinct functional mappings. Unreachable outcomes must not be fabricated for capture. No new layout is needed.
+
+The [coordinated matrix](../screenshots/README.md#network-presentation-current-capture-matrix) requires native Windows pilot evidence. Prior Linux end screenshots remain historical. A shutdown can use this outcome only when product's approved request is actually accepted; a socket close alone cannot establish intentional end.

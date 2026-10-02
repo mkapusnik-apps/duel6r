@@ -182,7 +182,7 @@ namespace Duel6::Network::Lifecycle {
         HostSessionLifecycle &operator=(HostSessionLifecycle &&) = delete;
 
         std::optional<ReconnectGrant> admitGuest(ParticipantId participantId, ConnectionId connectionId,
-                                                  std::vector<PlayerId> ownedPlayers, bool ready);
+                                                  std::vector<PlayerId> ownedPlayers, bool ready, bool lobby = true);
         bool transportClosed(ParticipantId participantId, ConnectionId connectionId);
         HostReconnectResult reconnect(const ReconnectRequest &request, ConnectionId connectionId,
                                       ReconnectCompatibility compatibility = ReconnectCompatibility::Compatible);

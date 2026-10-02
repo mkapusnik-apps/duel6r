@@ -63,7 +63,12 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DD6_DEBUG")
 
 # Switches
 set(D6R_RENDERERS gl1 gl4 es2 es3)
-set(D6R_RENDERER "gl4" CACHE STRING "Renderer")  # Renderer: gl1/gl4/es2
+set(D6R_DEFAULT_RENDERER "gl4")
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND D6R_PLATFORM STREQUAL "arm64")
+    # Mesa V3D on Raspberry Pi 5 supports desktop compatibility GL, not GL 4.3.
+    set(D6R_DEFAULT_RENDERER "gl1")
+endif ()
+set(D6R_RENDERER "${D6R_DEFAULT_RENDERER}" CACHE STRING "Renderer")
 set_property (CACHE D6R_RENDERER PROPERTY STRINGS ${D6R_RENDERERS})
 set(D6R_WITH_LUA ON)     # Enable/disable lua scripting
 option(D6R_TRANSPORT_ONLY "Build only the native session transport and its tests" OFF)
@@ -105,6 +110,8 @@ set(D6R_SOURCES
         source/client/LocalPlayerInputSession.h
         source/client/NetworkSessionRuntime.cpp
         source/client/NetworkSessionRuntime.h
+        source/client/HostDirectory.cpp
+        source/client/HostDirectory.h
         source/ConsoleCommands.cpp
         source/ConsoleCommands.h
         source/Context.cpp
@@ -695,6 +702,18 @@ endif ()
 add_library(duel6r-network-scaffold STATIC ${D6R_NETWORK_SCAFFOLD_SOURCES})
 find_package(OpenSSL 1.1.1 REQUIRED)
 target_link_libraries(duel6r-network-scaffold PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+find_package(MbedTLS 3.6.7 EXACT CONFIG REQUIRED)
+if (UNIX AND NOT APPLE)
+    set(CMAKE_BUILD_RPATH "$ORIGIN/lib")
+    set(CMAKE_INSTALL_RPATH "$ORIGIN/lib")
+endif ()
+target_sources(duel6r-network-scaffold PRIVATE source/network/SecureSession.cpp)
+target_link_libraries(duel6r-network-scaffold PUBLIC MbedTLS::mbedtls MbedTLS::mbedx509 MbedTLS::mbedcrypto)
+if (NOT D6R_TRANSPORT_ONLY)
+    find_package(CURL 7.85 REQUIRED)
+    target_include_directories(duel6r-game-engine PUBLIC ${CURL_INCLUDE_DIRS})
+    target_link_libraries(duel6r-game-engine PUBLIC ${CURL_LIBRARIES})
+endif ()
 add_dependencies(duel6r-network-scaffold ${D6R_RESOLVER_APP_NAME})
 target_include_directories(duel6r-network-scaffold PUBLIC ${CMAKE_SOURCE_DIR}/source)
 target_compile_definitions(duel6r-network-scaffold PRIVATE NOMINMAX)
@@ -777,6 +796,18 @@ if (BUILD_TESTING)
         endif ()
 
         include(${CMAKE_SOURCE_DIR}/tests/SharedArenaCTestRegistration.cmake)
+
+        add_test(
+            NAME ctest-diagnostics-collection
+            COMMAND ${D6R_BASH_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/CTestDiagnosticsCollectionTests.sh
+        )
+        set_tests_properties(
+            ctest-diagnostics-collection
+            PROPERTIES
+            ENVIRONMENT "WORKSPACE_DIR=${CMAKE_SOURCE_DIR}"
+            LABELS "build;regression"
+        )
 
         add_test(
             NAME safe-empty-match-start
@@ -877,4 +908,19 @@ if (D6R_WITH_LUA)
         include_directories(${HEADERS_LUA}/lua5.3)
     endif (WIN32 AND NOT MINGW)
 endif (D6R_WITH_LUA)
+
+if (BUILD_TESTING AND UNIX AND NOT APPLE AND (D6R_RENDERER STREQUAL "gl4" OR D6R_RENDERER STREQUAL "gl1"))
+    add_executable(duel6r-renderer-batch-tests tests/TestMain.cpp tests/RendererBatchTests.cpp)
+    target_include_directories(duel6r-renderer-batch-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-renderer-batch-tests
+            duel6r-game-engine duel6r-network-scaffold
+            ${LIB_OPEN_GL} ${LIB_GLEW} ${LIB_SDL2} ${LIB_SDL2_IMAGE})
+    add_test(NAME renderer-batch-behavior
+            COMMAND ${D6R_TEST_XVFB_RUN_EXECUTABLE} -a $<TARGET_FILE:duel6r-renderer-batch-tests>)
+    set_tests_properties(renderer-batch-behavior PROPERTIES
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
+            ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1"
+            LABELS "application;rendering;regression"
+            TIMEOUT 60)
+endif ()
 endif ()

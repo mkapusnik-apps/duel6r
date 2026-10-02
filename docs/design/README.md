@@ -1,57 +1,53 @@
 # UX documentation
 
-## Authority
+## Scope and authority
 
-The [product screen inventory](../screens/README.md) owns screen identities and functional contracts. The existing [visual design system](../design.md) remains authoritative for unchanged styling. This task does not migrate legacy documentation.
+The [product inventory](../screens/README.md) owns screen and functional state IDs. The existing [visual design system](../design.md#unified-network-presentation) owns reusable styling, including `UX-NET-001`–`UX-NET-024` and `UX-NET-AC-01`–`UX-NET-AC-08`. Keep develop's unified network presentation as the base. Do not migrate the legacy design system or create a second token authority.
 
-This directory specifies presentation for the approved public, encrypted, invite-only dedicated-service extension. The reconciled public sections in the product screen contracts, trust policy, and service lifecycle contract own behavior. The extension specifications below are ready for implementation. Public presentation supersedes legacy LAN-only copy only on the public path. No application implementation or screenshot capture is included here.
+The [directory contract](../network-host-directory.md) owns `NET-DIR-*` and `NET-PASS-*`. The [network-play contract](../network-play-first-release.md) owns `NET-ADM-*` and `NET-PUB-*`. The [trust policy](../network-trust-and-abuse-limits.md) and [lifecycle contract](../network-host-service-lifecycle.md) own `TRU-PUB-*` and `HSL-PUB-*`. Product's reconciled contracts preserve secure player-hosted mode, browser-selected endpoints, and dedicated round-one admission. This UX direction does not decide protocols, admission policy, or termination mappings.
 
 ## Principles
 
-- The interface must keep Local Play independent of network availability.
-- The interface must distinguish public-service connection from private-LAN hosting.
-- The interface must show a confirmed participant role separately from connection state.
-- The interface must explain the consequence of leaving before the user confirms it.
-- The interface must not infer a termination cause from silence.
-- The interface must reuse existing desktop controls and navigation patterns.
+- The UI must keep Local Play independent of network availability.
+- The UI must keep Host, Browse sessions, Direct connect, and Back discoverable.
+- The UI must distinguish a listing from a reachable session.
+- The UI must distinguish service type, verified connection state, and confirmed participant role.
+- The UI must not describe every player-hosted endpoint as an insecure private-LAN connection.
+- The UI must preserve a browser-selected endpoint instead of replacing it with the pilot default.
+- The UI must explain the consequence of leaving before confirmation.
+- The UI must not infer a termination cause from silence.
+- Visual reuse must preserve existing input, ownership, disabled-focus, and confirmation semantics.
 
-## Screen direction
+## Screen specifications
 
-| Screen | UX extension | Structural source |
+| Screen | Owning presentation | Structural source |
 |---|---|---|
-| NET-01 | [Network entry](screens/NET-01.md) | [NET-01](wireframes/NET-01/NET-01.svg) |
-| NET-03 | [Endpoint and invite](screens/NET-03.md) | [NET-03](wireframes/NET-03/NET-03.svg) |
-| NET-04 | [Confirmed role and lobby](screens/NET-04.md) | [NET-04](wireframes/NET-04/NET-04.svg); existing [NET-04-R](wireframes/NET-04/NET-04-R.svg) |
-| NET-05 | [Public match status](screens/NET-05.md) | Existing NET-05 and NET-05-C |
-| NET-06 | [Public summary status](screens/NET-06.md) | Existing NET-06 |
-| NET-07 | [Reconnect](screens/NET-07.md) | Existing [NET-07](../screens/wireframes/network-reconnect.md) |
-| NET-08 | [Failure](screens/NET-08.md) | Existing [NET-08](../screens/wireframes/network-failure.md) |
-| NET-09 | [Confirmed end](screens/NET-09.md) | Existing [NET-09](../screens/wireframes/network-host-ended.md) |
+| NET-01 | [Entry](screens/NET-01.md) | [NET-01](wireframes/NET-01/NET-01.svg) |
+| NET-02 | Develop's [host setup](screens/NET-02.md), unchanged by the pilot | NET-02 and NET-02-P from develop |
+| NET-03 | [Shared setup and pilot extension](screens/NET-03.md) | [NET-03-E](wireframes/NET-03/NET-03-E.svg); [NET-03-P](wireframes/NET-03/NET-03-P.svg); [NET-03](wireframes/NET-03/NET-03.svg) |
+| NET-04 | [Lobby and retained results](screens/NET-04.md) | [NET-04](wireframes/NET-04/NET-04.svg); NET-04-R from develop |
+| NET-05 | [Match and contextual panels](screens/NET-05.md) | Existing NET-05; NET-05-C, NET-05-S, NET-05-R from develop |
+| NET-06 | [Pilot summary extension](screens/NET-06.md), over the existing unified owning section | Existing NET-06 |
+| NET-07 | [Pilot reconnect extension](screens/NET-07.md), over the existing unified owning section | Existing NET-07 |
+| NET-08 | [Failure and recovery](screens/NET-08.md) | Existing NET-08 |
+| NET-09 | [Pilot confirmed-end extension](screens/NET-09.md), over the existing unified owning section | Existing NET-09 |
+| NET-10 | Develop's [browser](screens/NET-10.md), unchanged by the pilot | NET-10 from develop |
 
-The new SVGs retain existing wireframe IDs. They are the structural references for the extension's changed regions and do not add screen identities. Legacy prose wireframes remain context for unchanged regions, not competing public-mode direction.
-
-The [capture matrix and assessment](screenshots/README.md#public-service-extension--pending-coverage) own this extension's current coverage and visual gate. Existing accepted baseline evidence stays in its legacy manifest. This is not a migration of historical evidence.
+Accept unchanged incoming develop UX files and wireframes at their existing paths. The links to those incoming sources become available when team/developer performs the merge. Do not restore PR90's older NET-04-R diagram over develop's host-reorder indication. Do not restore PR90's editable NET-03 diagram over develop's locked connecting task. NET-03-P is the only added structural variant. It makes the pilot invitation task explicit without adding a product screen, environment picker, password dialog, or dedicated directory listing.
 
 ## Cross-screen presentation
 
-- The public-service path must use the existing 850 by 700 logical menu canvas.
-- The public-service path must retain the existing menu scaling and 24-logical-pixel inner margin.
+- Menu-context screens must retain the 850 by 700 logical canvas and existing uniform scaling.
+- New content must stay inside the existing 24-logical-pixel margin below the banner and version.
 - Adjacent controls must keep at least 8 logical pixels of clear space.
-- New fields must use existing text-field, focus, disabled, and overflow treatments.
-- Keyboard and controller traversal must skip hidden, read-only, and disabled controls.
-- Pointer targets must follow the same scaled bounds as visible controls.
-- Editable field text must remain inside its field.
+- Fields and actions must remain identifiable before focus moves to them.
+- A disabled control that retains baseline focus must keep its focus outline without accepting activation.
+- Hidden controls must have no focus or pointer target.
+- Long values must remain inside their regions.
 - Focused field text must keep the insertion position visible.
-- Long prose must wrap without covering actions.
+- Fixed headings, feedback, and actions must remain visible while body rows scroll.
+- A constrained body must lose visible rows before it reduces text size or covers actions.
+- Contextual panels must preserve their existing client-relative bounds and retained context.
 - No mobile layout or new appearance profile is introduced.
 
-No shared token change is needed. A duplicate `design-system.md` would create a second authority and is intentionally not added.
-
-## Reconciled functional references
-
-- [Public session contract](../network-play-first-release.md): NET-PUB-001–023; NET-PUB-AC-001–006.
-- [Connection contract](../screens/network-join.md): NET-JOIN-PUB-001–019; NET-JOIN-PUB-AC-001–003.
-- [Trust policy](../network-trust-and-abuse-limits.md): TRU-PUB-001–019; TRU-PUB-AC-001–003.
-- [Lifecycle contract](../network-host-service-lifecycle.md): HSL-PUB-001–013; HSL-PUB-AC-001–002.
-
-The screen specifications reference these authorities rather than define new behavior. There are no remaining product questions for this presentation scope. The existing design system still owns unchanged tokens, controls, scaling, and input feedback. Public-mode role and status copy is specified in the owning screen extensions above.
+Use the [single coordinated capture matrix](screenshots/README.md#network-presentation-current-capture-matrix). Earlier draft and develop screenshots are historical for the reconciled candidate. They cannot establish candidate acceptance. Developer owns capture after team declares functional closure. The unavailable native Windows graphical dedicated journey remains a blocker, not a waiver. No public deployment is required by this UX task.

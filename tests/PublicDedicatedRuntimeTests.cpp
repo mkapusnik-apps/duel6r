@@ -28,7 +28,7 @@
 // Driven by PublicDedicatedProcessTests.py: no credentials in argv or output.
 using namespace Duel6;
 using namespace std::chrono_literals;
-static void require(bool value, const char *message) {
+static void require(bool value, const std::string &message) {
     if (!value) throw std::runtime_error(message);
 }
 class TestControl final : public Control {
@@ -60,15 +60,15 @@ int main(int argc, char **argv) {
             return false;
         };
         using J = Client::NetworkJourney;
-        require(first.join(endpoint, argv[2], {{"Controller", &controls}}, true, invitation()), "join start");
+        require(first.join(endpoint, argv[2], {{"Controller", &controls}}, {}, {}, true, invitation()), "join start");
         const std::string scenario = argv[3];
         if (scenario.compare(0, 7, "attack-") == 0) {
             namespace H = Network::HostComposition;
             namespace R = Network::Replication;
             require(pump([&] { return first.snapshot().journey == J::Lobby; }, 12s), "attack controller admission");
-            require(second.join(endpoint, argv[2], {{"Attacker"}}, true, invitation()), "attacker join start");
+            require(second.join(endpoint, argv[2], {{"Attacker"}}, {}, {}, true, invitation()), "attacker join start");
             require(pump([&] { return second.snapshot().journey == J::Lobby; }, 12s), "attacker admission");
-            require(observer.join(endpoint, argv[2], {{"Observer"}}, true, invitation()), "observer join start");
+            require(observer.join(endpoint, argv[2], {{"Observer"}}, {}, {}, true, invitation()), "observer join start");
             require(pump([&] { return observer.snapshot().journey == J::Lobby
                 && first.snapshot().canonical->participants.size() == 3; }, 12s), "observer admission");
             const bool summary = scenario == "attack-return";
@@ -154,15 +154,16 @@ int main(int argc, char **argv) {
             first.endSession();
             require(pump([&] { return observer.snapshot().journey == J::HostEnded; }, 5s), "unaffected participant did not receive legitimate end");
             std::cout << "PASS exact malicious frame observed over TLS; server rejected; authority/state retained\n";
-        } else if (scenario.compare(0, 7, "notice-") == 0 || scenario == "recovery" || scenario == "expiry") {
+        } else if (scenario.compare(0, 7, "notice-") == 0 || scenario == "recovery" || scenario == "expiry"
+                   || scenario == "summary-return") {
             require(pump([&] { return first.snapshot().journey == J::Lobby; }, 12s), "review first admission");
             const auto session = first.snapshot().canonical->sessionId;
             const auto controller = first.snapshot().localParticipantId;
-            require(second.join(endpoint, argv[2], {{"Guest"}}, true, invitation()), "review guest start");
+            require(second.join(endpoint, argv[2], {{"Guest"}}, {}, {}, true, invitation()), "review guest start");
             require(pump([&] { return second.snapshot().journey == J::Lobby
                 && first.snapshot().canonical->participants.size() == 2; }, 12s), "review guest admission");
             const bool match = scenario.find("-match") != std::string::npos;
-            const bool summary = scenario.find("-summary") != std::string::npos;
+            const bool summary = scenario.find("-summary") != std::string::npos || scenario == "summary-return";
             if (match || summary) {
                 Network::HostComposition::Setup setup;
                 setup.localPlayerNames = {"Controller"};
@@ -208,7 +209,23 @@ int main(int argc, char **argv) {
                 require(pump([&] { return std::filesystem::exists(root / "acted"); }, 5s), "fixture action acknowledgement");
                 std::filesystem::remove(root / "acted");
             };
-            if (scenario == "recovery") {
+            if (scenario == "summary-return") {
+                require(first.snapshot().canonical->result.available && second.snapshot().canonical->result.available,
+                        "dedicated summary lost completed result");
+                first.returnToLobby();
+                require(pump([&] { return first.snapshot().journey == J::Lobby
+                    && second.snapshot().journey == J::Lobby; }, 5s), "dedicated same-session return");
+                for (auto *runtime : {&first, &second}) {
+                    const auto state = runtime->snapshot();
+                    require(state.canonical->sessionId == session && state.canonical->result.available,
+                            "dedicated return replaced session or result");
+                    require(std::none_of(state.canonical->participants.begin(), state.canonical->participants.end(),
+                                         [](const auto &p) { return p.ready; }), "dedicated return retained readiness");
+                }
+                first.endSession();
+                require(pump([&] { return first.snapshot().journey == J::Inactive
+                    && second.snapshot().journey == J::HostEnded; }, 5s), "dedicated summary return end");
+            } else if (scenario == "recovery") {
                 request("recovery", 1);
                 require(pump([&] { return first.snapshot().journey == J::Reconnecting; }, 5s), "controller did not enter recovery");
                 require(pump([&] { return first.snapshot().journey == J::Lobby; }, 12s), "TLS controller did not restore");
@@ -222,7 +239,7 @@ int main(int argc, char **argv) {
                 require(second.snapshot().failure == Network::PublicSession::ControllerExpired, "controller expiry reason");
                 request("resume", 2);
                 first.reset(); second.reset();
-                require(second.join(endpoint, argv[2], {{"Fresh"}}, true, invitation()), "post-expiry fresh join start");
+                require(second.join(endpoint, argv[2], {{"Fresh"}}, {}, {}, true, invitation()), "post-expiry fresh join start");
                 require(pump([&] { return second.snapshot().journey == J::Lobby; }, 12s), "post-expiry fresh admission");
                 require(second.snapshot().host && second.snapshot().canonical->sessionId != session, "post-expiry stale session restored");
                 second.endSession();
@@ -246,7 +263,7 @@ int main(int argc, char **argv) {
                 }
             }
         } else if (scenario == "concurrent") {
-            require(second.join(endpoint, argv[2], {{"Contender"}}, true, invitation()), "concurrent join start");
+            require(second.join(endpoint, argv[2], {{"Contender"}}, {}, {}, true, invitation()), "concurrent join start");
             require(pump([&] { return first.snapshot().journey == J::Lobby
                 && second.snapshot().journey == J::Lobby
                 && first.snapshot().canonical->participants.size() == 2
@@ -277,7 +294,7 @@ int main(int argc, char **argv) {
             require(first.snapshot().host && first.snapshot().publicSession, "first participant not controller");
             const auto controller = first.snapshot().localParticipantId;
             const auto session = first.snapshot().canonical->sessionId;
-            require(second.join(endpoint, argv[2], {{"Guest"}}, true, invitation()), "guest join start");
+            require(second.join(endpoint, argv[2], {{"Guest"}}, {}, {}, true, invitation()), "guest join start");
             require(pump([&] { return second.snapshot().journey == J::Lobby
                 && first.snapshot().canonical->participants.size() == 2; }, 12s), "guest admission");
             require(!second.snapshot().host, "guest became controller");
@@ -300,6 +317,20 @@ int main(int argc, char **argv) {
             require(pump([&] { return first.snapshot().canonical->phaseTime > tick + 10
                 && second.snapshot().canonical->phaseTime > tick; }, 5s), "authoritative gameplay did not advance");
             require(first.snapshot().localParticipantId == controller, "controller identity changed");
+            const auto originalPlayers = first.snapshot().canonical->players;
+            require(observer.join(endpoint, argv[2], {{"Round one arrival", &controls}}, {}, {}, true, invitation()),
+                    "dedicated live arrival start");
+            require(pump([&] { return observer.snapshot().journey == J::Match
+                && first.snapshot().canonical->participants.size() == 3
+                && second.snapshot().canonical->participants.size() == 3; }, 10s), "dedicated live arrival did not enter arena");
+            require(!observer.snapshot().host && observer.snapshot().canonical->sessionId == session,
+                    "dedicated live arrival granted controller or new session");
+            for (const auto &original : originalPlayers) {
+                const auto players = first.snapshot().canonical->players;
+                require(std::any_of(players.begin(), players.end(), [&](const auto &p) {
+                    return p.playerId == original.playerId && p.ownerParticipantId == original.ownerParticipantId;
+                }), "dedicated live arrival replaced existing identity");
+            }
             auto controllerY = [&] {
                 const auto state = second.snapshot();
                 for (const auto &player : state.canonical->players)
@@ -312,11 +343,22 @@ int main(int argc, char **argv) {
             require(pump([&] { return controllerY() > beforeJump; }, 3s), "sampled controller jump not replicated over TLS");
             jump->pressed = false;
             first.endSession();
-            require(pump([&] { return first.snapshot().journey == J::Inactive
-                && second.snapshot().journey == J::HostEnded; }, 5s), "confirmed end outcome");
+            const bool ended = pump([&] { return first.snapshot().journey == J::Inactive
+                && second.snapshot().journey == J::HostEnded && observer.snapshot().journey == J::HostEnded; }, 5s);
+            require(ended,
+                "confirmed end outcome: controller journey=" + std::to_string(static_cast<int>(first.snapshot().journey))
+                + " guest journey=" + std::to_string(static_cast<int>(second.snapshot().journey))
+                + " arrival journey=" + std::to_string(static_cast<int>(observer.snapshot().journey))
+                + " failure=" + second.snapshot().failure);
             first.reset(); second.reset();
-            require(second.join(endpoint, argv[2], {{"New controller"}}, true, invitation()), "fresh join");
-            require(pump([&] { return second.snapshot().journey == J::Lobby; }, 12s), "fresh session admission");
+            // This proxy intentionally gives every participant one source IPv4.
+            // The preceding denial plus three joins exhaust the four-attempt
+            // burst. Preserve the production 20/minute refill policy: one new
+            // attempt is eligible after three seconds, without resetting it.
+            pump([] { return false; }, 3100ms);
+            require(second.join(endpoint, argv[2], {{"New controller"}}, {}, {}, true, invitation()), "fresh join");
+            const bool fresh = pump([&] { return second.snapshot().journey == J::Lobby; }, 12s);
+            require(fresh, "fresh session admission: " + second.snapshot().failure);
             require(second.snapshot().host, "fresh first admission lacks control");
             require(second.snapshot().canonical->sessionId != session, "ended session restored");
             require(!second.snapshot().canonical->participants.front().ready, "fresh session retained readiness");

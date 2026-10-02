@@ -18,7 +18,7 @@ Requirement and acceptance criterion identifiers in this document are stable ref
 
 ## Terms
 
-The player-hosted package and replacement requirements below remain authoritative for LAN packages. Their public/dedicated exclusions do not apply to the dedicated pilot defined here. The pilot does not turn a LAN package or diagnostic transport command into a supported public service.
+The player-hosted package and replacement requirements below remain authoritative for player-hosted packages. Current address, directory, password, and round-one admission behavior follows network play, NET-DIR, and NET-PASS. Public/dedicated exclusions do not apply to the dedicated pilot defined here. The pilot does not turn a diagnostic transport command into a supported public service.
 
 ### Public pilot environments and release boundary
 
@@ -72,15 +72,15 @@ Live-service acceptance is separate. It requires authorized project provisioning
 - **NET-DEP-003** Published instructions must identify each package's target platform, runtime prerequisites, and installation procedure.
 - **NET-DEP-004** Published instructions must support separate instances on one trusted machine and direct connection on a trusted private LAN.
 - **NET-DEP-005** Published instructions must cover Linux and Windows participants in the same session.
-- **NET-DEP-006** Published instructions must identify server components as parts of player-hosted operation, not as a supported dedicated-server deployment.
+- **NET-DEP-006** Published player-hosted package instructions must identify their server components as parts of player-hosted operation, not as the dedicated-pilot deployment.
 - **NET-DEP-007** Published instructions must state the transport ports, default port, permitted configuration, and manual firewall requirements.
-- **NET-DEP-008** Published instructions must state the trust policy's lack of authentication and encryption and its prohibited network exposures.
+- **NET-DEP-008** Published instructions must state the current trust policy's secret-protection guarantees, first-contact limitations, and prohibited network exposures for the selected hosting mode.
 - **NET-DEP-009** Published instructions must explain host startup, guest connection, confirmed readiness, cancellation, shutdown, and cleanup under the service lifecycle contract.
 - **NET-DEP-010** Published instructions must identify available logs and diagnostics and their safe use under the trust policy.
 - **NET-DEP-011** Published instructions must distinguish transport connection, participant admission, and playable-session evidence.
 - **NET-DEP-012** A packaged Local Play session must start and complete without requiring or starting a network service.
 
-The supported deployment boundary is player-hosted operation between trusted instances on IPv4 loopback or a trusted private RFC1918 IPv4 LAN. The existing trust policy defines eligible listening addresses and explicit private-interface selection. Packaging must not weaken that boundary.
+The supported player-hosted environment is same-machine or LAN operation. Valid public-unicast IPv4 endpoints remain permitted without an Internet reachability or performance guarantee. The current trust policy defines eligible listening addresses, explicit non-loopback selection, and protected admission. The dedicated pilot uses NET-PUB-DEP and TRU-PUB. Packaging must not weaken either mode's security contract.
 
 ## Replacement and local data
 
@@ -145,7 +145,7 @@ The approved rollback rule does not approve cross-release compatibility or data 
 
 ## Client/server compatibility coverage
 
-The compatibility contract remains the sole authority for compatibility values and checks. Its first-release constants specify admission protocol `1`, network release ID `duel6r-network-r1`, and these required capabilities:
+The compatibility contract remains the sole authority for compatibility values and checks. Its current constants specify admission protocol `2`, network release ID `duel6r-network-r1`, and these required capabilities:
 
 - `d6r.compatibility-admission.v1`
 - `d6r.gameplay-manifest.v1`
@@ -178,7 +178,7 @@ Published instructions must map observable protocol, release, required-capabilit
 
 The approved target support matrix and the demonstrated evidence matrix are distinct. Missing execution evidence does not remove an approved target from scope. It prevents an acceptance or release claim for the unverified behavior.
 
-Internet support, NAT traversal, port-forwarded exposure, relays, public hosting, dedicated deployment, and changes to Local Play remain excluded. This specification defines no screen, functional state, or visual-design change.
+Guaranteed Internet support, NAT traversal, relays, dedicated deployment outside the approved pilot, and changes to Local Play remain excluded. Deployment preparation does not authorize live activation. This specification defines no visual-design change.
 
 ## Acceptance criteria
 
@@ -186,7 +186,7 @@ Internet support, NAT traversal, port-forwarded exposure, relays, public hosting
 |---|---|---|
 | **NET-DEP-AC-001** | Each approved target has an identifiable complete package. A clean machine can install and start it with only the published prerequisites and instructions. | NET-DEP-001–003 |
 | **NET-DEP-AC-002** | Published instructions produce confirmed player-hosted readiness, guest admission, and clean shutdown on each target over same-machine loopback and private LAN. Cross-platform LAN coverage includes each operating system as host. | NET-DEP-004–006, NET-DEP-009, NET-DEP-011 |
-| **NET-DEP-AC-003** | Operational documentation matches actual ports, defaults, configuration, diagnostics, exposure restrictions, readiness, cancellation, shutdown, and cleanup. Server-component descriptions do not imply dedicated deployment. | NET-DEP-006–011 |
+| **NET-DEP-AC-003** | Operational documentation matches actual ports, defaults, configuration, diagnostics, exposure restrictions, readiness, cancellation, shutdown, and cleanup for its hosting mode. Player-hosted package descriptions do not imply that they are the dedicated-pilot deployment. | NET-DEP-006–011 |
 | **NET-DEP-AC-004** | Packaged Local Play starts and completes with network availability removed and no network service started. | NET-DEP-012 |
 | **NET-UPG-AC-001** | On each target, same-release offline reinstallation preserves backed-up local people, statistics, profiles, and configuration after restoration. The group can establish a new session with matching gameplay content and stop cleanly. | NET-UPG-001–011 |
 | **NET-UPG-AC-002** | On each target, complete rollback after same-release reinstallation restores the saved prior package and its own prior data backup. Verification confirms the restored data, readiness, admission, and cleanup. | NET-UPG-010–014 |
