@@ -274,6 +274,10 @@ if (NOT D6R_TRANSPORT_ONLY)
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
             TIMEOUT 180)
     if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME duel6r-public-dedicated-relay-tests
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedRelayTests.py)
+        set_tests_properties(duel6r-public-dedicated-relay-tests PROPERTIES
+                LABELS "application;network;public;tls;regression" TIMEOUT 30)
         add_executable(duel6r-public-dedicated-runtime-tests
                 ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedRuntimeTests.cpp)
         target_include_directories(duel6r-public-dedicated-runtime-tests PRIVATE ${CMAKE_SOURCE_DIR})

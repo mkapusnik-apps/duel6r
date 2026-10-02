@@ -973,19 +973,20 @@ namespace Duel6::Network {
             return true;
         }
 
-        TransportInputSnapshot sealAndDrainInput() {
+        TransportInputSnapshot sealAndDrainInput(std::size_t maximumFrames) {
             TransportInputSnapshot snapshot;
             std::size_t released = 0;
             {
                 std::lock_guard<std::mutex> inputLock(inputMutex);
                 inputSealed = true;
-                snapshot.frames.reserve(input.size());
-                while (!input.empty()) {
+                maximumFrames = std::min(maximumFrames, MaxQueuedTransportFrames);
+                snapshot.frames.reserve(std::min(input.size(), maximumFrames));
+                while (!input.empty() && snapshot.frames.size() < maximumFrames) {
                     released += input.front().payload.size();
                     snapshot.frames.push_back(std::move(input.front()));
                     input.pop_front();
                 }
-                inputBytes = 0;
+                inputBytes -= released;
                 std::lock_guard<std::mutex> terminalLock(terminalMutex);
                 snapshot.state = state.load();
                 snapshot.terminalAt = terminalTime.load();
@@ -1483,7 +1484,9 @@ namespace Duel6::Network {
         return impl->sendSensitive(std::move(payload));
     }
     bool TcpConnection::receive(TransportFrame &frame) { return impl->receive(frame); }
-    TransportInputSnapshot TcpConnection::sealAndDrainInput() { return impl->sealAndDrainInput(); }
+    TransportInputSnapshot TcpConnection::sealAndDrainInput(std::size_t maximumFrames) {
+        return impl->sealAndDrainInput(maximumFrames);
+    }
 
     AdmissionAcceptanceEnqueueResult TcpConnection::enqueueAdmissionAcceptance(
             std::vector<std::uint8_t> payload,

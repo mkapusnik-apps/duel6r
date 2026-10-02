@@ -255,6 +255,7 @@ int main(int argc, char **argv) {
                     require(state.failure != Network::PublicSession::Maintenance
                         && state.failure != Network::PublicSession::ControllerExpired, "unconfirmed terminal reason inferred");
                     require(state.journey == phase || state.journey == J::Reconnecting, "wrong-session/EOF selected terminal outcome");
+                    if (eof) request("observed-eof", 2);
                 } else {
                     require(pump([&] { return second.snapshot().journey == J::Failure; }, 5s), "established TLS notice did not select terminal failure");
                     const auto state = second.snapshot();

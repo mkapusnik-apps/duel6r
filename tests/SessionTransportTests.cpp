@@ -1396,6 +1396,34 @@ void concreteSealAndDrainRacesReceiveWithoutLossOrDuplication() {
     CHECK(waitUntil([&] { return budget.used() == baseline; }, 1s));
     connection->close(); listener.shutdown();
 }
+
+void boundedSealedTailRetainsQueueAccountingAndRejectsNewInput() {
+    auto &budget = Trust::processQueueBudget();
+    const auto baseline = budget.used();
+    const auto port = unusedPort();
+    TcpListener listener(1); startListener(listener, port);
+    RawSocketOwner peer(connectRaw(port));
+    auto connection = awaitAccept(listener);
+    connection->markAdmissionSucceeded();
+    constexpr auto count = MaxQueuedTransportFrames;
+    for (unsigned index = 0; index < count; ++index) sendFrame(peer.get(), {static_cast<std::uint8_t>(index)});
+    CHECK(waitUntil([&] { return budget.used() == baseline + count; }, 2s));
+    auto first = connection->sealAndDrainInput(1);
+    CHECK(first.frames.size() == 1 && first.frames.front().payload == std::vector<std::uint8_t>{0});
+    CHECK(budget.used() == baseline + count - 1);
+    sendFrame(peer.get(), {99});
+    std::this_thread::sleep_for(50ms);
+    CHECK(budget.used() == baseline + count - 1); // Sealing cannot add new accepted input.
+    for (unsigned index = 1; index < count; ++index) {
+        auto next = connection->sealAndDrainInput(1);
+        CHECK(next.frames.size() == 1 && next.frames.front().payload == std::vector<std::uint8_t>{static_cast<std::uint8_t>(index)});
+        CHECK(budget.used() == baseline + count - 1 - index);
+    }
+    CHECK(connection->sealAndDrainInput(1).frames.empty());
+    CHECK(budget.used() == baseline);
+    connection->close(); listener.shutdown();
+    CHECK(budget.used() == baseline);
+}
 }
 
 namespace {
@@ -1668,6 +1696,7 @@ int main() {
         {"queue boundaries", queueBoundaries},
         {"conditional admission acceptance accounting", conditionalAdmissionAcceptanceAccounting},
         {"concrete seal and drain race", concreteSealAndDrainRacesReceiveWithoutLossOrDuplication},
+        {"bounded sealed terminal tail accounting and no new input", boundedSealedTailRetainsQueueAccountingAndRejectsNewInput},
         {"malformed isolation", malformedPeersAreIsolated},
         {"stalls and liveness", stallsAndLiveness}, {"close and shutdown bounds", closeAndShutdownBounds}};
     int failures = 0;

@@ -64,6 +64,7 @@ class TlsPeer:
         self.events = deque(maxlen=64)
         self.evidence_lock = threading.Lock()
         self.forwarded_ends = 0
+        self.eof_observation = None
         self.end_write_race = end_write_race
         self.race_write_failed = threading.Event()
         self.control_root = control_root
@@ -91,6 +92,22 @@ class TlsPeer:
     def evidence(self):
         with self.evidence_lock:
             return "relay events=" + repr(list(self.events)) + "; frame tail=" + repr(list(self.frames))
+
+    def begin_eof_observation(self, connection):
+        with self.evidence_lock:
+            self.eof_observation = dict(connection=connection, ends=0, complete=False)
+
+    def complete_eof_observation(self, connection):
+        with self.evidence_lock:
+            assert self.eof_observation and self.eof_observation["connection"] == connection, "EOF observation binding"
+            self.eof_observation["complete"] = True
+
+    def record_forwarded_end(self, connection, count):
+        with self.evidence_lock:
+            self.forwarded_ends += count
+            observation = self.eof_observation
+            if observation and not observation["complete"] and observation["connection"] == connection:
+                observation["ends"] += count
 
     @staticmethod
     def is_end(payload):
@@ -138,6 +155,12 @@ class TlsPeer:
     def accept(self):
         while not self.stop.is_set():
             fields = self.action()
+            if len(fields) == 3 and fields[1] == "observed-eof":
+                # The native ambiguity assertion has completed, before runtime
+                # unwinding can send a legitimate controller teardown Leave.
+                self.complete_eof_observation(int(fields[0]))
+                (self.control_root / "action").unlink()
+                (self.control_root / "acted").touch()
             if len(fields) == 3 and fields[1] == "resume":
                 self.block_reconnect = False
                 (self.control_root / "action").unlink()
@@ -191,7 +214,6 @@ class TlsPeer:
         write_open = {stream: True for stream in streams}
         read_want = {stream: "read" for stream in streams}
         write_want = {stream: "write" for stream in streams}
-        progressed = {stream: time.monotonic() for stream in streams}
         close_deadline = None
         malicious_frame_seen = False
         race_done = False
@@ -206,11 +228,11 @@ class TlsPeer:
 
         def enqueue(destination, data, end_markers=0):
             assert queued[destination] + len(data) <= RELAY_QUEUE_LIMIT, "relay FIFO limit"
-            if not outgoing[destination]:
-                progressed[destination] = time.monotonic()
             # Hold exactly the same bytes across SSLWant* retries. Appending to
             # the FIFO cannot change the in-progress SSL write arguments.
-            outgoing[destination].append([data, end_markers])
+            # One absolute item deadline includes FIFO waiting, partial sends
+            # and every SSL retry. Progress never replenishes sendall's budget.
+            outgoing[destination].append([data, end_markers, time.monotonic() + RELAY_TIMEOUT])
             queued[destination] += len(data)
 
         def lose_backend_write(stage, code=0):
@@ -255,6 +277,7 @@ class TlsPeer:
                     _, action, session = fields
                     action_path.unlink()
                     if action in ("eof", "expiry", "recovery"):
+                        if action == "eof": self.begin_eof_observation(connection_id)
                         self.record(connection_id, "deliberate-unconfirmed-loss")
                         self.block_reconnect = action != "recovery"
                         self.reconnect_after = time.monotonic() + .75
@@ -332,7 +355,8 @@ class TlsPeer:
             for destination in (client, backend):
                 if not write_open[destination] or not outgoing[destination]:
                     continue
-                if time.monotonic() - progressed[destination] >= RELAY_TIMEOUT:
+                item = outgoing[destination][0]
+                if time.monotonic() >= item[2]:
                     if destination is backend:
                         lose_backend_write("write-budget")
                         continue
@@ -341,7 +365,6 @@ class TlsPeer:
                 ready = destination in (readable if write_want[destination] == "read" else writable)
                 if not ready:
                     continue
-                item = outgoing[destination][0]
                 try:
                     sent = destination.send(item[0])
                     assert sent > 0, "relay write progress"
@@ -357,12 +380,10 @@ class TlsPeer:
                     lose_client_write("write-error", error.errno or 0)
                     continue
                 queued[destination] -= sent
-                progressed[destination] = time.monotonic()
                 if sent == len(item[0]):
                     outgoing[destination].popleft()
                     if item[1]:
-                        with self.evidence_lock:
-                            self.forwarded_ends += item[1]
+                        self.record_forwarded_end(connection_id, item[1])
                         self.record(connection_id, "end-forwarded", "backend-to-client", item[1])
                 else:
                     item[0] = item[0][sent:]
@@ -516,7 +537,9 @@ def main():
                 assert peer.race_write_failed.is_set(), "End forwarding regression missed closed-write failure"
                 print("PASS real End forwarded after synchronized opposite write failure", flush=True)
             if scenario == "notice-eof-match":
-                assert peer.forwarded_ends == forwarded_before, "unconfirmed EOF must not become End"
+                observation = peer.eof_observation
+                assert observation and observation["complete"] and observation["connection"] == 2, "EOF observation did not finish before unwind"
+                assert observation["ends"] == 0, "unconfirmed affected-connection EOF must not become End"
                 print("PASS unconfirmed active-match loss stays distinct from End", flush=True)
             print(result.stdout.strip(), flush=True)
         if review:

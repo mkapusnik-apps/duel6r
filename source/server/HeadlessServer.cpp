@@ -122,8 +122,9 @@ namespace {
                     std::move(payload), attempt, cancelled, now, deadline);
         }
         bool receive(Duel6::Network::TransportFrame &frame) override { return connection->receive(frame); }
-        Duel6::Network::TransportInputSnapshot sealAndDrainInput() override {
-            return connection->sealAndDrainInput();
+        Duel6::Network::TransportInputSnapshot sealAndDrainInput(
+                std::size_t maximumFrames = Duel6::Network::MaxQueuedTransportFrames) override {
+            return connection->sealAndDrainInput(maximumFrames);
         }
         Duel6::Network::ClientState state() const override { return connection->state(); }
         Duel6::Network::TransportTimePoint acceptedAt() const override { return connection->acceptedAt(); }
@@ -1718,6 +1719,9 @@ namespace Duel6::Server {
             Network::Trust::ConnectionId connectionId = 0;
             bool requestReceived = false;
             bool admitted = false;
+            // A rejected ingress frame cannot be followed by a terminal-tail
+            // action merely because requestClose is already terminal/no-op.
+            bool ingressRejected = false;
             RuntimeConnection(std::shared_ptr<AdmissionRuntimeConnection> transport,
                               Network::Trust::ConnectionId connectionId,
                               std::chrono::steady_clock::time_point acceptedAt)
@@ -1744,7 +1748,10 @@ namespace Duel6::Server {
             if (budget.actions.consume()) {
                 return true;
             }
-            if (budget.violations.recordOverLimit()) runtime.transport->requestClose();
+            if (budget.violations.recordOverLimit()) {
+                runtime.ingressRejected = true;
+                runtime.transport->requestClose();
+            }
             return false;
         };
         Network::Trust::ConnectionId nextConnectionId = 1;
@@ -2214,6 +2221,13 @@ namespace Duel6::Server {
                     try { admissionPolicy->rollback(transaction); } catch (...) {}
                     observe(AdmissionLifecycleStage::TransactionRolledBack, runtime.connectionId, transaction);
                 };
+                const auto terminalState = [](Network::ClientState state) {
+                    return state == Network::ClientState::Closed || state == Network::ClientState::Failed
+                           || state == Network::ClientState::Cancelled || state == Network::ClientState::TimedOut;
+                };
+                // Retirement requires observing an empty sealed tail, not just
+                // an empty receive racing a terminal publication.
+                bool terminalInputPending = true;
                 try {
                 if (!runtime.admitted && runtime.transactionId != 0 && !admissionOpen) {
                     Network::AdmissionResult closed;
@@ -2483,16 +2497,33 @@ namespace Duel6::Server {
                     }
                 } else if (runtime.admitted) {
                     constexpr std::size_t MaxAdmittedFramesPerIteration = Network::MaxNetworkPlayers;
+                    const auto rejectIngress = [&] {
+                        runtime.ingressRejected = true;
+                        connection->requestClose();
+                    };
                     for (std::size_t drained = 0; drained < MaxAdmittedFramesPerIteration; ++drained) {
-                        if (config.dedicated && sessionLifecycle && sessionLifecycle->ended()) break;
+                        if (runtime.ingressRejected
+                            || (config.dedicated && sessionLifecycle && sessionLifecycle->ended())) break;
                         Network::TransportFrame unexpected;
-                        if (!connection->receive(unexpected)) break;
+                        bool receivedBeforeTerminal = true;
+                        if (terminalState(connection->state())) {
+                            // Seal before inspecting the finite accepted tail. Drain
+                            // one frame at a time so all remaining bytes retain their
+                            // original transport queue budget/memory ownership.
+                            auto pending = connection->sealAndDrainInput(1);
+                            terminalInputPending = !pending.frames.empty();
+                            if (!terminalInputPending) break;
+                            unexpected = std::move(pending.frames.front());
+                            receivedBeforeTerminal = pending.terminalAt == Network::TransportTimePoint{}
+                                                     || unexpected.receivedAt <= pending.terminalAt;
+                        } else if (!connection->receive(unexpected)) break;
                         LifecycleCredentialPayloadGuard credentialPayload(unexpected.payload);
+                        if (!receivedBeforeTerminal) { rejectIngress(); break; }
                         if (!Network::Input::isPlayerInputFrame(unexpected.payload) && !acceptNonInput(runtime)) {
-                            if (connection->state() != Network::ClientState::Connected) break;
+                            if (runtime.ingressRejected) break;
                             continue; // No over-budget mutation, response, or broadcast.
                         }
-                        if (!hostedMatch) connection->requestClose();
+                        if (!hostedMatch) rejectIngress();
                         else {
                             if (const auto configuration = Network::HostComposition::deserialize(unexpected.payload);
                                 configuration && configuration->kind == Network::HostComposition::Kind::UpdateOwnedPersons) {
@@ -2504,21 +2535,21 @@ namespace Duel6::Server {
                                                 return Network::Trust::validParticipantName(name);
                                             })
                                     || !sessionLifecycle || hostedMatch->stage() != Authoritative::HostedMatchStage::Lobby) {
-                                    connection->requestClose();
+                                    rejectIngress();
                                 } else {
                                     const auto committed = commitDisplayNames(runtime.offer.playerIds,
                                             configuration->ownedPersonNames,
                                             "A participant changed player configuration. Everyone must confirm readiness again.",
                                             prepareClearReadiness());
                                     if (committed == Authoritative::LobbyCommitOutcome::Rejected)
-                                        connection->requestClose();
+                                        rejectIngress();
                                     else if (fatalLobbyCommit(committed)) runtimeFailed = true;
                                 }
                             } else if (const auto control = Network::HostComposition::deserialize(unexpected.payload);
                                        control && config.dedicated) {
                                 if (!admissionPolicy->authorize(runtime.connectionId, Network::Trust::AuthorityAction::HostOnly)
                                     || !sessionLifecycle || sessionLifecycle->ended()) {
-                                    connection->requestClose();
+                                    rejectIngress();
                                 } else if (control->kind == Network::HostComposition::Kind::StartMatch) {
                                     hostStartRequested = true;
                                     if (!startMatchIfReady()) runtimeFailed = true;
@@ -2542,7 +2573,7 @@ namespace Duel6::Server {
                                     if (fatalLobbyCommit(commitRosterMove(control->rosterPlayerId, control->rosterDirection,
                                             "Host changed roster order. Everyone must confirm readiness again.",
                                             prepareClearReadiness()))) runtimeFailed = true;
-                                } else connection->requestClose();
+                                } else rejectIngress();
                             } else if (const auto action = Network::Lifecycle::deserializeParticipantAction(
                                     unexpected.payload)) {
                                 const auto authorityAction = action->kind == Network::Lifecycle::ParticipantActionKind::Leave
@@ -2551,12 +2582,12 @@ namespace Duel6::Server {
                                 const auto decision = admissionPolicy->authorizationDecision(
                                         runtime.connectionId, authorityAction);
                                 if (!decision.allowed || action->participantId != runtime.offer.participantId) {
-                                    connection->requestClose();
+                                    rejectIngress();
                                 } else if (!sessionLifecycle) {
                                     runtimeFailed = true;
                                 } else if (!sessionLifecycle->recognizesParticipantAction(
                                         *action, runtime.connectionId)) {
-                                    connection->requestClose();
+                                    rejectIngress();
                                 } else if (action->kind == Network::Lifecycle::ParticipantActionKind::Leave) {
                                     // Controller End takes precedence over disconnect
                                     // publication and guest-removal batches. Publish the
@@ -2565,9 +2596,9 @@ namespace Duel6::Server {
                                     if (config.dedicated && runtime.offer.participantId
                                         == admissionPolicy->allocation().hostParticipant().participantId) {
                                         if (!sessionLifecycle->endSession(action->participantId, runtime.connectionId).accepted)
-                                            connection->requestClose();
+                                            rejectIngress();
                                     } else if (!sessionLifecycle->applyParticipantAction(*action, runtime.connectionId))
-                                        connection->requestClose();
+                                        rejectIngress();
                                 } else if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                                     const bool ready = action->kind
                                             == Network::Lifecycle::ParticipantActionKind::Ready;
@@ -2585,7 +2616,7 @@ namespace Duel6::Server {
                                                         *action, runtime.connectionId));
                                     }
                                     if (committed == Authoritative::LobbyCommitOutcome::Rejected)
-                                        connection->requestClose();
+                                        rejectIngress();
                                     else if (fatalLobbyCommit(committed)
                                              || (action->kind
                                                  != Network::Lifecycle::ParticipantActionKind::ConfigurationChanged
@@ -2608,11 +2639,11 @@ namespace Duel6::Server {
                                         if (!decision.allowed) {
                                             (void) write(*connection,
                                                     Network::Input::serializeSessionPolicyViolation());
-                                            if (decision.closeConnection) connection->requestClose();
+                                            if (decision.closeConnection) rejectIngress();
                                         } else {
                                             const auto result = hostedMatch->receivePlayerInput(
                                                     runtime.offer.participantId, *frame->command);
-                                            if (result.closeConnection) connection->requestClose();
+                                            if (result.closeConnection) rejectIngress();
                                         }
                                     }
                                 }
@@ -2623,18 +2654,32 @@ namespace Duel6::Server {
                                     // Route canonical-state mutation attempts through the established authority policy.
                                     const auto decision = admissionPolicy->authorizationDecision(runtime.connectionId,
                                             Network::Trust::AuthorityAction::ReplicatedStateMutation);
-                                    if (!decision.allowed && decision.closeConnection) connection->requestClose();
+                                    if (!decision.allowed && decision.closeConnection) rejectIngress();
                                 }
-                                if (result != Network::Replication::HostReplicationResult::Accepted)
-                                    connection->requestClose();
+                                if (result != Network::Replication::HostReplicationResult::Accepted) {
+                                    const auto message = Network::Replication::deserializeReplicationFrame(unexpected.payload);
+                                    const bool readOnly = message && (message->kind == Network::Replication::ReplicationFrameKind::QualityProbe
+                                            || message->kind == Network::Replication::ReplicationFrameKind::ResynchronizationRequest);
+                                    // A valid read-only request can lose its reply leg
+                                    // on EOF, and replication then drops that sender.
+                                    // This is not an ingress/authority rejection: keep
+                                    // consuming the sealed, budgeted tail for Leave.
+                                    if (terminalState(connection->state()) && readOnly
+                                        && (result == Network::Replication::HostReplicationResult::SendFailed
+                                            || result == Network::Replication::HostReplicationResult::UnknownConnection))
+                                        connection->requestClose();
+                                    else rejectIngress();
+                                }
                             }
                         }
-                        if (connection->state() != Network::ClientState::Connected) break;
+                        if (runtime.ingressRejected) break;
+                        const auto afterFrame = connection->state();
+                        if (!terminalState(afterFrame) && afterFrame != Network::ClientState::Connected) break;
                     }
                 }
                 Network::ClientState state = connection->state();
-                if (state == Network::ClientState::Closed || state == Network::ClientState::Failed
-                    || state == Network::ClientState::Cancelled || state == Network::ClientState::TimedOut) {
+                if (terminalState(state) && (!runtime.admitted || config.transportEcho
+                    || !terminalInputPending || runtime.ingressRejected)) {
                     rollback();
                     const bool lifecycleHandled = runtime.admitted && sessionLifecycle
                             && ((config.dedicated && sessionLifecycle->ended()) || sessionLifecycle->transportClosed(

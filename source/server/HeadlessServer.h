@@ -93,10 +93,14 @@ namespace Duel6::Server {
                     });
         }
         virtual bool receive(Network::TransportFrame &frame) = 0;
-        virtual Network::TransportInputSnapshot sealAndDrainInput() {
+        virtual Network::TransportInputSnapshot sealAndDrainInput(
+                std::size_t maximumFrames = Network::MaxQueuedTransportFrames) {
+            if (maximumFrames > Network::MaxQueuedTransportFrames)
+                maximumFrames = Network::MaxQueuedTransportFrames;
             Network::TransportInputSnapshot snapshot;
             Network::TransportFrame frame;
-            while (receive(frame)) snapshot.frames.push_back(std::move(frame));
+            while (snapshot.frames.size() < maximumFrames && receive(frame))
+                snapshot.frames.push_back(std::move(frame));
             snapshot.state = state();
             snapshot.terminalAt = terminalAt();
             return snapshot;
