@@ -276,7 +276,7 @@ int main(int argc, char **argv) {
             (a.host ? first : second).endSession();
             require(pump([&] { return (a.host ? first : second).snapshot().journey == J::Inactive
                 && (a.host ? second : first).snapshot().journey == J::HostEnded; }, 5s), "concurrent session end");
-        } else if (scenario != "flow") {
+        } else if (scenario != "flow" && scenario != "flow-race") {
             require(pump([&] { return first.snapshot().journey == J::Failure; }, 12s), "failure deadline");
             const auto state = first.snapshot();
             require(!state.host && !state.localParticipantId && !state.canonical, "rejection granted authority");
@@ -343,13 +343,19 @@ int main(int argc, char **argv) {
             require(pump([&] { return controllerY() > beforeJump; }, 3s), "sampled controller jump not replicated over TLS");
             jump->pressed = false;
             first.endSession();
+            if (scenario == "flow-race") {
+                // Ordinary supported participant traffic supplies the opposite
+                // relay leg; the service still produces the actual End notice.
+                observer.setReady(true); observer.setReady(false);
+            }
             const bool ended = pump([&] { return first.snapshot().journey == J::Inactive
                 && second.snapshot().journey == J::HostEnded && observer.snapshot().journey == J::HostEnded; }, 5s);
             require(ended,
                 "confirmed end outcome: controller journey=" + std::to_string(static_cast<int>(first.snapshot().journey))
                 + " guest journey=" + std::to_string(static_cast<int>(second.snapshot().journey))
                 + " arrival journey=" + std::to_string(static_cast<int>(observer.snapshot().journey))
-                + " failure=" + second.snapshot().failure);
+                + " guest failure=" + second.snapshot().failure
+                + " arrival failure=" + observer.snapshot().failure);
             first.reset(); second.reset();
             // This proxy intentionally gives every participant one source IPv4.
             // The preceding denial plus three joins exhaust the four-attempt
