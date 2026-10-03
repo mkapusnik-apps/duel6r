@@ -6,6 +6,7 @@ output_dir="build"
 build_type="${BUILD_TYPE:-Release}"
 renderer="${D6R_RENDERER:-}"
 with_lua="${D6R_WITH_LUA:-ON}"
+directory_default_url="${D6R_DIRECTORY_DEFAULT_URL:-}"
 build_testing="${BUILD_TESTING:-ON}"
 run_tests="${RUN_TESTS:-OFF}"
 clean_output_dir="${CLEAN_OUTPUT_DIR:-OFF}"
@@ -24,6 +25,7 @@ cmake -S "${workspace_dir}" -B "${tmp_build_dir}" \
   -DCMAKE_BUILD_TYPE="${build_type}" \
   -DBUILD_TESTING="${build_testing}" \
   -DD6R_WITH_LUA="${with_lua}" \
+  -DD6R_DIRECTORY_DEFAULT_URL="${directory_default_url}" \
   "${renderer_options[@]}"
 
 cmake --build "${tmp_build_dir}" -j"$(nproc)"

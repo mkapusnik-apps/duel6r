@@ -49,6 +49,31 @@ For repository validation these launch instructions apply only inside an approve
 
 ## Host, join, and stop
 
+### Directory origin and distribution channel
+
+Network-capable nightly clients use `https://staging.duel.netusite.cz` when
+`D6R_DIRECTORY_URL` is absent. Release clients use `https://duel.netusite.cz`,
+including packages from manual release-workflow invocations. The distribution
+channel is independent of `Release` versus `Debug` build optimization. Ordinary
+unchannelled builds have no compiled default; their CMake option
+`D6R_DIRECTORY_DEFAULT_URL` defaults to empty. The experimental macOS package
+remains local-only and does not contact either directory.
+
+Set `D6R_DIRECTORY_URL` in the client process environment to explicitly override
+the compiled origin. A present empty or invalid value makes the directory
+unavailable without falling back to a compiled origin. A failed request never
+switches between staging and production. HTTPS certificate-chain and hostname
+verification remain required. Only explicit local development may combine
+`D6R_DIRECTORY_ALLOW_HTTP=1` with `http://127.0.0.1:<port>`; this is not a LAN or
+cloud-deployment exception.
+
+Directory failure does not block direct joining or Local Play, or end an active
+hosted session. Local Play does not contact the directory. Directory availability
+does not establish gameplay reachability. Domain mapping alone does not prove
+public TLS readiness, environment isolation, or owner authorization; see the
+[directory contract](network-host-directory.md#directory-deployment-acceptance-criteria)
+for required evidence.
+
 ### Endpoints and manual firewall configuration
 
 The production transport is TCP over IPv4. The default port is **26660**; the UI accepts an integer port from 1 through 65535. Use the same selected port at host and guests. Prefer an available unprivileged port; do not run the game as administrator/root to obtain a privileged port. There is no separate discovery or UDP game port.

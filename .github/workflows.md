@@ -24,6 +24,7 @@ GitHub Actions separates pull-request validation, validation of `develop`, night
 - The scheduler separates successful validation from publication. The `nightly` tag and release represent the latest published nightly bundle, not a history of nightly releases. Replacement is non-transactional, so publication can temporarily leave the release unavailable.
 - The `master` release-artifact path is separate from nightly publication. It produces a downloadable workflow artifact; a branch push does not itself publish a GitHub release.
 - Directory deployment is separate from game hosting. Nightly staging and master promotion use one deployment queue and separate database/runtime identities. See [directory deployment operations](../docs/directory-cloud-run.md).
+- Linux and Windows distribution builds set `D6R_DIRECTORY_DEFAULT_URL`: nightly uses `https://staging.duel.netusite.cz`; release uses `https://duel.netusite.cz`, including manual release runs. Channel selection is independent of build optimization. Other builds have no compiled default, and macOS remains local-only. Candidate directory checks use `run.app`; serving checks use the corresponding custom domain before staging eligibility or production success.
 
 ## Basic elements and workspace context
 
