@@ -413,7 +413,7 @@ Separate-player camera behavior and split-screen renderer behavior are obsolete 
 
 ## Persistence and profiles
 
-- **PER-001** The game must store person records, roster names, and the played-round count in `data/persons.json`.
+- **PER-001** The game must store person records, roster names, and the played-round count in `data/persons.json`. On macOS, the game must resolve this path under the per-user Application Support directory specified by [MAC-SAVE-001](macos.md#saved-data).
 - **PER-002** If `data/persons.json` does not exist, the menu must start without loaded persons and must continue.
 - **PER-003** The menu must save person data when the menu closes.
 - **PER-004** The menu must save person data when a round ends.

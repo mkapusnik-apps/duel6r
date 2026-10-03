@@ -4,7 +4,7 @@
 
 This state requests confirmation, requests controller input, or reports why a match cannot start.
 The implemented background includes the four equal-width `MENU-01` footer actions with distinct `Network (F2)`. Issue #38 implements and accepts that background at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`.
-Entry occurs from Clear, person removal, Play, resume handling, statistics clearing, or a controller-detection button.
+Entry occurs from Clear, person removal, Play, resume handling, statistics clearing, or a controller-detection button. On macOS, Network also enters the message variant defined below.
 Exit occurs after an accepted key or event, as defined by the active variant.
 The state implements `SET-003`, `SET-006`–`SET-007`, `SET-022`, `LIF-023`–`LIF-029`, and `INP-008`–`INP-009` from [`docs/features.md`](../features.md).
 Primary source is `source/Menu.cpp:368-486`.
@@ -21,6 +21,8 @@ Primary source is `source/Menu.cpp:368-486`.
 - The strip and text must use the same menu scale as the canvas.
 
 ## Variants and recovery
+
+The macOS-only `MENU-02-MAC-LOCAL` variant follows [MAC-NET-001 through MAC-NET-008](../macos.md#network-entry), which own its exact message, activation, dismissal, retained menu state, and window-close behavior. The approved UX approach reuses the existing `MENU-02` strip and wireframe unchanged. This variant does not change the other message variants below.
 
 - Clear and person deletion must show `Really delete? (Y/N)`.
 - An unlimited-round start must show `Clear statistics? (Y/N)`.

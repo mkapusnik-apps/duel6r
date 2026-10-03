@@ -4,7 +4,7 @@
 
 The implemented screen builds the local roster, assigns controls, selects match settings, shows persistent results, starts a local match, provides the distinct issue #38 network entry, and exits the application. The network entry does not change local Play.
 Entry occurs when the application starts or when gameplay closes.
-Exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action. `Network (F2)` enters `NET-01`.
+Exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action. `Network (F2)` enters `NET-01` except in the macOS-only state defined below.
 The screen implements `SET-001`–`SET-091`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005`, `AC-011`, `AC-040`–`AC-051`, and `AC-053`–`AC-069` from [`docs/features.md`](../features.md). The Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md) and is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`.
 The Equalize and Shuffle behavior specifically traces to `SET-017`–`SET-019`, `SET-073`–`SET-077`, `AC-011`, and `AC-063`–`AC-064` at fixed product baseline `e75552f`.
 The person-action alignment specifically traces to `SET-078`–`SET-083` and `AC-065` at fixed product baseline `e75552f`.
@@ -12,6 +12,10 @@ The person-list and action-button refinement specifically traces to `SET-084`–
 Stitch screen `681ae093051749fd922ab74454f47121` in project `1219346282527961142` is supplementary historical context for the retro treatment only.
 The Stitch screen does not define the consolidated Persons panel.
 Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`, and `resources/textures/menu/`.
+
+## macOS local-only state
+
+`MENU-01-MAC-LOCAL` uses the functional exception in [MAC-NET-001 through MAC-NET-008](../macos.md#network-entry). Those requirements take precedence over this screen's network-entry actions on macOS only. The unchanged `Network (F2)` button and F2 shortcut enter `MENU-02-MAC-LOCAL` instead of `NET-01`. All other functional behavior remains unchanged. The approved UX approach retains `MENU-01-A` and `MENU-01-B` wireframes unchanged.
 
 ## Prerequisites
 

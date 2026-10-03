@@ -1,5 +1,27 @@
 # Screenshot coverage and assessment
 
+## macOS local-only deferred coverage
+
+Authority: [macOS acceptance boundaries](../../macos.md#acceptance-boundaries) and [MENU-02 presentation](../screens/MENU-02.md). This bounded extension reuses all existing wireframes unchanged. It does not reopen the network presentation campaign below or replace other-platform evidence.
+
+**Status: deferred, not passed.** The user authorizes native Mac visual and gameplay verification after merge and subsequent nightly publication under MAC-AC-006–009. No native Mac desktop is available for this implementation phase. Missing native Mac evidence does not block experimental implementation acceptance. No native visual gate is claimed satisfied. Source, build, package, and focused behavioral evidence must not be relabeled as Mac screenshots or runtime acceptance.
+
+| Screen / state / wireframe | Setup and expected result | Supported profile | Destination / current conformance |
+|---|---|---|---|
+| MENU-02 / MENU-02-MAC-LOCAL / MENU-02 | Launch the actual nightly .app; retain two named local players and their control assignments; select Deathmatch; activate Network by pointer or F2. Show the complete MAC-NET-003 message over the unchanged menu, with readable wrapping and dismissal instruction. Record actual roster, settings, and activation method. | Apple Silicon, macOS 14+, GL1; prefer a 1280 × 900 desktop client when available, otherwise record the actual supported client at least 850 × 700. | `docs/design/screenshots/MENU-02/MENU-02.png` — not captured; deferred. |
+
+This is one additional representative for an approved materially distinct platform-restriction state using the existing MENU-02 structure, not a new wireframe. Keep the existing legacy MENU-02 representative and its original provenance unchanged. The destination above is a plan, not an existing artifact. Developer owns screenshot capture and image integration. Team must declare functional closure of the frozen candidate before releasing this row for capture; the user's later native Mac verification remains deferred regardless of pre-merge source closure.
+
+### Coordinated checks without additional screenshot rows
+
+- Before implementation acceptance, review the macOS-only restriction and unchanged other-platform entry against MAC-AC-003 and MAC-AC-005. Use focused behavioral results where feasible. These checks do not establish native Mac input or rendering.
+- During the deferred Mac session, inspect MENU-01-MAC-LOCAL in MENU-01-A and MENU-01-B against the unchanged main-menu wireframes. Check the retained footer, layout, scaling, and pointer alignment.
+- Check the message at the supported compatibility floor and evaluation minimum specified in the owning UX document when available. Record any untested profile rather than claim coverage.
+- Verify pointer and F2 activation, consumed keyboard dismissal, retained menu state, repeated entry, and window close against MAC-NET-001–008. A still does not prove these behaviors.
+- Coordinate local gameplay, shared-arena, summary, return-to-menu, launch, and persistence observations with the user's single post-nightly verification session under MAC-AC-006–009. Do not require a duplicate screenshot campaign. Capture a supplemental image only for a material visual finding that needs evidence.
+
+For the eventual image, supply the nightly artifact identity, immutable source checkpoint, capture state and setup, actual client and backing-pixel dimensions, display scaling, Apple Silicon model, macOS version, GL1 profile, relevant input context, selected menu background, artifact path, and SHA-256. No multiplayer environment is required. A Linux rendering, mockup, retouched image, or build result is not substitute native Mac evidence. UX will assess the supplied artifact against the fixed sources; until then, native conformance remains unassessed. Unchanged prior evidence retains only its original platform and state scope.
+
 ## Network presentation current capture matrix
 
 This section is the sole current capture matrix for the NET-01 through NET-10 presentation unification. It supersedes every earlier network conformance claim in this file and the [legacy manifest](../../screenshots/README.md) for these affected wireframes. The older packets below remain historical references with their original hashes. They do not prove the unified presentation. No local-play representative is invalidated unless implementation changes its presentation source.
