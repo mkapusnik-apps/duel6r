@@ -1,0 +1,110 @@
+#include "TestHarness.h"
+#include "source/platform/MacLocal.h"
+#include <fstream>
+#include <iterator>
+
+namespace {
+    namespace fs = std::filesystem;
+    using Duel6::MacLocal::NetworkMessage;
+
+    SDL_Event key(Uint32 type, SDL_Scancode code, bool repeat = false) {
+        SDL_Event event{};
+        event.type = type;
+        event.key.keysym.scancode = code;
+        event.key.repeat = repeat;
+        return event;
+    }
+
+    struct Paths {
+        fs::path previous = fs::current_path();
+        fs::path root = fs::temp_directory_path() /
+                ("duel6r-mac-path-test-" + std::to_string(
+                        std::chrono::steady_clock::now().time_since_epoch().count()));
+        fs::path resources = root / "Duel 6 Reloaded.app/Contents/Resources";
+        fs::path support = root / "Library/Application Support/Duel 6 Reloaded";
+        Paths() {
+            for (const char *name : {"data", "levels", "profiles", "shaders", "sound", "textures"})
+                fs::create_directories(resources / name);
+        }
+        ~Paths() {
+            fs::current_path(previous);
+            fs::permissions(resources, fs::perms::owner_all, fs::perm_options::add);
+            fs::remove_all(root);
+        }
+    };
+}
+
+D6R_TEST_CASE("macOS paths create only per-user saves and resolve resources independently of cwd") {
+    Paths paths;
+    const auto save = paths.support / "data/persons.json";
+    fs::permissions(paths.resources, fs::perms::owner_read | fs::perms::owner_exec);
+    Duel6::MacLocal::preparePaths(paths.resources, paths.support);
+    D6R_REQUIRE_EQ(paths.resources, fs::current_path());
+    D6R_REQUIRE_EQ(save.string(), Duel6::MacLocal::personDataPath());
+    D6R_REQUIRE(fs::is_directory(save.parent_path()));
+    D6R_REQUIRE(!fs::exists(save)); // Missing-file behavior remains with Menu.
+    D6R_REQUIRE(!fs::exists(paths.resources / "data/persons.json"));
+    const std::string saved = R"({"persons":[{"name":"Player One","elo":1200}],"playing":["Player One"],"rounds":7})";
+    { std::ofstream output(save); output << saved; }
+    // A relaunch/replacement selects the same user data and never initializes it
+    // from the bundle. The unchanged Menu/JSON code owns its schema and timing.
+    fs::current_path(paths.previous);
+    { std::ofstream shipped(paths.resources / "data/persons.json"); shipped << "not user data"; }
+    Duel6::MacLocal::preparePaths(paths.resources, paths.support);
+    std::ifstream input(save);
+    D6R_REQUIRE_EQ(saved, std::string(std::istreambuf_iterator<char>(input), {}));
+}
+
+D6R_TEST_CASE("macOS paths reject relative or incomplete bundles and unusable save directories") {
+    Paths paths;
+    D6R_REQUIRE_THROW(Duel6::MacLocal::preparePaths("resources", paths.support), std::runtime_error);
+    D6R_REQUIRE_THROW(Duel6::MacLocal::preparePaths(paths.resources, "support"), std::runtime_error);
+    fs::remove(paths.resources / "levels");
+    D6R_REQUIRE_THROW(Duel6::MacLocal::preparePaths(paths.resources, paths.support), std::runtime_error);
+    D6R_REQUIRE_EQ(paths.previous, fs::current_path());
+    fs::create_directory(paths.resources / "levels");
+    fs::create_directories(paths.support);
+    { std::ofstream file(paths.support / "data"); file << "not a directory"; }
+    D6R_REQUIRE_THROW(Duel6::MacLocal::preparePaths(paths.resources, paths.support), fs::filesystem_error);
+    D6R_REQUIRE_EQ(paths.previous, fs::current_path());
+}
+
+D6R_TEST_CASE("macOS Network message consumes dismissal including shortcuts text and repeat") {
+    for (auto code : {SDL_SCANCODE_F1, SDL_SCANCODE_F2, SDL_SCANCODE_F3,
+                      SDL_SCANCODE_ESCAPE, SDL_SCANCODE_GRAVE, SDL_SCANCODE_A}) {
+        NetworkMessage message;
+        D6R_REQUIRE(!message.consume(key(SDL_KEYDOWN, code)));
+        message.open(); // Both the existing pointer callback and F2 call openNetworkMenu.
+        D6R_REQUIRE(message.isVisible());
+        D6R_REQUIRE(message.consume(key(SDL_KEYDOWN, SDL_SCANCODE_F2, true)));
+        D6R_REQUIRE(message.isVisible()); // Holding the opening key cannot dismiss.
+        D6R_REQUIRE(message.consume(key(SDL_KEYUP, SDL_SCANCODE_F2)));
+        D6R_REQUIRE(message.consume(key(SDL_KEYDOWN, code)));
+        D6R_REQUIRE(!message.isVisible());
+        SDL_Event text{};
+        text.type = SDL_TEXTINPUT;
+        D6R_REQUIRE(message.consume(text));
+        D6R_REQUIRE(message.consume(key(SDL_KEYDOWN, code, true)));
+        D6R_REQUIRE(message.consume(key(SDL_KEYUP, code)));
+        D6R_REQUIRE(!message.consume(key(SDL_KEYDOWN, code))); // Next deliberate action works.
+        message.open();
+        D6R_REQUIRE(message.isVisible());
+    }
+}
+
+D6R_TEST_CASE("macOS Network message blocks pointer edits without blocking window close") {
+    NetworkMessage message;
+    message.open();
+    SDL_Event event{};
+    for (auto type : {SDL_MOUSEBUTTONDOWN, SDL_MOUSEBUTTONUP, SDL_MOUSEMOTION,
+                      SDL_MOUSEWHEEL, SDL_TEXTINPUT, SDL_TEXTEDITING}) {
+        event.type = type;
+        D6R_REQUIRE(message.consume(event));
+        D6R_REQUIRE(message.isVisible());
+    }
+    event.type = SDL_QUIT;
+    D6R_REQUIRE(!message.consume(event));
+    D6R_REQUIRE(message.isVisible());
+    D6R_REQUIRE_EQ(std::string("Network play is unavailable in this macOS build. Use Play (F1) for local play. Press any key."),
+                   std::string(Duel6::MacLocal::networkMessage));
+}

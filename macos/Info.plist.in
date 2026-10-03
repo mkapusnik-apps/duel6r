@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
+  <key>CFBundleIdentifier</key><string>org.duel6r.local</string>
+  <key>CFBundleName</key><string>Duel 6 Reloaded</string>
+  <key>CFBundleDisplayName</key><string>Duel 6 Reloaded</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleVersion</key><string>6.0.0</string>
+  <key>CFBundleShortVersionString</key><string>6.0.0</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSArchitecturePriority</key><array><string>arm64</string></array>
+  <key>NSHighResolutionCapable</key><false/>
+  <key>SDL_FILESYSTEM_BASE_DIR_TYPE</key><string>resource</string>
+</dict>

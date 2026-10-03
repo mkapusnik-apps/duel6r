@@ -9,7 +9,20 @@ cmake_minimum_required(VERSION 3.5)
 #############################################################################
 
 # project name
+if (CMAKE_HOST_APPLE)
+    set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Experimental macOS architecture")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Experimental macOS minimum version")
+endif ()
 project(Duel6r)
+
+if (APPLE)
+    if (NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR
+        NOT CMAKE_OSX_ARCHITECTURES STREQUAL "arm64" OR
+        NOT CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL "14.0")
+        message(FATAL_ERROR "The experimental macOS target requires arm64 and macOS 14.0")
+    endif ()
+    add_compile_definitions(D6_MACOS_LOCAL)
+endif ()
 
 if (WIN32)
     add_compile_definitions(D6R_TRANSPORT_WINDOWS NOMINMAX)
@@ -68,10 +81,19 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND D6R_PLATFORM STREQUAL "arm64")
     # Mesa V3D on Raspberry Pi 5 supports desktop compatibility GL, not GL 4.3.
     set(D6R_DEFAULT_RENDERER "gl1")
 endif ()
+if (APPLE)
+    set(D6R_DEFAULT_RENDERER "gl1")
+endif ()
 set(D6R_RENDERER "${D6R_DEFAULT_RENDERER}" CACHE STRING "Renderer")
+if (APPLE AND NOT D6R_RENDERER STREQUAL "gl1")
+    message(FATAL_ERROR "The experimental macOS target uses gl1 only")
+endif ()
 set_property (CACHE D6R_RENDERER PROPERTY STRINGS ${D6R_RENDERERS})
 set(D6R_WITH_LUA ON)     # Enable/disable lua scripting
 option(D6R_TRANSPORT_ONLY "Build only the native session transport and its tests" OFF)
+if (APPLE AND D6R_TRANSPORT_ONLY)
+    message(FATAL_ERROR "Networking is not part of the experimental macOS target")
+endif ()
 
 if (D6R_TRANSPORT_ONLY)
     set(CMAKE_CXX_STANDARD 17)
@@ -507,10 +529,15 @@ endif (D6R_WITH_LUA)
 
 set(D6R_ENGINE_SOURCES ${D6R_SOURCES})
 list(REMOVE_ITEM D6R_ENGINE_SOURCES source/Main.cpp)
+if (APPLE)
+    list(FILTER D6R_ENGINE_SOURCES EXCLUDE REGEX "^source/(client/|NetworkMenu\\.|CanonicalWorldPresenter\\.)")
+    list(APPEND D6R_ENGINE_SOURCES source/platform/MacLocal.cpp)
+endif ()
 add_library(duel6r-game-engine STATIC ${D6R_ENGINE_SOURCES})
 target_include_directories(duel6r-game-engine PUBLIC ${CMAKE_SOURCE_DIR}/source)
 endif ()
 
+if (NOT APPLE)
 set(D6R_CANONICAL_GAMEPLAY_SOURCES
         source/Block.cpp
         source/Bonus.cpp
@@ -746,6 +773,7 @@ target_link_libraries(${D6R_HOST_SUPERVISOR_APP_NAME} duel6r-network-scaffold)
 if (MINGW)
     set_property(TARGET ${D6R_HOST_SUPERVISOR_APP_NAME} APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
 endif ()
+endif () # Non-macOS networking and headless targets
 
 if (BUILD_TESTING)
     if (NOT D6R_TRANSPORT_ONLY)
@@ -758,6 +786,8 @@ if (BUILD_TESTING)
             tests/JsonTests.cpp
             tests/MathTests.cpp
             tests/ResourceValidationTests.cpp
+            tests/MacLocalTests.cpp
+            source/platform/MacLocal.cpp
             source/File.cpp
             source/Format.cpp
             source/msdir.c
@@ -779,9 +809,11 @@ if (BUILD_TESTING)
     add_test(NAME ${D6R_TEST_APP_NAME} COMMAND ${D6R_TEST_APP_NAME})
     endif ()
 
-    include(${CMAKE_SOURCE_DIR}/tests/SessionTransportCTestRegistration.cmake)
+    if (NOT APPLE)
+        include(${CMAKE_SOURCE_DIR}/tests/SessionTransportCTestRegistration.cmake)
+    endif ()
 
-    if (UNIX AND NOT D6R_TRANSPORT_ONLY)
+    if (UNIX AND NOT APPLE AND NOT D6R_TRANSPORT_ONLY)
         find_program(D6R_BASH_EXECUTABLE bash)
         if (NOT D6R_BASH_EXECUTABLE)
             message(FATAL_ERROR "bash is required for the safe-empty-match-start behavior test")
@@ -830,8 +862,20 @@ endif (WIN32)
 set(D6R_APP_NAME "duel6r" CACHE STRING "Filename of the application.")
 set(D6R_APP_DEBUG_NAME "duel6rd" CACHE STRING "Filename of the debug version of the application.")
 add_executable(${D6R_APP_NAME} source/Main.cpp ${D6R_APP_PLATFORM_SOURCES})
-target_link_libraries(${D6R_APP_NAME} duel6r-game-engine duel6r-network-scaffold)
+target_link_libraries(${D6R_APP_NAME} duel6r-game-engine)
+if (NOT APPLE)
+    target_link_libraries(${D6R_APP_NAME} duel6r-network-scaffold)
+endif ()
 set_target_properties(${D6R_APP_NAME} PROPERTIES VERSION 6.0.0 DEBUG_OUTPUT_NAME ${D6R_APP_DEBUG_NAME})
+if (APPLE)
+    set_target_properties(${D6R_APP_NAME} PROPERTIES
+            MACOSX_BUNDLE TRUE
+            OUTPUT_NAME "Duel 6 Reloaded"
+            MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/macos/Info.plist.in")
+    add_custom_command(TARGET ${D6R_APP_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/resources"
+                    "$<TARGET_BUNDLE_CONTENT_DIR:${D6R_APP_NAME}>/Resources")
+endif ()
 
 #########################################################################
 # External dependencies
@@ -868,6 +912,8 @@ find_library(LIB_SDL2_IMAGE SDL2_image DOC "Path to SDL2_image import library")
 if (MINGW)
     # On MinGW we might need to link with additional libraries or use specific names
     target_link_libraries(${D6R_APP_NAME} ${LIB_SDL2_MAIN} ${LIB_SDL2} ${LIB_SDL2_MIXER} ${LIB_SDL2_TTF} ${LIB_SDL2_IMAGE} -lsetupapi -lwinmm -limm32 -lversion)
+elseif (APPLE)
+    target_link_libraries(${D6R_APP_NAME} ${LIB_SDL2} ${LIB_SDL2_MIXER} ${LIB_SDL2_TTF} ${LIB_SDL2_IMAGE})
 else (MINGW)
     target_link_libraries(${D6R_APP_NAME} ${LIB_SDL2_MAIN} ${LIB_SDL2} ${LIB_SDL2_MIXER} ${LIB_SDL2_TTF} ${LIB_SDL2_IMAGE})
 endif (MINGW)
@@ -883,7 +929,11 @@ include_directories(${HEADERS_GLEW})
 
 # LUA
 if (D6R_WITH_LUA)
-    if (WIN32 AND NOT MINGW)
+    if (APPLE)
+        find_package(Lua 5.3 EXACT REQUIRED)
+        target_include_directories(duel6r-game-engine PRIVATE ${LUA_INCLUDE_DIR})
+        target_link_libraries(${D6R_APP_NAME} ${LUA_LIBRARIES})
+    elseif (WIN32 AND NOT MINGW)
         find_library(LIB_LUA lua DOC "Path to LUA library")
         target_link_libraries(${D6R_APP_NAME} ${LIB_LUA})
         find_path(HEADERS_LUA lua.hpp DOC "Path to LUA headers")
@@ -898,7 +948,7 @@ if (D6R_WITH_LUA)
         target_link_libraries(${D6R_APP_NAME} ${LIB_LUA})
         find_path(HEADERS_LUA lua5.3/lua.hpp DOC "Path to LUA headers")
         include_directories(${HEADERS_LUA}/lua5.3)
-    endif (WIN32 AND NOT MINGW)
+    endif ()
 endif (D6R_WITH_LUA)
 
 if (BUILD_TESTING AND UNIX AND NOT APPLE AND (D6R_RENDERER STREQUAL "gl4" OR D6R_RENDERER STREQUAL "gl1"))
