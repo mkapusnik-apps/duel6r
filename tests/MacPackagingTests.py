@@ -2,6 +2,8 @@
 
 import importlib.util
 from pathlib import Path
+import plistlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -33,6 +35,47 @@ class MacPackagingTests(unittest.TestCase):
 
     def stage(self):
         return package.stage_app(self.source, self.build, self.output)
+
+    def test_bundle_utilities_resolves_real_plist_template_and_staged_executable(self):
+        # Exercise CMake's actual consumer, not a substitute XML parser: it
+        # requires CFBundleExecutable's string on the line following the key.
+        script = self.build / "check-bundle.cmake"
+        script.write_text('''cmake_minimum_required(VERSION 3.16)
+set(MACOSX_BUNDLE_EXECUTABLE_NAME "Duel 6 Reloaded")
+configure_file("${TEMPLATE}" "${APP}/Contents/Info.plist")
+include(BundleUtilities)
+get_bundle_main_executable("${APP}" executable)
+if(NOT executable STREQUAL "${APP}/Contents/MacOS/Duel 6 Reloaded")
+    message(FATAL_ERROR "Bundle executable discovery failed: ${executable}")
+endif()
+get_bundle_and_executable("${APP}" bundle executable valid)
+if(NOT valid)
+    message(FATAL_ERROR "BundleUtilities rejected the generated bundle")
+endif()
+''')
+        result = subprocess.run([
+            "cmake", f"-DAPP={self.built}",
+            f"-DTEMPLATE={Path(__file__).resolve().parents[1] / 'macos/Info.plist.in'}",
+            "-P", str(script)], capture_output=True, text=True)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        app = self.stage()
+        with (app / "Contents/Info.plist").open("rb") as stream:
+            info = plistlib.load(stream)
+        self.assertEqual("Duel 6 Reloaded", info["CFBundleExecutable"])
+        self.assertTrue((app / "Contents/MacOS" / info["CFBundleExecutable"]).is_file())
+        self.assertEqual("14.0", info["LSMinimumSystemVersion"])
+
+    def test_final_bundle_verification_rejects_a_missing_main_executable(self):
+        root = Path(__file__).resolve().parents[1]
+        info = (root / "macos/Info.plist.in").read_text().replace(
+            "${MACOSX_BUNDLE_EXECUTABLE_NAME}", "Duel 6 Reloaded")
+        (self.built / "Contents/Info.plist").write_text(info)
+        (self.built / "Contents/MacOS/Duel 6 Reloaded").unlink()
+        result = subprocess.run([
+            "cmake", f"-DAPP={self.built}", "-P", str(root / "macos/VerifyBundle.cmake")],
+            capture_output=True, text=True)
+        self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("Invalid application bundle", result.stderr)
 
     def test_repeated_packaging_removes_deleted_resources_from_reused_build(self):
         (self.resources / "levels").mkdir()

@@ -2,7 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleExecutable</key><string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
+  <!-- BundleUtilities reads the executable value from the line after the key. -->
+  <key>CFBundleExecutable</key>
+  <string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
   <key>CFBundleIdentifier</key><string>org.duel6r.local</string>
   <key>CFBundleName</key><string>Duel 6 Reloaded</string>
   <key>CFBundleDisplayName</key><string>Duel 6 Reloaded</string>
@@ -14,3 +16,4 @@
   <key>NSHighResolutionCapable</key><false/>
   <key>SDL_FILESYSTEM_BASE_DIR_TYPE</key><string>resource</string>
 </dict>
+</plist>
