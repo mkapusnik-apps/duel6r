@@ -157,3 +157,104 @@ jobs:
             release-assets/macos/duel6r-macos-arm64.zip.sha256
             release-assets/macos/build-info.json
           fail_on_unmatched_files: true
+
+  directory:
+    name: Deploy staging directory
+    needs: [source, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: directory-deployment
+      cancel-in-progress: false
+      queue: max
+    env:
+      IMAGE: europe-west1-docker.pkg.dev/duel-6-reloaded/directory/directory
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.source.outputs.sanity_sha }}
+          persist-credentials: false
+
+      - uses: google-github-actions/auth@v3
+        id: auth
+        with:
+          project_id: duel-6-reloaded
+          workload_identity_provider: projects/987997960434/locations/global/workloadIdentityPools/d6r-directory/providers/nightly
+          service_account: d6r-directory-staging-deploy@duel-6-reloaded.iam.gserviceaccount.com
+          token_format: access_token
+
+      - uses: google-github-actions/setup-gcloud@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: europe-west1-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - name: Build the nightly directory image once
+        id: image
+        uses: docker/build-push-action@v7
+        with:
+          context: services/directory
+          target: production
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE }}:nightly-${{ github.run_id }}-${{ github.run_attempt }}
+          labels: org.opencontainers.image.revision=${{ needs.source.outputs.sanity_sha }}
+
+      - name: Deploy candidate without replacing serving traffic
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          project_id: duel-6-reloaded
+          region: europe-west1
+          service: staging-directory
+          image: ${{ env.IMAGE }}@${{ steps.image.outputs.digest }}
+          suffix: gh-${{ github.run_id }}-${{ github.run_attempt }}
+          tag: candidate
+          no_traffic: true
+          env_vars_update_strategy: overwrite
+          env_vars: |
+            NODE_ENV=production
+            GOOGLE_CLOUD_PROJECT=duel-6-reloaded
+            D6R_DIRECTORY_FIRESTORE_DATABASE=staging-directory
+          flags: >-
+            --service-account=d6r-directory-staging-runtime@duel-6-reloaded.iam.gserviceaccount.com
+            --ingress=all --port=8080 --min=0 --max=2
+            --min-instances=0 --max-instances=2 --concurrency=32
+
+      - name: Verify candidate and activate staging traffic
+        env:
+          REVISION: staging-directory-gh-${{ github.run_id }}-${{ github.run_attempt }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+          SOURCE_SHA: ${{ needs.source.outputs.sanity_sha }}
+        run: |
+          candidate_url="$(gcloud run services describe staging-directory \
+            --project=duel-6-reloaded --region=europe-west1 --format=json \
+            | jq -er '.status.traffic[] | select(.tag == "candidate") | .url')"
+          curl --fail --silent --show-error --max-time 30 "${candidate_url}/healthz" | jq -e '.status == "ok"'
+          curl --fail --silent --show-error --max-time 30 "${candidate_url}/v1/listings" | jq -e '.listings | type == "array"'
+          gcloud run services update-traffic staging-directory \
+            --project=duel-6-reloaded --region=europe-west1 \
+            --to-revisions="${REVISION}=100" --quiet
+          service_url="$(gcloud run services describe staging-directory \
+            --project=duel-6-reloaded --region=europe-west1 --format='value(status.url)')"
+          curl --fail --silent --show-error --max-time 30 "${service_url}/v1/listings" | jq -e '.listings | type == "array"'
+          printf 'Source: %s\n\nImage: %s@%s\n\nRevision: %s\n\nEndpoint: %s\n' \
+            "$SOURCE_SHA" "$IMAGE" "$DIGEST" "$REVISION" "$service_url" >> "$GITHUB_STEP_SUMMARY"
+
+      # This is the promotion commit point. Failed or unverified candidates cannot advance it.
+      - name: Record the successfully verified staging image
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          gcloud artifacts docker tags add "${IMAGE}@${DIGEST}" \
+            "${IMAGE}:staging-verified-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --project=duel-6-reloaded --quiet
+          gcloud artifacts docker tags add "${IMAGE}@${DIGEST}" "${IMAGE}:staging-success" \
+            --project=duel-6-reloaded --quiet

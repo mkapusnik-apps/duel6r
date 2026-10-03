@@ -12,7 +12,8 @@ GitHub Actions separates pull-request validation, validation of `develop`, night
 | [Develop - Build Container Image](workflows/develop-build-image.yml) | Reusable workflow call or manual dispatch | Publishes Linux and Windows cross-compilation build images to GHCR. Commit-specific images connect validation and nightly packaging to the same source revision; `develop` image tags support consumers of the current development environment. |
 | [Develop - Sanity](workflows/develop.yml) | Push to `develop` | Publishes build images, runs a Linux build with automated tests and a main-menu smoke check, and performs a Debug compilation as the lint-equivalent check. Success advances `sanity` and enables the nightly scheduler. |
 | [Develop - Nightly Scheduler](workflows/develop-nightly-scheduler.yml) | Every four hours while enabled, or manual dispatch | Requests a nightly build from `sanity` and disables itself until a later successful develop validation enables it again. |
-| [Develop - Nightly](workflows/develop-nightly.yml) | Dispatch from the `sanity` tag | Packages Linux and Windows runtime files from the captured validated commit using its matching build images, without rerunning their application tests. Builds the macOS package at the same SHA. Publishes the existing combined ZIP and separate macOS assets as the current `nightly` release. |
+| [Develop - Nightly](workflows/develop-nightly.yml) | Dispatch from the `sanity` tag | Packages Linux and Windows runtime files from the captured validated commit using its matching build images, without rerunning their application tests. Builds the macOS package at the same SHA. Publishes the existing combined ZIP and separate macOS assets as the current `nightly` release. Then builds and deploys the directory image from that SHA to staging. |
+| [Directory - Production promotion](workflows/directory-production.yml) | Push to `master` | Deploys the last successfully verified staging directory image by digest, without rebuilding it. Does not change game packaging. |
 | [Release Artifact](workflows/master-release.yml) | Push to `master` or manual dispatch | Builds and packages a combined Linux and Windows runtime artifact using the `develop` build images. GitHub release asset publication is conditional on a tag-based invocation. |
 | [Storage Cleanup](workflows/storage-cleanup.yml) | Weekly schedule or manual dispatch | Retains current GHCR build images and removes eligible old versions. Manual runs can also remove exact-name legacy Actions artifacts. |
 
@@ -22,6 +23,7 @@ GitHub Actions separates pull-request validation, validation of `develop`, night
 - Develop validation establishes the `sanity` checkpoint. Nightly packaging uses that exact source revision and its build images, rather than whichever commit is newest when packaging runs.
 - The scheduler separates successful validation from publication. The `nightly` tag and release represent the latest published nightly bundle, not a history of nightly releases. Replacement is non-transactional, so publication can temporarily leave the release unavailable.
 - The `master` release-artifact path is separate from nightly publication. It produces a downloadable workflow artifact; a branch push does not itself publish a GitHub release.
+- Directory deployment is separate from game hosting. Nightly staging and master promotion use one deployment queue and separate database/runtime identities. See [directory deployment operations](../docs/directory-cloud-run.md).
 
 ## Basic elements and workspace context
 

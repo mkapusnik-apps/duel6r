@@ -1,0 +1,86 @@
+name: Directory - Production promotion
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+  id-token: write
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: directory-deployment
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  promote:
+    name: Promote verified staging image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      IMAGE: europe-west1-docker.pkg.dev/duel-6-reloaded/directory/directory
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: google-github-actions/auth@v3
+        with:
+          project_id: duel-6-reloaded
+          workload_identity_provider: projects/987997960434/locations/global/workloadIdentityPools/d6r-directory/providers/master
+          service_account: d6r-directory-prod-deploy@duel-6-reloaded.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Resolve the last verified staging digest under the deployment lock
+        id: image
+        run: |
+          digest="$(gcloud artifacts docker images describe "${IMAGE}:staging-success" \
+            --project=duel-6-reloaded --format='value(image_summary.digest)')"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy that image without a rebuild or traffic change
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          project_id: duel-6-reloaded
+          region: europe-west1
+          service: directory
+          image: ${{ env.IMAGE }}@${{ steps.image.outputs.digest }}
+          suffix: gh-${{ github.run_id }}-${{ github.run_attempt }}
+          tag: candidate
+          no_traffic: true
+          skip_default_labels: true
+          labels: promotion-sha=${{ github.sha }}
+          env_vars_update_strategy: overwrite
+          env_vars: |
+            NODE_ENV=production
+            GOOGLE_CLOUD_PROJECT=duel-6-reloaded
+            D6R_DIRECTORY_FIRESTORE_DATABASE=directory
+          flags: >-
+            --service-account=d6r-directory-runtime@duel-6-reloaded.iam.gserviceaccount.com
+            --ingress=all --port=8080 --min=0 --max=2
+            --min-instances=0 --max-instances=2 --concurrency=32
+
+      - name: Verify candidate and activate production traffic
+        env:
+          REVISION: directory-gh-${{ github.run_id }}-${{ github.run_attempt }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          candidate_url="$(gcloud run services describe directory \
+            --project=duel-6-reloaded --region=europe-west1 --format=json \
+            | jq -er '.status.traffic[] | select(.tag == "candidate") | .url')"
+          curl --fail --silent --show-error --max-time 30 "${candidate_url}/healthz" | jq -e '.status == "ok"'
+          curl --fail --silent --show-error --max-time 30 "${candidate_url}/v1/listings" | jq -e '.listings | type == "array"'
+          gcloud run services update-traffic directory \
+            --project=duel-6-reloaded --region=europe-west1 \
+            --to-revisions="${REVISION}=100" --quiet
+          service_url="$(gcloud run services describe directory \
+            --project=duel-6-reloaded --region=europe-west1 --format='value(status.url)')"
+          curl --fail --silent --show-error --max-time 30 "${service_url}/v1/listings" | jq -e '.listings | type == "array"'
+          printf 'Master trigger: %s\n\nPromoted image: %s@%s\n\nRevision: %s\n\nEndpoint: %s\n' \
+            "$GITHUB_SHA" "$IMAGE" "$DIGEST" "$REVISION" "$service_url" >> "$GITHUB_STEP_SUMMARY"
