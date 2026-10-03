@@ -4,7 +4,7 @@
 
 This document owns central listing, browser, and optional password behavior. [Network play](network-play-first-release.md) owns gameplay admission and [trust policy](network-trust-and-abuse-limits.md) owns security boundaries. This is target behavior, not a release-readiness claim.
 
-An active listing is an unexpired registration for a ready player-hosted session. All active listings means all such registrations in the configured directory, not every game running outside that directory. Listing visibility does not depend on LAN membership or join eligibility.
+An active listing is an unexpired registration for a ready player-hosted session. All active listings means all such registrations in the configured directory, not every game running outside that directory. Listing visibility does not depend on LAN membership or join eligibility. Dedicated-pilot invitations and server identity remain governed by TRU-PUB. This contract does not require dedicated-pilot publication.
 
 ## Listing lifecycle
 
@@ -76,10 +76,10 @@ On two distinct LAN endpoints, testing must cover Linux host to Windows guest an
 - Round-one arrival with the new player controllable and visible on both endpoints, without resetting existing gameplay.
 - Direct joining through the secure admission path.
 
-These checks complete the deferred platform evidence for NET-DIR-AC-003, NET-PASS-AC-001, and NET-ADM-AC-001. Existing invariant mode, timing, hazard, paging, and failure evidence need not be repeated unless the nightly implementation materially changes the relevant behavior. The deferred checks must remain recorded as not executed until results are supplied. This deferral does not authorize production cloud deployment.
+These checks complete the deferred platform evidence for NET-DIR-AC-003, NET-PASS-AC-001, and NET-ADM-AC-001. Existing invariant mode, timing, hazard, paging, and failure evidence need not be repeated unless the nightly implementation materially changes the relevant behavior. The deferred checks must remain recorded as not executed until results are supplied. This deferral does not authorize production cloud deployment or defer NET-PUB-AC-006.
 
-### Current feature acceptance
+### Historical feature acceptance
 
-Product acceptance is Accepted for the revised feature scope. This assessment uses the supplied evidence for source checkpoint `6809885ecfe5dc622f03a1bafec0580ba6157602`, its supplied documentation-only equivalent `4a0e5001ac8452afdfded5f9894ec6ad2987aecc`, independent Linux QA, reviewer approval, satisfied UX assessment, and reported exact-head CI results of 30 Linux, 12 backend, and 15 native Windows checks. Previously satisfied criterion assessments remain valid for unchanged behavior.
+Product acceptance was Accepted for the directory/password feature scope at source checkpoint `6809885ecfe5dc622f03a1bafec0580ba6157602` and its supplied documentation-only equivalent `4a0e5001ac8452afdfded5f9894ec6ad2987aecc`. That assessment used independent Linux QA, reviewer approval, satisfied UX assessment, and reported exact-head CI results of 30 Linux, 12 backend, and 15 native Windows checks. It does not establish acceptance of the reconciled dedicated-pilot candidate. Changed paths require affected-criterion evidence at the final immutable candidate; unchanged behavior may retain its original provenance.
 
 Distinct Linux/Windows interactive LAN checks in both host directions remain not executed and deferred to nightly testing. Feature acceptance does not mark them passed and does not establish overall network-release readiness. The existing recorded security-maintenance and unconfirmed scheduling risks remain follow-up items; this evidence deferral does not resolve them.

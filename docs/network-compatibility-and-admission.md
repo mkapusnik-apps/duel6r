@@ -2,6 +2,8 @@
 
 ## Status and authority
 
+The public dedicated pilot in [network-play-first-release.md](network-play-first-release.md) retains this document's current compatibility checks, stable rejection outcomes, selected-session binding, and atomic admission contract. Its security prerequisite is [TRU-PUB-001 through TRU-PUB-019](network-trust-and-abuse-limits.md). The pre-listener local-host admission sequence below applies only to player-hosted mode. Dedicated readiness follows HSL-PUB-002; the first authorized compatible participant creates and controls the session under NET-PUB-002 through NET-PUB-004. No provisional offer grants controller authority. A failed public security check cannot reach compatibility admission or grant session identity. These public-mode differences do not weaken the player-host password path or exact release/content checks.
+
 This document is the authoritative product target for GitHub issue #30. It defines first-release network compatibility and admission behavior.
 
 The compatibility and admission contract is implemented in the explicit command-line networking scaffold. It does not provide a lobby, gameplay, graphical network UI, or playable networking. The current networking status remains documented in [`networking.md`](networking.md).
@@ -241,7 +243,7 @@ The following identifiers are exact, case-sensitive protocol values. They must n
 | `required-capability-unsupported` | `Network release mismatch. Use the same supported game release as the host.` |
 | `gameplay-content-manifest-invalid` | `Gameplay content manifest is invalid. Use the host's exact supported gameplay content.` |
 | `gameplay-content-mismatch` | `Gameplay content mismatch. Use the host's exact supported gameplay content.` |
-| `match-already-started` | `Match already started. Join-in-progress is not supported.` |
+| `match-already-started` | `Round-one admission has closed. Join when the host returns to the lobby.` |
 | `session-full` | `Session is full.` |
 | `host-policy-rejected` | `Host rejected the connection.` |
 | `admitted` | No rejection copy |
@@ -302,7 +304,7 @@ Missing the three-second request deadline must close the connection without admi
 
 ## Timing, cancellation, and incomplete admission
 
-The current admission window is defined by `NET-ADM-001` through `NET-ADM-012` in [network play](network-play-first-release.md). These requirements replace the prior no-join-in-progress rule. Initial snapshot references in this document mean a current lobby snapshot for lobby admission or a current match snapshot for round-one admission. All ownership, calibration, compatibility, and connection-deadline checks remain required. The `match-already-started` identifier remains stable, but its copy is `Round-one admission has closed. Join when the host returns to the lobby.` Password authorization follows [NET-PASS-001 through NET-PASS-007](network-host-directory.md) at the existing authorization stage.
+The current admission window is defined by `NET-ADM-001` through `NET-ADM-012` in [network play](network-play-first-release.md). Initial snapshot references mean a current lobby snapshot for lobby admission or a current match snapshot for round-one admission. All ownership, calibration, compatibility, and connection-deadline checks remain required. The `match-already-started` identifier remains stable and uses the admission-closed copy above. Player-host password authorization follows [NET-PASS-001 through NET-PASS-010](network-host-directory.md) at the existing authorization stage. Dedicated invitation authorization follows TRU-PUB.
 
 The guest's 10-second deadline includes resolution, connection, compatibility, capacity, host admission, clock calibration, and initial lobby snapshot validation.
 
@@ -379,7 +381,7 @@ Local Play must keep the local profile and scripting behavior in [`features.md`]
 - Issue #40 owns supported artifact and deployment documentation.
 - Issue #41 owns complete release-candidate validation.
 
-This issue does not implement lobby UX, simulation, replication, readiness, scoring, or persistence. It does not add join-in-progress, spectators, or host migration.
+This compatibility contract does not own lobby UX, simulation, replication, readiness, scoring, or persistence. NET-ADM owns round-one admission behavior. Spectators and host migration remain excluded.
 
 Completion of issue #30 alone must not justify a claim that network play is available. It must not remove the experimental scaffold warning.
 

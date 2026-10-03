@@ -1,0 +1,20 @@
+[Unit]
+Description=Duel 6 dedicated pilot
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/duel6r/image.env
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/etc/duel6r
+ExecStart=/usr/local/sbin/duel6r-start
+ExecStopPost=/usr/bin/systemctl stop haproxy
+ExecStopPost=/usr/bin/docker compose --env-file image.env down
+TimeoutStartSec=180
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

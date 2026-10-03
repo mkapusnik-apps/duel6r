@@ -2,7 +2,17 @@
 
 ## Status, purpose, and requirements
 
-Current functional target: admission closes and reopens under [NET-ADM-001 through NET-ADM-005](../network-play-first-release.md), not at host Start. New admission while gameplay runs enters `NET-05` directly. Lobby readiness behavior is unchanged. The host must be able to read publication availability and retry failed publication under NET-DIR-015 without ending the session. Functional acceptance uses NET-AC-007 and NET-DIR-AC-004.
+Admission closes and reopens under [NET-ADM-001 through NET-ADM-005](../network-play-first-release.md), not at host Start. New admission while gameplay runs enters `NET-05` directly. Lobby readiness behavior is unchanged. The player-host must be able to read publication availability and retry failed publication under NET-DIR-015 without ending the session. Functional acceptance uses NET-AC-007 and NET-DIR-AC-004.
+
+### Public pilot functional contract
+
+`NET-04-PUBLIC-CONTROLLER` and `NET-04-PUBLIC-GUEST` implement `NET-PUB-001`–`NET-PUB-015`. Dedicated lobby admission enters this screen from `NET-03`, including for the first participant. Dedicated round-one admission enters `NET-05` directly. The service-confirmed controller receives the existing host match controls; the guest receives existing guest controls. Public participants do not supervise a local server process. Current roster, readiness, settings, results, and player ownership contracts remain applicable.
+
+The controller uses the existing `End session for everyone?` confirmation. Confirm ends the session and returns the controller to `NET-01`; Cancel leaves the current state unchanged. The controller has no leave action that preserves the session for guests. Guest Leave retains existing behavior. Controller and guest contact loss both enter `NET-07`. Confirmed service terminal outcomes use `NET-08` or `NET-09` as specified by HSL-PUB-005 through HSL-PUB-010.
+
+Functional acceptance: `NET-PUB-AC-001`–`NET-PUB-AC-004` and `HSL-PUB-AC-002` cover role assignment, permission denial, readiness, end confirmation, recovery, and terminal destinations. UX owns role labels and presentation without implying process ownership.
+
+Presentation authority: [NET-04 UX contract](../design/screens/NET-04.md). `Host` is an approved user-facing name for the controller role. Admission, not a client-side choice, assigns that role.
 
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It exposes participant ownership, local-player configuration, host-owned match settings, authoritative roster order, readiness, and retained session results. Issue #32 defines its authoritative setup and result states in [`docs/network-authoritative-headless-match.md`](../network-authoritative-headless-match.md).
 Local-player configuration preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
@@ -67,7 +77,7 @@ The retained-result variant [NET-04-R](../design/wireframes/NET-04/NET-04-R.svg)
 - Lobby removals are one atomic batch: clear every remaining readiness value, perform no winner evaluation, retain the `Session only` result, and label affected retained rows `Departed`.
 - Guest Leave opens `Leave session? Your players will be removed and you will return to Network.` Confirm removes the guest and enters guest `NET-01`; Cancel returns to the lobby.
 - Host End session opens `End session for everyone?` Confirm sends host to `NET-01` and guests to host-ended `NET-09`; Cancel returns to the lobby.
-- Admission closes at match start; there is no join-in-progress control.
+- Admission remains open through the first active round and closes at its outcome under NET-ADM-002. Return to lobby reopens admission under NET-ADM-005.
 - Completed and interrupted result rows remain labeled `Session only`; departed rows show `Departed`; starting a new match clears the retained result and session end discards it.
 - A completed result appears first in `NET-06` and remains available in this following lobby.
 - When an active-round or non-final-summary batch leaves fewer than two roster players, this lobby shows the current `Session only • Interrupted • No winner` result directly without an intervening `NET-06` screen.

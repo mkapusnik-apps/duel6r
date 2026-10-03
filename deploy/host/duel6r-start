@@ -1,0 +1,29 @@
+#!/bin/bash
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+umask 077
+source /etc/duel6r/environment
+cd /etc/duel6r
+systemctl stop haproxy
+docker compose --env-file image.env down
+# Do not reuse a socket or invitation from the previous process.
+rm -rf /run/duel6r
+install -d -m 0700 /run/duel6r
+install -d -o 10001 -g 10001 -m 0700 /run/duel6r/runtime
+token=$(curl --fail --silent --show-error -H 'Metadata-Flavor: Google' \
+  http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | jq -er .access_token)
+# Keep the bearer token out of process arguments and logs.
+printf 'header = "Authorization: Bearer %s"\n' "$token" | \
+  curl --config - --fail --silent --show-error \
+  "https://secretmanager.googleapis.com/v1/projects/duel-6-reloaded/secrets/duel6r-${ENVIRONMENT}-invite/versions/latest:access" \
+  | jq -er .payload.data | base64 --decode > /run/duel6r/invite
+unset token
+chown 10001:10001 /run/duel6r/invite
+chmod 0400 /run/duel6r/invite
+certbot renew --non-interactive
+/usr/local/sbin/duel6r-certificate
+docker compose --env-file image.env up -d --wait --wait-timeout 60
+systemctl start haproxy
+timeout 10 openssl s_client -connect 127.0.0.1:26660 \
+  -servername "$HOSTNAME_TLS" -verify_hostname "$HOSTNAME_TLS" \
+  -verify_return_error -CApath /etc/ssl/certs </dev/null >/dev/null

@@ -160,15 +160,27 @@ namespace {
             if (onReceive) onReceive(frame);
             return true;
         }
+        Network::TransportInputSnapshot sealAndDrainInput(
+                std::size_t maximumFrames = Network::MaxQueuedTransportFrames) override {
+            inputSealed = true;
+            ++seals;
+            Network::TransportInputSnapshot snapshot;
+            Network::TransportFrame frame;
+            while (snapshot.frames.size() < maximumFrames && receive(frame))
+                snapshot.frames.push_back(std::move(frame));
+            snapshot.state = state(); snapshot.terminalAt = terminalAt();
+            return snapshot;
+        }
         Network::ClientState state() const override { return currentState; }
         Network::TransportTimePoint acceptedAt() const override { return accepted; }
         Network::TransportTimePoint terminalAt() const override { return terminal; }
         bool permitAdmissionAcceptance() override { permission = true; return permitResult; }
         void revokeAdmissionAcceptance() override { permission = false; revoked = true; }
-        void markAdmissionSucceeded() override { succeeded = true; }
+        void markAdmissionSucceeded() override { succeeded = true; inputSealed = false; }
         void requestClose() override { closeRequested = true; }
 
         void queue(std::vector<std::uint8_t> payload, Network::TransportTimePoint received) {
+            if (inputSealed) return;
             incoming.push_back({std::move(payload), received});
         }
         std::deque<Network::TransportFrame> incoming;
@@ -180,6 +192,8 @@ namespace {
         bool permitResult = true;
         bool revoked = false;
         bool succeeded = false;
+        bool inputSealed = false;
+        unsigned seals = 0;
         bool closeRequested = false;
         std::function<void(const Network::TransportFrame &)> onReceive;
         std::function<void(const std::vector<std::uint8_t> &)> onSend;
@@ -2480,6 +2494,163 @@ D6R_TEST_CASE("NET-09 production Headless sends one intentional End notice and n
 
         D6R_REQUIRE_EQ(termination == Termination::Failure ? 3 : 0, hostStatus);
         D6R_REQUIRE_EQ(termination == Termination::End ? 1u : 0u, notices);
+    }
+}
+
+namespace {
+    enum class TerminalTail { Leave, ReadOnly, Eof, Invalid, WrongIdentity, WrongSession,
+                              LateLeave, OverBudget, InvalidAfterReadOnly, WrongIdentityAfterReadOnly };
+    struct TerminalTailResult {
+        unsigned notices = 0;
+        std::size_t ordinaryFrames = 0, maximumPerTurn = 0, seals = 0;
+        bool retired = false;
+    };
+
+    TerminalTailResult runTerminalAdmittedTail(TerminalTail tail, std::size_t preceding) {
+        TemporaryResources files;
+        const std::string invitation = "terminal-tail-test-only-0123456789abcdef";
+        D6R_REQUIRE(files.write("invite", invitation));
+        D6R_REQUIRE(chmod((files.root / "invite").c_str(), 0600) == 0);
+        const auto resources = fs::path(__FILE__).parent_path().parent_path() / "resources";
+        const auto built = Network::CompatibilityManifestBuilder(resources.string()).build();
+        D6R_REQUIRE(built.valid());
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto controller = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        auto guest = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        fixture->connection = controller;
+        for (const auto &connection: {controller, guest})
+            connection->queue(Network::PublicSession::wrapAdmission(
+                    Network::serializeAdmissionRequest(requestFor(built.manifest)), invitation), fixture->now);
+        auto dependencies = runtimeDependencies(fixture, built.manifest);
+        // Dedicated readiness precedes the first controller/session; the local
+        // player-host fixture's HostInitialized-before-Ready guard does not apply.
+        dependencies.hostedServiceStatus = [](auto) { return true; };
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+        dependencies.productionReplicationProtocol = true;
+        std::optional<Network::Lifecycle::ReconnectGrant> controllerGrant, guestGrant;
+        TerminalTailResult result;
+        bool guestAccepted = false, injected = false;
+        Network::Trust::TimePoint lastTurn{};
+        std::size_t thisTurn = 0;
+        const bool readOnly = tail == TerminalTail::ReadOnly || tail == TerminalTail::InvalidAfterReadOnly
+                              || tail == TerminalTail::WrongIdentityAfterReadOnly;
+        auto target = tail == TerminalTail::WrongIdentity || tail == TerminalTail::WrongIdentityAfterReadOnly
+                      ? guest : controller;
+        target->onReceive = [&](const Network::TransportFrame &frame) {
+            if (!injected) return;
+            if (lastTurn != fixture->now) { lastTurn = fixture->now; thisTurn = 0; }
+            result.maximumPerTurn = std::max(result.maximumPerTurn, ++thisTurn);
+            const auto action = Network::Lifecycle::deserializeParticipantAction(frame.payload);
+            const auto replication = Network::Replication::deserializeReplicationFrame(frame.payload);
+            if ((action && action->kind != Network::Lifecycle::ParticipantActionKind::Leave)
+                || (replication && replication->kind == Network::Replication::ReplicationFrameKind::QualityProbe))
+                ++result.ordinaryFrames;
+            // Select EOF publication on the last frame of a full ordinary turn,
+            // not only the already-terminal-at-entry case.
+            if (tail == TerminalTail::Leave && preceding == 17 && result.ordinaryFrames == Network::MaxNetworkPlayers) {
+                target->terminal = fixture->now;
+                target->currentState = Network::ClientState::Failed;
+            }
+        };
+        for (const auto &connection: {controller, guest}) connection->onSend = [&, connection](const auto &payload) {
+            if (auto grant = Network::Lifecycle::deserializeReconnectGrant(payload))
+                (connection == controller ? controllerGrant : guestGrant) = *grant;
+            if (auto notice = Network::Lifecycle::deserializeIntentionalHostEnd(payload))
+                if (connection == guest && notice->sessionId == controllerGrant->sessionId) ++result.notices;
+            if (payload.size() >= 4 && payload[3] == 'O') {
+                const auto offer = Network::deserializeAdmissionOffer(payload);
+                connection->queue(Network::serializeAdmissionAcceptance(
+                        offer), fixture->now);
+            }
+        };
+        dependencies.wait = [&](auto amount) {
+            fixture->now += amount;
+            if (controller->succeeded && !guestAccepted) {
+                fixture->connection = guest; fixture->accepted = false; guestAccepted = true;
+            } else if (guest->succeeded && !injected) {
+                D6R_REQUIRE(controllerGrant && guestGrant);
+                const auto &grant = target == controller ? *controllerGrant : *guestGrant;
+                for (std::size_t index = 0; index < preceding; ++index) {
+                    // Lobby readiness is ordinary authorized ingress. Gameplay
+                    // input before match ownership is initialized is not valid.
+                    if (readOnly)
+                        target->queue(Network::Replication::serializeQualityProbe(index + 1), fixture->now);
+                    else target->queue(Network::Lifecycle::serializeParticipantAction({grant.sessionId,
+                            grant.participantId, index % 2 ? Network::Lifecycle::ParticipantActionKind::NotReady
+                                                          : Network::Lifecycle::ParticipantActionKind::Ready}), fixture->now);
+                }
+                if (tail == TerminalTail::Invalid || tail == TerminalTail::InvalidAfterReadOnly)
+                    target->queue({0xff}, fixture->now);
+                if (tail != TerminalTail::Eof) {
+                    const auto action = Network::Lifecycle::serializeParticipantAction({
+                            controllerGrant->sessionId + (tail == TerminalTail::WrongSession),
+                            controllerGrant->participantId, Network::Lifecycle::ParticipantActionKind::Leave});
+                    target->queue(action, fixture->now + (tail == TerminalTail::LateLeave ? 1ms : 0ms));
+                }
+                target->terminal = fixture->now;
+                target->currentState = tail == TerminalTail::Leave && preceding == 17
+                                       ? Network::ClientState::Connected : Network::ClientState::Failed;
+                if (readOnly) target->sendResult = Network::SendResult::NotConnected;
+                injected = true;
+            }
+            if (fixture->now > Network::Trust::TimePoint{} + 2s) fixture->cancelled = true;
+        };
+        dependencies.lifecycleObserver = [&](const auto &event) {
+            if (injected && event.stage == Server::AdmissionLifecycleStage::ConnectionClosed
+                && event.connectionId == (target == controller ? 1u : 2u)) {
+                result.retired = true; fixture->cancelled = true;
+            }
+            return true;
+        };
+        auto config = runtimeServerConfig();
+        config.dedicated = true; config.trustedProxyV2 = true; config.localPlayers = 0;
+        config.inviteFile = (files.root / "invite").string();
+        config.readinessSocket = (files.root / "ready.sock").string();
+        std::ostringstream output;
+        Server::HeadlessServer server(config, std::move(dependencies));
+        server.runtimeDependencies.productionReplicationProtocol = true;
+        const auto status = server.run(output);
+        controller->onSend = {}; guest->onSend = {};
+        D6R_REQUIRE_EQ(0, status);
+        D6R_REQUIRE(injected);
+        result.seals = target->seals;
+        return result;
+    }
+}
+
+D6R_TEST_CASE("terminal admitted ingress preserves ordinary frames before real controller Leave and EOF") {
+    for (const std::size_t preceding: {std::size_t{1}, std::size_t{17}, Network::Trust::NonInputActionBurst - 1}) {
+        const auto result = runTerminalAdmittedTail(TerminalTail::Leave, preceding);
+        D6R_REQUIRE_EQ(1u, result.notices);
+        D6R_REQUIRE_EQ(preceding, result.ordinaryFrames);
+        D6R_REQUIRE(result.seals != 0);
+        D6R_REQUIRE(result.maximumPerTurn <= Network::MaxNetworkPlayers);
+    }
+}
+
+D6R_TEST_CASE("terminal admitted ingress EOF without Leave never manufactures End") {
+    const auto result = runTerminalAdmittedTail(TerminalTail::Eof, 17);
+    D6R_REQUIRE_EQ(0u, result.notices);
+    D6R_REQUIRE_EQ(17u, result.ordinaryFrames);
+    D6R_REQUIRE(result.seals != 0);
+    D6R_REQUIRE(result.retired && result.maximumPerTurn <= Network::MaxNetworkPlayers);
+}
+
+D6R_TEST_CASE("terminal admitted ingress read-only reply failure does not discard queued Leave") {
+    const auto result = runTerminalAdmittedTail(TerminalTail::ReadOnly, 17);
+    D6R_REQUIRE_EQ(1u, result.notices);
+    D6R_REQUIRE_EQ(17u, result.ordinaryFrames);
+    D6R_REQUIRE(result.seals != 0 && result.maximumPerTurn <= Network::MaxNetworkPlayers);
+}
+
+D6R_TEST_CASE("terminal admitted ingress invalid unauthorized late and over-budget tails cannot End") {
+    for (const auto tail: {TerminalTail::Invalid, TerminalTail::WrongIdentity,
+                          TerminalTail::WrongSession, TerminalTail::LateLeave, TerminalTail::OverBudget,
+                          TerminalTail::InvalidAfterReadOnly, TerminalTail::WrongIdentityAfterReadOnly}) {
+        const auto result = runTerminalAdmittedTail(tail,
+                tail == TerminalTail::OverBudget ? Network::Trust::NonInputActionBurst + 1 : 1);
+        D6R_REQUIRE_EQ(0u, result.notices);
+        D6R_REQUIRE(result.retired && result.maximumPerTurn <= Network::MaxNetworkPlayers);
     }
 }
 #endif

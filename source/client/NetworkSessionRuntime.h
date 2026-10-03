@@ -17,6 +17,7 @@
 #include "../network/NetworkResponsiveness.h"
 #include "../network/PlayerInputProtocol.h"
 #include "../network/Protocol.h"
+#include "../network/PublicSession.h"
 #include "../network/SessionLifecycle.h"
 #include "../network/StateReplication.h"
 #include "../network/StateReplicationProtocol.h"
@@ -43,6 +44,9 @@ namespace Duel6::Client {
     struct NetworkRuntimeSnapshot {
         NetworkJourney journey = NetworkJourney::Inactive;
         bool host = false;
+        bool publicSession = false;
+        bool authorizationRejected = false;
+        bool securityFailure = false;
         Network::Replication::Identity localParticipantId = 0;
         Network::Endpoint endpoint;
         std::optional<Network::Replication::CanonicalState> canonical;
@@ -69,7 +73,8 @@ namespace Duel6::Client {
         bool join(const Network::Endpoint &endpoint, const std::string &resourcePath,
                   std::vector<NetworkLocalPlayer> players,
                   std::shared_ptr<const Network::SessionPassword> password = {},
-                  std::string expectedSessionId = {});
+                  std::string expectedSessionId = {}, bool publicSession = false,
+                  std::shared_ptr<Network::PublicSession::Secret> invitation = {});
         void cancel();
         void leave();
         void endSession();

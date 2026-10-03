@@ -1,53 +1,78 @@
-# NET-03 — Join setup and connecting
+# NET-03 — Shared connection setup and dedicated pilot
 
-Functional contract: [network-join](../../screens/network-join.md), including NET-OWN-001–003 and ADM-OWN-001. States `NET-03-password` and `NET-03-live-admission` consume [NET-PASS-001–007 and NET-DIR-013–014](../../network-host-directory.md) and [NET-ADM-011](../../network-play-first-release.md). Wireframes: [NET-03-E editable setup](../wireframes/NET-03/NET-03-E.svg) and [existing NET-03 connecting](../../screens/wireframes/network-join.md).
+Functional authority: [NET-03](../../screens/network-join.md), `NET-DIR-013/014`, `NET-PASS-001`–`NET-PASS-010`, `NET-ADM-011`, and `NET-JOIN-PUB-001`–`NET-JOIN-PUB-019`. States: `NET-03-password`, `NET-03-live-admission`, `NET-03-PUBLIC-EDIT`, and `NET-03-PUBLIC-CONNECTING`. Structural sources: [NET-03-E](../wireframes/NET-03/NET-03-E.svg), [NET-03-P](../wireframes/NET-03/NET-03-P.svg), and [NET-03 connecting](../wireframes/NET-03/NET-03.svg).
+
+Visual impact: retain develop's editable/connecting separation and add a bounded pilot invitation task. Do not add a public host-setup screen or password overlay.
 
 ## Shared setup
 
-The [shared visual baseline](../../design.md#unified-network-presentation) applies. NET-03-E retains the endpoint, setup, and footer relationships in its SVG. The existing NET-03 legacy diagram remains authoritative for the separate locked connecting task.
+The [unified visual baseline](../../design.md#unified-network-presentation) applies. The pilot must use the same field, list, button, focus, and disabled treatments.
 
 - **UX-NET-03-001** Editable setup must use a fixed endpoint region, two equal-height setup panels, and a fixed feedback/action region.
-- **UX-NET-03-002** Address, Port, and Password labels must align in a left column beside separately framed white value regions.
-- **UX-NET-03-003** Password help and directory context must remain outside the editable value regions.
-- **UX-NET-03-004** The two setup panels must use the same list and row-action treatment as NET-02 without importing host-only controls.
-- **UX-NET-03-005** Connect and Back must remain in their existing centered action column below validation and admission context.
-- **UX-NET-03-006** Connecting must replace editable setup with one full-width locked local-player panel beneath the retained endpoint.
-- **UX-NET-03-007** Locked connecting rows must keep separate Slot, Person, and Control columns with a persistent locked/read-only label.
-- **UX-NET-03-008** Connecting must keep its status, deadline text, and sole framed Cancel action below the roster without clipping the fifteenth row.
-- **UX-NET-03-009** Long endpoint and player values must remain inside their regions without covering the Port, control, or status text.
+- **UX-NET-03-002** Address, Port, and the applicable credential label must align beside separately framed white value regions.
+- **UX-NET-03-003** Credential help and directory context must remain outside editable value regions.
+- **UX-NET-03-004** Setup panels must retain NET-02's list and row-action treatment without host-only controls.
+- **UX-NET-03-005** Connect and Back must remain in the existing centered action column below validation and admission context.
+- **UX-NET-03-006** Connecting must use one full-width locked local-player panel beneath the retained endpoint.
+- **UX-NET-03-007** Connecting must retain separate Slot, Person, and Control columns and a persistent locked/read-only label.
+- **UX-NET-03-008** Connecting must keep status, deadline text, and the sole Cancel action below the roster without clipping the fifteenth row.
+- **UX-NET-03-009** Long endpoint and player values must remain inside their regions.
+- Directory selection must reuse NET-03-E and prefill the selected endpoint.
+- Directory context must retain the advertised identity under NET-DIR-014.
+- A pilot default must not replace a browser-selected address or port.
+- Endpoint edits must remove claims about the previous listing under the functional contract.
+- Player-hosted setup must retain the masked Password field and develop's optional/required help.
+- Both editable variants must show the explicit service-type selector without changing a browser-selected endpoint.
+- Player-hosted setup must not display `Trusted private LAN only` or claim that encryption is absent.
+- Unlocked endpoint-only direct setup must show `Endpoint-only first contact does not authenticate host identity.` in the existing context region.
+- That limitation must not appear as a certificate waiver on the dedicated pilot or as a claim about password-protected admission.
+- Browser-origin setup must retain its return-to-browser path.
+- Direct setup must retain its NET-01 Back destination.
+- First-round context must retain `Round 1 in progress. You will play immediately if admitted.`
+- Listing context must retain `The host confirms availability when you connect.`
+- Admission must show only the current confirmed lobby or arena, without an intermediate false lobby claim.
 
-- Directory selection must reuse the existing join task instead of adding a password dialog.
-- The directory path must prefill the selected endpoint.
-- Directory context must retain the advertised session identity under NET-DIR-014.
-- The context line must identify the selected session using its endpoint.
-- Direct entry must retain editable Address and Port.
-- A field labeled `Password` must follow Port on both paths.
-- The direct path must show `Enter a password only if the host requires one.`
-- A listed protected session must show `Password required` next to the field.
-- Password input must be masked.
-- A password must never appear in connection progress or failure copy.
-- The setup must retain person selection, local control assignment, count, Connect, and Back.
-- The editable layout must keep its header and actions fixed while the roster scrolls.
-- An advertised first-round session must show `Round 1 in progress. You will play immediately if admitted.`
-- The same context region must say `The host confirms availability when you connect.`
-- A listing must not cause the screen to claim successful connection.
+## Pilot endpoint and invitation
 
-## Focus and feedback
+The service-type distinction identifies the dedicated lifecycle, not a plaintext security option. NET-JOIN-PUB-001 owns the explicit dedicated/player-hosted choice. Use `Public dedicated pilot` and `Player-hosted session` as presentation labels. Keep product's direct-entry default and browser-selected mode. Do not infer mode or verified identity from an address.
 
-- Direct entry must initially focus Address.
-- Directory entry with a required password must initially focus Password.
-- Directory entry without a required password should initially focus local-player setup.
-- Traversal must follow Address, Port, Password, roster actions, Connect, and Back.
-- Editable endpoint changes must remove claims that describe the previously selected listing.
-- Back from directory setup should restore NET-10 and its selected row if that row still exists.
-- Back from direct setup must retain its NET-01 destination.
-- Connecting must retain the existing NET-03 locked roster layout and Cancel focus.
-- Cancel must return to editable setup without losing local-player choices.
-- A password correction must not require repeated player setup.
-- After validated admission, the UI must show the host-confirmed lobby or arena without an intermediate false lobby claim.
+- Pilot setup must show its service-type selector above Address.
+- The pilot address must remain editable for production, staging, and custom endpoints.
+- Fresh pilot setup must display `duel.netusite.cz` and separate Port `26660` only on the product-approved default path.
+- The address field must fit `staging.duel.netusite.cz` at the compatibility floor.
+- Port must keep five digits visible.
+- The pilot must show a separate field labeled `Invite` after Port.
+- Pilot help must say `Invite required` outside the field.
+- The pilot must not present the invitation as the player-hosted Password.
+- Invite must render one asterisk per entered character and the standard focus underscore.
+- Invite must not reveal the last typed character or provide a reveal action.
+- Explicit paste must target only the focused Invite field.
+- The UI must show a cleared invitation as an empty field rather than a retained mask.
+- Retention and clearing must follow NET-JOIN-PUB-015–018.
+- Credential input must not appear in progress, failure, lobby, endpoint, or diagnostic copy.
+- Public guidance must state `The first admitted participant controls the session.`
+- Public guidance must state `Leaving as host ends the session. Server updates may end the session.`
+- The UI must not claim encrypted connection or verified server identity before confirmation.
+- The UI must not offer certificate bypass or plaintext fallback.
 
-## Acceptance
+Production is a default address, not evidence of availability. Staging uses the same editable field. Do not add an environment picker or contact a public service for capture. Input validation must use product's bounds. Missing invitation feedback must say `Enter an invitation`. Invalid invitation feedback must say `Use 1–256 printable ASCII characters without spaces.` Do not echo or silently shorten the rejected input.
 
-NET-03-E is a distinct structural variant because editable setup contains endpoint, password, and roster actions absent from the existing connecting layout. No password overlay is needed. Contextual Back and NET-08 browser recovery provide the return-to-browser path required by NET-DIR-014. Password entry and correction remain outside the connection deadline under NET-PASS-003. The UI must use `Connection not authorized.` for NET-08-password-rejected rather than disclose which secret check failed.
+## Allocation, input, and acceptance
 
-The editable representative must show the required-password focus and first-round context without obscuring Connect or Back. The connecting representative must use an actual pending attempt with retained endpoint and locked slots, not a replacement screen or injected runtime state. Focused QA must cover direct entry, invalid fields, optional password, Cancel retention, fifteen locked slots, and long valid input. Capture details are in the [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix).
+- NET-03-P must keep its endpoint and guidance above the two setup panels below the banner.
+- The pilot's extra rows must reduce visible list rows rather than cover validation or actions.
+- Each setup list must scroll independently under fixed headings.
+- Credential masks must clip inside their field.
+- Focused text must scroll horizontally to keep the insertion position visible.
+- Direct player-hosted entry must retain initial Address focus.
+- Protected browser entry must retain initial Password focus.
+- Unprotected browser entry should initially focus local-player setup.
+- Fresh pilot entry must focus the service-type selector.
+- Pilot traversal must follow service type, Address, Port, Invite, local setup, Connect, and Back.
+- Player-hosted traversal must include service type before Address, Port, Password, local setup, Connect, and Back while retaining each route's initial focus.
+- Connecting must focus Cancel and remove editable focus and pointer targets.
+- Cancel must retain local-player choices and permitted endpoint/credential state.
+- Keyboard, controller, and pointer activation semantics must remain unchanged.
+- Text entry must use supported keyboard input without implying an on-screen keyboard.
+
+Acceptance requires recognizable unfocused fields, non-overlapping row focus, complete actions, masked credentials, and truthful admission context at both minimum viewports. Test production-default entry separately from browser-selected and custom endpoint retention. Test all three with Cancel and failure recovery. Test player-hosted first-round admission through its real browser route. The [coordinated matrix](../screenshots/README.md#network-presentation-current-capture-matrix) retains NET-03-E and locked NET-03 and adds NET-03-P only for the materially different pilot setup.

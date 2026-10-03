@@ -1,57 +1,61 @@
 # NET-04 — Lobby and retained results
 
-Functional contract: [network-lobby](../../screens/network-lobby.md). Existing requirements NET-OWN-002–009 remain applicable. [NET-DIR-001–007 and NET-DIR-015](../../network-host-directory.md) own registration and recovery. Structural sources: [NET-04](../../screens/wireframes/network-lobby.md) and [NET-04-R](../wireframes/NET-04/NET-04-R.svg).
+Functional authority: [NET-04](../../screens/network-lobby.md), `NET-OWN-002`–`NET-OWN-009`, `NET-DIR-001`–`NET-DIR-007/015`, and `NET-PUB-001`–`NET-PUB-015`. Pilot states: `NET-04-PUBLIC-CONTROLLER` and `NET-04-PUBLIC-GUEST`. Structural sources: [NET-04](../wireframes/NET-04/NET-04.svg) and develop's [NET-04-R](../wireframes/NET-04/NET-04-R.svg).
+
+Visual impact: preserve develop's unified groups, controls, retained results, and reorder indication. Add role and consequence copy only in the pilot header.
 
 ## Presentation and allocation
 
-The [shared visual baseline](../../design.md#unified-network-presentation) applies to both existing wireframes. It changes panel and control appearance without changing the roster, settings, results, or action hierarchy.
+The [unified visual baseline](../../design.md#unified-network-presentation) applies to both wireframes.
 
-- **UX-NET-04-001** The fixed session header must keep endpoint, role, totals, and directory feedback above the body.
-- **UX-NET-04-002** The main body must retain its approximately two-thirds membership/roster and one-third host-settings allocation with an 8-logical-pixel gap.
-- **UX-NET-04-003** Participant and roster sections must use fixed column headings over white inset bodies.
+- **UX-NET-04-001** The fixed header must keep endpoint, role, totals, and applicable status above the body.
+- **UX-NET-04-002** The body must retain approximately two-thirds membership/roster and one-third host settings with an 8-logical-pixel gap.
+- **UX-NET-04-003** Participant and roster sections must use fixed headings above inset list bodies.
 - **UX-NET-04-004** Role, Connection, Readiness, and Owned must remain separate participant columns.
-- **UX-NET-04-005** An owned person or control value must have an editable boundary while another participant's value retains its read-only presentation.
-- **UX-NET-04-006** Host settings must use framed existing value controls without adding new spinner arrows or toggle targets.
-- **UX-NET-04-007** Guest settings must retain their read-only explanation without actionable raised frames.
-- **UX-NET-04-008** Ready, Start match, Leave or End session, visible roster-order controls, and eligible Retry publication must each have a persistent action boundary, while NET-04-R must use a persistent host-only capability indication for its focus-dependent reorder action.
-- **UX-NET-04-009** The disabled Start reason and script-policy text must remain outside the roster and settings bodies above the footer.
-- **UX-NET-04-010** NET-04-R must retain its approximately 215-logical-pixel result region below current membership and settings.
-- **UX-NET-04-011** The retained result must use a separate title strip and fixed outcome labels above its scrolling white result body.
-- **UX-NET-04-012** Current membership and historical result identities must remain in visibly separate regions.
-- **UX-NET-04-013** Added group frames must reduce visible body rows before they cover result scrolling controls, readiness, or the footer.
+- **UX-NET-04-005** Owned editable values must retain a field boundary distinct from remote read-only values.
+- **UX-NET-04-006** Host settings must retain framed value controls without new arrows or toggle targets.
+- **UX-NET-04-007** Guest settings must retain a read-only explanation without actionable frames.
+- **UX-NET-04-008** Existing actions must retain persistent boundaries, except NET-04-R's focus-dependent reorder action, which must retain its persistent host-only capability indication.
+- **UX-NET-04-009** The disabled Start reason and script-policy text must remain above the footer outside the body lists.
+- **UX-NET-04-010** NET-04-R must retain approximately 215 logical pixels for results below current membership and settings.
+- **UX-NET-04-011** Retained results must keep a separate title strip and fixed outcome labels above their scrolling body.
+- **UX-NET-04-012** Current membership and historical identities must remain in separate regions.
+- **UX-NET-04-013** Added header copy and frames must reduce visible body rows before they cover results, readiness, or footer actions.
+- **UX-NET-04-014** NET-04-R must identify host reordering before focus reaches that action.
+- **UX-NET-04-015** Reorder help must retain the existing Tab/Up/Down or controller-direction access path followed by Enter/Space or Confirm.
+- **UX-NET-04-016** Reorder help must remain non-interactive without a button frame or input target.
+- **UX-NET-04-017** The actual Reorder action must retain baseline focus-dependent visibility, current-player identification, pointer behavior, and outcome.
+- **UX-NET-04-018** Guests must retain the read-only roster explanation without host reorder help.
 
-Reading order remains session status, current membership and settings, retained results when present, persistent feedback, and actions. Existing focus traversal remains unchanged even where role-specific traversal differs from the spatial reading order. The older NET-04-R SVG omits the common banner for diagram space; this does not authorize removing the current banner or version.
+Reading order remains header, current membership/settings, retained results when present, feedback, and actions. Keep the banner/version even where the older retained-result diagram omits it for space. Keep baseline traversal, including visible focus retained on a disabled action without activation.
 
-### Retained-lobby reorder indication
+## Player-hosted listing feedback
 
-- **UX-NET-04-014** NET-04-R must identify host roster reordering before that action receives focus.
-- **UX-NET-04-015** The indication must explain the existing access path: Tab or Down/Up to the Reorder item, then Enter/Space, or controller directional traversal followed by Confirm.
-- **UX-NET-04-016** The indication must remain plain non-interactive help without a button frame, focus target, or pointer activation region.
-- **UX-NET-04-017** The actual Reorder action must retain its baseline focus-dependent visibility, current-player identification, activation targets, pointer behavior, and reorder outcome.
-- **UX-NET-04-018** The guest variant must retain its read-only roster explanation without a host reorder capability indication.
+- Player-hosted status must distinguish the session from its directory listing.
+- It must use confirmed `Directory: Registering…`, `Directory: Listed`, or `Directory: Unavailable` state.
+- Publication failure must retain `Session is still running. Share the endpoint for direct connection.`
+- Eligible Retry publication must remain beside directory feedback and separate from Start match.
+- Pending publication retry must retain persistent progress and prevent duplicate activation.
+- Retry publication must retain its position after existing lobby actions in traversal.
+- Status overflow may take one body row without moving fixed results or actions.
+- Listing feedback must not open a modal or promise endpoint reachability.
+- NET-04-R must retain the same feedback treatment.
 
-The indication belongs in the existing current-roster region, not the historical result table. It must not claim that left/right selects a move direction or that an unfocused row is clickable. The focused Reorder item identifies the current roster position and person as in the baseline. A control that remains focused while disabled must keep its focus outline without accepting activation.
+## Dedicated pilot role presentation
 
-## Listing feedback
-
-- Host status must distinguish the running session from its directory listing.
-- Host status must use `Directory: Registering…`, `Directory: Listed`, or `Directory: Unavailable` from confirmed registration state.
-- Loss of confirmed listing freshness must not leave an unconditional Listed claim.
-- Directory failure help must say `Session is still running. Share the endpoint for direct connection.`
-- A failed publication must show `Retry publication` next to directory status.
-- Retry publication must remain separate from Start match and must not imply a session restart.
-- Retry publication must follow existing lobby actions in keyboard and controller traversal.
-- A pending publication retry must show persistent progress and prevent duplicate activation.
-- Listing status must occupy the existing header/status region above the roster.
-- Status must wrap within that region without overlapping current membership or retained results.
-- The status region may grow by one text row at the expense of scrollable membership height.
-- Directory feedback must not replace Ready, Start match, Leave, or End session.
-- Listing feedback must not capture focus or open a blocking modal.
-- The same feedback rules must apply to NET-04-R.
-- The UI must not claim that a listed session is reachable from every machine.
+- Pilot headers must show `Public session` and the service-confirmed `Host` or `Guest` role.
+- Endpoint must occupy a separate bounded line from role and totals.
+- Host guidance must say `You control this session. Leaving ends it for everyone.`
+- Guest guidance must say `The host controls this session. It ends when the host leaves.`
+- The guidance must wrap within at most two reserved header lines.
+- A pilot Host must not be described as running the server process on this computer.
+- Host controls must appear only after authoritative role confirmation.
+- The pilot must not show a directory listing claim or Retry publication target.
+- Invitation values must remain absent.
+- End session must retain its everyone consequence confirmation.
+- Guest Leave must retain its participant-only consequence confirmation.
+- The UI must not add host transfer or migration.
 
 ## Acceptance
 
-The lobby representative must show a running host, directory failure, separately readable participant columns, and an unready participant's disabled Start reason. The retained-result representative must separate current membership from Completed history and keep the outcome headings, scroll feedback, readiness, and footer visible. It must also show the non-interactive host reorder capability indication while focus is outside Reorder. Behavioral QA must prove that publication failure does not terminate the session. No new wireframe is needed for these status variants.
-
-Focused QA must cover guest-owned editing, guest read-only settings, maximum membership, non-Team hidden settings, all Team settings, interrupted results, departed winners, long UTF-8 names, both result-scroll extremes, publication retry focus, and host/guest confirmations. Reorder checks must verify the indication before focus, the existing action after traversal, unchanged focused pointer activation, and no new target on the help text. Disabled-but-focused controls must remain visibly focused and non-activatable. The representative routes and supported viewports are in the [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix).
+Preserve complete headings, owned-slot editing, guest read-only settings, readiness reasons, result access, and footer at both minimum sizes. Long endpoints must stay inside the header. Maximum membership must scroll under fixed headings. Ordinary completed public results may represent pilot copy; they do not replace maximum-name, fourteen-winner, departed-winner, or interrupted-result checks. Verify player-hosted publication recovery and pilot absence of publication actions separately. Capture and state dependencies are in the [coordinated matrix](../screenshots/README.md#network-presentation-current-capture-matrix).

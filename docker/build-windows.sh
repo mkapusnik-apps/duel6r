@@ -71,6 +71,7 @@ cp "${tmp_build_dir}/duel6r-resolver.exe" "${workspace_dir}/${output_dir}/duel6r
 cp -R "${workspace_dir}/resources/." "${workspace_dir}/${output_dir}/"
 cp "${workspace_dir}/README.md" "${workspace_dir}/LICENSE" "${workspace_dir}/${output_dir}/"
 cp /opt/mbedtls-mingw/share/mbedtls/LICENSE "${workspace_dir}/${output_dir}/mbedtls-LICENSE.txt"
+cp /opt/vcpkg/installed/x64-mingw-dynamic/share/openssl/copyright "${workspace_dir}/${output_dir}/openssl-LICENSE.txt"
 # Remove development documentation left by earlier bundle builds.
 rm -rf "${workspace_dir}/${output_dir}/docs"
 
@@ -277,7 +278,7 @@ if retained_manifest.exists():
     ))
 
 files = list(root.glob("*.exe")) + list(root.glob("*.dll"))
-files += [root / name for name in ("README.md", "LICENSE", "mbedtls-LICENSE.txt", "windows-dependencies.txt")]
+files += [root / name for name in ("README.md", "LICENSE", "mbedtls-LICENSE.txt", "openssl-LICENSE.txt", "windows-dependencies.txt")]
 for directory in ("data", "levels", "profiles", "shaders", "sound", "textures"):
     files.extend(path for path in (root / directory).rglob("*") if path.is_file())
 with (root / "windows-x86_64.sha256sums").open("w") as manifest:

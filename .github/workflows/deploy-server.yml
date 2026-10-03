@@ -1,0 +1,116 @@
+name: Deploy dedicated pilot
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      digest:
+        description: Previously published sha256 digest (rollback or staging restart)
+        required: true
+      revision:
+        description: Full source SHA recorded with that digest
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  target:
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.target.outputs.environment }}
+      revision: ${{ steps.target.outputs.revision }}
+    steps:
+      - id: target
+        env:
+          BRANCH: ${{ github.ref_name }}
+          REVISION: ${{ inputs.revision || github.sha }}
+        run: |
+          if [[ "$BRANCH" == master ]]; then
+            echo environment=production >> "$GITHUB_OUTPUT"
+          else
+            echo environment=staging >> "$GITHUB_OUTPUT"
+          fi
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: target
+    # Explicit operator authorization. A skipped job is not public activation.
+    if: vars.PUBLIC_PILOT_ACTIVATED == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.target.outputs.environment }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    concurrency:
+      group: dedicated-${{ needs.target.outputs.environment }}
+      cancel-in-progress: false
+    env:
+      ENVIRONMENT: ${{ needs.target.outputs.environment }}
+      REVISION: ${{ needs.target.outputs.revision }}
+      PROJECT: duel-6-reloaded
+      ZONE: europe-north2-a
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.target.outputs.revision }}
+          persist-credentials: false
+      - name: Require configured production approval
+        if: needs.target.outputs.environment == 'production'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/environments/production" \
+            --jq 'any(.protection_rules[]; .type == "required_reviewers" and (.reviewers | length > 0))' | \
+            grep -qx true
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Configure regional registry authentication
+        run: gcloud auth configure-docker europe-north2-docker.pkg.dev --quiet
+      - name: Build, run existing headless CTests, and publish exact source
+        if: inputs.digest == ''
+        id: image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.server
+          push: true
+          platforms: linux/amd64
+          build-args: SOURCE_REVISION=${{ needs.target.outputs.revision }}
+          tags: europe-north2-docker.pkg.dev/duel-6-reloaded/${{ needs.target.outputs.environment }}/server:sha-${{ needs.target.outputs.revision }}
+          provenance: false
+      - name: Select immutable artifact
+        env:
+          DIGEST: ${{ steps.image.outputs.digest || inputs.digest }}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "DIGEST=$DIGEST" >> "$GITHUB_ENV"
+          echo "Source: $REVISION; artifact: $ENVIRONMENT/server@$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+      - name: Start staging for deployment
+        if: needs.target.outputs.environment == 'staging'
+        id: start
+        run: gcloud compute instances start duel6r-staging --project="$PROJECT" --zone="$ZONE" --quiet
+      - name: Replace through fixed privileged receiver
+        run: |
+          printf '%s %s\n' "$DIGEST" "$REVISION" | \
+            gcloud compute ssh "duel6r-$ENVIRONMENT" --project="$PROJECT" --zone="$ZONE" \
+              --tunnel-through-iap --quiet --command='sudo /usr/local/sbin/duel6r-deploy' -- -T
+      - name: Verify public TLS identity separately
+        run: |
+          domain=duel.netusite.cz
+          if [[ "$ENVIRONMENT" == staging ]]; then domain=staging.duel.netusite.cz; fi
+          timeout 15 openssl s_client -connect "$domain:26660" -servername "$domain" \
+            -verify_hostname "$domain" -verify_return_error -CApath /etc/ssl/certs </dev/null
+      - name: Stop staging outside pilot sessions
+        if: always() && (steps.start.outcome == 'success' || steps.start.outcome == 'failure')
+        run: gcloud compute instances stop duel6r-staging --project="$PROJECT" --zone="$ZONE" --quiet
+      - name: Record activation result
+        run: |
+          echo "Activation checks passed. $ENVIRONMENT deployed; staging is stopped after deployment. Sessions are not restored." >> "$GITHUB_STEP_SUMMARY"

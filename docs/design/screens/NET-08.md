@@ -1,41 +1,48 @@
 # NET-08 — Failure and recovery
 
-Functional contract: [network-failure](../../screens/network-failure.md). States `NET-08-password-rejected` and `NET-08-admission-closed` consume [NET-PASS-003–004 and NET-DIR-014](../../network-host-directory.md) and [NET-ADM-002–005](../../network-play-first-release.md). Existing initial-admission failure requirements remain applicable except the superseded no-join-in-progress outcome. Structural source: [NET-08](../../screens/wireframes/network-failure.md).
+Functional authority: [NET-08](../../screens/network-failure.md), `NET-PASS-003/004`, `NET-DIR-014`, `NET-ADM-002`–`NET-ADM-005`, the [trust policy](../../network-trust-and-abuse-limits.md), and the [lifecycle contract](../../network-host-service-lifecycle.md). Structural source: existing [NET-08](../../screens/wireframes/network-failure.md).
+
+Visual impact: preserve develop's unified failure panel and browser recovery. Add pilot-specific outcomes without new controls or disclosure.
 
 ## Presentation and allocation
 
-The [shared visual baseline](../../design.md#unified-network-presentation) applies to all existing initial, host-service, and terminal reconnect failures.
+- **UX-NET-08-001** The CONNECTION FAILED or SESSION ENDED title strip must remain above the reason region.
+- **UX-NET-08-002** Confirmed reason must remain separate from endpoint and recovery instructions.
+- **UX-NET-08-003** Recovery controls must retain equal-height frames in existing reading order when captions fit.
+- **UX-NET-08-004** Controls must wrap in reading order before text or focus crosses panel bounds.
+- **UX-NET-08-005** Disabled Retry must retain a flat frame, readable caption, and persistent nearby reason.
+- **UX-NET-08-006** Severity must remain explicit in text without replacing fixed outcome copy.
+- **UX-NET-08-007** Title and recovery actions must remain visible during body overflow.
 
-- **UX-NET-08-001** The existing CONNECTION FAILED or SESSION ENDED heading must occupy the panel title strip above the reason region.
-- **UX-NET-08-002** The complete confirmed reason must remain visually separate from endpoint context and recovery instructions.
-- **UX-NET-08-003** Recovery controls must use one equal-height framed row in existing reading order when their full captions fit.
-- **UX-NET-08-004** Recovery controls must wrap in reading order before text or focus outlines cross the panel bounds.
-- **UX-NET-08-005** A disabled Retry must remain flat and readable with its reason outside the button rather than a low-contrast or hidden action.
-- **UX-NET-08-006** Failure severity must remain explicit in text without adding a color-only alert or changing the fixed reason copy.
-- **UX-NET-08-007** The heading and recovery controls must remain visible if a long reason uses the existing body overflow treatment.
+## Player-hosted and browser recovery
 
-## Directory-selected recovery
+- Authoritative rejection must take precedence over an older open-admission listing.
+- `NET-08-password-rejected` must show `Connection not authorized.`
+- Edit setup after password rejection must retain endpoint and local players and focus Password.
+- Submitted or expected passwords must remain absent.
+- Capacity failure must not appear as a password error.
+- `NET-08-admission-closed` must show `Round-one admission has closed. Join when the host returns to the lobby.`
+- Unreachable transport must retain `Host unreachable.` without a listing-based success claim.
+- Browser-origin failure must retain Return to browser after Edit setup in reading and focus order.
+- Return to Network must retain its NET-01 destination.
+- Retry must follow the confirmed outcome and input eligibility.
 
-- The screen must retain its heading, bounded reason region, endpoint context, and existing recovery controls.
-- A host rejection must take precedence over an older directory claim that admission is open.
-- NET-08-password-rejected must show `Connection not authorized.`
-- Password rejection should offer Edit setup as the first useful recovery action.
-- Edit setup must retain the selected endpoint and local-player configuration.
-- Edit setup after a password rejection must focus Password.
-- The UI must not echo the submitted password or an expected password.
-- A capacity rejection must not be presented as a password error.
-- A closed-admission rejection must not use `Join-in-progress is not supported.`
-- NET-08-admission-closed must show `Round-one admission has closed. Join when the host returns to the lobby.`
-- An unreachable host must retain the existing `Host unreachable.` outcome.
-- Directory presence must not convert an unreachable outcome into a success claim.
-- Return to Network must retain its NET-01 destination, where Browse sessions remains available.
-- Browser-origin failure must also show `Return to browser` with destination NET-10 for refresh.
-- Return to browser must follow Edit setup in reading and focus order.
-- Recovery actions must wrap inside the existing action region before their captions clip.
-- Retry must remain disabled when the confirmed outcome or invalid input makes it ineligible.
+## Dedicated pilot outcomes
 
-No new modal or wireframe is needed for this localized recovery-action addition. The representative must show NET-08-password-rejected from a browser-origin attempt with Edit setup focused and Return to browser available. Loading and directory-service errors belong to NET-10, not this screen.
+| Functional state | Heading | Recovery presentation |
+|---|---|---|
+| `NET-08-PUBLIC-SECURITY` | CONNECTION FAILED | Edit setup first and focused; Return to Network; no Retry or bypass |
+| `NET-08-PUBLIC-MAINTENANCE` | SESSION ENDED | Ended-session Retry treatment; Edit setup focused; Return to Network |
+| `NET-08-PUBLIC-CONTROLLER-EXPIRED` | SESSION ENDED | Ended-session Retry treatment; Edit setup focused; Return to Network |
 
-## Acceptance
+- Security and authorization must use product's exact non-disclosing copy.
+- Pilot admission failure must not show generic player-hosted startup advice.
+- Attempted endpoint may appear only in the bounded initial-connection context row.
+- Invitation and reconnect credentials must remain absent.
+- Confirmed ended-session recovery must not imply restoration.
+- Maintenance wording must require the authenticated product-owned outcome.
+- Resolution failure must not be relabeled as maintenance or authorization failure.
+- Fixed outcome copy must retain `controller` where product uses that term.
+- Any baseline-focused disabled Retry must keep its focus outline without activation.
 
-The representative must show separate reason, context, instructions, and framed recovery actions without password disclosure. Focused QA must check retry-enabled transport failure, disabled Retry during cleanup, restart-required failure, expired reconnect, port conflict, closed admission, longest canonical reason, and browser/direct return destinations. This visual change does not add a missing recovery action or resolve a functional copy/destination discrepancy without product review. Capture details are in the [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix).
+Do not offer an insecure fallback for any connection type. The service type does not determine the security failure cause. The [coordinated matrix](../screenshots/README.md#network-presentation-current-capture-matrix) keeps one representative and requires focused real-path checks for browser/password and terminal pilot outcomes. No screenshot may substitute silence for an authenticated maintenance or controller-expiry notice.

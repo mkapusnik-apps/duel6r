@@ -1396,6 +1396,90 @@ void concreteSealAndDrainRacesReceiveWithoutLossOrDuplication() {
     CHECK(waitUntil([&] { return budget.used() == baseline; }, 1s));
     connection->close(); listener.shutdown();
 }
+
+struct AcceptedInputClock {
+    static_assert(std::atomic<bool>::is_always_lock_free && std::atomic<unsigned>::is_always_lock_free,
+                  "receipt callback must remain lock-free on supported targets");
+    const std::thread::id applicationThread = std::this_thread::get_id();
+    std::atomic<bool> armed{false};
+    std::atomic<unsigned> receipts{0};
+
+    TransportTimePoint now() {
+        // Raw, healthy, single-connection test: arm only after construction.
+        // Reader calls this under inputMutex immediately before input.push_back.
+        // The callback never locks, waits or re-enters a transport operation.
+        if (armed.load() && std::this_thread::get_id() != applicationThread) ++receipts;
+        return std::chrono::steady_clock::now();
+    }
+};
+
+void queueReservationIsNotAnAcceptedInputReceipt() {
+    auto &budget = Trust::processQueueBudget();
+    const auto baseline = budget.used();
+    AcceptedInputClock clock;
+    SessionTransportDependencies dependencies;
+    dependencies.now = [&] { return clock.now(); };
+    const auto port = unusedPort();
+    TcpListener listener(1, dependencies); startListener(listener, port);
+    RawSocketOwner peer(connectRaw(port));
+    auto connection = awaitAccept(listener);
+    connection->markAdmissionSucceeded(); clock.armed = true;
+    constexpr auto count = MaxQueuedTransportFrames;
+    for (unsigned index = 0; index < count - 1; ++index) sendFrame(peer.get(), {static_cast<std::uint8_t>(index)});
+    CHECK(waitUntil([&] { return clock.receipts.load() == count - 1; }, 2s));
+    auto header = envelope(TransportFramingIdentifier, TransportFramingVersion, 0, 1);
+    sendAll(peer.get(), header.data(), header.size());
+    CHECK(waitUntil([&] { return budget.used() == baseline + count; }, 2s));
+    CHECK(clock.receipts.load() == count - 1); // Last body is reserved, not published.
+    const std::uint8_t body = static_cast<std::uint8_t>(count - 1);
+    sendAll(peer.get(), &body, 1);
+    CHECK(waitUntil([&] { return clock.receipts.load() == count; }, 2s));
+    CHECK(connection->state() == ClientState::Connected && connection->failure() == TransportFailure::None);
+    auto accepted = connection->sealAndDrainInput(); // Acquires publication's inputMutex.
+    CHECK(accepted.state == ClientState::Connected && accepted.frames.size() == count);
+    for (unsigned index = 0; index < count; ++index)
+        CHECK(accepted.frames[index].payload == std::vector<std::uint8_t>{static_cast<std::uint8_t>(index)});
+    CHECK(budget.used() == baseline);
+    connection->close(); listener.shutdown();
+    CHECK(budget.used() == baseline);
+}
+
+void boundedSealedTailRetainsQueueAccountingAndRejectsNewInput() {
+    auto &budget = Trust::processQueueBudget();
+    const auto baseline = budget.used();
+    AcceptedInputClock clock;
+    SessionTransportDependencies dependencies;
+    dependencies.now = [&] { return clock.now(); };
+    const auto port = unusedPort();
+    TcpListener listener(1, dependencies); startListener(listener, port);
+    RawSocketOwner peer(connectRaw(port));
+    auto connection = awaitAccept(listener);
+    connection->markAdmissionSucceeded();
+    clock.armed = true;
+    constexpr auto count = MaxQueuedTransportFrames;
+    for (unsigned index = 0; index < count; ++index) sendFrame(peer.get(), {static_cast<std::uint8_t>(index)});
+    CHECK(waitUntil([&] { return clock.receipts.load() == count; }, 2s));
+    CHECK(connection->state() == ClientState::Connected && connection->failure() == TransportFailure::None);
+    auto first = connection->sealAndDrainInput(1);
+    CHECK(first.state == ClientState::Connected && first.terminalAt == TransportTimePoint{});
+    CHECK(first.frames.size() == 1 && first.frames.front().payload == std::vector<std::uint8_t>{0});
+    CHECK(budget.used() == baseline + count - 1);
+    sendFrame(peer.get(), {99});
+    CHECK(budget.used() == baseline + count - 1); // Sealing cannot add new accepted input.
+    for (unsigned index = 1; index < count; ++index) {
+        auto next = connection->sealAndDrainInput(1);
+        if (next.frames.size() != 1 || next.frames.front().payload != std::vector<std::uint8_t>{static_cast<std::uint8_t>(index)})
+            throw Failure("sealed tail: expected-index=" + std::to_string(index)
+                          + " actual-count=" + std::to_string(next.frames.size()));
+        CHECK(budget.used() == baseline + count - 1 - index);
+    }
+    CHECK(connection->sealAndDrainInput(1).frames.empty());
+    CHECK(budget.used() == baseline);
+    connection->close(); // Positive reader/writer join boundary, not a sleep.
+    CHECK(clock.receipts.load() == count); // No post-seal application publication.
+    listener.shutdown();
+    CHECK(budget.used() == baseline);
+}
 }
 
 namespace {
@@ -1668,6 +1752,8 @@ int main() {
         {"queue boundaries", queueBoundaries},
         {"conditional admission acceptance accounting", conditionalAdmissionAcceptanceAccounting},
         {"concrete seal and drain race", concreteSealAndDrainRacesReceiveWithoutLossOrDuplication},
+        {"bounded sealed terminal tail accounting and no new input", boundedSealedTailRetainsQueueAccountingAndRejectsNewInput},
+        {"queue reservation is not accepted input receipt", queueReservationIsNotAnAcceptedInputReceipt},
         {"malformed isolation", malformedPeersAreIsolated},
         {"stalls and liveness", stallsAndLiveness}, {"close and shutdown bounds", closeAndShutdownBounds}};
     int failures = 0;

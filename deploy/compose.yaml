@@ -1,0 +1,28 @@
+name: duel6r
+services:
+  server:
+    image: ${SERVER_IMAGE:?An immutable server image is required}
+    network_mode: host
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # A replacement must recreate the private readiness directory.
+    restart: "no"
+    stop_grace_period: 10s
+    mem_limit: 2g
+    pids_limit: 128
+    volumes:
+      - /run/duel6r/invite:/run/secrets/invite:ro
+      - /run/duel6r/runtime:/run/duel6r
+    healthcheck:
+      test: [CMD, duel6r-server, --check-ready=/run/duel6r/ready.sock]
+      interval: 5s
+      timeout: 2s
+      retries: 6
+      start_period: 5s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"

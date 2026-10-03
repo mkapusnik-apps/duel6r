@@ -174,7 +174,7 @@ namespace Duel6::Network::Lifecycle {
     public:
         HostSessionLifecycle(std::uint64_t sessionId, ParticipantId hostParticipantId,
                              ConnectionId hostConnectionId, std::vector<PlayerId> hostOwnedPlayers,
-                             Clock clock = {}, Trust::RandomFill random = {}, HostHooks hooks = {});
+                             Clock clock = {}, Trust::RandomFill random = {}, HostHooks hooks = {}, bool remoteHost = false);
         ~HostSessionLifecycle();
         HostSessionLifecycle(const HostSessionLifecycle &) = delete;
         HostSessionLifecycle &operator=(const HostSessionLifecycle &) = delete;
@@ -220,6 +220,7 @@ namespace Duel6::Network::Lifecycle {
         bool ended() const noexcept;
 
     private:
+        enum class RemovalCause { Unselected, RestorationFailed, UnknownFailure, Expired };
         struct Participant {
             ConnectionId connectionId = 0;
             std::vector<PlayerId> players;
@@ -229,6 +230,10 @@ namespace Duel6::Network::Lifecycle {
             std::unique_ptr<Trust::ReconnectReservation> reservation;
             std::uint64_t rollbackReservationId = 0;
             std::unique_ptr<Trust::ReconnectReservation> rollbackReservation;
+            // Keep the actual armed deadline even if a credential accessor erases
+            // an expired reservation. Invalid credentials alone prove no cause.
+            std::optional<TimePoint> reservationDeadline;
+            RemovalCause removalCause = RemovalCause::Unselected;
         };
 
         std::shared_ptr<const void> instanceLifetime;
@@ -240,10 +245,14 @@ namespace Duel6::Network::Lifecycle {
         Trust::RandomFill random;
         HostHooks hooks;
         std::map<ParticipantId, Participant> participants;
-        std::set<ParticipantId> pendingLeaves;
+        std::set<ParticipantId> pendingRemovals;
+        // Only authenticated explicit Leave actions establish intentional cause.
+        // Failed restoration and expiry share removal membership, not that cause.
+        std::set<ParticipantId> intentionalLeaves;
         std::uint64_t nextReservationId = 1;
         std::uint64_t readinessGeneration = 1;
         bool hostReady = false;
+        bool remoteHost = false;
         bool sessionEnded = false;
         bool operationActive = false;
 

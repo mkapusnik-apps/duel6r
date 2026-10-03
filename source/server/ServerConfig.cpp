@@ -72,7 +72,15 @@ namespace Duel6::Server {
 
         for (int i = 1; i < argc; ++i) {
             std::string argument = argv[i];
-            if (startsWith(argument, "--host=")) {
+            if (argument == "--dedicated") {
+                config.dedicated = true;
+            } else if (argument == "--trusted-proxy-protocol=v2") {
+                config.trustedProxyV2 = true;
+            } else if (startsWith(argument, "--invite-file=")) {
+                config.inviteFile = valueAfter(argument, "--invite-file=");
+            } else if (startsWith(argument, "--readiness-socket=")) {
+                config.readinessSocket = valueAfter(argument, "--readiness-socket=");
+            } else if (startsWith(argument, "--host=")) {
                 config.listenEndpoint.host = valueAfter(argument, "--host=");
             } else if (startsWith(argument, "--port=")) {
                 config.listenEndpoint.port = parsePort(valueAfter(argument, "--port="));
@@ -126,13 +134,27 @@ namespace Duel6::Server {
                         "Usage: duel6r-server [--host=ADDR] [--port=PORT] [--name=NAME] "
                         "[--resources=PATH] [--gameplay-script=PATH] [--local-players=N] "
                         "[--tick-rate=N] [--max-clients=N] [--local-only] [--transport] "
-                        "[--transport-echo] [--admission-client]");
+                        "[--transport-echo] [--admission-client] OR "
+                        "duel6r-server --dedicated --transport --host=127.0.0.1 --port=26661 "
+                        "--resources=PATH --trusted-proxy-protocol=v2 --invite-file=PATH --readiness-socket=PATH OR "
+                        "duel6r-server --check-ready=PATH");
             } else {
-                throw std::invalid_argument("Unknown server argument: " + argument);
+                throw std::invalid_argument("Unknown server argument");
             }
         }
 
         requireText("server host", config.listenEndpoint.host);
+        if (config.dedicated) {
+            if (!config.transportEnabled || config.transportEcho || config.admissionClient
+                || config.hostedServiceIpc || config.graphicalHostComposition || config.hostedServiceParent
+                || !config.trustedProxyV2 || config.listenEndpoint.host != "127.0.0.1"
+                || config.inviteFile.empty() || config.readinessSocket.empty()
+                || !config.enabledGameplayScripts.empty())
+                throw std::invalid_argument("Dedicated mode requires isolated loopback proxy, invitation file and readiness socket");
+            config.localPlayers = 0;
+        } else if (config.trustedProxyV2 || !config.inviteFile.empty() || !config.readinessSocket.empty()) {
+            throw std::invalid_argument("Dedicated options require dedicated mode");
+        }
         requireText("server name", config.serverName);
         requireText("build version", config.buildVersion);
         requireText("resource path", config.resourcePath);

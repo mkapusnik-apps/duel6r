@@ -3,9 +3,11 @@
 
 #include <cstdint>
 #include <string>
+#include <memory>
 #include <vector>
 
 #include "../network/Protocol.h"
+#include "../network/PublicSession.h"
 
 namespace Duel6::Server {
     struct ServerConfig {
@@ -25,6 +27,12 @@ namespace Duel6::Server {
         bool admissionClient = false;
         bool hostedServiceIpc = false;
         bool graphicalHostComposition = false;
+        bool dedicated = false;
+        bool publicConnection = false;
+        bool trustedProxyV2 = false;
+        std::string inviteFile;
+        std::string readinessSocket;
+        std::shared_ptr<Network::PublicSession::Secret> invitation;
         std::uint64_t hostedServiceParent = 0;
 #ifdef D6R_TRANSPORT_WINDOWS
         std::uint64_t hostedServiceStatusHandle = 0;

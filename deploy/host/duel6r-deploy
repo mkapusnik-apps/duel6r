@@ -1,0 +1,31 @@
+#!/bin/bash
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+umask 077
+# Fixed root-owned configuration; caller cannot select a repository or environment.
+source /etc/duel6r/environment
+[[ $# == 0 ]]
+IFS=' ' read -r digest revision extra
+[[ $digest =~ ^sha256:[0-9a-f]{64}$ && $revision =~ ^[0-9a-f]{40}$ && -z $extra ]]
+exec 9>/run/duel6r-deploy.lock
+flock -n 9
+export DOCKER_CONFIG
+DOCKER_CONFIG=$(mktemp -d /run/duel6r-docker.XXXXXX)
+trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+token=$(curl --fail --silent --show-error -H 'Metadata-Flavor: Google' \
+  http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | jq -er .access_token)
+printf '%s' "$token" | docker login -u oauth2accesstoken --password-stdin https://europe-north2-docker.pkg.dev
+unset token
+image="europe-north2-docker.pkg.dev/duel-6-reloaded/${ENVIRONMENT}/server@${digest}"
+docker pull "$image"
+[[ $(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image") == "$revision" ]]
+[[ $(docker image inspect --format '{{index .Config.Labels "cz.netusite.duel.deployment-contract"}}' "$image") == 1 ]]
+# The prior immutable record stays available even when activation fails.
+if [[ -f /etc/duel6r/image.env ]]; then
+  cp /etc/duel6r/image.env /etc/duel6r/previous.env
+fi
+printf 'SERVER_IMAGE=%s\nSOURCE_REVISION=%s\n' "$image" "$revision" > /etc/duel6r/image.env
+systemctl restart duel6r.service
+printf 'Activated source=%s image=%s\n' "$revision" "$image"
+sha256sum /etc/duel6r/compose.yaml /etc/haproxy/haproxy.cfg \
+  /usr/local/sbin/duel6r-start /usr/local/sbin/duel6r-certificate
