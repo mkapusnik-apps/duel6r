@@ -91,6 +91,7 @@ endif ()
 set_property (CACHE D6R_RENDERER PROPERTY STRINGS ${D6R_RENDERERS})
 set(D6R_WITH_LUA ON)     # Enable/disable lua scripting
 option(D6R_TRANSPORT_ONLY "Build only the native session transport and its tests" OFF)
+set(D6R_DIRECTORY_DEFAULT_URL "" CACHE STRING "Compiled directory origin selected by the distribution channel, not build type")
 if (APPLE AND D6R_TRANSPORT_ONLY)
     message(FATAL_ERROR "Networking is not part of the experimental macOS target")
 endif ()
@@ -538,6 +539,14 @@ target_include_directories(duel6r-game-engine PUBLIC ${CMAKE_SOURCE_DIR}/source)
 endif ()
 
 if (NOT APPLE)
+add_library(duel6r-directory-origin STATIC source/client/DirectoryOrigin.cpp)
+target_include_directories(duel6r-directory-origin PUBLIC ${CMAKE_SOURCE_DIR}/source)
+target_compile_definitions(duel6r-directory-origin PRIVATE
+        D6R_DIRECTORY_DEFAULT_URL="${D6R_DIRECTORY_DEFAULT_URL}")
+if (NOT D6R_TRANSPORT_ONLY)
+    target_link_libraries(duel6r-game-engine PUBLIC duel6r-directory-origin)
+endif ()
+
 set(D6R_CANONICAL_GAMEPLAY_SOURCES
         source/Block.cpp
         source/Bonus.cpp
@@ -810,6 +819,33 @@ if (BUILD_TESTING)
     endif ()
 
     if (NOT APPLE)
+        # Exercise the production selector with each channel under the same build
+        # optimization configuration, without making any network requests.
+        foreach (channel IN ITEMS configured unchannelled nightly release)
+            set(origin "")
+            if (channel STREQUAL "configured")
+                set(origin "${D6R_DIRECTORY_DEFAULT_URL}")
+            elseif (channel STREQUAL "nightly")
+                set(origin "https://staging.duel.netusite.cz")
+            elseif (channel STREQUAL "release")
+                set(origin "https://duel.netusite.cz")
+            endif ()
+            set(origin_test "duel6r-directory-origin-${channel}-tests")
+            add_executable(${origin_test} tests/TestMain.cpp tests/DirectoryOriginTests.cpp)
+            target_include_directories(${origin_test} PRIVATE ${CMAKE_SOURCE_DIR})
+            target_compile_definitions(${origin_test} PRIVATE D6R_TEST_DEFAULT_URL="${origin}")
+            if (channel STREQUAL "configured")
+                target_link_libraries(${origin_test} PRIVATE duel6r-directory-origin)
+            else ()
+                target_sources(${origin_test} PRIVATE source/client/DirectoryOrigin.cpp)
+                target_compile_definitions(${origin_test} PRIVATE D6R_DIRECTORY_DEFAULT_URL="${origin}")
+            endif ()
+            if (MINGW)
+                set_property(TARGET ${origin_test} APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+            endif ()
+            add_test(NAME ${origin_test} COMMAND ${origin_test})
+            set_tests_properties(${origin_test} PROPERTIES LABELS "application;network;configuration;regression")
+        endforeach ()
         include(${CMAKE_SOURCE_DIR}/tests/SessionTransportCTestRegistration.cmake)
     endif ()
 

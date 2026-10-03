@@ -7,12 +7,23 @@ not a release-readiness or deployment claim.
 
 ## Configuration and independence
 
-`D6R_DIRECTORY_URL` selects the directory HTTPS origin. Certificate-chain and
-hostname verification are mandatory; redirects, URL credentials, and implicit
-proxy configuration are not accepted. No configured origin means directory
-unavailable, not a networking or Local Play failure. There is no shipped production
-origin. The separately approved [directory deployment contract](network-host-directory.md#directory-deployment)
-authorizes the two cloud environments described in the [deployment runbook](directory-cloud-run.md).
+The CMake cache option `D6R_DIRECTORY_DEFAULT_URL` defaults to empty for
+unchannelled builds. Distribution workflows select `https://staging.duel.netusite.cz`
+for nightly clients and `https://duel.netusite.cz` for release clients, including
+manual release-workflow invocations. This selection is independent of
+`CMAKE_BUILD_TYPE`; both channels may use `Release` optimization. The experimental
+local-only macOS application does not include the directory client.
+
+A present `D6R_DIRECTORY_URL` overrides the compiled origin. A present empty or
+invalid value makes the directory unavailable without fallback; only an absent
+variable selects the compiled origin. An unchannelled build without an override
+therefore has no directory origin. Requests never switch channels after failure.
+Certificate-chain and hostname verification are mandatory; redirects, URL
+credentials, and implicit proxy configuration are not accepted. Directory
+unavailability is not a networking or Local Play failure. The approved
+[directory deployment contract](network-host-directory.md#directory-deployment)
+owns domain and selection requirements for the environments described in the
+[deployment runbook](directory-cloud-run.md).
 
 For explicit local development only, `D6R_DIRECTORY_ALLOW_HTTP=1` permits an origin
 beginning with `http://127.0.0.1:`. This exception is not for deployment or LAN

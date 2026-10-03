@@ -1,4 +1,5 @@
 #include "HostDirectory.h"
+#include "DirectoryOrigin.h"
 #include "../json/JsonParser.h"
 #include "../network/NetworkTrustPolicy.h"
 #include <curl/curl.h>
@@ -110,14 +111,10 @@ namespace Duel6::Client {
                                        const std::atomic<bool> *cancelled) {
         static const CURLcode initialized = curl_global_init(CURL_GLOBAL_DEFAULT);
         DirectoryResponse result;
-        const char *configured = std::getenv("D6R_DIRECTORY_URL");
-        if (initialized != CURLE_OK || !configured || !(curl_version_info(CURLVERSION_NOW)->features & CURL_VERSION_ASYNCHDNS)) return result;
-        std::string base(configured);
-        const char *dev = std::getenv("D6R_DIRECTORY_ALLOW_HTTP");
-        const bool local = dev && std::string(dev) == "1" && base.rfind("http://127.0.0.1:", 0) == 0;
-        if (base.size() > 512 || base.find_first_of("@?#\r\n") != std::string::npos
-            || (base.rfind("https://", 0) != 0 && !local)) return result;
-        while (!base.empty() && base.back() == '/') base.pop_back();
+        if (initialized != CURLE_OK || !(curl_version_info(CURLVERSION_NOW)->features & CURL_VERSION_ASYNCHDNS)) return result;
+        const auto base = directoryOrigin(std::getenv("D6R_DIRECTORY_URL"), std::getenv("D6R_DIRECTORY_ALLOW_HTTP"));
+        if (base.empty()) return result;
+        const bool local = base.rfind("http://", 0) == 0;
         CURL *curl = curl_easy_init();
         if (!curl) return result;
         curl_slist *headers = curl_slist_append(nullptr, "Content-Type: application/json");
