@@ -987,6 +987,18 @@ if (D6R_WITH_LUA)
     endif ()
 endif (D6R_WITH_LUA)
 
+if (BUILD_TESTING)
+    add_executable(duel6r-mac-pointer-tests tests/TestMain.cpp tests/MacPointerTests.cpp)
+    if (NOT APPLE)
+        target_sources(duel6r-mac-pointer-tests PRIVATE source/platform/MacLocal.cpp)
+    endif ()
+    target_include_directories(duel6r-mac-pointer-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-mac-pointer-tests PRIVATE duel6r-game-engine
+            ${LIB_SDL2} ${LIB_SDL2_TTF} ${LIB_SDL2_IMAGE})
+    add_test(NAME mac-pointer-behavior COMMAND duel6r-mac-pointer-tests)
+    set_tests_properties(mac-pointer-behavior PROPERTIES LABELS "application;input;regression")
+endif ()
+
 if (BUILD_TESTING AND UNIX AND NOT APPLE AND (D6R_RENDERER STREQUAL "gl4" OR D6R_RENDERER STREQUAL "gl1"))
     add_executable(duel6r-renderer-batch-tests tests/TestMain.cpp tests/RendererBatchTests.cpp)
     target_include_directories(duel6r-renderer-batch-tests PRIVATE ${CMAKE_SOURCE_DIR})
