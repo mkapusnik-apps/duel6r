@@ -2,6 +2,8 @@
 
 This inventory is authoritative for product screens and materially distinct full-screen visual states.
 
+The experimental macOS target uses `MENU-01-MAC-LOCAL` and the `MENU-02-MAC-LOCAL` message variant. [MAC-NET-001 through MAC-NET-008](../macos.md#network-entry) own the unchanged Network button's local-only report and its dismissal behavior. These states add no screen and do not change other platforms. The approved UX approach reuses `MENU-01-A`, `MENU-01-B`, and `MENU-02` wireframes unchanged. macOS runtime and visual verification follow the deferred acceptance boundary in [macos.md](../macos.md#acceptance-boundaries).
+
 The current directory/password and round-one admission target affects `NET-01`, `NET-02`, `NET-03`, `NET-04`, `NET-05`, and `NET-08`; their earlier acceptance does not cover these changed states. `NET-10` is the [host browser](network-browser.md), governed by [NET-DIR-001 through NET-DIR-016 and their acceptance criteria](../network-host-directory.md). Its states are `NET-10-loading`, `NET-10-results`, `NET-10-empty`, `NET-10-stale`, and `NET-10-unavailable`. Existing screen contracts identify password, live-arrival, and admission-closed variants. UX owns their visual specifications; no legacy screen migration is required.
 The target baseline uses the shared arena view requirements in `docs/features.md`.
 The product has no implemented URL routes.

@@ -210,6 +210,15 @@ namespace Duel6 {
         SDL_Event event;
 
         while (SDL_PollEvent(&event)) {
+#ifdef D6_MACOS_LOCAL
+            // Intercept before console shortcuts and ordinary menu actions so
+            // even F1, Escape and backquote only dismiss the modal message.
+            if (context.is(*menu) && menu->consumeMacNetworkEvent(event)) {
+                if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP)
+                    input.setPressed(event.key.keysym.sym, false);
+                continue;
+            }
+#endif
             switch (event.type) {
                 case SDL_KEYDOWN:
                 case SDL_KEYUP:

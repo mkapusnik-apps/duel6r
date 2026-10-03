@@ -89,9 +89,19 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  macos:
+    name: macOS nightly package
+    needs: [source]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/macos-build.yml
+    with:
+      source_sha: ${{ needs.source.outputs.sanity_sha }}
+      retention_days: 1
+
   release:
     name: Publish nightly release
-    needs: [source, build]
+    needs: [source, build, macos]
     runs-on: self-hosted
     permissions:
       contents: write
@@ -101,6 +111,12 @@ jobs:
         with:
           name: nightly-release-asset
           path: release-assets
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: macos-release-asset
+          path: release-assets/macos
 
       - name: Validate nightly artifact
         shell: bash
@@ -135,5 +151,9 @@ jobs:
           prerelease: false
           make_latest: true
           overwrite_files: true
-          files: release-assets/duel6r-nightly.zip
+          files: |
+            release-assets/duel6r-nightly.zip
+            release-assets/macos/duel6r-macos-arm64.zip
+            release-assets/macos/duel6r-macos-arm64.zip.sha256
+            release-assets/macos/build-info.json
           fail_on_unmatched_files: true

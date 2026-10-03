@@ -50,7 +50,11 @@
 #include "gui/TextBox.h"
 #include "gui/Spinner.h"
 #include "GameMode.h"
+#ifdef D6_MACOS_LOCAL
+#include "platform/MacLocal.h"
+#else
 #include "client/NetworkSessionRuntime.h"
+#endif
 
 namespace Duel6 {
     class Game; // Forward, TODO: Remove
@@ -112,7 +116,11 @@ namespace Duel6 {
         Int32 menuTranslationY;
         Sound::Track menuTrack;
         bool playMusic;
+#ifdef D6_MACOS_LOCAL
+        MacLocal::NetworkMessage networkMessage;
+#else
         std::unique_ptr<NetworkMenu> networkMenu;
+#endif
 
     public:
         explicit Menu(AppService &appService);
@@ -124,6 +132,10 @@ namespace Duel6 {
         }
 
         void initialize();
+
+#ifdef D6_MACOS_LOCAL
+        bool consumeMacNetworkEvent(const SDL_Event &event) { return networkMessage.consume(event); }
+#endif
 
         void joyRescan();
 
@@ -199,6 +211,7 @@ namespace Duel6 {
         void renderMenuBackground() const;
 
         void showMessage(const std::string &message);
+        void renderMessage(const std::string &message) const;
 
         bool validateStartPrerequisites(const std::vector<std::string> &levels);
 
