@@ -168,8 +168,33 @@ endif()
             package.collect_notices({"example": keg}, self.output / "licenses", cache, {"example": packet})
         archive.write_bytes(original)
         (keg / ".brew/example.rb").write_text("different build modifications")
-        with self.assertRaisesRegex(RuntimeError, "Unreviewed source/recipe"):
+        with self.assertRaisesRegex(RuntimeError, "Unreviewed source/recipe") as caught:
             package.collect_notices({"example": keg}, self.output / "licenses", cache, {"example": packet})
+        self.assertIn(hashlib.sha256(b"different build modifications").hexdigest(), str(caught.exception))
+        self.assertIn(packet["recipe_sha256"][0], str(caught.exception))
+        self.assertIn(str(keg / ".brew/example.rb"), str(caught.exception))
+
+    def test_reviewed_readme_and_credits_are_copied_without_test_music_or_archive(self):
+        keg, cache, packet = self.source_fixture({
+            "example-1.0/README": b"fixture complete readme and main license\n",
+            "example-1.0/docs/CREDITS": b"fixture third-party attribution and terms\n",
+            "example-1.0/test/test.xm": b"do not redistribute this test music",
+            "example-1.0/test/test.it": b"do not redistribute this test music either",
+            "example-1.0/docs/README": b"not an explicitly reviewed notice",
+        })
+        packet["required_notices"] = ["example-1.0/README", "example-1.0/docs/CREDITS"]
+        packet["sources"][0]["notices_only"] = True
+        licenses = self.output / "licenses"
+        with patch.object(package, "run", side_effect=AssertionError("unexpected download")):
+            package.collect_notices({"example": keg}, licenses, cache, {"example": packet})
+        target = licenses / "example"
+        self.assertEqual(b"fixture complete readme and main license\n",
+                         (target / "upstream/example-1.0/README").read_bytes())
+        self.assertEqual(b"fixture third-party attribution and terms\n",
+                         (target / "upstream/example-1.0/docs/CREDITS").read_bytes())
+        self.assertFalse((target / "sources/example-1.0.tar.gz").exists())
+        self.assertFalse((target / "upstream/example-1.0/test").exists())
+        self.assertFalse((target / "upstream/example-1.0/docs/README").exists())
 
     def test_source_packet_rejects_traversal(self):
         keg, cache, packet = self.source_fixture({"../COPYING": b"unsafe path"})

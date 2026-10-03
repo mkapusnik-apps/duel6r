@@ -1,7 +1,10 @@
 {
   "glib": {
     "version": "2.88.3",
-    "recipe_sha256": ["d2ebed597d64ab5518ea78604840e28fb9839fa923bd3917bef5f50b76d369be"],
+    "recipe_sha256": [
+      "d2ebed597d64ab5518ea78604840e28fb9839fa923bd3917bef5f50b76d369be",
+      "0105d4552c1cc68b38cdcd23c4df05c2cb0d93ce44929f581204a6d33dd16d59"
+    ],
     "required_notices": ["glib-2.88.3/LICENSES/LGPL-2.1-or-later.txt"],
     "sources": [
       {
@@ -33,6 +36,18 @@
       {
         "url": "https://ftp.gnu.org/gnu/gettext/gettext-1.0.tar.gz",
         "sha256": "85d99b79c981a404874c02e0342176cf75c7698e2b51fe41031cf6526d974f1a"
+      }
+    ]
+  },
+  "libxmp": {
+    "version": "4.7.2",
+    "recipe_sha256": ["27d5a9516c44e8345bdb238c43e4a24f579431fe5b668b4dcc92f3669504f116"],
+    "required_notices": ["libxmp-4.7.2/README", "libxmp-4.7.2/docs/CREDITS"],
+    "sources": [
+      {
+        "url": "https://downloads.sourceforge.net/project/xmp/libxmp/4.7.2/libxmp-4.7.2.tar.gz",
+        "sha256": "510a96eefd79e4558fb1fa41fb5494870328776b3f77563f94f61f241f64bde1",
+        "notices_only": true
       }
     ]
   },

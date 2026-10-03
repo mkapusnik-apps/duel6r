@@ -66,6 +66,13 @@ LGPL/source, modification and redistribution obligations continue to apply to
 every bundled dependency. The collector audits the actual transitive closure
 and reports all unresolved notice dependencies before refusing publication.
 
+For libxmp 4.7.2, the complete main license in `README` and third-party notices
+in `docs/CREDITS` are extracted verbatim from the checksum-verified release.
+That notice-only archive is not shipped because it contains test music. The
+separate Homebrew `demo_mods` resource is neither fetched nor redistributed.
+See [the captured dependency audit](dependency-audit.md) for the reviewed hosted
+recipe identities and full-closure replay evidence; this is not Mac runtime QA.
+
 Bundled shared libraries may be replaced with compatible modified builds under
 their respective licenses. Rebuilding from this revision is supported by
 `bash macos/build.sh`; the recorded recipes identify dependency sources and build

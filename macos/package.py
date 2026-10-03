@@ -33,7 +33,10 @@ def supplement_notices(name, keg, target, cache, packet):
     recipe = keg / ".brew" / (name + ".rb")
     recipe_hash = hashlib.sha256(recipe.read_bytes()).hexdigest()
     if keg.name != packet["version"] or recipe_hash not in packet["recipe_sha256"]:
-        raise RuntimeError(f"Unreviewed source/recipe for {name}@{keg.name}; update the source packet")
+        raise RuntimeError(
+            f"Unreviewed source/recipe for {name}@{keg.name}; "
+            f"expected version={packet['version']}; recipe={recipe}; "
+            f"actual sha256={recipe_hash}; expected sha256={','.join(packet['recipe_sha256'])}")
     cache.mkdir(parents=True, exist_ok=True)
     (target / "sources").mkdir(parents=True, exist_ok=True)
     for source in packet["sources"]:
@@ -46,16 +49,18 @@ def supplement_notices(name, keg, target, cache, packet):
             partial.replace(archive)
         if hashlib.sha256(archive.read_bytes()).hexdigest() != source["sha256"]:
             raise RuntimeError(f"Source checksum mismatch: {filename}")
-        # Retain complete source, not only extracted license text. The installed
-        # recipe and pinned external patch describe Homebrew's modifications.
-        shutil.copy2(archive, target / "sources" / filename)
+        # LGPL supplements retain complete source and Homebrew modifications.
+        # The reviewed libxmp notice-only input also contains test music: extract
+        # its notices without distributing that archive or unrelated test data.
+        if not source.get("notices_only", False):
+            shutil.copy2(archive, target / "sources" / filename)
         if filename.endswith((".tar.xz", ".tar.gz")):
             with tarfile.open(archive) as contents:
                 for member in contents:
                     path = PurePosixPath(member.name)
                     if path.is_absolute() or ".." in path.parts:
                         raise RuntimeError(f"Unsafe source archive path: {member.name}")
-                    if member.isfile() and is_notice(path):
+                    if member.isfile() and (is_notice(path) or str(path) in packet["required_notices"]):
                         destination = target / "upstream" / path
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         with contents.extractfile(member) as notice:
