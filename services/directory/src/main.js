@@ -6,7 +6,7 @@ import { createServer } from './http.js';
 // Configuration failures must never echo environment values or SDK diagnostics.
 try {
   const config = configuration();
-  const db = new Firestore({ projectId: config.projectId });
+  const db = new Firestore({ projectId: config.projectId, databaseId: config.databaseId });
   const server = createServer(new Directory(db));
   server.on('error', () => { console.error('Directory startup failed.'); process.exitCode = 1; });
   server.listen(config.port, '0.0.0.0');

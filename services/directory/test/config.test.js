@@ -20,6 +20,24 @@ test('rejects invalid configuration without echoing environment values', () => {
   assert.throws(() => configuration({ GOOGLE_CLOUD_PROJECT: 'demo-test', NODE_ENV: 'unknown' }));
 });
 
+test('database configuration preserves the default and accepts explicit named databases', () => {
+  assert.equal(configuration({ GOOGLE_CLOUD_PROJECT: 'demo-test' }).databaseId, '(default)');
+  for (const databaseId of ['(default)', 'staging-directory', 'directory', 'abcd', 'a'.repeat(62) + '1']) {
+    assert.equal(configuration({ GOOGLE_CLOUD_PROJECT: 'demo-test',
+      D6R_DIRECTORY_FIRESTORE_DATABASE: databaseId }).databaseId, databaseId);
+  }
+});
+
+test('invalid explicit database IDs fail closed without echoing their values', () => {
+  for (const databaseId of ['', 'abc', 'a'.repeat(64), 'Staging', '1directory', 'directory-',
+    ' directory', 'directory\n', 'some/database', 'some_database', '(other)',
+    'f47ac10b-58cc-0372-8567-0e02b2c3d479']) {
+    assert.throws(() => configuration({ GOOGLE_CLOUD_PROJECT: 'demo-test',
+      D6R_DIRECTORY_FIRESTORE_DATABASE: databaseId }),
+    { message: 'Invalid D6R_DIRECTORY_FIRESTORE_DATABASE.' });
+  }
+});
+
 test('bounded validated fields and no secret extension fields', () => {
   const listing = (changes = {}) => ({ sessionId: 'a'.repeat(32), address: '192.168.1.5',
     port: 25000, mode: 'deathmatch', players: 2, capacity: 15, passwordRequired: false,

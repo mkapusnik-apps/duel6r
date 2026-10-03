@@ -47,7 +47,30 @@ LAN is the supported gameplay environment. Valid public IPv4 endpoints are permi
 
 Unlocked endpoint-only direct joining protects against passive interception, not an active intermediary during first contact. A session identity check does not establish cryptographic host identity. This limitation does not waive listing-owner authorization, protected directory access, password-protected admission, or reconnect scope and replay checks. An authenticated directory may supply host-authentication information for browser joining, but this contract does not require a particular mechanism. Accounts, manual fingerprint comparison, and out-of-band key verification are not required user journeys.
 
-This contract does not authorize cloud deployment, provisioning, accounts, billing, or infrastructure changes. It does not select a cloud provider, database, wire protocol, or cryptographic implementation. Local Play must not contact the directory.
+The directory deployment section below authorizes only the specified cloud directory environments and their required provisioning. It supersedes earlier blanket cloud-deployment prohibitions for these environments only. It does not authorize cloud gameplay hosting or player accounts. Local Play must not contact the directory.
+
+## Directory deployment
+
+This section owns the operational product contract for the staging and production directory. It records approved deployment constraints, not a claim that either environment is deployed or verified. Player-hosted gameplay, admission, directory behavior, and security requirements remain unchanged.
+
+- **NET-DIR-DEP-001** The directory deployments must use Cloud Run in project `duel-6-reloaded` and region `europe-west1`.
+- **NET-DIR-DEP-002** A successful nightly must deploy its directory image to `staging-directory`.
+- **NET-DIR-DEP-003** A push to `master` must deploy the same immutable image from the last successfully verified staging deployment to the production directory.
+- **NET-DIR-DEP-004** Production promotion must not rebuild the image.
+- **NET-DIR-DEP-005** Both directory services must provide public HTTPS access without removing the existing listing-owner authorization requirements.
+- **NET-DIR-DEP-006** Staging and production must use separate named Firestore databases and separate runtime identities.
+- **NET-DIR-DEP-007** Each directory service must use a minimum of zero instances, a maximum of two instances, and a concurrency limit of 32.
+
+A failed or unverified staging deployment is not eligible for production promotion. If no successfully verified staging image exists, there is no eligible image to promote. Public HTTPS directory access does not establish public gameplay reachability or overall network-release readiness. Client directory configuration remains explicit; this contract does not introduce automatic URL selection or a shipped default origin.
+
+### Directory deployment acceptance criteria
+
+- **NET-DIR-DEP-AC-001 — Staging:** A successful nightly deploys its identifiable immutable directory image to `staging-directory` in the approved project and region. A failed nightly does not qualify for this deployment path. This criterion covers NET-DIR-DEP-001 and NET-DIR-DEP-002.
+- **NET-DIR-DEP-AC-002 — Promotion:** A push to `master` deploys the exact image digest from the last successfully verified staging deployment without a rebuild. Failed or unverified staging deployments cannot replace the eligible image. No promotion occurs when no eligible image exists. This criterion covers NET-DIR-DEP-003 and NET-DIR-DEP-004.
+- **NET-DIR-DEP-AC-003 — Environment boundaries:** Both services provide public HTTPS directory access and retain listing-owner authorization. The services use separate named Firestore databases and runtime identities, with the instance and concurrency limits from NET-DIR-DEP-007. This criterion covers NET-DIR-DEP-001 and NET-DIR-DEP-005 through NET-DIR-DEP-007.
+- **NET-DIR-DEP-AC-004 — Unchanged product scope:** Deployment instructions distinguish directory availability from gameplay reachability and network-release readiness. Deployment does not change client URL selection, UI, gameplay, Local Play independence, or the deferred platform evidence requirements.
+
+Deployment evidence must identify the immutable source checkpoint, nightly or promotion event, image digest, deployed service revision, project, region, endpoint, and verification result. Promotion evidence must identify the eligible staging deployment and show digest equality with production. Hosted observations must establish HTTPS directory operation and retained listing-owner authorization; emulator results alone do not establish these outcomes. Configuration and access-policy evidence must establish environment separation and service limits. Team supplies this evidence; these criteria do not require a new gameplay or screenshot campaign.
 
 ## Acceptance criteria
 
@@ -76,7 +99,7 @@ On two distinct LAN endpoints, testing must cover Linux host to Windows guest an
 - Round-one arrival with the new player controllable and visible on both endpoints, without resetting existing gameplay.
 - Direct joining through the secure admission path.
 
-These checks complete the deferred platform evidence for NET-DIR-AC-003, NET-PASS-AC-001, and NET-ADM-AC-001. Existing invariant mode, timing, hazard, paging, and failure evidence need not be repeated unless the nightly implementation materially changes the relevant behavior. The deferred checks must remain recorded as not executed until results are supplied. This deferral does not authorize production cloud deployment.
+These checks complete the deferred platform evidence for NET-DIR-AC-003, NET-PASS-AC-001, and NET-ADM-AC-001. Existing invariant mode, timing, hazard, paging, and failure evidence need not be repeated unless the nightly implementation materially changes the relevant behavior. The deferred checks must remain recorded as not executed until results are supplied. Directory deployment authorization is separate and limited to the directory deployment section above.
 
 ### Current feature acceptance
 

@@ -11,7 +11,8 @@ not a release-readiness or deployment claim.
 hostname verification are mandatory; redirects, URL credentials, and implicit
 proxy configuration are not accepted. No configured origin means directory
 unavailable, not a networking or Local Play failure. There is no shipped production
-origin or provisioned cloud environment.
+origin. The separately approved [directory deployment contract](network-host-directory.md#directory-deployment)
+authorizes the two cloud environments described in the [deployment runbook](directory-cloud-run.md).
 
 For explicit local development only, `D6R_DIRECTORY_ALLOW_HTTP=1` permits an origin
 beginning with `http://127.0.0.1:`. This exception is not for deployment or LAN
@@ -40,7 +41,8 @@ The bounded cursor contains that ordering tuple. Renewal can move a listing to a
 later page: this is a live view, not a frozen traversal. Selection uses the stable
 listing/session identity, not a row number. Reads recheck expiry after query
 completion. Optional TTL cleanup on `leaseExpiry` is storage retention only; it is
-not required for read correctness and has not been deployed.
+not required for read correctness. The approved cloud setup enables it separately
+for each named database; see the deployment runbook.
 
 Body size is limited to 2 KiB; HTTP header size to 4 KiB; per-instance concurrent
 work to 32 and connections to 64. Responses time out after eight seconds without
@@ -181,8 +183,10 @@ This deferred evidence is no longer a prerequisite for feature PR readiness or
 feature-scope product acceptance; it remains required for applicable overall
 network-release and deployment claims. Team confirmed the Ready-for-review gate
 satisfied with exact approved documentation integration. Issue #98 remains open
-until normal closure through the merged PR. No production cloud deployment is
-required or authorized. Configuration is described above; backend/emulator and
+until normal closure through the merged PR. This historical feature acceptance
+did not authorize cloud deployment. The later directory deployment contract grants
+separate, bounded authorization; it does not complete the deferred gameplay evidence.
+Configuration is described above; backend/emulator and
 future deployment prerequisites are in
 [Directory container operations](../services/directory/README.md).
 
@@ -269,4 +273,7 @@ browser eligibility, authoritative arrival, and cutoff behavior. Their existence
 does not imply that all tests or supported platform gates have passed. Use the
 checkpoint-specific handoff for actual results. Independent QA, security review,
 Windows runtime evidence, and UX assessment remain separate gates. No cloud
-provisioning, deployment, routing, firewall, relay, or NAT setup is authorized.
+gameplay provisioning, routing, firewall, relay, or NAT setup is authorized.
+Only the separately approved staging and production directory deployments are in
+scope for cloud provisioning. Their deployment acceptance is distinct from these
+historical application verification results.
