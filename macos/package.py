@@ -4,10 +4,11 @@
 import argparse
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shutil
 import subprocess
+import tarfile
 
 
 def run(*args):
@@ -20,6 +21,84 @@ def run(*args):
 
 def load_commands(binary):
     return run("otool", "-l", binary)
+
+
+def is_notice(path):
+    return bool(re.match(r"^(licen[cs]es?|copying|copyright|notice|authors)([.\-_ ]|$)",
+                         path.name, re.IGNORECASE)) or any(
+        part.lower() in {"licenses", "licences", "copying"} for part in path.parts[:-1])
+
+
+def supplement_notices(name, keg, target, cache, packet):
+    recipe = keg / ".brew" / (name + ".rb")
+    recipe_hash = hashlib.sha256(recipe.read_bytes()).hexdigest()
+    if keg.name != packet["version"] or recipe_hash not in packet["recipe_sha256"]:
+        raise RuntimeError(f"Unreviewed source/recipe for {name}@{keg.name}; update the source packet")
+    cache.mkdir(parents=True, exist_ok=True)
+    (target / "sources").mkdir(parents=True, exist_ok=True)
+    for source in packet["sources"]:
+        filename = source["url"].rsplit("/", 1)[1]
+        archive = cache / filename
+        if not archive.exists():
+            partial = archive.with_name(filename + ".part")
+            run("curl", "--fail", "--location", "--retry", "3", "--proto", "=https",
+                "--proto-redir", "=https", "--tlsv1.2", source["url"], "-o", partial)
+            partial.replace(archive)
+        if hashlib.sha256(archive.read_bytes()).hexdigest() != source["sha256"]:
+            raise RuntimeError(f"Source checksum mismatch: {filename}")
+        # Retain complete source, not only extracted license text. The installed
+        # recipe and pinned external patch describe Homebrew's modifications.
+        shutil.copy2(archive, target / "sources" / filename)
+        if filename.endswith((".tar.xz", ".tar.gz")):
+            with tarfile.open(archive) as contents:
+                for member in contents:
+                    path = PurePosixPath(member.name)
+                    if path.is_absolute() or ".." in path.parts:
+                        raise RuntimeError(f"Unsafe source archive path: {member.name}")
+                    if member.isfile() and is_notice(path):
+                        destination = target / "upstream" / path
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        with contents.extractfile(member) as notice:
+                            destination.write_bytes(notice.read())
+    for relative in packet["required_notices"]:
+        if not (target / "upstream" / relative).is_file():
+            raise RuntimeError(f"Source packet lacks required notice: {relative}")
+    provenance = {**packet, "installed_recipe_sha256": recipe_hash}
+    (target / "source-provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
+
+
+def collect_notices(kegs, licenses, cache, packets):
+    records, failures = [], []
+    for name, keg in sorted(kegs.items()):
+        try:
+            target = licenses / name
+            target.mkdir(parents=True, exist_ok=True)
+            notices = sorted(path for path in keg.rglob("*")
+                             if path.is_file() and is_notice(path.relative_to(keg)))
+            if name in packets:
+                supplement_notices(name, keg, target, cache, packets[name])
+            elif not any(not path.name.lower().startswith("authors") for path in notices):
+                raise RuntimeError("No distributable license notices; a verified source packet is required")
+            for path in notices:
+                destination = target / path.relative_to(keg)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, destination)
+            for path in [keg / "INSTALL_RECEIPT.json", keg / "sbom.spdx.json",
+                         *sorted((keg / ".brew").glob("*.rb"))]:
+                if path.is_file():
+                    shutil.copy2(path, target / path.name)
+            record = {"formula": name, "version": keg.name,
+                      "installed_notices": [str(path.relative_to(keg)) for path in notices],
+                      "source_packet": name in packets}
+            records.append(record)
+            print(f"Dependency notices: {name}@{keg.name}: {len(notices)} installed; "
+                  f"source packet={name in packets}")
+        except (RuntimeError, OSError, tarfile.TarError, subprocess.CalledProcessError) as error:
+            failures.append(f"{name}@{keg.name}: {error}")
+    # Audit the whole actual relocated closure before failing, not one keg per CI run.
+    if failures:
+        raise RuntimeError("Dependency license collection failed:\n" + "\n".join(failures))
+    return records
 
 
 def stage_app(source, build, output):
@@ -81,25 +160,8 @@ def package(args):
         name, version, *_ = path.relative_to(cellar).parts
         kegs[name] = cellar / name / version
 
-    records = []
-    for name, keg in sorted(kegs.items()):
-        target = licenses / name
-        target.mkdir(exist_ok=True)
-        notices = [path for path in keg.rglob("*") if path.is_file() and
-                   re.match(r"^(licen[cs]e|copying|copyright|notice|authors)([.\-_]|$)",
-                            path.name, re.IGNORECASE)]
-        if not notices:
-            raise RuntimeError(f"No distributable license notices found for {name} in {keg}")
-        for path in notices:
-            destination = target / path.relative_to(keg)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, destination)
-        # Preserve the installed build recipe and receipt, not just a mutable
-        # reference to today's Homebrew formula.
-        for path in [keg / "INSTALL_RECEIPT.json", *sorted((keg / ".brew").glob("*.rb"))]:
-            if path.is_file():
-                shutil.copy2(path, target / path.name)
-        records.append({"formula": name, "version": keg.name})
+    packets = json.loads((args.source / "macos/license-sources.json").read_text())
+    records = collect_notices(kegs, licenses, args.build / "license-sources", packets)
 
     binaries = [app / "Contents/MacOS/Duel 6 Reloaded"]
     binaries.extend(path for path in frameworks.rglob("*")

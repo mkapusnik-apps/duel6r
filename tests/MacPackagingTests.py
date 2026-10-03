@@ -1,12 +1,17 @@
 """Portable filesystem regressions for the real macOS package staging helper."""
 
 import importlib.util
+import hashlib
+import io
+import json
 from pathlib import Path
 import plistlib
 import subprocess
 import sys
 import tempfile
+import tarfile
 import unittest
+from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 
@@ -114,6 +119,88 @@ endif()
         self.stage()
         self.assertEqual("updated settings", (staged / "data/config.cfg").read_text())
         self.assertFalse((staged / "previous-package-metadata.json").exists())
+
+    def source_fixture(self, members=None):
+        keg = self.build / "Cellar/example/1.0"
+        (keg / ".brew").mkdir(parents=True)
+        recipe = b"test recipe fixture"
+        (keg / ".brew/example.rb").write_bytes(recipe)
+        cache = self.build / "source-cache"
+        cache.mkdir()
+        archive = cache / "example-1.0.tar.gz"
+        with tarfile.open(archive, "w:gz") as contents:
+            for name, data in (members or {
+                "example-1.0/LICENSES/LGPL-2.1-or-later.txt": b"fixture license text\n",
+                "example-1.0/library.c": b"fixture source and copyright notices\n",
+            }).items():
+                entry = tarfile.TarInfo(name)
+                entry.size = len(data)
+                contents.addfile(entry, io.BytesIO(data))
+        packet = {
+            "version": "1.0", "recipe_sha256": [hashlib.sha256(recipe).hexdigest()],
+            "required_notices": ["example-1.0/LICENSES/LGPL-2.1-or-later.txt"],
+            "sources": [{"url": "https://example.invalid/example-1.0.tar.gz",
+                         "sha256": hashlib.sha256(archive.read_bytes()).hexdigest()}],
+        }
+        return keg, cache, packet
+
+    def test_source_packet_retains_complete_verified_source_and_verbatim_notices(self):
+        keg, cache, packet = self.source_fixture()
+        licenses = self.output / "licenses"
+        with patch.object(package, "run", side_effect=AssertionError("unexpected download")):
+            result = package.collect_notices({"example": keg}, licenses, cache, {"example": packet})
+        self.assertTrue(result[0]["source_packet"])
+        self.assertEqual((cache / "example-1.0.tar.gz").read_bytes(),
+                         (licenses / "example/sources/example-1.0.tar.gz").read_bytes())
+        self.assertEqual(b"fixture license text\n", (licenses / "example/upstream" /
+                         packet["required_notices"][0]).read_bytes())
+        self.assertEqual((keg / ".brew/example.rb").read_bytes(),
+                         (licenses / "example/example.rb").read_bytes())
+        provenance = json.loads((licenses / "example/source-provenance.json").read_text())
+        self.assertEqual(packet["sources"], provenance["sources"])
+
+    def test_corrupt_source_and_changed_recipe_fail_closed(self):
+        keg, cache, packet = self.source_fixture()
+        archive = cache / "example-1.0.tar.gz"
+        original = archive.read_bytes()
+        archive.write_bytes(b"corrupt download")
+        with self.assertRaisesRegex(RuntimeError, "Source checksum mismatch"):
+            package.collect_notices({"example": keg}, self.output / "licenses", cache, {"example": packet})
+        archive.write_bytes(original)
+        (keg / ".brew/example.rb").write_text("different build modifications")
+        with self.assertRaisesRegex(RuntimeError, "Unreviewed source/recipe"):
+            package.collect_notices({"example": keg}, self.output / "licenses", cache, {"example": packet})
+
+    def test_source_packet_rejects_traversal(self):
+        keg, cache, packet = self.source_fixture({"../COPYING": b"unsafe path"})
+        with self.assertRaisesRegex(RuntimeError, "Unsafe source archive path"):
+            package.collect_notices({"example": keg}, self.output / "licenses", cache, {"example": packet})
+        self.assertFalse((self.output / "COPYING").exists())
+
+    def test_source_packet_rejects_missing_required_license(self):
+        keg, cache, packet = self.source_fixture({"example-1.0/library.c": b"source without notice"})
+        with self.assertRaisesRegex(RuntimeError, "lacks required notice"):
+            package.collect_notices({"example": keg}, self.output / "licenses", cache, {"example": packet})
+
+    def test_spdx_license_directories_and_all_missing_dependencies_are_audited(self):
+        keg = self.build / "Cellar/with-notices/1.0"
+        notice = keg / "share/doc/component/LICENSES/MIT.txt"
+        notice.parent.mkdir(parents=True)
+        notice.write_bytes(b"fixture license bytes\n")
+        good = package.collect_notices({"with-notices": keg}, self.output / "licenses",
+                                       self.build / "cache", {})
+        self.assertEqual([str(notice.relative_to(keg))], good[0]["installed_notices"])
+        self.assertEqual(notice.read_bytes(), (self.output / "licenses/with-notices" /
+                                              notice.relative_to(keg)).read_bytes())
+        missing = {name: self.build / "Cellar" / name / "1.0" for name in ("missing-a", "missing-b")}
+        for path in missing.values():
+            path.mkdir(parents=True)
+            (path / "AUTHORS").write_text("Attribution alone is not a license grant")
+        with self.assertRaises(RuntimeError) as caught:
+            package.collect_notices({**missing, "with-notices": keg}, self.output / "licenses",
+                                    self.build / "cache", {})
+        self.assertIn("missing-a@1.0", str(caught.exception))
+        self.assertIn("missing-b@1.0", str(caught.exception))
 
 
 if __name__ == "__main__":

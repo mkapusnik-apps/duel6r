@@ -47,6 +47,25 @@ Non-system dynamic libraries are in `Contents/Frameworks`; Apple system framewor
 are supplied by macOS. The package includes the dynamic dependency closure and,
 when Homebrew supplies sdl2-compat, its dynamically loaded SDL3 runtime.
 
+The GLib 2.88.3 Sonoma bottle omits its upstream license files. The package
+therefore carries checksum-verified upstream source and verbatim notices for
+GLib, its gobject-introspection build resource, and its exact Homebrew patch.
+The Homebrew BSD license accompanies the retained recipes and patch in GLib's
+`sources/LICENSE.txt`.
+The audited gettext 1.0 runtime LGPL notice is also absent from its keg; its
+source archive and notices are included, together with libunistring 1.4.2 source.
+These narrowly versioned supplements are bound to reviewed installed-recipe
+hashes in `macos/license-sources.json`; a changed recipe/version fails closed.
+Find the complete archives and patch under each dependency's `licenses/*/sources`,
+extracted notices under `upstream`, and URLs/checksums in `source-provenance.json`.
+The original recipe and installation receipt describe Homebrew build choices;
+packaging changes library load paths and ad-hoc seals, not library source code.
+No upstream attribution or license terms are replaced by generated summaries.
+Notice discovery is not a blanket legal-compliance determination: the applicable
+LGPL/source, modification and redistribution obligations continue to apply to
+every bundled dependency. The collector audits the actual transitive closure
+and reports all unresolved notice dependencies before refusing publication.
+
 Bundled shared libraries may be replaced with compatible modified builds under
 their respective licenses. Rebuilding from this revision is supported by
 `bash macos/build.sh`; the recorded recipes identify dependency sources and build
