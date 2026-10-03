@@ -2,6 +2,7 @@
 """Bounded black-box lifecycle checks for the host supervisor and its owned child."""
 
 import os
+import errno
 import pathlib
 import select
 import shutil
@@ -334,6 +335,14 @@ class HostServiceProcesses(unittest.TestCase):
     def test_application_stop_before_eof_poll_does_not_orphan_descendant(self):
         self.check_parent_sigkill_descendant("tree-application-stop")
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux process-lifetime guard after channel teardown")
+    def test_parent_sigkill_after_channel_destruction_does_not_orphan_descendant(self):
+        self.check_parent_sigkill_descendant("tree-teardown")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux inherited mask guard setup")
+    def test_inherited_blocked_guard_after_channel_destruction_does_not_orphan_descendant(self):
+        self.check_parent_sigkill_descendant("tree-teardown-inherited-mask")
+
     def check_parent_sigkill_descendant(self, mode):
         with tempfile.TemporaryDirectory(prefix="duel6r-host-tree-") as directory:
             marker = pathlib.Path(directory) / "descendant.pid"
@@ -346,7 +355,14 @@ class HostServiceProcesses(unittest.TestCase):
             self.assertTrue(marker.exists(), "owned child did not create its descendant")
             descendant = int(marker.read_text(encoding="ascii").strip())
             _, descendant_start_time = self.linux_process_metadata(descendant)
+            leader = leader_start_time = None
             try:
+                children = pathlib.Path(f"/proc/{process.pid}/task/{process.pid}/children").read_text().split()
+                self.assertEqual(1, len(children))
+                leader = int(children[0])
+                _, leader_start_time = self.linux_process_metadata(leader)
+                if mode.startswith("tree-teardown"):
+                    self.assertEqual("unblocked\n", pathlib.Path(str(marker) + ".guard").read_text(encoding="ascii"))
                 os.kill(process.pid, signal.SIGKILL)
                 process.communicate(timeout=3)
                 self.assert_linux_process_terminated(
@@ -354,11 +370,12 @@ class HostServiceProcesses(unittest.TestCase):
                     "owned descendant remained active after parent SIGKILL")
             finally:
                 self.kill_linux_process_if_matching(descendant, descendant_start_time)
+                if leader is not None: self.kill_linux_process_if_matching(leader, leader_start_time)
                 self.close_process_streams(process)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux authenticated owned-group guard")
     def test_unowned_group_and_replaced_control_descriptor_reject_channel(self):
-        for mode in ("unowned-group", "unowned-control"):
+        for mode in ("unowned-group", "unowned-control", "guard-signal-conflict"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory(prefix="duel6r-host-guard-") as directory:
                 marker = pathlib.Path(directory) / "guard.txt"
                 result = self.run_case(mode, f"--gameplay-script={marker}")
@@ -407,9 +424,19 @@ class HostServiceProcesses(unittest.TestCase):
                 _, start = self.linux_process_metadata(child)
                 process.kill()
                 process.communicate(timeout=3)
-                self.assert_linux_process_terminated(child, start, time.monotonic() + 3,
+                deadline = time.monotonic() + 3
+                self.assert_linux_process_terminated(child, start, deadline,
                                                      "real owned service survived parent SIGKILL")
-                self.assert_listener_released(port)
+                # A terminated leader is not an acknowledgement that all socket
+                # references were released. Observe the OS resource within the
+                # SAME three-second budget, not a fixed-delay proxy or larger deadline.
+                while True:
+                    try:
+                        self.assert_listener_released(port)
+                        break
+                    except OSError as error:
+                        if error.errno != errno.EADDRINUSE or time.monotonic() >= deadline: raise
+                        time.sleep(.01)
             finally:
                 if child is not None: self.kill_linux_process_if_matching(child, start)
                 self.close_process_streams(process)
@@ -493,6 +520,8 @@ if __name__ == "__main__":
             "test_parent_sigkill_does_not_orphan_owned_descendant",
             "test_control_eof_before_parent_signal_does_not_orphan_descendant",
             "test_application_stop_before_eof_poll_does_not_orphan_descendant",
+            "test_parent_sigkill_after_channel_destruction_does_not_orphan_descendant",
+            "test_inherited_blocked_guard_after_channel_destruction_does_not_orphan_descendant",
             "test_normal_shutdown_cleans_owned_descendant_process_tree",
         ]
         suite = unittest.TestSuite(HostServiceProcesses(name) for name in names)

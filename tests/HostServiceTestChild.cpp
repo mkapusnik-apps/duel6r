@@ -16,6 +16,7 @@
 #include <cerrno>
 #include <csignal>
 #include <fcntl.h>
+#include <sys/prctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 extern char **environ;
@@ -128,9 +129,23 @@ int main(int count, char **arguments) {
         }
     }
 #endif
-    const auto channel = Duel6::Server::HostedServiceChannel::fromCommandLine(count, arguments);
-    if (!channel || !channel->active()) return 70;
     const std::string mode = modeFromArguments(count, arguments);
+#ifndef _WIN32
+    if (mode == "tree-teardown-inherited-mask") {
+        sigset_t mask; sigemptyset(&mask); sigaddset(&mask, SIGUSR2);
+        if (sigprocmask(SIG_BLOCK, &mask, nullptr) != 0) return 92;
+    } else if (mode == "guard-signal-conflict") {
+        std::signal(SIGUSR2, requestApplicationStop);
+    }
+#endif
+    auto channel = Duel6::Server::HostedServiceChannel::fromCommandLine(count, arguments);
+#ifndef _WIN32
+    if (mode == "guard-signal-conflict") {
+        if (!publishMarker(gameplayScriptFromArguments(count, arguments), channel ? "accepted\n" : "rejected\n")) return 83;
+        return channel ? 83 : 0;
+    }
+#endif
+    if (!channel || !channel->active()) return 70;
     if (mode == "listener-environment") {
         if (std::getenv("D6R_TEST_PARENT_SECRET")) return 86;
 #ifdef _WIN32
@@ -219,7 +234,8 @@ int main(int count, char **arguments) {
         }
         if (!channel->send(Duel6::Network::HostServiceStatusCode::Ready)) return 80;
     }
-    if (mode == "tree" || mode == "tree-eof-before-signal" || mode == "tree-application-stop") {
+    if (mode == "tree" || mode == "tree-eof-before-signal" || mode == "tree-application-stop"
+        || mode == "tree-teardown" || mode == "tree-teardown-inherited-mask") {
         const std::string pidFile = gameplayScriptFromArguments(count, arguments);
         const pid_t descendant = fork();
         if (descendant < 0) return 81;
@@ -229,12 +245,26 @@ int main(int count, char **arguments) {
         if (mode == "tree-eof-before-signal") {
             // Select control EOF before parent-death signal dispatch without
             // extending the original process-identity/termination deadline.
-            sigset_t mask; sigemptyset(&mask); sigaddset(&mask, SIGTERM);
+            int deathSignal = 0;
+            if (prctl(PR_GET_PDEATHSIG, &deathSignal) != 0 || deathSignal == 0) return 92;
+            sigset_t mask; sigemptyset(&mask); sigaddset(&mask, deathSignal);
             if (sigprocmask(SIG_BLOCK, &mask, nullptr) != 0) return 92;
         } else if (mode == "tree-application-stop") {
             // The real HeadlessServer installs its application SIGTERM stop
             // handler after channel setup and may exit before polling EOF.
             std::signal(SIGTERM, requestApplicationStop);
+        }
+        if (mode == "tree-teardown" || mode == "tree-teardown-inherited-mask") {
+            int deathSignal = 0;
+            if (prctl(PR_GET_PDEATHSIG, &deathSignal) != 0 || deathSignal == 0) return 92;
+            std::signal(SIGTERM, requestApplicationStop);
+            channel.reset(); // Barrier is after descriptors and last channel are gone.
+            sigset_t currentMask;
+            if (sigprocmask(SIG_BLOCK, nullptr, &currentMask) != 0
+                || !publishMarker(pidFile + ".guard", sigismember(&currentMask, deathSignal) == 1 ? "blocked\n" : "unblocked\n")) return 92;
+            if (!publishMarker(pidFile, std::to_string(descendant) + "\n")) return 82;
+            while (!applicationStop) pause();
+            return 0;
         }
         if (!publishMarker(pidFile, std::to_string(descendant) + "\n")) return 82;
     }
@@ -250,9 +280,15 @@ int main(int count, char **arguments) {
         return rejected ? 83 : 0;
     }
     if (mode == "fork-signal-guard") {
+        int deathSignal = 0;
+        if (prctl(PR_GET_PDEATHSIG, &deathSignal) != 0 || deathSignal == 0) return 92;
         const pid_t descendant = fork();
         if (descendant < 0) return 81;
-        if (descendant == 0) { raise(SIGTERM); _exit(95); }
+        if (descendant == 0) {
+            sigset_t mask; sigemptyset(&mask); sigaddset(&mask, deathSignal);
+            if (sigprocmask(SIG_UNBLOCK, &mask, nullptr) != 0) _exit(92);
+            raise(deathSignal); _exit(95);
+        }
         int status = 0;
         pid_t reaped;
         do { reaped = waitpid(descendant, &status, 0); } while (reaped < 0 && errno == EINTR);
