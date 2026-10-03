@@ -106,12 +106,32 @@ def collect_notices(kegs, licenses, cache, packets):
     return records
 
 
+def require_regular_entrypoints(app):
+    for relative in ("Contents/Info.plist", "Contents/MacOS/Duel 6 Reloaded"):
+        path = app / relative
+        if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(app.resolve()):
+            raise RuntimeError(f"Signing requires a regular file inside the bundle: {path}")
+
+
 def stage_app(source, build, output):
     """Use current source resources, never an incremental build's stale copy."""
     app = output / "Duel 6 Reloaded.app"
     if app.exists():
         shutil.rmtree(app)
     shutil.copytree(build / app.name, app, symlinks=True)
+    main = app / "Contents/MacOS/Duel 6 Reloaded"
+    if main.is_symlink():
+        # CMake VERSION produces a logical-name symlink to the versioned binary.
+        # codesign requires the declared main executable to be a regular file.
+        # Move only a sibling target within this staged bundle, preserving bytes
+        # and mode without leaving a redundant, unsealed executable alongside it.
+        target = main.resolve(strict=True)
+        if (target.parent != main.parent.resolve() or not target.is_file()
+                or not target.is_relative_to(app.resolve())):
+            raise RuntimeError(f"Unexpected main executable symlink target: {main} -> {target}")
+        main.unlink()
+        target.replace(main)
+    require_regular_entrypoints(app)
     resources = app / "Contents/Resources"
     if resources.exists():
         shutil.rmtree(resources)
@@ -207,6 +227,7 @@ def package(args):
     for path in app.rglob("*"):
         if path.is_symlink() and not path.resolve().is_relative_to(app):
             raise RuntimeError(f"External bundle symlink: {path}")
+    require_regular_entrypoints(app)
     for binary in binaries[1:]:
         run("codesign", "--force", "--sign", "-", "--timestamp=none", binary)
     run("codesign", "--force", "--sign", "-", "--timestamp=none", app)

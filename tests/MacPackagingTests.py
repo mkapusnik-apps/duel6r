@@ -41,6 +41,60 @@ class MacPackagingTests(unittest.TestCase):
     def stage(self):
         return package.stage_app(self.source, self.build, self.output)
 
+    def test_versioned_main_executable_is_staged_as_one_regular_file(self):
+        # This is the layout recorded by snapshot run 37123730851 and produced
+        # by the application's CMake VERSION property, not a native signing mock.
+        main = self.built / "Contents/MacOS/Duel 6 Reloaded"
+        versioned = main.with_name(main.name + "-6.0.0")
+        main.rename(versioned)
+        versioned.chmod(0o755)
+        main.symlink_to(versioned.name)
+        frameworks = self.built / "Contents/Frameworks"
+        frameworks.mkdir()
+        (frameworks / "libexample.1.dylib").write_bytes(b"library fixture")
+        (frameworks / "libexample.dylib").symlink_to("libexample.1.dylib")
+
+        for _ in range(2):
+            app = self.stage()
+            staged_main = app / "Contents/MacOS" / main.name
+            self.assertFalse(staged_main.is_symlink())
+            self.assertTrue(staged_main.is_file())
+            self.assertEqual(b"built executable", staged_main.read_bytes())
+            self.assertEqual(0o755, staged_main.stat().st_mode & 0o777)
+            self.assertFalse((staged_main.parent / versioned.name).exists())
+            self.assertTrue((app / "Contents/Frameworks/libexample.dylib").is_symlink())
+        self.assertTrue(main.is_symlink())
+        self.assertEqual(b"built executable", versioned.read_bytes())
+
+    def test_main_executable_symlink_cannot_move_a_file_outside_staged_bundle(self):
+        outside = self.build / "external executable"
+        outside.write_bytes(b"external fixture must remain unchanged")
+        main = self.built / "Contents/MacOS/Duel 6 Reloaded"
+        main.unlink()
+        main.symlink_to(outside)
+        with self.assertRaisesRegex(RuntimeError, "Unexpected main executable symlink target"):
+            self.stage()
+        self.assertEqual(b"external fixture must remain unchanged", outside.read_bytes())
+        self.assertTrue(main.is_symlink())
+
+    def test_signing_preflight_rejects_symlinked_metadata_and_reintroduced_main_link(self):
+        app = self.stage()
+        package.require_regular_entrypoints(app)
+        info = app / "Contents/Info.plist"
+        saved_info = info.with_name("saved-info.plist")
+        info.rename(saved_info)
+        info.symlink_to(saved_info.name)
+        with self.assertRaisesRegex(RuntimeError, "regular file inside the bundle"):
+            package.require_regular_entrypoints(app)
+        info.unlink()
+        saved_info.rename(info)
+        main = app / "Contents/MacOS/Duel 6 Reloaded"
+        versioned = main.with_name(main.name + "-6.0.0")
+        main.rename(versioned)
+        main.symlink_to(versioned.name)
+        with self.assertRaisesRegex(RuntimeError, "regular file inside the bundle"):
+            package.require_regular_entrypoints(app)
+
     def test_bundle_utilities_resolves_real_plist_template_and_staged_executable(self):
         # Exercise CMake's actual consumer, not a substitute XML parser: it
         # requires CFBundleExecutable's string on the line following the key.
