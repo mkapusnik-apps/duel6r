@@ -34,6 +34,9 @@
 #include "ScreenParameters.h"
 #include "ViewParameters.h"
 #include "renderer/Renderer.h"
+#ifdef D6_MACOS_LOCAL
+#include "platform/MacPointer.h"
+#endif
 
 namespace Duel6 {
     class Video {
@@ -73,6 +76,10 @@ namespace Duel6 {
         void setMode(Mode mode) const;
 
         Renderer &getRenderer() const;
+
+#ifdef D6_MACOS_LOCAL
+        MacLocal::PointerTransform menuPointerTransform() const;
+#endif
 
     private:
         void renderConsole(Console &console, const Font &font);

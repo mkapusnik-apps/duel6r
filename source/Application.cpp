@@ -219,6 +219,12 @@ namespace Duel6 {
                 continue;
             }
 #endif
+#ifdef D6_MACOS_LOCAL
+            if (context.is(*menu) && (event.type == SDL_MOUSEBUTTONDOWN
+                || event.type == SDL_MOUSEBUTTONUP || event.type == SDL_MOUSEMOTION)) {
+                video->menuPointerTransform().event(event);
+            }
+#endif
             switch (event.type) {
                 case SDL_KEYDOWN:
                 case SDL_KEYUP:
@@ -239,6 +245,9 @@ namespace Duel6 {
                 case SDL_MOUSEWHEEL:{
                         Int32 x,y;
                         SDL_GetMouseState(&x, &y);
+#ifdef D6_MACOS_LOCAL
+                        if (context.is(*menu)) video->menuPointerTransform().position(x, y);
+#endif
                         mouseWheelEvent(context, MouseWheelEvent(x, video->getScreen().getClientHeight() - y, event.wheel.x, event.wheel.y));
                     }
                     break;
