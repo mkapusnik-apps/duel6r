@@ -65,6 +65,7 @@ jobs:
             --service-account=d6r-directory-runtime@duel-6-reloaded.iam.gserviceaccount.com
             --ingress=all --port=8080 --min=0 --max=2
             --min-instances=0 --max-instances=2 --concurrency=32
+            --startup-probe=httpGet.path=/healthz,httpGet.port=8080,periodSeconds=10,timeoutSeconds=3,failureThreshold=3
 
       - name: Verify candidate and activate production traffic
         env:
@@ -74,7 +75,6 @@ jobs:
           candidate_url="$(gcloud run services describe directory \
             --project=duel-6-reloaded --region=europe-west1 --format=json \
             | jq -er '.status.traffic[] | select(.tag == "candidate") | .url')"
-          curl --fail --silent --show-error --max-time 30 "${candidate_url}/healthz" | jq -e '.status == "ok"'
           curl --fail --silent --show-error --max-time 30 "${candidate_url}/v1/listings" | jq -e '.listings | type == "array"'
           gcloud run services update-traffic directory \
             --project=duel-6-reloaded --region=europe-west1 \

@@ -95,9 +95,15 @@ image with `org.opencontainers.image.revision=<source SHA>`. Push it to the regi
 and capture its immutable digest. Never use an uncommitted checkout or deploy a
 mutable image tag.
 
+An existing approved image can be reused when its production inputs are unchanged.
+Record its original build SHA, local image ID, published digest, and equivalent
+integrated checkpoint. Do not rebuild only to add a cosmetic source label.
+
 The authorized operator creates staging first with that `IMAGE@sha256:...`, the
-runtime environment and limits above, and `--allow-unauthenticated`. Verify HTTPS
-health, the real listing query, and retained owner authorization. Only a successful
+runtime environment and limits above, and `--allow-unauthenticated`. Configure an
+internal HTTP startup probe on `/healthz`, port 8080, period 10 seconds, timeout
+3 seconds, and failure threshold 3. Verify revision startup health, the public HTTPS
+listing query, and retained owner authorization. Only a successful
 verification may establish `staging-success`. Use a distinct `manual-verified-...`
 audit tag for manual bootstrap; do not name it as nightly event evidence.
 
@@ -121,7 +127,8 @@ The nightly directory job waits for successful release publication, including bo
 game package jobs. It checks out the captured `sanity_sha`, builds the production
 target once, and pushes a run-specific tag. It deploys the build output digest to
 the `candidate` Cloud Run traffic tag without replacing existing serving traffic.
-It checks `/healthz` and `/v1/listings`, moves 100% traffic to that exact revision,
+Deployment waits for the internal `/healthz` startup probe. It checks the public
+`/v1/listings` response, moves 100% traffic to that exact revision,
 and checks the service URL. These requests do not print listing contents.
 
 The final step records `staging-verified-<run ID>-<attempt>` and then moves
@@ -169,7 +176,12 @@ Record source SHA, trigger/run, image digest, registry audit tag, Cloud Run revi
 project, region, endpoint, limits, identity, and verification outcomes. Compare the
 production image digest with the captured staging digest. GitHub job summaries and
 Cloud Run revision metadata support this record. `/healthz` alone does not prove
-Firestore IAM, indexes, or owner authorization. Manual evidence is not event evidence.
+Firestore IAM, indexes, or owner authorization. During bootstrap, both public
+`run.app` URL forms returned a Google-front-end 404 for `/healthz`, while public
+`/v1/listings` reached the service. Use the internal HTTP startup probe for process
+health and the public listing query for HTTPS/database verification. Do not treat
+the public health-path 404 as an application result or add retries to hide it.
+Manual evidence is not event evidence.
 
 NET-DIR-DEP-AC-001 and AC-002 need real nightly and master-push observations after
 workflow integration. AC-003 also needs hosted listing/owner-authorization evidence
