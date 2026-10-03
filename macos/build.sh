@@ -18,6 +18,16 @@ build="$root/build/macos-build"
 output="$root/build/macos"
 deps="$root/build/macos-deps"
 mkdir -p "$deps" "$output"
+python3 "$root/tests/MacPackagingTests.py"
+
+# Invoking Xcode's clang by its absolute path does not reliably select an SDK.
+# Use the selected Xcode's macOS SDK explicitly for both Lua and the application.
+sdk="$(xcrun --sdk macosx --show-sdk-path)"
+[[ -d "$sdk" && -f "$sdk/usr/include/string.h" ]] || {
+  echo "The selected macOS SDK is missing its system headers: $sdk" >&2; exit 1;
+}
+export SDKROOT="$sdk"
+target_flags="-isysroot \"$sdk\" -arch arm64 -mmacosx-version-min=14.0"
 
 # lua@5.3 is no longer available in Homebrew. Build only the pinned static
 # library, not an unrelated interpreter or a newer, incompatible Lua API.
@@ -33,14 +43,14 @@ printf '%s  %s\n' "$lua_sha256" "$archive" | shasum -a 256 -c -
 lua="$deps/lua-$lua_version"
 rm -rf "$lua"
 tar -xzf "$archive" -C "$deps"
-make -C "$lua/src" a CC="$(xcrun --find clang)" \
-  MYCFLAGS='-DLUA_USE_MACOSX -arch arm64 -mmacosx-version-min=14.0'
+make -C "$lua/src" a CC="$(xcrun --sdk macosx --find clang)" \
+  MYCFLAGS="-DLUA_USE_MACOSX $target_flags" MYLDFLAGS="$target_flags"
 
 prefix="$(brew --prefix)"
 cmake -S "$root" -B "$build" -G Ninja \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_PREFIX_PATH="$prefix" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_SYSROOT="$sdk" -DCMAKE_PREFIX_PATH="$prefix" \
   -DD6R_RENDERER=gl1 -DD6R_WITH_LUA=ON -DBUILD_TESTING=ON \
   -DLUA_INCLUDE_DIR="$lua/src" -DLUA_LIBRARY="$lua/src/liblua.a"
 cmake --build "$build" --parallel "$(sysctl -n hw.ncpu)"

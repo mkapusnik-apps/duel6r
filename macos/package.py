@@ -22,19 +22,29 @@ def load_commands(binary):
     return run("otool", "-l", binary)
 
 
-def package(args):
-    output = args.output.resolve()
+def stage_app(source, build, output):
+    """Use current source resources, never an incremental build's stale copy."""
     app = output / "Duel 6 Reloaded.app"
     if app.exists():
         shutil.rmtree(app)
-    shutil.copytree(args.build / app.name, app, symlinks=True)
+    shutil.copytree(build / app.name, app, symlinks=True)
+    resources = app / "Contents/Resources"
+    if resources.exists():
+        shutil.rmtree(resources)
+    shutil.copytree(source / "resources", resources, symlinks=True)
+    # A developer's local save must never enter a release bundle.
+    (resources / "data/persons.json").unlink(missing_ok=True)
+    return app
+
+
+def package(args):
+    output = args.output.resolve()
+    app = stage_app(args.source, args.build, output)
     resources = app / "Contents/Resources"
     frameworks = app / "Contents/Frameworks"
     frameworks.mkdir(exist_ok=True)
     licenses = resources / "licenses"
     licenses.mkdir(exist_ok=True)
-    # A developer's local save must never enter a release bundle.
-    (resources / "data/persons.json").unlink(missing_ok=True)
     shutil.copy2(args.source / "LICENSE", licenses / "duel6r-LICENSE.txt")
     shutil.copy2(args.source / "macos/README.md", resources / "README-macos.md")
     shutil.copy2(args.lua / "src/lua.h", licenses / "lua-5.3.6-license-and-header.txt")
