@@ -39,7 +39,8 @@ D6R_TEST_CASE("macOS paths create only per-user saves and resolve resources inde
     const auto save = paths.support / "data/persons.json";
     fs::permissions(paths.resources, fs::perms::owner_read | fs::perms::owner_exec);
     Duel6::MacLocal::preparePaths(paths.resources, paths.support);
-    D6R_REQUIRE_EQ(paths.resources, fs::current_path());
+    // macOS may report /private/var for a requested /var directory alias.
+    D6R_REQUIRE(fs::equivalent(paths.resources, fs::current_path()));
     D6R_REQUIRE_EQ(save.string(), Duel6::MacLocal::personDataPath());
     D6R_REQUIRE(fs::is_directory(save.parent_path()));
     D6R_REQUIRE(!fs::exists(save)); // Missing-file behavior remains with Menu.
@@ -54,6 +55,23 @@ D6R_TEST_CASE("macOS paths create only per-user saves and resolve resources inde
     std::ifstream input(save);
     D6R_REQUIRE_EQ(saved, std::string(std::istreambuf_iterator<char>(input), {}));
 }
+
+#ifndef _WIN32
+D6R_TEST_CASE("macOS resource directory aliases select the same directory and relative assets") {
+    Paths paths;
+    const auto alias = paths.root / "Resources alias";
+    fs::create_directory_symlink(fs::canonical(paths.resources), alias);
+    { std::ofstream asset(paths.resources / "data/alias-test.txt"); asset << "bundled asset"; }
+    Duel6::MacLocal::preparePaths(alias, paths.support);
+    D6R_REQUIRE(alias != fs::current_path()); // Reproduce the lexical-alias distinction.
+    D6R_REQUIRE(fs::equivalent(alias, fs::current_path()));
+    D6R_REQUIRE(fs::equivalent(paths.resources, fs::current_path()));
+    D6R_REQUIRE(!fs::equivalent(paths.support, fs::current_path()));
+    std::ifstream asset("data/alias-test.txt");
+    D6R_REQUIRE_EQ(std::string("bundled asset"), std::string(std::istreambuf_iterator<char>(asset), {}));
+    D6R_REQUIRE_EQ((paths.support / "data/persons.json").string(), Duel6::MacLocal::personDataPath());
+}
+#endif
 
 D6R_TEST_CASE("macOS paths reject relative or incomplete bundles and unusable save directories") {
     Paths paths;
