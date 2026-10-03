@@ -3,10 +3,16 @@
 ## Scope and resources
 
 The approved [directory deployment contract](network-host-directory.md#directory-deployment)
-owns NET-DIR-DEP-001 through NET-DIR-DEP-007 and their acceptance criteria.
+owns NET-DIR-DEP-001 through NET-DIR-DEP-013 and their acceptance criteria.
 These resources host the HTTP directory, not game sessions, a relay, or player accounts.
-Client configuration remains explicit through `D6R_DIRECTORY_URL`. No default URL
-is added to the game. Local Play and direct joining remain independent.
+Network-capable nightly packages use `https://staging.duel.netusite.cz`; release
+packages use `https://duel.netusite.cz`, including manual release-workflow runs.
+The build option `D6R_DIRECTORY_DEFAULT_URL` selects this compiled default separately
+from `CMAKE_BUILD_TYPE`. Unchannelled builds have an empty default.
+An explicit `D6R_DIRECTORY_URL` overrides the compiled default. A present empty or
+invalid override makes the directory unavailable, without fallback. A directory
+failure must not switch environments. Local Play and direct joining remain
+independent. The experimental macOS package remains local-only.
 
 All regional resources use project `duel-6-reloaded` (number `987997960434`) and
 `europe-west1`. Identifiers below are public configuration, not credentials.
@@ -14,6 +20,7 @@ All regional resources use project `duel-6-reloaded` (number `987997960434`) and
 | Resource | Staging | Production |
 | --- | --- | --- |
 | Cloud Run service | `staging-directory` | `directory` |
+| Public directory origin | `https://staging.duel.netusite.cz` | `https://duel.netusite.cz` |
 | Firestore Native database | `staging-directory` | `directory` |
 | Runtime service account ID | `d6r-directory-staging-runtime` | `d6r-directory-runtime` |
 | Deployment service account ID | `d6r-directory-staging-deploy` | `d6r-directory-prod-deploy` |
@@ -45,7 +52,9 @@ Retain the `leaseExpiry` query index. Do not exempt it from indexing for TTL.
 Provisioning uses an authorized operator, not a CI deployment identity. The enabled
 APIs are Cloud Run, Artifact Registry, Firestore, IAM, IAM Credentials, and Security
 Token Service. No Cloud Build, Secret Manager, service-account key, VPC connector,
-load balancer, custom domain, or budget alert is required by this setup.
+load balancer or budget alert is required by this setup. Existing Cloud Run domain
+mappings provide the approved public origins. Routine deployment does not recreate
+these mappings or change DNS, IAM, or enabled APIs.
 
 The initial inventory after API enablement was empty for Cloud Run services,
 registry repositories, Firestore databases, and WIF pools. API activation also
@@ -86,6 +95,28 @@ principal set ending in `attribute.ref/refs/tags/sanity` or
 `principalSet://iam.googleapis.com/projects/987997960434/locations/global/workloadIdentityPools/d6r-directory/`.
 Only deployment jobs receive GitHub `id-token: write`. No new GitHub secret or
 variable is required. The existing nightly scheduler's `PAT_ACTIONS` is unchanged.
+
+## Custom domains
+
+Both mappings use automatic certificates in `europe-west1`:
+
+| Hostname | Route target | Required DNS record |
+| --- | --- | --- |
+| `staging.duel.netusite.cz` | `staging-directory` | CNAME to `ghs.googlehosted.com.` |
+| `duel.netusite.cz` | `directory` | CNAME to `ghs.googlehosted.com.` |
+
+The operator owns DNS and certificate readiness. A mapping or DNS record alone
+does not prove HTTPS access. Before distribution acceptance, confirm the mapping
+target and ready certificate, public DNS resolution, and a certificate-validated
+`GET /v1/listings` with a listings array through each approved origin. Record the
+serving revision and owner-authorization evidence. Do not bypass TLS verification
+or substitute a different origin when a domain is unavailable. Certificate issuance
+can take up to 24 hours after DNS configuration.
+
+[Google's domain-mapping documentation](https://docs.cloud.google.com/run/docs/mapping-custom-domains)
+labels native Cloud Run domain mapping Preview and does not recommend it for
+production because of latency issues. This is a retained production risk of the
+approved existing mapping, not authorization to add a load balancer.
 
 ## Initial service bootstrap
 
@@ -129,7 +160,9 @@ target once, and pushes a run-specific tag. It deploys the build output digest t
 the `candidate` Cloud Run traffic tag without replacing existing serving traffic.
 Deployment waits for the internal `/healthz` startup probe. It checks the public
 `/v1/listings` response, moves 100% traffic to that exact revision,
-and checks the service URL. These requests do not print listing contents.
+and checks `https://staging.duel.netusite.cz/v1/listings` with TLS verification.
+These requests do not print listing contents. The domain check must succeed before
+the workflow records staging eligibility.
 
 The final step records `staging-verified-<run ID>-<attempt>` and then moves
 `staging-success` to the same digest. The last write is the promotion commit point.
@@ -140,7 +173,9 @@ and rollback. Existing GHCR cleanup does not manage this registry repository.
 The production workflow runs only on push to `master`. It resolves `staging-success`
 once, under the shared deployment lock, and deploys that digest without a build.
 It follows the same candidate verification and traffic activation sequence with
-production configuration. Its `promotion-sha` label identifies the master trigger,
+production configuration. After traffic activation, it checks
+`https://duel.netusite.cz/v1/listings` with TLS verification before reporting success.
+Its `promotion-sha` label identifies the master trigger,
 not the image source. The image's OCI revision label and staging run identify source.
 
 Both paths use concurrency group `directory-deployment`, do not cancel an active

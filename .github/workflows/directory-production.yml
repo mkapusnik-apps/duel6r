@@ -79,8 +79,7 @@ jobs:
           gcloud run services update-traffic directory \
             --project=duel-6-reloaded --region=europe-west1 \
             --to-revisions="${REVISION}=100" --quiet
-          service_url="$(gcloud run services describe directory \
-            --project=duel-6-reloaded --region=europe-west1 --format='value(status.url)')"
+          service_url="https://duel.netusite.cz"
           curl --fail --silent --show-error --max-time 30 "${service_url}/v1/listings" | jq -e '.listings | type == "array"'
           printf 'Master trigger: %s\n\nPromoted image: %s@%s\n\nRevision: %s\n\nEndpoint: %s\n' \
             "$GITHUB_SHA" "$IMAGE" "$DIGEST" "$REVISION" "$service_url" >> "$GITHUB_STEP_SUMMARY"

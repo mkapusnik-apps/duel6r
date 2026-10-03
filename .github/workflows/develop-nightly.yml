@@ -64,6 +64,7 @@ jobs:
       - name: Build Linux nightly files inside shared bundle
         run: |
           bash docker/run-with-daemon-workspace.sh \
+            -e D6R_DIRECTORY_DEFAULT_URL=https://staging.duel.netusite.cz \
             -e BUILD_TESTING=OFF \
             -e RUN_TESTS=OFF \
             -e CLEAN_OUTPUT_DIR=ON \
@@ -72,6 +73,7 @@ jobs:
       - name: Build Windows nightly files inside shared bundle
         run: |
           bash docker/run-with-daemon-workspace.sh \
+            -e D6R_DIRECTORY_DEFAULT_URL=https://staging.duel.netusite.cz \
             -e BUILD_TESTING=ON \
             -e RUN_TESTS=OFF \
             -e CLEAN_OUTPUT_DIR=OFF \
@@ -242,8 +244,7 @@ jobs:
           gcloud run services update-traffic staging-directory \
             --project=duel-6-reloaded --region=europe-west1 \
             --to-revisions="${REVISION}=100" --quiet
-          service_url="$(gcloud run services describe staging-directory \
-            --project=duel-6-reloaded --region=europe-west1 --format='value(status.url)')"
+          service_url="https://staging.duel.netusite.cz"
           curl --fail --silent --show-error --max-time 30 "${service_url}/v1/listings" | jq -e '.listings | type == "array"'
           printf 'Source: %s\n\nImage: %s@%s\n\nRevision: %s\n\nEndpoint: %s\n' \
             "$SOURCE_SHA" "$IMAGE" "$DIGEST" "$REVISION" "$service_url" >> "$GITHUB_STEP_SUMMARY"
