@@ -50,8 +50,7 @@ int main(int argc, char **argv) {
             return value;
         };
         Network::Endpoint endpoint{"127.0.0.1", static_cast<std::uint16_t>(std::stoi(argv[1]))};
-        auto pump = [&](auto predicate, auto timeout) {
-            const auto deadline = std::chrono::steady_clock::now() + timeout;
+        auto pumpUntil = [&](auto predicate, auto deadline) {
             do {
                 first.update(); second.update(); observer.update();
                 if (predicate()) return true;
@@ -59,7 +58,19 @@ int main(int argc, char **argv) {
             } while (std::chrono::steady_clock::now() < deadline);
             return false;
         };
+        auto pump = [&](auto predicate, auto timeout) {
+            return pumpUntil(predicate, std::chrono::steady_clock::now() + timeout);
+        };
         using J = Client::NetworkJourney;
+        auto peerSummaryStatus = [&] {
+            const auto controller = first.snapshot(), guest = second.snapshot();
+            auto describe = [](const auto &state) {
+                return "journey=" + std::to_string(static_cast<int>(state.journey))
+                    + " phase=" + std::to_string(state.canonical ? static_cast<int>(state.canonical->phase) : -1)
+                    + " result=" + std::to_string(state.canonical && state.canonical->result.available);
+            };
+            return "controller " + describe(controller) + "; guest " + describe(guest);
+        };
         require(first.join(endpoint, argv[2], {{"Controller", &controls}}, {}, {}, true, invitation()), "join start");
         const std::string scenario = argv[3];
         if (scenario.compare(0, 7, "attack-") == 0) {
@@ -155,7 +166,7 @@ int main(int argc, char **argv) {
             require(pump([&] { return observer.snapshot().journey == J::HostEnded; }, 5s), "unaffected participant did not receive legitimate end");
             std::cout << "PASS exact malicious frame observed over TLS; server rejected; authority/state retained\n";
         } else if (scenario.compare(0, 7, "notice-") == 0 || scenario == "recovery" || scenario == "expiry"
-                   || scenario == "summary-return") {
+                   || scenario == "summary-return" || scenario == "summary-return-ordered") {
             require(pump([&] { return first.snapshot().journey == J::Lobby; }, 12s), "review first admission");
             const auto session = first.snapshot().canonical->sessionId;
             const auto controller = first.snapshot().localParticipantId;
@@ -163,7 +174,10 @@ int main(int argc, char **argv) {
             require(pump([&] { return second.snapshot().journey == J::Lobby
                 && first.snapshot().canonical->participants.size() == 2; }, 12s), "review guest admission");
             const bool match = scenario.find("-match") != std::string::npos;
-            const bool summary = scenario.find("-summary") != std::string::npos || scenario == "summary-return";
+            const bool orderedSummary = scenario == "summary-return-ordered";
+            const bool summaryReturn = scenario == "summary-return" || orderedSummary;
+            const bool summary = scenario.find("-summary") != std::string::npos || summaryReturn;
+            bool orderedIntermediateObserved = false;
             if (match || summary) {
                 Network::HostComposition::Setup setup;
                 setup.localPlayerNames = {"Controller"};
@@ -199,7 +213,31 @@ int main(int argc, char **argv) {
                 }, 5s), "review readiness");
                 first.startMatch();
                 require(pump([&] { return second.snapshot().journey == J::Match; }, 10s), "review active match");
-                if (summary) require(pump([&] { return second.snapshot().journey == J::Summary; }, 90s), "review final summary");
+                if (summary) {
+                    // One original 90s deadline includes guest publication,
+                    // ordered release and controller observation; never restart.
+                    const auto deadline = std::chrono::steady_clock::now() + 90s;
+                    const bool observed = pumpUntil([&] {
+                        if (!summaryReturn) return second.snapshot().journey == J::Summary;
+                        const auto controllerState = first.snapshot(), guestState = second.snapshot();
+                        const auto complete = [session](const auto &state) {
+                            return state.journey == J::Summary && state.canonical
+                                && state.canonical->phase == Network::Replication::Phase::FinalSummary
+                                && state.canonical->sessionId == session && state.canonical->result.available;
+                        };
+                        if (orderedSummary && !orderedIntermediateObserved
+                            && complete(guestState) && !complete(controllerState)) {
+                            require(controllerState.canonical && !controllerState.canonical->result.available,
+                                    "ordered summary did not select missing controller result: " + peerSummaryStatus());
+                            std::cout << "PASS ordered guest summary precedes controller result: " << peerSummaryStatus() << '\n';
+                            { std::ofstream release(std::filesystem::path(argv[2]) / "summary-release"); }
+                            orderedIntermediateObserved = true;
+                        }
+                        return complete(controllerState) && complete(guestState);
+                    }, deadline);
+                    require(observed, "review final summary prerequisite: " + peerSummaryStatus());
+                    if (orderedSummary) require(orderedIntermediateObserved, "ordered summary prerequisite was not exercised");
+                }
             }
             const auto phase = second.snapshot().journey;
             const auto root = std::filesystem::path(argv[2]);
@@ -209,16 +247,22 @@ int main(int argc, char **argv) {
                 require(pump([&] { return std::filesystem::exists(root / "acted"); }, 5s), "fixture action acknowledgement");
                 std::filesystem::remove(root / "acted");
             };
-            if (scenario == "summary-return") {
+            if (summaryReturn) {
                 require(first.snapshot().canonical->result.available && second.snapshot().canonical->result.available,
-                        "dedicated summary lost completed result");
+                        "dedicated summary lost completed result: " + peerSummaryStatus());
+                const auto completedResult = first.snapshot().canonical->result.serialized;
+                require(second.snapshot().canonical->result.serialized == completedResult,
+                        "dedicated peers received different completed results: " + peerSummaryStatus());
                 first.returnToLobby();
-                require(pump([&] { return first.snapshot().journey == J::Lobby
-                    && second.snapshot().journey == J::Lobby; }, 5s), "dedicated same-session return");
+                const bool returned = pump([&] { return first.snapshot().journey == J::Lobby
+                    && second.snapshot().journey == J::Lobby; }, 5s);
+                require(returned, "dedicated same-session return: " + peerSummaryStatus());
                 for (auto *runtime : {&first, &second}) {
                     const auto state = runtime->snapshot();
                     require(state.canonical->sessionId == session && state.canonical->result.available,
-                            "dedicated return replaced session or result");
+                            "dedicated return replaced session or result: " + peerSummaryStatus());
+                    require(state.canonical->result.serialized == completedResult,
+                            "dedicated return changed completed result: " + peerSummaryStatus());
                     require(std::none_of(state.canonical->participants.begin(), state.canonical->participants.end(),
                                          [](const auto &p) { return p.ready; }), "dedicated return retained readiness");
                 }

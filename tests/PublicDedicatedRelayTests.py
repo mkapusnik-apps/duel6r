@@ -95,6 +95,16 @@ class RelayBudgetTests(unittest.TestCase):
         peer.complete_eof_observation(2)
         self.assertEqual(peer.eof_observation['ends'], 1)
 
+    def test_summary_scheduler_recognizes_only_complete_replication_phase_prefix(self):
+        for kind in (1, 2):
+            payload = struct.pack('<IHH', 0x44365250, 3, kind) + bytes(40) + b'\3'
+            self.assertEqual(TlsPeer.replication_phase(payload), 3)
+            self.assertIsNone(TlsPeer.replication_phase(payload[:-1]))
+        for identifier, version, kind, phase in ((0, 3, 1, 3), (0x44365250, 2, 1, 3),
+                                                 (0x44365250, 3, 6, 3), (0x44365250, 3, 1, 255)):
+            payload = struct.pack('<IHH', identifier, version, kind) + bytes(40) + bytes([phase])
+            self.assertIsNone(TlsPeer.replication_phase(payload))
+
 
 if __name__ == '__main__':
     unittest.main()

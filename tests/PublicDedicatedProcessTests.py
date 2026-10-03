@@ -44,7 +44,7 @@ def proxy_header(source="198.51.100.7"):
 class TlsPeer:
     next_source = 100
 
-    def __init__(self, cert, key, backend, control_root=None, end_write_race=False):
+    def __init__(self, cert, key, backend, control_root=None, end_write_race=False, summary_order=False):
         self.backend = backend
         self.source = f"198.51.100.{TlsPeer.next_source}"
         TlsPeer.next_source += 1
@@ -66,6 +66,9 @@ class TlsPeer:
         self.forwarded_ends = 0
         self.eof_observation = None
         self.end_write_race = end_write_race
+        self.summary_order = summary_order
+        self.controller_summary_held = threading.Event()
+        self.guest_summary_seen = threading.Event()
         self.race_write_failed = threading.Event()
         self.control_root = control_root
         self.block_reconnect = False
@@ -112,6 +115,21 @@ class TlsPeer:
     @staticmethod
     def is_end(payload):
         return len(payload) == 16 and payload[:8] == b"D6LC\0\1\0\3"
+
+    @staticmethod
+    def replication_phase(payload):
+        # Phase-only view of the fixed v3 snapshot/update prefix: header plus
+        # five uint64 fields. Never decode/log result or credential payloads.
+        if len(payload) < 49: return None
+        identifier, version, kind = struct.unpack("<IHH", payload[:8])
+        if identifier != 0x44365250 or version != 3 or kind not in (1, 2): return None
+        return payload[48] if payload[48] <= 4 else None
+
+    def summary_output_blocked(self, connection):
+        if not getattr(self, "summary_order", False): return False
+        if connection == 1 and self.controller_summary_held.is_set():
+            return not (self.control_root / "summary-release").exists()
+        return connection == 2 and self.guest_summary_seen.is_set() and not self.controller_summary_held.is_set()
 
     def synchronize_end_write_race(self, client, backend, connection):
         """Order a real End before a genuine closed-write-half failure.
@@ -294,7 +312,8 @@ class TlsPeer:
                 if read_open[source] and queued[destination] <= RELAY_QUEUE_LIMIT - 65536:
                     (writes if read_want[source] == "write" else reads).add(source)
                 if write_open[source] and outgoing[source]:
-                    (reads if write_want[source] == "read" else writes).add(source)
+                    if source is not client or not self.summary_output_blocked(connection_id):
+                        (reads if write_want[source] == "read" else writes).add(source)
             pending_tls = read_open[client] and read_want[client] == "read" and client.pending() > 0
             readable, writable, _ = select.select(list(reads), list(writes), [], 0 if pending_tls else .01)
             if pending_tls:
@@ -336,6 +355,12 @@ class TlsPeer:
                         break
                     with self.evidence_lock:
                         self.frames.append((connection_id, "server" if source is backend else "client", kind, size))
+                    if getattr(self, "summary_order", False) and source is backend and self.replication_phase(buffer[12:12 + size]) == 3:
+                        if connection_id == 1:
+                            self.controller_summary_held.set()
+                            self.record(connection_id, "summary-controller-held", "backend-to-client")
+                        elif connection_id == 2:
+                            self.guest_summary_seen.set()
                     if source is backend and self.is_end(buffer[12:12 + size]):
                         end_markers += 1
                         self.record(connection_id, "end-observed", "backend-to-client")
@@ -363,6 +388,9 @@ class TlsPeer:
                     lose_client_write("write-budget")
                     continue
                 ready = destination in (readable if write_want[destination] == "read" else writable)
+                # Check the original absolute item deadline BEFORE scheduling.
+                # Holding a real final record never replenishes the 2s budget.
+                if destination is client and self.summary_output_blocked(connection_id): continue
                 if not ready:
                     continue
                 try:
@@ -505,7 +533,7 @@ def main():
         cases = ["flow-race", "notice-eof-match"] + ["flow"] * 4
     if cases == ["--review-regressions"]:
         cases = [f"notice-{reason}-{phase}" for phase in ("lobby", "match", "summary")
-                 for reason in ("maintenance", "controller", "wrong", "eof")] + ["recovery", "expiry", "summary-return"]
+                 for reason in ("maintenance", "controller", "wrong", "eof")] + ["recovery", "expiry", "summary-return", "summary-return-ordered"]
     if cases == ["--authorization-regressions"]:
         cases = ["attack-start", "attack-setup", "attack-roster", "attack-return", "attack-advance"]
     with tempfile.TemporaryDirectory(prefix="duel6r-public-test-") as temp:
@@ -531,6 +559,8 @@ def main():
                                     cwd=root, env=env, capture_output=True, text=True, timeout=140)
             assert all(value not in result.stdout + result.stderr for value in (INVITE, ROTATED, OTHER)), "client logged invitation"
             assert result.returncode == 0, result.stdout + result.stderr + peer.evidence()
+            if scenario == "summary-return-ordered":
+                assert peer.controller_summary_held.is_set() and peer.guest_summary_seen.is_set(), "ordered summary did not hold real records"
             if scenario in ("flow", "flow-race"):
                 assert peer.forwarded_ends >= forwarded_before + 2, "End was observed but not forwarded; " + peer.evidence()
             if scenario == "flow-race":
@@ -547,10 +577,11 @@ def main():
             for iteration, scenario in enumerate(cases, 1):
                 # Independent service instances preserve all negative scenarios
                 # after a production failure without carrying stranded sessions.
-                for name in ("action", "acted", "action.tmp", "attack.bin", "attack-rejected"):
+                for name in ("action", "acted", "action.tmp", "attack.bin", "attack-rejected", "summary-release"):
                     (root / name).unlink(missing_ok=True)
                 with service(server, root, INVITE) as (backend, _):
-                    peer = TlsPeer(root / "valid.pem", root / "valid.key", backend, root, scenario == "flow-race")
+                    peer = TlsPeer(root / "valid.pem", root / "valid.key", backend, root,
+                                   scenario == "flow-race", scenario == "summary-return-ordered")
                     try:
                         run(peer, INVITE, scenario)
                     except (AssertionError, subprocess.TimeoutExpired) as error:
