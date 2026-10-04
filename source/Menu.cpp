@@ -1144,6 +1144,9 @@ namespace Duel6 {
     }
 
     void Menu::render() const {
+#ifdef D6_MACOS_LOCAL
+        video.resetDrawableViewport();
+#endif
         if (menuBackgroundInitialFrameRendered) {
             publishPreparedMenuBackground();
         } else {

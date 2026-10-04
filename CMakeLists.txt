@@ -1013,4 +1013,26 @@ if (BUILD_TESTING AND UNIX AND NOT APPLE AND (D6R_RENDERER STREQUAL "gl4" OR D6R
             LABELS "application;rendering;regression"
             TIMEOUT 60)
 endif ()
+
+if (BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND D6R_RENDERER STREQUAL "gl1")
+    # Exercise the actual Mac-local application paths with modelled SDL drawable
+    # sizes and real Mesa GL state. This is not native Cocoa/Retina evidence.
+    set(D6R_MAC_VIEWPORT_TEST_SOURCES ${D6R_ENGINE_SOURCES})
+    list(FILTER D6R_MAC_VIEWPORT_TEST_SOURCES EXCLUDE REGEX "^source/(client/|NetworkMenu\\.|CanonicalWorldPresenter\\.)")
+    add_executable(duel6r-mac-viewport-tests tests/TestMain.cpp tests/MacViewportTests.cpp
+            source/platform/MacLocal.cpp ${D6R_MAC_VIEWPORT_TEST_SOURCES})
+    target_include_directories(duel6r-mac-viewport-tests PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/source)
+    target_compile_definitions(duel6r-mac-viewport-tests PRIVATE D6_MACOS_LOCAL
+            D6R_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}" D6R_TEST_BINARY_DIR="${CMAKE_BINARY_DIR}")
+    target_link_libraries(duel6r-mac-viewport-tests PRIVATE
+            ${LIB_OPEN_GL} ${LIB_GLEW} ${LIB_SDL2} ${LIB_SDL2_MIXER} ${LIB_SDL2_TTF} ${LIB_SDL2_IMAGE}
+            ${LIB_LUA} "-Wl,--wrap=SDL_GL_GetDrawableSize" "-Wl,--wrap=glViewport")
+    add_test(NAME mac-drawable-viewport-behavior
+            COMMAND ${D6R_TEST_XVFB_RUN_EXECUTABLE} -a -s "-screen 0 1280x900x24"
+                    $<TARGET_FILE:duel6r-mac-viewport-tests>)
+    set_tests_properties(mac-drawable-viewport-behavior PROPERTIES
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
+            ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1;SDL_AUDIODRIVER=dummy"
+            LABELS "application;rendering;regression" TIMEOUT 120)
+endif ()
 endif ()
