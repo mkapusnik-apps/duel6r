@@ -257,5 +257,7 @@ jobs:
           gcloud artifacts docker tags add "${IMAGE}@${DIGEST}" \
             "${IMAGE}:staging-verified-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --project=duel-6-reloaded --quiet
-          gcloud artifacts docker tags add "${IMAGE}@${DIGEST}" "${IMAGE}:staging-success" \
+          gcloud artifacts tags update staging-success \
+            --package=directory --version="${DIGEST}" \
+            --repository=directory --location=europe-west1 \
             --project=duel-6-reloaded --quiet
