@@ -2678,10 +2678,18 @@ D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and 
     D6R_REQUIRE(guest.snapshot().canonical->phaseTime > initialTick + 1800);
     D6R_REQUIRE(host.hostInput && !host.hostInput->policyViolation());
     host.endSession();
-    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] {
+    const bool shutdownConverged = pumpRuntimes(host, guest, unused, 5s, [&] {
         return host.snapshot().journey == Client::NetworkJourney::Inactive
                && guest.snapshot().journey == Client::NetworkJourney::HostEnded;
-    }));
+    });
+    if (!shutdownConverged) {
+        std::ostringstream detail;
+        detail << "host-journey=" << static_cast<unsigned>(host.snapshot().journey)
+               << ";guest-journey=" << static_cast<unsigned>(guest.snapshot().journey)
+               << ";host-inactive=" << (host.snapshot().journey == Client::NetworkJourney::Inactive)
+               << ";guest-host-ended=" << (guest.snapshot().journey == Client::NetworkJourney::HostEnded);
+        Test::fail("host and guest converge after intentional End", __FILE__, __LINE__, detail.str());
+    }
 }
 
 D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionRuntime participants preserve team lobby composition and survive authenticated reconnect probes") {
