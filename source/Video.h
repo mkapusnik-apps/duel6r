@@ -78,6 +78,8 @@ namespace Duel6 {
         Renderer &getRenderer() const;
 
 #ifdef D6_MACOS_LOCAL
+        void resetDrawableViewport() const;
+
         MacLocal::PointerTransform menuPointerTransform() const;
 #endif
 
