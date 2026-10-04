@@ -53,6 +53,15 @@ if (NOT D6R_ASYNC_MENU_CC_EXECUTABLE)
 endif ()
 
 add_test(
+    NAME shared-arena-image-assertions
+    COMMAND ${D6R_SHARED_ARENA_python3} ${CMAKE_SOURCE_DIR}/tests/SharedArenaImageAssertionsTests.py
+)
+set_tests_properties(shared-arena-image-assertions PROPERTIES
+    LABELS "application;regression;shared-arena"
+    TIMEOUT 30
+)
+
+add_test(
     NAME shared-arena-behavior
     COMMAND ${D6R_BASH_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/SharedArenaBehaviorTests.sh

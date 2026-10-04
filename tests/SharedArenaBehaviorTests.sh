@@ -18,7 +18,7 @@ fail() {
     exit 1
 }
 
-for command in Xvfb xdotool import identify convert compare python3 timeout; do
+for command in Xvfb xdotool import identify convert compare python3; do
     command -v "$command" >/dev/null 2>&1 || fail "required command not found: $command"
 done
 
@@ -193,10 +193,12 @@ PY
 
     (
         cd "$runtime_dir"
-        # Keep the process-level guard comfortably outside this screenshot-heavy
-        # scenario. The enclosing CTest timeout remains the authoritative hang
-        # guard for the complete harness.
-        timeout --kill-after=5s 60s ./duel6r "screen_mode split" "screen_zoom 6" \
+        # Image capture/assertion time is harness work, not an application hang.
+        # A separate app timeout can destroy the window while a captured frame
+        # is still being validated. Use the enclosing CTest timeout (420s) for
+        # the whole harness instead; standalone runs should likewise wrap this
+        # script, not the app. exec lets cleanup signal the actual application.
+        exec ./duel6r "screen_mode split" "screen_zoom 6" \
             >"${scenario_dir}/app.stdout" 2>"${scenario_dir}/app.stderr"
     ) &
     app_pid="$!"
