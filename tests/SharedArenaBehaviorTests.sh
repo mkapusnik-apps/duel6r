@@ -37,12 +37,7 @@ export LIBGL_ALWAYS_SOFTWARE=1
 
 xvfb_pid=""
 app_pid=""
-tab_held=false
 cleanup() {
-    if [[ "$tab_held" == true ]]; then
-        xdotool keyup Tab >/dev/null 2>&1 || true
-        tab_held=false
-    fi
     if [[ -n "$app_pid" ]] && kill -0 "$app_pid" >/dev/null 2>&1; then
         kill "$app_pid" >/dev/null 2>&1 || true
         wait "$app_pid" >/dev/null 2>&1 || true
@@ -436,11 +431,9 @@ PY
     import -window root "${scenario_dir}/ranking-toggled.png"
     python3 "$image_assertions" "${scenario_dir}/after-console-command.png" "$label-live-ranking" \
         "$player_count" "$team_count" --without-ranking "${scenario_dir}/ranking-toggled.png"
-    # The score overview is hold-to-display. Keep Tab down until the rendered
-    # frame has passed its behavioral assertions instead of racing a tap's
-    # keydown and keyup through the SDL event loop.
-    xdotool keydown --window "$window_id" Tab
-    tab_held=true
+    # UI-011 specifies a toggle, not hold-to-display. Release Tab before waiting
+    # for rendering so screenshot retries cannot extend the press into repeats.
+    xdotool key --window "$window_id" --delay 80 Tab
     score_assertion=""
     score_ready=false
     for _ in {1..30}; do
@@ -457,8 +450,6 @@ PY
         fi
     done
     [[ "$score_ready" == true ]] || fail "$score_assertion"
-    xdotool keyup --window "$window_id" Tab
-    tab_held=false
     local ranking_delta score_delta
     ranking_delta="$(image_distance "${scenario_dir}/after-console-command.png" "${scenario_dir}/ranking-toggled.png")"
     score_delta="$(image_distance "${scenario_dir}/ranking-toggled.png" "${scenario_dir}/score-tab.png")"
@@ -472,6 +463,23 @@ if score < 0.02:
     raise SystemExit(f"{label}: Tab did not visibly open the score overlay ({score:.6f})")
 print(f"{label}: ranking-rmse={ranking:.6f} score-tab-rmse={score:.6f}")
 PY
+
+    # A second discrete press must close the summary. Check its validated SCORE
+    # header location, not whole-frame equality against an animated arena.
+    xdotool key --window "$window_id" --delay 80 Tab
+    score_closed=false
+    for _ in {1..30}; do
+        sleep 0.1
+        import -window root "${scenario_dir}/score-tab-closed.png"
+        if score_assertion="$(python3 "$image_assertions" "${scenario_dir}/score-tab-closed.png" \
+                "$label-score-tab-closed" "$player_count" "$team_count" \
+                --without-score "${scenario_dir}/score-tab.png" 2>&1)"; then
+            score_closed=true
+            printf '%s\n' "$score_assertion"
+            break
+        fi
+    done
+    [[ "$score_closed" == true ]] || fail "$score_assertion"
 
     xdotool key --window "$window_id" Shift+Escape
     sleep 1
