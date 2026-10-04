@@ -13,7 +13,9 @@
 // Follow the existing application-test access convention, without adding a
 // production test API. All application sources in this target use Mac layout.
 #define private public
+#define protected public
 #include "source/Application.h"
+#undef protected
 #undef private
 
 namespace {
@@ -151,7 +153,7 @@ D6R_TEST_CASE("Mac arena overlays and returned menu restore drawable without cha
         menu.roundsTextbox->setText("2");
         menu.play({"levels/duel_01.json"});
         D6R_REQUIRE(Context::getCurrent().is(game));
-        D6R_REQUIRE_EQ(2, game.getPlayers().size());
+        D6R_REQUIRE_EQ(Size(2), game.getPlayers().size());
 
         viewportWrites.clear();
         game.render(); // GL1 background callback, live arena and HUD reset.
