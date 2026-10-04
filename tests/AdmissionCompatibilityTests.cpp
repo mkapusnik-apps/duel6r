@@ -2417,6 +2417,113 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reop
             "next-active=true;next-reset=true;match-starts=2;host-status=0"), evidence);
 }
 
+D6R_TEST_CASE("NET-AC-011 NET-AC-014 established guest honors queued host end at the close boundary despite failed quality output") {
+    namespace R = Network::Replication;
+    namespace L = Network::Lifecycle;
+    enum class Notice { BeforeClose, AtClose, Late, WrongSession, Malformed, None };
+    struct Scenario { const char *name; Notice notice; bool probeDue; bool cancel = false; };
+    const Scenario scenarios[] = {
+            {"queued valid notice with rejected probe", Notice::BeforeClose, true},
+            {"received valid notice", Notice::BeforeClose, false},
+            {"queued notice exactly at close", Notice::AtClose, true},
+            {"received notice exactly at close", Notice::AtClose, false},
+            {"queued late notice", Notice::Late, true},
+            {"received late notice", Notice::Late, false},
+            {"queued wrong session", Notice::WrongSession, true},
+            {"received wrong session", Notice::WrongSession, false},
+            {"queued malformed notice", Notice::Malformed, true},
+            {"received malformed notice", Notice::Malformed, false},
+            {"ordinary close with rejected probe", Notice::None, true},
+            {"ordinary close", Notice::None, false},
+            {"cancel precedes queued valid notice", Notice::BeforeClose, true, true}};
+    for (const auto &scenario: scenarios) {
+        const auto host = manifest({{"levels/a.json", 1}});
+        const Network::AdmissionIdentitySet identities{10, {11, 12}};
+        R::FullSnapshot snapshot{1, admissionLobby({11, 12})};
+        snapshot.authoritativeProducedAt = 100;
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto client = std::make_shared<FakeClientState>();
+        client->connection = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        const auto connection = client->connection;
+        connection->queue(Network::serializeAdmissionOffer(identities), fixture->now + 1ms);
+        unsigned failedQuality = 0;
+        bool established = false;
+        // The fake transport completes real production admission/calibration;
+        // only the established close schedule and outbound result are controlled.
+        const std::weak_ptr<FakeAdmissionConnection> weakConnection = connection;
+        connection->onSend = [&, weakConnection, identities, snapshot](const auto &payload) {
+            const auto transport = weakConnection.lock();
+            D6R_REQUIRE(transport);
+            if (payload.size() >= 4 && payload[3] == 'K') {
+                transport->queue(Network::serializeAdmissionConfirmation(identities), Network::Trust::TimePoint{} + 2ms);
+                L::ReconnectGrant grant;
+                grant.sessionId = 100; grant.participantId = 10; grant.reservationId = 1;
+                grant.credential.bytes.fill(1);
+                transport->queue(L::serializeReconnectGrant(grant), Network::Trust::TimePoint{} + 3ms);
+                transport->queue(R::serializeReplicationSnapshot(snapshot), Network::Trust::TimePoint{} + 4ms);
+            }
+            const auto frame = R::deserializeReplicationFrame(payload);
+            if (frame && frame->kind == R::ReplicationFrameKind::QualityProbe && frame->qualitySequence) {
+                if (established) ++failedQuality;
+                else {
+                    transport->queue(R::serializeQualityResponse(*frame->qualitySequence, 100), Network::Trust::TimePoint{} + 5ms);
+                    fixture->now = Network::Trust::TimePoint{} + 6ms;
+                }
+            }
+        };
+        auto dependencies = guestRuntimeDependencies(fixture, client, host);
+        dependencies.guestAdmission = [&](auto, const auto &) {
+            established = true;
+            if (scenario.notice != Notice::None) {
+                auto notice = L::serializeIntentionalHostEnd({scenario.notice == Notice::WrongSession ? 101u : 100u});
+                if (scenario.notice == Notice::Malformed) notice.pop_back();
+                const auto receivedAt = scenario.notice == Notice::AtClose ? 8ms
+                        : scenario.notice == Notice::Late ? 9ms : 7ms;
+                connection->queue(std::move(notice), Network::Trust::TimePoint{} + receivedAt);
+            }
+            connection->terminal = Network::Trust::TimePoint{} + 8ms;
+            connection->currentState = Network::ClientState::Closed;
+            connection->sendResult = Network::SendResult::NotConnected;
+            fixture->now = Network::Trust::TimePoint{} + (scenario.probeDue ? 2000ms : 10ms);
+            if (scenario.cancel) fixture->cancelled = true;
+        };
+        std::vector<L::GuestJourney> journeys;
+        std::optional<unsigned> remaining;
+        dependencies.guestRecoveryPresentation = [&](auto journey, auto seconds, auto) {
+            journeys.push_back(journey);
+            remaining = seconds;
+            // Stop after observing the real recovery outcome, not by replacing
+            // that outcome or waiting through the unrelated reconnect campaign.
+            if (journey == L::GuestJourney::Reconnecting) fixture->cancelled = true;
+        };
+        Server::HeadlessServer guest(runtimeGuestConfig(), std::move(dependencies));
+        guest.runtimeDependencies.productionReplicationProtocol = true;
+        std::ostringstream output;
+        const int status = guest.run(output);
+        const bool expectedEnd = !scenario.cancel
+                && (scenario.notice == Notice::BeforeClose || scenario.notice == Notice::AtClose);
+        const bool ended = std::find(journeys.begin(), journeys.end(), L::GuestJourney::HostEnded) != journeys.end();
+        const bool reconnect = std::find(journeys.begin(), journeys.end(), L::GuestJourney::Reconnecting) != journeys.end();
+        if (!connection->succeeded || ended != expectedEnd || reconnect != (!expectedEnd && !scenario.cancel)) {
+            std::ostringstream detail;
+            detail << "scenario=" << scenario.name << ";admitted=" << connection->succeeded
+                   << ";status=" << status << ";host-ended=" << ended << ";reconnecting=" << reconnect
+                   << ";failed-quality=" << failedQuality << ";unread=" << connection->incoming.size();
+            Test::fail("established close respects notice validity and precedence", __FILE__, __LINE__, detail.str());
+        }
+        D6R_REQUIRE_EQ(expectedEnd ? 0 : 2, status);
+        D6R_REQUIRE_EQ(scenario.probeDue && !scenario.cancel ? 1u : 0u, failedQuality);
+        D6R_REQUIRE(client->closed);
+        if (expectedEnd) {
+            D6R_REQUIRE_EQ(1u, journeys.size());
+            D6R_REQUIRE(connection->incoming.empty());
+            D6R_REQUIRE(!remaining);
+        } else if (!scenario.cancel) {
+            D6R_REQUIRE(remaining && *remaining == 30u);
+        }
+    }
+}
+
 D6R_TEST_CASE("NET-09 production Headless sends one intentional End notice and none for Stop or failure") {
     enum class Termination { End, Stop, Failure };
     const auto hostedManifest = manifest({

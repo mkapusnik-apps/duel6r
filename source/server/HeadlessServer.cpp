@@ -785,6 +785,21 @@ namespace {
             }
         }
 
+        const auto acceptHostEnd = [&](const Duel6::Network::Lifecycle::IntentionalHostEndNotice &notice,
+                                       Duel6::Network::TransportTimePoint receivedAt,
+                                       Duel6::Network::TransportTimePoint closeBoundary) {
+            if (cancelled() || !sessionRecovery
+                || (closeBoundary != Duel6::Network::TransportTimePoint{} && receivedAt > closeBoundary)
+                || !sessionRecovery->acceptIntentionalHostEnd(notice, guestConnectionId, receivedAt)) return false;
+            if (runtimeDependencies.guestRecoveryPresentation) {
+                try { runtimeDependencies.guestRecoveryPresentation(
+                        Duel6::Network::Lifecycle::GuestJourney::HostEnded,
+                        std::nullopt, {}); } catch (...) {}
+            }
+            closeClient();
+            return true;
+        };
+
         establishedSession:
         while (!cancelled()) {
             if (runtimeDependencies.localParticipantCommand) {
@@ -910,16 +925,9 @@ namespace {
             if (received) {
                 LifecycleCredentialPayloadGuard credentialPayload(frame.payload);
                 if (const auto ended = Duel6::Network::Lifecycle::deserializeIntentionalHostEnd(frame.payload)) {
-                    if (sessionRecovery && sessionRecovery->acceptIntentionalHostEnd(
-                            *ended, guestConnectionId, frame.receivedAt)) {
-                        if (runtimeDependencies.guestRecoveryPresentation) {
-                            try { runtimeDependencies.guestRecoveryPresentation(
-                                    Duel6::Network::Lifecycle::GuestJourney::HostEnded,
-                                    std::nullopt, {}); } catch (...) {}
-                        }
-                        closeClient();
-                        return 0;
-                    }
+                    Duel6::Network::TransportTimePoint closeBoundary{};
+                    try { closeBoundary = connection->terminalAt(); } catch (...) { break; }
+                    if (acceptHostEnd(*ended, frame.receivedAt, closeBoundary)) return 0;
                     try { connection->requestClose(); } catch (...) {}
                     break;
                 }
@@ -963,6 +971,24 @@ namespace {
             if (isTerminal(state)) break;
             try { runtimeDependencies.wait(std::chrono::milliseconds(5)); }
             catch (...) { break; }
+        }
+        // Outbound work can fail after the reader queued the intentional End
+        // notice. Seal the old connection's bounded input before abandoning it;
+        // only an eligible notice may outrank ambiguous transport recovery.
+        if (!cancelled() && sessionRecovery) {
+            try {
+                auto input = connection->sealAndDrainInput();
+                const auto closeBoundary = input.terminalAt != Duel6::Network::TransportTimePoint{}
+                        ? input.terminalAt : runtimeNow(runtimeDependencies);
+                bool hostEnded = false;
+                for (auto &queued: input.frames) {
+                    LifecycleCredentialPayloadGuard credentialPayload(queued.payload);
+                    if (hostEnded) continue;
+                    const auto ended = Duel6::Network::Lifecycle::deserializeIntentionalHostEnd(queued.payload);
+                    hostEnded = ended && acceptHostEnd(*ended, queued.receivedAt, closeBoundary);
+                }
+                if (hostEnded) return 0;
+            } catch (...) { /* A failed drain is not evidence of intentional End. */ }
         }
         replicatedConnection.transportClosed();
         if (sessionRecovery) {
