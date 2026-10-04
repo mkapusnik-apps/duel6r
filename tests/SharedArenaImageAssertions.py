@@ -366,6 +366,7 @@ def main():
     parser.add_argument("--final-score", action="store_true")
     parser.add_argument("--viewport-only", action="store_true")
     parser.add_argument("--without-ranking")
+    parser.add_argument("--without-score", help="validated open-summary image to compare with the closed state")
     parser.add_argument("--font")
     args = parser.parse_args()
 
@@ -374,6 +375,16 @@ def main():
     if args.viewport_only:
         print(f"{args.label}: viewport dividers={horizontal}/{vertical} "
               f"edge={edge_count}/{edge_total}")
+    elif args.without_score:
+        with_score = load_rgb(args.without_score)
+        _, _, panel_top = assert_score_overlay(
+            with_score, args.label + "-open-reference", args.players, args.teams)
+        header_y = panel_top + 48
+        header = region_median(data, WIDTH // 2 - 80, header_y - 8,
+                               WIDTH // 2 + 80, header_y + 8)
+        if blue_strength(header) >= 80:
+            fail(f"{args.label}: SCORE overlay header still visible: rgb={header}")
+        print(f"{args.label}: SCORE overlay header absent: rgb={header}")
     elif args.score or args.final_score:
         groups, header, panel_top = assert_score_overlay(
             data, args.label, args.players, args.teams,
