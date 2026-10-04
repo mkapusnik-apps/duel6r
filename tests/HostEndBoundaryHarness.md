@@ -24,6 +24,14 @@ verifies a rejected probe with no intentional notice, and renders actual reconne
 state with a positive countdown. Existing deterministic admission regressions
 cover wrong-session, malformed, and late notices; this harness does not forge them.
 
+The guest receives the normal menu's complete local playable catalog, verified
+against both participants' advertised canonical catalog. Duel 01 remains selected.
+Before closing the connection and again in retained context, assertions require
+the actual arena level/render data loaded for the canonical session, match, round,
+and mirror. A stale lobby canvas is not a successful presentation assertion. The
+real asynchronous menu background is prepared before host startup; no synthetic
+texture is supplied and no backend deadline changes.
+
 ## Docker execution
 
 Build normally with `BUILD_TESTING=ON`, Release, GL4, and Lua enabled. The target is

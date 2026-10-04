@@ -3,7 +3,9 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <thread>
+#include <vector>
 #include <list>
 #include <unordered_map>
 #include <arpa/inet.h>
@@ -96,8 +98,12 @@ namespace {
         setup.quickLiquid = false;
         host.localPlayers = {{"Boundary host", k1.get(), "K1"}};
         host.hostSetup = setup;
-        guest.open({{"Boundary guest", k2.get(), "K2"}}, setup, {"Boundary guest"}, {setup.fixedLevel});
-        D6R_REQUIRE(host.runtime.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, runDirectory.string(), setup, host.localPlayers));
+        std::vector<std::string> playableCatalog;
+        for (Size index = 0; index < application.menu->levelList.getLength(); ++index)
+            playableCatalog.push_back(application.menu->levelList.getPath(index));
+        const std::set<std::string> localCatalog(playableCatalog.begin(), playableCatalog.end());
+        D6R_REQUIRE(localCatalog.count(setup.fixedLevel) == 1);
+        guest.open({{"Boundary guest", k2.get(), "K2"}}, setup, {"Boundary guest"}, playableCatalog);
 
         const auto frame = [&] {
             application.processEvents(guest);
@@ -114,9 +120,30 @@ namespace {
             } while (std::chrono::steady_clock::now() < deadline);
             return predicate();
         };
+        // Prepare the real menu asset before any backend deadline starts. Do not
+        // force a texture or assume asynchronous preparation finished already.
+        D6R_REQUIRE(pump([&] { return application.menu->hasMenuBackground; }, 5s));
+        D6R_REQUIRE(host.runtime.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, runDirectory.string(), setup, host.localPlayers));
         D6R_REQUIRE(pump([&] { return host.runtime.snapshot().journey == Client::NetworkJourney::Lobby; }, 10s));
         D6R_REQUIRE(guest.runtime.join(endpoint, runDirectory.string(), guest.localPlayers));
         D6R_REQUIRE(pump([&] { return guest.runtime.snapshot().journey == Client::NetworkJourney::Lobby; }, 10s));
+        for (const auto *runtime: {&host.runtime, &guest.runtime}) {
+            const auto snapshot = runtime->snapshot();
+            D6R_REQUIRE(snapshot.canonical);
+            const auto &advertised = snapshot.canonical->settings.levels;
+            D6R_REQUIRE(localCatalog == std::set<std::string>(advertised.begin(), advertised.end()));
+        }
+        const auto arenaReady = [&] {
+            const auto snapshot = guest.runtime.snapshot();
+            const auto &presenter = guest.worldPresenter;
+            return snapshot.canonical && snapshot.canonical->round && presenter.level && presenter.levelRenderData
+                    && presenter.loadedLevel == setup.fixedLevel
+                    && presenter.loadedLevel == snapshot.canonical->round->level
+                    && presenter.loadedSession == snapshot.canonical->sessionId
+                    && presenter.loadedMatch == snapshot.canonical->matchId
+                    && presenter.loadedRound == snapshot.canonical->round->roundId
+                    && presenter.loadedMirror == snapshot.canonical->round->mirrored;
+        };
         host.runtime.setReady(true); guest.runtime.setReady(true);
         D6R_REQUIRE(pump([&] {
             const auto snapshot = host.runtime.snapshot();
@@ -127,8 +154,9 @@ namespace {
         host.runtime.startMatch();
         D6R_REQUIRE(pump([&] { return host.runtime.snapshot().journey == Client::NetworkJourney::Match
                 && guest.runtime.snapshot().journey == Client::NetworkJourney::Match
-                && guest.lastStableJourney == Client::NetworkJourney::Match; }, 10s));
+                && guest.lastStableJourney == Client::NetworkJourney::Match && arenaReady(); }, 10s));
         D6R_REQUIRE(guest.lastStableJourney == Client::NetworkJourney::Match);
+        D6R_REQUIRE(arenaReady());
         control->armed = true;
         if (scenario == "host-end") {
             key(application, host, SDLK_ESCAPE);
@@ -150,12 +178,15 @@ namespace {
         D6R_REQUIRE_EQ(1u, control->rejectedProbes.load());
         D6R_REQUIRE_EQ(scenario == "host-end" ? 1u : 0u, control->sealedNotices.load());
         D6R_REQUIRE(scenario != "host-end" || control->eligibleReceipt);
+        D6R_REQUIRE(arenaReady());
         D6R_REQUIRE_EQ(1280, application.video->getScreen().getClientWidth());
         D6R_REQUIRE_EQ(900, application.video->getScreen().getClientHeight());
         D6R_REQUIRE(application.menu->hasMenuBackground);
         std::cout << "[boundary] actual-match=true;rejected-probes=" << control->rejectedProbes
                   << ";sealed-notices=" << control->sealedNotices << ";eligible-receipt=" << control->eligibleReceipt
                   << ";guest-journey=" << static_cast<unsigned>(guest.runtime.snapshot().journey)
+                  << ";catalog-count=" << localCatalog.size() << ";arena-ready=" << arenaReady()
+                  << ";level=" << guest.worldPresenter.loadedLevel
                   << ";native-render=1280x900;renderer=" << application.video->getRenderer().getInfo().renderer << std::endl;
 
         const auto present = [&](const fs::path &filename, bool capture) {
