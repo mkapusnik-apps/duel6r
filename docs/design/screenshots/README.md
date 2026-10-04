@@ -1,5 +1,34 @@
 # Screenshot coverage and assessment
 
+## Issue 111 host-end boundary: current scoped assessment
+
+This coordinated assessment replaces the current representatives only for SS-023 / NET-09 and SS-015 / NET-01. Other rows retain their existing assessments and capture lineage. The fixed specifications and wireframes at `8670d6a4d05537db2146216c6f11c2a0214db215` remain unchanged. The NET-09 legacy destination is retained; no documentation or wireframe migration is authorized.
+
+Functional closure was supplied by team before capture. UX inspected both canonical PNGs, the supplied provenance receipt, and the corrected SS-023 capture log. This is final visual assessment, not a rerun of behavioral QA. The earlier stale-lobby SS-023 image is invalidated and excluded. Only SS-023 was resumed after the test-only catalog/readiness correction; SS-015 retains its original producer and bytes. The evidence set is coordinated but does not claim one uninterrupted capture invocation.
+
+### Final matrix and conformance
+
+Both rows use the actual native renderer at 1280 × 900, Linux AMD64 Docker, Release GL4, Lua ON, llvmpipe LLVM 20.1.2, Xvfb `:111`, and dummy audio. The test-only decorator delays consumption of real inbound frames and terminal observation. It does not fabricate probe failure, host-end notices, or UI states.
+
+| Entry / screen / fixed wireframe | Reproduction inputs and expected result | Canonical artifact / supplied SHA-256 | Assessment |
+|---|---|---|---|
+| SS-023 / NET-09 / [NET-09](../../screens/wireframes/network-host-ended.md) | Actual two-player Deathmatch on Duel 01; host intentionally opens and confirms End session; genuine rejected due probe plus eligible queued notice. Guest must show the fixed terminal/no-resume/no-persistence panel over the retained arena, with Return to Network focused and no reconnect countdown. | `docs/screenshots/NET-09/host-ended-1280x900.png`; `4cbc586bb8aacb681767bfcf3e82212921dd4a4ace6f9ff28244be86c8ccdce3` | Conforms. Retained arena and last-confirmed-state footer remain visible. The centered 640 px panel has clear client-edge clearance, the blue heading strip, readable fixed copy, and a contained sole action with non-color focus. No countdown or progress treatment appears. |
+| SS-015 / NET-01 / [NET-01](../wireframes/NET-01/NET-01.svg) | Guest activates the actual Return to Network action after NET-09. Inactive Entry must show the existing network-entry canvas and four actions with Host focused. This is the approved same-wireframe representative, not host-return evidence. | `docs/design/screenshots/NET-01/NET-01.png`; `92342689781c8bae3f06b0a71503c3f4a48785469ec50ee82dfaf6a78ee45cae` | Conforms. Banner/version, title strip, scope text, and four framed actions are readable and contained. Host has visible focus; no terminal or reconnect overlay remains. |
+
+### Evidence receipt and limits
+
+Supplied receipt: `/tmp/opencode/issue111-matrix-provenance-acdbeb2.md`. Corrected SS-023 log: `/tmp/opencode/issue111-capture-acdbeb2-ss023-01.log`. Frozen production is `7a1512b92e80e26307ceaa386a36500a3bc07e68`; team reports identical production source in both producers. SS-023 producer is `acdbeb255fe2cf79389db166a29fb0a3deae8cf5`; SS-015 producer is `95ef0e010e1541349c47cd490640cdc572eb525f`. These assertions and hashes are supplied, not independently recomputed by UX.
+
+The task environment is container `duel6r-issue111-work`, container ID `9d84280f387f8cbfe91e439d07f50564ea9b057ffaf4137ce8a8f18d07a6765a`, image `sha256:604c41dbb788156bb580ae4eee88c7a00d6e06e9facf9cadccc1ba705e00d57e`. Transport is container-local encrypted TCP at `127.0.0.1:26661`, with no external mapping. The frozen base artifact SHA-256 is `ff8f806f1f80061e84ae67db2bd9c9f5933044e0b6bff327e5459f9ce6c4bd61`. The receipt identifies both harness overlays and executable hashes.
+
+SS-023 invocation namespace is `/tmp/issue111-sessions/capture-acdbeb2-ss023-01`; capture timestamp is `2026-10-04T01:54:09.576375569Z`. The log reports actual match, one rejected probe, one sealed notice, eligible receipt, HostEnded journey, 28-level catalog, and arena readiness. Setup uses Boundary host and Boundary guest, Duel 01 (`levels/duel_01.json`, 20 × 16), round 1/1, and quick liquid off. SS-015 namespace is `/tmp/issue111-sessions/capture-95ef0e0-final-02`; capture timestamp is `2026-10-04T01:23:56.002248863Z`. It remains the original guest Return-to-Network capture; the resumed SS-023 run did not capture another entry image.
+
+Numeric session IDs and nearby accepted ticks are not emitted by the harness. These images establish visible conformance for the supplied states and profile, not temporal continuity, notice ordering, default-appearance parity across all profiles, all negative termination cases, physical-controller operation, other viewports, or ARM rendering. Host Inactive and canonical cleanup remain separate product behavioral requirements; the guest entry image does not prove them. Functional closure and reported QA results are supporting team evidence, not tests run by UX.
+
+No normative UX source, wireframe, presentation requirement, or expected outcome was changed to accept these artifacts. No additional capture campaign is required if developer integrates these exact image bytes and this assessment without changing presentation source. Developer must compute the changed manifest SHA-256 for the integration handoff; UX has no hashing execution tool in this invocation. Developer owns evidence preservation and subsequent temporary-artifact cleanup.
+
+Visual gate: satisfied
+
 ## macOS local-only deferred coverage
 
 Authority: [macOS acceptance boundaries](../../macos.md#acceptance-boundaries) and [MENU-02 presentation](../screens/MENU-02.md). This bounded extension reuses all existing wireframes unchanged. It does not reopen the network presentation campaign below or replace other-platform evidence.
