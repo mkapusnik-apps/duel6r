@@ -170,6 +170,12 @@ The marker is a mutable pointer, not a deployable image identity. The image cont
 is immutable. Keep both audit tags and images needed for current service revisions
 and rollback. Existing GHCR cleanup does not manage this registry repository.
 
+Routine staging uses `gcloud artifacts tags update` to move the existing marker.
+This operation uses `artifactregistry.tags.update` from the repository-scoped
+Writer role. It does not require tag-delete permission. Operator bootstrap must
+establish the marker first. A missing marker or a failed update fails the job;
+routine staging does not create a replacement marker or suppress the failure.
+
 The production workflow runs only on push to `master`. It resolves `staging-success`
 once, under the shared deployment lock, and deploys that digest without a build.
 It follows the same candidate verification and traffic activation sequence with
