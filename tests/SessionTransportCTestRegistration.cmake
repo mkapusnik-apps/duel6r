@@ -236,6 +236,26 @@ if (NOT D6R_TRANSPORT_ONLY)
             LABELS "application;integration;network;runtime;presentation;reconnect;regression"
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
             TIMEOUT 180)
+    if (UNIX AND NOT APPLE)
+        add_executable(duel6r-host-end-boundary-harness
+                ${CMAKE_SOURCE_DIR}/tests/HostEndBoundaryHarness.cpp
+                ${CMAKE_SOURCE_DIR}/tests/HostEndBoundaryRuntime.cpp)
+        target_include_directories(duel6r-host-end-boundary-harness PRIVATE ${CMAKE_SOURCE_DIR})
+        get_target_property(D6R_BOUNDARY_TEST_LIBRARIES duel6r-network-session-runtime-tests LINK_LIBRARIES)
+        target_link_libraries(duel6r-host-end-boundary-harness PRIVATE ${D6R_BOUNDARY_TEST_LIBRARIES})
+        target_compile_definitions(duel6r-host-end-boundary-harness PRIVATE
+                D6R_RUNTIME_TEST_SERVER="$<TARGET_FILE:${D6R_SERVER_APP_NAME}>"
+                D6R_TEST_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/resources")
+        add_dependencies(duel6r-host-end-boundary-harness ${D6R_SERVER_APP_NAME})
+        foreach (scenario host-end ordinary-close)
+            add_test(NAME host-end-boundary-${scenario}
+                    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/HostEndBoundaryHarnessRunner.py
+                            $<TARGET_FILE:duel6r-host-end-boundary-harness> ${scenario})
+            set_tests_properties(host-end-boundary-${scenario} PROPERTIES
+                    LABELS "application;integration;network;runtime;presentation;regression"
+                    TIMEOUT 65)
+        endforeach ()
+    endif ()
 endif ()
 
 if (NOT D6R_TRANSPORT_ONLY)
