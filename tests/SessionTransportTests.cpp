@@ -1117,6 +1117,62 @@ void fifteenIsolatedConnections() {
     listener.shutdown();
 }
 
+void requireNativeWriterStall(const std::shared_ptr<TcpConnection> &writer, RawSocket peer,
+                             const std::shared_ptr<NativeWriteObservations> &trace,
+                             std::size_t accepted, TransportTimePoint setupStarted) {
+    const auto setupDeadline = setupStarted + 12s;
+    const auto absoluteDeadline = setupStarted + 19s;
+    auto stableSince = std::chrono::steady_clock::now();
+    auto progress = trace->lastProgress.load();
+    auto bytes = trace->bytes.load();
+    auto pending = pendingRawReceiveBytes(peer);
+    const auto blocked = [&] {
+#ifdef D6R_TRANSPORT_WINDOWS
+        return trace->wouldBlock.load();
+#else
+        const auto ready = trace->pollReady.load();
+        const auto polls = trace->polls.load();
+        return (polls >= ready ? polls - ready : 0) + trace->wouldBlock.load();
+#endif
+    };
+    auto blockedAtChange = blocked();
+    bool established = false;
+    const auto fail = [&](const char *reason) {
+        throw Failure(std::string(reason) + ";native-bytes=" + std::to_string(trace->bytes.load())
+            + ";unread=" + std::to_string(pendingRawReceiveBytes(peer))
+            + ";state=" + std::to_string(static_cast<int>(writer->state()))
+            + ";failure=" + std::to_string(static_cast<int>(writer->failure())));
+    };
+    for (;;) {
+        const auto now = std::chrono::steady_clock::now();
+        const auto nextProgress = trace->lastProgress.load();
+        const auto nextBytes = trace->bytes.load();
+        const auto nextPending = pendingRawReceiveBytes(peer);
+        if (nextProgress != progress || nextBytes != bytes || nextPending != pending) {
+            if (now > setupDeadline) fail("Native stall fixture changed after its absolute setup deadline");
+            progress = nextProgress; bytes = nextBytes; pending = nextPending;
+            stableSince = now; blockedAtChange = blocked(); established = false;
+        }
+        // A receiver plateau alone is insufficient: require actual native
+        // writer inactivity, outstanding application bytes and non-writable IO.
+        if (progress != TransportTimePoint{} && pending >= 4096
+            && bytes < accepted * (MaxPayloadBytes + TransportEnvelopeBytes)
+            && now - stableSince >= 1s && blocked() > blockedAtChange) established = true;
+        if (writer->state() == ClientState::TimedOut) {
+            if (!established) fail("Native stall timed out without established fixture evidence");
+            CHECK(writer->failure() == TransportFailure::OutboundStalled);
+            CHECK(writer->terminalAt() - progress >= 4500ms);
+            CHECK(writer->terminalAt() <= progress + 7s);
+            return;
+        }
+        if (writer->state() != ClientState::Connected) fail("Native stall ended with an unexpected state");
+        if (!established && now >= setupDeadline) fail("Native stall fixture setup deadline exceeded");
+        if (established && now >= progress + 7s) fail("Established native stall exceeded watchdog observation margin");
+        if (now >= absoluteDeadline) fail("Native stall absolute observation deadline exceeded");
+        std::this_thread::sleep_for(5ms);
+    }
+}
+
 void queueBoundaries() {
     const auto port = unusedPort();
     TcpListener listener(3);
@@ -1149,10 +1205,18 @@ void queueBoundaries() {
     CHECK(byteConnection->send(std::vector<std::uint8_t>(MaxPayloadBytes + 1)) == SendResult::PayloadTooLarge);
 
     const int stalledReceiveBuffer = 4 * 1024;
-    RawSocketOwner stalledReader(connectRaw(port, stalledReceiveBuffer));
-    auto stalledWriter = awaitAccept(listener);
+    SessionTransportDependencies dependencies;
+    auto trace = std::make_shared<NativeWriteObservations>();
+    dependencies.outbound.observations = trace;
+    CHECK(!dependencies.outbound.send && !dependencies.outbound.now && !dependencies.outbound.wait);
+    TcpListener stalledListener(1, dependencies); // Never mix another connection's progress into the receipt.
+    const auto stalledPort = unusedPort();
+    startListener(stalledListener, stalledPort);
+    RawSocketOwner stalledReader(connectRaw(stalledPort, stalledReceiveBuffer));
+    auto stalledWriter = awaitAccept(stalledListener);
     bool backpressured = false;
     std::size_t accepted = 0;
+    const auto setupStarted = std::chrono::steady_clock::now();
     for (std::size_t index = 0; index < 64; ++index) {
         const auto result = stalledWriter->send(maximum);
         if (result == SendResult::Backpressure) { backpressured = true; break; }
@@ -1161,25 +1225,12 @@ void queueBoundaries() {
     }
     CHECK(backpressured);
     CHECK(accepted > 0);
-    std::size_t pendingBytes = 0;
-    auto pendingStableSince = std::chrono::steady_clock::now();
-    CHECK(waitUntil([&] {
-        const auto observed = pendingRawReceiveBytes(stalledReader.get());
-        if (observed != pendingBytes) {
-            pendingBytes = observed;
-            pendingStableSince = std::chrono::steady_clock::now();
-        }
-        return pendingBytes >= static_cast<std::size_t>(stalledReceiveBuffer)
-               && std::chrono::steady_clock::now() - pendingStableSince >= 250ms;
-    }, NativeObserverWait));
-    const auto noProgressObservedAt = std::chrono::steady_clock::now();
-    CHECK(waitUntil([&] { return stalledWriter->state() == ClientState::TimedOut; }, 7s));
-    CHECK(std::chrono::steady_clock::now() - noProgressObservedAt >= 4500ms);
-    CHECK(stalledWriter->failure() == TransportFailure::OutboundStalled);
+    requireNativeWriterStall(stalledWriter, stalledReader.get(), trace, accepted, setupStarted);
+    stalledListener.shutdown();
     listener.shutdown();
 }
 
-// Supplemental observation, separate from queueBoundaries' unchanged default
+// Supplemental observation, separate from queueBoundaries' other connections.
 // path. No send/clock/wait replacement is installed.
 void nativeWriterDiagnostics() {
     const auto port = unusedPort();
@@ -1202,21 +1253,16 @@ void nativeWriterDiagnostics() {
     std::vector<std::uint8_t> maximum(MaxPayloadBytes, 0xa5);
     std::size_t accepted = 0;
     bool backpressure = false;
+    const auto setupStarted = std::chrono::steady_clock::now();
     for (unsigned attempt = 0; attempt < 64; ++attempt) {
         const auto result = writer->send(maximum);
         if (result == SendResult::Backpressure) { backpressure = true; break; }
         CHECK(result == SendResult::Accepted); ++accepted;
     }
-    std::size_t pending = 0;
-    auto stableSince = std::chrono::steady_clock::now();
-    const bool fixtureReady = waitUntil([&] {
-        const auto bytes = pendingRawReceiveBytes(peer.get());
-        if (bytes != pending) { pending = bytes; stableSince = std::chrono::steady_clock::now(); }
-        return pending >= requested && std::chrono::steady_clock::now() - stableSince >= 250ms;
-    }, NativeObserverWait);
-    const bool timedOut = waitUntil([&] { return writer->state() == ClientState::TimedOut; }, 7s);
+    CHECK(backpressure && accepted > 0);
+    requireNativeWriterStall(writer, peer.get(), trace, accepted, setupStarted);
     const auto progress = trace->lastProgress.load();
-    std::cout << "DIAGNOSTIC production-writer;fixture-ready=" << fixtureReady
+    std::cout << "DIAGNOSTIC production-writer;fixture-ready=1"
               << ";backpressure=" << backpressure << ";accepted=" << accepted
               << ";requested-rcvbuf=" << requested << ";actual-rcvbuf=" << actual
               << ";pending=" << pendingRawReceiveBytes(peer.get())
@@ -1233,7 +1279,7 @@ void nativeWriterDiagnostics() {
 #ifndef D6R_TRANSPORT_WINDOWS
     CHECK(trace->polls.load() > 0);
 #endif
-    CHECK(backpressure && accepted > 0 && fixtureReady && timedOut);
+    CHECK(writer->state() == ClientState::TimedOut && writer->failure() == TransportFailure::OutboundStalled);
 }
 
 void rawRefusalDiagnostics() {
