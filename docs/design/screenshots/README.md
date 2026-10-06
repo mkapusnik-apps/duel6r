@@ -2,7 +2,25 @@
 
 ## macOS network extension: scoped evidence status
 
-The approved NET-01 scope-line change in UX-NET-01-006–008 supersedes only the old-copy portion of SS-015 evidence below. Existing NET-01 images establish their original copy/state only; they do not establish the new line. A focused SS-015 capture and UX assessment on available Linux are required after team declares functional closure and releases capture. This copy change alone does not require recapturing the full network matrix. Historical assessments below retain their original source/platform scope; none establishes native Mac conformance.
+**SS-015 conforms for the supplied Linux state and viewport.** After team declared functional closure, UX inspected the PNG and supplied receipt against approved UX source `d6308a2` and product specification `bdf9a5e`, including UX-NET-01-006–008. The exact line `Use the same supported release and gameplay content` is readable between the directory-scope and participant-limit lines at the existing text size. The banner, title strip, four actions and Host's non-color focus remain intact, with no clipping, overlap or modal.
+
+| Entry / screen / fixed wireframe | Captured state and profile | Canonical artifact / supplied SHA-256 | Assessment |
+|---|---|---|---|
+| SS-015 / NET-01 / [NET-01](../wireframes/NET-01/NET-01.svg) | Initial F2 Entry, Host focused; full 1280 × 900 client, 850 × 700 logical canvas. | `docs/design/screenshots/NET-01/NET-01.png`; `ef09e35d249c153fb859341884e9afd88d75eb82289db73e5175dd6bf8174bc9` | Conforms for the supplied Linux state and viewport. |
+
+### Accepted SS-015 provenance
+
+- Frozen production: `4df66053ef0457de70062f051019b13325b13433`, branch `feature/macos-network-compatibility`.
+- Supplied receipt: `/tmp/opencode/pr120-ss015-4df6605/receipt.json`; SHA-256 `c801ac5c4926d84996eeca4c27f7b1ac201046f5b7094403f6efd61999ccbacc`. Source identities and hashes are supplied evidence, not independently recomputed by UX.
+- Environment: Linux AMD64 Docker, Release GL4, Lua ON, Xvfb, dummy audio; OpenGL 4.5 Core Profile, Mesa 25.2.8, llvmpipe LLVM 20.1.2, SDL 2.30.0. Executable SHA-256: `f2db7c7f5d7e22e1dba2914608646c189a470f64fbbb1ffe0cba5c029eb712bf`.
+- Assets: 468 files; inventory SHA-256 `39f6f05dbf5aa72fe2163bd0ccdea7f837c6c80d6f657eebb564fab84b66d9b4`. The application selected `textures/menu-backgrounds/jungle-channel.png` normally for this session.
+- Application-session identifier: `c67dfa89-802e-4c7e-b7c5-302ccbd70a75`, not a canonical network session ID. Launch: `2026-10-06T19:16:03.411663Z`; capture completed: `2026-10-06T19:16:09.690246Z`.
+- Route: actual client MENU-01, read-only console dump closed, F2, initial NET-01. Full client area was captured without cropping, resizing, compositing or retouching. Network mode was `none`, directory override was empty, and no backend or network session was used.
+- The old PNG was preserved in the task packet as `NET-01.before.png`, SHA-256 `92342689781c8bae3f06b0a71503c3f4a48785469ec50ee82dfaf6a78ee45cae`; `manifest.before.md` preserved its prior assessment. The old bytes and prior assessment also remain in Git history. This durable provenance permits cleanup of released temporary receipts and copies after exact integration.
+
+Only the SS-015 assessment is replaced. Earlier SS-015 entries below are historical and no longer identify the current canonical bytes. The other 15 images, their provenance, and all fixed wireframes are unchanged. This assessment does not prove interactions, other viewports, interoperability or Mac rendering. Team-supplied QA and CI are supporting evidence, not checks executed by UX. Exact integration of these image bytes and this assessment needs no new capture.
+
+**Shared visual gate: satisfied. Native Mac visual gate: BLOCKED/deferred, not passed.** All 16 native network rows remain unassessed under the user-owned post-merge/nightly MAC-NET-AC-006 deferral, alongside MAC-AC-006–009 local verification. This approved deferral is not a readiness blocker and must not be relabeled as verified Mac end-to-end behavior.
 
 ## Issue 111 host-end boundary: current scoped assessment
 
@@ -65,7 +83,7 @@ For each eventual image, supply the real nightly artifact identity and immutable
 
 This section is the sole current capture matrix for the NET-01 through NET-10 presentation unification. It supersedes every earlier network conformance claim in this file and the [legacy manifest](../../screenshots/README.md) for these affected wireframes. The older packets below remain historical references with their original hashes. They do not prove the unified presentation. No local-play representative is invalidated unless implementation changes its presentation source.
 
-**Prior conformance: all 16 representatives conform for their supplied historical states; V-01 through V-05 are closed. Current NET-01 replacement-copy evidence is pending; native Mac conformance is deferred and unassessed.** The [prior assessment](#current-native-visual-assessment) combines five new or replacement representatives from source `a740254ee6ceaf5b55914abdf695e76f4766c1fd` with eleven unchanged accepted representatives from `e5f5517a56c426104f4cfb73c19058844db0d874`. Their original capture lineage is retained. The approved [shared visual baseline](../../design.md#unified-network-presentation) and [screen index](../README.md#screen-specifications) remain authoritative, with the bounded NET-01 copy change above. NET-02-P, NET-05-S, and NET-05-R cover existing materially different layouts, not new functional states. All screen and wireframe identities remain unchanged.
+**Prior conformance: all 16 representatives conform for their supplied historical states; V-01 through V-05 are closed. Current NET-01 replacement-copy evidence conforms under the scoped assessment above; native Mac conformance remains deferred and unassessed.** The [prior assessment](#current-native-visual-assessment) combines five new or replacement representatives from source `a740254ee6ceaf5b55914abdf695e76f4766c1fd` with eleven unchanged accepted representatives from `e5f5517a56c426104f4cfb73c19058844db0d874`. Their original capture lineage is retained. The approved [shared visual baseline](../../design.md#unified-network-presentation) and [screen index](../README.md#screen-specifications) remain authoritative, with the bounded NET-01 copy change above. NET-02-P, NET-05-S, and NET-05-R cover existing materially different layouts, not new functional states. All screen and wireframe identities remain unchanged.
 
 ### Fixed criteria and scoped correction
 
@@ -92,7 +110,7 @@ This matrix specifies reproduction targets; the current assessment below owns ea
 
 | Entry / screen / wireframe | Native route and reproduction inputs | Required captured state and visible expectation | Client viewport | Artifact destination |
 |---|---|---|---|---|
-| SS-015 / NET-01 / [NET-01](../wireframes/NET-01/NET-01.svg) | Start client → MENU-01 → Network (F2). | Initial Host focus; four framed actions, updated scope line under UX-NET-01-006–008, title strip, banner/version. Focused new-copy capture pending after functional closure; old-copy image is historical evidence only. | 1280 × 900 | `docs/design/screenshots/NET-01/NET-01.png` |
+| SS-015 / NET-01 / [NET-01](../wireframes/NET-01/NET-01.svg) | Start client → MENU-01 → Network (F2). | Initial Host focus; four framed actions, updated scope line under UX-NET-01-006–008, title strip, banner/version. New-copy capture conforms under the scoped assessment above; old-copy image is historical evidence only. | 1280 × 900 | `docs/design/screenshots/NET-01/NET-01.png` |
 | SS-016 / NET-02 / [NET-02](../wireframes/NET-02/NET-02.svg) | Network → Host; select an assigned private interface; Port 26660; select two valid local persons/controls; enter a disposable optional password. | NET-02-password; Password focused and masked; full selected IPv4; framed endpoint and setup regions; valid Start and Back visible. | 1280 × 900 | `docs/design/screenshots/NET-02/NET-02.png` |
 | NET-02-P / NET-02 / [NET-02-P](../wireframes/NET-02/NET-02-P.svg) | From valid NET-02, activate Start session; capture any actual pending-startup frame before confirmed readiness, including an unaltered full-client frame selected from native recording. | Starting session and timing help; Cancel focused; no editable setup, second Start, or success claim. No minimum display duration is required for the image. | 1280 × 900 | `docs/design/screenshots/NET-02/NET-02-P.png` |
 | NET-03-E / NET-03 / [NET-03-E](../wireframes/NET-03/NET-03-E.svg) | Network → Browse sessions → select an actual protected open first-round host → Join selected; retain one valid local person/control. | NET-03-password; required-password focus, masked input when entered, endpoint, first-round consequence, Connect and Back. | 1280 × 900 | `docs/design/screenshots/NET-03/NET-03-E.png` |
