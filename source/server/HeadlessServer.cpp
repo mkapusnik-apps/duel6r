@@ -39,6 +39,37 @@
 #include "../network/HostCompositionProtocol.h"
 
 namespace {
+    using Duel6::Server::RuntimeObservations;
+    using Duel6::Server::ObservedTerminal;
+    void observeCalibration(const Duel6::Server::AdmissionRuntimeDependencies &dependencies,
+                            const Duel6::Network::Replication::ClientReplicationConnection &connection) {
+        if (!dependencies.observations) return;
+        const auto snapshot = connection.calibrationObservation();
+        dependencies.observations->probes = snapshot.probes;
+        dependencies.observations->calibrated = snapshot.calibrated;
+        dependencies.observations->probeOutstanding = snapshot.pendingProbe.has_value();
+        dependencies.observations->initialReady = connection.initialAdmissionState() != nullptr;
+        dependencies.observations->calibrationBudgetMs = snapshot.budget.count();
+    }
+    void observeQualityResponse(const Duel6::Server::AdmissionRuntimeDependencies &dependencies,
+                                const Duel6::Network::Replication::ClientReplicationConnection &connection,
+                                const Duel6::Network::Replication::ReplicationFrame &frame,
+                                std::chrono::steady_clock::time_point acceptedAt) {
+        if (!dependencies.observations || frame.kind != Duel6::Network::Replication::ReplicationFrameKind::QualityResponse) return;
+        auto &observed = *dependencies.observations;
+        const auto calibration = connection.calibrationObservation();
+        ++observed.responses;
+        observed.lastProbeSequence = calibration.probes;
+        observed.lastResponseSequence = frame.qualitySequence.value_or(0);
+        const auto sent = calibration.pendingProbe ? RuntimeObservations::micros(*calibration.pendingProbe) : -1;
+        const auto received = RuntimeObservations::micros(acceptedAt);
+        observed.lastProbeUs = sent; observed.lastResponseUs = received;
+        if (sent >= 0 && received >= sent && frame.qualitySequence == calibration.probes) {
+            const auto rtt = static_cast<std::uint64_t>(received - sent);
+            RuntimeObservations::maximum(observed.maxResponseRttUs, rtt);
+            if (rtt > static_cast<std::uint64_t>(calibration.budget.count()) * 1000u) ++observed.responsesOverBudget;
+        }
+    }
     volatile std::sig_atomic_t stopRequested = 0;
 
     void requestStop(int) {
@@ -332,7 +363,20 @@ namespace {
         try { client = runtimeDependencies.clientFactory ? runtimeDependencies.clientFactory() : nullptr; }
         catch (...) {}
         if (!client) return 2;
-        const auto closeClient = [&] { try { client->close(); } catch (...) {} };
+        const auto closeClient = [&] {
+            if (runtimeDependencies.observations) {
+                auto &observed = *runtimeDependencies.observations;
+                std::int64_t unset = -1;
+                if (observed.closeUs.compare_exchange_strong(unset, RuntimeObservations::micros(std::chrono::steady_clock::now()))) {
+                    try {
+                        observed.transportState = static_cast<int>(client->state());
+                        observed.transportFailure = static_cast<int>(client->failure());
+                    } catch (...) {}
+                    observed.deadlineUs = RuntimeObservations::micros(deadline);
+                }
+            }
+            try { client->close(); } catch (...) {}
+        };
         const auto endedCopy = [&]() -> const char * {
             try {
                 if (client->failure() == Duel6::Network::TransportFailure::NotAuthorized)
@@ -529,6 +573,7 @@ namespace {
                         if (queued != Duel6::Network::AdmissionAcceptanceEnqueueResult::Accepted)
                             return GuestFrameDecision(GuestDecision::Ended);
                         acceptedOffer = std::move(offer);
+                        if (runtimeDependencies.observations) ++runtimeDependencies.observations->offers;
                         if (runtimeDependencies.productionReplicationProtocol
                             // Starting from the triggering frame's transport timestamp never
                             // understates RTT when application polling is delayed.
@@ -554,6 +599,7 @@ namespace {
                     if (reconnectGrant || grant->participantId != acceptedOffer->participantId)
                         throw std::invalid_argument("Invalid reconnect grant");
                     reconnectGrant = *grant;
+                    if (runtimeDependencies.observations) ++runtimeDependencies.observations->grants;
                     return GuestFrameDecision();
                 }
 
@@ -571,8 +617,15 @@ namespace {
                         && !replicatedLevelsMatchManifest(replication->update->settings,
                                 replication->update->round, request.gameplayManifest))
                         throw std::invalid_argument("Invalid replicated level selection");
+                    if (runtimeDependencies.observations) {
+                        auto &observed = *runtimeDependencies.observations;
+                        if (replication->snapshot) ++observed.snapshots;
+                    }
+                    observeQualityResponse(runtimeDependencies, replicatedConnection, *replication, frame.receivedAt);
                     const auto result = replicatedConnection.receiveInitialAdmissionFrame(
                             frame.payload, frame.receivedAt, allowOutboundExchange);
+                    observeCalibration(runtimeDependencies, replicatedConnection);
+                    if (runtimeDependencies.observations) runtimeDependencies.observations->lastReplicationResult = static_cast<int>(result);
                     if (((replication->kind == Duel6::Network::Replication::ReplicationFrameKind::FullSnapshot
                           || replication->kind
                              == Duel6::Network::Replication::ReplicationFrameKind::IncrementalUpdate)
@@ -591,6 +644,7 @@ namespace {
                 if (admissionConfirmation)
                     throw std::invalid_argument("Duplicate admission confirmation");
                 admissionConfirmation = confirmation;
+                if (runtimeDependencies.observations) ++runtimeDependencies.observations->confirmations;
                 if (runtimeDependencies.productionReplicationProtocol)
                     return completeProductionAdmission();
                 Duel6::Network::AdmissionResult result;
@@ -628,6 +682,7 @@ namespace {
                     closeClient();
                     return 2;
                 case GuestDecision::Admitted: {
+                    if (runtimeDependencies.observations) ++runtimeDependencies.observations->admissions;
                     printAdmissionResult(output, decision.result);
                     if (!runtimeDependencies.productionReplicationProtocol) {
                         closeClient();
@@ -673,6 +728,8 @@ namespace {
                     closeClient();
                     return 2;
                 case GuestDecision::Ended:
+                    observeCalibration(runtimeDependencies, replicatedConnection);
+                    if (runtimeDependencies.observations) runtimeDependencies.observations->firstTerminal(ObservedTerminal::AdmissionEnded);
                     output << endedCopy();
                     closeClient();
                     return 2;
@@ -728,6 +785,8 @@ namespace {
                 return std::nullopt;
             }
             attempt.finish();
+            observeCalibration(runtimeDependencies, replicatedConnection);
+            if (runtimeDependencies.observations) runtimeDependencies.observations->firstTerminal(ObservedTerminal::AdmissionSealed);
             if (snapshot.terminalAt != Duel6::Network::TransportTimePoint{}
                 && snapshot.terminalAt < deadline) {
                 output << endedCopy();
@@ -855,6 +914,8 @@ namespace {
                 }
             }
             if (!replicatedConnection.sampleNetwork(runtimeNow(runtimeDependencies))) {
+                observeCalibration(runtimeDependencies, replicatedConnection);
+                if (runtimeDependencies.observations) runtimeDependencies.observations->firstTerminal(ObservedTerminal::NetworkSampleFailed);
                 try { connection->requestClose(); } catch (...) {}
                 break;
             }
@@ -898,6 +959,7 @@ namespace {
                         catch (...) { actions = Duel6::Network::Input::AllActions + 1u; }
                         const auto command = playerInput->submit(playerId, canonical->phaseTime, actions);
                         if (!command) {
+                            if (runtimeDependencies.observations) runtimeDependencies.observations->firstTerminal(ObservedTerminal::InputRejected);
                             try { connection->requestClose(); } catch (...) {}
                             break;
                         }
@@ -939,6 +1001,7 @@ namespace {
                         break;
                     }
                     if (playerInput->policyViolation()) {
+                        if (runtimeDependencies.observations) runtimeDependencies.observations->firstTerminal(ObservedTerminal::InputRejected);
                         output << Duel6::Network::Trust::outcomeCode(
                                 Duel6::Network::Trust::AdmissionOutcome::SessionPolicyViolation) << '\n'
                                << Duel6::Network::Trust::outcomeUserCopy(
@@ -960,9 +1023,13 @@ namespace {
                     try { connection->requestClose(); } catch (...) {}
                     break;
                 }
+                observeQualityResponse(runtimeDependencies, replicatedConnection, *replication, frame.receivedAt);
                 const auto result = replicatedConnection.receive(frame.payload, frame.receivedAt);
+                observeCalibration(runtimeDependencies, replicatedConnection);
+                if (runtimeDependencies.observations) runtimeDependencies.observations->lastReplicationResult = static_cast<int>(result);
                 if (result == Duel6::Network::Replication::ClientReplicationResult::Reconnecting
                     || result == Duel6::Network::Replication::ClientReplicationResult::SendFailed) {
+                    if (runtimeDependencies.observations) runtimeDependencies.observations->firstTerminal(ObservedTerminal::ReplicationFailed);
                     try { connection->requestClose(); } catch (...) {}
                     break;
                 }
@@ -970,7 +1037,10 @@ namespace {
             }
             Duel6::Network::ClientState state = Duel6::Network::ClientState::Failed;
             try { state = connection->state(); } catch (...) {}
-            if (isTerminal(state)) break;
+            if (isTerminal(state)) {
+                if (runtimeDependencies.observations) runtimeDependencies.observations->firstTerminal(ObservedTerminal::TransportTerminal);
+                break;
+            }
             try { runtimeDependencies.wait(std::chrono::milliseconds(5)); }
             catch (...) { break; }
         }
@@ -1831,6 +1901,13 @@ namespace Duel6::Server {
             // Gameplay start does not close first-round admission.
             admissionPolicy->setMatchStarted(false);
             nextMatchTick = runtimeNow(runtimeDependencies) + matchTickDuration;
+            if (runtimeDependencies.observations) {
+                const auto start = RuntimeObservations::micros(std::chrono::steady_clock::now());
+                std::int64_t unset = -1;
+                runtimeDependencies.observations->matchStartUs.compare_exchange_strong(unset, start);
+                runtimeDependencies.observations->lastMatchStartUs = start;
+                ++runtimeDependencies.observations->matchStarts;
+            }
             return true;
         };
         const auto cancelled = [this] {
@@ -1982,6 +2059,9 @@ namespace Duel6::Server {
             } catch (...) { return Authoritative::LobbyCommitOutcome::InternalFailure; }
         };
         while (!stopRequested && !cancelled()) {
+            const auto observedLoopStart = runtimeDependencies.observations
+                ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+            if (runtimeDependencies.observations) ++runtimeDependencies.observations->hostLoops;
             // Bound host work like guest work: sustain all owned slots without
             // starving guest ingress, lifecycle processing, or the 60 Hz simulation.
             for (std::size_t drained = 0; runtimeDependencies.hostSessionPayload
@@ -2632,8 +2712,16 @@ namespace Duel6::Server {
             }
             if (runtimeFailed) break;
             try {
+                Network::TransportTimePoint tickNow{};
+                // Capture the existing single scheduling-clock sample, not a
+                // second call; pacing remains one tick and the original wait.
                 if (hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive
-                    && runtimeNow(runtimeDependencies) >= nextMatchTick) {
+                    && (tickNow = runtimeNow(runtimeDependencies)) >= nextMatchTick) {
+                    if (runtimeDependencies.observations) {
+                        const auto debt = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(tickNow - nextMatchTick).count());
+                        runtimeDependencies.observations->lastTickDebtUs = debt;
+                        RuntimeObservations::maximum(runtimeDependencies.observations->maxTickDebtUs, debt);
+                    }
                     auto *match = hostedMatch->match();
                     if (match && hostPlayerInput && runtimeDependencies.localPlayerActions) {
                         const auto &host = admissionPolicy->allocation().hostParticipant();
@@ -2656,10 +2744,41 @@ namespace Duel6::Server {
                         hostPlayerInput->reset();
                     }
                     nextMatchTick += matchTickDuration;
+                    if (runtimeDependencies.observations) {
+                        auto &observed = *runtimeDependencies.observations;
+                        ++observed.hostTicks;
+                        observed.hostStage = static_cast<int>(hostedMatch->stage());
+                        if (const auto *current = hostedMatch->match()) {
+                            observed.lastTick = current->currentTick();
+                            observed.lastPhase = static_cast<int>(current->phase());
+                            if (observed.firstOutcomeUs < 0 && (current->phase() == Authoritative::MatchPhase::RoundEndActive
+                                || current->phase() == Authoritative::MatchPhase::RoundEndFrozen)) {
+                                observed.firstOutcomeUs = RuntimeObservations::micros(std::chrono::steady_clock::now());
+                                observed.firstOutcomeTick = current->currentTick();
+                            }
+                        }
+                    }
                 }
             } catch (...) { runtimeFailed = true; break; }
+            const auto observedWaitStart = runtimeDependencies.observations
+                ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
             try { runtimeDependencies.wait(std::chrono::milliseconds(5)); }
             catch (...) { runtimeFailed = true; break; }
+            if (runtimeDependencies.observations) {
+                auto &observed = *runtimeDependencies.observations;
+                const auto waited = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - observedWaitStart).count());
+                const auto worked = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                    observedWaitStart - observedLoopStart).count());
+                ++observed.waitCalls; observed.requestedWaitUs += 5000; observed.actualWaitUs += waited;
+                RuntimeObservations::maximum(observed.maxWaitUs, waited);
+                RuntimeObservations::maximum(observed.maxLoopWorkUs, worked);
+            }
+        }
+
+        if (runtimeDependencies.observations) {
+            runtimeDependencies.observations->hostStopUs = RuntimeObservations::micros(std::chrono::steady_clock::now());
+            runtimeDependencies.observations->firstTerminal(runtimeFailed ? ObservedTerminal::HostFailed : ObservedTerminal::HostCancelled);
         }
 
         if (admissionPolicy) {

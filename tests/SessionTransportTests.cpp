@@ -27,6 +27,8 @@ static constexpr RawSocket InvalidRawSocket = INVALID_SOCKET;
 #include <arpa/inet.h>
 #include <cerrno>
 #include <csignal>
+#include <fcntl.h>
+#include <poll.h>
 #include <netinet/in.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -1087,41 +1089,7 @@ void fifteenIsolatedConnections() {
 
 void queueBoundaries() {
     const auto port = unusedPort();
-    std::atomic<std::uint64_t> nativeBytes{0}, wouldBlocks{0}, lastWriteNs{0};
-    std::atomic<std::intptr_t> observedSocket{-1};
-    SessionTransportDependencies observed;
-    observed.outbound.send = [&](std::intptr_t socket, std::uint16_t kind, const std::uint8_t *data, std::size_t size) {
-        if (kind == 0) {
-            std::intptr_t unset = -1;
-            observedSocket.compare_exchange_strong(unset, socket);
-        }
-        const bool trace = observedSocket.load() == socket;
-#ifdef D6R_TRANSPORT_WINDOWS
-        const auto count = ::send(static_cast<SOCKET>(socket), reinterpret_cast<const char *>(data), static_cast<int>(size), 0);
-        const int error = count < 0 ? WSAGetLastError() : 0;
-        const bool blocked = error == WSAEWOULDBLOCK, interrupted = error == WSAEINTR;
-#else
-        const auto count = ::send(static_cast<int>(socket), data, size,
-#ifdef __APPLE__
-                                  0);
-#else
-                                  MSG_NOSIGNAL);
-#endif
-        const int error = count < 0 ? errno : 0;
-        const bool blocked = error == EAGAIN || error == EWOULDBLOCK, interrupted = error == EINTR;
-#endif
-        if (count > 0) {
-            if (trace) {
-                nativeBytes += static_cast<std::uint64_t>(count);
-                lastWriteNs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                    std::chrono::steady_clock::now().time_since_epoch()).count());
-            }
-            return OutboundSendOutcome{OutboundSendStatus::Sent, static_cast<std::size_t>(count)};
-        }
-        if (blocked || count == 0) { if (trace) ++wouldBlocks; return OutboundSendOutcome{OutboundSendStatus::WouldBlock, 0}; }
-        return OutboundSendOutcome{interrupted ? OutboundSendStatus::Interrupted : OutboundSendStatus::Failed, 0};
-    };
-    TcpListener listener(3, observed);
+    TcpListener listener(3);
     startListener(listener, port);
     RawSocketOwner framePeer(connectRaw(port));
     auto frameConnection = awaitAccept(listener);
@@ -1175,19 +1143,131 @@ void queueBoundaries() {
                && std::chrono::steady_clock::now() - pendingStableSince >= 250ms;
     }, NativeObserverWait));
     const auto noProgressObservedAt = std::chrono::steady_clock::now();
-    if (!waitUntil([&] { return stalledWriter->state() == ClientState::TimedOut; }, 7s)) {
-        const auto nowNs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count());
-        throw Failure("stalled native writer: state=" + std::to_string(static_cast<int>(stalledWriter->state()))
-            + ";failure=" + std::to_string(static_cast<int>(stalledWriter->failure()))
-            + ";accepted-frames=" + std::to_string(accepted) + ";native-bytes=" + std::to_string(nativeBytes.load())
-            + ";would-block=" + std::to_string(wouldBlocks.load())
-            + ";since-native-progress-ms=" + std::to_string((nowNs - lastWriteNs.load()) / 1000000)
-            + ";pending-peer-bytes=" + std::to_string(pendingRawReceiveBytes(stalledReader.get())));
-    }
+    CHECK(waitUntil([&] { return stalledWriter->state() == ClientState::TimedOut; }, 7s));
     CHECK(std::chrono::steady_clock::now() - noProgressObservedAt >= 4500ms);
     CHECK(stalledWriter->failure() == TransportFailure::OutboundStalled);
     listener.shutdown();
+}
+
+// Supplemental observation, separate from queueBoundaries' unchanged default
+// path. No send/clock/wait replacement is installed.
+void nativeWriterDiagnostics() {
+    const auto port = unusedPort();
+    SessionTransportDependencies dependencies;
+    auto trace = std::make_shared<NativeWriteObservations>();
+    dependencies.outbound.observations = trace;
+    CHECK(!dependencies.outbound.send && !dependencies.outbound.now && !dependencies.outbound.wait);
+    TcpListener listener(1, dependencies);
+    startListener(listener, port);
+    constexpr int requested = 4096;
+    RawSocketOwner peer(connectRaw(port, requested));
+    auto writer = awaitAccept(listener);
+    int actual = 0;
+#ifdef D6R_TRANSPORT_WINDOWS
+    int length = sizeof(actual);
+#else
+    socklen_t length = sizeof(actual);
+#endif
+    CHECK(getsockopt(peer.get(), SOL_SOCKET, SO_RCVBUF, reinterpret_cast<char *>(&actual), &length) == 0);
+    std::vector<std::uint8_t> maximum(MaxPayloadBytes, 0xa5);
+    std::size_t accepted = 0;
+    bool backpressure = false;
+    for (unsigned attempt = 0; attempt < 64; ++attempt) {
+        const auto result = writer->send(maximum);
+        if (result == SendResult::Backpressure) { backpressure = true; break; }
+        CHECK(result == SendResult::Accepted); ++accepted;
+    }
+    std::size_t pending = 0;
+    auto stableSince = std::chrono::steady_clock::now();
+    const bool fixtureReady = waitUntil([&] {
+        const auto bytes = pendingRawReceiveBytes(peer.get());
+        if (bytes != pending) { pending = bytes; stableSince = std::chrono::steady_clock::now(); }
+        return pending >= requested && std::chrono::steady_clock::now() - stableSince >= 250ms;
+    }, NativeObserverWait);
+    const bool timedOut = waitUntil([&] { return writer->state() == ClientState::TimedOut; }, 7s);
+    const auto progress = trace->lastProgress.load();
+    std::cout << "DIAGNOSTIC production-writer;fixture-ready=" << fixtureReady
+              << ";backpressure=" << backpressure << ";accepted=" << accepted
+              << ";requested-rcvbuf=" << requested << ";actual-rcvbuf=" << actual
+              << ";pending=" << pendingRawReceiveBytes(peer.get())
+              << ";polls=" << trace->polls << ";ready-polls=" << trace->pollReady
+              << ";native-calls=" << trace->calls << ";native-bytes=" << trace->bytes
+              << ";would-block=" << trace->wouldBlock << ";zero-writes=" << trace->zeroWrites
+              << ";last-error=" << trace->lastError
+              << ";progress-age-ms=" << (progress == TransportTimePoint{} ? -1 :
+                  std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - progress).count())
+              << ";state=" << static_cast<int>(writer->state())
+              << ";failure=" << static_cast<int>(writer->failure()) << '\n';
+    listener.shutdown();
+    // The diagnostic cannot turn an invalid setup into passing stall evidence.
+#ifndef D6R_TRANSPORT_WINDOWS
+    CHECK(trace->polls.load() > 0);
+#endif
+    CHECK(backpressure && accepted > 0 && fixtureReady && timedOut);
+}
+
+void rawRefusalDiagnostics() {
+    const auto error = [] {
+#ifdef D6R_TRANSPORT_WINDOWS
+        return WSAGetLastError();
+#else
+        return errno;
+#endif
+    };
+    for (bool stoppedListener : {false, true}) {
+        RawSocketOwner fixture(::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
+        CHECK(fixture.get() != InvalidRawSocket);
+        sockaddr_in address{}; address.sin_family = AF_INET; address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        CHECK(bind(fixture.get(), reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0);
+#ifdef D6R_TRANSPORT_WINDOWS
+        int length = sizeof(address);
+#else
+        socklen_t length = sizeof(address);
+#endif
+        CHECK(getsockname(fixture.get(), reinterpret_cast<sockaddr *>(&address), &length) == 0);
+        if (stoppedListener) { CHECK(listen(fixture.get(), 1) == 0); fixture.close(); }
+        RawSocketOwner raw(::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
+        CHECK(raw.get() != InvalidRawSocket);
+#ifdef D6R_TRANSPORT_WINDOWS
+        u_long nonblocking = 1; CHECK(ioctlsocket(raw.get(), FIONBIO, &nonblocking) == 0);
+#else
+        CHECK(fcntl(raw.get(), F_SETFL, O_NONBLOCK) == 0);
+#endif
+        const auto started = std::chrono::steady_clock::now();
+        const auto deadline = started + NativeObserverWait;
+        const int connected = connect(raw.get(), reinterpret_cast<sockaddr *>(&address), sizeof(address));
+        const int connectError = connected == 0 ? 0 : error();
+        TcpClient production;
+        CHECK(production.start({"127.0.0.1", ntohs(address.sin_port)}));
+        int ready = 0, revents = 0;
+        do {
+#ifdef D6R_TRANSPORT_WINDOWS
+            WSAPOLLFD fd{raw.get(), POLLRDNORM | POLLWRNORM, 0};
+            ready = WSAPoll(&fd, 1, 20); revents = fd.revents;
+#else
+            pollfd fd{raw.get(), POLLIN | POLLOUT, 0};
+            ready = poll(&fd, 1, 20); revents = fd.revents;
+#endif
+            if (ready != 0) break;
+        } while (std::chrono::steady_clock::now() < deadline);
+        int socketError = 0;
+        length = sizeof(socketError);
+        CHECK(getsockopt(raw.get(), SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&socketError), &length) == 0);
+        sockaddr_in peer{}; length = sizeof(peer);
+        const int peerResult = getpeername(raw.get(), reinterpret_cast<sockaddr *>(&peer), &length);
+        const int peerError = peerResult == 0 ? 0 : error();
+        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+        (void) production.waitForConnected(std::max(0ms, remaining));
+        std::cout << "DIAGNOSTIC raw-refusal;fixture=" << (stoppedListener ? "stopped-listener" : "bound-not-listening")
+                  << ";connect-result=" << connected << ";connect-error=" << connectError
+                  << ";poll-result=" << ready << ";revents=" << revents << ";so-error=" << socketError
+                  << ";peer-result=" << peerResult << ";peer-error=" << peerError
+                  << ";production-state=" << static_cast<int>(production.state())
+                  << ";production-failure=" << static_cast<int>(production.failure())
+                  << ";elapsed-ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - started).count() << '\n';
+        production.cancel(); production.close();
+    }
 }
 
 void malformedPeersAreIsolated() {
@@ -1717,6 +1797,8 @@ int main() {
         {"cancellation deadline races", cancellationDeadlineRacesAreTerminalAndJoined},
         {"lifecycle and failures", lifecycleAndFailures}, {"15 isolated connections", fifteenIsolatedConnections},
         {"queue boundaries", queueBoundaries},
+        {"diagnostic native writer (not acceptance)", nativeWriterDiagnostics},
+        {"diagnostic raw refusal (not acceptance)", rawRefusalDiagnostics},
         {"conditional admission acceptance accounting", conditionalAdmissionAcceptanceAccounting},
         {"concrete seal and drain race", concreteSealAndDrainRacesReceiveWithoutLossOrDuplication},
         {"malformed isolation", malformedPeersAreIsolated},
@@ -1724,8 +1806,10 @@ int main() {
     int failures = 0;
     std::size_t executed = 0;
     const char *filter = std::getenv("D6R_TEST_FILTER");
+    const bool exact = std::getenv("D6R_TEST_EXACT") != nullptr;
     for (const auto &test: tests) {
-        if (filter && std::string(test.first).find(filter) == std::string::npos) continue;
+        if (filter && (exact ? std::string(test.first) != filter
+                            : std::string(test.first).find(filter) == std::string::npos)) continue;
         ++executed;
         try { test.second(); std::cout << "[PASS] " << test.first << '\n'; }
         catch (const std::exception &error) { ++failures; std::cerr << "[FAIL] " << test.first << "\n  " << error.what() << '\n'; }
@@ -1734,5 +1818,6 @@ int main() {
     WSACleanup();
 #endif
     std::cout << "Executed " << executed << " transport test(s), failures: " << failures << '\n';
+    if (filter && executed == 0) { std::cerr << "Requested transport filter matched no cases\n"; return 2; }
     return failures == 0 ? 0 : 1;
 }

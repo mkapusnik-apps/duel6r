@@ -5,6 +5,8 @@
 #include <vector>
 
 #include "source/network/NetworkResponsiveness.h"
+#include "source/network/StateReplicationProtocol.h"
+#include "source/server/RuntimeObservations.h"
 #include "tests/TestHarness.h"
 
 namespace {
@@ -288,4 +290,28 @@ D6R_TEST_CASE("full resynchronization rejects rewind and replaces removed player
     D6R_REQUIRE(movement.accept(12, state, at(3ms)));
     D6R_REQUIRE(!movement.resynchronizing());
     D6R_REQUIRE_EQ(std::size_t{14}, movement.sample(at(3ms)).size());
+}
+
+D6R_TEST_CASE("Diagnostic observations do not advance probes or replace terminal causes") {
+    unsigned sent = 0;
+    R::ClientReplicationConnection connection([&](std::vector<std::uint8_t>) {
+        ++sent; return Duel6::Network::SendResult::Accepted;
+    }, N::Environment::SameMachine, true);
+    D6R_REQUIRE(connection.sampleNetwork(at(1000ms)));
+    for (unsigned attempt = 0; attempt < 32; ++attempt) {
+        const auto snapshot = connection.calibrationObservation();
+        D6R_REQUIRE_EQ(std::uint64_t{1}, snapshot.probes);
+        D6R_REQUIRE(snapshot.pendingProbe && *snapshot.pendingProbe == at(1000ms));
+        D6R_REQUIRE(!snapshot.calibrated);
+        D6R_REQUIRE_EQ(20ms, snapshot.budget);
+    }
+    D6R_REQUIRE_EQ(1u, sent);
+    D6R_REQUIRE(connection.receiveInitialAdmissionFrame(R::serializeQualityResponse(1, 1000), at(1005ms))
+                == R::ClientReplicationResult::NetworkSampled);
+    D6R_REQUIRE(connection.calibrationObservation().calibrated);
+    D6R_REQUIRE_EQ(1u, sent);
+    Duel6::Server::RuntimeObservations observations;
+    observations.firstTerminal(Duel6::Server::ObservedTerminal::NetworkSampleFailed);
+    observations.firstTerminal(Duel6::Server::ObservedTerminal::TransportTerminal);
+    D6R_REQUIRE_EQ(static_cast<unsigned>(Duel6::Server::ObservedTerminal::NetworkSampleFailed), observations.terminal.load());
 }

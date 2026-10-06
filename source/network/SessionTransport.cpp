@@ -1368,9 +1368,16 @@ namespace Duel6::Network {
                                    MSG_NOSIGNAL);
 #endif
 #endif
+            const int error = count < 0 ? socketError() : 0;
+            if (outbound.observations) {
+                ++outbound.observations->calls;
+                outbound.observations->lastError = error;
+                if (count > 0) outbound.observations->bytes += static_cast<std::uint64_t>(count);
+                if (count == 0) ++outbound.observations->zeroWrites;
+                if (count < 0 && wouldBlock(error)) ++outbound.observations->wouldBlock;
+            }
             if (count > 0) return {OutboundSendStatus::Sent, static_cast<std::size_t>(count)};
             if (count == 0) return {OutboundSendStatus::WouldBlock, 0};
-            int error = socketError();
             if (wouldBlock(error)) return {OutboundSendStatus::WouldBlock, 0};
             if (interrupted(error)) return {OutboundSendStatus::Interrupted, 0};
             return {};
@@ -1388,12 +1395,19 @@ namespace Duel6::Network {
             while (offset < total && !stop.load()) {
                 if (closeRequested.load() && Clock::now() >= closeDeadline) return false;
 #ifndef D6R_TRANSPORT_WINDOWS
-                if (!outbound.send && !waitSocket(socket, true, std::chrono::milliseconds(100))) {
-                    if (outboundNow() - progress >= ProgressDeadline) {
-                        fail(TransportFailure::OutboundStalled, true);
-                        return false;
+                if (!outbound.send) {
+                    const bool writable = waitSocket(socket, true, std::chrono::milliseconds(100));
+                    if (outbound.observations) {
+                        ++outbound.observations->polls;
+                        if (writable) ++outbound.observations->pollReady;
                     }
-                    continue;
+                    if (!writable) {
+                        if (outboundNow() - progress >= ProgressDeadline) {
+                            fail(TransportFailure::OutboundStalled, true);
+                            return false;
+                        }
+                        continue;
+                    }
                 }
 #endif
                 const std::uint8_t *data = offset < header.size()
@@ -1404,7 +1418,11 @@ namespace Duel6::Network {
                 if (outcome.status == OutboundSendStatus::Sent) {
                     offset += outcome.bytes;
                     progress = outboundNow();
-                    if (frame.kind == ApplicationFrame) lastOutboundProgress.store(Clock::now());
+                    if (frame.kind == ApplicationFrame) {
+                        const auto progressedAt = Clock::now();
+                        lastOutboundProgress.store(progressedAt);
+                        if (outbound.observations) outbound.observations->lastProgress.store(progressedAt);
+                    }
                     continue;
                 }
                 if (outcome.status == OutboundSendStatus::Failed) {

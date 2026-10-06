@@ -13,6 +13,7 @@
 #include "ServerConfig.h"
 #include "AdmissionSession.h"
 #include "AuthoritativeMatch.h"
+#include "RuntimeObservations.h"
 #include "../network/CompatibilityManifest.h"
 #include "../network/HostServiceControlProtocol.h"
 #include "../network/NetworkResponsiveness.h"
@@ -181,6 +182,7 @@ namespace Duel6::Server {
                 const Authoritative::MatchConfig &, const std::vector<Authoritative::PlayerDefinition> &,
                 const Network::ManifestBuildResult &)> authoritativeRuntimeFactory;
         bool productionReplicationProtocol = false;
+        std::shared_ptr<RuntimeObservations> observations;
     };
 
     class HeadlessServer {

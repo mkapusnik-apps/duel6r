@@ -71,7 +71,9 @@ namespace Duel6::Platform::Darwin {
             if (guardianObservation == std::chrono::steady_clock::time_point{}) guardianObservation = std::chrono::steady_clock::now();
         }
         void refreshLocked() {
-            if (cleaned || guardian < 0) return;
+            // Ownership loss is irreversible. A reused numeric PID must never
+            // be observed, signalled or reaped as this attempt's child.
+            if (cleaned || anchorLost || guardian < 0) return;
             if (directResolver) {
                 siginfo_t info{};
                 int result;
@@ -116,7 +118,7 @@ namespace Duel6::Platform::Darwin {
             int result;
             do { result = waitid(P_PID, static_cast<id_t>(guardian), &info, WEXITED | WNOHANG | WNOWAIT); }
             while (result < 0 && errno == EINTR);
-            if (result < 0) { broken = true; guardianExited = true; recordGuardianLoss(); terminateLocked(); return; }
+            if (result < 0) { anchorLost = broken = true; guardianExited = true; recordGuardianLoss(); terminateLocked(); return; }
             if (info.si_pid != guardian || (info.si_code != CLD_EXITED && info.si_code != CLD_KILLED
                 && info.si_code != CLD_DUMPED)) return;
             guardianExited = true;
@@ -129,7 +131,7 @@ namespace Duel6::Platform::Darwin {
             }
             pid_t resultPid;
             do { resultPid = waitpid(guardian, nullptr, 0); } while (resultPid < 0 && errno == EINTR);
-            if (resultPid != guardian) { broken = true; return; }
+            if (resultPid != guardian) { anchorLost = broken = true; return; }
             reaped = cleaned = true;
             terminateLocked();
         }

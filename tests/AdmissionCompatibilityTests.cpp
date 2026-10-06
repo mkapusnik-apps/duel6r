@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "tests/TestHarness.h"
+#include "tests/RuntimeObservationReceipt.h"
 #include "source/network/AdmissionProtocol.h"
 #include "source/network/CompatibilityManifest.h"
 #include "source/network/HostCompositionProtocol.h"
@@ -1177,6 +1178,7 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
     scenarios.push_back({"foreign-owned", admissionLobby({11}, true), false});
 
     for (const auto &scenario: scenarios) {
+        Test::RuntimeObservationReceipt receipt{std::string("admission-") + scenario.name};
         D6R_REQUIRE(R::validateCanonicalState(scenario.state));
         const auto port = unusedLoopbackPort();
         D6R_REQUIRE(port != 0);
@@ -1189,6 +1191,10 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
         std::atomic<unsigned> localActions{0};
         std::atomic<bool> cancelGuest{false};
         std::atomic<bool> snapshotWasUnavailableBeforeConfirmation{false};
+        std::atomic<unsigned> hostProbesSeen{0};
+        std::atomic<int> hostCloseState{-1};
+        std::atomic<std::int64_t> hostCloseUs{-1};
+        std::atomic<std::int64_t> hostCloseDeadlineUs{-1};
         std::exception_ptr hostFailure;
         std::thread host([&] {
             try {
@@ -1248,6 +1254,7 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
                 const auto probe = R::deserializeReplicationFrame(frame.payload);
                 if (!probe || !probe->qualitySequence)
                     throw std::runtime_error("guest did not request clock calibration");
+                ++hostProbesSeen;
                 const auto hostNow = static_cast<std::uint64_t>(
                         std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::steady_clock::now().time_since_epoch()).count());
@@ -1255,9 +1262,12 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
                     != Network::SendResult::Accepted)
                     throw std::runtime_error("fake host could not send calibration");
                 const auto deadline = std::chrono::steady_clock::now() + 2s;
+                hostCloseDeadlineUs = Server::RuntimeObservations::micros(deadline);
                 while (connection->state() == Network::ClientState::Connected
                        && std::chrono::steady_clock::now() < deadline)
                     std::this_thread::sleep_for(1ms);
+                hostCloseState = static_cast<int>(connection->state());
+                hostCloseUs = Server::RuntimeObservations::micros(std::chrono::steady_clock::now());
                 connection->close();
             } catch (...) {
                 hostFailure = std::current_exception();
@@ -1267,6 +1277,7 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
         auto config = runtimeGuestConfig();
         config.listenEndpoint.port = port;
         Server::AdmissionRuntimeDependencies dependencies;
+        dependencies.observations = receipt.data;
         dependencies.manifestSource = std::make_shared<FixedManifestSource>(
                 Network::ManifestBuildResult{Network::ManifestStatus::Valid, hostedManifest});
         dependencies.cancelled = [&] { return cancelGuest.load(); };
@@ -1290,6 +1301,10 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
         host.join();
         listener.shutdown();
         if (hostFailure) std::rethrow_exception(hostFailure);
+        std::cout << "DIAGNOSTIC admission-host-fixture;scenario=" << scenario.name
+                  << ";probes-serviced=" << hostProbesSeen << ";close-state=" << hostCloseState
+                  << ";close-us=" << hostCloseUs << ";close-deadline-us=" << hostCloseDeadlineUs
+                  << ";post-response-observer-ms=2000\n";
 
         D6R_REQUIRE(snapshotWasUnavailableBeforeConfirmation);
         D6R_REQUIRE_EQ(0u, localActions.load());
@@ -1310,6 +1325,7 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
 }
 
 D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest input at 60 Hz") {
+    Test::RuntimeObservationReceipt hostReceipt{"input-host"}, guestReceipt{"input-guest"};
     auto &transportBudget = Network::Trust::processQueueBudget();
     const auto transportBudgetBaseline = transportBudget.used();
     const auto hostedManifest = manifest({
@@ -1336,6 +1352,7 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
     hostConfig.localPlayers = 4;
 
     Server::AdmissionRuntimeDependencies hostDependencies;
+    hostDependencies.observations = hostReceipt.data;
     hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
     // Bound the fixture itself so a guest admission/drain failure is reported by the behavioral
     // assertions below instead of stranding host.join() until the outer CTest timeout.
@@ -1407,6 +1424,7 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
     bool guestOwnershipSetPresented = false;
     std::string ownershipEvidence;
     Server::AdmissionRuntimeDependencies guestDependencies;
+    guestDependencies.observations = guestReceipt.data;
     guestDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
     guestDependencies.localPlayerActions = [&](std::uint64_t playerId) {
         // The production guest must not sample or submit local control before the final
@@ -1470,6 +1488,12 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
     Server::HeadlessServer guest(guestConfig, std::move(guestDependencies));
     const int guestStatus = guest.run(guestOutput);
     host.join();
+
+    std::cout << "DIAGNOSTIC input-fixture;completion-condition=" << stopHost
+              << ";fixture-deadline-us=" << Server::RuntimeObservations::micros(fixtureDeadline) << '\n';
+    for (const auto &entry : samples)
+        std::cout << "DIAGNOSTIC input-count;player=" << entry.first << ";samples=" << entry.second
+                  << ";applications=" << applications[entry.first] << ";required=" << SustainedTicks << '\n';
 
     D6R_REQUIRE_EQ(0, hostStatus);
     D6R_REQUIRE_EQ(2, guestStatus);
@@ -1829,6 +1853,7 @@ D6R_TEST_CASE("PR83 production ingress shares burst sixty and sustained thirty a
 
 D6R_TEST_CASE("PR83 production final-summary Leave and expiry remove membership on direct lobby return") {
     for (const bool expire : {false, true}) {
+        Test::RuntimeObservationReceipt receipt{expire ? "summary-expiry-host" : "summary-leave-host"};
         const auto hostedManifest = manifest({
                 {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
         auto content = std::make_shared<Network::FrozenGameplayContent>();
@@ -1840,6 +1865,7 @@ D6R_TEST_CASE("PR83 production final-summary Leave and expiry remove membership 
         std::atomic<bool> ready{false}, cancelled{false}, hostReady{false}, lobbyRequested{false}, startRequested{false};
         std::atomic<std::int64_t> clockOffset{0};
         Server::AdmissionRuntimeDependencies dependencies;
+        dependencies.observations = receipt.data;
         dependencies.now = [&] { return std::chrono::steady_clock::now() + std::chrono::milliseconds(clockOffset.load()); };
         dependencies.cancelled = [&] { return cancelled.load(); };
         dependencies.manifestSource = std::make_shared<FixedManifestSource>(
@@ -2073,6 +2099,7 @@ D6R_TEST_CASE("PR83 production guest Leave after host restore before reconnect r
 }
 
 D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby disconnect and admission preserve explicit readiness and result ranking") {
+    Test::RuntimeObservationReceipt receipt{"following-lobby-host"};
     const auto hostedManifest = manifest({
             {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
     auto content = std::make_shared<Network::FrozenGameplayContent>();
@@ -2086,6 +2113,7 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
     hostConfig.listenEndpoint.port = unusedLoopbackPort();
     D6R_REQUIRE(hostConfig.listenEndpoint.port != 0);
     Server::AdmissionRuntimeDependencies hostDependencies;
+    hostDependencies.observations = receipt.data;
     hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
     std::atomic<bool> ready{false};
     std::atomic<bool> cancelled{false};

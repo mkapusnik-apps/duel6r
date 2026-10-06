@@ -8,6 +8,45 @@ requirements are in `docs/macos.md` and the HSL-FAULT supervision boundary.
 
 ## Native execution
 
+### Focused diagnostic checkpoint (not qualification)
+
+After source review, the existing macOS job may invoke the helper with
+`D6R_NATIVE_DIAGNOSTICS=ON`. This explicitly selects ten `native-diagnostic`
+CTest entries using the existing test-name filters: irreversible anchor loss, observation invariance,
+unaltered production refusal/queue cases, separately labelled raw-socket/writer
+observations, and the four failing admission/input/summary cases. Empty filters
+that match no cases fail rather than claiming success. TLS policy/counter tests
+are unchanged; DevOps owns the parallel curl provenance investigation.
+
+The mode builds only its required targets and never calls the package helper.
+Even if its selected checks pass, it exits 78 with a `DIAGNOSTIC ONLY` message so
+the current workflow cannot mistake this for Feature Ready or publish a package.
+CTest failure returns its actual nonzero code. The existing failure-log upload
+retains the selected LastTest.log. Default `OFF` keeps the normal full job.
+No new workflow is introduced. Do not push/trigger the normal full job as a
+substitute for the approved focused run; DevOps must select this mode explicitly.
+
+The production queue-boundary case has no send/clock/wait injection. Supplemental
+writer counters are fixed-size observation storage, never used by decisions, and
+do not bypass native poll/send paths. Raw refusal controls use independent sockets;
+they never consume SO_ERROR from a production socket. Runtime observations record
+calibration stage/probe pairing and first close cause, and actual host wait/work,
+tick debt, sampling counts and fixture-stop conditions. They do not alter clocks,
+service a missing fixture probe, add catch-up ticks, or change deadlines.
+Reported times are monotonic microseconds, not CPU usage; RTT observations do not
+replace production calibration decisions. `first-terminal` maps to
+`ObservedTerminal` in `RuntimeObservations.h`. Replication phase 2 remains
+RoundSummary; the receipt separately labels the last active authoritative phase
+and hosted stage. First and latest match starts are distinct so a following-lobby
+restart cannot overwrite the timing origin of the result under investigation.
+
+Lost ownership now latches before all subsequent PID operations in both child
+modes. The native regression actually reaps a child unexpectedly, observes ECHILD,
+then models PID reuse while asserting zero further wait/reap/signal operations,
+sticky failure, a retained slot and survival of an unrelated real child. This
+negative test is isolated in a subprocess that explicitly exits after disposing
+its real fixtures; production has no quarantine-release escape hatch.
+
 The existing macOS workflow invokes `macos/build.sh` at its immutable source SHA.
 It builds the common pinned private Mbed TLS recipe for arm64/macOS 14, selects
 the Homebrew curl prefix explicitly, and runs these ordinary CTest entries:

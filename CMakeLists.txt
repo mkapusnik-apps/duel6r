@@ -29,6 +29,7 @@ if (WIN32)
 endif ()
 
 include(CTest)
+option(D6R_NATIVE_DIAGNOSTICS "Register focused native diagnostics, not a qualification run" OFF)
 
 # First Darwin networking foundation: process containment is independently
 # executable before the graphical/network targets are enabled on macOS.
