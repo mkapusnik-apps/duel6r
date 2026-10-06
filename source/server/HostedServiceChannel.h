@@ -6,6 +6,9 @@
 #include <vector>
 
 #include "../network/HostServiceControlProtocol.h"
+#ifdef __APPLE__
+#include "../platform/DarwinProcess.h"
+#endif
 
 namespace Duel6::Server {
     class HostedServiceChannel {
@@ -23,6 +26,9 @@ namespace Duel6::Server {
 
     private:
         HostedServiceChannel();
+#ifdef __APPLE__
+        std::unique_ptr<Platform::Darwin::ParentMonitor> parentMonitor;
+#endif
 
 #ifdef D6R_TRANSPORT_WINDOWS
         void *statusHandle = nullptr;

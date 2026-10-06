@@ -8,12 +8,15 @@
 #include <set>
 #include <stack>
 #include <unordered_map>
+#include <cstdlib>
+#include <optional>
 #include "TestHarness.h"
 
 // Follow the existing application-test access convention, without adding a
 // production test API. All application sources in this target use Mac layout.
 #define private public
 #include "source/Application.h"
+#include "source/NetworkMenu.h"
 #undef private
 
 namespace {
@@ -39,11 +42,18 @@ namespace {
 
     struct Paths {
         const std::filesystem::path support = std::filesystem::path(D6R_TEST_BINARY_DIR) / "mac-viewport-persons";
+        std::optional<std::string> directoryOverride;
         Paths() {
+            if (const auto *value = std::getenv("D6R_DIRECTORY_URL")) directoryOverride = value;
+            D6R_REQUIRE(setenv("D6R_DIRECTORY_URL", "", 1) == 0); // Never contact a compiled public origin.
             std::filesystem::remove_all(support);
             MacLocal::preparePaths(std::filesystem::path(D6R_TEST_SOURCE_DIR) / "resources", support);
         }
-        ~Paths() { std::filesystem::remove_all(support); }
+        ~Paths() {
+            std::filesystem::remove_all(support);
+            if (directoryOverride) setenv("D6R_DIRECTORY_URL", directoryOverride->c_str(), 1);
+            else unsetenv("D6R_DIRECTORY_URL");
+        }
     };
 
     struct ContextCleanup {
@@ -68,7 +78,7 @@ namespace {
         event.type = SDL_MOUSEBUTTONUP;
         event.button.state = SDL_RELEASED;
         D6R_REQUIRE_EQ(1, SDL_PushEvent(&event));
-        app.processEvents(menu);
+        app.processEvents(Context::getCurrent());
     }
 }
 
@@ -192,5 +202,63 @@ D6R_TEST_CASE("Mac arena overlays and returned menu restore drawable without cha
         D6R_REQUIRE(menu.textbox->isFocused());
         clickLogical(app, 808, 415);
         D6R_REQUIRE(menu.roundsTextbox->isFocused());
+    }
+}
+
+D6R_TEST_CASE("Mac network pointer and F2 share entry setup browser and full drawable transforms") {
+    Paths paths;
+    char name[] = "mac-network-menu-tests";
+    char *arguments[] = {name};
+    Application app(1, arguments);
+    ContextCleanup cleanup;
+    auto &menu = *app.menu;
+    Context::push(menu);
+    for (const auto size : {std::array<int, 2>{1280, 900}, {2560, 1800}, {1920, 1125}}) {
+        drawableWidth = size[0]; drawableHeight = size[1];
+        viewportWrites.clear(); menu.render(); expectFullDrawable();
+        clickLogical(app, 300, 45); // Existing MENU-01 Network pointer region.
+        auto &network = *menu.networkMenu;
+        D6R_REQUIRE(Context::getCurrent().is(network));
+        D6R_REQUIRE(menu.usesMenuPointerCoordinates(network));
+        viewportWrites.clear(); network.render(); expectFullDrawable();
+        Network::Replication::CanonicalState state;
+        state.sessionId = 1; state.matchId = 1;
+        state.phase = Network::Replication::Phase::ActiveRound;
+        state.settings.levels = {"levels/duel_01.json"};
+        state.round = Network::Replication::RoundState{1, 1, "levels/duel_01.json"};
+        for (std::uint64_t id : {1u, 2u}) {
+            Network::Replication::PlayerState player;
+            player.playerId = id; player.ownerParticipantId = id; player.life = 100;
+            player.positionX = (2 + id) * 65536; player.positionY = 2 * 65536;
+            player.heldWeapon = "pistol"; player.visible = true;
+            state.players.push_back(player);
+        }
+        network.worldPresenter.setCanonicalLevels(state.settings.levels);
+        network.worldPresenter.update(0, &state, {});
+        for (const auto phase : {Network::Replication::Phase::ActiveRound,
+                                Network::Replication::Phase::RoundSummary}) {
+            state.phase = phase;
+            glViewport(3, 5, 320, 225); viewportWrites.clear();
+            D6R_REQUIRE(network.worldPresenter.render(state, {}, {}, 1280, 900));
+            expectFullDrawable();
+        }
+        clickLogical(app, 425, 340);
+        D6R_REQUIRE(network.setupScreen == NetworkMenu::SetupScreen::Host);
+        viewportWrites.clear(); network.render(); expectFullDrawable();
+        network.keyEvent(KeyPressEvent(SDLK_ESCAPE, SysEvent::ButtonState::PRESSED, KMOD_NONE));
+        clickLogical(app, 425, 250);
+        D6R_REQUIRE(network.setupScreen == NetworkMenu::SetupScreen::Join);
+        viewportWrites.clear(); network.render(); expectFullDrawable();
+        network.keyEvent(KeyPressEvent(SDLK_ESCAPE, SysEvent::ButtonState::PRESSED, KMOD_NONE));
+        clickLogical(app, 425, 295);
+        D6R_REQUIRE(network.setupScreen == NetworkMenu::SetupScreen::Browser);
+        viewportWrites.clear(); network.render(); expectFullDrawable();
+        network.back(); network.back(); Context::pop();
+        D6R_REQUIRE(Context::getCurrent().is(menu));
+        menu.keyEvent(KeyPressEvent(SDLK_F2, SysEvent::ButtonState::PRESSED, KMOD_NONE));
+        D6R_REQUIRE(Context::getCurrent().is(network));
+        D6R_REQUIRE(network.setupScreen == NetworkMenu::SetupScreen::Entry);
+        network.back(); Context::pop();
+        viewportWrites.clear(); menu.render(); expectFullDrawable();
     }
 }

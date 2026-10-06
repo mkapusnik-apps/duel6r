@@ -12,7 +12,8 @@ from `CMAKE_BUILD_TYPE`. Unchannelled builds have an empty default.
 An explicit `D6R_DIRECTORY_URL` overrides the compiled default. A present empty or
 invalid override makes the directory unavailable, without fallback. A directory
 failure must not switch environments. Local Play and direct joining remain
-independent. The experimental macOS package remains local-only.
+independent. The experimental macOS network package follows these same selection
+rules; this extension does not provision, deploy, or mutate directory resources.
 
 All regional resources use project `duel-6-reloaded` (number `987997960434`) and
 `europe-west1`. Identifiers below are public configuration, not credentials.

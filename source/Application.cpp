@@ -210,17 +210,8 @@ namespace Duel6 {
         SDL_Event event;
 
         while (SDL_PollEvent(&event)) {
-#ifdef D6_MACOS_LOCAL
-            // Intercept before console shortcuts and ordinary menu actions so
-            // even F1, Escape and backquote only dismiss the modal message.
-            if (context.is(*menu) && menu->consumeMacNetworkEvent(event)) {
-                if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP)
-                    input.setPressed(event.key.keysym.sym, false);
-                continue;
-            }
-#endif
-#ifdef D6_MACOS_LOCAL
-            if (context.is(*menu) && (event.type == SDL_MOUSEBUTTONDOWN
+#ifdef D6_MACOS_PLATFORM
+            if (menu->usesMenuPointerCoordinates(context) && (event.type == SDL_MOUSEBUTTONDOWN
                 || event.type == SDL_MOUSEBUTTONUP || event.type == SDL_MOUSEMOTION)) {
                 video->menuPointerTransform().event(event);
             }
@@ -245,8 +236,8 @@ namespace Duel6 {
                 case SDL_MOUSEWHEEL:{
                         Int32 x,y;
                         SDL_GetMouseState(&x, &y);
-#ifdef D6_MACOS_LOCAL
-                        if (context.is(*menu)) video->menuPointerTransform().position(x, y);
+#ifdef D6_MACOS_PLATFORM
+                        if (menu->usesMenuPointerCoordinates(context)) video->menuPointerTransform().position(x, y);
 #endif
                         mouseWheelEvent(context, MouseWheelEvent(x, video->getScreen().getClientHeight() - y, event.wheel.x, event.wheel.y));
                     }

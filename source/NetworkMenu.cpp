@@ -11,15 +11,33 @@
 #include "Defines.h"
 #include "json/JsonParser.h"
 #include "network/NetworkTrustPolicy.h"
+#ifdef D6_MACOS_PLATFORM
+#include "platform/MacLocal.h"
+#endif
+#ifdef __APPLE__
+#include "platform/DarwinChild.h"
+#endif
 
 namespace Duel6 {
     namespace {
+        std::string networkResources() {
+#ifdef D6_MACOS_PLATFORM
+            return MacLocal::resourceDirectory();
+#else
+            return ".";
+#endif
+        }
         constexpr Int32 CanvasWidth = 850, CanvasHeight = 700;
         constexpr int SetupVisibleRows = 8, SetupFirstRow = 364, SetupHeading = 386;
         constexpr Int32 EndpointFirstBottom = 494, EndpointPitch = 32, EndpointHeight = 24;
         constexpr Int32 InterfaceFirstOption = EndpointFirstBottom - EndpointPitch - 24;
         constexpr Int32 LobbyReadyBottom = 164;
         constexpr Float32 CanvasMaximumScale = 1.35f;
+#ifdef D6_MACOS_PLATFORM
+        constexpr const char *SetupScope = "LAN-first • Session only • Optional scripts disabled";
+#else
+        constexpr const char *SetupScope = "LAN-first • Linux/Windows x86-64 • Session only • Optional scripts disabled";
+#endif
         struct BrowserAction {
             int focus;
             Int32 x, y, width, height;
@@ -553,6 +571,10 @@ namespace Duel6 {
     }
 
     std::string NetworkMenu::serverExecutable() const {
+#ifdef __APPLE__
+        // SDL_GetBasePath points at Resources in this bundle, not MacOS.
+        return Platform::Darwin::siblingExecutable("duel6r-server");
+#else
         char *base = SDL_GetBasePath();
         std::filesystem::path path = base ? std::filesystem::path(base) : std::filesystem::current_path();
         if (base) SDL_free(base);
@@ -560,6 +582,7 @@ namespace Duel6 {
         return (path / "duel6r-server.exe").lexically_normal().string();
 #else
         return (path / "duel6r-server").lexically_normal().string();
+#endif
 #endif
     }
 
@@ -1216,8 +1239,8 @@ namespace Duel6 {
             if (setupScreen == SetupScreen::Host)
                 // The graphical client loads data/ and levels/ from its working
                 // content root, including the normal flat packaged runtime.
-                (void) runtime.startHost(target, serverExecutable(), ".", hostSetup, localPlayers);
-            else (void) runtime.join(target, ".", localPlayers, hostSetup.password,
+                (void) runtime.startHost(target, serverExecutable(), networkResources(), hostSetup, localPlayers);
+            else (void) runtime.join(target, networkResources(), localPlayers, hostSetup.password,
                                     browserSelection ? browserSelection->sessionId : "");
             focus = 0; return;
         }
@@ -1324,8 +1347,8 @@ namespace Duel6 {
                 }
                 Network::Endpoint target; if (!endpoint(target)) return;
                 runtime.reset();
-                if (snap.host) (void) runtime.startHost(target, serverExecutable(), ".", hostSetup, localPlayers);
-                else (void) runtime.join(target, ".", localPlayers, std::make_shared<Network::SessionPassword>(password),
+                if (snap.host) (void) runtime.startHost(target, serverExecutable(), networkResources(), hostSetup, localPlayers);
+                else (void) runtime.join(target, networkResources(), localPlayers, std::make_shared<Network::SessionPassword>(password),
                                         browserSelection ? browserSelection->sessionId : "");
             } else if (action == 1) {
                 runtime.reset(); setupScreen = snap.host ? SetupScreen::Host : SetupScreen::Join;
@@ -2398,6 +2421,9 @@ namespace Duel6 {
     }
 
     void NetworkMenu::render() const {
+#ifdef D6_MACOS_PLATFORM
+        service.getVideo().resetDrawableViewport();
+#endif
         const auto width = service.getVideo().getScreen().getClientWidth();
         const auto height = service.getVideo().getScreen().getClientHeight();
         const auto snap = runtime.snapshot();
@@ -2440,7 +2466,7 @@ namespace Duel6 {
 
         if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Entry) {
             drawText(285, 505, "LAN-first player-hosted sessions"); drawText(285, 480, "Directory or direct address");
-            drawText(285, 455, "Linux / Windows x86-64");
+            drawText(285, 455, "Use the same supported release and gameplay content");
             drawText(165, 415, "Player-hosted • Lobby 1–15 • Match 2–15 participants and players");
             drawAction(325, "Host", focus == 0); drawAction(280, "Browse sessions", focus == 1);
             drawAction(235, "Direct connect", focus == 2); drawAction(190, "Back", focus == 3);
@@ -2448,7 +2474,7 @@ namespace Duel6 {
             const int fields = 3;
             drawText(50, 524, browserSelection && setupScreen == SetupScreen::Join
                 ? "Selected session: " + browserSelection->endpoint.host + ":" + std::to_string(browserSelection->endpoint.port)
-                : "LAN-first • Linux/Windows x86-64 • Session only • Optional scripts disabled");
+                : SetupScope);
             for (int field = 0; field < fields; ++field)
                 drawField(224, EndpointFirstBottom - field * EndpointPitch, 586, EndpointHeight, focus == field);
             Int32 y = EndpointFirstBottom + 4;

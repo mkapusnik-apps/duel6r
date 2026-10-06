@@ -22,6 +22,9 @@
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+#if defined(__APPLE__) && defined(__aarch64__)
+#include <sys/sysctl.h>
+#endif
 #if defined(_MSC_VER) && defined(_M_X64)
 #include <intrin.h>
 #elif defined(__x86_64__)
@@ -47,9 +50,9 @@
 #if !defined(MBEDTLS_AESNI_C)
 #error "The x86_64 private TLS profile requires AES-NI."
 #endif
-#elif defined(__linux__) && defined(__aarch64__)
+#elif (defined(__linux__) || defined(__APPLE__)) && defined(__aarch64__)
 #if !defined(MBEDTLS_AESCE_C)
-#error "The Linux AArch64 private TLS profile requires ARM Crypto Extensions."
+#error "The AArch64 private TLS profile requires ARM Crypto Extensions."
 #endif
 #else
 #error "Unsupported private TLS architecture."
@@ -106,6 +109,14 @@ namespace Duel6::Network {
         const unsigned long capabilities = getauxval(AT_HWCAP);
         const unsigned long required = HWCAP_ASIMD | HWCAP_AES;
         hardwareAes = (capabilities & required) == required;
+#elif defined(__APPLE__) && defined(__aarch64__)
+        const auto available = [](const char *name) {
+            int value = 0;
+            std::size_t size = sizeof(value);
+            return sysctlbyname(name, &value, &size, nullptr, 0) == 0
+                && size == sizeof(value) && value == 1;
+        };
+        hardwareAes = available("hw.optional.arm.FEAT_AES") && available("hw.optional.neon");
 #endif
         return hardwareAes && mbedtls_ssl_ciphersuite_from_id(CipherSuites[0]) != nullptr;
     }
@@ -137,6 +148,10 @@ namespace Duel6::Network {
             // may execute before this gate, including entropy initialization.
             if (!SecureSession::supported(requested.hardwarePermitted)) { failed = true; return; }
             failed = true;
+#ifdef __APPLE__
+            const int noSignal = 1;
+            if (setsockopt(static_cast<int>(socket), SOL_SOCKET, SO_NOSIGPIPE, &noSignal, sizeof(noSignal)) != 0) return;
+#endif
             const SecureSessionLimits maximum;
             limits.entropyPermitted = requested.entropyPermitted;
             limits.recordsPerDirection = std::min(requested.recordsPerDirection, maximum.recordsPerDirection);
@@ -227,7 +242,12 @@ namespace Duel6::Network {
                 return error == WSAEWOULDBLOCK || error == WSAEINTR ? MBEDTLS_ERR_SSL_WANT_WRITE : MBEDTLS_ERR_NET_SEND_FAILED;
             }
 #else
-            const auto count = ::send(static_cast<int>(self.socket), data, size, MSG_NOSIGNAL);
+            const auto count = ::send(static_cast<int>(self.socket), data, size,
+#ifdef __APPLE__
+                                      0); // Configured SO_NOSIGPIPE before TLS initialization.
+#else
+                                      MSG_NOSIGNAL);
+#endif
             if (count < 0) return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR
                 ? MBEDTLS_ERR_SSL_WANT_WRITE : MBEDTLS_ERR_NET_SEND_FAILED;
 #endif

@@ -5,15 +5,6 @@
 
 namespace {
     namespace fs = std::filesystem;
-    using Duel6::MacLocal::NetworkMessage;
-
-    SDL_Event key(Uint32 type, SDL_Scancode code, bool repeat = false) {
-        SDL_Event event{};
-        event.type = type;
-        event.key.keysym.scancode = code;
-        event.key.repeat = repeat;
-        return event;
-    }
 
     struct Paths {
         fs::path previous = fs::current_path();
@@ -42,6 +33,7 @@ D6R_TEST_CASE("macOS paths create only per-user saves and resolve resources inde
     // macOS may report /private/var for a requested /var directory alias.
     D6R_REQUIRE(fs::equivalent(paths.resources, fs::current_path()));
     D6R_REQUIRE_EQ(save.string(), Duel6::MacLocal::personDataPath());
+    D6R_REQUIRE_EQ(fs::canonical(paths.resources).string(), Duel6::MacLocal::resourceDirectory());
     D6R_REQUIRE(fs::is_directory(save.parent_path()));
     D6R_REQUIRE(!fs::exists(save)); // Missing-file behavior remains with Menu.
     D6R_REQUIRE(!fs::exists(paths.resources / "data/persons.json"));
@@ -87,42 +79,17 @@ D6R_TEST_CASE("macOS paths reject relative or incomplete bundles and unusable sa
     D6R_REQUIRE_EQ(paths.previous, fs::current_path());
 }
 
-D6R_TEST_CASE("macOS Network message consumes dismissal including shortcuts text and repeat") {
-    for (auto code : {SDL_SCANCODE_F1, SDL_SCANCODE_F2, SDL_SCANCODE_F3,
-                      SDL_SCANCODE_ESCAPE, SDL_SCANCODE_GRAVE, SDL_SCANCODE_A}) {
-        NetworkMessage message;
-        D6R_REQUIRE(!message.consume(key(SDL_KEYDOWN, code)));
-        message.open(); // Both the existing pointer callback and F2 call openNetworkMenu.
-        D6R_REQUIRE(message.isVisible());
-        D6R_REQUIRE(message.consume(key(SDL_KEYDOWN, SDL_SCANCODE_F2, true)));
-        D6R_REQUIRE(message.isVisible()); // Holding the opening key cannot dismiss.
-        D6R_REQUIRE(message.consume(key(SDL_KEYUP, SDL_SCANCODE_F2)));
-        D6R_REQUIRE(message.consume(key(SDL_KEYDOWN, code)));
-        D6R_REQUIRE(!message.isVisible());
-        SDL_Event text{};
-        text.type = SDL_TEXTINPUT;
-        D6R_REQUIRE(message.consume(text));
-        D6R_REQUIRE(message.consume(key(SDL_KEYDOWN, code, true)));
-        D6R_REQUIRE(message.consume(key(SDL_KEYUP, code)));
-        D6R_REQUIRE(!message.consume(key(SDL_KEYDOWN, code))); // Next deliberate action works.
-        message.open();
-        D6R_REQUIRE(message.isVisible());
-    }
-}
-
-D6R_TEST_CASE("macOS Network message blocks pointer edits without blocking window close") {
-    NetworkMessage message;
-    message.open();
-    SDL_Event event{};
-    for (auto type : {SDL_MOUSEBUTTONDOWN, SDL_MOUSEBUTTONUP, SDL_MOUSEMOTION,
-                      SDL_MOUSEWHEEL, SDL_TEXTINPUT, SDL_TEXTEDITING}) {
-        event.type = type;
-        D6R_REQUIRE(message.consume(event));
-        D6R_REQUIRE(message.isVisible());
-    }
-    event.type = SDL_QUIT;
-    D6R_REQUIRE(!message.consume(event));
-    D6R_REQUIRE(message.isVisible());
-    D6R_REQUIRE_EQ(std::string("Network play is unavailable in this macOS build. Use Play (F1) for local play. Press any key."),
-                   std::string(Duel6::MacLocal::networkMessage));
+D6R_TEST_CASE("macOS separate-instance support roots keep local person records isolated") {
+    Paths paths;
+    const auto other = paths.root / "Other user/Application Support/Duel 6 Reloaded";
+    Duel6::MacLocal::preparePaths(paths.resources, paths.support);
+    const auto first = Duel6::MacLocal::personDataPath();
+    { std::ofstream file(first); file << "first instance local records"; }
+    Duel6::MacLocal::preparePaths(paths.resources, other);
+    D6R_REQUIRE(first != Duel6::MacLocal::personDataPath());
+    D6R_REQUIRE(!fs::exists(Duel6::MacLocal::personDataPath()));
+    { std::ofstream file(Duel6::MacLocal::personDataPath()); file << "second instance local records"; }
+    Duel6::MacLocal::preparePaths(paths.resources, paths.support);
+    std::ifstream file(first);
+    D6R_REQUIRE_EQ(std::string("first instance local records"), std::string(std::istreambuf_iterator<char>(file), {}));
 }

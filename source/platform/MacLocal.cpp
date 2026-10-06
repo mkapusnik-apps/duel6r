@@ -4,6 +4,7 @@
 namespace Duel6::MacLocal {
     namespace {
         std::string savedPersonPath;
+        std::string bundledResources;
     }
 
     void preparePaths(const std::filesystem::path &resources,
@@ -18,6 +19,7 @@ namespace Duel6::MacLocal {
         const auto path = (applicationSupport / "data" / "persons.json").string();
         std::filesystem::current_path(resources);
         savedPersonPath = path;
+        bundledResources = std::filesystem::canonical(resources).string();
     }
 
     const std::string &personDataPath() {
@@ -26,28 +28,9 @@ namespace Duel6::MacLocal {
         return savedPersonPath;
     }
 
-    bool NetworkMessage::consume(const SDL_Event &event) {
-        // Window close is always handled by the normal application event loop.
-        if (event.type == SDL_QUIT) return false;
-        if (dismissalKey != SDL_SCANCODE_UNKNOWN) {
-            if (event.type == SDL_KEYUP && event.key.keysym.scancode == dismissalKey) {
-                dismissalKey = SDL_SCANCODE_UNKNOWN;
-                return true;
-            }
-            if (event.type == SDL_TEXTINPUT || event.type == SDL_TEXTEDITING
-                || ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP)
-                    && event.key.keysym.scancode == dismissalKey)) return true;
-        }
-        if (!visible) return false;
-        if (event.type == SDL_KEYDOWN && !event.key.repeat) {
-            visible = false;
-            dismissalKey = event.key.keysym.scancode;
-        }
-        // Do not let pointer input, text input or repeated keys alter the retained
-        // menu. Device/window events still reach the regular application handling.
-        return event.type == SDL_KEYDOWN || event.type == SDL_KEYUP
-               || event.type == SDL_TEXTINPUT || event.type == SDL_TEXTEDITING
-               || event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP
-               || event.type == SDL_MOUSEMOTION || event.type == SDL_MOUSEWHEEL;
+    const std::string &resourceDirectory() {
+        if (bundledResources.empty()) throw std::runtime_error("macOS application paths have not been initialized");
+        return bundledResources;
     }
+
 }

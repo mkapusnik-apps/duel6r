@@ -27,6 +27,7 @@
 #include "AuthoritativeMatchSerialization.h"
 #include "FrozenGameplayConfig.h"
 #include "../network/CompatibilityManifest.h"
+#include "../network/SecureSession.h"
 #include "../math/Math.h"
 
 namespace Duel6::Server::Authoritative {
@@ -74,6 +75,9 @@ namespace Duel6::Server::Authoritative {
 #ifdef D6R_TRANSPORT_WINDOWS
                 if (BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(&seed), sizeof(seed),
                                     BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) return false;
+#elif defined(__APPLE__)
+                if (!Network::SecureSession::supported()) return false;
+                if (getentropy(&seed, sizeof(seed)) != 0) return false;
 #else
                 std::size_t offset = 0;
                 auto *bytes = reinterpret_cast<unsigned char *>(&seed);
@@ -450,7 +454,17 @@ namespace Duel6::Server::Authoritative {
                                  AuthoritativeMatchCliDependencies cliDependencies) {
         try {
             CliOptions options = parse(argc, argv);
-            const Network::ManifestBuildResult built = Network::CompatibilityManifestBuilder(options.resources, {}).build();
+#ifdef __APPLE__
+            // The CLI is also a native network acceptance entry point. Explicit
+            // deterministic seeds must not bypass admission before manifest crypto.
+            if (!Network::SecureSession::supported()) {
+                const auto failed = terminalOutcome(OutcomeCode::RuntimeFailed);
+                printOutcome(output, failed, std::nullopt);
+                return failed.exitStatus;
+            }
+#endif
+            const Network::ManifestBuildResult built = Network::CompatibilityManifestBuilder(
+                    options.resources, {}, {}, cliDependencies.filesystemObserver).build();
             if (!built.valid()) {
                 output << "host-gameplay-content-manifest-invalid\n"
                        << "Hosted gameplay content is invalid. Restore the supported gameplay content and restart the application.\n";

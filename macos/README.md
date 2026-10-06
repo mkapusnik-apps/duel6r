@@ -1,11 +1,13 @@
-# Experimental macOS local play
+# Experimental macOS local and network play
 
 This package targets **Apple Silicon, macOS 14 or later**, using GL1. It is
-local-only and experimental. Build/package checks do not establish successful
+experimental, with Local Play and the existing IPv4 network flows. Build/package checks do not establish successful
 Finder launch, audio, controllers, graphics or gameplay. Manual Mac runtime and
 visual verification are deferred until after merge and the subsequent nightly.
 `Contents/Resources/build-info.json` identifies the exact source revision and
-bundled dependency versions. Intel Macs and network play are not supported.
+bundled dependency versions. Intel Macs are outside this target. Native automated
+network acceptance is mandatory; manual GUI and live cross-OS verification remain
+deferred, not passed, under `docs/macos.md` in the source repository.
 
 ## Install and launch
 
@@ -23,8 +25,18 @@ bundled dependency versions. Intel Macs and network play are not supported.
    Do not disable Gatekeeper or other system-wide protections. If managed-device
    policy prevents approval, ask the administrator rather than bypassing policy.
 
-Use **Play (F1)** for local play. **Network (F2)** explains the local-only limit;
-any keyboard key dismisses that explanation without activating its usual action.
+Use **Play (F1)** for Local Play. **Network (F2)** opens Host, Browse sessions,
+and Direct connect. Use the same supported release and gameplay content on all
+participants. Gameplay remains IPv4, LAN-first, with eligible assigned unicast
+addresses and no automatic NAT/firewall changes or public reachability promise.
+Secure capability failure disables network startup without disabling Local Play.
+Network results never become Local Play person statistics.
+
+Unchannelled/PR builds have no directory origin by default. Nightly builds use
+`https://staging.duel.netusite.cz`; release-channel builds use
+`https://duel.netusite.cz`. A present `D6R_DIRECTORY_URL` overrides the compiled
+origin; empty/invalid values disable the directory without fallback. Directory
+failure does not prevent direct joining, hosting, or Local Play.
 
 ## Saved data and replacement
 
@@ -43,6 +55,11 @@ files remain inside `Contents/Resources`; saves never require bundle write acces
 
 `Contents/Resources/licenses` contains the game's BSD license, pinned Lua source
 and its MIT notice, and installed dependency notices, Homebrew recipes and receipts.
+It also includes pinned static Mbed TLS 3.6.7 notices/configuration/library hashes
+and private curl 8.21.0 license and source/build provenance. The private curl
+uses OpenSSL with Apple SecTrust and no CA-file/path fallback. The required
+server, guardian and resolver live in `Contents/MacOS`, not `Resources`; every
+helper is checked for arm64/macOS 14 compatibility and sealed after relocation.
 Non-system dynamic libraries are in `Contents/Frameworks`; Apple system frameworks
 are supplied by macOS. The package includes the dynamic dependency closure and,
 when Homebrew supplies sdl2-compat, its dynamically loaded SDL3 runtime.
@@ -61,6 +78,15 @@ extracted notices under `upstream`, and URLs/checksums in `source-provenance.jso
 The original recipe and installation receipt describe Homebrew build choices;
 packaging changes library load paths and ad-hoc seals, not library source code.
 No upstream attribution or license terms are replaced by generated summaries.
+Gettext 1.0 source retrieval has one explicit HTTPS fallback on kernel.org's GNU
+mirror, using the same pinned archive digest. The primary and fallback are each
+attempted once, with a 10-second connection limit, 120-second transfer limit, five-redirect
+limit and 125-second process bound. Packets without a mirror retain three retries,
+bounded by 500 seconds per curl process. Only transport failures try another
+approved endpoint; a checksum mismatch fails closed and is never cached. Source
+provenance records requested/effective download URLs, or explicitly records a
+verified cache hit with unknown original retrieval URLs. Required source archives
+and notices are not omitted when retrieval fails.
 Notice discovery is not a blanket legal-compliance determination: the applicable
 LGPL/source, modification and redistribution obligations continue to apply to
 every bundled dependency. The collector audits the actual transitive closure
@@ -87,13 +113,17 @@ Only the macOS target has a native-execution policy exception. Other platforms
 continue to use Docker. On an Apple Silicon Mac with Xcode command-line tools:
 
 ```sh
-brew install cmake ninja pkg-config python@3.13 sdl2 sdl2_image sdl2_mixer sdl2_ttf glew
+brew install cmake ninja pkg-config python@3.13 sdl2 sdl2_image sdl2_mixer sdl2_ttf glew openssl@3
 D6R_SOURCE_REVISION="$(git rev-parse HEAD)" bash macos/build.sh
 ```
 
 The helper requires a clean checkout, verifies and builds static Lua 5.3.6 from
 the upstream SHA-256-pinned archive, builds the application, runs non-graphical
-CTests, and packages it. It does not launch the app or perform manual QA.
+CTests, and packages it. Native packaged-helper checks then run against an
+unchanged copy in a path containing spaces, from an unrelated working directory,
+with isolated test homes. They exercise secure service data, resolver/guardian
+lookup and cleanup, authoritative fixtures, and the actual bundled curl trust
+path. They do not launch the graphical app or perform manual QA.
 It writes the app, ZIP, checksum and metadata under `build/macos`, and CTest logs
 under `build/macos-build/Testing/Temporary`. Dependency binaries must be arm64
 and compatible with macOS 14.0; newer-only Homebrew bottles fail packaging rather

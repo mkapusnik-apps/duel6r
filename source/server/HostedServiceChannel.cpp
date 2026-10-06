@@ -18,7 +18,12 @@
 #else
 #include <fcntl.h>
 #include <signal.h>
+#ifdef __APPLE__
+#include <sys/socket.h>
+#include <poll.h>
+#else
 #include <sys/prctl.h>
+#endif
 #include <sys/types.h>
 #include <unistd.h>
 #endif
@@ -79,10 +84,26 @@ namespace Duel6::Server {
         }
 
         bool writeExact(int descriptor, const std::uint8_t *data, std::size_t size) {
+#ifdef __APPLE__
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+#endif
             while (size > 0) {
+#ifdef __APPLE__
+                if (std::chrono::steady_clock::now() >= deadline) { shutdown(descriptor, SHUT_WR); return false; }
+                const ssize_t written = send(descriptor, data, size, 0);
+                if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                    pollfd fd{descriptor, POLLOUT, 0}; poll(&fd, 1, 1); continue;
+                }
+#else
                 const ssize_t written = write(descriptor, data, size);
+#endif
                 if (written < 0 && errno == EINTR) continue;
-                if (written <= 0) return false;
+                if (written <= 0) {
+#ifdef __APPLE__
+                    shutdown(descriptor, SHUT_WR);
+#endif
+                    return false;
+                }
                 data += written;
                 size -= static_cast<std::size_t>(written);
             }
@@ -107,6 +128,11 @@ namespace Duel6::Server {
             else if (startsWith(argument, "--host-service-parent=")) {
                 if (!parseUnsigned(argument.substr(22), expectedParent)) return nullptr;
             }
+#ifdef __APPLE__
+            else if (startsWith(argument, "--guardian-parent=")) {
+                if (!parseUnsigned(argument.substr(18), expectedParent)) return nullptr;
+            }
+#endif
 #ifdef D6R_TRANSPORT_WINDOWS
             else if (startsWith(argument, "--host-service-status-handle=")) {
                 if (!parseUnsigned(argument.substr(29), statusValue)) return nullptr;
@@ -127,6 +153,17 @@ namespace Duel6::Server {
             || GetFileType(static_cast<HANDLE>(channel->controlHandle)) != FILE_TYPE_PIPE
             || !IsProcessInJob(GetCurrentProcess(), nullptr, &inJob) || !inJob
             || !currentProcessHasParent(expectedParent)) return nullptr;
+#elif defined(__APPLE__)
+        if (expectedParent > static_cast<std::uint64_t>(std::numeric_limits<pid_t>::max())) return nullptr;
+        channel->parentMonitor = Platform::Darwin::ParentMonitor::start(static_cast<pid_t>(expectedParent), 3);
+        if (!channel->parentMonitor) return nullptr;
+        const int noSignal = 1;
+        for (int fd : {4, 5}) {
+            const int flags = fcntl(fd, F_GETFL, 0);
+            if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0
+                || setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, sizeof(noSignal)) != 0) return nullptr;
+        }
+        channel->statusDescriptor = 4; channel->controlDescriptor = 5;
 #else
         constexpr int StatusDescriptor = 3;
         constexpr int ControlDescriptor = 4;

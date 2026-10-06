@@ -47,14 +47,35 @@ make -C "$lua/src" a CC="$(xcrun --sdk macosx --find clang)" \
   MYCFLAGS="-DLUA_USE_MACOSX $target_flags" MYLDFLAGS="$target_flags"
 
 prefix="$(brew --prefix)"
+openssl_prefix="$(brew --prefix openssl@3)"
+bash "$root/macos/build-curl.sh" "$sdk" "$deps" "$openssl_prefix"
+curl_prefix="$deps/curl"
+cmake -S "$root/docker/mbedtls" -B "$deps/mbedtls-build" -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_SYSROOT="$sdk" \
+  -DCMAKE_INSTALL_PREFIX="$deps/mbedtls"
+cmake --build "$deps/mbedtls-build" --parallel "$(sysctl -n hw.ncpu)"
+cmake --install "$deps/mbedtls-build"
 cmake -S "$root" -B "$build" -G Ninja \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_SYSROOT="$sdk" -DCMAKE_PREFIX_PATH="$prefix" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_SYSROOT="$sdk" \
+  -DCMAKE_PREFIX_PATH="$deps/mbedtls;$curl_prefix;$prefix" \
+  -DCURL_NO_CURL_CMAKE=ON -DCURL_ROOT="$curl_prefix" -DCURL_INCLUDE_DIR="$curl_prefix/include" \
+  -DCURL_LIBRARY="$curl_prefix/lib/libcurl.dylib" \
+  -DCURL_LIBRARY_RELEASE="$curl_prefix/lib/libcurl.dylib" -DCURL_LIBRARY_DEBUG="$curl_prefix/lib/libcurl.dylib" \
+  -DD6R_OPENSSL_EXECUTABLE="$openssl_prefix/bin/openssl" \
+  -DD6R_DIRECTORY_DEFAULT_URL="${D6R_DIRECTORY_DEFAULT_URL:-}" \
   -DD6R_RENDERER=gl1 -DD6R_WITH_LUA=ON -DBUILD_TESTING=ON \
   -DLUA_INCLUDE_DIR="$lua/src" -DLUA_LIBRARY="$lua/src/liblua.a"
 cmake --build "$build" --parallel "$(sysctl -n hw.ncpu)"
 ctest --test-dir "$build" --output-on-failure
 
 python3 "$root/macos/package.py" --source "$root" --build "$build" \
-  --output "$output" --revision "$revision" --lua "$lua" --lua-archive "$archive"
+  --output "$output" --revision "$revision" --lua "$lua" --lua-archive "$archive" \
+  --curl-prefix "$curl_prefix" --curl-archive "$deps/curl-8.21.0.tar.bz2" \
+  --mbedtls-prefix "$deps/mbedtls" --mbedtls-source "$deps/mbedtls-build/_deps/mbedtls-src" \
+  --directory-default-url "${D6R_DIRECTORY_DEFAULT_URL:-}"
+python3 "$root/tests/MacPackagedTests.py" --app "$output/Duel 6 Reloaded.app" \
+  --build "$build" --source "$root" --revision "$revision" \
+  --openssl "$openssl_prefix/bin/openssl" --report "$output/packaged-checks.json"

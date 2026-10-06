@@ -237,7 +237,7 @@ namespace Duel6 {
         return *renderer;
     }
 
-#ifdef D6_MACOS_LOCAL
+#ifdef D6_MACOS_PLATFORM
     void Video::resetDrawableViewport() const {
         int width = 0, height = 0;
         SDL_GL_GetDrawableSize(window, &width, &height);

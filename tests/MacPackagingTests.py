@@ -41,6 +41,146 @@ class MacPackagingTests(unittest.TestCase):
     def stage(self):
         return package.stage_app(self.source, self.build, self.output)
 
+    def test_network_helpers_are_regular_current_binaries_and_missing_helpers_fail(self):
+        app = self.stage()
+        with self.assertRaisesRegex(RuntimeError, "Missing or external macOS network helper"):
+            package.stage_helpers(self.build, app)
+        for name in package.HELPERS:
+            actual = self.build / (name + "-6.0.0")
+            actual.write_bytes(name.encode())
+            actual.chmod(0o755)
+            (self.build / name).symlink_to(actual.name)
+        package.stage_helpers(self.build, app)
+        for name in package.HELPERS:
+            helper = app / "Contents/MacOS" / name
+            self.assertFalse(helper.is_symlink())
+            self.assertEqual(name.encode(), helper.read_bytes())
+            self.assertEqual(0o755, helper.stat().st_mode & 0o777)
+        unexpected = app / "Contents/MacOS/stale-test-probe"
+        unexpected.write_bytes(b"must not ship")
+        with self.assertRaisesRegex(RuntimeError, "Unexpected executable entry"):
+            package.stage_helpers(self.build, app)
+        unexpected.unlink()
+        (self.build / package.HELPERS[0]).unlink()
+        (self.build / package.HELPERS[0]).symlink_to(app / "Contents/MacOS" / package.HELPERS[0])
+        with self.assertRaisesRegex(RuntimeError, "Missing or external macOS network helper"):
+            package.stage_helpers(self.build, app)
+
+    def test_static_mbedtls_notices_configuration_and_archive_identities_are_included(self):
+        prefix = self.build / "mbedtls"
+        source = self.build / "mbedtls-src"
+        (source / "3rdparty/library").mkdir(parents=True)
+        (source / "LICENSE").write_bytes(b"upstream license")
+        (source / "3rdparty/library/COPYING").write_bytes(b"dependency license")
+        (prefix / "include/mbedtls").mkdir(parents=True)
+        config = prefix / "include/mbedtls/mbedtls_config.h"
+        config.write_bytes(b"hardware-only fixture config")
+        (prefix / "lib").mkdir()
+        for name in ("mbedtls", "mbedx509", "mbedcrypto"):
+            (prefix / f"lib/lib{name}.a").write_bytes(name.encode())
+        result = package.collect_mbedtls(prefix, source, self.output)
+        self.assertEqual(3, len(result["libraries"]))
+        self.assertEqual(hashlib.sha256(config.read_bytes()).hexdigest(), result["configuration_sha256"])
+        self.assertEqual(b"dependency license", (self.output / "mbedtls/3rdparty/library/COPYING").read_bytes())
+        (prefix / "lib/libmbedcrypto.a").unlink()
+        with self.assertRaises(FileNotFoundError):
+            package.collect_mbedtls(prefix, source, self.output)
+
+    def test_bundle_links_remain_internal_after_relocation(self):
+        app = self.stage()
+        target = app / "Contents/Resources/data.txt"
+        target.write_text("resource")
+        alias = target.with_name("alias.txt")
+        alias.symlink_to(target.name)
+        package.require_relocatable_links(app)
+        alias.unlink()
+        alias.symlink_to(target)  # Inside today, but points at the old app after moving.
+        with self.assertRaisesRegex(RuntimeError, "Non-relocatable bundle symlink"):
+            package.require_relocatable_links(app)
+        alias.unlink()
+        alias.symlink_to("../../../external.txt")
+        (self.output / "external.txt").write_text("outside")
+        with self.assertRaisesRegex(RuntimeError, "Non-relocatable bundle symlink"):
+            package.require_relocatable_links(app)
+
+    def private_curl_fixture(self):
+        prefix = self.build / "curl"
+        (prefix / "lib").mkdir(parents=True)
+        library = prefix / "lib/libcurl.4.dylib"
+        library.write_bytes(b"private curl fixture")
+        archive = self.build / "curl.tar.bz2"
+        with tarfile.open(archive, "w:bz2") as contents:
+            notice = b"verbatim curl license fixture\n"
+            entry = tarfile.TarInfo(f"curl-{package.CURL_VERSION}/COPYING")
+            entry.size = len(notice)
+            contents.addfile(entry, io.BytesIO(notice))
+        checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+        metadata = dict(version=package.CURL_VERSION, archive_sha256=checksum,
+                        architecture="arm64", minimum_macos="14.0",
+                        native_trust="Apple SecTrust", ca_fallback=False,
+                        library_sha256=hashlib.sha256(library.read_bytes()).hexdigest())
+        (prefix / "build-info.json").write_text(json.dumps(metadata))
+        self.enterContext(patch.object(package, "CURL_ARCHIVE_SHA256", checksum))
+        return prefix, archive, library
+
+    def test_private_curl_license_and_provenance_are_bound_to_archive_and_library(self):
+        prefix, archive, library = self.private_curl_fixture()
+        result = package.collect_private_curl(prefix, archive, self.output)
+        self.assertEqual(hashlib.sha256(library.read_bytes()).hexdigest(), result["library_sha256"])
+        self.assertEqual(b"verbatim curl license fixture\n", (self.output / "curl/COPYING").read_bytes())
+        self.assertEqual(result, json.loads((self.output / "curl/source-provenance.json").read_text()))
+        library.write_bytes(b"replaced library")
+        with self.assertRaisesRegex(RuntimeError, "provenance mismatch"):
+            package.collect_private_curl(prefix, archive, self.output)
+
+    def test_private_curl_rejects_corrupt_source_and_ca_fallback(self):
+        prefix, archive, _ = self.private_curl_fixture()
+        metadata_path = prefix / "build-info.json"
+        metadata = json.loads(metadata_path.read_text())
+        metadata["ca_fallback"] = True
+        metadata_path.write_text(json.dumps(metadata))
+        with self.assertRaisesRegex(RuntimeError, "provenance mismatch"):
+            package.collect_private_curl(prefix, archive, self.output)
+        archive.write_bytes(b"corrupt")
+        with self.assertRaisesRegex(RuntimeError, "checksum mismatch"):
+            package.collect_private_curl(prefix, archive, self.output)
+
+    def test_dependency_closure_requires_private_curl_without_any_substitute(self):
+        prefix, _, library = self.private_curl_fixture()
+        self.assertEqual(library.resolve(), package.require_private_curl([library], prefix))
+        homebrew = self.build / "Cellar/curl/8.21.0/lib/libcurl.4.dylib"
+        homebrew.parent.mkdir(parents=True)
+        homebrew.write_bytes(library.read_bytes())  # Equal bytes are not an approved origin.
+        for origins in ([], [homebrew], [library, homebrew]):
+            with self.subTest(origins=origins), self.assertRaisesRegex(RuntimeError, "pinned private curl"):
+                package.require_private_curl(origins, prefix)
+        outside = self.build / "other-library"
+        library.rename(outside)
+        library.symlink_to(outside)
+        with self.assertRaisesRegex(RuntimeError, "escapes its prefix"):
+            package.require_private_curl([outside], prefix)
+
+    def test_private_curl_accepts_directory_aliases_but_not_foreign_or_missing_origins(self):
+        prefix, _, library = self.private_curl_fixture()
+        # Reproduce Darwin's /var -> /private/var spelling difference on Linux.
+        alias = self.output / "var"
+        alias.symlink_to(self.build, target_is_directory=True)
+        alias_prefix = alias / "curl"
+        alias_library = alias_prefix / "lib/libcurl.4.dylib"
+        self.assertNotEqual(alias_library, library.resolve())
+        self.assertTrue(alias_library.samefile(library))
+        for selected_prefix in (prefix, alias_prefix):
+            for origins in ([library], [alias_library], [library, alias_library]):
+                with self.subTest(prefix=selected_prefix, origins=origins):
+                    self.assertEqual(library.resolve(), package.require_private_curl(origins, selected_prefix))
+        foreign = self.build / "foreign/libcurl.4.dylib"
+        foreign.parent.mkdir()
+        foreign.write_bytes(library.read_bytes())
+        for origin in (alias / "foreign/libcurl.4.dylib", alias / "missing/libcurl.4.dylib"):
+            for origins in ([origin], [alias_library, origin]):
+                with self.subTest(origins=origins), self.assertRaisesRegex(RuntimeError, "pinned private curl"):
+                    package.require_private_curl(origins, alias_prefix)
+
     def test_versioned_main_executable_is_staged_as_one_regular_file(self):
         # This is the layout recorded by snapshot run 37123730851 and produced
         # by the application's CMake VERSION property, not a native signing mock.
@@ -227,6 +367,109 @@ endif()
         self.assertIn(hashlib.sha256(b"different build modifications").hexdigest(), str(caught.exception))
         self.assertIn(packet["recipe_sha256"][0], str(caught.exception))
         self.assertIn(str(keg / ".brew/example.rb"), str(caught.exception))
+
+    def test_source_transport_failure_uses_only_approved_mirror_and_records_actual_origin(self):
+        keg, cache, packet = self.source_fixture()
+        source = packet["sources"][0]
+        source["fallback_urls"] = ["https://mirror.example.invalid/example-1.0.tar.gz"]
+        archive = cache / "example-1.0.tar.gz"
+        original = archive.read_bytes()
+        archive.unlink()
+        attempts = []
+
+        def download(*arguments, timeout=None):
+            url = arguments[-3]
+            partial = Path(arguments[-1])
+            self.assertFalse(partial.exists())
+            attempts.append(url)
+            self.assertEqual(125, timeout)
+            for option, value in (("--retry", "0"), ("--connect-timeout", "10"), ("--max-time", "120"),
+                                  ("--max-redirs", "5"), ("--proto", "=https"), ("--proto-redir", "=https")):
+                self.assertEqual(value, arguments[arguments.index(option) + 1])
+            if url == source["url"]:
+                partial.write_bytes(b"incomplete transport response")
+                raise subprocess.CalledProcessError(28, arguments)
+            partial.write_bytes(original)
+            return "https://cdn.example.invalid/gnu/example-1.0.tar.gz"
+
+        licenses = self.output / "licenses"
+        with patch.object(package, "run", side_effect=download):
+            package.collect_notices({"example": keg}, licenses, cache, {"example": packet})
+        self.assertEqual([source["url"], *source["fallback_urls"]], attempts)
+        self.assertEqual(original, archive.read_bytes())
+        self.assertEqual(original, (licenses / "example/sources/example-1.0.tar.gz").read_bytes())
+        self.assertTrue((licenses / "example/upstream" / packet["required_notices"][0]).is_file())
+        provenance = json.loads((licenses / "example/source-provenance.json").read_text())
+        self.assertEqual(packet["sources"], provenance["sources"])
+        self.assertEqual({"archive": archive.name, "sha256": source["sha256"], "cache_hit": False,
+                          "requested_url": source["fallback_urls"][0],
+                          "effective_url": "https://cdn.example.invalid/gnu/example-1.0.tar.gz"},
+                         provenance["retrievals"][0])
+        self.assertFalse(archive.with_name(archive.name + ".part").exists())
+        # Verified caches stay usable without inventing a historical download URL.
+        with patch.object(package, "run", side_effect=AssertionError("unexpected download")):
+            package.collect_notices({"example": keg}, licenses, cache, {"example": packet})
+        cached = json.loads((licenses / "example/source-provenance.json").read_text())["retrievals"][0]
+        self.assertTrue(cached["cache_hit"])
+        self.assertIsNone(cached["requested_url"])
+        self.assertIsNone(cached["effective_url"])
+
+    def test_source_digest_failure_never_promotes_cache_or_hides_behind_another_mirror(self):
+        keg, cache, packet = self.source_fixture()
+        source = packet["sources"][0]
+        source["fallback_urls"] = ["https://mirror.example.invalid/example-1.0.tar.gz"]
+        archive = cache / "example-1.0.tar.gz"
+        archive.unlink()
+        for corrupt_mirror in (False, True):
+            attempts = []
+
+            def download(*arguments, timeout=None):
+                url = arguments[-3]
+                attempts.append(url)
+                Path(arguments[-1]).write_bytes(b"not the pinned source archive")
+                if corrupt_mirror and url == source["url"]:
+                    raise subprocess.TimeoutExpired(arguments, timeout)
+                return url
+
+            with self.subTest(mirror=corrupt_mirror), patch.object(package, "run", side_effect=download):
+                with self.assertRaisesRegex(RuntimeError, "Source checksum mismatch"):
+                    package.collect_notices({"example": keg}, self.output / "licenses", cache, {"example": packet})
+            self.assertEqual([source["url"], *source["fallback_urls"]] if corrupt_mirror else [source["url"]], attempts)
+            self.assertFalse(archive.exists())
+            self.assertFalse(archive.with_name(archive.name + ".part").exists())
+
+    def test_single_source_keeps_retries_with_a_bounded_process_and_verified_provenance(self):
+        keg, cache, packet = self.source_fixture()
+        source = packet["sources"][0]
+        archive = cache / "example-1.0.tar.gz"
+        original = archive.read_bytes()
+        archive.unlink()
+
+        def download(*arguments, timeout=None):
+            self.assertEqual(500, timeout)
+            self.assertEqual("3", arguments[arguments.index("--retry") + 1])
+            Path(arguments[-1]).write_bytes(original)
+            return source["url"]
+
+        with patch.object(package, "run", side_effect=download) as request:
+            package.collect_notices({"example": keg}, self.output / "licenses", cache, {"example": packet})
+        self.assertEqual(1, request.call_count)
+        record = json.loads((self.output / "licenses/example/source-provenance.json").read_text())["retrievals"][0]
+        self.assertEqual(source["url"], record["requested_url"])
+        self.assertEqual(source["url"], record["effective_url"])
+
+    def test_source_exhausts_bounded_endpoints_without_omitting_required_packet(self):
+        keg, cache, packet = self.source_fixture()
+        source = packet["sources"][0]
+        source["fallback_urls"] = ["https://mirror.example.invalid/example-1.0.tar.gz"]
+        archive = cache / "example-1.0.tar.gz"
+        archive.unlink()
+        with patch.object(package, "run", side_effect=subprocess.CalledProcessError(28, "curl")) as download:
+            with self.assertRaisesRegex(RuntimeError, "Source retrieval exhausted approved endpoints"):
+                package.collect_notices({"example": keg}, self.output / "licenses", cache, {"example": packet})
+        self.assertEqual(2, download.call_count)
+        self.assertFalse(archive.exists())
+        self.assertFalse((self.output / "licenses/example/source-provenance.json").exists())
 
     def test_reviewed_readme_and_credits_are_copied_without_test_music_or_archive(self):
         keg, cache, packet = self.source_fixture({

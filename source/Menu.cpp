@@ -46,9 +46,7 @@
 #include "gamemodes/TeamDeathMatch.h"
 #include "gamemodes/Predator.h"
 #include "Exception.h"
-#ifndef D6_MACOS_LOCAL
 #include "NetworkMenu.h"
-#endif
 
 #define D6_ALL_CHR  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890 -=\\~!@#$%^&*()_+|[];',./<>?:{}"
 #define D6_NUM_CHR  "0123456789"
@@ -60,7 +58,7 @@
 namespace Duel6 {
     namespace {
         const std::string &personDataPath() {
-#ifdef D6_MACOS_LOCAL
+#ifdef D6_MACOS_PLATFORM
             return MacLocal::personDataPath();
 #else
             static const std::string path = D6_FILE_PHIST;
@@ -430,19 +428,14 @@ namespace Duel6 {
 
         menuTrack = sound.loadModule("sound/undead.xm");
         startMenuBackgroundPreparation({}, true);
-#ifndef D6_MACOS_LOCAL
         networkMenu = std::make_unique<NetworkMenu>(appService, game->getResources(), menuBannerTexture, [this] {
             if (menuBackgroundInitialFrameRendered) publishPreparedMenuBackground();
             else menuBackgroundInitialFrameRendered = true;
             renderMenuBackground();
         });
-#endif
     }
 
     void Menu::openNetworkMenu() {
-#ifdef D6_MACOS_LOCAL
-        networkMessage.open();
-#else
         std::vector<Client::NetworkLocalPlayer> localPlayers;
         for (Size index = 0; index < playerListBox->size(); ++index) {
             const auto controlIndex = static_cast<Size>(controlSwitch[index]->currentValue().first);
@@ -467,7 +460,6 @@ namespace Duel6 {
         for (const auto &person: persons.list()) personNames.push_back(person.getName());
         networkMenu->open(std::move(localPlayers), std::move(setup),
                           std::move(personNames), listMaps());
-#endif
     }
 
     void Menu::initializePresentation() {
@@ -845,14 +837,6 @@ namespace Duel6 {
     void Menu::renderMessage(const std::string &message) const {
         Size maxCharacters = (D6_MENU_MESSAGE_MAX_WIDTH - 60) / 8;
         std::vector<std::string> lines = wrapMessage(message, maxCharacters);
-#ifdef D6_MACOS_LOCAL
-        if (message == MacLocal::networkMessage) {
-            // Prefer sentence boundaries for this fixed, approved variant. Both
-            // lines fit the existing strip at the unscaled 850px canvas floor.
-            lines = {"Network play is unavailable in this macOS build.",
-                     "Use Play (F1) for local play. Press any key."};
-        }
-#endif
         Size longestLine = 0;
         for (const std::string &line : lines) longestLine = std::max(longestLine, line.size());
         Int32 width = std::min(D6_MENU_MESSAGE_MAX_WIDTH, Int32(longestLine) * 8 + 60);
@@ -1144,7 +1128,7 @@ namespace Duel6 {
     }
 
     void Menu::render() const {
-#ifdef D6_MACOS_LOCAL
+#ifdef D6_MACOS_PLATFORM
         video.resetDrawableViewport();
 #endif
         if (menuBackgroundInitialFrameRendered) {
@@ -1165,9 +1149,6 @@ namespace Duel6 {
         renderer.quadXY(Vector(325, 600), Vector(200, 95), Vector(0, 1), Vector(1, -1), material);
 
         renderer.setViewMatrix(Matrix::IDENTITY);
-#ifdef D6_MACOS_LOCAL
-        if (networkMessage.isVisible()) renderMessage(MacLocal::networkMessage);
-#endif
     }
 
     void Menu::keyEvent(const KeyPressEvent &event) {
@@ -1203,23 +1184,7 @@ namespace Duel6 {
 
     void Menu::mouseButtonEvent(const MouseButtonEvent &event) {
         bool roundsWasFocused = roundsTextbox->isFocused();
-#ifdef D6_MACOS_LOCAL
-        const auto local = event.inverseTransform(menuScale, menuTranslationX, menuTranslationY);
-        // Network is a notice, not navigation. Retain an in-progress text edit
-        // rather than committing an empty Rounds field on this button's press.
-        const bool networkPointer = local.getButton() == SysEvent::MouseButton::LEFT
-                                    && local.getX() >= 225 && local.getX() < 400
-                                    && local.getY() <= 70 && local.getY() > 20;
-        const bool nameWasFocused = textbox->isFocused();
-#endif
         gui.mouseButtonEvent(event);
-#ifdef D6_MACOS_LOCAL
-        if (networkPointer) {
-            roundsTextbox->setFocused(roundsWasFocused);
-            textbox->setFocused(nameWasFocused);
-            return;
-        }
-#endif
 
         if (!roundsWasFocused && roundsTextbox->isFocused() && roundsTextbox->getText() == "0") {
             roundsTextbox->flush();
@@ -1227,6 +1192,11 @@ namespace Duel6 {
             game->getSettings().setMaxRounds(0);
             updateRoundsTextbox();
         }
+    }
+
+    bool Menu::usesMenuPointerCoordinates(const Context &context) const {
+        if (context.is(*this)) return true;
+        return networkMenu && context.is(*networkMenu);
     }
 
     void Menu::mouseMotionEvent(const MouseMotionEvent &event) {

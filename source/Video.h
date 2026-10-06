@@ -34,7 +34,7 @@
 #include "ScreenParameters.h"
 #include "ViewParameters.h"
 #include "renderer/Renderer.h"
-#ifdef D6_MACOS_LOCAL
+#ifdef D6_MACOS_PLATFORM
 #include "platform/MacPointer.h"
 #endif
 
@@ -77,7 +77,7 @@ namespace Duel6 {
 
         Renderer &getRenderer() const;
 
-#ifdef D6_MACOS_LOCAL
+#ifdef D6_MACOS_PLATFORM
         void resetDrawableViewport() const;
 
         MacLocal::PointerTransform menuPointerTransform() const;
