@@ -223,6 +223,18 @@ The host supervisor must not emit the intentional-end handoff after this failure
 
 This specification defines required outcomes. It does not prescribe an operating-system supervision mechanism.
 
+### Supported supervision fault boundary
+
+- **HSL-FAULT-001** Startup failure, cancellation, timeout, server failure, normal application shutdown, and abrupt application termination must clean up the owned service and its descendants while the independent cleanup mechanism remains operational.
+- **HSL-FAULT-002** This guarantee must not require normal server shutdown or cooperation from the simulation loop.
+- **HSL-FAULT-003** A stopped or hung server and its ordinary owned descendants remain included when the independent cleanup mechanism is operational.
+- **HSL-FAULT-004** Loss of supervision must be terminal: the owned service must not admit participants or continue the session.
+- **HSL-FAULT-005** A runnable owned service must stop itself and its descendants on supervision loss through an independent liveness monitor.
+- **HSL-FAULT-006** Supervision loss must not be reported as intentional End session.
+- **HSL-FAULT-007** Unconfirmed cleanup must never be reported as NoService, completed cancellation or exit, enabled Retry, or a completed return destination.
+
+These requirements assume the operating system honors termination. The existing three-second cleanup deadline remains unchanged; ownership must be retained until positive cleanup confirmation. Excluded faults are simultaneous loss of the application and independent cleanup mechanism, or cleanup-mechanism failure while the service cannot independently respond, hostile local administrator interference, and deliberate process-group escape. Owned code must not escape its process group. These exclusions do not exclude ordinary descendants or a hung/stopped server with an operational guardian.
+
 ## Secret and configuration handling
 
 First release introduces no startup password, authentication token, certificate, or reconnect credential.
@@ -291,8 +303,8 @@ The affected target states are `NET-02` and `NET-08`. This document does not cha
 - **HSL-AC-011 — Unexpected stop:** An unrequested post-readiness stop must show the exact host failure and must not restart or restore the session.
 - **HSL-AC-012 — Intentional end handoff:** Only confirmed End session may emit exactly one `intentional-host-end` handoff event and invoke the downstream sink. Deadline capture, event recording, the `Stopping` transition, and the independent cleanup wake must occur before sink invocation. Sink invocation must occur outside the lifecycle lock and must not claim notice delivery or guest `NET-09` routing.
 - **HSL-AC-013 — Other termination:** Normal application shutdown, crash, forced termination, and service failure must not imply intentional host end to guests.
-- **HSL-AC-014 — Cleanup:** Cancel, failure, End session, and application shutdown must release all owned service resources within three seconds.
-- **HSL-AC-015 — Orphan prevention:** An owned hosted service must not remain after host application termination.
+- **HSL-AC-014 — Cleanup:** Cancel, failure, End session, and application shutdown must release all owned service resources within three seconds under HSL-FAULT-001 through HSL-FAULT-007. Retain ownership until positive cleanup confirmation and keep unconfirmed outcomes fail-closed.
+- **HSL-AC-015 — Orphan prevention:** An owned hosted service and its descendants must not remain after host application termination under HSL-FAULT-001 through HSL-FAULT-007, including a stopped/hung server with operational independent cleanup. Native evidence must also cover supervision loss with a runnable service; the three-second cleanup deadline and fail-closed unconfirmed outcomes remain unchanged.
 - **HSL-AC-016 — Redaction:** Startup configuration and all outcomes must satisfy the secret and non-disclosure rules.
 - **HSL-AC-017 — Local independence:** Local Play must start and complete without any hosted service or network availability.
 - **HSL-AC-018 — Scope truth:** Completion of issue #31 alone must not create or support a playable-networking claim.
