@@ -6,6 +6,11 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#ifdef __APPLE__
+#include "../platform/DarwinProcess.h"
+#include <sys/socket.h>
+#include <cerrno>
+#endif
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -21,7 +26,9 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <signal.h>
+#ifndef __APPLE__
 #include <sys/prctl.h>
+#endif
 #include <unistd.h>
 #endif
 
@@ -38,12 +45,22 @@ namespace {
 
     bool writeAll(const std::uint8_t *source, std::size_t size) {
         while (size > 0) {
+#ifdef __APPLE__
+            const auto count = send(4, source, size, 0);
+            if (count < 0 && errno == EINTR) continue;
+            if (count <= 0) return false;
+#else
             std::size_t count = std::fwrite(source, 1, size, stdout);
             if (count == 0) return false;
+#endif
             source += count;
             size -= count;
         }
+#ifdef __APPLE__
+        return true;
+#else
         return std::fflush(stdout) == 0;
+#endif
     }
 }
 
@@ -52,6 +69,16 @@ int main(int argumentCount, char **arguments) {
     if (_setmode(_fileno(stdin), _O_BINARY) == -1 || _setmode(_fileno(stdout), _O_BINARY) == -1) return 2;
     WSADATA data{};
     if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return 2;
+#elif defined(__APPLE__)
+    if (argumentCount != 4 || std::string(arguments[3]).rfind("--guardian-parent=", 0) != 0) return 2;
+    const auto parentText = std::string(arguments[3]).substr(18);
+    if (!Duel6::Network::ResolverProtocol::validParentProcessId(parentText)) return 2;
+    auto parentMonitor = Duel6::Platform::Darwin::ParentMonitor::start(
+        static_cast<pid_t>(std::stoul(parentText)), 3);
+    if (!parentMonitor) return 2;
+    const int noSignal = 1;
+    if (setsockopt(4, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, sizeof(noSignal)) != 0) return 2;
+    argumentCount = 3;
 #else
     pid_t originalParent = getppid();
     if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0) return 2;
@@ -59,7 +86,7 @@ int main(int argumentCount, char **arguments) {
 
     std::string host;
     std::string service;
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
     pid_t expectedParent = originalParent;
     if (argumentCount == 4) {
         if (!Duel6::Network::ResolverProtocol::validParentProcessId(arguments[3])) return 2;
@@ -86,7 +113,7 @@ int main(int argumentCount, char **arguments) {
     }
     if (!Duel6::Network::ResolverProtocol::validHost(host)
         || !Duel6::Network::ResolverProtocol::validService(service)) return 2;
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
     if (originalParent != expectedParent || getppid() != expectedParent) return 2;
 #endif
 

@@ -34,13 +34,19 @@ namespace Duel6::Platform::Darwin {
     enum class GuardianEvent : unsigned { Started = 1, LeaderExited = 2, Cleaned = 3, Failed = 4 };
 
 #ifdef __APPLE__
+    bool inGuardedWorker();
+    struct WorkerChannels {
+        int output = -1; // Mapped to worker FD 4; never interpreted by guardian.
+        int input = -1;  // Mapped to worker FD 5.
+    };
     GroupInspection inspectGroup(pid_t leader);
     // parentLife has the sole writer in the owning application. status is a
     // private socket, not stdout. Inputs must not contain credentials. This
     // entry owns neither a shell nor arbitrary inherited environment/FDs.
     int runGuardian(pid_t parent, int parentLife, int status,
                     const std::vector<std::string> &workerArguments,
-                    const std::function<GroupInspection(pid_t)> &inspect = inspectGroup);
+                    const std::function<GroupInspection(pid_t)> &inspect = inspectGroup,
+                    WorkerChannels channels = {});
 
     class ParentMonitor {
     public:

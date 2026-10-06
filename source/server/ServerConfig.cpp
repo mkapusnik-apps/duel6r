@@ -113,6 +113,10 @@ namespace Duel6::Server {
             } else if (startsWith(argument, "--host-service-parent=")) {
                 config.hostedServiceParent = parsePositiveUint64(
                         "host service parent", valueAfter(argument, "--host-service-parent="));
+#ifdef __APPLE__
+            } else if (startsWith(argument, "--guardian-parent=")) {
+                config.hostedServiceParent = parsePositiveUint64("guardian parent", valueAfter(argument, "--guardian-parent="));
+#endif
 #ifdef D6R_TRANSPORT_WINDOWS
             } else if (startsWith(argument, "--host-service-status-handle=")) {
                 config.hostedServiceStatusHandle = parsePositiveUint64(

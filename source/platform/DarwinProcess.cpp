@@ -18,6 +18,7 @@
 
 namespace Duel6::Platform::Darwin {
     namespace {
+        std::atomic<bool> guardedWorker{false};
         class Descriptor {
         public:
             explicit Descriptor(int value = -1) : value(value) {}
@@ -76,18 +77,21 @@ namespace Duel6::Platform::Darwin {
         }
 
         int moveAboveReserved(int descriptor) {
-            const int moved = fcntl(descriptor, F_DUPFD_CLOEXEC, 5);
+            const int moved = fcntl(descriptor, F_DUPFD_CLOEXEC, 7);
             close(descriptor);
             return moved;
         }
 
-        pid_t spawnWorker(const std::vector<std::string> &arguments, int life) {
+        pid_t spawnWorker(const std::vector<std::string> &arguments, int life, WorkerChannels channels) {
             if (arguments.empty() || arguments.front().empty() || arguments.front().front() != '/') return -1;
             std::vector<std::string> owned = arguments;
             owned.push_back("--guardian-parent=" + std::to_string(getpid()));
             std::vector<char *> argv;
             for (auto &argument : owned) argv.push_back(argument.data());
             argv.push_back(nullptr);
+            Descriptor output(channels.output < 0 ? -1 : fcntl(channels.output, F_DUPFD_CLOEXEC, 7));
+            Descriptor input(channels.input < 0 ? -1 : fcntl(channels.input, F_DUPFD_CLOEXEC, 7));
+            if ((channels.output >= 0 && output.get() < 0) || (channels.input >= 0 && input.get() < 0)) return -1;
             posix_spawn_file_actions_t actions;
             posix_spawnattr_t attributes;
             if (posix_spawn_file_actions_init(&actions) != 0) return -1;
@@ -99,6 +103,10 @@ namespace Duel6::Platform::Darwin {
                 error = posix_spawn_file_actions_addopen(&actions, fd, "/dev/null", fd ? O_WRONLY : O_RDONLY, 0);
             if (!error) error = posix_spawn_file_actions_adddup2(&actions, life, 3);
             if (!error) error = posix_spawn_file_actions_addclose(&actions, life);
+            if (!error && output.get() >= 0) error = posix_spawn_file_actions_adddup2(&actions, output.get(), 4);
+            if (!error && input.get() >= 0) error = posix_spawn_file_actions_adddup2(&actions, input.get(), 5);
+            if (!error && output.get() >= 0) error = posix_spawn_file_actions_addclose(&actions, output.get());
+            if (!error && input.get() >= 0) error = posix_spawn_file_actions_addclose(&actions, input.get());
             if (!error) error = posix_spawnattr_setflags(&attributes,
                     POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP);
             if (!error) error = posix_spawnattr_setpgroup(&attributes, 0);
@@ -135,7 +143,7 @@ namespace Duel6::Platform::Darwin {
 
     int runGuardian(pid_t parent, int parentLife, int status,
                     const std::vector<std::string> &arguments,
-                    const std::function<GroupInspection(pid_t)> &inspect) {
+                    const std::function<GroupInspection(pid_t)> &inspect, WorkerChannels channels) {
         Descriptor queue(watchParent(parent, parentLife));
         const int noSignal = 1;
         if (queue.get() < 0 || !nonblocking(status)
@@ -158,8 +166,14 @@ namespace Duel6::Platform::Darwin {
         if (reader.get() < 0 || writer.get() < 0) return 2;
         // Registration and the pre-spawn cancel check precede all worker code.
         if (parentGone(queue.get(), parentLife, 0)) return publish(GuardianEvent::Cleaned, 0) ? 0 : 2;
-        const pid_t worker = spawnWorker(arguments, reader.get());
-        if (worker < 0) { publish(GuardianEvent::Failed, 0); return 2; }
+        const pid_t worker = spawnWorker(arguments, reader.get(), channels);
+        if (channels.output >= 0) close(channels.output);
+        if (channels.input >= 0) close(channels.input);
+        if (worker < 0) {
+            const bool failure = publish(GuardianEvent::Failed, 0);
+            const bool noService = publish(GuardianEvent::Cleaned, 0);
+            return failure && noService ? 0 : 2;
+        }
         CleanupState cleanup;
         bool reporting = publish(GuardianEvent::Started, worker);
         bool stopping = !reporting, observedExit = false;
@@ -203,16 +217,19 @@ namespace Duel6::Platform::Darwin {
         int life;
         std::atomic<bool> finished{false};
         std::thread watcher;
+        bool active = false;
         Impl(int queue, int life) : queue(queue), life(life) {}
         ~Impl() {
             finished = true;
             if (watcher.joinable()) watcher.join();
+            if (active) guardedWorker = false;
         }
     };
     ParentMonitor::ParentMonitor() = default;
     ParentMonitor::~ParentMonitor() = default;
+    bool inGuardedWorker() { return guardedWorker.load(); }
     std::unique_ptr<ParentMonitor> ParentMonitor::start(pid_t guardian, int life) {
-        if (getpgrp() != getpid()) return nullptr;
+        if (getpgrp() != getpid() || inGuardedWorker()) return nullptr;
         const int queue = watchParent(guardian, life);
         if (queue < 0) return nullptr;
         auto monitor = std::unique_ptr<ParentMonitor>(new ParentMonitor());
@@ -231,6 +248,8 @@ namespace Duel6::Platform::Darwin {
                 }
             });
         } catch (...) { return nullptr; }
+        state->active = true;
+        guardedWorker = true;
         return monitor;
     }
 }

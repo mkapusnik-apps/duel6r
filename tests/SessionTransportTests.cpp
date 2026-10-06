@@ -146,7 +146,13 @@ void sendAll(RawSocket socket, const std::uint8_t *data, std::size_t size) {
 #ifdef D6R_TRANSPORT_WINDOWS
         int count = ::send(socket, reinterpret_cast<const char *>(data), static_cast<int>(size), 0);
 #else
+#ifdef __APPLE__
+        const int enabled = 1;
+        CHECK(setsockopt(socket, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled)) == 0);
+        ssize_t count = ::send(socket, data, size, 0);
+#else
         ssize_t count = ::send(socket, data, size, MSG_NOSIGNAL);
+#endif
 #endif
         CHECK(count > 0);
         data += count;

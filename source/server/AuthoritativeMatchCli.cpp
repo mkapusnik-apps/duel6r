@@ -74,6 +74,8 @@ namespace Duel6::Server::Authoritative {
 #ifdef D6R_TRANSPORT_WINDOWS
                 if (BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(&seed), sizeof(seed),
                                     BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) return false;
+#elif defined(__APPLE__)
+                if (getentropy(&seed, sizeof(seed)) != 0) return false;
 #else
                 std::size_t offset = 0;
                 auto *bytes = reinterpret_cast<unsigned char *>(&seed);

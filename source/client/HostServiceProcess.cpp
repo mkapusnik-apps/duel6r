@@ -14,6 +14,10 @@
 #include <string>
 #include <thread>
 #include <vector>
+#ifdef __APPLE__
+#include "../platform/DarwinChild.h"
+#include "../network/NetworkTrustPolicy.h"
+#endif
 
 #ifdef D6R_TRANSPORT_WINDOWS
 #define WIN32_LEAN_AND_MEAN
@@ -27,7 +31,9 @@
 #include <poll.h>
 #include <signal.h>
 #include <spawn.h>
+#ifndef __APPLE__
 #include <sys/prctl.h>
+#endif
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
@@ -329,6 +335,111 @@ namespace Duel6::Client {
             bool stopSent = false;
             bool statusSealed = false;
             std::vector<std::uint8_t> statusBuffer;
+        };
+#elif defined(__APPLE__)
+        class DarwinHostServiceChild final : public HostServiceChild {
+        public:
+            explicit DarwinHostServiceChild(std::unique_ptr<Platform::Darwin::GuardedChild> child)
+                : child(std::move(child)) {}
+            void adopt(std::unique_ptr<Platform::Darwin::GuardedChild> value) noexcept { child = std::move(value); }
+            bool readStatus(HostServiceStatusEvent &event, std::chrono::milliseconds timeout) override {
+                std::lock_guard<std::mutex> lock(statusMutex);
+                if (sealed) return false;
+                const bool supervisionFailed = child->failed();
+                if (!spawnFailureReported && (supervisionFailed || child->startupFailed())) {
+                    spawnFailureReported = true;
+                    event = {Network::HostServiceStatusCode::StartFailed, child->exitObservedAt(), {}};
+                    return true;
+                }
+                if (supervisionFailed) return false;
+                const auto deadline = std::chrono::steady_clock::now() + timeout;
+                for (;;) {
+                    try { if (takeHostServiceEvent(buffer, event)) return true; }
+                    catch (...) { failChannel(); return false; }
+                    pollfd fd{child->output(), POLLIN, 0};
+                    const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+                    if (poll(&fd, 1, static_cast<int>(std::max<std::int64_t>(0, left.count()))) <= 0) return false;
+                    std::array<std::uint8_t, 4096> bytes{};
+                    const auto count = recv(child->output(), bytes.data(), bytes.size(), 0);
+                    if (count < 0 && errno == EINTR) continue;
+                    if (count <= 0) {
+                        if (count == 0 && !buffer.empty()) failChannel();
+                        return false;
+                    }
+                    if (buffer.size() + static_cast<std::size_t>(count) > Network::HostServiceMaximumPayloadBytes
+                        + Network::HostServicePayloadHeaderBytes) { failChannel(); return false; }
+                    buffer.insert(buffer.end(), bytes.begin(), bytes.begin() + count);
+                }
+            }
+            bool observeExitAndDrainStatus(HostServiceExitEvent &exit,
+                    std::vector<HostServiceStatusEvent> &statuses,
+                    const std::function<HostServiceTimePoint()> &clock) override {
+                if (!observeExit(exit, clock)) return false;
+                // The service writer has exited; consume complete queued status
+                // frames before sealing, preserving their original timestamps.
+                HostServiceStatusEvent event;
+                while (readStatus(event, std::chrono::milliseconds::zero())) statuses.push_back(std::move(event));
+                std::lock_guard<std::mutex> lock(statusMutex);
+                sealed = true;
+                return true;
+            }
+            bool hasExited() override { return child->exited(); }
+            bool observeExit(HostServiceExitEvent &event,
+                             const std::function<HostServiceTimePoint()> &) override {
+                if (!child->exited()) return false;
+                event.observedAt = child->exitObservedAt();
+                return true;
+            }
+            void requestStop() override { command(Network::HostServiceCommandCode::Stop, true); }
+            void requestEndSession() override { command(Network::HostServiceCommandCode::EndSession, true); }
+            bool requestReadiness(bool ready) override {
+                return command(ready ? Network::HostServiceCommandCode::Ready : Network::HostServiceCommandCode::NotReady, false);
+            }
+            bool requestSessionPayload(const std::vector<std::uint8_t> &payload) override {
+                return sendMessage(Network::encodeHostServicePayload(payload), false);
+            }
+            void forceTerminate() override { child->terminate(); }
+            bool cleanupConfirmed() override { return child->cleanupConfirmed(); }
+            bool waitForCleanup(std::chrono::milliseconds timeout) override { return child->waitForCleanup(timeout); }
+            bool waitForExit(std::chrono::milliseconds timeout) override {
+                const auto deadline = std::chrono::steady_clock::now() + timeout;
+                do {
+                    if (hasExited()) return true;
+                    if (std::chrono::steady_clock::now() >= deadline) return false;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                } while (true);
+            }
+        private:
+            std::unique_ptr<Platform::Darwin::GuardedChild> child;
+            std::mutex statusMutex, controlMutex;
+            std::vector<std::uint8_t> buffer;
+            bool sealed = false, terminal = false;
+            bool spawnFailureReported = false;
+            void failChannel() { sealed = true; child->terminate(); buffer.clear(); }
+            bool command(Network::HostServiceCommandCode code, bool terminalCommand) {
+                const auto bytes = Network::encodeHostServiceCommand(code);
+                return sendMessage({bytes.begin(), bytes.end()}, terminalCommand);
+            }
+            bool sendMessage(std::vector<std::uint8_t> bytes, bool terminalCommand) {
+                struct Erase { std::vector<std::uint8_t> &bytes; ~Erase() { Network::Trust::secureEraseMemory(bytes.data(), bytes.size()); } } erase{bytes};
+                std::lock_guard<std::mutex> lock(controlMutex);
+                if (terminal || child->failed()) return false;
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+                std::size_t offset = 0;
+                while (offset < bytes.size() && std::chrono::steady_clock::now() < deadline) {
+                    const auto count = send(child->input(), bytes.data() + offset, bytes.size() - offset, 0);
+                    if (count > 0) offset += static_cast<std::size_t>(count);
+                    else if (count < 0 && errno == EINTR) continue;
+                    else if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                        pollfd fd{child->input(), POLLOUT, 0}; poll(&fd, 1, 1);
+                    } else break;
+                }
+                if (offset != bytes.size()) {
+                    terminal = true; shutdown(child->input(), SHUT_WR); child->terminate(); return false;
+                }
+                terminal = terminalCommand;
+                return true;
+            }
         };
 #else
         bool moveAboveHostedDescriptors(int &descriptor) {
@@ -755,6 +866,17 @@ namespace Duel6::Client {
         return std::make_unique<ExclusiveHostServiceChild>(
                 std::make_unique<WindowsHostServiceChild>(process.hProcess, job, parentStatusRead,
                                                           parentControlWrite));
+#elif defined(__APPLE__)
+        // Allocate the wrappers before any process exists: allocation failure
+        // must not release the exclusive reservation over a still-owned worker.
+        auto adapter = std::make_unique<DarwinHostServiceChild>(nullptr);
+        auto *target = adapter.get();
+        auto result = std::make_unique<ExclusiveHostServiceChild>(std::move(adapter));
+        auto child = Platform::Darwin::GuardedChild::launch(arguments);
+        if (!child) return nullptr;
+        target->adopt(std::move(child));
+        reservation.released = true;
+        return result;
 #else
         if (access(config.serverExecutable.c_str(), X_OK) != 0) return nullptr;
         int subreaper = 0;

@@ -1,5 +1,10 @@
 #include "SessionTransport.h"
 #include "ResolverProtocol.h"
+#ifdef __APPLE__
+#include "../platform/DarwinChild.h"
+#include "../platform/DarwinProcess.h"
+#include <poll.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -236,6 +241,7 @@ namespace Duel6::Network {
         }
 
 #else
+#ifndef __APPLE__
         class ResolverProcessSupervisor {
         public:
             bool reserve() {
@@ -321,6 +327,7 @@ namespace Duel6::Network {
             static auto *supervisor = new ResolverProcessSupervisor();
             return *supervisor;
         }
+#endif
 
         class SocketRuntime {
         public:
@@ -385,6 +392,10 @@ namespace Duel6::Network {
             descriptor.events = writing ? POLLWRNORM : POLLRDNORM;
             int result = WSAPoll(&descriptor, 1, static_cast<int>(timeout.count()));
             return result > 0 && (descriptor.revents & (descriptor.events | POLLERR | POLLHUP | POLLNVAL)) != 0;
+#elif defined(__APPLE__)
+            pollfd descriptor{socket, static_cast<short>(writing ? POLLOUT : POLLIN), 0};
+            const int result = poll(&descriptor, 1, static_cast<int>(timeout.count()));
+            return result > 0 && (descriptor.revents & (descriptor.events | POLLERR | POLLHUP | POLLNVAL));
 #else
             fd_set set;
             FD_ZERO(&set);
@@ -418,6 +429,10 @@ namespace Duel6::Network {
         }
 
         bool configureTransportSocket(SocketHandle socket) {
+#ifdef __APPLE__
+            const int enabled = 1;
+            if (setsockopt(socket, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled)) != 0) return false;
+#endif
             return preventInheritance(socket) && setNonBlocking(socket);
         }
 
@@ -621,6 +636,69 @@ namespace Duel6::Network {
             if (wasTimedOut) return {ResolveStatus::TimedOut, {}};
             return exited && exitedSuccessfully && responseValid
                    ? resolverResponse(response, port) : ResolveOutcome{};
+        }
+#elif defined(__APPLE__)
+        ResolveOutcome realResolve(const std::string &host, std::uint16_t port, TransportTimePoint deadline,
+                                   const std::function<bool()> &cancelled,
+                                   const std::function<TransportTimePoint()> &now) {
+            const std::string service = std::to_string(port);
+            if (!ResolverProtocol::validHost(host) || !ResolverProtocol::validService(service)) return {};
+            if (cancelled()) return {ResolveStatus::Cancelled, {}};
+            if (now() >= deadline) return {ResolveStatus::TimedOut, {}};
+            std::array<std::uint8_t, 4> literal{};
+            if (Trust::classifyIpv4Literal(host, &literal) != Trust::EndpointScope::Invalid)
+                return {ResolveStatus::Resolved, {{literal, port}}};
+            if (Platform::Darwin::inGuardedWorker()) {
+                // Host startup is already isolated in a killable service group.
+                // Do not create a nested resolver group that could escape that
+                // guardian's cleanup. The only supported listener name is
+                // localhost; its potentially blocking OS lookup stays inside
+                // this worker, under the host startup/cancel hard boundary.
+                if (host != "localhost") return {};
+                addrinfo hints{}; hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
+                addrinfo *addresses = nullptr;
+                const int resolved = getaddrinfo(host.c_str(), service.c_str(), &hints, &addresses);
+                ResolveOutcome result;
+                if (resolved == 0) {
+                    for (auto *entry = addresses; entry && result.endpoints.size() < ResolverProtocol::MaxAddresses;
+                         entry = entry->ai_next) {
+                        if (entry->ai_family != AF_INET || entry->ai_addrlen < sizeof(sockaddr_in)) continue;
+                        ResolvedIpv4Endpoint endpoint; endpoint.port = port;
+                        std::memcpy(endpoint.address.data(), &reinterpret_cast<sockaddr_in *>(entry->ai_addr)->sin_addr, 4);
+                        result.endpoints.push_back(endpoint);
+                    }
+                }
+                if (addresses) freeaddrinfo(addresses);
+                if (cancelled()) return {ResolveStatus::Cancelled, {}};
+                if (now() >= deadline) return {ResolveStatus::TimedOut, {}};
+                if (!result.endpoints.empty()) result.status = ResolveStatus::Resolved;
+                return result;
+            }
+            auto child = Platform::Darwin::GuardedChild::launch({
+                Platform::Darwin::siblingExecutable("duel6r-resolver"), host, service});
+            if (!child) return {};
+            std::vector<std::uint8_t> response;
+            response.reserve(MaxResolverResponseBytes);
+            bool valid = true, eof = false;
+            while (!cancelled() && now() < deadline && valid) {
+                std::array<std::uint8_t, 256> bytes{};
+                const auto count = recv(child->output(), bytes.data(), bytes.size(), 0);
+                if (count > 0) {
+                    if (response.size() + static_cast<std::size_t>(count) > MaxResolverResponseBytes) valid = false;
+                    else response.insert(response.end(), bytes.begin(), bytes.begin() + count);
+                } else if (count == 0) eof = true;
+                else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) valid = false;
+                if (child->failed()) break;
+                if (eof && child->cleanupConfirmed()) return resolverResponse(response, port);
+                if (!eof) waitSocket(child->output(), false, std::chrono::milliseconds(5));
+                else std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            child->terminate();
+            // Destruction transfers still-unconfirmed cleanup to the bounded
+            // custodian; it never kills/reaps an unowned numeric worker PID.
+            if (cancelled()) return {ResolveStatus::Cancelled, {}};
+            if (now() >= deadline) return {ResolveStatus::TimedOut, {}};
+            return {};
         }
 #else
         std::string resolverExecutablePath() {
@@ -1307,7 +1385,12 @@ namespace Duel6::Network {
 #ifdef D6R_TRANSPORT_WINDOWS
             int count = ::send(socket, reinterpret_cast<const char *>(data), static_cast<int>(size), 0);
 #else
-            ssize_t count = ::send(socket, data, size, MSG_NOSIGNAL);
+            ssize_t count = ::send(socket, data, size,
+#ifdef __APPLE__
+                                   0); // SO_NOSIGPIPE configured on every transport socket.
+#else
+                                   MSG_NOSIGNAL);
+#endif
 #endif
             if (count > 0) return {OutboundSendStatus::Sent, static_cast<std::size_t>(count)};
             if (count == 0) return {OutboundSendStatus::WouldBlock, 0};
