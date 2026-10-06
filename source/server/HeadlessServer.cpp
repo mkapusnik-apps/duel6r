@@ -2224,11 +2224,16 @@ namespace Duel6::Server {
                 }
             }
             if (runtimeFailed) break;
-            const auto serviceConnections = [&](bool admittedPass, bool deferAdmissionCommit) {
+            enum class ConnectionPass { Admitted, PendingIntake, AdmissionCommit };
+            const auto serviceConnections = [&](ConnectionPass pass, bool deferAdmissionCommit = false) {
             for (auto iterator = connections.begin(); iterator != connections.end();) {
+                if (runtimeFailed) break;
                 auto &runtime = *iterator;
                 auto &connection = runtime.transport;
-                if (runtime.admitted != admittedPass) { ++iterator; continue; }
+                if (runtime.admitted != (pass == ConnectionPass::Admitted)
+                    || (pass == ConnectionPass::AdmissionCommit && runtime.transactionId == 0)) {
+                    ++iterator; continue;
+                }
                 const bool admissionOpen = !hostedMatch
                     || hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby
                     || (hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive
@@ -2367,7 +2372,8 @@ namespace Duel6::Server {
                             }
                         }
                     }
-                } else if (!config.transportEcho && runtime.transactionId != 0 && !runtime.admitted) {
+                } else if (pass == ConnectionPass::AdmissionCommit
+                           && !config.transportEcho && runtime.transactionId != 0 && !runtime.admitted) {
                     Network::TransportFrame frame;
                     if (!deferAdmissionCommit && connection->receive(frame)) {
                         LifecycleCredentialPayloadGuard credentialPayload(frame.payload);
@@ -2633,9 +2639,9 @@ namespace Duel6::Server {
                     }
                     observe(AdmissionLifecycleStage::ConnectionClosed, runtime.connectionId);
                     iterator = connections.erase(iterator);
-                    // Publish the disconnected participant before a pending reconnect can
-                    // restore it later in this event-loop iteration.
-                    break;
+                    // Finish admitted intake before pending reconnects and the
+                    // single lifecycle batch; a close must not hide another Leave.
+                    continue;
                 } else {
                     ++iterator;
                 }
@@ -2672,14 +2678,16 @@ namespace Duel6::Server {
                     }
                     observe(AdmissionLifecycleStage::ConnectionClosed, runtime.connectionId);
                     iterator = connections.erase(iterator);
-                    break;
+                    continue;
                 }
             }
             };
-            // Existing peers and disconnect/lifecycle work precede the one
-            // authoritative tick. Pending peers get their own bounded pass
-            // afterwards, even while debt remains or the rolling cap is full.
-            serviceConnections(true, false);
+            // Both admitted and authenticated reserved Leave must reach the
+            // same atomic removal batch before the one authoritative tick.
+            // Pending intake never consumes a new admission acceptance.
+            serviceConnections(ConnectionPass::Admitted);
+            if (runtimeFailed) break;
+            serviceConnections(ConnectionPass::PendingIntake);
             if (runtimeFailed) break;
             if (sessionLifecycle && hostedMatch) {
                 Network::Lifecycle::Phase lifecyclePhase = Network::Lifecycle::Phase::Lobby;
@@ -2771,7 +2779,7 @@ namespace Duel6::Server {
             // A due outcome wins over a new admission. When pacing cannot
             // advance yet, defer only the commit, not request/timeout/cleanup
             // or reconnect processing. Never drain unbounded accumulated debt.
-            serviceConnections(false, matchActive && !advancedTick
+            serviceConnections(ConnectionPass::AdmissionCommit, matchActive && !advancedTick
                 && runtimeNow(runtimeDependencies) >= nextMatchTick);
             if (runtimeFailed) break;
             const auto wait = matchActive ? tickPacing.nextWait(runtimeNow(runtimeDependencies), nextMatchTick, true)

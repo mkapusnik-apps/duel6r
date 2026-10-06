@@ -1118,6 +1118,172 @@ D6R_TEST_CASE("NET-ADM reviewed production admission loop rejects offers crossin
     }
 }
 
+D6R_TEST_CASE("NET-AC-013 AHM-024 AHM-028 production reserved Leave shares the pre-completion lifecycle batch") {
+    for (const std::string mode : {"complete", "reserved", "simultaneous", "cap-simultaneous"}) {
+        const bool simultaneous = mode.find("simultaneous") != std::string::npos;
+        const bool cap = mode == "cap-simultaneous";
+        const auto host = manifest({{"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+        auto content = std::make_shared<Network::FrozenGameplayContent>();
+        (*content)["data/blocks.json"] = {'{', '}'};
+        (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+        (*content)["levels/a.json"] = {'{', '}'};
+        auto fixture = std::make_shared<RuntimeFixture>();
+        std::vector<std::shared_ptr<FakeAdmissionConnection>> peers;
+        std::vector<std::optional<Network::Lifecycle::ReconnectGrant>> grants(simultaneous ? 2 : 1);
+        for (std::size_t index = 0; index < grants.size(); ++index) {
+            auto peer = std::make_shared<FakeAdmissionConnection>(fixture->now);
+            peer->queue(Network::serializeAdmissionRequest(requestFor(host)), fixture->now);
+            peer->onSend = [&, index](const auto &payload) {
+                if (auto grant = Network::Lifecycle::deserializeReconnectGrant(payload)) grants[index] = *grant;
+            };
+            peers.push_back(peer); fixture->pendingConnections.push_back(peer);
+        }
+        auto dependencies = runtimeDependencies(fixture, host);
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(
+            Network::ManifestBuildResult{Network::ManifestStatus::Valid, host, content});
+        auto observations = std::make_shared<Server::RuntimeObservations>();
+        dependencies.observations = observations;
+        auto snapshot = std::make_shared<Server::Authoritative::CanonicalWorldSnapshot>();
+        std::vector<std::vector<std::uint64_t>> removalBatches;
+        std::optional<Network::Replication::CanonicalState> result;
+        bool disconnected = false, queued = false, jumped = false, timedOut = false;
+        unsigned waits = 0;
+        std::uint64_t ticksWhenQueued = 0;
+        Network::TransportTimePoint jumpAt{};
+        dependencies.hostReadinessChange = [] { return std::optional<bool>(true); };
+        dependencies.authoritativeRuntimeFactory = [&](const auto &config, const auto &players, const auto &) {
+            D6R_REQUIRE_EQ(1u, config.roundLimit);
+            D6R_REQUIRE_EQ(grants.size() + 1, players.size());
+            snapshot->valid = true; snapshot->stateDigest = 1;
+            for (const auto &definition : players) {
+                Server::Authoritative::CanonicalPlayerSnapshot player;
+                player.playerId = definition.playerId; player.rosterSlot = definition.rosterOrder;
+                player.alive = true; player.life = Server::Authoritative::MaximumLife;
+                snapshot->players.push_back(player);
+            }
+            Server::Authoritative::MatchRuntimeDependencies runtime;
+            runtime.contentPreflight = [](const auto &) { return true; };
+            runtime.worldSnapshot = [snapshot] { return *snapshot; };
+            runtime.worldTick = [snapshot](auto, bool) {
+                ++snapshot->worldTick; ++snapshot->stateDigest;
+                snapshot->roundOver = true;
+                for (std::size_t index = 1; index < snapshot->players.size(); ++index) {
+                    snapshot->players[index].alive = false; snapshot->players[index].life = 0;
+                }
+                return true;
+            };
+            runtime.worldRemoveBatch = [&](const auto &players) {
+                removalBatches.push_back(players);
+                snapshot->players.erase(std::remove_if(snapshot->players.begin(), snapshot->players.end(),
+                    [&](const auto &player) { return std::find(players.begin(), players.end(), player.playerId) != players.end(); }),
+                    snapshot->players.end());
+                ++snapshot->stateDigest;
+                return true;
+            };
+            return runtime;
+        };
+        dependencies.outboundWriter = [&](auto &connection, auto payload) {
+            const auto found = std::find_if(peers.begin(), peers.end(), [&](const auto &peer) { return peer.get() == &connection; });
+            if (found != peers.end()) {
+                const auto index = static_cast<std::size_t>(found - peers.begin());
+                if (payload.size() >= 4 && payload[3] == 'O')
+                    (*found)->queue(Network::serializeAdmissionAcceptance(Network::deserializeAdmissionOffer(payload)), fixture->now);
+                if (payload.size() >= 4 && payload[3] == 'C') {
+                    D6R_REQUIRE(grants[index].has_value());
+                    (*found)->queue(Network::Lifecycle::serializeParticipantAction({grants[index]->sessionId,
+                        grants[index]->participantId, Network::Lifecycle::ParticipantActionKind::Ready}), fixture->now);
+                }
+            }
+            return connection.send(std::move(payload));
+        };
+        dependencies.hostSessionPresentation = [&](const auto &payload) {
+            const auto message = Network::HostComposition::deserialize(payload);
+            if (!message) return false;
+            const auto frame = Network::Replication::deserializeReplicationFrame(message->payload);
+            if (!frame || !frame->snapshot) return false;
+            if (frame->snapshot->state.result.available) {
+                result = frame->snapshot->state;
+                fixture->cancelled = true;
+            }
+            return true;
+        };
+        dependencies.wait = [&](auto amount) {
+            if (++waits > 3000) { timedOut = true; fixture->cancelled = true; return; }
+            if (observations->hostTicks >= 100 && !disconnected && mode != "simultaneous") {
+                // Keep the participant reserved; only the later authenticated
+                // request may remove it. This is not a transport-close shortcut.
+                peers.front()->currentState = Network::ClientState::Closed;
+                peers.front()->terminal = fixture->now;
+                disconnected = true;
+            }
+            if (cap && observations->hostTicks == 269 && !jumped) {
+                fixture->now += 5s; jumpAt = fixture->now; jumped = true;
+                return;
+            }
+            if (cap && jumped && observations->hostTicks < 359) return;
+            if (observations->hostTicks == 359 && !queued) {
+                if (!disconnected) {
+                    // In this variant the close precedes another admitted
+                    // peer's Leave in the same intake pass. Cleanup must not
+                    // stop the scan and split the atomic removal batch.
+                    peers.front()->currentState = Network::ClientState::Closed;
+                    peers.front()->terminal = fixture->now;
+                    disconnected = true;
+                }
+                D6R_REQUIRE(disconnected && grants.front().has_value());
+                D6R_REQUIRE_EQ(static_cast<int>(Server::Authoritative::MatchPhase::RoundEndFrozen), observations->lastPhase.load());
+                ticksWhenQueued = observations->hostTicks;
+                if (cap) {
+                    D6R_REQUIRE(fixture->now == jumpAt); // Ninety real ticks in this rolling window.
+                    D6R_REQUIRE(observations->lastTickDebtUs > 3000000);
+                }
+                if (mode != "complete") {
+                    const auto &grant = *grants.front();
+                    auto leave = std::make_shared<FakeAdmissionConnection>(fixture->now);
+                    leave->closeOnRequest = true;
+                    leave->queue(Network::Lifecycle::serializeReconnectRequest(
+                        {grant.sessionId, grant.participantId, grant.reservationId, grant.credential}), fixture->now);
+                    fixture->pendingConnections.push_back(leave);
+                    if (simultaneous) {
+                        const auto &admitted = *grants.back();
+                        peers.back()->queue(Network::Lifecycle::serializeParticipantAction({admitted.sessionId,
+                            admitted.participantId, Network::Lifecycle::ParticipantActionKind::Leave}), fixture->now);
+                    }
+                }
+                queued = true;
+                fixture->now += cap ? 5ms : 20ms; // Due final tick, or its exhausted-cap boundary.
+                return;
+            }
+            fixture->now += amount;
+        };
+        std::ostringstream output;
+        Server::HeadlessServer server(runtimeServerConfig(), std::move(dependencies));
+        server.runtimeDependencies.productionReplicationProtocol = true;
+        const int status = server.run(output);
+        const auto require = [&](bool condition, const char *description) {
+            if (!condition) Duel6::Test::fail(description, __FILE__, __LINE__, mode
+                + ";ticks=" + std::to_string(observations->hostTicks.load())
+                + ";batches=" + std::to_string(removalBatches.size())
+                + ";result=" + (result ? result->result.state : "missing") + ": " + output.str());
+        };
+        require(status == 0 && !timedOut && queued && result.has_value(), "bounded production completion boundary");
+        if (mode == "complete") {
+            require(result->result.state == "Completed" && observations->hostTicks == 360
+                    && removalBatches.empty(), "control really reaches final completion on next tick");
+        } else {
+            require(result->phase == Network::Replication::Phase::Lobby && result->result.state == "Interrupted"
+                    && result->score.winner.noWinner && result->score.winner.winnerPlayerIds.empty(),
+                    "pre-completion Leave interrupts without a final winner");
+            require(observations->hostTicks == ticksWhenQueued, "removal batch precedes completion tick");
+            require(removalBatches.size() == 1 && removalBatches.front().size() == grants.size(),
+                    "admitted and authenticated reserved leaves form one atomic removal batch");
+            require(result->participants.size() == 1 && result->players.size() == 1,
+                    "both departed participants removed from following lobby");
+        }
+        require(fixture->shutdown, "listener cleanup completed");
+    }
+}
+
 D6R_TEST_CASE("Production pacing services pending peers and lifecycle under sustained debt and exhausted rolling cap") {
     // Only transport, world and time are deterministic seams. Admission, input
     // authorization, lifecycle, tick pacing and outcome precedence are the real loop.
