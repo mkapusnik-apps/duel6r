@@ -300,3 +300,28 @@ native gate, cross-platform evidence and the independent high-risk QA campaign
 remain separate. Actual Mac GUI, live cross-OS gameplay and visuals remain
 user-owned after merge/nightly. Keep the original three-second cleanup and
 positive identity/ownership requirements throughout final integration.
+
+## Consolidated pre-freeze corrections after `0a1981c`
+
+The supplied native job log SHA-256 is
+`c6539938a4f48c45c8c7e33ace98437f2d133c8733ed2c48a7146230233c992a`.
+Its 20 packaging tests passed, but compilation stopped before CTest: the hardware
+admission target compiled `DirectoryOrigin.cpp` without its required definition.
+No native CTest or packaged-runtime pass is inferred from that run.
+
+| Finding | Correction | Focused evidence |
+| --- | --- | --- |
+| Origin implementation compiled outside its configured target | Hardware admission links the existing `duel6r-directory-origin` library; no fallback definition is introduced | Configured, unchannelled, nightly and release selector tests pass locally; native link rerun required |
+| Native interface fixtures used an unrestricted listener | Positive encrypted and negative listeners enable production session policy; stale addresses require BindFailed and wildcard/broadcast/multicast/IPv6 require InvalidEndpoint, never Ready | Matching real-socket portable regression passes; native adapter cases require execution |
+| CLI gate ran only during generated seed acquisition, after hashing | Darwin CLI entry checks physical support before manifest construction, independently of seed; the existing manifest filesystem observer is carried through CLI dependencies | Native cases cover generated/explicit seeds under all capability restrictions, zero filesystem/hash/entropy/world activity on denial, and real supported controls reaching hashing/world start; native execution pending |
+| Apple ARM failure copy named x86 AES-NI | Apple AArch64 reuses the approved ARM AES/ASIMD copy; x86 wording is unchanged | Portable unsupported-hardware case checks the platform copy; native ARM assertion added |
+
+Local focused verification passes the four origin suites, complete transport
+suite (including the new policy/classification case), authoritative CLI process
+fixtures, 20 packaging tests, application/server compilation and portable adapter
+syntax. Windows Release/GL4 application, server and transport-test cross-compilation
+also passes; no Windows execution is inferred. This is non-GUI routine evidence. Existing source/UX alignment and the
+pending post-closure SS-015 capture are unchanged. The DevOps-prepared directory
+backend at `0a1981c` is unchanged and remains reusable; this batch does not
+provision, reset or reconfigure it. Copied local build workspaces are candidate
+verification outputs, not a frozen independent-QA release artifact.

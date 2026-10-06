@@ -109,6 +109,7 @@ D6R_TEST_CASE("Darwin native eligible IPv4 interfaces exchange data and stale in
         Port port; port.release();
         Network::SessionTransportDependencies dependencies;
         dependencies.secureSession = true;
+        dependencies.enforceNetworkSessionPolicy = true;
         Network::TcpListener listener(1, dependencies);
         D6R_REQUIRE(listener.start({address, port.number}));
         D6R_REQUIRE(listener.waitForReady(3s));
@@ -131,9 +132,15 @@ D6R_TEST_CASE("Darwin native eligible IPv4 interfaces exchange data and stale in
     for (const auto &address : {stale, std::string("0.0.0.0"), std::string("255.255.255.255"),
                                std::string("224.0.0.1"), std::string("::1")}) {
         Port port; port.release();
-        Network::TcpListener listener(1);
-        D6R_REQUIRE(!listener.start({address, port.number}) || !listener.waitForReady(3s));
-        D6R_REQUIRE(listener.state() != Network::ListenerState::Ready);
+        Network::SessionTransportDependencies dependencies;
+        dependencies.secureSession = true;
+        dependencies.enforceNetworkSessionPolicy = true;
+        Network::TcpListener listener(1, dependencies);
+        D6R_REQUIRE(listener.start({address, port.number}));
+        D6R_REQUIRE(!listener.waitForReady(3s));
+        D6R_REQUIRE(listener.state() == Network::ListenerState::Failed);
+        D6R_REQUIRE(listener.failure() == (address == stale ? Network::TransportFailure::BindFailed
+                                                           : Network::TransportFailure::InvalidEndpoint));
         listener.shutdown();
     }
 }

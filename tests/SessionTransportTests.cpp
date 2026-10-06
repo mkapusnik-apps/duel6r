@@ -1092,6 +1092,40 @@ void lifecycleAndFailures() {
     if (!refusedEvidence.empty()) throw Failure(refusedEvidence + "; stopped-listener control correctly refused");
 }
 
+void productionListenerPolicy() {
+    SessionTransportDependencies dependencies;
+    dependencies.secureSession = true;
+    dependencies.enforceNetworkSessionPolicy = true;
+    const auto port = unusedPort();
+    TcpListener allowed(1, dependencies);
+    startListener(allowed, port);
+    TcpClient client(dependencies);
+    CHECK(client.start({"127.0.0.1", port}));
+    requireConnected(client, "policy-enabled encrypted loopback");
+    auto peer = awaitAccept(allowed);
+    CHECK(client.connection()->send({4, 3, 2, 1}) == SendResult::Accepted);
+    TransportFrame frame;
+    CHECK(waitUntil([&] { return peer->receive(frame); }, NativeObserverWait));
+    CHECK(frame.payload == (std::vector<std::uint8_t>{4, 3, 2, 1}));
+    client.close(); allowed.shutdown();
+    std::string stale;
+    for (const char *candidate : {"10.254.254.254", "172.31.255.254", "192.168.254.254"}) {
+        std::array<std::uint8_t, 4> bytes{};
+        CHECK(Trust::classifyIpv4Literal(candidate, &bytes) == Trust::EndpointScope::PrivateLan);
+        if (!Trust::isLocalIpv4AddressAssigned(bytes)) { stale = candidate; break; }
+    }
+    CHECK(!stale.empty());
+    for (const auto &address : {stale, std::string("0.0.0.0"), std::string("255.255.255.255"),
+                               std::string("224.0.0.1"), std::string("::1")}) {
+        TcpListener denied(1, dependencies);
+        CHECK(denied.start({address, port}));
+        CHECK(!denied.waitForReady(NativeObserverWait));
+        CHECK(denied.state() == ListenerState::Failed);
+        CHECK(denied.failure() == (address == stale ? TransportFailure::BindFailed : TransportFailure::InvalidEndpoint));
+        denied.shutdown();
+    }
+}
+
 void fifteenIsolatedConnections() {
     const auto port = unusedPort();
     TcpListener listener(15);
@@ -1788,6 +1822,11 @@ void secureSessionKeyBudgets() {
 }
 
 void secureUnsupportedHardwareFailsClosed() {
+#if (defined(__linux__) || defined(__APPLE__)) && defined(__aarch64__)
+    CHECK(std::string(SecureNetworkingUnavailableCopy) == "Secure networking is unavailable. ARM AES and ASIMD are required.");
+#else
+    CHECK(std::string(SecureNetworkingUnavailableCopy) == "Secure networking is unavailable. An x86-64 CPU with AES-NI is required.");
+#endif
     CHECK(!SecureSession::supported(false));
     SecureSessionLimits denied;
     denied.hardwarePermitted = false;
@@ -1872,6 +1911,7 @@ int main() {
         {"deterministic outbound progress deadline", deterministicOutboundProgressDeadline},
         {"cancellation deadline races", cancellationDeadlineRacesAreTerminalAndJoined},
         {"lifecycle and failures", lifecycleAndFailures}, {"15 isolated connections", fifteenIsolatedConnections},
+        {"production listener policy and classifications", productionListenerPolicy},
         {"queue boundaries", queueBoundaries},
         {"diagnostic native writer (not acceptance)", nativeWriterDiagnostics},
         {"diagnostic raw refusal (not acceptance)", rawRefusalDiagnostics},

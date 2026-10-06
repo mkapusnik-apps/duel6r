@@ -63,6 +63,8 @@ namespace {
 
 D6R_TEST_CASE("Darwin physical admission rejects restricted AES SIMD failed and malformed sysctl before TLS and RNG") {
     using namespace Duel6::Network;
+    D6R_REQUIRE_EQ(std::string("Secure networking is unavailable. ARM AES and ASIMD are required."),
+                   std::string(SecureNetworkingUnavailableCopy));
     D6R_REQUIRE(SecureSession::supported());
     // The identical instrumentation must observe initialization with a usable
     // native socket. An invalid FD would let SO_NOSIGPIPE hide a missing gate.
@@ -126,7 +128,7 @@ D6R_TEST_CASE("Darwin directory capability admission precedes actual curl initia
     curl_global_cleanup();
 }
 
-D6R_TEST_CASE("Darwin missing hardware prevents host and CLI seed entropy before listener or world startup") {
+D6R_TEST_CASE("Darwin missing hardware prevents host manifest crypto and entropy before listener startup") {
     using namespace Duel6;
     struct Restore { ~Restore() { restriction = Restriction::None; d6rRandomFailureAt(0); } } restore;
     restriction = Restriction::NoAes;
@@ -147,11 +149,53 @@ D6R_TEST_CASE("Darwin missing hardware prevents host and CLI seed entropy before
     D6R_REQUIRE(!validationBegan);
     D6R_REQUIRE_EQ(0u, d6rRandomCalls());
     D6R_REQUIRE_EQ(0u, initializations);
-    char name[] = "unsupported-hardware", option[] = "--authoritative-match";
-    std::string resource = std::string("--resources=") + D6R_HARDWARE_RESOURCES;
-    char *arguments[] = {name, option, resource.data()};
-    std::istringstream input;
-    D6R_REQUIRE(Server::Authoritative::runAuthoritativeMatchCli(3, arguments, input, output) != 0);
-    D6R_REQUIRE_EQ(0u, d6rRandomCalls());
-    D6R_REQUIRE_EQ(0u, initializations);
+}
+
+D6R_TEST_CASE("Darwin CLI generated and explicit seeds cannot bypass physical admission before manifest hashing") {
+    using namespace Duel6;
+    struct Restore { ~Restore() { restriction = Restriction::None; d6rRandomFailureAt(0); } } restore;
+    for (const bool explicitSeed : {false, true}) {
+        for (const auto denied : {Restriction::NoAes, Restriction::NoSimd,
+                                  Restriction::QueryFailure, Restriction::ShortResult, Restriction::None}) {
+            restriction = denied; initializations = 0; d6rRandomFailureAt(0);
+            char name[] = "cli-admission", option[] = "--authoritative-match";
+            char scenario[] = "--scenario=interrupted", seed[] = "--seed=424242";
+            std::string resource = std::string("--resources=") + D6R_HARDWARE_RESOURCES;
+            char *arguments[] = {name, option, resource.data(), scenario, seed};
+            unsigned files = 0, hashes = 0, factories = 0, worlds = 0;
+            Server::Authoritative::AuthoritativeMatchCliDependencies dependencies;
+            dependencies.filesystemObserver = [&](auto stage, const auto &) {
+                ++files;
+                if (stage == Network::ManifestFilesystemStage::HashStarted) ++hashes;
+                return true;
+            };
+            dependencies.runtimeFactory = [&](const auto &, const auto &, const auto &) {
+                ++factories;
+                Server::Authoritative::MatchRuntimeDependencies runtime;
+                runtime.worldStart = [&](auto &) { ++worlds; return true; };
+                runtime.worldRemoveBatch = [](const auto &) { return true; };
+                return runtime;
+            };
+            std::istringstream input;
+            std::ostringstream output;
+            const auto status = Server::Authoritative::runAuthoritativeMatchCli(
+                explicitSeed ? 5 : 4, arguments, input, output, dependencies);
+            if (denied == Restriction::None) {
+                D6R_REQUIRE(Network::SecureSession::supported()); // Physical support is never fabricated.
+                D6R_REQUIRE_EQ(0, status);
+                D6R_REQUIRE(files > 0 && hashes > 0 && factories == 1 && worlds == 1);
+                D6R_REQUIRE(output.str().find("authoritative-match-interrupted-no-winner") != std::string::npos);
+                if (!explicitSeed) D6R_REQUIRE(d6rRandomCalls() > 0);
+            } else {
+                D6R_REQUIRE(status != 0);
+                D6R_REQUIRE_EQ(0u, files);
+                D6R_REQUIRE_EQ(0u, hashes);
+                D6R_REQUIRE_EQ(0u, factories);
+                D6R_REQUIRE_EQ(0u, worlds);
+                D6R_REQUIRE_EQ(0u, d6rRandomCalls());
+                D6R_REQUIRE_EQ(0u, initializations);
+                D6R_REQUIRE(output.str().find("authoritative-match-runtime-failed") != std::string::npos);
+            }
+        }
+    }
 }

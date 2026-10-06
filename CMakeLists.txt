@@ -59,12 +59,12 @@ if (APPLE)
         target_link_libraries(duel6r-darwin-hardware-crypto-tests PRIVATE duel6r-darwin-security)
         add_test(NAME darwin-hardware-crypto COMMAND duel6r-darwin-hardware-crypto-tests)
         add_executable(duel6r-darwin-hardware-admission-tests tests/TestMain.cpp tests/DarwinHardwareAdmissionTests.cpp)
-        target_sources(duel6r-darwin-hardware-admission-tests PRIVATE source/client/DirectoryOrigin.cpp
+        target_sources(duel6r-darwin-hardware-admission-tests PRIVATE
             source/json/JsonParser.cpp source/json/JsonValue.cpp source/Format.cpp source/File.cpp source/msdir.c)
         target_include_directories(duel6r-darwin-hardware-admission-tests PRIVATE ${CURL_INCLUDE_DIRS})
         target_compile_definitions(duel6r-darwin-hardware-admission-tests PRIVATE D6R_HARDWARE_RESOURCES="${CMAKE_SOURCE_DIR}/resources")
         target_link_libraries(duel6r-darwin-hardware-admission-tests PRIVATE duel6r-darwin-security ${CURL_LIBRARIES}
-            duel6r-canonical-gameplay-core duel6r-darwin-random-faults)
+            duel6r-canonical-gameplay-core duel6r-darwin-random-faults duel6r-directory-origin)
         add_test(NAME darwin-hardware-admission COMMAND duel6r-darwin-hardware-admission-tests)
         add_executable(duel6r-darwin-secure-session-tests tests/TestMain.cpp tests/NativeSecureSessionTests.cpp)
         target_link_libraries(duel6r-darwin-secure-session-tests PRIVATE duel6r-darwin-security)

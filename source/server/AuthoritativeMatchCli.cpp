@@ -454,7 +454,17 @@ namespace Duel6::Server::Authoritative {
                                  AuthoritativeMatchCliDependencies cliDependencies) {
         try {
             CliOptions options = parse(argc, argv);
-            const Network::ManifestBuildResult built = Network::CompatibilityManifestBuilder(options.resources, {}).build();
+#ifdef __APPLE__
+            // The CLI is also a native network acceptance entry point. Explicit
+            // deterministic seeds must not bypass admission before manifest crypto.
+            if (!Network::SecureSession::supported()) {
+                const auto failed = terminalOutcome(OutcomeCode::RuntimeFailed);
+                printOutcome(output, failed, std::nullopt);
+                return failed.exitStatus;
+            }
+#endif
+            const Network::ManifestBuildResult built = Network::CompatibilityManifestBuilder(
+                    options.resources, {}, {}, cliDependencies.filesystemObserver).build();
             if (!built.valid()) {
                 output << "host-gameplay-content-manifest-invalid\n"
                        << "Hosted gameplay content is invalid. Restore the supported gameplay content and restart the application.\n";
