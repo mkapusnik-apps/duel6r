@@ -192,9 +192,9 @@ Presentation-only choices do not use the authoritative seed. This exclusion incl
 - **AHM-PRES-002** The authoritative service must not add a fallback-background selection to canonical state or the session-only result.
 - **AHM-PRES-003** Each client must apply the presentation-only background rules in `NET-VIS-012` through `NET-VIS-017`.
 
-## Linux and Windows semantic determinism
+## Approved-platform semantic determinism
 
-Linux x86-64 and Windows x86-64 hosts must provide semantic determinism.
+Approved hosts must provide semantic determinism: Linux x86-64, Windows x86-64, Raspberry Pi 5 Linux 64-bit under its platform contract, and experimental Apple Silicon macOS 14+ under its platform contract.
 
 The comparison inputs are:
 
@@ -584,7 +584,7 @@ It must document the process exit meanings without claiming playable networking 
 - **AHM-AC-015 — Host End:** Only accepted host End session must produce `authoritative-match-ended-intentionally` and discard session results.
 - **AHM-AC-016 — Seed:** Each match must use one nonzero seed that remains fixed and appears in its session-only result.
 - **AHM-AC-017 — Random scope:** The seed and authoritative actions must determine every listed gameplay-affecting random choice.
-- **AHM-AC-018 — Cross-platform determinism:** Equal approved inputs on Linux and Windows must produce semantically equal authoritative decisions, progression, and results.
+- **AHM-AC-018 — Cross-platform determinism:** Equal approved inputs on approved platforms must produce semantically equal authoritative decisions, progression, and results. Native Mac automated CLI fixture comparison against the Linux/Windows fixtures is required before pre-review and merge under MAC-NET-AC-005, with immutable source/artifact, release/content, and input provenance. This does not require live cross-OS gameplay before merge; that Mac verification remains deferred under MAC-NET-AC-006.
 - **AHM-AC-019 — Script exclusion:** A network match must not load or execute an optional Lua, profile, or gameplay script.
 - **AHM-AC-020 — Completed result:** A completed match must keep distinct result state, match outcome, last completed-round outcome, and cumulative rankings. Its match outcome must equal its final round outcome.
 - **AHM-AC-021 — Player ranking:** Player rows must follow points, wins, damage, and roster-order precedence. The leading player must not become a match champion.
@@ -613,7 +613,7 @@ When `team` requests product acceptance, the evidence packet must identify the i
 - Tester results must cover each level plan, each Boolean setting, round limits `1` and `99`, and rejected limits.
 - Tester results must cover host advancement, automatic advancement, and rejected guest or pre-winner advancement.
 - Tester results must cover the complete random-decision scope with repeated fixed-seed scenarios.
-- Tester results must compare semantic decisions and results on Linux x86-64 and Windows x86-64.
+- Verification results must compare semantic decisions and results on approved platforms under their platform contracts, including the required native Mac automated comparisons in [MAC-NET-AC-005](macos.md#mandatory-native-automated-network-acceptance). Deferred live Mac gameplay is not an automated determinism pass.
 - Tester results must confirm that network matches do not load or execute optional scripts.
 - Tester results must confirm completed, interrupted, invalid-settings, unavailable-content, runtime-failure, End session, and cleanup-failure outcomes.
 - Tester results must confirm every exact identifier, fixed copy, result field, ranking rule, and process exit meaning.

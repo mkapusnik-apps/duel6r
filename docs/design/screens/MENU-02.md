@@ -1,12 +1,12 @@
-# MENU-02 — macOS local-only message variant
+# MENU-02 — Retired macOS local-only message variant
 
 ## Scope and authority
 
-This section owns presentation for `MENU-02-MAC-LOCAL` over `MENU-01-MAC-LOCAL` only. The [functional contract](../../screens/menu-message.md) and [MAC-NET-001–008](../../macos.md#network-entry) own the exact copy, activation, dismissal, retention, and window-close behavior. Other message variants and platforms remain unchanged.
+`MENU-02-MAC-LOCAL` over `MENU-01-MAC-LOCAL` and UX-MAC-MSG-001 through UX-MAC-MSG-011 below are retired historical-only requirements. They record the former local-only build, not the network-capable target. The [functional contract](../../screens/menu-message.md) and [macOS network contract](../../macos.md#network-entry) now route Network to [NET-01](NET-01.md). Other message variants and platforms remain unchanged.
 
 Structural baseline: existing [MENU-02](../../screens/wireframes/menu-message.md) and [MENU-01-A / MENU-01-B](../../screens/wireframes/menu-main.md). Reuse all wireframes unchanged. No migration or new wireframe is required. Styling remains owned by [the existing design system](../../design.md).
 
-## Presentation requirements
+## Historical presentation requirements (retired)
 
 - **UX-MAC-MSG-001** The variant must retain the existing Network button caption, bounds, and enabled appearance in the four-action footer.
 - **UX-MAC-MSG-002** The message strip must occupy the existing centered MENU-02 position above the unchanged menu.
@@ -22,8 +22,8 @@ Structural baseline: existing [MENU-02](../../screens/wireframes/menu-message.md
 
 The existing fixed 850 by 700 logical canvas, desktop scaling, and no-reflow rules apply. No mobile presentation is introduced. The message has no focused action or pointer dismissal affordance. Its visible keyboard instruction explains the approved recovery path; this bounded variant does not redesign the existing message interaction.
 
-## Acceptance and evidence
+## Historical acceptance and current evidence boundary
 
-The message must remain complete and legible without clipping, smaller text, or a new layout at supported desktop sizes. Check the 850 by 700 compatibility floor and the 1280 by 720 evaluation minimum when a native Mac is available. Larger clients must retain the existing scale cap. The retained menu must have the same presentation before and after dismissal.
+The retired variant required complete, legible copy and retained-menu presentation. It is no longer a required capture or acceptance state for network-capable macOS. The existing MENU-02 wireframe and unrelated messages remain unchanged.
 
-Use the [coordinated deferred matrix](../screenshots/README.md#macos-local-only-deferred-coverage). MAC-AC-006–009 explicitly defer native Mac runtime, gameplay, and visual verification until after merge and nightly publication. Specification readiness is not native visual acceptance. Existing other-platform images do not prove macOS rendering.
+Use the [coordinated deferred matrix](../screenshots/README.md#macos-deferred-coverage). MAC-AC-006–009 and MAC-NET-AC-006 defer actual Mac GUI, gameplay, live cross-OS, and visual verification until after merge/nightly; native automated MAC-NET-AC-001–005 remain mandatory before pre-review and merge. Specification readiness is not native visual acceptance. Existing other-platform images do not prove macOS rendering.

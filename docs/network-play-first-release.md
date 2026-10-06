@@ -43,8 +43,8 @@ The [host directory contract](network-host-directory.md) owns listing, browsing,
 
 | Dimension | Supported target | Explicitly unsupported |
 |---|---|---|
-| Platforms | Linux x86-64 and Windows x86-64 | Other operating systems and architectures |
-| Cross-platform play | Linux and Windows x86-64 participants in one session | Other targets |
+| Platforms | Linux x86-64, Windows x86-64, Raspberry Pi 5 Linux 64-bit under its platform contract, and experimental Apple Silicon macOS 14+ under its platform contract | Other operating systems and architectures |
+| Cross-platform play | Approved platforms using the same supported release and gameplay content; platform-specific acceptance boundaries apply | Other targets; blanket claims of verified interoperability |
 | Network environments | Same-machine and LAN support; other valid IPv4 connections permitted | Guaranteed Internet reachability or performance, NAT traversal, relays, public-service safety claims |
 | Connection method | Explicit listening address; direct join; central host browser | Automatic LAN discovery, matchmaking |
 | Hosting | Player-hosted authoritative session | Dedicated server deployment and host migration |
@@ -388,7 +388,7 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 
 - **NET-SET-AC-001 — Mode changes:** Switching from Team deathmatch with Friendly Fire on to Deathmatch and then Predator must apply valid non-team settings on host and guests. A subsequent setting edit must apply normally. Each configuration change must clear readiness. Returning to Team deathmatch must restore both Team preferences.
 - **NET-RES-AC-001 — Complete retained winners:** After Leave or reservation expiry during final summary, each completed outcome must preserve its complete winner identities. Affected result rows must show `Departed`. Returning directly to the lobby must exclude removed participants and their players from membership and readiness. Participants must be able to read every winner's complete display name and identity in the summary and retained lobby result, including multiwinner outcomes with supported maximum-length names.
-- **NET-AC-001 — Platform:** Linux x86-64 and Windows x86-64 instances can participate together, and no other platform or architecture is claimed.
+- **NET-AC-001 — Platform:** Linux x86-64, Windows x86-64, Raspberry Pi 5 Linux 64-bit under [its contract](raspberry-pi5.md), and Apple Silicon macOS 14+ under [its experimental contract](macos.md) are approved participation targets using the same supported release and gameplay content. This is not a blanket verified-platform claim. Native Mac automated acceptance is required before pre-review and merge; actual Mac GUI and live cross-OS gameplay are deferred to the user after merge/nightly under MAC-NET-AC-006.
 - **NET-AC-002 — Endpoints:** A host can select an eligible assigned loopback, private, or public unicast IPv4 address. Direct and browser joining preserve LAN support without promising Internet reachability. Invalid address exclusions and no network-infrastructure automation remain enforced.
 - **NET-AC-003 — Host model:** The session is player-hosted and authoritative, with no dedicated-server product path or host migration.
 - **NET-AC-004 — Lifecycle cardinality:** A lobby admits 1–15 participants and players including a valid host-alone lobby; Start requires 2–15 connected participants and players with at least one player each; a degraded match may continue with one connected host while at least two roster players remain; fewer than two ends without winner.

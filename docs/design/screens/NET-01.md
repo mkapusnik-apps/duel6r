@@ -11,6 +11,9 @@ The [shared visual baseline](../../design.md#unified-network-presentation) appli
 - **UX-NET-01-003** Scope copy must remain separate from the first action by at least one text row.
 - **UX-NET-01-004** A focused enabled action must retain the same surface and caption alignment as the other enabled actions.
 - **UX-NET-01-005** An unavailable action must retain a readable boundary and its existing reason without moving Back off screen.
+- **UX-NET-01-006** The platform-scope line must show exactly `Use the same supported release and gameplay content`.
+- **UX-NET-01-007** This line must retain its existing position between the directory-scope line and the participant-limit line.
+- **UX-NET-01-008** The line must use the existing text size and remain readable without overlap, clipping, or movement of adjacent content.
 
 - The screen must retain its banner, scope region, and centered action column.
 - The action column must show `Host`, `Browse sessions`, `Direct connect`, and `Back` in that order.
@@ -28,3 +31,7 @@ The [shared visual baseline](../../design.md#unified-network-presentation) appli
 ## Acceptance
 
 All four actions must fit the existing canvas without a second task panel or scrolling. Local Play must remain outside this network flow. At initial entry, Host must have a visible outer focus keyline and all four actions must remain identifiable as buttons. Keyboard, controller, and pointer checks must reach the same existing destinations. The representative and focused edge checks are in the [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix).
+
+The scope line refers to the approved functional platform, release, and content contracts; it does not promise compatibility across all versions or verified support on every platform. This document is the sole exact-copy authority for that line.
+
+The macOS extension must preserve the corrected pointer mapping and full-drawable baseline from PR #110 and PR #119 through entry, setup, browser, lobby, arena, results, reconnect, failures, confirmations, and return transitions. Keep existing logical layouts and text sizes; do not substitute a quarter-surface viewport or misaligned pointer regions. Native Mac visual conformance is deferred, not passed, under the [coordinated matrix](../screenshots/README.md#macos-deferred-coverage); automated evidence is not native visual assessment.
