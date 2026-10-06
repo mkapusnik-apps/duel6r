@@ -85,8 +85,10 @@ class MacPackagingTests(unittest.TestCase):
 
     def test_dependency_closure_requires_private_curl_without_any_substitute(self):
         prefix, _, library = self.private_curl_fixture()
-        self.assertEqual(library, package.require_private_curl([library], prefix))
+        self.assertEqual(library.resolve(), package.require_private_curl([library], prefix))
         homebrew = self.build / "Cellar/curl/8.21.0/lib/libcurl.4.dylib"
+        homebrew.parent.mkdir(parents=True)
+        homebrew.write_bytes(library.read_bytes())  # Equal bytes are not an approved origin.
         for origins in ([], [homebrew], [library, homebrew]):
             with self.subTest(origins=origins), self.assertRaisesRegex(RuntimeError, "pinned private curl"):
                 package.require_private_curl(origins, prefix)
@@ -95,6 +97,27 @@ class MacPackagingTests(unittest.TestCase):
         library.symlink_to(outside)
         with self.assertRaisesRegex(RuntimeError, "escapes its prefix"):
             package.require_private_curl([outside], prefix)
+
+    def test_private_curl_accepts_directory_aliases_but_not_foreign_or_missing_origins(self):
+        prefix, _, library = self.private_curl_fixture()
+        # Reproduce Darwin's /var -> /private/var spelling difference on Linux.
+        alias = self.output / "var"
+        alias.symlink_to(self.build, target_is_directory=True)
+        alias_prefix = alias / "curl"
+        alias_library = alias_prefix / "lib/libcurl.4.dylib"
+        self.assertNotEqual(alias_library, library.resolve())
+        self.assertTrue(alias_library.samefile(library))
+        for selected_prefix in (prefix, alias_prefix):
+            for origins in ([library], [alias_library], [library, alias_library]):
+                with self.subTest(prefix=selected_prefix, origins=origins):
+                    self.assertEqual(library.resolve(), package.require_private_curl(origins, selected_prefix))
+        foreign = self.build / "foreign/libcurl.4.dylib"
+        foreign.parent.mkdir()
+        foreign.write_bytes(library.read_bytes())
+        for origin in (alias / "foreign/libcurl.4.dylib", alias / "missing/libcurl.4.dylib"):
+            for origins in ([origin], [alias_library, origin]):
+                with self.subTest(origins=origins), self.assertRaisesRegex(RuntimeError, "pinned private curl"):
+                    package.require_private_curl(origins, alias_prefix)
 
     def test_versioned_main_executable_is_staged_as_one_regular_file(self):
         # This is the layout recorded by snapshot run 37123730851 and produced

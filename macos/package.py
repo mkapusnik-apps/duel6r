@@ -18,7 +18,13 @@ def require_private_curl(origins, prefix):
     library = (prefix / "lib/libcurl.4.dylib").resolve(strict=True)
     if not library.is_relative_to(prefix.resolve()):
         raise RuntimeError("Private curl library escapes its prefix")
-    curl_origins = {path for path in origins if path.name.startswith("libcurl")}
+    # Directory aliases (notably Darwin's /var -> /private/var) must be
+    # canonicalized on both sides. Equal contents at a foreign path do not
+    # establish the required private dependency origin.
+    try:
+        curl_origins = {path.resolve(strict=True) for path in origins if path.name.startswith("libcurl")}
+    except (OSError, RuntimeError) as error:
+        raise RuntimeError("Expected only the pinned private curl in dependency closure: unresolved origin") from error
     if curl_origins != {library}:
         raise RuntimeError(f"Expected only the pinned private curl in dependency closure: {curl_origins}")
     return library
