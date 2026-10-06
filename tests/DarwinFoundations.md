@@ -349,3 +349,60 @@ downloaded real archive also contains the required 26419-byte COPYING.LIB notice
 Application sources and native test inputs are unchanged, so the 27 native passes
 remain reusable evidence. Artifact identity is not frozen: package completion and
 actual post-package execution remain mandatory gates.
+
+## Maintained native transport observation coverage
+
+Production `4df66053ef0457de70062f051019b13325b13433` and its accepted artifact
+remain frozen. The required native check at evidence-only `9dca8fc` subsequently
+failed two test fixtures despite identical production inputs. Supplied CTest log
+SHA-256: `26adc8e796145770fbc00abd1c164d6b39c8e25184fcaa9ad0c3e4ed0aeb7427`;
+job log: `5f30b00069d3a73e62d1047c2ed573c5ea5479c13c48d184846d8abd03a50582`.
+The original production queue, deterministic deadline, lifecycle and cancellation
+cases passed in that run. The failing supplemental receipt did not record its
+terminal/progress interval, so its terminal classification alone is not a pass.
+
+The owner-approved correction is test-only and supersedes the receiver-occupancy
+readiness assumption described earlier:
+
+- `SO_RCVBUF` remains a checked positive socket hint, not a required 1x–2x size
+  relationship. One-way liveness still verifies real ordered payloads, initial and
+  sustained backpressure, 10/20/30-second delivery checkpoints, the full 34-second
+  observation, ping/pong handling and complete delivery within the existing
+  45-second drain budget. Requested/reported buffer values are recorded.
+- A native stall candidate depends on producer progress, outstanding output and
+  non-writable IO. Receiver occupancy is diagnostic only and cannot reset the
+  producer's quiet interval. An already-published terminal receipt is evaluated
+  before any live-observer bookkeeping, without requiring an earlier poll to have
+  recognized a quiet state. Setup remains 12 seconds and total observation 19.
+- Acceptance requires bounded accepted output/backpressure, actual native calls
+  and bytes, outstanding output, blocked IO, valid producer/terminal timestamps,
+  `TimedOut` plus `OutboundStalled`, a quiet interval within setup, and the existing
+  4.5–7-second native observation guard. That guard is not the production timer:
+  the exact five-second deterministic deadline tests remain unchanged.
+- The former supplemental writer case is now `native writer expiry survives
+  delayed observation`: real sockets run until terminal publication before the
+  helper first observes them. Embedded test-side receipt controls reject early,
+  missing, future/reversed, wrong-cause, completed-output, missing-blockage and
+  setup/overall-budget-invalid evidence. Synthetic receipts test only this
+  classifier; they do not replace the actual native socket scenario.
+- The former raw-refusal diagnostic now asserts raw and production outcomes for
+  stopped listeners and bound-but-not-listening endpoints, including bounded
+  pending cancellation or correctly classified startup expiry. It never consumes
+  `SO_ERROR` from the production socket.
+
+All 26 transport cases remain; no failing case is removed or skipped. The owner
+explicitly adopts existing `NativeWriteObservations` as permanent application
+regression support for native queue/progress evidence. Its fixed-size read-only
+counters are unchanged, affect no production decisions, and have no runtime flag
+or debug service. No production observer code, limits, workflow, specification,
+UX artifact or frozen application input changes in this correction. This is
+focused invalidated-test revalidation, not a new independent QA campaign. Source
+reassessment precedes push; the required final-head native check must still pass.
+
+Routine local revalidation: Docker image
+`sha256:604c41dbb788156bb580ae4eee88c7a00d6e06e9facf9cadccc1ba705e00d57e`,
+Release, `D6R_TRANSPORT_ONLY=ON`, `BUILD_TESTING=ON`. All four focused cases pass,
+followed by the complete 26-case transport suite (96.42 seconds, no failures).
+The focused delayed-observer receipt reports a 5006 ms progress-to-terminal
+interval with real native calls, outstanding output and non-writable evidence.
+These are local Linux results, not a replacement for the failed native CI check.
