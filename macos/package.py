@@ -55,9 +55,9 @@ def collect_private_curl(prefix, archive, licenses):
     return metadata
 
 
-def run(*args):
+def run(*args, timeout=None):
     try:
-        return subprocess.check_output([str(arg) for arg in args], text=True).strip()
+        return subprocess.check_output([str(arg) for arg in args], text=True, timeout=timeout).strip()
     except subprocess.CalledProcessError as error:
         print(error.output)
         raise
@@ -83,16 +83,46 @@ def supplement_notices(name, keg, target, cache, packet):
             f"actual sha256={recipe_hash}; expected sha256={','.join(packet['recipe_sha256'])}")
     cache.mkdir(parents=True, exist_ok=True)
     (target / "sources").mkdir(parents=True, exist_ok=True)
+    retrievals = []
     for source in packet["sources"]:
         filename = source["url"].rsplit("/", 1)[1]
         archive = cache / filename
-        if not archive.exists():
+        cache_hit = archive.exists()
+        requested_url = effective_url = None
+        if not cache_hit:
             partial = archive.with_name(filename + ".part")
-            run("curl", "--fail", "--location", "--retry", "3", "--proto", "=https",
-                "--proto-redir", "=https", "--tlsv1.2", source["url"], "-o", partial)
-            partial.replace(archive)
-        if hashlib.sha256(archive.read_bytes()).hexdigest() != source["sha256"]:
+            partial.unlink(missing_ok=True)
+            urls = [source["url"], *source.get("fallback_urls", [])]
+            for url in urls:
+                try:
+                    # Explicit mirrors replace repeated attempts at one failed
+                    # host. Preserve three retries for packets without mirrors.
+                    effective = run("curl", "--fail", "--location", "--retry", "0" if len(urls) > 1 else "3",
+                                    "--connect-timeout", "10", "--max-time", "120", "--max-redirs", "5",
+                                    "--proto", "=https", "--proto-redir", "=https", "--tlsv1.2",
+                                    "--write-out", "%{url_effective}", url, "-o", partial,
+                                    timeout=125 if len(urls) > 1 else 500)
+                    if not effective.startswith("https://"):
+                        raise RuntimeError(f"Non-HTTPS source origin: {filename}")
+                    if hashlib.sha256(partial.read_bytes()).hexdigest() != source["sha256"]:
+                        # Integrity failure is not a transport outage. Do not
+                        # hide it with fallback or promote corrupt cache bytes.
+                        raise RuntimeError(f"Source checksum mismatch: {filename}")
+                    partial.replace(archive)
+                    requested_url, effective_url = url, effective
+                    break
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    print(f"Source retrieval failed: {url}")
+                finally:
+                    partial.unlink(missing_ok=True)
+            else:
+                raise RuntimeError(f"Source retrieval exhausted approved endpoints: {filename}")
+        elif hashlib.sha256(archive.read_bytes()).hexdigest() != source["sha256"]:
             raise RuntimeError(f"Source checksum mismatch: {filename}")
+        # Old verified caches have no retrieval receipt. Record that honestly;
+        # never infer a primary or mirror origin merely from the archive name.
+        retrievals.append({"archive": filename, "sha256": source["sha256"], "cache_hit": cache_hit,
+                           "requested_url": requested_url, "effective_url": effective_url})
         # LGPL supplements retain complete source and Homebrew modifications.
         # The reviewed libxmp notice-only input also contains test music: extract
         # its notices without distributing that archive or unrelated test data.
@@ -112,7 +142,7 @@ def supplement_notices(name, keg, target, cache, packet):
     for relative in packet["required_notices"]:
         if not (target / "upstream" / relative).is_file():
             raise RuntimeError(f"Source packet lacks required notice: {relative}")
-    provenance = {**packet, "installed_recipe_sha256": recipe_hash}
+    provenance = {**packet, "installed_recipe_sha256": recipe_hash, "retrievals": retrievals}
     (target / "source-provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
 
 

@@ -78,6 +78,15 @@ extracted notices under `upstream`, and URLs/checksums in `source-provenance.jso
 The original recipe and installation receipt describe Homebrew build choices;
 packaging changes library load paths and ad-hoc seals, not library source code.
 No upstream attribution or license terms are replaced by generated summaries.
+Gettext 1.0 source retrieval has one explicit HTTPS fallback on kernel.org's GNU
+mirror, using the same pinned archive digest. The primary and fallback are each
+attempted once, with a 10-second connection limit, 120-second transfer limit, five-redirect
+limit and 125-second process bound. Packets without a mirror retain three retries,
+bounded by 500 seconds per curl process. Only transport failures try another
+approved endpoint; a checksum mismatch fails closed and is never cached. Source
+provenance records requested/effective download URLs, or explicitly records a
+verified cache hit with unknown original retrieval URLs. Required source archives
+and notices are not omitted when retrieval fails.
 Notice discovery is not a blanket legal-compliance determination: the applicable
 LGPL/source, modification and redistribution obligations continue to apply to
 every bundled dependency. The collector audits the actual transitive closure

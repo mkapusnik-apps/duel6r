@@ -325,3 +325,27 @@ pending post-closure SS-015 capture are unchanged. The DevOps-prepared directory
 backend at `0a1981c` is unchanged and remains reusable; this batch does not
 provision, reset or reconfigure it. Copied local build workspaces are candidate
 verification outputs, not a frozen independent-QA release artifact.
+
+## Package-source retrieval after `9442099`
+
+The supplied native checkpoint passed all 27 CTests without skips and all 20
+then-current packaging unit tests. Its CTest log SHA-256 is
+`b21434e283795def0914fdba297473b97071d9fb8d5c1aa80b81beafea69ffff`;
+job log SHA-256 is
+`d35437cfe24723b62b617039a9381c9ae4bc5624287bd8dfa4d1043d0c9bcf64`.
+Packaging then failed after four connection timeouts fetching the pinned GNU
+gettext 1.0 source archive. No application ZIP or post-package pass existed.
+
+The retrieval correction changes package inputs only: one explicit HTTPS
+kernel.org GNU fallback, unchanged archive SHA-256, bounded attempts, mandatory
+checksum validation before cache promotion, and truthful retrieval provenance.
+The real mirror returned HTTP 200 and 32694085 bytes with the existing digest
+`85d99b79c981a404874c02e0342176cf75c7698e2b51fe41031cf6526d974f1a`.
+Regression coverage distinguishes transport failures from integrity failures,
+retains the full source/notice packet, checks endpoint exhaustion and cache reuse,
+and records the actual requested/effective mirror URLs for fresh downloads.
+All 24 portable packaging tests and Python syntax checks pass in Docker. The
+downloaded real archive also contains the required 26419-byte COPYING.LIB notice.
+Application sources and native test inputs are unchanged, so the 27 native passes
+remain reusable evidence. Artifact identity is not frozen: package completion and
+actual post-package execution remain mandatory gates.

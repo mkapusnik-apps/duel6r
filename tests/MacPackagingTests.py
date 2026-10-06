@@ -368,6 +368,109 @@ endif()
         self.assertIn(packet["recipe_sha256"][0], str(caught.exception))
         self.assertIn(str(keg / ".brew/example.rb"), str(caught.exception))
 
+    def test_source_transport_failure_uses_only_approved_mirror_and_records_actual_origin(self):
+        keg, cache, packet = self.source_fixture()
+        source = packet["sources"][0]
+        source["fallback_urls"] = ["https://mirror.example.invalid/example-1.0.tar.gz"]
+        archive = cache / "example-1.0.tar.gz"
+        original = archive.read_bytes()
+        archive.unlink()
+        attempts = []
+
+        def download(*arguments, timeout=None):
+            url = arguments[-3]
+            partial = Path(arguments[-1])
+            self.assertFalse(partial.exists())
+            attempts.append(url)
+            self.assertEqual(125, timeout)
+            for option, value in (("--retry", "0"), ("--connect-timeout", "10"), ("--max-time", "120"),
+                                  ("--max-redirs", "5"), ("--proto", "=https"), ("--proto-redir", "=https")):
+                self.assertEqual(value, arguments[arguments.index(option) + 1])
+            if url == source["url"]:
+                partial.write_bytes(b"incomplete transport response")
+                raise subprocess.CalledProcessError(28, arguments)
+            partial.write_bytes(original)
+            return "https://cdn.example.invalid/gnu/example-1.0.tar.gz"
+
+        licenses = self.output / "licenses"
+        with patch.object(package, "run", side_effect=download):
+            package.collect_notices({"example": keg}, licenses, cache, {"example": packet})
+        self.assertEqual([source["url"], *source["fallback_urls"]], attempts)
+        self.assertEqual(original, archive.read_bytes())
+        self.assertEqual(original, (licenses / "example/sources/example-1.0.tar.gz").read_bytes())
+        self.assertTrue((licenses / "example/upstream" / packet["required_notices"][0]).is_file())
+        provenance = json.loads((licenses / "example/source-provenance.json").read_text())
+        self.assertEqual(packet["sources"], provenance["sources"])
+        self.assertEqual({"archive": archive.name, "sha256": source["sha256"], "cache_hit": False,
+                          "requested_url": source["fallback_urls"][0],
+                          "effective_url": "https://cdn.example.invalid/gnu/example-1.0.tar.gz"},
+                         provenance["retrievals"][0])
+        self.assertFalse(archive.with_name(archive.name + ".part").exists())
+        # Verified caches stay usable without inventing a historical download URL.
+        with patch.object(package, "run", side_effect=AssertionError("unexpected download")):
+            package.collect_notices({"example": keg}, licenses, cache, {"example": packet})
+        cached = json.loads((licenses / "example/source-provenance.json").read_text())["retrievals"][0]
+        self.assertTrue(cached["cache_hit"])
+        self.assertIsNone(cached["requested_url"])
+        self.assertIsNone(cached["effective_url"])
+
+    def test_source_digest_failure_never_promotes_cache_or_hides_behind_another_mirror(self):
+        keg, cache, packet = self.source_fixture()
+        source = packet["sources"][0]
+        source["fallback_urls"] = ["https://mirror.example.invalid/example-1.0.tar.gz"]
+        archive = cache / "example-1.0.tar.gz"
+        archive.unlink()
+        for corrupt_mirror in (False, True):
+            attempts = []
+
+            def download(*arguments, timeout=None):
+                url = arguments[-3]
+                attempts.append(url)
+                Path(arguments[-1]).write_bytes(b"not the pinned source archive")
+                if corrupt_mirror and url == source["url"]:
+                    raise subprocess.TimeoutExpired(arguments, timeout)
+                return url
+
+            with self.subTest(mirror=corrupt_mirror), patch.object(package, "run", side_effect=download):
+                with self.assertRaisesRegex(RuntimeError, "Source checksum mismatch"):
+                    package.collect_notices({"example": keg}, self.output / "licenses", cache, {"example": packet})
+            self.assertEqual([source["url"], *source["fallback_urls"]] if corrupt_mirror else [source["url"]], attempts)
+            self.assertFalse(archive.exists())
+            self.assertFalse(archive.with_name(archive.name + ".part").exists())
+
+    def test_single_source_keeps_retries_with_a_bounded_process_and_verified_provenance(self):
+        keg, cache, packet = self.source_fixture()
+        source = packet["sources"][0]
+        archive = cache / "example-1.0.tar.gz"
+        original = archive.read_bytes()
+        archive.unlink()
+
+        def download(*arguments, timeout=None):
+            self.assertEqual(500, timeout)
+            self.assertEqual("3", arguments[arguments.index("--retry") + 1])
+            Path(arguments[-1]).write_bytes(original)
+            return source["url"]
+
+        with patch.object(package, "run", side_effect=download) as request:
+            package.collect_notices({"example": keg}, self.output / "licenses", cache, {"example": packet})
+        self.assertEqual(1, request.call_count)
+        record = json.loads((self.output / "licenses/example/source-provenance.json").read_text())["retrievals"][0]
+        self.assertEqual(source["url"], record["requested_url"])
+        self.assertEqual(source["url"], record["effective_url"])
+
+    def test_source_exhausts_bounded_endpoints_without_omitting_required_packet(self):
+        keg, cache, packet = self.source_fixture()
+        source = packet["sources"][0]
+        source["fallback_urls"] = ["https://mirror.example.invalid/example-1.0.tar.gz"]
+        archive = cache / "example-1.0.tar.gz"
+        archive.unlink()
+        with patch.object(package, "run", side_effect=subprocess.CalledProcessError(28, "curl")) as download:
+            with self.assertRaisesRegex(RuntimeError, "Source retrieval exhausted approved endpoints"):
+                package.collect_notices({"example": keg}, self.output / "licenses", cache, {"example": packet})
+        self.assertEqual(2, download.call_count)
+        self.assertFalse(archive.exists())
+        self.assertFalse((self.output / "licenses/example/source-provenance.json").exists())
+
     def test_reviewed_readme_and_credits_are_copied_without_test_music_or_archive(self):
         keg, cache, packet = self.source_fixture({
             "example-1.0/README": b"fixture complete readme and main license\n",
