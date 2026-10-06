@@ -25,11 +25,7 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
-#ifdef __APPLE__
-#include <unistd.h>
-#else
 #include <sys/random.h>
-#endif
 #if defined(__GLIBC__) || defined(__linux__)
 #include <strings.h>
 #endif

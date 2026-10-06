@@ -5,11 +5,18 @@
 #include <mbedtls/ctr_drbg.h>
 #include <cerrno>
 #include <cstring>
+#include <sys/socket.h>
+#include <unistd.h>
 
 namespace {
     enum class Restriction { None, NoAes, NoSimd, QueryFailure, ShortResult };
     Restriction restriction = Restriction::None;
     unsigned initializations = 0;
+    struct SocketPair {
+        int descriptors[2]{-1, -1};
+        SocketPair() { D6R_REQUIRE(socketpair(AF_UNIX, SOCK_STREAM, 0, descriptors) == 0); }
+        ~SocketPair() { for (int descriptor : descriptors) if (descriptor >= 0) close(descriptor); }
+    };
     int restrictedQuery(const char *name, void *value, size_t *size, void *newValue, size_t newSize) {
         const int physical = sysctlbyname(name, value, size, newValue, newSize);
         if (physical != 0) return physical;
@@ -40,15 +47,30 @@ namespace {
 D6R_TEST_CASE("Darwin physical admission rejects restricted AES SIMD failed and malformed sysctl before TLS and RNG") {
     using namespace Duel6::Network;
     D6R_REQUIRE(SecureSession::supported());
+    // The identical instrumentation must observe initialization with a usable
+    // native socket. An invalid FD would let SO_NOSIGPIPE hide a missing gate.
+    {
+        SocketPair sockets;
+        initializations = 0;
+        SecureSession session(sockets.descriptors[0], false, {});
+        D6R_REQUIRE(!session.expired());
+        D6R_REQUIRE_EQ(3u, initializations);
+    }
     for (const auto denied : {Restriction::NoAes, Restriction::NoSimd,
                              Restriction::QueryFailure, Restriction::ShortResult}) {
         restriction = denied;
         initializations = 0;
         D6R_REQUIRE(!SecureSession::supported());
-        SecureSession session(-1, false, {});
+        SocketPair sockets;
+        SecureSession session(sockets.descriptors[0], false, {});
         D6R_REQUIRE(session.expired());
         D6R_REQUIRE_EQ(0u, initializations);
     }
     restriction = Restriction::None;
     D6R_REQUIRE(SecureSession::supported());
+    SocketPair sockets;
+    initializations = 0;
+    SecureSession session(sockets.descriptors[0], false, {});
+    D6R_REQUIRE(!session.expired());
+    D6R_REQUIRE_EQ(3u, initializations);
 }

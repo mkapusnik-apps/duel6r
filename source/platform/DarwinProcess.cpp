@@ -140,18 +140,28 @@ namespace Duel6::Platform::Darwin {
         const int noSignal = 1;
         if (queue.get() < 0 || !nonblocking(status)
             || setsockopt(status, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, sizeof(noSignal)) != 0) return 2;
-        if (parentGone(queue.get(), parentLife, 0)) return report(status, GuardianEvent::Cleaned, 0) ? 0 : 2;
+        bool statusOpen = true;
+        const auto publish = [&](GuardianEvent event, pid_t worker) {
+            if (!statusOpen) return false;
+            if (report(status, event, worker)) return true;
+            // A partial fixed frame cannot be followed by another frame: that
+            // would allow a reader to accidentally resynchronize on mixed bytes.
+            statusOpen = false;
+            shutdown(status, SHUT_WR);
+            return false;
+        };
+        if (parentGone(queue.get(), parentLife, 0)) return publish(GuardianEvent::Cleaned, 0) ? 0 : 2;
         int pipeEnds[2];
         if (pipe(pipeEnds) != 0) return 2;
         Descriptor reader(moveAboveReserved(pipeEnds[0]));
         Descriptor writer(moveAboveReserved(pipeEnds[1]));
         if (reader.get() < 0 || writer.get() < 0) return 2;
         // Registration and the pre-spawn cancel check precede all worker code.
-        if (parentGone(queue.get(), parentLife, 0)) return report(status, GuardianEvent::Cleaned, 0) ? 0 : 2;
+        if (parentGone(queue.get(), parentLife, 0)) return publish(GuardianEvent::Cleaned, 0) ? 0 : 2;
         const pid_t worker = spawnWorker(arguments, reader.get());
-        if (worker < 0) { report(status, GuardianEvent::Failed, 0); return 2; }
+        if (worker < 0) { publish(GuardianEvent::Failed, 0); return 2; }
         CleanupState cleanup;
-        bool reporting = report(status, GuardianEvent::Started, worker);
+        bool reporting = publish(GuardianEvent::Started, worker);
         bool stopping = !reporting, observedExit = false;
         for (;;) {
             if (parentGone(queue.get(), parentLife, 10)) stopping = true;
@@ -161,14 +171,14 @@ namespace Duel6::Platform::Darwin {
             while (result < 0 && errno == EINTR);
             if (result < 0) {
                 cleanup.loseAnchor(); // Do NOT signal a numeric group on ECHILD/unknown ownership.
-                report(status, GuardianEvent::Failed, worker);
+                publish(GuardianEvent::Failed, worker);
                 return 2; // Writer closes; runnable worker independently handles supervision loss.
             }
             if (information.si_pid == worker) {
                 cleanup.observeExit(); stopping = true;
                 if (!observedExit) {
                     observedExit = true;
-                    reporting = report(status, GuardianEvent::LeaderExited, worker) && reporting;
+                    reporting = publish(GuardianEvent::LeaderExited, worker) && reporting;
                 }
             }
             if (stopping && cleanup.maySignal()) kill(-worker, SIGKILL);
@@ -181,8 +191,8 @@ namespace Duel6::Platform::Darwin {
             pid_t reaped;
             do { reaped = waitpid(worker, nullptr, 0); } while (reaped < 0 && errno == EINTR);
             cleanup.loseAnchor();
-            if (reaped != worker) { report(status, GuardianEvent::Failed, worker); return 2; }
-            const bool delivered = report(status, GuardianEvent::Cleaned, worker);
+            if (reaped != worker) { publish(GuardianEvent::Failed, worker); return 2; }
+            const bool delivered = publish(GuardianEvent::Cleaned, worker);
             // No PGID use after the exact leader reap, even if reporting fails.
             return reporting && delivered ? 0 : 2;
         }

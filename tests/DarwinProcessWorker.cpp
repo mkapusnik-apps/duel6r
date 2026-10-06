@@ -45,7 +45,16 @@ int main(int argc, char **argv) {
     if (argc != 4 || std::string(argv[3]).rfind("--guardian-parent=", 0) != 0) return 2;
     // Verify sanitized inheritance before the monitor itself creates an FD.
     if (environ && environ[0]) return 3;
-    for (int fd = 4; fd < 1024; ++fd) if (fcntl(fd, F_GETFD) >= 0) return 4;
+    // Enumerate descriptor records, not a low numeric range: a leaked FD at
+    // 4096 must be rejected just like one at 4. No other thread exists yet.
+    const int requested = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, nullptr, 0);
+    if (requested <= 0 || requested % sizeof(proc_fdinfo) || requested > 1024 * 1024) return 4;
+    std::vector<proc_fdinfo> descriptors(static_cast<std::size_t>(requested) / sizeof(proc_fdinfo) + 16);
+    const int capacity = static_cast<int>(descriptors.size() * sizeof(proc_fdinfo));
+    const int returned = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, descriptors.data(), capacity);
+    if (returned <= 0 || returned >= capacity || returned % sizeof(proc_fdinfo)) return 4;
+    for (int index = 0; index < returned / static_cast<int>(sizeof(proc_fdinfo)); ++index)
+        if (descriptors[index].proc_fd > 3) return 4;
     const pid_t parent = static_cast<pid_t>(std::stol(std::string(argv[3]).substr(18)));
     auto monitor = Duel6::Platform::Darwin::ParentMonitor::start(parent, 3);
     if (!monitor) return 5;

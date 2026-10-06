@@ -18,12 +18,29 @@ the Homebrew curl prefix explicitly, and runs these ordinary CTest entries:
   Covers cancellation, application SIGKILL (including stopped worker/descendant),
   leader SIGKILL, guardian SIGKILL with runnable worker, real localhost resolution,
   incomplete-inspection retention, pre-spawn cancellation, restricted inheritance,
-  unrelated-process survival, and listener release. No GUI or external service.
+  unrelated-process survival, and listener release. The owner explicitly passes
+  FD 4096 to the guardian; the worker checks the full native FD inventory before
+  starting its monitor, not just descriptors below 1024. The boundary fixture
+  positively observes the high FD in the guardian and deliberately leaks it in
+  a negative control that must be rejected before worker initialization. No GUI
+  or external service.
+- `darwin-process-boundaries`: a separately compiled test guardian places bounded
+  barriers before/after parent registration and worker spawn, then tests actual
+  parent SIGKILL. Registration syscall failure prevents spawn. An exact-child
+  reap makes the actual next `waitid` report ECHILD and verifies no subsequent
+  PGID signal or cleanup-success event. Real four-byte partial status delivery
+  must seal the channel at EOF with no later send or frame resynchronization;
+  anchored cleanup must still complete. These observers and fault selectors are
+  absent from the shipped guardian. The negative lost-anchor fixture explicitly
+  disposes its own surviving descendant after verifying fail-closed behavior.
 - `darwin-hardware-crypto`: existing AES-128/AES-256 key expansion and block
   known-answer tests with the private hardware-only configuration.
 - `darwin-hardware-admission`: restricts real physical queries; observes actual
   production TLS/entropy/DRBG initialization sites. No positive capability can be
-  fabricated. Missing AES/SIMD, syscall failure and malformed results fail closed.
+  fabricated. Every negative uses valid native sockets; supported positive
+  controls in the same executable must reach all three initialization sites.
+  Missing AES/SIMD, syscall failure and malformed results fail closed without
+  socket-option failures concealing a removed capability gate.
 - `darwin-secure-session`: the production SecureSession implementation on real
   native sockets, including password/unlocked application data, wrong-password,
   entropy/capability restrictions, modified ciphertext and record replay.
@@ -69,8 +86,8 @@ switch; the separately linked regression executable injects that failure.
 The production HostServiceProcess/HostedServiceChannel and ResolverMain adapters
 are not yet connected. Existing service readiness, startup timeout, port-conflict,
 late-Ready cancellation, and production resolver deadline/retained-cleanup tests
-must be extended through those adapters. Native anchor-loss syscall fault coverage,
-registration-race stress, production IPv4/manifest/random paths, full dependency
+must be extended through those adapters. Native execution of the boundary fault
+regressions, production IPv4/manifest/random paths, full dependency
 relocation/package checks, and deterministic cross-platform fixtures remain to be
 completed. Foundation helper binaries are not yet shipped in the `.app`.
 

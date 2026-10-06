@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Native Darwin containment tests; no GUI, external network, or fabricated skips."""
 import json
+import fcntl
 import os
 from pathlib import Path
 import select
+import resource
 import signal
 import socket
 import struct
@@ -28,7 +30,7 @@ def until(predicate, seconds=3):
     raise AssertionError("bounded observation did not complete")
 
 
-def owner(helper, worker, directory, mode):
+def owner(helper, worker, directory, mode, fault=""):
     def publish(name, value):
         temporary = directory / (name + ".part")
         temporary.write_text(value)
@@ -39,24 +41,37 @@ def owner(helper, worker, directory, mode):
     # This owner alone retains write_fd. A deliberately unrelated inherited FD
     # and environment value must not cross the guardian -> worker boundary.
     unrelated_fd = os.open(os.devnull, os.O_RDONLY)
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    require(hard == resource.RLIM_INFINITY or hard > 4096, "high-FD inheritance fixture requires FD 4096")
+    if soft != resource.RLIM_INFINITY and soft <= 4096:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (4097, hard))
+    high_fd = fcntl.fcntl(unrelated_fd, fcntl.F_DUPFD, 4096)
+    require(high_fd > 1023, "high-FD fixture was not created")
+    environment = {"D6R_TEST_PRIVATE": "non-secret-inheritance-sentinel"}
+    if fault:
+        environment.update(D6R_TEST_GUARDIAN_FAULT=fault, D6R_TEST_GUARDIAN_DIRECTORY=str(directory),
+                           D6R_TEST_GUARDIAN_HIGH_FD=str(high_fd))
     child = subprocess.Popen(
         [helper, str(os.getpid()), str(read_fd), str(child_status.fileno()),
          worker, str(directory / "worker"), mode],
-        pass_fds=(read_fd, child_status.fileno(), unrelated_fd),
-        env={"D6R_TEST_PRIVATE": "non-secret-inheritance-sentinel"},
+        pass_fds=(read_fd, child_status.fileno(), unrelated_fd, high_fd),
+        env=environment,
     )
     os.close(read_fd)
     os.close(unrelated_fd)
+    os.close(high_fd)
     child_status.close()
     publish("owner", json.dumps({"guardian": child.pid}))
     buffered = b""
     events = []
     cancel = False
+    eof = False
+    exited_at = None
     while True:
         if (directory / "cancel").exists() and not cancel:
             os.close(write_fd)
             cancel = True
-        readable, _, _ = select.select([status], [], [], 0.02)
+        readable, _, _ = select.select([] if eof else [status], [], [], 0.02)
         if readable:
             data = status.recv(128)
             if data:
@@ -66,8 +81,16 @@ def owner(helper, worker, directory, mode):
                     buffered = buffered[8:]
                     events.append([event, pid])
                     publish("events", json.dumps(events))
+            else:
+                eof = True
+                publish("channel-end", str(len(buffered)))
         code = child.poll()
         if code is not None:
+            if not eof:
+                if exited_at is None:
+                    exited_at = time.monotonic()
+                require(time.monotonic() - exited_at < 1, "status writer survived guardian exit")
+                continue
             if not cancel:
                 os.close(write_fd)
             publish("exit", str(code))
@@ -205,6 +228,6 @@ def run(helper, worker, unknown_helper):
 
 if __name__ == "__main__":
     if sys.argv[1] == "--owner":
-        owner(sys.argv[2], sys.argv[3], Path(sys.argv[4]), sys.argv[5])
+        owner(sys.argv[2], sys.argv[3], Path(sys.argv[4]), sys.argv[5], sys.argv[6] if len(sys.argv) > 6 else "")
     else:
         run(*sys.argv[1:])

@@ -86,11 +86,16 @@ if (APPLE)
         target_link_libraries(duel6r-darwin-process-worker PRIVATE duel6r-darwin-process)
         add_executable(duel6r-darwin-guardian-unknown tests/DarwinGuardianUnknown.cpp)
         target_link_libraries(duel6r-darwin-guardian-unknown PRIVATE duel6r-darwin-process)
+        add_executable(duel6r-darwin-guardian-boundaries tests/DarwinGuardianBoundaries.cpp)
+        target_link_libraries(duel6r-darwin-guardian-boundaries PRIVATE duel6r-darwin-process)
+        add_test(NAME darwin-process-boundaries COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/DarwinProcessBoundaryTests.py
+                $<TARGET_FILE:duel6r-darwin-guardian-boundaries> $<TARGET_FILE:duel6r-darwin-process-worker>)
         add_test(NAME darwin-process-containment COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_SOURCE_DIR}/tests/DarwinProcessTests.py
                 $<TARGET_FILE:duel6r-darwin-guardian> $<TARGET_FILE:duel6r-darwin-process-worker>
                 $<TARGET_FILE:duel6r-darwin-guardian-unknown>)
-        set_tests_properties(darwin-process-containment PROPERTIES TIMEOUT 90
+        set_tests_properties(darwin-process-containment darwin-process-boundaries PROPERTIES TIMEOUT 90
                 LABELS "application;network;process;darwin;security")
     endif ()
 endif ()
