@@ -73,4 +73,9 @@ ctest --test-dir "$build" --output-on-failure
 
 python3 "$root/macos/package.py" --source "$root" --build "$build" \
   --output "$output" --revision "$revision" --lua "$lua" --lua-archive "$archive" \
-  --curl-prefix "$curl_prefix" --curl-archive "$deps/curl-8.21.0.tar.bz2"
+  --curl-prefix "$curl_prefix" --curl-archive "$deps/curl-8.21.0.tar.bz2" \
+  --mbedtls-prefix "$deps/mbedtls" --mbedtls-source "$deps/mbedtls-build/_deps/mbedtls-src" \
+  --directory-default-url "${D6R_DIRECTORY_DEFAULT_URL:-}"
+python3 "$root/tests/MacPackagedTests.py" --app "$output/Duel 6 Reloaded.app" \
+  --build "$build" --source "$root" --revision "$revision" \
+  --openssl "$openssl_prefix/bin/openssl" --report "$output/packaged-checks.json"

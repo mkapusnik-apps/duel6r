@@ -93,6 +93,7 @@ namespace {
             if (BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(&seed), sizeof(seed),
                                 BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) return false;
 #elif defined(__APPLE__)
+            if (!Duel6::Network::SecureSession::supported()) return false;
             if (getentropy(&seed, sizeof(seed)) != 0) return false;
 #else
             std::size_t offset = 0;
@@ -1455,6 +1456,15 @@ namespace Duel6::Server {
         };
         const auto startupBegan = runtimeNow(runtimeDependencies);
         const auto startupDeadline = deadlineAfter(startupBegan, AdmissionAttemptDeadline);
+#ifdef __APPLE__
+        // Native network entry must admit physical capability before manifest
+        // crypto, session seeds, or a socket/TLS context is initialized.
+        if ((config.transportEnabled || config.admissionClient) && !Network::SecureSession::supported()) {
+            reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
+            output << Network::SecureNetworkingUnavailableCopy << '\n';
+            return 2;
+        }
+#endif
         Network::ManifestBuildResult manifest;
         if (!config.transportEcho && (config.transportEnabled || config.admissionClient)) {
             if (!observe(AdmissionLifecycleStage::ManifestBuildStarted)) return 2;

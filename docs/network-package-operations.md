@@ -4,7 +4,7 @@
 
 **Experimental/prototype networking: packaging is not accepted end-to-end network support.** This guide describes the production-path procedures to validate against the [deployment requirements](network-deployments.md). It does not remove the prototype warning or approve release readiness. Issue #41 remains the final network release gate.
 
-The target is Linux x86-64 and Windows x86-64, player-hosted sessions on a trusted machine or trusted private IPv4 LAN, including Linux/Windows participants together. Dedicated hosting, Internet access, NAT traversal, port forwarding, relays, public hosting, accounts, passwords, authentication, and encryption are not supported. Do not expose the listener to untrusted people, even on a private network. Do not use a hostile shared machine.
+The implementation provides player-hosted IPv4 sessions with secure transport, optional session passwords and directory or direct joining. Eligible assigned unicast listeners and valid IPv4 connections follow the existing trust contract; there is no automatic NAT, firewall or routing configuration and no public reachability guarantee. The experimental Apple Silicon macOS 14+ extension follows [its platform contract](macos.md), alongside existing Linux/Windows targets and separate Raspberry Pi validation. Package availability is not completed platform acceptance. Do not use a hostile shared machine.
 
 ### Evidence boundary
 
@@ -56,8 +56,8 @@ Network-capable nightly clients use `https://staging.duel.netusite.cz` when
 including packages from manual release-workflow invocations. The distribution
 channel is independent of `Release` versus `Debug` build optimization. Ordinary
 unchannelled builds have no compiled default; their CMake option
-`D6R_DIRECTORY_DEFAULT_URL` defaults to empty. The experimental macOS package
-remains local-only and does not contact either directory.
+`D6R_DIRECTORY_DEFAULT_URL` defaults to empty. The experimental macOS network
+package follows the same origin selection and failure-independence rules.
 
 Set `D6R_DIRECTORY_URL` in the client process environment to explicitly override
 the compiled origin. A present empty or invalid value makes the directory

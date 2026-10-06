@@ -1,9 +1,10 @@
 # Darwin networking foundation checkpoint
 
-This is a permanent platform/security/process slice, not completed Mac network
-parity. Production host, resolver, TCP and manifest adapters now build on Darwin;
-the graphical Mac target remains local-only pending native proof and bundle/GUI
-integration. The owning
+This document records the platform/security/process foundation and its application
+integration, not completed Mac acceptance. The graphical Mac target now connects
+the existing network journeys while retaining native startup, saves, pointer and
+drawable handling. Complete native verification and independent QA remain gates.
+The owning
 requirements are in `docs/macos.md` and the HSL-FAULT supervision boundary.
 
 ## Native execution
@@ -43,8 +44,8 @@ arm64/macOS 14. Private curl uses OpenSSL with Apple SecTrust, a threaded resolv
 and no CA bundle, CA path or CA fallback. Its archive hash and generated settings
 are checked; CMake explicitly selects the private library instead of Homebrew
 curl. Packaging checks provenance and rejects substituted curl dependencies.
-The current local-only GUI does not yet consume curl; metadata explicitly reports
-whether it is bundled. Source/configuration checks do not prove native trust.
+The network GUI consumes the private curl; packaging requires it in the actual
+closure and records `local_only=false`. Source/configuration checks do not prove native trust.
 The helper runs these ordinary CTest entries:
 
 - `darwin-cleanup-state`: the production cleanup decision state, also exercised
@@ -230,15 +231,72 @@ next tick. The interruption cases require one removal batch, no extra tick,
 and an Interrupted following lobby without a final winner. No second lifecycle
 batch or winner evaluation is added.
 
-The production HostServiceProcess/HostedServiceChannel and ResolverMain adapters
-are connected without enabling the GUI. Native execution of the complete linked
-suites, boundary faults and adapter regressions remains required. Deeper adapter
-timeout/late-Ready/delayed-cleanup fault cases, native random failure paths,
-full dependency relocation/package checks and cross-platform provenance comparison
-remain to be completed. Foundation/network helper binaries are not yet shipped in
-the `.app`; headless CLI targets are build outputs only at this stage.
+At `cf7f9d49`, the supplied native run passed 20 of 21 CTests with no skips,
+including real positive SecTrust evaluation, negatives, crypto/process ownership,
+66 admission cases, sustained input and semantic fixtures. Only two writer-stall
+cases failed: native application output had progressed 2282 ms before observation,
+so the unchanged five-second watchdog was not yet due. A 250 ms receiver plateau
+was not proof of writer blockage. The revised real-socket fixture isolates its
+writer observations, bounds setup at 12 seconds, requires outstanding output and
+non-writable IO with stable native progress/receiver occupancy, and observes the
+unchanged five-second watchdog with its existing two-second margin. Resumed
+progress may invalidate a candidate only within the original setup deadline;
+later changes fail setup. The whole observation is capped at 19 seconds. No
+production send/poll/clock replacement, deadline relaxation or diagnostic workflow
+is used. Both affected cases pass locally; native closure remains required.
 
-Do not enable GUI hosting on the strength of compilation or the portable decision
-tests. Preserve the three-second cleanup contract, positive identity proof and
-unconfirmed-cleanup ownership when connecting these primitives. Actual Mac GUI,
-live cross-OS gameplay and visuals remain user-owned after merge/nightly.
+## Integration root-fix map and acceptance evidence
+
+The current implementation follows approved specification `bdf9a5e` and the exact
+UX source at `d6308a2`. No normative document or wireframe is rewritten here.
+
+| Cause / scope | Production or test correction | Evidence and outstanding gate |
+| --- | --- | --- |
+| Premature writer fixture readiness | Bounded real-socket setup described above; shared read-only observation helper | Local queue/writer cases pass; complete native transport gate required |
+| Mac local-only build guard also owned startup/rendering | `D6_MACOS_PLATFORM` preserves startup/save/pointer/full-drawable code; obsolete Network notice removed; shared network UI enabled | Mac pointer/viewport model includes pointer and F2 entry, Host/Join/Browser transitions; native manual visuals deferred |
+| Browse could reach HTTPS initialization without starting a gated gameplay socket | Darwin directory requests check physical secure capability before curl initialization | Fresh-process restricted AES/SIMD/sysctl cases require zero curl/TLS initialization; positive control calls real curl with an explicitly disabled directory origin |
+| Host/CLI secure seed acquisition precedes socket construction | Darwin secure-seed consumers check physical secure capability before OS entropy calls | Restricted-hardware tests require zero actual OS entropy calls; separate OS-failure tests cover both host seeds and CLI world-construction failure |
+| SDL bundle base names Resources, not executables | Absolute Darwin sibling helper path and cached canonical resource directory | Native packaged adapter runs from an unrelated cwd in an app path containing spaces |
+| Missing helper closure and static TLS attribution | Regular server/guardian/resolver staging, all-helper ABI/minimum/signing checks, pinned static Mbed TLS notices/configuration/archive identities | Portable packaging regressions; actual native relocation/signature/package checks mandatory |
+| Build-tree tests do not exercise packaged files | `MacPackagedTests.py` checks byte-identical relocated production files, isolated homes, actual service data, directory failure independence and bundled-curl identity/trust | Runs after packaging in normal native helper; no graphical app or public registration |
+
+| Requirement | Existing/reused and added coverage | Acceptance status for integrated candidate |
+| --- | --- | --- |
+| MAC-NET-AC-001 | Native hardware admission/AES, secure exchange/tamper/replay; native SecTrust positive/negative; packaged curl probe requires actual bundled image | Prior foundation passes are supporting evidence; final native run pending |
+| MAC-NET-AC-002 | Guardian/process boundaries, resolver retained ownership/cancellation/parent death, host supervisor lifecycle suites; packaged real service readiness/cancel/stop/port conflict and guarded no-Ready fixture using the original ten-second startup plus three-second cleanup bounds | Prior foundation passes; added timeout and packaged execution require final native results |
+| MAC-NET-AC-003 | Actual eligible-interface encrypted socket exchange, stale/invalid bind rejection; test-only OS entropy restriction verifies credential, lifecycle, host session/match seed and CLI failures; existing unsafe-filesystem/admission suite | Added native cases require native execution; no fabricated positive entropy/capability |
+| MAC-NET-AC-004 | Per-user save/resource alias and isolation tests; packaged helpers from space path/unrelated cwd with two test homes and unchanged save sentinels; four compiled-origin cases and actual directory-outage Host/protected Join/End | Portable checks plus new native packaged/directory checks; final native result pending |
+| MAC-NET-AC-005 | Unchanged native authoritative golden fixtures, admission/input/lifecycle/replication suites; packaged server replays same golden fixtures | Prior native semantics passed; final Linux/Windows/Pi relevant evidence and native candidate comparison remain required |
+| MAC-AC-003 / UX-NET-01 | Shared entry and journeys, exact approved NET-01 scope line; original canvas and glyph/layout rules retained; network world and menus reset actual drawable viewport | Automated source/model evidence, not native visual acceptance |
+
+The directory QA interface is the existing
+`duel6r-directory-client-integration-tests <server-executable> <resource-root>`
+with an explicitly isolated emulator-backed `D6R_DIRECTORY_URL` and
+`D6R_DIRECTORY_ALLOW_HTTP=1`. DevOps owns that backend and transport preparation.
+Native build CI uses only loopback outage fixtures and the approved bounded
+read-only curl.se trust request; it never creates a public listing.
+
+Routine local verification for this integration uses Docker Release/GL1/Lua ON:
+the application build, core/resource/save tests, complete transport and admission
+suites, network-session runtime suite, directory-outage independence, pointer
+tests and Mac drawable/network-world model pass. The final writer cases also pass
+with native socket operations and no injected clocks. All 20 portable packaging
+tests, Python/shell syntax checks and available portable C++ test syntax checks
+pass. Windows Release/GL4 application and transport-test cross-compilation also
+passes using the existing `duel6r-build-w64:ecjpake` image; no Windows runtime pass
+is inferred. These results are not native Mac or Raspberry Pi execution evidence.
+
+The native build profile is arm64/macOS 14+, Release, GL1, Lua ON, pinned private
+Mbed TLS 3.6.7 and curl 8.21.0/OpenSSL/SecTrust. App, server, guardian and resolver
+are the shipped executable targets. Headless adapter, randomness, capability,
+trust, directory-independence and directory-client integration targets are test
+outputs, not shipped app code. The normal helper writes the app/ZIP/checksum and
+build metadata; successful packaged probes append their exact archive/file
+identities and non-GUI results to the external `build-info.json` already retained
+by the existing workflow. There is no alternate diagnostic publication path.
+
+No candidate is frozen or user-ready here. Source review, every required final
+native gate, cross-platform evidence and the independent high-risk QA campaign
+remain separate. Actual Mac GUI, live cross-OS gameplay and visuals remain
+user-owned after merge/nightly. Keep the original three-second cleanup and
+positive identity/ownership requirements throughout final integration.

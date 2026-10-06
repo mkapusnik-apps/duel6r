@@ -30,7 +30,7 @@
 #include <SDL2/SDL.h>
 #include "Exception.h"
 #include "Application.h"
-#ifdef D6_MACOS_LOCAL
+#ifdef D6_MACOS_PLATFORM
 #include "platform/MacLocal.h"
 #include <memory>
 #include <stdexcept>
@@ -43,7 +43,7 @@ static void reportError(const std::string &err) {
 
 int main(int argc, char **argv) {
     try {
-#ifdef D6_MACOS_LOCAL
+#ifdef D6_MACOS_PLATFORM
         // SDL's bundle base path is Contents/Resources (also fixed in Info.plist).
         // Resolve it before Application's audio, configuration and resource loads.
         std::unique_ptr<char, decltype(&SDL_free)> resources(SDL_GetBasePath(), SDL_free);

@@ -2,6 +2,9 @@
 #include "DirectoryOrigin.h"
 #include "../json/JsonParser.h"
 #include "../network/NetworkTrustPolicy.h"
+#ifdef __APPLE__
+#include "../network/SecureSession.h"
+#endif
 #include <curl/curl.h>
 #include <algorithm>
 #include <condition_variable>
@@ -109,8 +112,13 @@ namespace Duel6::Client {
     DirectoryResponse directoryRequest(const std::string &method, const std::string &path,
                                        const std::string &body, const std::string &owner, unsigned revision,
                                        const std::atomic<bool> *cancelled) {
-        static const CURLcode initialized = curl_global_init(CURL_GLOBAL_DEFAULT);
         DirectoryResponse result;
+#ifdef __APPLE__
+        // Browse can be entered without starting a gameplay socket. Its HTTPS
+        // initialization must obey the same physical capability admission gate.
+        if (!Network::SecureSession::supported()) return result;
+#endif
+        static const CURLcode initialized = curl_global_init(CURL_GLOBAL_DEFAULT);
         if (initialized != CURLE_OK || !(curl_version_info(CURLVERSION_NOW)->features & CURL_VERSION_ASYNCHDNS)) return result;
         const auto base = directoryOrigin(std::getenv("D6R_DIRECTORY_URL"), std::getenv("D6R_DIRECTORY_ALLOW_HTTP"));
         if (base.empty()) return result;

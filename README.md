@@ -7,7 +7,7 @@ The canonical behavior specification is [`docs/features.md`](docs/features.md). 
 
 ## Network package operations (experimental)
 
-Networking remains experimental/prototype work; package availability does not establish accepted playable end-to-end support. See the [package operations guide](docs/network-package-operations.md) for package verification, runtime prerequisites, trusted player-hosted deployment, local-data backup, offline same-release reinstallation, rollback, and the outstanding execution-evidence boundaries. The approved network targets are Linux x86-64 and Windows x86-64, not every historical local-game platform listed below. The [deployment specification](docs/network-deployments.md) defines acceptance; issue #41 remains the final release-validation gate.
+Networking remains experimental/prototype work; package availability does not establish accepted playable end-to-end support. See the [package operations guide](docs/network-package-operations.md) for package verification, runtime prerequisites, player-hosted deployment, local-data backup, offline same-release reinstallation, rollback, and outstanding execution-evidence boundaries. The experimental Apple Silicon network extension follows the [macOS contract](docs/macos.md), alongside existing Linux/Windows networking and the separate Raspberry Pi validation scope. Not every historical local-game platform is a network target. The [deployment specification](docs/network-deployments.md) defines acceptance; issue #41 remains the final release-validation gate.
 
 ## History
 
@@ -72,8 +72,9 @@ The build images are published to GitHub Container Registry by the `Develop - Bu
 
 ## Supported platforms
 
-The experimental **Apple Silicon macOS 14+** port provides local-only GL1 play
-as a self-contained, unsigned `.app`, with per-user Application Support saves.
+The experimental **Apple Silicon macOS 14+** port provides GL1 Local Play and
+the existing Host, direct Join, Browse, password and recovery flows in a
+self-contained, unsigned `.app`, with per-user Application Support saves.
 See the [macOS contract](docs/macos.md) and [build, installation, unsigned-app
 approval and replacement instructions](macos/README.md). Native Mac launch,
 gameplay and visual verification remain deferred until after merge and the next

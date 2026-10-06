@@ -12,7 +12,8 @@ unchannelled builds. Distribution workflows select `https://staging.duel.netusit
 for nightly clients and `https://duel.netusite.cz` for release clients, including
 manual release-workflow invocations. This selection is independent of
 `CMAKE_BUILD_TYPE`; both channels may use `Release` optimization. The experimental
-local-only macOS application does not include the directory client.
+macOS network application uses the same selector and directory client, with pinned
+private libcurl using OpenSSL and Apple SecTrust rather than a Homebrew curl fallback.
 
 A present `D6R_DIRECTORY_URL` overrides the compiled origin. A present empty or
 invalid value makes the directory unavailable without fallback; only an absent

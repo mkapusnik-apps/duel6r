@@ -41,6 +41,68 @@ class MacPackagingTests(unittest.TestCase):
     def stage(self):
         return package.stage_app(self.source, self.build, self.output)
 
+    def test_network_helpers_are_regular_current_binaries_and_missing_helpers_fail(self):
+        app = self.stage()
+        with self.assertRaisesRegex(RuntimeError, "Missing or external macOS network helper"):
+            package.stage_helpers(self.build, app)
+        for name in package.HELPERS:
+            actual = self.build / (name + "-6.0.0")
+            actual.write_bytes(name.encode())
+            actual.chmod(0o755)
+            (self.build / name).symlink_to(actual.name)
+        package.stage_helpers(self.build, app)
+        for name in package.HELPERS:
+            helper = app / "Contents/MacOS" / name
+            self.assertFalse(helper.is_symlink())
+            self.assertEqual(name.encode(), helper.read_bytes())
+            self.assertEqual(0o755, helper.stat().st_mode & 0o777)
+        unexpected = app / "Contents/MacOS/stale-test-probe"
+        unexpected.write_bytes(b"must not ship")
+        with self.assertRaisesRegex(RuntimeError, "Unexpected executable entry"):
+            package.stage_helpers(self.build, app)
+        unexpected.unlink()
+        (self.build / package.HELPERS[0]).unlink()
+        (self.build / package.HELPERS[0]).symlink_to(app / "Contents/MacOS" / package.HELPERS[0])
+        with self.assertRaisesRegex(RuntimeError, "Missing or external macOS network helper"):
+            package.stage_helpers(self.build, app)
+
+    def test_static_mbedtls_notices_configuration_and_archive_identities_are_included(self):
+        prefix = self.build / "mbedtls"
+        source = self.build / "mbedtls-src"
+        (source / "3rdparty/library").mkdir(parents=True)
+        (source / "LICENSE").write_bytes(b"upstream license")
+        (source / "3rdparty/library/COPYING").write_bytes(b"dependency license")
+        (prefix / "include/mbedtls").mkdir(parents=True)
+        config = prefix / "include/mbedtls/mbedtls_config.h"
+        config.write_bytes(b"hardware-only fixture config")
+        (prefix / "lib").mkdir()
+        for name in ("mbedtls", "mbedx509", "mbedcrypto"):
+            (prefix / f"lib/lib{name}.a").write_bytes(name.encode())
+        result = package.collect_mbedtls(prefix, source, self.output)
+        self.assertEqual(3, len(result["libraries"]))
+        self.assertEqual(hashlib.sha256(config.read_bytes()).hexdigest(), result["configuration_sha256"])
+        self.assertEqual(b"dependency license", (self.output / "mbedtls/3rdparty/library/COPYING").read_bytes())
+        (prefix / "lib/libmbedcrypto.a").unlink()
+        with self.assertRaises(FileNotFoundError):
+            package.collect_mbedtls(prefix, source, self.output)
+
+    def test_bundle_links_remain_internal_after_relocation(self):
+        app = self.stage()
+        target = app / "Contents/Resources/data.txt"
+        target.write_text("resource")
+        alias = target.with_name("alias.txt")
+        alias.symlink_to(target.name)
+        package.require_relocatable_links(app)
+        alias.unlink()
+        alias.symlink_to(target)  # Inside today, but points at the old app after moving.
+        with self.assertRaisesRegex(RuntimeError, "Non-relocatable bundle symlink"):
+            package.require_relocatable_links(app)
+        alias.unlink()
+        alias.symlink_to("../../../external.txt")
+        (self.output / "external.txt").write_text("outside")
+        with self.assertRaisesRegex(RuntimeError, "Non-relocatable bundle symlink"):
+            package.require_relocatable_links(app)
+
     def private_curl_fixture(self):
         prefix = self.build / "curl"
         (prefix / "lib").mkdir(parents=True)

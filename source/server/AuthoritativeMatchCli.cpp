@@ -27,6 +27,7 @@
 #include "AuthoritativeMatchSerialization.h"
 #include "FrozenGameplayConfig.h"
 #include "../network/CompatibilityManifest.h"
+#include "../network/SecureSession.h"
 #include "../math/Math.h"
 
 namespace Duel6::Server::Authoritative {
@@ -75,6 +76,7 @@ namespace Duel6::Server::Authoritative {
                 if (BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(&seed), sizeof(seed),
                                     BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) return false;
 #elif defined(__APPLE__)
+                if (!Network::SecureSession::supported()) return false;
                 if (getentropy(&seed, sizeof(seed)) != 0) return false;
 #else
                 std::size_t offset = 0;

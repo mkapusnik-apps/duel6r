@@ -125,21 +125,16 @@ D6R_TEST_CASE("macOS mapping uses actual drawable viewport and independent nonin
     D6R_REQUIRE_EQ(34, y);
 }
 
-D6R_TEST_CASE("macOS Network notice blocks pointer only while visible and resumes after key dismissal") {
-    MacLocal::NetworkMessage message;
+D6R_TEST_CASE("macOS menu and network wheel positions share one window-to-client conversion") {
+    PointerTransform mapping(850, 700, 1700, 1400, 0, 0, 1700, 1400, 1700, 1400);
     SDL_Event event{};
-    for (auto type : {SDL_MOUSEBUTTONDOWN, SDL_MOUSEBUTTONUP, SDL_MOUSEMOTION, SDL_MOUSEWHEEL}) {
-        event.type = type;
-        D6R_REQUIRE(!message.consume(event));
-    }
-    message.open();
     event.type = SDL_MOUSEBUTTONDOWN;
-    D6R_REQUIRE(message.consume(event));
-    event.type = SDL_KEYDOWN;
-    event.key.keysym.scancode = SDL_SCANCODE_F1;
-    D6R_REQUIRE(message.consume(event));
-    for (auto type : {SDL_MOUSEBUTTONDOWN, SDL_MOUSEBUTTONUP, SDL_MOUSEMOTION, SDL_MOUSEWHEEL}) {
-        event.type = type;
-        D6R_REQUIRE(!message.consume(event));
-    }
+    event.button.x = 425; event.button.y = 350;
+    mapping.event(event);
+    int wheelX = 425, wheelY = 350;
+    mapping.position(wheelX, wheelY);
+    D6R_REQUIRE_EQ(event.button.x, wheelX);
+    D6R_REQUIRE_EQ(event.button.y, wheelY);
+    D6R_REQUIRE_EQ(850, wheelX);
+    D6R_REQUIRE_EQ(700, 1400 - wheelY);
 }

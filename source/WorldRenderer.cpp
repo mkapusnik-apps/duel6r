@@ -45,7 +45,7 @@ namespace Duel6 {
     }
 
     void WorldRenderer::setView(int x, int y, int width, int height) const {
-#ifdef D6_MACOS_LOCAL
+#ifdef D6_MACOS_PLATFORM
         // Both the shared arena and its overlays cover the complete drawable.
         // The macOS GL1 target draws directly, without an offscreen framebuffer.
         video.resetDrawableViewport();

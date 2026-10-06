@@ -21,7 +21,7 @@ if (APPLE)
         NOT CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL "14.0")
         message(FATAL_ERROR "The experimental macOS target requires arm64 and macOS 14.0")
     endif ()
-    add_compile_definitions(D6_MACOS_LOCAL)
+    add_compile_definitions(D6_MACOS_PLATFORM)
 endif ()
 
 if (WIN32)
@@ -30,8 +30,8 @@ endif ()
 
 include(CTest)
 
-# First Darwin networking foundation: process containment is independently
-# executable before the graphical/network targets are enabled on macOS.
+# Darwin process/security gates remain independently executable alongside the
+# graphical target; they do not require launching the application UI.
 if (BUILD_TESTING)
     add_executable(duel6r-darwin-cleanup-state-tests tests/TestMain.cpp tests/DarwinCleanupStateTests.cpp)
     target_include_directories(duel6r-darwin-cleanup-state-tests PRIVATE ${CMAKE_SOURCE_DIR})
@@ -59,7 +59,12 @@ if (APPLE)
         target_link_libraries(duel6r-darwin-hardware-crypto-tests PRIVATE duel6r-darwin-security)
         add_test(NAME darwin-hardware-crypto COMMAND duel6r-darwin-hardware-crypto-tests)
         add_executable(duel6r-darwin-hardware-admission-tests tests/TestMain.cpp tests/DarwinHardwareAdmissionTests.cpp)
-        target_link_libraries(duel6r-darwin-hardware-admission-tests PRIVATE duel6r-darwin-security)
+        target_sources(duel6r-darwin-hardware-admission-tests PRIVATE source/client/DirectoryOrigin.cpp
+            source/json/JsonParser.cpp source/json/JsonValue.cpp source/Format.cpp source/File.cpp source/msdir.c)
+        target_include_directories(duel6r-darwin-hardware-admission-tests PRIVATE ${CURL_INCLUDE_DIRS})
+        target_compile_definitions(duel6r-darwin-hardware-admission-tests PRIVATE D6R_HARDWARE_RESOURCES="${CMAKE_SOURCE_DIR}/resources")
+        target_link_libraries(duel6r-darwin-hardware-admission-tests PRIVATE duel6r-darwin-security ${CURL_LIBRARIES}
+            duel6r-canonical-gameplay-core duel6r-darwin-random-faults)
         add_test(NAME darwin-hardware-admission COMMAND duel6r-darwin-hardware-admission-tests)
         add_executable(duel6r-darwin-secure-session-tests tests/TestMain.cpp tests/NativeSecureSessionTests.cpp)
         target_link_libraries(duel6r-darwin-secure-session-tests PRIVATE duel6r-darwin-security)
@@ -610,7 +615,6 @@ endif (D6R_WITH_LUA)
 set(D6R_ENGINE_SOURCES ${D6R_SOURCES})
 list(REMOVE_ITEM D6R_ENGINE_SOURCES source/Main.cpp)
 if (APPLE)
-    list(FILTER D6R_ENGINE_SOURCES EXCLUDE REGEX "^source/(client/|NetworkMenu\\.|CanonicalWorldPresenter\\.)")
     list(APPEND D6R_ENGINE_SOURCES source/platform/MacLocal.cpp)
 endif ()
 add_library(duel6r-game-engine STATIC ${D6R_ENGINE_SOURCES})
@@ -621,7 +625,7 @@ add_library(duel6r-directory-origin STATIC source/client/DirectoryOrigin.cpp)
 target_include_directories(duel6r-directory-origin PUBLIC ${CMAKE_SOURCE_DIR}/source)
 target_compile_definitions(duel6r-directory-origin PRIVATE
         D6R_DIRECTORY_DEFAULT_URL="${D6R_DIRECTORY_DEFAULT_URL}")
-if (NOT D6R_TRANSPORT_ONLY AND NOT APPLE)
+if (NOT D6R_TRANSPORT_ONLY)
     target_link_libraries(duel6r-game-engine PUBLIC duel6r-directory-origin)
 endif ()
 
@@ -819,7 +823,7 @@ if (UNIX AND NOT APPLE)
 endif ()
 target_sources(duel6r-network-scaffold PRIVATE source/network/SecureSession.cpp)
 target_link_libraries(duel6r-network-scaffold PUBLIC MbedTLS::mbedtls MbedTLS::mbedx509 MbedTLS::mbedcrypto)
-if (NOT D6R_TRANSPORT_ONLY AND NOT APPLE)
+if (NOT D6R_TRANSPORT_ONLY)
     find_package(CURL 7.85 REQUIRED)
     target_include_directories(duel6r-game-engine PUBLIC ${CURL_INCLUDE_DIRS})
     target_link_libraries(duel6r-game-engine PUBLIC ${CURL_LIBRARIES})
@@ -905,7 +909,6 @@ if (BUILD_TESTING)
     add_test(NAME ${D6R_TEST_APP_NAME} COMMAND ${D6R_TEST_APP_NAME})
     endif ()
 
-    if (NOT APPLE)
         # Exercise the production selector with each channel under the same build
         # optimization configuration, without making any network requests.
         foreach (channel IN ITEMS configured unchannelled nightly release)
@@ -933,6 +936,7 @@ if (BUILD_TESTING)
             add_test(NAME ${origin_test} COMMAND ${origin_test})
             set_tests_properties(${origin_test} PROPERTIES LABELS "application;network;configuration;regression")
         endforeach ()
+    if (NOT APPLE)
         include(${CMAKE_SOURCE_DIR}/tests/SessionTransportCTestRegistration.cmake)
     endif ()
 
@@ -986,16 +990,21 @@ set(D6R_APP_NAME "duel6r" CACHE STRING "Filename of the application.")
 set(D6R_APP_DEBUG_NAME "duel6rd" CACHE STRING "Filename of the debug version of the application.")
 add_executable(${D6R_APP_NAME} source/Main.cpp ${D6R_APP_PLATFORM_SOURCES})
 target_link_libraries(${D6R_APP_NAME} duel6r-game-engine)
-if (NOT APPLE)
-    target_link_libraries(${D6R_APP_NAME} duel6r-network-scaffold)
-endif ()
+target_link_libraries(${D6R_APP_NAME} duel6r-network-scaffold)
 set_target_properties(${D6R_APP_NAME} PROPERTIES VERSION 6.0.0 DEBUG_OUTPUT_NAME ${D6R_APP_DEBUG_NAME})
 if (APPLE)
     set_target_properties(${D6R_APP_NAME} PROPERTIES
             MACOSX_BUNDLE TRUE
             OUTPUT_NAME "Duel 6 Reloaded"
             MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/macos/Info.plist.in")
+    add_dependencies(${D6R_APP_NAME} ${D6R_SERVER_APP_NAME} ${D6R_RESOLVER_APP_NAME} duel6r-darwin-guardian)
     add_custom_command(TARGET ${D6R_APP_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:${D6R_SERVER_APP_NAME}>"
+                    "$<TARGET_BUNDLE_CONTENT_DIR:${D6R_APP_NAME}>/MacOS/duel6r-server"
+            COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:${D6R_RESOLVER_APP_NAME}>"
+                    "$<TARGET_BUNDLE_CONTENT_DIR:${D6R_APP_NAME}>/MacOS/duel6r-resolver"
+            COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:duel6r-darwin-guardian>"
+                    "$<TARGET_BUNDLE_CONTENT_DIR:${D6R_APP_NAME}>/MacOS/duel6r-darwin-guardian"
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/resources"
                     "$<TARGET_BUNDLE_CONTENT_DIR:${D6R_APP_NAME}>/Resources")
 endif ()
@@ -1086,6 +1095,28 @@ if (BUILD_TESTING)
     set_tests_properties(mac-pointer-behavior PROPERTIES LABELS "application;input;regression")
 endif ()
 
+if (UNIX AND BUILD_TESTING)
+    add_executable(duel6r-directory-independence-tests tests/TestMain.cpp tests/DirectoryIndependenceTests.cpp)
+    target_include_directories(duel6r-directory-independence-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_compile_definitions(duel6r-directory-independence-tests PRIVATE
+        D6R_DIRECTORY_SERVER="$<TARGET_FILE:${D6R_SERVER_APP_NAME}>"
+        D6R_DIRECTORY_RESOURCES="${CMAKE_SOURCE_DIR}/resources")
+    target_link_libraries(duel6r-directory-independence-tests PRIVATE duel6r-game-engine duel6r-network-scaffold
+        ${LIB_OPEN_GL} ${LIB_GLEW} ${LIB_SDL2} ${LIB_SDL2_MIXER} ${LIB_SDL2_TTF} ${LIB_SDL2_IMAGE} ${LUA_LIBRARIES})
+    add_dependencies(duel6r-directory-independence-tests ${D6R_SERVER_APP_NAME})
+    add_test(NAME directory-independence COMMAND duel6r-directory-independence-tests)
+    set_tests_properties(directory-independence PROPERTIES TIMEOUT 60 LABELS "application;network;directory")
+endif ()
+if (APPLE AND BUILD_TESTING)
+    # Available to the independently provisioned emulator-backed QA campaign;
+    # deliberately not run against a public directory by native build CI.
+    add_executable(duel6r-directory-client-integration-tests tests/DirectoryClientIntegrationTests.cpp)
+    target_include_directories(duel6r-directory-client-integration-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_compile_definitions(duel6r-directory-client-integration-tests PRIVATE SDL_MAIN_HANDLED)
+    target_link_libraries(duel6r-directory-client-integration-tests PRIVATE duel6r-game-engine duel6r-network-scaffold
+        ${LIB_OPEN_GL} ${LIB_GLEW} ${LIB_SDL2} ${LIB_SDL2_MIXER} ${LIB_SDL2_TTF} ${LIB_SDL2_IMAGE} ${LUA_LIBRARIES})
+endif ()
+
 if (BUILD_TESTING AND UNIX AND NOT APPLE AND (D6R_RENDERER STREQUAL "gl4" OR D6R_RENDERER STREQUAL "gl1"))
     add_executable(duel6r-renderer-batch-tests tests/TestMain.cpp tests/RendererBatchTests.cpp)
     target_include_directories(duel6r-renderer-batch-tests PRIVATE ${CMAKE_SOURCE_DIR})
@@ -1105,13 +1136,13 @@ if (BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND D6R_RENDERER STREQU
     # Exercise the actual Mac-local application paths with modelled SDL drawable
     # sizes and real Mesa GL state. This is not native Cocoa/Retina evidence.
     set(D6R_MAC_VIEWPORT_TEST_SOURCES ${D6R_ENGINE_SOURCES})
-    list(FILTER D6R_MAC_VIEWPORT_TEST_SOURCES EXCLUDE REGEX "^source/(client/|NetworkMenu\\.|CanonicalWorldPresenter\\.)")
     add_executable(duel6r-mac-viewport-tests tests/TestMain.cpp tests/MacViewportTests.cpp
             source/platform/MacLocal.cpp ${D6R_MAC_VIEWPORT_TEST_SOURCES})
     target_include_directories(duel6r-mac-viewport-tests PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/source)
-    target_compile_definitions(duel6r-mac-viewport-tests PRIVATE D6_MACOS_LOCAL
+    target_compile_definitions(duel6r-mac-viewport-tests PRIVATE D6_MACOS_PLATFORM
             D6R_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}" D6R_TEST_BINARY_DIR="${CMAKE_BINARY_DIR}")
     target_link_libraries(duel6r-mac-viewport-tests PRIVATE
+            duel6r-network-scaffold duel6r-directory-origin ${CURL_LIBRARIES}
             ${LIB_OPEN_GL} ${LIB_GLEW} ${LIB_SDL2} ${LIB_SDL2_MIXER} ${LIB_SDL2_TTF} ${LIB_SDL2_IMAGE}
             ${LIB_LUA} "-Wl,--wrap=SDL_GL_GetDrawableSize" "-Wl,--wrap=glViewport")
     add_test(NAME mac-drawable-viewport-behavior

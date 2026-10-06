@@ -7,6 +7,8 @@
 #include <cstring>
 #include <iostream>
 #include <string>
+#include <filesystem>
+#include <cstdlib>
 
 extern "C" void d6rResetTrustObservation();
 extern "C" unsigned d6rModernTrustEvaluations();
@@ -44,6 +46,13 @@ int main(int argc, char **argv) {
     Dl_info image{};
     dladdr(reinterpret_cast<const void *>(&curl_easy_init), &image);
     const std::string library = image.dli_fname ? image.dli_fname : "unknown";
+    if (const char *expected = std::getenv("D6R_EXPECT_CURL_LIBRARY")) {
+        std::error_code error;
+        if (!std::filesystem::equivalent(library, expected, error) || error) {
+            std::cerr << "Packaged trust probe loaded a different curl image: " << library << '\n';
+            return 2;
+        }
+    }
     d6rResetTrustObservation();
     CURL *curl = curl_easy_init();
     if (!curl) return 2;

@@ -1,11 +1,15 @@
 #include "TestHarness.h"
 #include "source/client/HostServiceSupervisor.h"
 #include "source/network/SessionTransport.h"
+#include "source/network/AdmissionProtocol.h"
+#include "source/network/CompatibilityManifest.h"
 #include "source/platform/DarwinChild.h"
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
+#include <cstdlib>
+#include <filesystem>
 
 namespace {
     using namespace Duel6;
@@ -37,6 +41,13 @@ namespace {
         Client::HostServiceStartConfig value;
         value.serverExecutable = D6R_ADAPTER_SERVER;
         value.resourcePath = D6R_ADAPTER_RESOURCES;
+        if (const char *bundle = std::getenv("D6R_TEST_BUNDLE")) {
+            const auto root = std::filesystem::canonical(bundle);
+            value.serverExecutable = (root / "Contents/MacOS/duel6r-server").string();
+            value.resourcePath = (root / "Contents/Resources").string();
+            D6R_REQUIRE(std::filesystem::equivalent(value.serverExecutable,
+                Platform::Darwin::siblingExecutable("duel6r-server")));
+        }
         value.endpoint = {"127.0.0.1", port};
         return value;
     }
@@ -85,6 +96,48 @@ D6R_TEST_CASE("Darwin guarded spawn failure positively confirms no service witho
     D6R_REQUIRE(child->exited());
 }
 
+D6R_TEST_CASE("Darwin native eligible IPv4 interfaces exchange data and stale interfaces fail closed") {
+    const auto addresses = Network::Trust::localListenerAddresses();
+    D6R_REQUIRE(addresses && !addresses->empty());
+    const auto assigned = [](const std::string &literal) {
+        std::array<std::uint8_t, 4> address{};
+        D6R_REQUIRE(Network::Trust::classifyIpv4Literal(literal, &address) != Network::Trust::EndpointScope::Invalid);
+        return Network::Trust::isLocalIpv4AddressAssigned(address);
+    };
+    for (const auto &address : *addresses) {
+        D6R_REQUIRE(assigned(address));
+        Port port; port.release();
+        Network::SessionTransportDependencies dependencies;
+        dependencies.secureSession = true;
+        Network::TcpListener listener(1, dependencies);
+        D6R_REQUIRE(listener.start({address, port.number}));
+        D6R_REQUIRE(listener.waitForReady(3s));
+        Network::TcpClient client(dependencies);
+        D6R_REQUIRE(client.start({address, port.number}));
+        D6R_REQUIRE(client.waitForConnected(3s));
+        std::shared_ptr<Network::TcpConnection> peer;
+        D6R_REQUIRE(await([&] { peer = listener.acceptConnection(); return bool(peer); }));
+        D6R_REQUIRE(client.connection()->send({4, 3, 2, 1}) == Network::SendResult::Accepted);
+        Network::TransportFrame frame;
+        D6R_REQUIRE(await([&] { return peer->receive(frame); }));
+        D6R_REQUIRE_EQ((std::vector<std::uint8_t>{4, 3, 2, 1}), frame.payload);
+        client.close(); listener.shutdown();
+    }
+    std::string stale;
+    for (const auto *candidate : {"10.254.254.254", "172.31.255.254", "192.168.254.254"})
+        if (!assigned(candidate)) { stale = candidate; break; }
+    D6R_REQUIRE(!stale.empty());
+    D6R_REQUIRE(Network::Trust::classifyIpv4Literal(stale) == Network::Trust::EndpointScope::PrivateLan);
+    for (const auto &address : {stale, std::string("0.0.0.0"), std::string("255.255.255.255"),
+                               std::string("224.0.0.1"), std::string("::1")}) {
+        Port port; port.release();
+        Network::TcpListener listener(1);
+        D6R_REQUIRE(!listener.start({address, port.number}) || !listener.waitForReady(3s));
+        D6R_REQUIRE(listener.state() != Network::ListenerState::Ready);
+        listener.shutdown();
+    }
+}
+
 D6R_TEST_CASE("Darwin production host adapter preserves readiness stop cancel and port conflict") {
     using State = Client::HostServiceState;
     Port port; port.release();
@@ -94,6 +147,22 @@ D6R_TEST_CASE("Darwin production host adapter preserves readiness stop cancel an
         local.endpoint.host = "localhost";
         D6R_REQUIRE(supervisor.start(local));
         D6R_REQUIRE(supervisor.waitForState(State::Active, 5s));
+        // Real secure application data with the service binary, not just an
+        // in-process echo peer. Packaged runs use relocated absolute resources.
+        const auto content = Network::CompatibilityManifestBuilder(local.resourcePath).build();
+        D6R_REQUIRE(content.status == Network::ManifestStatus::Valid);
+        Network::SessionTransportDependencies transport;
+        transport.secureSession = true;
+        transport.enforceNetworkSessionPolicy = true;
+        Network::TcpClient guest(transport);
+        D6R_REQUIRE(guest.start({"localhost", port.number}));
+        D6R_REQUIRE(guest.waitForConnected(5s));
+        D6R_REQUIRE(guest.connection()->send(Network::serializeAdmissionRequest(
+            Network::makeLocalAdmissionRequest(1, content.manifest))) == Network::SendResult::Accepted);
+        Network::TransportFrame offer;
+        D6R_REQUIRE(await([&] { return guest.connection()->receive(offer); }));
+        D6R_REQUIRE(!Network::deserializeAdmissionOffer(offer.payload).playerIds.empty());
+        guest.close();
         const auto cleanupDeadline = std::chrono::steady_clock::now() + 3s;
         supervisor.applicationExit();
         // ApplicationExit is the accepted intent, not completed cleanup.
@@ -121,4 +190,26 @@ D6R_TEST_CASE("Darwin production host adapter preserves readiness stop cancel an
         D6R_REQUIRE(supervisor.snapshot().outcome == Client::HostServiceOutcome::PortUnavailable);
         D6R_REQUIRE(supervisor.snapshot().cleanupComplete);
     }
+}
+
+D6R_TEST_CASE("Darwin real guarded startup timeout keeps the ten-second deadline and confirms cleanup") {
+    Port port; port.release();
+    auto setup = config(port.number);
+    setup.serverExecutable = D6R_ADAPTER_TIMEOUT_CHILD;
+    if (const char *bundle = std::getenv("D6R_TEST_BUNDLE"))
+        setup.serverExecutable = (std::filesystem::canonical(bundle) / "Contents/MacOS/duel6r-packaged-timeout-child").string();
+    setup.resourcePath = std::filesystem::absolute("timeout").string();
+    Client::HostServiceSupervisor supervisor;
+    const auto began = std::chrono::steady_clock::now();
+    D6R_REQUIRE(supervisor.start(setup));
+    const auto deadline = began + 13s;
+    D6R_REQUIRE(await([&] {
+        const auto state = supervisor.snapshot();
+        D6R_REQUIRE(state.state != Client::HostServiceState::Active);
+        return state.state == Client::HostServiceState::StartupFailed && state.cleanupComplete;
+    }, deadline - std::chrono::steady_clock::now()));
+    D6R_REQUIRE(std::chrono::steady_clock::now() - began >= 10s);
+    D6R_REQUIRE(std::chrono::steady_clock::now() <= deadline);
+    D6R_REQUIRE(supervisor.snapshot().outcome == Client::HostServiceOutcome::StartupTimedOut);
+    D6R_REQUIRE(supervisor.snapshot().cleanupComplete);
 }

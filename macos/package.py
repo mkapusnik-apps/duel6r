@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package the native local-only app; no launch or graphical QA is performed."""
+"""Package the experimental native network app; no graphical QA is performed."""
 
 import argparse
 import hashlib
@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tarfile
 
+HELPERS = ("duel6r-server", "duel6r-darwin-guardian", "duel6r-resolver")
 CURL_VERSION = "8.21.0"
 CURL_ARCHIVE_SHA256 = "ad6f2f94934b38e31e48272833c99b891d045b4565fe942a53fbd27bd3910e16"
 
@@ -156,6 +157,47 @@ def require_regular_entrypoints(app):
             raise RuntimeError(f"Signing requires a regular file inside the bundle: {path}")
 
 
+def require_relocatable_links(app):
+    for path in app.rglob("*"):
+        if path.is_symlink() and (path.readlink().is_absolute()
+                                  or not path.resolve(strict=True).is_relative_to(app.resolve())):
+            raise RuntimeError(f"Non-relocatable bundle symlink: {path}")
+
+
+def stage_helpers(build, app):
+    for name in HELPERS:
+        source = build / name
+        if not source.is_file() or not source.resolve().is_relative_to(build.resolve()):
+            raise RuntimeError(f"Missing or external macOS network helper: {source}")
+        destination = app / "Contents/MacOS" / name
+        destination.unlink(missing_ok=True)
+        shutil.copy2(source.resolve(), destination)
+    expected = {"Duel 6 Reloaded", *HELPERS}
+    for path in (app / "Contents/MacOS").iterdir():
+        if path.name not in expected or path.is_symlink() or not path.is_file():
+            raise RuntimeError(f"Unexpected executable entry in macOS bundle: {path}")
+
+
+def collect_mbedtls(prefix, source, licenses):
+    if not (source / "LICENSE").is_file():
+        raise RuntimeError("Missing pinned static Mbed TLS license source")
+    target = licenses / "mbedtls"
+    for notice in sorted(source.rglob("*")):
+        if notice.is_file() and is_notice(notice.relative_to(source)):
+            destination = target / notice.relative_to(source)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(notice, destination)
+    configuration = prefix / "include/mbedtls/mbedtls_config.h"
+    shutil.copy2(configuration, target / "compiled-mbedtls-config.h")
+    record = {"version": "3.6.7", "linkage": "static", "hardware_aes_only": True,
+              "source_archive_sha256": "a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6",
+              "configuration_sha256": hashlib.sha256(configuration.read_bytes()).hexdigest(),
+              "libraries": {name: hashlib.sha256((prefix / "lib" / name).read_bytes()).hexdigest()
+                            for name in ("libmbedtls.a", "libmbedx509.a", "libmbedcrypto.a")}}
+    (target / "source-provenance.json").write_text(json.dumps(record, indent=2) + "\n")
+    return record
+
+
 def stage_app(source, build, output):
     """Use current source resources, never an incremental build's stale copy."""
     app = output / "Duel 6 Reloaded.app"
@@ -187,6 +229,7 @@ def stage_app(source, build, output):
 def package(args):
     output = args.output.resolve()
     app = stage_app(args.source, args.build, output)
+    stage_helpers(args.build, app)
     resources = app / "Contents/Resources"
     frameworks = app / "Contents/Frameworks"
     frameworks.mkdir(exist_ok=True)
@@ -196,6 +239,7 @@ def package(args):
     shutil.copy2(args.source / "macos/README.md", resources / "README-macos.md")
     shutil.copy2(args.lua / "src/lua.h", licenses / "lua-5.3.6-license-and-header.txt")
     shutil.copy2(args.lua_archive, licenses / args.lua_archive.name)
+    mbedtls_record = collect_mbedtls(args.mbedtls_prefix, args.mbedtls_source, licenses)
 
     prefix = Path(run("brew", "--prefix"))
     cellar = Path(run("brew", "--cellar")).resolve()
@@ -219,10 +263,7 @@ def package(args):
         f"-DLIB_DIRS={prefix / 'lib'}", f"-DDEPENDENCY_LIST={dependencies}",
         "-P", args.source / "macos/Bundle.cmake")
     origins.extend(Path(line).resolve() for line in dependencies.read_text().splitlines() if line)
-    # The foundation checkpoint still ships a local-only GUI, without curl.
-    # Once a shipped binary uses curl, no alternative origin is permitted.
-    private_curl = (require_private_curl(origins, args.curl_prefix)
-                    if any(path.name.startswith("libcurl") for path in origins) else None)
+    private_curl = require_private_curl(origins, args.curl_prefix)
     kegs = {}
     for path in origins:
         if path == private_curl:
@@ -240,6 +281,7 @@ def package(args):
     curl_record = {**curl_record, "bundled": private_curl is not None}
 
     binaries = [app / "Contents/MacOS/Duel 6 Reloaded"]
+    binaries.extend(app / "Contents/MacOS" / name for name in HELPERS)
     binaries.extend(path for path in frameworks.rglob("*")
                     if path.is_file() and not path.is_symlink() and
                     "Mach-O" in run("file", "-b", path))
@@ -266,19 +308,23 @@ def package(args):
     run("cmake", f"-DAPP={app}", "-P", args.source / "macos/VerifyBundle.cmake")
     metadata = {
         "source_revision": args.revision, "architecture": "arm64", "minimum_macos": "14.0",
-        "renderer": "gl1", "local_only": True, "configuration": "Release",
+        "renderer": "gl1", "local_only": False, "configuration": "Release",
+        "directory_default_url": args.directory_default_url,
+        "build_host": {"macos": run("sw_vers", "-productVersion"), "architecture": run("uname", "-m"),
+                       "sdk": run("xcrun", "--sdk", "macosx", "--show-sdk-version"),
+                       "compiler": run("xcrun", "--sdk", "macosx", "clang", "--version")},
         "distribution": "unsigned (ad-hoc integrity seals only); not notarized",
         "status": "experimental; native launch, gameplay and visual QA deferred until after nightly",
         "lua": {"version": "5.3.6", "sha256": hashlib.sha256(args.lua_archive.read_bytes()).hexdigest()},
         "homebrew_dependencies": records,
         "private_curl": curl_record,
+        "static_mbedtls": mbedtls_record,
+        "network_helpers": list(HELPERS),
     }
     text = json.dumps(metadata, indent=2) + "\n"
     (output / "build-info.json").write_text(text)
     (resources / "build-info.json").write_text(text)
-    for path in app.rglob("*"):
-        if path.is_symlink() and not path.resolve().is_relative_to(app):
-            raise RuntimeError(f"External bundle symlink: {path}")
+    require_relocatable_links(app)
     require_regular_entrypoints(app)
     for binary in binaries[1:]:
         run("codesign", "--force", "--sign", "-", "--timestamp=none", binary)
@@ -298,7 +344,9 @@ def package(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    for option in ("source", "build", "output", "lua", "lua-archive", "curl-prefix", "curl-archive"):
+    for option in ("source", "build", "output", "lua", "lua-archive", "curl-prefix", "curl-archive",
+                   "mbedtls-prefix", "mbedtls-source"):
         parser.add_argument(f"--{option}", required=True, type=Path)
     parser.add_argument("--revision", required=True)
+    parser.add_argument("--directory-default-url", default="")
     package(parser.parse_args())
