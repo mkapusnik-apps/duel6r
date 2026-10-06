@@ -1,30 +1,50 @@
 #include <Security/Security.h>
 #include <curl/curl.h>
-#include <atomic>
+#include <dlfcn.h>
+#include <fstream>
+#include <iterator>
+#include <vector>
 #include <cstring>
 #include <iostream>
 #include <string>
 
-namespace {
-    std::atomic<unsigned> trustCalls{0};
-    bool observedTrust(SecTrustRef trust, CFErrorRef *error) {
-        ++trustCalls;
-        // dyld interposition applies to other images, not calls from this
-        // defining image. Always delegate to the real Apple evaluator.
-        return SecTrustEvaluateWithError(trust, error);
-    }
-    __attribute__((used, section("__DATA,__interpose")))
-    const struct { const void *replacement; const void *original; } trustObserver = {
-        reinterpret_cast<const void *>(&observedTrust),
-        reinterpret_cast<const void *>(&SecTrustEvaluateWithError)};
-}
+extern "C" void d6rResetTrustObservation();
+extern "C" unsigned d6rModernTrustEvaluations();
+extern "C" unsigned d6rLegacyTrustEvaluations();
 
 int main(int argc, char **argv) {
+    if (argc == 3 && std::string(argv[1]) == "--observer-control") {
+        std::ifstream input(argv[2], std::ios::binary);
+        std::vector<unsigned char> der{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        if (der.empty()) return 2;
+        CFDataRef data = CFDataCreate(nullptr, der.data(), static_cast<CFIndex>(der.size()));
+        SecCertificateRef certificate = data ? SecCertificateCreateWithData(nullptr, data) : nullptr;
+        SecPolicyRef policy = SecPolicyCreateSSL(true, CFSTR("localhost"));
+        SecTrustRef trust = nullptr;
+        const OSStatus created = certificate && policy
+            ? SecTrustCreateWithCertificates(certificate, policy, &trust) : errSecParam;
+        d6rResetTrustObservation();
+        CFErrorRef error = nullptr;
+        const bool accepted = created == errSecSuccess && SecTrustEvaluateWithError(trust, &error);
+        const auto calls = d6rModernTrustEvaluations();
+        if (error) CFRelease(error);
+        if (trust) CFRelease(trust);
+        if (policy) CFRelease(policy);
+        if (certificate) CFRelease(certificate);
+        if (data) CFRelease(data);
+        std::cout << "observer-control;created=" << created << ";accepted=" << accepted << ";calls=" << calls << '\n';
+        return created == errSecSuccess && !accepted && calls > 0 ? 0 : 1;
+    }
     if (argc != 1 && argc != 5) return 2;
     if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) return 2;
     const auto *version = curl_version_info(CURLVERSION_NOW);
     if (!version || version->version_num < 0x075500 || !(version->features & CURL_VERSION_ASYNCHDNS)) return 2;
     const std::string versionText = version->version;
+    const std::string backend = version->ssl_version ? version->ssl_version : "none";
+    Dl_info image{};
+    dladdr(reinterpret_cast<const void *>(&curl_easy_init), &image);
+    const std::string library = image.dli_fname ? image.dli_fname : "unknown";
+    d6rResetTrustObservation();
     CURL *curl = curl_easy_init();
     if (!curl) return 2;
     bool configured = true;
@@ -32,6 +52,7 @@ int main(int argc, char **argv) {
         if (curl_easy_setopt(curl, key, value) != CURLE_OK) configured = false;
     };
     const std::string mode = argc == 1 ? "system-trust" : argv[1];
+    const bool nativeRequired = mode == "system-trust" || mode == "fixture-untrusted";
     option(CURLOPT_URL, argc == 1 ? "https://curl.se/" : argv[2]);
     option(CURLOPT_PROTOCOLS_STR, "https");
     option(CURLOPT_FOLLOWLOCATION, 0L);
@@ -41,6 +62,11 @@ int main(int argc, char **argv) {
     option(CURLOPT_CONNECTTIMEOUT_MS, 3000L);
     option(CURLOPT_SSL_VERIFYPEER, 1L);
     option(CURLOPT_SSL_VERIFYHOST, 2L);
+    if (nativeRequired) {
+        option(CURLOPT_SSL_OPTIONS, static_cast<long>(CURLSSLOPT_NATIVE_CA));
+        option(CURLOPT_CAINFO, static_cast<const char *>(nullptr));
+        option(CURLOPT_CAPATH, static_cast<const char *>(nullptr));
+    }
     option(CURLOPT_NOBODY, 1L); // Approved bounded read-only request; no cookies/credentials/body.
     curl_slist *resolve = nullptr;
     if (argc == 5) {
@@ -60,8 +86,9 @@ int main(int argc, char **argv) {
                                      : result == CURLE_PEER_FAILED_VERIFICATION;
     // A version/backend string or ignored option cannot satisfy native trust.
     // Observe the actual evaluator invocation on both system-trust paths.
-    const bool nativeRequired = mode == "system-trust" || mode == "fixture-untrusted";
-    std::cout << "curl=" << versionText << ";mode=" << mode
-              << ";native-evaluations=" << trustCalls << ";result=" << static_cast<int>(result) << '\n';
-    return passed && (!nativeRequired || trustCalls > 0) ? 0 : 1;
+    const auto calls = d6rModernTrustEvaluations() + d6rLegacyTrustEvaluations();
+    std::cout << "curl=" << versionText << ";backend=" << backend << ";library=" << library << ";mode=" << mode
+              << ";modern-evaluations=" << d6rModernTrustEvaluations() << ";legacy-evaluations=" << d6rLegacyTrustEvaluations()
+              << ";configured=" << configured << ";result=" << static_cast<int>(result) << '\n';
+    return passed && (!nativeRequired || calls > 0) ? 0 : 1;
 }

@@ -76,9 +76,10 @@ def owner(helper, worker, directory, mode, fault=""):
             data = status.recv(128)
             if data:
                 buffered += data
-                while len(buffered) >= 8:
-                    event, pid = struct.unpack("!II", buffered[:8])
-                    buffered = buffered[8:]
+                while len(buffered) >= 16:
+                    event, pid, origin = struct.unpack("!IIQ", buffered[:16])
+                    buffered = buffered[16:]
+                    require(origin > 0, "missing guardian origin timestamp")
                     events.append([event, pid])
                     publish("events", json.dumps(events))
             else:
@@ -102,8 +103,11 @@ def run(helper, worker, unknown_helper):
     require(sys.platform == "darwin", "native Darwin execution required")
 
     def identity(pid):
-        result = subprocess.run([worker, "--identity", str(pid)], check=True,
-                                capture_output=True, text=True, timeout=2).stdout.strip()
+        probe = subprocess.run([worker, "--identity", str(pid)], check=True,
+                               capture_output=True, text=True, timeout=2)
+        if probe.stderr:
+            print(probe.stderr.strip(), flush=True)
+        result = probe.stdout.strip()
         return None if result == "absent" else tuple(map(int, result.split()))
 
     def gone(original):
@@ -141,11 +145,21 @@ def run(helper, worker, unknown_helper):
                     lines = until(ready)
                     identities = [tuple(map(int, line.split())) for line in lines[:2]]
                     port = int(lines[2])
-                    require(all(identity(item[0])[:4] == item[:4] for item in identities), "identity changed before fault")
+                    observed = [identity(item[0]) for item in identities]
+                    require(all(actual is not None and actual[:4] == expected[:4]
+                                for actual, expected in zip(observed, identities)),
+                            f"scenario={scenario}; pre-fault identity mismatch; expected={identities}; observed={observed}; "
+                            f"guardian-events={(directory / 'events').read_text() if (directory / 'events').exists() else 'none'}; "
+                            f"guardian-exit={(directory / 'exit').read_text() if (directory / 'exit').exists() else 'pending'}")
                     guardian_identity = identity(guardian)
                     require(guardian_identity is not None, "guardian not live before fault")
                     if scenario == "app-kill-stopped":
-                        until(lambda: all(identity(item[0])[4] == 4 for item in identities))
+                        def stopped():
+                            states = [identity(item[0]) for item in identities]
+                            require(all(value is not None for value in states),
+                                    f"stopped fixture disappeared before parent kill: {states}")
+                            return all(value[4] == 4 for value in states)
+                        until(stopped)
                     started = time.monotonic()
                     if scenario in ("app-kill", "app-kill-stopped"):
                         app.kill()
@@ -215,7 +229,7 @@ def run(helper, worker, unknown_helper):
                     pass_fds=(read_fd, child_status.fileno()), timeout=3)
                 require(result.returncode == 0, "pre-spawn cancellation failed")
                 require(not (Path(temporary) / "worker").exists(), "cancelled startup initialized worker")
-                require(struct.unpack("!II", status.recv(8)) == (3, 0), "late spawn after cancellation")
+                require(struct.unpack("!IIQ", status.recv(16))[:2] == (3, 0), "late spawn after cancellation")
             finally:
                 os.close(read_fd)
                 status.close()

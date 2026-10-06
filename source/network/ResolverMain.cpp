@@ -70,11 +70,14 @@ int main(int argumentCount, char **arguments) {
     WSADATA data{};
     if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return 2;
 #elif defined(__APPLE__)
-    if (argumentCount != 4 || std::string(arguments[3]).rfind("--guardian-parent=", 0) != 0) return 2;
-    const auto parentText = std::string(arguments[3]).substr(18);
+    if (argumentCount != 4) return 2;
+    const std::string parentArgument = arguments[3];
+    const bool sameGroup = parentArgument.rfind("--resolver-owner=", 0) == 0;
+    if (!sameGroup && parentArgument.rfind("--guardian-parent=", 0) != 0) return 2;
+    const auto parentText = parentArgument.substr(sameGroup ? 17 : 18);
     if (!Duel6::Network::ResolverProtocol::validParentProcessId(parentText)) return 2;
     auto parentMonitor = Duel6::Platform::Darwin::ParentMonitor::start(
-        static_cast<pid_t>(std::stoul(parentText)), 3);
+        static_cast<pid_t>(std::stoul(parentText)), 3, !sameGroup);
     if (!parentMonitor) return 2;
     const int noSignal = 1;
     if (setsockopt(4, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, sizeof(noSignal)) != 0) return 2;

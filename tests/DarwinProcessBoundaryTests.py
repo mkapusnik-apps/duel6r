@@ -97,7 +97,7 @@ def run(helper, worker):
                             require(not (root / "worker").exists(), "failed registration initialized a worker")
                         else:
                             require((root / "sends").read_text() == "1", "partial frame was followed by another send")
-                            require((root / "channel-end").read_text() == "4", "partial frame was not sealed at EOF")
+                            require((root / "channel-end").read_text() == "8", "partial frame was not sealed at EOF")
                             require(not (root / "events").exists(), "partial bytes were resynchronized into an event")
                             require((root / "reaped-by-cleanup").exists(), "status backpressure blocked cleanup")
                             known.append(tuple(map(int, (root / "spawned").read_text().split())))

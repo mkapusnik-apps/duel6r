@@ -1,6 +1,7 @@
 #include "DarwinChild.h"
 #include "DarwinProcess.h"
 #include <array>
+#include <algorithm>
 #include <cerrno>
 #include <cstdint>
 #include <fcntl.h>
@@ -52,48 +53,74 @@ namespace Duel6::Platform::Darwin {
         bool workerExited = false, guardianExited = false, broken = false, cleaned = false, reaped = false;
         bool cleanedEvent = false, eof = false;
         bool spawnFailed = false;
+        bool directResolver = false, anchorLost = false;
         std::chrono::steady_clock::time_point exitObservation{};
-        std::array<unsigned char, 8> frame{};
+        std::chrono::steady_clock::time_point guardianObservation{};
+        GuardianFrame frame{};
+        std::uint64_t attemptBegan = monotonicNanoseconds(), lastOrigin = 0;
         std::size_t used = 0, total = 0;
         ~State() { for (int fd : {life, events, output, input}) if (fd >= 0) close(fd); }
-        void terminateLocked() { if (life >= 0) { close(life); life = -1; } }
-        void recordExit() {
-            if (exitObservation == std::chrono::steady_clock::time_point{}) exitObservation = std::chrono::steady_clock::now();
+        void terminateLocked() {
+            if (life >= 0) { close(life); life = -1; }
+            if (directResolver && guardian > 0 && !reaped && !anchorLost) kill(guardian, SIGKILL);
+        }
+        void recordExit(std::chrono::steady_clock::time_point at = std::chrono::steady_clock::now()) {
+            if (exitObservation == std::chrono::steady_clock::time_point{}) exitObservation = at;
+        }
+        void recordGuardianLoss() {
+            if (guardianObservation == std::chrono::steady_clock::time_point{}) guardianObservation = std::chrono::steady_clock::now();
         }
         void refreshLocked() {
             if (cleaned || guardian < 0) return;
+            if (directResolver) {
+                siginfo_t info{};
+                int result;
+                do { result = waitid(P_PID, static_cast<id_t>(guardian), &info, WEXITED | WNOHANG | WNOWAIT); }
+                while (result < 0 && errno == EINTR);
+                if (result < 0) { anchorLost = broken = true; recordExit(); return; }
+                if (info.si_pid != guardian || (info.si_code != CLD_EXITED && info.si_code != CLD_KILLED
+                    && info.si_code != CLD_DUMPED)) return;
+                workerExited = true; recordExit();
+                broken = info.si_code != CLD_EXITED || info.si_status != 0;
+                pid_t reapedPid;
+                do { reapedPid = waitpid(guardian, nullptr, 0); } while (reapedPid < 0 && errno == EINTR);
+                if (reapedPid != guardian) { anchorLost = broken = true; return; }
+                reaped = cleaned = true;
+                terminateLocked();
+                return;
+            }
             while (!eof && !broken) {
                 const auto count = recv(events, frame.data() + used, frame.size() - used, 0);
                 if (count < 0 && errno == EINTR) continue;
                 if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
                 if (count <= 0) { eof = true; if (count < 0 || used || !cleanedEvent) broken = true; break; }
                 used += static_cast<std::size_t>(count); total += static_cast<std::size_t>(count);
-                if (total > 32) { broken = true; break; }
+                if (total > 4 * GuardianFrameBytes) { broken = true; break; }
                 if (used != frame.size()) continue;
-                const auto word = [&](unsigned start) {
-                    std::uint32_t value = 0;
-                    for (unsigned i = start; i < start + 4; ++i) value = (value << 8) | frame[i];
-                    return value;
-                };
-                const auto event = static_cast<GuardianEvent>(word(0));
-                const auto pid = word(4);
+                const auto decoded = decodeGuardianFrame(frame, attemptBegan, lastOrigin, monotonicNanoseconds());
+                if (!decoded) { broken = true; break; }
+                const auto event = decoded->event;
+                const auto pid = decoded->pid;
+                lastOrigin = decoded->origin;
+                const auto origin = std::chrono::steady_clock::time_point(std::chrono::nanoseconds(decoded->origin));
                 used = 0;
                 if (cleanedEvent) broken = true;
                 else if (event == GuardianEvent::Started && !worker && !spawnFailed && pid > 1) worker = pid;
-                else if (event == GuardianEvent::LeaderExited && worker && pid == worker && !workerExited) { workerExited = true; recordExit(); }
+                else if (event == GuardianEvent::LeaderExited && worker && pid == worker && !workerExited) { workerExited = true; recordExit(origin); }
                 else if (event == GuardianEvent::Cleaned && pid == worker && (!worker || workerExited)) cleanedEvent = true;
-                else if (event == GuardianEvent::Failed && !worker && !pid && !spawnFailed) { spawnFailed = true; recordExit(); }
+                else if (event == GuardianEvent::Failed && !worker && !pid && !spawnFailed) { spawnFailed = true; recordExit(origin); }
                 else broken = true; // Includes Failed; never interpret a failed stream as tree-zero.
             }
-            if (broken) { recordExit(); terminateLocked(); }
+            if (broken) { recordGuardianLoss(); terminateLocked(); }
             siginfo_t info{};
             int result;
             do { result = waitid(P_PID, static_cast<id_t>(guardian), &info, WEXITED | WNOHANG | WNOWAIT); }
             while (result < 0 && errno == EINTR);
-            if (result < 0) { broken = true; guardianExited = true; recordExit(); terminateLocked(); return; }
-            if (info.si_pid != guardian) return;
+            if (result < 0) { broken = true; guardianExited = true; recordGuardianLoss(); terminateLocked(); return; }
+            if (info.si_pid != guardian || (info.si_code != CLD_EXITED && info.si_code != CLD_KILLED
+                && info.si_code != CLD_DUMPED)) return;
             guardianExited = true;
-            recordExit();
+            recordGuardianLoss();
             // Drain may precede exit in this cycle; wait for actual channel EOF
             // before accepting it. No numeric PID or PGID signalling is used.
             if (!eof) return;
@@ -113,8 +140,9 @@ namespace Duel6::Platform::Darwin {
         public:
             std::mutex mutex;
             std::array<std::shared_ptr<GuardedChild::State>, 32> owned{};
-            Custodian() {
-                std::thread([this] {
+            bool stopping = false;
+            std::thread reaper;
+            Custodian() : reaper([this] {
                     for (;;) {
                         {
                             std::lock_guard<std::mutex> lock(mutex);
@@ -126,24 +154,42 @@ namespace Duel6::Platform::Darwin {
                                   state->refreshLocked(); cleaned = state->cleaned; }
                                 if (cleaned) state.reset();
                             }
+                            if (stopping && std::none_of(owned.begin(), owned.end(), [](const auto &state) { return bool(state); })) return;
                         }
                         std::this_thread::sleep_for(std::chrono::milliseconds(5));
                     }
-                }).detach();
+                }) {}
+            ~Custodian() {
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    stopping = true;
+                    for (auto &state : owned) if (state) {
+                        std::lock_guard<std::mutex> childLock(state->mutex);
+                        state->terminateLocked();
+                    }
+                }
+                reaper.join(); // Unconfirmed ownership cannot become completed exit.
             }
         };
-        Custodian &custodian() { static auto *value = new Custodian(); return *value; }
+        Custodian &custodian() { static Custodian value; return value; }
     }
 
     std::unique_ptr<GuardedChild> GuardedChild::launch(const std::vector<std::string> &arguments) {
         // A service must never escape its owning group by launching another
         // independently grouped worker. Its existing guardian owns all work.
         if (inGuardedWorker()) return {};
+        return launchImpl(arguments, false);
+    }
+    std::unique_ptr<GuardedChild> GuardedChild::launchResolver(const std::vector<std::string> &arguments) {
+        return launchImpl(arguments, true);
+    }
+    std::unique_ptr<GuardedChild> GuardedChild::launchImpl(const std::vector<std::string> &arguments, bool resolver) {
         if (arguments.empty() || arguments.size() > 32 || arguments.front().empty() || arguments.front()[0] != '/') return {};
         for (const auto &argument : arguments) if (argument.size() > 4096 || argument.find('\0') != std::string::npos) return {};
-        const auto executable = siblingExecutable("duel6r-darwin-guardian");
+        const auto executable = resolver ? arguments.front() : siblingExecutable("duel6r-darwin-guardian");
         if (executable.empty()) return {};
         auto state = std::make_shared<State>();
+        state->directResolver = resolver;
         auto child = std::unique_ptr<GuardedChild>(new GuardedChild(state));
         auto &owner = custodian();
         std::lock_guard<std::mutex> reservation(owner.mutex);
@@ -157,8 +203,14 @@ namespace Duel6::Platform::Darwin {
             const int flags = fcntl(fd, F_GETFL);
             if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) return {};
         }
-        std::vector<std::string> strings{executable, std::to_string(getpid()), "3", "4", "--worker-io", "5", "6"};
-        strings.insert(strings.end(), arguments.begin(), arguments.end());
+        std::vector<std::string> strings;
+        if (resolver) {
+            strings = arguments;
+            strings.push_back("--resolver-owner=" + std::to_string(getpid()));
+        } else {
+            strings = {executable, std::to_string(getpid()), "3", "4", "--worker-io", "5", "6"};
+            strings.insert(strings.end(), arguments.begin(), arguments.end());
+        }
         std::vector<char *> argv;
         for (auto &argument : strings) argv.push_back(argument.data());
         argv.push_back(nullptr);
@@ -170,7 +222,9 @@ namespace Duel6::Platform::Darwin {
         for (int fd = 0; fd < 3 && !error; ++fd)
             error = posix_spawn_file_actions_addopen(&actions, fd, "/dev/null", fd ? O_WRONLY : O_RDONLY, 0);
         for (unsigned i = 0; i < 4 && !error; ++i) {
-            error = posix_spawn_file_actions_adddup2(&actions, pairs[i][1], static_cast<int>(3 + i));
+            if (resolver && i == 1) continue;
+            const int destination = static_cast<int>(3 + i - (resolver && i > 1 ? 1 : 0));
+            error = posix_spawn_file_actions_adddup2(&actions, pairs[i][1], destination);
             if (!error) error = posix_spawn_file_actions_addclose(&actions, pairs[i][1]);
         }
         if (!error) error = posix_spawnattr_setflags(&attributes, POSIX_SPAWN_CLOEXEC_DEFAULT);
@@ -178,9 +232,10 @@ namespace Duel6::Platform::Darwin {
         if (!error) error = posix_spawn(&state->guardian, executable.c_str(), &actions, &attributes, argv.data(), environment);
         posix_spawnattr_destroy(&attributes); posix_spawn_file_actions_destroy(&actions);
         if (error) return {};
-        state->life = pairs[0][0]; state->events = pairs[1][0];
+        state->life = pairs[0][0];
+        if (!resolver) state->events = pairs[1][0];
         state->output = pairs[2][0]; state->input = pairs[3][0];
-        for (auto &pair : pairs) pair[0] = -1;
+        for (unsigned i = 0; i < 4; ++i) if (!resolver || i != 1) pairs[i][0] = -1;
         *slot = state;
         return child;
     }
@@ -190,7 +245,17 @@ namespace Duel6::Platform::Darwin {
     int GuardedChild::input() const { return state->input; }
     void GuardedChild::terminate() { std::lock_guard<std::mutex> lock(state->mutex); state->terminateLocked(); }
     bool GuardedChild::exited() { std::lock_guard<std::mutex> lock(state->mutex); state->refreshLocked(); return state->workerExited || state->guardianExited || state->spawnFailed || state->broken; }
-    std::chrono::steady_clock::time_point GuardedChild::exitObservedAt() { std::lock_guard<std::mutex> lock(state->mutex); return state->exitObservation; }
+    std::chrono::steady_clock::time_point GuardedChild::exitObservedAt() {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        // Missing guardian evidence is a local supervision-loss observation,
+        // never a fabricated earlier worker-exit timestamp.
+        return state->exitObservation != std::chrono::steady_clock::time_point{}
+            ? state->exitObservation : state->guardianObservation;
+    }
+    std::chrono::steady_clock::time_point GuardedChild::supervisionLossObservedAt() {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        return state->guardianObservation;
+    }
     bool GuardedChild::startupFailed() { std::lock_guard<std::mutex> lock(state->mutex); state->refreshLocked(); return state->spawnFailed; }
     bool GuardedChild::failed() { std::lock_guard<std::mutex> lock(state->mutex); state->refreshLocked(); return state->broken; }
     bool GuardedChild::cleanupConfirmed() { std::lock_guard<std::mutex> lock(state->mutex); state->refreshLocked(); return state->cleaned; }

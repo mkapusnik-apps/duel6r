@@ -827,9 +827,14 @@ D6R_TEST_CASE("secure manifest descriptors reject symlink roots hardlinks nonreg
                 Network::ManifestStatus::UnsafeFilesystemEntry);
 
     TemporaryResources invalidName; invalidName.required();
-    invalidName.write(std::string("levels/nonascii-") + static_cast<char>(0xff), "x");
-    D6R_REQUIRE(Network::CompatibilityManifestBuilder(invalidName.root.string()).build().status ==
-                Network::ManifestStatus::InvalidLogicalPath);
+    // Use a representable filesystem name that is still forbidden by the
+    // ASCII logical-path contract. APFS need not represent an isolated 0xff.
+    const std::string nonAsciiName = "levels/nonascii-\xc3\xa9";
+    invalidName.write(nonAsciiName, "x");
+    D6R_REQUIRE(fs::is_regular_file(invalidName.root / nonAsciiName));
+    D6R_REQUIRE(!Network::Trust::validLogicalPath(std::string("levels/nonascii-") + static_cast<char>(0xff)));
+    const auto invalidNameStatus = Network::CompatibilityManifestBuilder(invalidName.root.string()).build().status;
+    D6R_REQUIRE_EQ(Network::ManifestStatus::InvalidLogicalPath, invalidNameStatus);
 
     TemporaryResources deep; deep.required();
     fs::path nested = deep.root / "levels";
@@ -1290,7 +1295,10 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
         D6R_REQUIRE_EQ(0u, localActions.load());
         if (scenario.valid) {
             D6R_REQUIRE_EQ(2, status); // tester cancellation after observing the admitted lobby
-            D6R_REQUIRE(output.str().find("admitted\nparticipant-id=10 player-ids=11,12\n") == 0);
+            if (output.str().find("admitted\nparticipant-id=10 player-ids=11,12\n") != 0)
+                Test::fail("production admission prefix", __FILE__, __LINE__,
+                           std::string("scenario=") + scenario.name + ";status=" + std::to_string(status)
+                           + ";presentations=" + std::to_string(presentations.load()) + ";output=" + output.str());
             D6R_REQUIRE(presentations.load() >= 1);
         } else {
             D6R_REQUIRE_EQ(2, status);
@@ -1484,8 +1492,13 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
         D6R_REQUIRE(applications[playerId] >= SustainedTicks);
     }
     for (const auto playerId: guestPlayers) {
-        D6R_REQUIRE(samples[playerId] >= SustainedTicks);
-        D6R_REQUIRE(applications[playerId] >= SustainedTicks);
+        if (samples[playerId] < SustainedTicks || applications[playerId] < SustainedTicks)
+            Test::fail("sustained guest sampling and application", __FILE__, __LINE__,
+                       "player=" + std::to_string(playerId) + ";samples=" + std::to_string(samples[playerId])
+                       + ";applications=" + std::to_string(applications[playerId])
+                       + ";required=" + std::to_string(SustainedTicks)
+                       + ";presentation=" + presentationEvidence + ";guest-output=" + guestOutput.str()
+                       + ";host-output=" + hostOutput.str());
     }
     D6R_REQUIRE_EQ(transportBudgetBaseline, transportBudget.used());
 }
@@ -1888,10 +1901,24 @@ D6R_TEST_CASE("PR83 production final-summary Leave and expiry remove membership 
                 departing->reconnectGrant->sessionId, departing->offer->participantId,
                 Network::Lifecycle::ParticipantActionKind::Ready})) == Network::SendResult::Accepted);
         hostReady = true;
-        D6R_REQUIRE(pumpUntil(*survivor, [&] {
+        const bool reachedFinal = pumpUntil(*survivor, [&] {
             pumpProductionPeer(*departing);
             return !survivor->states.empty() && survivor->states.back().phase == Network::Replication::Phase::FinalSummary;
-        }, 9s));
+        }, 9s);
+        if (!reachedFinal) {
+            std::ostringstream detail;
+            detail << "expire=" << expire << ";snapshots=" << survivor->states.size()
+                   << ";transport-state=" << static_cast<int>(survivor->connection->state())
+                   << ";transport-failure=" << static_cast<int>(survivor->connection->failure());
+            if (!survivor->states.empty()) {
+                const auto &state = survivor->states.back();
+                detail << ";phase=" << static_cast<int>(state.phase) << ";tick=" << state.phaseTime;
+                for (const auto &participant : state.participants)
+                    detail << ";participant=" << participant.participantId << ",ready=" << participant.ready
+                           << ",connection=" << static_cast<int>(participant.connection);
+            }
+            Test::fail("production final summary within original nine seconds", __FILE__, __LINE__, detail.str());
+        }
         const auto before = survivor->states.back();
         const auto removed = departing->offer->participantId;
         if (expire) {
@@ -2133,10 +2160,21 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
         });
     }, 8s);
     if (!finalSummaryReceived) {
+        std::ostringstream detail;
+        detail << "match-starts=" << matchStarts.load() << ";snapshots=" << first->states.size()
+               << ";transport-state=" << static_cast<int>(first->connection->state())
+               << ";transport-failure=" << static_cast<int>(first->connection->failure());
+        if (!first->states.empty()) {
+            const auto &state = first->states.back();
+            detail << ";phase=" << static_cast<int>(state.phase) << ";tick=" << state.phaseTime
+                   << ";result-available=" << state.result.available << ";result-state=" << state.result.state;
+            for (const auto &participant : state.participants)
+                detail << ";participant=" << participant.participantId << ",ready=" << participant.ready;
+        }
         first->client->close();
         cancelled = true;
         host.join();
-        Duel6::Test::fail("finalSummaryReceived", __FILE__, __LINE__, hostOutput.str());
+        Duel6::Test::fail("finalSummaryReceived", __FILE__, __LINE__, detail.str() + ";output=" + hostOutput.str());
     }
 
     Server::ServerConfig blockedConfig = runtimeGuestConfig();

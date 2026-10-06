@@ -348,7 +348,8 @@ namespace Duel6::Client {
                 const bool supervisionFailed = child->failed();
                 if (!spawnFailureReported && (supervisionFailed || child->startupFailed())) {
                     spawnFailureReported = true;
-                    event = {Network::HostServiceStatusCode::StartFailed, child->exitObservedAt(), {}};
+                    event = {Network::HostServiceStatusCode::StartFailed,
+                        supervisionFailed ? child->supervisionLossObservedAt() : child->exitObservedAt(), {}};
                     return true;
                 }
                 if (supervisionFailed) return false;

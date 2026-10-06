@@ -648,34 +648,10 @@ namespace Duel6::Network {
             std::array<std::uint8_t, 4> literal{};
             if (Trust::classifyIpv4Literal(host, &literal) != Trust::EndpointScope::Invalid)
                 return {ResolveStatus::Resolved, {{literal, port}}};
-            if (Platform::Darwin::inGuardedWorker()) {
-                // Host startup is already isolated in a killable service group.
-                // Do not create a nested resolver group that could escape that
-                // guardian's cleanup. The only supported listener name is
-                // localhost; its potentially blocking OS lookup stays inside
-                // this worker, under the host startup/cancel hard boundary.
-                if (host != "localhost") return {};
-                addrinfo hints{}; hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
-                addrinfo *addresses = nullptr;
-                const int resolved = getaddrinfo(host.c_str(), service.c_str(), &hints, &addresses);
-                ResolveOutcome result;
-                if (resolved == 0) {
-                    for (auto *entry = addresses; entry && result.endpoints.size() < ResolverProtocol::MaxAddresses;
-                         entry = entry->ai_next) {
-                        if (entry->ai_family != AF_INET || entry->ai_addrlen < sizeof(sockaddr_in)) continue;
-                        ResolvedIpv4Endpoint endpoint; endpoint.port = port;
-                        std::memcpy(endpoint.address.data(), &reinterpret_cast<sockaddr_in *>(entry->ai_addr)->sin_addr, 4);
-                        result.endpoints.push_back(endpoint);
-                    }
-                }
-                if (addresses) freeaddrinfo(addresses);
-                if (cancelled()) return {ResolveStatus::Cancelled, {}};
-                if (now() >= deadline) return {ResolveStatus::TimedOut, {}};
-                if (!result.endpoints.empty()) result.status = ResolveStatus::Resolved;
-                return result;
-            }
-            auto child = Platform::Darwin::GuardedChild::launch({
-                Platform::Darwin::siblingExecutable("duel6r-resolver"), host, service});
+            const std::vector<std::string> arguments{Platform::Darwin::siblingExecutable("duel6r-resolver"), host, service};
+            auto child = Platform::Darwin::inGuardedWorker()
+                ? Platform::Darwin::GuardedChild::launchResolver(arguments)
+                : Platform::Darwin::GuardedChild::launch(arguments);
             if (!child) return {};
             std::vector<std::uint8_t> response;
             response.reserve(MaxResolverResponseBytes);

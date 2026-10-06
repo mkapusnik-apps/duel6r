@@ -99,7 +99,7 @@ namespace {
     }
     ssize_t observedSend(int socket, const void *bytes, size_t count, int flags) {
         mark("sends", std::to_string(++sends));
-        // Real delivery of exactly half the first fixed frame. Subsequent
+        // Real delivery of exactly half the timestamped frame. Subsequent
         // publication attempts are recorded even if the socket is shut down.
         if (fault == "partial-status" && sends == 1) return send(socket, bytes, count / 2, flags);
         return send(socket, bytes, count, flags);

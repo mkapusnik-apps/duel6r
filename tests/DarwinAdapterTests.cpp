@@ -25,7 +25,7 @@ namespace {
         void release() { if (fd >= 0) { close(fd); fd = -1; } }
         ~Port() { release(); }
     };
-    template<typename Predicate> bool await(Predicate predicate, std::chrono::milliseconds budget = 3s) {
+    template<typename Predicate> bool await(Predicate predicate, std::chrono::steady_clock::duration budget = 3s) {
         const auto deadline = std::chrono::steady_clock::now() + budget;
         do {
             if (predicate()) return true;
@@ -94,8 +94,15 @@ D6R_TEST_CASE("Darwin production host adapter preserves readiness stop cancel an
         local.endpoint.host = "localhost";
         D6R_REQUIRE(supervisor.start(local));
         D6R_REQUIRE(supervisor.waitForState(State::Active, 5s));
+        const auto cleanupDeadline = std::chrono::steady_clock::now() + 3s;
         supervisor.applicationExit();
-        D6R_REQUIRE(supervisor.waitForState(State::ApplicationExit, 3s));
+        // ApplicationExit is the accepted intent, not completed cleanup.
+        // Keep the original three-second boundary and require both facts.
+        D6R_REQUIRE(await([&] {
+            const auto state = supervisor.snapshot();
+            return state.state == State::ApplicationExit && state.cleanupComplete;
+        }, cleanupDeadline - std::chrono::steady_clock::now()));
+        D6R_REQUIRE(std::chrono::steady_clock::now() <= cleanupDeadline);
         D6R_REQUIRE(supervisor.snapshot().cleanupComplete);
     }
     {

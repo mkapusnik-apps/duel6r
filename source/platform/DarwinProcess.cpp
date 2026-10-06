@@ -63,12 +63,8 @@ namespace Duel6::Platform::Darwin {
             return false;
         }
 
-        bool report(int socket, GuardianEvent event, pid_t worker) {
-            std::array<unsigned char, 8> bytes{};
-            const std::uint32_t values[] = {static_cast<std::uint32_t>(event), static_cast<std::uint32_t>(worker)};
-            for (unsigned word = 0; word < 2; ++word)
-                for (unsigned byte = 0; byte < 4; ++byte)
-                    bytes[word * 4 + byte] = static_cast<unsigned char>(values[word] >> (24 - byte * 8));
+        bool report(int socket, GuardianEvent event, pid_t worker, std::uint64_t origin) {
+            const auto bytes = guardianFrame(event, static_cast<std::uint32_t>(worker), origin);
             // Bounded nonblocking status. A lost/partial status fails the
             // reporting channel, not termination. No diagnostics on stdout.
             ssize_t sent;
@@ -149,9 +145,9 @@ namespace Duel6::Platform::Darwin {
         if (queue.get() < 0 || !nonblocking(status)
             || setsockopt(status, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, sizeof(noSignal)) != 0) return 2;
         bool statusOpen = true;
-        const auto publish = [&](GuardianEvent event, pid_t worker) {
+        const auto publish = [&](GuardianEvent event, pid_t worker, std::uint64_t origin = monotonicNanoseconds()) {
             if (!statusOpen) return false;
-            if (report(status, event, worker)) return true;
+            if (report(status, event, worker, origin)) return true;
             // A partial fixed frame cannot be followed by another frame: that
             // would allow a reader to accidentally resynchronize on mixed bytes.
             statusOpen = false;
@@ -188,11 +184,13 @@ namespace Duel6::Platform::Darwin {
                 publish(GuardianEvent::Failed, worker);
                 return 2; // Writer closes; runnable worker independently handles supervision loss.
             }
-            if (information.si_pid == worker) {
+            if (information.si_pid == worker && (information.si_code == CLD_EXITED
+                || information.si_code == CLD_KILLED || information.si_code == CLD_DUMPED)) {
+                const auto origin = monotonicNanoseconds(); // First confirmed waitid observation, not GUI polling.
                 cleanup.observeExit(); stopping = true;
                 if (!observedExit) {
                     observedExit = true;
-                    reporting = publish(GuardianEvent::LeaderExited, worker) && reporting;
+                    reporting = publish(GuardianEvent::LeaderExited, worker, origin) && reporting;
                 }
             }
             if (stopping && cleanup.maySignal()) kill(-worker, SIGKILL);
@@ -228,8 +226,8 @@ namespace Duel6::Platform::Darwin {
     ParentMonitor::ParentMonitor() = default;
     ParentMonitor::~ParentMonitor() = default;
     bool inGuardedWorker() { return guardedWorker.load(); }
-    std::unique_ptr<ParentMonitor> ParentMonitor::start(pid_t guardian, int life) {
-        if (getpgrp() != getpid() || inGuardedWorker()) return nullptr;
+    std::unique_ptr<ParentMonitor> ParentMonitor::start(pid_t guardian, int life, bool ownsGroup) {
+        if (inGuardedWorker() || (ownsGroup ? getpgrp() != getpid() : getpgrp() != getpgid(guardian))) return nullptr;
         const int queue = watchParent(guardian, life);
         if (queue < 0) return nullptr;
         auto monitor = std::unique_ptr<ParentMonitor>(new ParentMonitor());
@@ -237,12 +235,14 @@ namespace Duel6::Platform::Darwin {
         if (parentGone(queue, life, 0)) return nullptr;
         auto *state = monitor->impl.get();
         try {
-            state->watcher = std::thread([state] {
+            state->watcher = std::thread([state, ownsGroup] {
                 while (!state->finished) {
                     if (parentGone(state->queue.get(), state->life, 10)) {
-                        // This process is still the live group leader: its own
-                        // PGID cannot have been recycled. Not intentional End.
-                        kill(0, SIGKILL);
+                        // A live group owner pins its own PGID. This terminal
+                        // supervision loss is never intentional End.
+                        // A same-group resolver is a leaf, not the group owner.
+                        // Killing the group here would also kill its service.
+                        kill(ownsGroup ? 0 : getpid(), SIGKILL);
                         _exit(2);
                     }
                 }

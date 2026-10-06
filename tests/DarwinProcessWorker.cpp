@@ -11,6 +11,8 @@
 #include <signal.h>
 #include <spawn.h>
 #include <sys/socket.h>
+#include <sys/sysctl.h>
+#include <sys/proc.h>
 #include <unistd.h>
 
 extern char **environ;
@@ -27,16 +29,32 @@ namespace {
 
 int main(int argc, char **argv) {
     if (argc == 3 && std::string(argv[1]) == "--identity") {
+        const pid_t pid = static_cast<pid_t>(std::atoi(argv[2]));
+        if (pid <= 1) return 2;
         proc_bsdinfo value{};
         errno = 0;
-        const int count = proc_pidinfo(std::atoi(argv[2]), PROC_PIDTBSDINFO, 0, &value, sizeof(value));
-        if (count == sizeof(value)) {
+        const int count = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &value, sizeof(value));
+        if (count == sizeof(value) && value.pbi_pid == static_cast<unsigned>(pid) && value.pbi_start_tvsec > 0) {
             std::printf("%u %llu %llu %u %u\n", value.pbi_pid,
                 static_cast<unsigned long long>(value.pbi_start_tvsec),
                 static_cast<unsigned long long>(value.pbi_start_tvusec), value.pbi_pgid, value.pbi_status);
             return 0;
         }
-        if (count == 0 && errno == ESRCH) { std::puts("absent"); return 0; }
+        // A failed task-info query is not proof of PID disappearance. Confirm
+        // stopped/transitional processes through the BSD process snapshot.
+        kinfo_proc snapshot{};
+        size_t length = sizeof(snapshot);
+        int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
+        if (sysctl(mib, 4, &snapshot, &length, nullptr, 0) == 0 && length == sizeof(snapshot)
+            && snapshot.kp_proc.p_pid == pid && snapshot.kp_proc.p_starttime.tv_sec > 0) {
+            std::printf("%d %llu %llu %d %u\n", pid,
+                static_cast<unsigned long long>(snapshot.kp_proc.p_starttime.tv_sec),
+                static_cast<unsigned long long>(snapshot.kp_proc.p_starttime.tv_usec),
+                snapshot.kp_eproc.e_pgid, static_cast<unsigned>(snapshot.kp_proc.p_stat));
+            std::fputs("identity-observer: BSD snapshot confirmed process after task-info query failed\n", stderr);
+            return 0;
+        }
+        if (kill(pid, 0) != 0 && errno == ESRCH) { std::puts("absent"); return 0; }
         return 2; // An inspection failure is not absence.
     }
     if (argc == 2 && std::string(argv[1]) == "--descendant") {

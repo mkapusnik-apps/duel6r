@@ -29,7 +29,7 @@ the Homebrew curl prefix explicitly, and runs these ordinary CTest entries:
   barriers before/after parent registration and worker spawn, then tests actual
   parent SIGKILL. Registration syscall failure prevents spawn. An exact-child
   reap makes the actual next `waitid` report ECHILD and verifies no subsequent
-  PGID signal or cleanup-success event. Real four-byte partial status delivery
+  PGID signal or cleanup-success event. Real half-frame partial status delivery
   must seal the channel at EOF with no later send or frame resynchronization;
   anchored cleanup must still complete. These observers and fault selectors are
   absent from the shipped guardian. The negative lost-anchor fixture explicitly
@@ -60,6 +60,12 @@ the Homebrew curl prefix explicitly, and runs these ordinary CTest entries:
   proxies, credentials or cookies; requires actual Apple trust evaluation, not a
   library version or symbol-presence assertion. The test-only dyld observer calls
   the real SecTrust evaluator and cannot change its result. No trust store changes.
+  The observer is a separate test-only shared image, covers modern and legacy
+  APIs, and has a real untrusted-certificate control from the executable. Output
+  identifies the actual libcurl image/backend and both counters. Native-CA
+  selection is explicit with file/path CA defaults cleared; zero native evaluations
+  still fails. Fixture controls aggregate failures instead of aborting before
+  the wrong-host case.
 - `darwin-trust-negatives`: isolated loopback HTTPS fixtures; default system trust
   rejects an untrusted certificate. A per-request test CA establishes a successful
   local positive control and a separate wrong-host rejection, not a SecTrust pass.
@@ -84,23 +90,32 @@ to FD 4. The server uses FDs 4/5 for the existing hosted-service protocol.
 
 `GuardedChild` owns the sole application-side liveness writer and the direct
 guardian child. Spawn, exit and cleanup are distinct from service readiness.
-Cancellation closes liveness, not a numeric PID. A bounded 32-slot custodian
+Guardian cancellation closes liveness, not a numeric PID. A bounded 32-slot custodian
 retains abandoned resolver cleanup until a valid cleanup event, clean guardian
 exit, channel EOF and exact guardian reap all agree. Unknown/failed ownership is
 not released as success. Active callers retain first-exit observation ownership;
 the custodian only polls handles no longer held by an active caller.
-The first observed worker/guardian exit time is retained even when status polling
-observes it before the supervisor consumes it; delayed processing does not move
-that timestamp across the startup deadline.
+Leader exit carries monotonic nanoseconds sampled at the guardian's first terminal
+`waitid` observation. The receiver checks attempt bounds, PID/phase, ordering and
+future timestamps; GUI consumption does not resample it. Local guardian-loss time
+is separate and cannot invent earlier worker-exit evidence. Portable codec tests
+and a native delayed-GUI test cross the original ten-second startup deadline.
 
 Numeric IPv4 endpoints require no resolver process. Standalone client hostnames
-use the guarded resolver. An already guarded hosted service cannot launch a new
-process group: its sole permitted listener hostname, `localhost`, is resolved
-inside the existing killable service under the host startup/cancellation deadline
-and independent guardian. This avoids nested resolver groups escaping a host's
-descendant cleanup. The production adapter test includes hosted `localhost` startup.
+use the guarded resolver. An already guarded service uses an independently
+cancellable resolver subprocess in the service's existing process group. No
+`getaddrinfo` runs on the attempt thread. This leaf uses self-only parent-death
+termination; the outer guardian can still kill it when stopped. Its exact parent
+retains the PID until reaping, and never signals after ownership loss. The bounded
+custodian has an owned, joined thread rather than a detached resolver/reaper.
 
-The guardian's fixed local events are spawn notification (not Ready), leader exit,
+`darwin-resolver-ownership` requires each actual helper to publish its entered
+barrier and matching group identity before cancellation. A test-only observation
+delay retains 32 exact children/slots, rejects a 33rd allocation, then requires
+positive reap/release and reuse. This replaces the immediate-cancel loop as the
+cleanup-ownership proof; that loop remains only a transport cancellation smoke.
+
+The guardian's fixed 16-byte local events are spawn notification (not Ready), leader exit,
 positive cleanup and failure. An eventual host adapter must retain existing
 service-status framing and cancellation/readiness precedence; these local events
 must not bypass that protocol. Unknown group inspection retains the unreaped
@@ -115,6 +130,25 @@ inspection cannot establish tree-zero. Production has no unknown-inspection test
 switch; the separately linked regression executable injects that failure.
 
 ## Remaining integration and proof
+
+Supplied run 37436857635 / artifact 11400195128 at 56e1416 reported 14 passing and
+six failing CTests. The host-adapter test incorrectly treated ApplicationExit intent
+as completed cleanup; it now requires both within the original three-second bound.
+The manifest fixture now creates a checked, representable UTF-8 filename forbidden
+by the ASCII contract, with raw invalid-byte rejection asserted at the validator.
+
+The stopped-process fixture failed before parent-kill injection, not during the
+later guardian-loss case. Identity absence is explicit, and a failed task-info
+query is not accepted as disappearance without BSD snapshot/ESRCH confirmation.
+These observations must distinguish an inspection issue from premature exit;
+neither is labelled passed without native evidence.
+
+The two transport failures and four remaining admission/replication failures lack
+sufficient actual values in the supplied log to assign a root cause. Their original
+assertions and deadlines remain. Permanent diagnostics record refusal controls,
+actual native writer progress, sampling counts, canonical phases/readiness and
+fixed fixture outcomes. Do not label these additions as resolved behavior or
+loosen calibration, progress or admission bounds.
 
 The production HostServiceProcess/HostedServiceChannel and ResolverMain adapters
 are connected without enabling the GUI. Native execution of the complete linked

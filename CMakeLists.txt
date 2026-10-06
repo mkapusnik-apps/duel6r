@@ -70,11 +70,15 @@ if (APPLE)
         target_link_libraries(duel6r-darwin-trust-policy-tests PRIVATE duel6r-darwin-security)
         add_test(NAME darwin-trust-policy COMMAND duel6r-darwin-trust-policy-tests)
         find_library(D6R_APPLE_SECURITY Security REQUIRED)
+        find_library(D6R_APPLE_CORE_FOUNDATION CoreFoundation REQUIRED)
         find_program(D6R_OPENSSL_EXECUTABLE openssl REQUIRED)
+        add_library(duel6r-darwin-trust-observer SHARED tests/DarwinTrustObserver.cpp)
+        target_link_libraries(duel6r-darwin-trust-observer PRIVATE ${D6R_APPLE_SECURITY})
         add_executable(duel6r-darwin-curl-trust-tests tests/DarwinCurlTrustTests.cpp)
         target_compile_features(duel6r-darwin-curl-trust-tests PRIVATE cxx_std_17)
         target_include_directories(duel6r-darwin-curl-trust-tests PRIVATE ${CURL_INCLUDE_DIRS})
-        target_link_libraries(duel6r-darwin-curl-trust-tests PRIVATE ${CURL_LIBRARIES} ${D6R_APPLE_SECURITY})
+        target_link_libraries(duel6r-darwin-curl-trust-tests PRIVATE ${CURL_LIBRARIES} ${D6R_APPLE_SECURITY}
+                ${D6R_APPLE_CORE_FOUNDATION} duel6r-darwin-trust-observer)
         add_test(NAME darwin-system-trust COMMAND duel6r-darwin-curl-trust-tests)
         add_test(NAME darwin-trust-negatives COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_SOURCE_DIR}/tests/DarwinCurlTrustFixtures.py
@@ -96,6 +100,15 @@ if (APPLE)
                 $<TARGET_FILE:duel6r-darwin-guardian-unknown>)
         set_tests_properties(darwin-process-containment darwin-process-boundaries PROPERTIES TIMEOUT 90
                 LABELS "application;network;process;darwin;security")
+        add_executable(duel6r-darwin-resolver-fixture tests/DarwinResolverFixture.cpp)
+        target_link_libraries(duel6r-darwin-resolver-fixture PRIVATE duel6r-darwin-process)
+        add_executable(duel6r-darwin-resolver-ownership-tests tests/TestMain.cpp tests/DarwinResolverOwnershipTests.cpp)
+        target_link_libraries(duel6r-darwin-resolver-ownership-tests PRIVATE duel6r-darwin-process)
+        target_compile_definitions(duel6r-darwin-resolver-ownership-tests PRIVATE
+                D6R_RESOLVER_FIXTURE="$<TARGET_FILE:duel6r-darwin-resolver-fixture>")
+        add_dependencies(duel6r-darwin-resolver-ownership-tests duel6r-darwin-resolver-fixture duel6r-darwin-guardian)
+        add_test(NAME darwin-resolver-ownership COMMAND duel6r-darwin-resolver-ownership-tests)
+        set_tests_properties(darwin-resolver-ownership PROPERTIES TIMEOUT 90 LABELS "application;network;process;darwin;security")
     endif ()
 endif ()
 

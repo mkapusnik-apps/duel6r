@@ -27,6 +27,13 @@ with tempfile.TemporaryDirectory(prefix="duel6r-trust-") as temporary:
                     "-keyout", str(key), "-out", str(certificate), "-days", "1",
                     "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost"],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+    der = root / "certificate.der"
+    subprocess.run([openssl, "x509", "-in", str(certificate), "-outform", "DER", "-out", str(der)],
+                   check=True, timeout=5)
+    failures = []
+    control = subprocess.run([executable, "--observer-control", str(der)], timeout=12)
+    if control.returncode:
+        failures.append("observer-control")
     server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(certificate, key)
@@ -38,9 +45,13 @@ with tempfile.TemporaryDirectory(prefix="duel6r-trust-") as temporary:
         for mode, host, ca in (("fixture-untrusted", "localhost", "-"),
                                ("fixture-trusted", "localhost", str(certificate)),
                                ("fixture-wrong-host", "wrong.invalid", str(certificate))):
-            subprocess.run([executable, mode, f"https://{host}:{port}/",
-                            f"{host}:{port}:127.0.0.1", ca], check=True, timeout=12)
+            result = subprocess.run([executable, mode, f"https://{host}:{port}/",
+                                     f"{host}:{port}:127.0.0.1", ca], timeout=12)
+            if result.returncode:
+                failures.append(mode)
     finally:
         server.shutdown()
         thread.join()
         server.server_close()
+    if failures:
+        raise AssertionError("native trust failures: " + ", ".join(failures))

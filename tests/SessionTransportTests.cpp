@@ -1038,12 +1038,13 @@ void lifecycleAndFailures() {
     CHECK(getsockname(refusedEndpoint.get(), reinterpret_cast<sockaddr *>(&refusedAddress), &refusedAddressSize) == 0);
     const auto refusedPort = ntohs(refusedAddress.sin_port);
     TcpClient refused;
+    std::string refusedEvidence;
     CHECK(refused.start({"127.0.0.1", refusedPort}));
     CHECK(!refused.waitForConnected(NativeObserverWait));
     if (refused.failure() != TransportFailure::ConnectionRefused) {
-        throw Failure("non-listening bound endpoint classification: state="
-                      + std::to_string(static_cast<int>(refused.state()))
-                      + ", failure=" + std::to_string(static_cast<int>(refused.failure())));
+        refusedEvidence = "non-listening bound endpoint classification: state="
+                       + std::to_string(static_cast<int>(refused.state()))
+                       + ", failure=" + std::to_string(static_cast<int>(refused.failure()));
     }
 
     first.shutdown(); first.shutdown();
@@ -1052,10 +1053,11 @@ void lifecycleAndFailures() {
     CHECK(afterShutdown.start({"127.0.0.1", occupiedPort}));
     CHECK(!afterShutdown.waitForConnected(NativeObserverWait));
     if (afterShutdown.failure() != TransportFailure::ConnectionRefused) {
-        throw Failure("stopped-listener refusal classification: state="
+        throw Failure(refusedEvidence + "; stopped-listener refusal classification: state="
                       + std::to_string(static_cast<int>(afterShutdown.state()))
                       + ", failure=" + std::to_string(static_cast<int>(afterShutdown.failure())));
     }
+    if (!refusedEvidence.empty()) throw Failure(refusedEvidence + "; stopped-listener control correctly refused");
 }
 
 void fifteenIsolatedConnections() {
@@ -1085,7 +1087,41 @@ void fifteenIsolatedConnections() {
 
 void queueBoundaries() {
     const auto port = unusedPort();
-    TcpListener listener(3);
+    std::atomic<std::uint64_t> nativeBytes{0}, wouldBlocks{0}, lastWriteNs{0};
+    std::atomic<std::intptr_t> observedSocket{-1};
+    SessionTransportDependencies observed;
+    observed.outbound.send = [&](std::intptr_t socket, std::uint16_t kind, const std::uint8_t *data, std::size_t size) {
+        if (kind == 0) {
+            std::intptr_t unset = -1;
+            observedSocket.compare_exchange_strong(unset, socket);
+        }
+        const bool trace = observedSocket.load() == socket;
+#ifdef D6R_TRANSPORT_WINDOWS
+        const auto count = ::send(static_cast<SOCKET>(socket), reinterpret_cast<const char *>(data), static_cast<int>(size), 0);
+        const int error = count < 0 ? WSAGetLastError() : 0;
+        const bool blocked = error == WSAEWOULDBLOCK, interrupted = error == WSAEINTR;
+#else
+        const auto count = ::send(static_cast<int>(socket), data, size,
+#ifdef __APPLE__
+                                  0);
+#else
+                                  MSG_NOSIGNAL);
+#endif
+        const int error = count < 0 ? errno : 0;
+        const bool blocked = error == EAGAIN || error == EWOULDBLOCK, interrupted = error == EINTR;
+#endif
+        if (count > 0) {
+            if (trace) {
+                nativeBytes += static_cast<std::uint64_t>(count);
+                lastWriteNs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count());
+            }
+            return OutboundSendOutcome{OutboundSendStatus::Sent, static_cast<std::size_t>(count)};
+        }
+        if (blocked || count == 0) { if (trace) ++wouldBlocks; return OutboundSendOutcome{OutboundSendStatus::WouldBlock, 0}; }
+        return OutboundSendOutcome{interrupted ? OutboundSendStatus::Interrupted : OutboundSendStatus::Failed, 0};
+    };
+    TcpListener listener(3, observed);
     startListener(listener, port);
     RawSocketOwner framePeer(connectRaw(port));
     auto frameConnection = awaitAccept(listener);
@@ -1139,7 +1175,16 @@ void queueBoundaries() {
                && std::chrono::steady_clock::now() - pendingStableSince >= 250ms;
     }, NativeObserverWait));
     const auto noProgressObservedAt = std::chrono::steady_clock::now();
-    CHECK(waitUntil([&] { return stalledWriter->state() == ClientState::TimedOut; }, 7s));
+    if (!waitUntil([&] { return stalledWriter->state() == ClientState::TimedOut; }, 7s)) {
+        const auto nowNs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+        throw Failure("stalled native writer: state=" + std::to_string(static_cast<int>(stalledWriter->state()))
+            + ";failure=" + std::to_string(static_cast<int>(stalledWriter->failure()))
+            + ";accepted-frames=" + std::to_string(accepted) + ";native-bytes=" + std::to_string(nativeBytes.load())
+            + ";would-block=" + std::to_string(wouldBlocks.load())
+            + ";since-native-progress-ms=" + std::to_string((nowNs - lastWriteNs.load()) / 1000000)
+            + ";pending-peer-bytes=" + std::to_string(pendingRawReceiveBytes(stalledReader.get())));
+    }
     CHECK(std::chrono::steady_clock::now() - noProgressObservedAt >= 4500ms);
     CHECK(stalledWriter->failure() == TransportFailure::OutboundStalled);
     listener.shutdown();
