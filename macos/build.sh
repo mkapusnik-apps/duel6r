@@ -47,10 +47,22 @@ make -C "$lua/src" a CC="$(xcrun --sdk macosx --find clang)" \
   MYCFLAGS="-DLUA_USE_MACOSX $target_flags" MYLDFLAGS="$target_flags"
 
 prefix="$(brew --prefix)"
+curl_prefix="$(brew --prefix curl)"
+openssl_prefix="$(brew --prefix openssl@3)"
+cmake -S "$root/docker/mbedtls" -B "$deps/mbedtls-build" -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_SYSROOT="$sdk" \
+  -DCMAKE_INSTALL_PREFIX="$deps/mbedtls"
+cmake --build "$deps/mbedtls-build" --parallel "$(sysctl -n hw.ncpu)"
+cmake --install "$deps/mbedtls-build"
 cmake -S "$root" -B "$build" -G Ninja \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_SYSROOT="$sdk" -DCMAKE_PREFIX_PATH="$prefix" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_SYSROOT="$sdk" \
+  -DCMAKE_PREFIX_PATH="$deps/mbedtls;$curl_prefix;$prefix" \
+  -DCURL_INCLUDE_DIR="$curl_prefix/include" -DCURL_LIBRARY_RELEASE="$curl_prefix/lib/libcurl.dylib" \
+  -DD6R_OPENSSL_EXECUTABLE="$openssl_prefix/bin/openssl" \
+  -DD6R_DIRECTORY_DEFAULT_URL="${D6R_DIRECTORY_DEFAULT_URL:-}" \
   -DD6R_RENDERER=gl1 -DD6R_WITH_LUA=ON -DBUILD_TESTING=ON \
   -DLUA_INCLUDE_DIR="$lua/src" -DLUA_LIBRARY="$lua/src/liblua.a"
 cmake --build "$build" --parallel "$(sysctl -n hw.ncpu)"

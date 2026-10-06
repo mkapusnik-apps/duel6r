@@ -1,5 +1,14 @@
 include_guard(GLOBAL)
 
+if (UNIX)
+    add_executable(duel6r-native-secure-session-tests
+            ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp ${CMAKE_SOURCE_DIR}/tests/NativeSecureSessionTests.cpp)
+    target_include_directories(duel6r-native-secure-session-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-native-secure-session-tests PRIVATE duel6r-network-scaffold)
+    add_test(NAME native-secure-session COMMAND duel6r-native-secure-session-tests)
+    set_tests_properties(native-secure-session PROPERTIES TIMEOUT 30 LABELS "application;network;security")
+endif ()
+
 add_executable(duel6r-hardware-crypto-tests ${CMAKE_SOURCE_DIR}/tests/HardwareCryptoTests.cpp)
 target_include_directories(duel6r-hardware-crypto-tests PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(duel6r-hardware-crypto-tests PRIVATE duel6r-network-scaffold)

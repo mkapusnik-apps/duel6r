@@ -30,6 +30,71 @@ endif ()
 
 include(CTest)
 
+# First Darwin networking foundation: process containment is independently
+# executable before the graphical/network targets are enabled on macOS.
+if (BUILD_TESTING)
+    add_executable(duel6r-darwin-cleanup-state-tests tests/TestMain.cpp tests/DarwinCleanupStateTests.cpp)
+    target_include_directories(duel6r-darwin-cleanup-state-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_compile_features(duel6r-darwin-cleanup-state-tests PRIVATE cxx_std_17)
+    add_test(NAME darwin-cleanup-state COMMAND duel6r-darwin-cleanup-state-tests)
+endif ()
+if (APPLE)
+    find_package(Threads REQUIRED)
+    find_package(MbedTLS 3.6.7 EXACT CONFIG REQUIRED)
+    find_package(CURL 7.85 REQUIRED)
+    # Real production security sources, independently testable while macOS GUI
+    # networking remains disabled. This is not a replacement transport stack.
+    add_library(duel6r-darwin-security STATIC source/network/SecureSession.cpp source/network/NetworkTrustPolicy.cpp)
+    target_compile_features(duel6r-darwin-security PUBLIC cxx_std_17)
+    target_include_directories(duel6r-darwin-security PUBLIC ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-darwin-security PUBLIC MbedTLS::mbedtls MbedTLS::mbedx509 MbedTLS::mbedcrypto Threads::Threads)
+    add_library(duel6r-darwin-process STATIC source/platform/DarwinProcess.cpp)
+    target_compile_features(duel6r-darwin-process PUBLIC cxx_std_17)
+    target_include_directories(duel6r-darwin-process PUBLIC ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-darwin-process PUBLIC Threads::Threads)
+    add_executable(duel6r-darwin-guardian source/platform/DarwinGuardianMain.cpp)
+    target_link_libraries(duel6r-darwin-guardian PRIVATE duel6r-darwin-process)
+    if (BUILD_TESTING)
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        add_executable(duel6r-darwin-hardware-crypto-tests tests/HardwareCryptoTests.cpp)
+        target_link_libraries(duel6r-darwin-hardware-crypto-tests PRIVATE duel6r-darwin-security)
+        add_test(NAME darwin-hardware-crypto COMMAND duel6r-darwin-hardware-crypto-tests)
+        add_executable(duel6r-darwin-hardware-admission-tests tests/TestMain.cpp tests/DarwinHardwareAdmissionTests.cpp)
+        target_link_libraries(duel6r-darwin-hardware-admission-tests PRIVATE duel6r-darwin-security)
+        add_test(NAME darwin-hardware-admission COMMAND duel6r-darwin-hardware-admission-tests)
+        add_executable(duel6r-darwin-secure-session-tests tests/TestMain.cpp tests/NativeSecureSessionTests.cpp)
+        target_link_libraries(duel6r-darwin-secure-session-tests PRIVATE duel6r-darwin-security)
+        add_test(NAME darwin-secure-session COMMAND duel6r-darwin-secure-session-tests)
+        set_tests_properties(darwin-hardware-crypto darwin-hardware-admission darwin-secure-session PROPERTIES TIMEOUT 30
+                LABELS "application;network;darwin;security")
+        add_executable(duel6r-darwin-trust-policy-tests tests/TestMain.cpp tests/NetworkTrustPolicyTests.cpp)
+        target_link_libraries(duel6r-darwin-trust-policy-tests PRIVATE duel6r-darwin-security)
+        add_test(NAME darwin-trust-policy COMMAND duel6r-darwin-trust-policy-tests)
+        find_library(D6R_APPLE_SECURITY Security REQUIRED)
+        find_program(D6R_OPENSSL_EXECUTABLE openssl REQUIRED)
+        add_executable(duel6r-darwin-curl-trust-tests tests/DarwinCurlTrustTests.cpp)
+        target_compile_features(duel6r-darwin-curl-trust-tests PRIVATE cxx_std_17)
+        target_include_directories(duel6r-darwin-curl-trust-tests PRIVATE ${CURL_INCLUDE_DIRS})
+        target_link_libraries(duel6r-darwin-curl-trust-tests PRIVATE ${CURL_LIBRARIES} ${D6R_APPLE_SECURITY})
+        add_test(NAME darwin-system-trust COMMAND duel6r-darwin-curl-trust-tests)
+        add_test(NAME darwin-trust-negatives COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/DarwinCurlTrustFixtures.py
+                $<TARGET_FILE:duel6r-darwin-curl-trust-tests> ${D6R_OPENSSL_EXECUTABLE})
+        set_tests_properties(darwin-system-trust darwin-trust-negatives PROPERTIES TIMEOUT 60
+                LABELS "application;network;darwin;security")
+        add_executable(duel6r-darwin-process-worker tests/DarwinProcessWorker.cpp)
+        target_link_libraries(duel6r-darwin-process-worker PRIVATE duel6r-darwin-process)
+        add_executable(duel6r-darwin-guardian-unknown tests/DarwinGuardianUnknown.cpp)
+        target_link_libraries(duel6r-darwin-guardian-unknown PRIVATE duel6r-darwin-process)
+        add_test(NAME darwin-process-containment COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/DarwinProcessTests.py
+                $<TARGET_FILE:duel6r-darwin-guardian> $<TARGET_FILE:duel6r-darwin-process-worker>
+                $<TARGET_FILE:duel6r-darwin-guardian-unknown>)
+        set_tests_properties(darwin-process-containment PROPERTIES TIMEOUT 90
+                LABELS "application;network;process;darwin;security")
+    endif ()
+endif ()
+
 #########################################################################
 # Platform detection
 #########################################################################
