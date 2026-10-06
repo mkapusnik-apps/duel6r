@@ -1168,9 +1168,11 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
         const char *name;
         R::CanonicalState state;
         bool valid;
+        bool forceCalibrationRetry = false;
     };
     std::vector<Scenario> scenarios;
     scenarios.push_back({"valid", admissionLobby({11, 12}), true});
+    scenarios.push_back({"valid-retry", admissionLobby({11, 12}), true, true});
     scenarios.push_back({"missing", admissionLobby({11}), false});
     scenarios.push_back({"extra", admissionLobby({11, 12, 13}), false});
     scenarios.push_back({"substituted", admissionLobby({11, 13}), false});
@@ -1195,6 +1197,9 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
         std::atomic<int> hostCloseState{-1};
         std::atomic<std::int64_t> hostCloseUs{-1};
         std::atomic<std::int64_t> hostCloseDeadlineUs{-1};
+        // One deadline covering this admission fixture, established before the
+        // guest starts. Do not invent another window after a rejected sample.
+        const auto fixtureAdmissionDeadline = std::chrono::steady_clock::now() + 10s;
         std::exception_ptr hostFailure;
         std::thread host([&] {
             try {
@@ -1250,22 +1255,27 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
                     != Network::SendResult::Accepted)
                     throw std::runtime_error("fake host could not send confirmation");
 
-                receive(frame);
-                const auto probe = R::deserializeReplicationFrame(frame.payload);
-                if (!probe || !probe->qualitySequence)
-                    throw std::runtime_error("guest did not request clock calibration");
-                ++hostProbesSeen;
-                const auto hostNow = static_cast<std::uint64_t>(
-                        std::chrono::duration_cast<std::chrono::milliseconds>(
-                                std::chrono::steady_clock::now().time_since_epoch()).count());
-                if (connection->send(R::serializeQualityResponse(*probe->qualitySequence, hostNow))
-                    != Network::SendResult::Accepted)
-                    throw std::runtime_error("fake host could not send calibration");
-                const auto deadline = std::chrono::steady_clock::now() + 2s;
-                hostCloseDeadlineUs = Server::RuntimeObservations::micros(deadline);
+                // The intentional pre-confirmation delay can invalidate the
+                // first 20 ms calibration sample. Behave like a host: service
+                // subsequent probes, never weaken calibration or fabricate time.
+                hostCloseDeadlineUs = Server::RuntimeObservations::micros(fixtureAdmissionDeadline);
                 while (connection->state() == Network::ClientState::Connected
-                       && std::chrono::steady_clock::now() < deadline)
-                    std::this_thread::sleep_for(1ms);
+                       && std::chrono::steady_clock::now() < fixtureAdmissionDeadline) {
+                    if (!connection->receive(frame)) { std::this_thread::sleep_for(1ms); continue; }
+                    const auto probe = R::deserializeReplicationFrame(frame.payload);
+                    if (!probe || probe->kind != R::ReplicationFrameKind::QualityProbe || !probe->qualitySequence)
+                        throw std::runtime_error("guest sent an unexpected calibration retry frame");
+                    if (++hostProbesSeen > 64) throw std::runtime_error("calibration fixture work bound exceeded");
+                    if (scenario.forceCalibrationRetry && hostProbesSeen == 1) std::this_thread::sleep_for(25ms);
+                    const auto hostNow = static_cast<std::uint64_t>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch()).count());
+                    if (connection->send(R::serializeQualityResponse(*probe->qualitySequence, hostNow))
+                        != Network::SendResult::Accepted) {
+                        if (connection->state() != Network::ClientState::Connected || cancelGuest) break;
+                        throw std::runtime_error("fake host could not send calibration");
+                    }
+                }
                 hostCloseState = static_cast<int>(connection->state());
                 hostCloseUs = Server::RuntimeObservations::micros(std::chrono::steady_clock::now());
                 connection->close();
@@ -1304,7 +1314,7 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
         std::cout << "DIAGNOSTIC admission-host-fixture;scenario=" << scenario.name
                   << ";probes-serviced=" << hostProbesSeen << ";close-state=" << hostCloseState
                   << ";close-us=" << hostCloseUs << ";close-deadline-us=" << hostCloseDeadlineUs
-                  << ";post-response-observer-ms=2000\n";
+                  << ";admission-fixture-budget-ms=10000\n";
 
         D6R_REQUIRE(snapshotWasUnavailableBeforeConfirmation);
         D6R_REQUIRE_EQ(0u, localActions.load());
@@ -1315,6 +1325,11 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
                            std::string("scenario=") + scenario.name + ";status=" + std::to_string(status)
                            + ";presentations=" + std::to_string(presentations.load()) + ";output=" + output.str());
             D6R_REQUIRE(presentations.load() >= 1);
+            if (scenario.forceCalibrationRetry) {
+                D6R_REQUIRE(hostProbesSeen >= 2);
+                D6R_REQUIRE(receipt.data->responsesOverBudget >= 1);
+                D6R_REQUIRE(receipt.data->calibrated);
+            }
         } else {
             D6R_REQUIRE_EQ(2, status);
             D6R_REQUIRE_EQ(std::string(Network::InvalidHostAdmissionMessageIdentifier) + "\n"

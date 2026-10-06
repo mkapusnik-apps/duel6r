@@ -129,6 +129,24 @@ RawSocket connectRaw(std::uint16_t port, int receiveBuffer = 0) {
         closeRaw(socket);
         throw Failure("raw loopback connect failed");
     }
+    if (receiveBuffer > 0) {
+        // Darwin's connect-time autotuning replaced the pre-connect hint with
+        // a 326640-byte buffer. Reassert and verify the small fixture buffer
+        // before claiming an outbound stall. Linux may double this value.
+        int actual = 0;
+#ifdef D6R_TRANSPORT_WINDOWS
+        int length = sizeof(actual);
+#else
+        socklen_t length = sizeof(actual);
+#endif
+        if (setsockopt(socket, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char *>(&receiveBuffer), sizeof(receiveBuffer)) != 0
+            || getsockopt(socket, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<char *>(&actual), &length) != 0
+            || actual < receiveBuffer || static_cast<long long>(actual) > 2LL * receiveBuffer) {
+            closeRaw(socket);
+            throw Failure("post-connect receive buffer fixture was not established: requested="
+                          + std::to_string(receiveBuffer) + ";actual=" + std::to_string(actual));
+        }
+    }
     return socket;
 }
 
@@ -1043,11 +1061,23 @@ void lifecycleAndFailures() {
     std::string refusedEvidence;
     CHECK(refused.start({"127.0.0.1", refusedPort}));
     CHECK(!refused.waitForConnected(NativeObserverWait));
+#ifdef __APPLE__
+    // Paired raw/production evidence shows Darwin can silently leave a SYN
+    // pending on a bound-but-not-listening socket. This is not a refusal
+    // generator. Preserve bounded cancellation and test actual refusal below.
+    if (refused.state() == ClientState::Connecting && refused.failure() == TransportFailure::None) {
+        const auto cancelAt = std::chrono::steady_clock::now();
+        refused.cancel();
+        CHECK(refused.state() == ClientState::Cancelled);
+        CHECK(std::chrono::steady_clock::now() - cancelAt < 1s);
+    } else CHECK(refused.failure() == TransportFailure::ConnectionRefused);
+#else
     if (refused.failure() != TransportFailure::ConnectionRefused) {
         refusedEvidence = "non-listening bound endpoint classification: state="
                        + std::to_string(static_cast<int>(refused.state()))
                        + ", failure=" + std::to_string(static_cast<int>(refused.failure()));
     }
+#endif
 
     first.shutdown(); first.shutdown();
     CHECK(first.state() == ListenerState::Stopped);

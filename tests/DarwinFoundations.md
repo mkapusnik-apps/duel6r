@@ -8,23 +8,13 @@ requirements are in `docs/macos.md` and the HSL-FAULT supervision boundary.
 
 ## Native execution
 
-### Focused diagnostic checkpoint (not qualification)
+### Diagnostic findings and normal qualification
 
-After source review, the existing macOS job may invoke the helper with
-`D6R_NATIVE_DIAGNOSTICS=ON`. This explicitly selects ten `native-diagnostic`
-CTest entries using the existing test-name filters: irreversible anchor loss, observation invariance,
-unaltered production refusal/queue cases, separately labelled raw-socket/writer
-observations, and the four failing admission/input/summary cases. Empty filters
-that match no cases fail rather than claiming success. TLS policy/counter tests
-are unchanged; DevOps owns the parallel curl provenance investigation.
-
-The mode builds only its required targets and never calls the package helper.
-Even if its selected checks pass, it exits 78 with a `DIAGNOSTIC ONLY` message so
-the current workflow cannot mistake this for Feature Ready or publish a package.
-CTest failure returns its actual nonzero code. The existing failure-log upload
-retains the selected LastTest.log. Default `OFF` keeps the normal full job.
-No new workflow is introduced. Do not push/trigger the normal full job as a
-substitute for the approved focused run; DevOps must select this mode explicitly.
+The one approved focused run at `2e881c4` is complete. Its temporary workflow,
+build-helper switch and filtered CTest registrations have been removed. The
+ordinary full native suite remains mandatory; another run requires authorization.
+Permanent test-name filters reject empty selections rather than claiming success.
+TLS policy/counter assertions remain unchanged.
 
 The production queue-boundary case has no send/clock/wait injection. Supplemental
 writer counters are fixed-size observation storage, never used by decisions, and
@@ -48,8 +38,14 @@ negative test is isolated in a subprocess that explicitly exits after disposing
 its real fixtures; production has no quarantine-release escape hatch.
 
 The existing macOS workflow invokes `macos/build.sh` at its immutable source SHA.
-It builds the common pinned private Mbed TLS recipe for arm64/macOS 14, selects
-the Homebrew curl prefix explicitly, and runs these ordinary CTest entries:
+It builds the common pinned private Mbed TLS recipe and curl 8.21.0 for
+arm64/macOS 14. Private curl uses OpenSSL with Apple SecTrust, a threaded resolver,
+and no CA bundle, CA path or CA fallback. Its archive hash and generated settings
+are checked; CMake explicitly selects the private library instead of Homebrew
+curl. Packaging checks provenance and rejects substituted curl dependencies.
+The current local-only GUI does not yet consume curl; metadata explicitly reports
+whether it is bundled. Source/configuration checks do not prove native trust.
+The helper runs these ordinary CTest entries:
 
 - `darwin-cleanup-state`: the production cleanup decision state, also exercised
   by Linux/Windows builds; this alone is not native process evidence.
@@ -182,12 +178,32 @@ query is not accepted as disappearance without BSD snapshot/ESRCH confirmation.
 These observations must distinguish an inspection issue from premature exit;
 neither is labelled passed without native evidence.
 
-The two transport failures and four remaining admission/replication failures lack
-sufficient actual values in the supplied log to assign a root cause. Their original
-assertions and deadlines remain. Permanent diagnostics record refusal controls,
-actual native writer progress, sampling counts, canonical phases/readiness and
-fixed fixture outcomes. Do not label these additions as resolved behavior or
-loosen calibration, progress or admission bounds.
+The focused `2e881c4` measurements identify the following corrections, still
+requiring native confirmation:
+
+- Both raw and production Darwin sockets remained Connecting at a bound but
+  non-listening endpoint. The fixture now checks bounded cancellation in this OS
+  case; the actual closed-listener refusal assertion remains unchanged.
+- Darwin replaced a 4096-byte pre-connect receive-buffer hint with 326640 bytes.
+  The fixture reasserts and verifies the small buffer after connect. Production
+  queue limits and the five-second no-progress watchdog remain unchanged.
+- Admission's first RTT was 45944 microseconds, over the unchanged 20 ms bound.
+  The fake host answered only one probe then closed after two seconds. It now
+  answers bounded retries within the original overall ten-second admission
+  window; a forced slow-first-response regression requires real recalibration.
+- Summary fixtures reached only 300/360 and 288/360 ticks; actual sleeps totalled
+  9.48 and 8.16 seconds against requested totals of 1.58 and 1.475 seconds. Fixed
+  tick pacing now permits one immediate successor, revisiting all ingress and
+  cancellation work before each tick, then yielding. No ticks or debt are dropped.
+  A rolling one-second cap of 90 ticks bounds catch-up below existing input limits;
+  deterministic tests model the measured sleep overruns and second-boundary bursts.
+- Installed curl enabled CA fallback: a successful public request bypassed
+  SecTrust despite the negative control reaching it. The pinned private recipe
+  removes that fallback; real positive and negative trust counters still decide
+  native acceptance, not version strings or generated macros.
+
+The focused input case passed once, which is not qualification. None of these
+corrections relax calibration, progress, cleanup, sampling or admission bounds.
 
 The production HostServiceProcess/HostedServiceChannel and ResolverMain adapters
 are connected without enabling the GUI. Native execution of the complete linked

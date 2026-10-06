@@ -10,6 +10,43 @@ import shutil
 import subprocess
 import tarfile
 
+CURL_VERSION = "8.21.0"
+CURL_ARCHIVE_SHA256 = "ad6f2f94934b38e31e48272833c99b891d045b4565fe942a53fbd27bd3910e16"
+
+
+def require_private_curl(origins, prefix):
+    library = (prefix / "lib/libcurl.4.dylib").resolve(strict=True)
+    if not library.is_relative_to(prefix.resolve()):
+        raise RuntimeError("Private curl library escapes its prefix")
+    curl_origins = {path for path in origins if path.name.startswith("libcurl")}
+    if curl_origins != {library}:
+        raise RuntimeError(f"Expected only the pinned private curl in dependency closure: {curl_origins}")
+    return library
+
+
+def collect_private_curl(prefix, archive, licenses):
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != CURL_ARCHIVE_SHA256:
+        raise RuntimeError("Private curl source checksum mismatch")
+    library = require_private_curl([(prefix / "lib/libcurl.4.dylib").resolve()], prefix)
+    metadata = json.loads((prefix / "build-info.json").read_text())
+    expected = dict(version=CURL_VERSION, archive_sha256=CURL_ARCHIVE_SHA256,
+                    architecture="arm64", minimum_macos="14.0",
+                    native_trust="Apple SecTrust", ca_fallback=False,
+                    library_sha256=hashlib.sha256(library.read_bytes()).hexdigest())
+    if any(metadata.get(key) != value for key, value in expected.items()):
+        raise RuntimeError("Private curl build provenance mismatch")
+    # Read the notice from the verified archive, not a mutable extracted tree.
+    with tarfile.open(archive) as contents:
+        member = contents.getmember(f"curl-{CURL_VERSION}/COPYING")
+        if not member.isfile():
+            raise RuntimeError("Private curl COPYING must be a regular archive member")
+        notice = contents.extractfile(member).read()
+    target = licenses / "curl"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "COPYING").write_bytes(notice)
+    (target / "source-provenance.json").write_text(json.dumps(metadata, indent=2) + "\n")
+    return metadata
+
 
 def run(*args):
     try:
@@ -176,8 +213,14 @@ def package(args):
         f"-DLIB_DIRS={prefix / 'lib'}", f"-DDEPENDENCY_LIST={dependencies}",
         "-P", args.source / "macos/Bundle.cmake")
     origins.extend(Path(line).resolve() for line in dependencies.read_text().splitlines() if line)
+    # The foundation checkpoint still ships a local-only GUI, without curl.
+    # Once a shipped binary uses curl, no alternative origin is permitted.
+    private_curl = (require_private_curl(origins, args.curl_prefix)
+                    if any(path.name.startswith("libcurl") for path in origins) else None)
     kegs = {}
     for path in origins:
+        if path == private_curl:
+            continue
         if not path.is_relative_to(cellar):
             if path.is_relative_to(app) or str(path).startswith(("/System/Library/", "/usr/lib/")):
                 continue
@@ -187,6 +230,8 @@ def package(args):
 
     packets = json.loads((args.source / "macos/license-sources.json").read_text())
     records = collect_notices(kegs, licenses, args.build / "license-sources", packets)
+    curl_record = collect_private_curl(args.curl_prefix, args.curl_archive, licenses)
+    curl_record = {**curl_record, "bundled": private_curl is not None}
 
     binaries = [app / "Contents/MacOS/Duel 6 Reloaded"]
     binaries.extend(path for path in frameworks.rglob("*")
@@ -220,6 +265,7 @@ def package(args):
         "status": "experimental; native launch, gameplay and visual QA deferred until after nightly",
         "lua": {"version": "5.3.6", "sha256": hashlib.sha256(args.lua_archive.read_bytes()).hexdigest()},
         "homebrew_dependencies": records,
+        "private_curl": curl_record,
     }
     text = json.dumps(metadata, indent=2) + "\n"
     (output / "build-info.json").write_text(text)
@@ -246,7 +292,7 @@ def package(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    for option in ("source", "build", "output", "lua", "lua-archive"):
+    for option in ("source", "build", "output", "lua", "lua-archive", "curl-prefix", "curl-archive"):
         parser.add_argument(f"--{option}", required=True, type=Path)
     parser.add_argument("--revision", required=True)
     package(parser.parse_args())

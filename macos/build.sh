@@ -17,10 +17,6 @@ revision="$(git -C "$root" rev-parse HEAD)"
 build="$root/build/macos-build"
 output="$root/build/macos"
 deps="$root/build/macos-deps"
-diagnostics="${D6R_NATIVE_DIAGNOSTICS:-OFF}"
-[[ "$diagnostics" == ON || "$diagnostics" == OFF ]] || {
-  echo "D6R_NATIVE_DIAGNOSTICS must be ON or OFF." >&2; exit 1;
-}
 mkdir -p "$deps" "$output"
 python3 "$root/tests/MacPackagingTests.py"
 
@@ -51,8 +47,9 @@ make -C "$lua/src" a CC="$(xcrun --sdk macosx --find clang)" \
   MYCFLAGS="-DLUA_USE_MACOSX $target_flags" MYLDFLAGS="$target_flags"
 
 prefix="$(brew --prefix)"
-curl_prefix="$(brew --prefix curl)"
 openssl_prefix="$(brew --prefix openssl@3)"
+bash "$root/macos/build-curl.sh" "$sdk" "$deps" "$openssl_prefix"
+curl_prefix="$deps/curl"
 cmake -S "$root/docker/mbedtls" -B "$deps/mbedtls-build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_SYSROOT="$sdk" \
@@ -64,27 +61,16 @@ cmake -S "$root" -B "$build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_SYSROOT="$sdk" \
   -DCMAKE_PREFIX_PATH="$deps/mbedtls;$curl_prefix;$prefix" \
-  -DCURL_INCLUDE_DIR="$curl_prefix/include" -DCURL_LIBRARY_RELEASE="$curl_prefix/lib/libcurl.dylib" \
+  -DCURL_NO_CURL_CMAKE=ON -DCURL_ROOT="$curl_prefix" -DCURL_INCLUDE_DIR="$curl_prefix/include" \
+  -DCURL_LIBRARY="$curl_prefix/lib/libcurl.dylib" \
+  -DCURL_LIBRARY_RELEASE="$curl_prefix/lib/libcurl.dylib" -DCURL_LIBRARY_DEBUG="$curl_prefix/lib/libcurl.dylib" \
   -DD6R_OPENSSL_EXECUTABLE="$openssl_prefix/bin/openssl" \
   -DD6R_DIRECTORY_DEFAULT_URL="${D6R_DIRECTORY_DEFAULT_URL:-}" \
-  -DD6R_NATIVE_DIAGNOSTICS="$diagnostics" \
   -DD6R_RENDERER=gl1 -DD6R_WITH_LUA=ON -DBUILD_TESTING=ON \
   -DLUA_INCLUDE_DIR="$lua/src" -DLUA_LIBRARY="$lua/src/liblua.a"
-if [[ "$diagnostics" == ON ]]; then
-  echo "DIAGNOSTIC ONLY at $revision: selected cases, no package or qualification claim."
-  cmake --build "$build" --parallel "$(sysctl -n hw.ncpu)" --target \
-    duel6r-darwin-resolver-ownership-tests duel6r-darwin-session-transport-tests \
-    duel6r-darwin-AdmissionCompatibility-tests duel6r-darwin-NetworkResponsiveness-tests
-  result=0
-  ctest --test-dir "$build" --output-on-failure -L '^native-diagnostic$' || result=$?
-  echo "DIAGNOSTIC ONLY complete; selected CTest result=$result; full native gate NOT RUN; package NOT PRODUCED."
-  if [[ "$result" != 0 ]]; then exit "$result"; fi
-  # Keep the existing workflow's package publication/Feature Ready gate closed,
-  # even if every selected diagnostic passes. Existing failure-log upload works.
-  exit 78
-fi
 cmake --build "$build" --parallel "$(sysctl -n hw.ncpu)"
 ctest --test-dir "$build" --output-on-failure
 
 python3 "$root/macos/package.py" --source "$root" --build "$build" \
-  --output "$output" --revision "$revision" --lua "$lua" --lua-archive "$archive"
+  --output "$output" --revision "$revision" --lua "$lua" --lua-archive "$archive" \
+  --curl-prefix "$curl_prefix" --curl-archive "$deps/curl-8.21.0.tar.bz2"

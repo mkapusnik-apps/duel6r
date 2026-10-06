@@ -33,6 +33,7 @@
 #include "AdmissionSession.h"
 #include "AuthoritativeHostedMatchController.h"
 #include "FrozenGameplayConfig.h"
+#include "TickPacing.h"
 #include "../network/StateReplicationProtocol.h"
 #include "../network/PlayerInputProtocol.h"
 #include "../network/SessionLifecycle.h"
@@ -1870,6 +1871,7 @@ namespace Duel6::Server {
         }
         bool runtimeFailed = false;
         Network::TransportTimePoint nextMatchTick{};
+        TickPacing tickPacing;
         bool hostStartRequested = false;
         Network::Replication::StateVersion lastHostPresentationVersion = 0;
         const auto matchTickDuration = std::chrono::duration_cast<Network::TransportTimePoint::duration>(
@@ -2714,9 +2716,9 @@ namespace Duel6::Server {
             try {
                 Network::TransportTimePoint tickNow{};
                 // Capture the existing single scheduling-clock sample, not a
-                // second call; pacing remains one tick and the original wait.
+                // second call; each ingress/lifecycle pass still advances at most one tick.
                 if (hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive
-                    && (tickNow = runtimeNow(runtimeDependencies)) >= nextMatchTick) {
+                    && (tickNow = runtimeNow(runtimeDependencies)) >= nextMatchTick && tickPacing.canAdvance(tickNow)) {
                     if (runtimeDependencies.observations) {
                         const auto debt = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(tickNow - nextMatchTick).count());
                         runtimeDependencies.observations->lastTickDebtUs = debt;
@@ -2744,6 +2746,7 @@ namespace Duel6::Server {
                         hostPlayerInput->reset();
                     }
                     nextMatchTick += matchTickDuration;
+                    tickPacing.advanced(tickNow);
                     if (runtimeDependencies.observations) {
                         auto &observed = *runtimeDependencies.observations;
                         ++observed.hostTicks;
@@ -2760,9 +2763,15 @@ namespace Duel6::Server {
                     }
                 }
             } catch (...) { runtimeFailed = true; break; }
+            const bool matchActive = hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive;
+            const auto wait = matchActive ? tickPacing.nextWait(runtimeNow(runtimeDependencies), nextMatchTick, true)
+                                          : tickPacing.nextWait({}, {}, false);
+            // At most one immediate follow-up. Every pass above still services
+            // cancellation and every admitted connection before its single tick.
+            if (wait == std::chrono::milliseconds::zero()) continue;
             const auto observedWaitStart = runtimeDependencies.observations
                 ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-            try { runtimeDependencies.wait(std::chrono::milliseconds(5)); }
+            try { runtimeDependencies.wait(wait); }
             catch (...) { runtimeFailed = true; break; }
             if (runtimeDependencies.observations) {
                 auto &observed = *runtimeDependencies.observations;
@@ -2770,7 +2779,7 @@ namespace Duel6::Server {
                     std::chrono::steady_clock::now() - observedWaitStart).count());
                 const auto worked = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
                     observedWaitStart - observedLoopStart).count());
-                ++observed.waitCalls; observed.requestedWaitUs += 5000; observed.actualWaitUs += waited;
+                ++observed.waitCalls; observed.requestedWaitUs += static_cast<std::uint64_t>(wait.count()) * 1000u; observed.actualWaitUs += waited;
                 RuntimeObservations::maximum(observed.maxWaitUs, waited);
                 RuntimeObservations::maximum(observed.maxLoopWorkUs, worked);
             }

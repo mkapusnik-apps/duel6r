@@ -41,6 +41,61 @@ class MacPackagingTests(unittest.TestCase):
     def stage(self):
         return package.stage_app(self.source, self.build, self.output)
 
+    def private_curl_fixture(self):
+        prefix = self.build / "curl"
+        (prefix / "lib").mkdir(parents=True)
+        library = prefix / "lib/libcurl.4.dylib"
+        library.write_bytes(b"private curl fixture")
+        archive = self.build / "curl.tar.bz2"
+        with tarfile.open(archive, "w:bz2") as contents:
+            notice = b"verbatim curl license fixture\n"
+            entry = tarfile.TarInfo(f"curl-{package.CURL_VERSION}/COPYING")
+            entry.size = len(notice)
+            contents.addfile(entry, io.BytesIO(notice))
+        checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+        metadata = dict(version=package.CURL_VERSION, archive_sha256=checksum,
+                        architecture="arm64", minimum_macos="14.0",
+                        native_trust="Apple SecTrust", ca_fallback=False,
+                        library_sha256=hashlib.sha256(library.read_bytes()).hexdigest())
+        (prefix / "build-info.json").write_text(json.dumps(metadata))
+        self.enterContext(patch.object(package, "CURL_ARCHIVE_SHA256", checksum))
+        return prefix, archive, library
+
+    def test_private_curl_license_and_provenance_are_bound_to_archive_and_library(self):
+        prefix, archive, library = self.private_curl_fixture()
+        result = package.collect_private_curl(prefix, archive, self.output)
+        self.assertEqual(hashlib.sha256(library.read_bytes()).hexdigest(), result["library_sha256"])
+        self.assertEqual(b"verbatim curl license fixture\n", (self.output / "curl/COPYING").read_bytes())
+        self.assertEqual(result, json.loads((self.output / "curl/source-provenance.json").read_text()))
+        library.write_bytes(b"replaced library")
+        with self.assertRaisesRegex(RuntimeError, "provenance mismatch"):
+            package.collect_private_curl(prefix, archive, self.output)
+
+    def test_private_curl_rejects_corrupt_source_and_ca_fallback(self):
+        prefix, archive, _ = self.private_curl_fixture()
+        metadata_path = prefix / "build-info.json"
+        metadata = json.loads(metadata_path.read_text())
+        metadata["ca_fallback"] = True
+        metadata_path.write_text(json.dumps(metadata))
+        with self.assertRaisesRegex(RuntimeError, "provenance mismatch"):
+            package.collect_private_curl(prefix, archive, self.output)
+        archive.write_bytes(b"corrupt")
+        with self.assertRaisesRegex(RuntimeError, "checksum mismatch"):
+            package.collect_private_curl(prefix, archive, self.output)
+
+    def test_dependency_closure_requires_private_curl_without_any_substitute(self):
+        prefix, _, library = self.private_curl_fixture()
+        self.assertEqual(library, package.require_private_curl([library], prefix))
+        homebrew = self.build / "Cellar/curl/8.21.0/lib/libcurl.4.dylib"
+        for origins in ([], [homebrew], [library, homebrew]):
+            with self.subTest(origins=origins), self.assertRaisesRegex(RuntimeError, "pinned private curl"):
+                package.require_private_curl(origins, prefix)
+        outside = self.build / "other-library"
+        library.rename(outside)
+        library.symlink_to(outside)
+        with self.assertRaisesRegex(RuntimeError, "escapes its prefix"):
+            package.require_private_curl([outside], prefix)
+
     def test_versioned_main_executable_is_staged_as_one_regular_file(self):
         # This is the layout recorded by snapshot run 37123730851 and produced
         # by the application's CMake VERSION property, not a native signing mock.

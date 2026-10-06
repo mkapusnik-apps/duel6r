@@ -7,6 +7,7 @@
 #include "source/network/NetworkResponsiveness.h"
 #include "source/network/StateReplicationProtocol.h"
 #include "source/server/RuntimeObservations.h"
+#include "source/server/TickPacing.h"
 #include "tests/TestHarness.h"
 
 namespace {
@@ -314,4 +315,50 @@ D6R_TEST_CASE("Diagnostic observations do not advance probes or replace terminal
     observations.firstTerminal(Duel6::Server::ObservedTerminal::NetworkSampleFailed);
     observations.firstTerminal(Duel6::Server::ObservedTerminal::TransportTerminal);
     D6R_REQUIRE_EQ(static_cast<unsigned>(Duel6::Server::ObservedTerminal::NetworkSampleFailed), observations.terminal.load());
+}
+
+D6R_TEST_CASE("Fixed tick pacing catches measured sleep overruns without skipping ticks or ingress passes") {
+    using Pacer = Duel6::Server::TickPacing;
+    const auto step = std::chrono::duration_cast<Pacer::Clock::duration>(std::chrono::duration<double>(1.0 / 60));
+    for (const auto &profile : {std::vector<std::chrono::milliseconds>{30ms}, {30ms, 50ms, 10ms, 30ms}}) {
+        Pacer pacer;
+        auto now = Pacer::Clock::time_point{};
+        auto next = now + step;
+        unsigned ticks = 0, ingressPasses = 0, waits = 0, immediate = 0;
+        while (ticks < 360 && now < Pacer::Clock::time_point{} + 8s) {
+            ++ingressPasses; // Production revisits cancellation and every admitted peer here.
+            if (now >= next && pacer.canAdvance(now)) {
+                ++ticks; pacer.advanced(now); next += step;
+                D6R_REQUIRE(step * ticks <= now.time_since_epoch()); // Never simulate the future.
+            }
+            const auto delay = pacer.nextWait(now, next, true);
+            if (delay == 0ms) { D6R_REQUIRE_EQ(0u, immediate); ++immediate; }
+            else { D6R_REQUIRE_EQ(5ms, delay); immediate = 0; now += profile[waits++ % profile.size()]; }
+        }
+        D6R_REQUIRE_EQ(360u, ticks);
+        D6R_REQUIRE(ingressPasses >= ticks);
+        D6R_REQUIRE(now <= Pacer::Clock::time_point{} + 6200ms);
+        // The old one-tick/one-sleep loop cannot deliver 360 ticks in eight
+        // seconds with the measured 30 ms mean wake interval.
+        D6R_REQUIRE(8000 / 30 < 360);
+    }
+}
+
+D6R_TEST_CASE("Fixed tick pacing bounds catchup work below existing input limits and retains debt") {
+    using Pacer = Duel6::Server::TickPacing;
+    Pacer pacer;
+    const auto now = Pacer::Clock::time_point{} + 4999ms;
+    const auto overdue = Pacer::Clock::time_point{} + 1s;
+    for (unsigned tick = 0; tick < Pacer::MaximumTicksPerSecond; ++tick) {
+        D6R_REQUIRE(pacer.canAdvance(now)); pacer.advanced(now);
+    }
+    D6R_REQUIRE(!pacer.canAdvance(now));
+    D6R_REQUIRE(!pacer.canAdvance(now + 1ms)); // Crossing an epoch second grants no burst.
+    D6R_REQUIRE(!pacer.canAdvance(now + 999ms));
+    D6R_REQUIRE_EQ(5ms, pacer.nextWait(now, overdue, true));
+    D6R_REQUIRE(!pacer.canAdvance(now - 1s));
+    D6R_REQUIRE(pacer.canAdvance(now + 1s));
+    D6R_REQUIRE_EQ(0ms, pacer.nextWait(now + 1s, overdue, true));
+    D6R_REQUIRE_EQ(5ms, pacer.nextWait(now + 1s, overdue, true));
+    D6R_REQUIRE_EQ(5ms, pacer.nextWait(now + 1s, overdue, false));
 }
