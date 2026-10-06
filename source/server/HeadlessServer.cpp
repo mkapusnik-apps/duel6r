@@ -2224,19 +2224,16 @@ namespace Duel6::Server {
                 }
             }
             if (runtimeFailed) break;
+            const auto serviceConnections = [&](bool admittedPass, bool deferAdmissionCommit) {
             for (auto iterator = connections.begin(); iterator != connections.end();) {
                 auto &runtime = *iterator;
                 auto &connection = runtime.transport;
+                if (runtime.admitted != admittedPass) { ++iterator; continue; }
                 const bool admissionOpen = !hostedMatch
                     || hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby
                     || (hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive
                         && hostedMatch->match() && hostedMatch->match()->admissionOpen());
                 if (admissionPolicy && hostedMatch) admissionPolicy->setMatchStarted(!admissionOpen);
-                // An outcome established by a due simulation tick precedes a join
-                // commit at that instant. Drain due ticks before considering admission.
-                if (!runtime.admitted && admissionOpen && hostedMatch
-                    && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive
-                    && runtimeNow(runtimeDependencies) >= nextMatchTick) { ++iterator; continue; }
                 const auto rollback = [&] {
                     if (runtime.transactionId == 0 || !admissionPolicy) return;
                     const std::uint64_t transaction = runtime.transactionId;
@@ -2372,7 +2369,7 @@ namespace Duel6::Server {
                     }
                 } else if (!config.transportEcho && runtime.transactionId != 0 && !runtime.admitted) {
                     Network::TransportFrame frame;
-                    if (connection->receive(frame)) {
+                    if (!deferAdmissionCommit && connection->receive(frame)) {
                         LifecycleCredentialPayloadGuard credentialPayload(frame.payload);
                         bool accepted = false;
                         try {
@@ -2678,6 +2675,11 @@ namespace Duel6::Server {
                     break;
                 }
             }
+            };
+            // Existing peers and disconnect/lifecycle work precede the one
+            // authoritative tick. Pending peers get their own bounded pass
+            // afterwards, even while debt remains or the rolling cap is full.
+            serviceConnections(true, false);
             if (runtimeFailed) break;
             if (sessionLifecycle && hostedMatch) {
                 Network::Lifecycle::Phase lifecyclePhase = Network::Lifecycle::Phase::Lobby;
@@ -2713,6 +2715,7 @@ namespace Duel6::Server {
                 }
             }
             if (runtimeFailed) break;
+            bool advancedTick = false;
             try {
                 Network::TransportTimePoint tickNow{};
                 // Capture the existing single scheduling-clock sample, not a
@@ -2747,6 +2750,7 @@ namespace Duel6::Server {
                     }
                     nextMatchTick += matchTickDuration;
                     tickPacing.advanced(tickNow);
+                    advancedTick = true;
                     if (runtimeDependencies.observations) {
                         auto &observed = *runtimeDependencies.observations;
                         ++observed.hostTicks;
@@ -2764,6 +2768,12 @@ namespace Duel6::Server {
                 }
             } catch (...) { runtimeFailed = true; break; }
             const bool matchActive = hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive;
+            // A due outcome wins over a new admission. When pacing cannot
+            // advance yet, defer only the commit, not request/timeout/cleanup
+            // or reconnect processing. Never drain unbounded accumulated debt.
+            serviceConnections(false, matchActive && !advancedTick
+                && runtimeNow(runtimeDependencies) >= nextMatchTick);
+            if (runtimeFailed) break;
             const auto wait = matchActive ? tickPacing.nextWait(runtimeNow(runtimeDependencies), nextMatchTick, true)
                                           : tickPacing.nextWait({}, {}, false);
             // At most one immediate follow-up. Every pass above still services

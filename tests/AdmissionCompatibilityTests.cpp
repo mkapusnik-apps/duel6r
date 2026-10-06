@@ -112,6 +112,7 @@ namespace {
     struct RuntimeFixture {
         Network::Trust::TimePoint now{};
         std::shared_ptr<class FakeAdmissionConnection> connection;
+        std::deque<std::shared_ptr<class FakeAdmissionConnection>> pendingConnections;
         bool accepted = false;
         bool cancelled = false;
         bool shutdownAttempted = false;
@@ -167,7 +168,10 @@ namespace {
         bool permitAdmissionAcceptance() override { permission = true; return permitResult; }
         void revokeAdmissionAcceptance() override { permission = false; revoked = true; }
         void markAdmissionSucceeded() override { succeeded = true; }
-        void requestClose() override { closeRequested = true; }
+        void requestClose() override {
+            closeRequested = true;
+            if (closeOnRequest) currentState = Network::ClientState::Closed;
+        }
 
         void queue(std::vector<std::uint8_t> payload, Network::TransportTimePoint received) {
             incoming.push_back({std::move(payload), received});
@@ -182,6 +186,7 @@ namespace {
         bool revoked = false;
         bool succeeded = false;
         bool closeRequested = false;
+        bool closeOnRequest = false;
         std::function<void(const Network::TransportFrame &)> onReceive;
         std::function<void(const std::vector<std::uint8_t> &)> onSend;
         std::function<void()> onAcceptanceBeforeInsert;
@@ -199,6 +204,11 @@ namespace {
         Network::TransportFailure failure() const override { return readyResult ? Network::TransportFailure::None
                                                                                 : Network::TransportFailure::SystemError; }
         std::shared_ptr<Server::AdmissionRuntimeConnection> acceptConnection() override {
+            if (!fixture->pendingConnections.empty()) {
+                auto connection = fixture->pendingConnections.front();
+                fixture->pendingConnections.pop_front();
+                return connection;
+            }
             if (fixture->accepted || !fixture->connection) return {};
             fixture->accepted = true; return fixture->connection;
         }
@@ -1105,6 +1115,205 @@ D6R_TEST_CASE("NET-ADM reviewed production admission loop rejects offers crossin
             output.str() + " started=" + std::to_string(started) + " pending=" + std::to_string(bool(pending))
             + " outcome=" + std::to_string(outcome));
         D6R_REQUIRE(rejected && !confirmed && !arrival->succeeded);
+    }
+}
+
+D6R_TEST_CASE("Production pacing services pending peers and lifecycle under sustained debt and exhausted rolling cap") {
+    // Only transport, world and time are deterministic seams. Admission, input
+    // authorization, lifecycle, tick pacing and outcome precedence are the real loop.
+    for (const std::string mode : {"admit", "winner", "cancel", "end"}) {
+        const auto host = manifest({{"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+        auto content = std::make_shared<Network::FrozenGameplayContent>();
+        (*content)["data/blocks.json"] = {'{', '}'};
+        (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+        (*content)["levels/a.json"] = {'{', '}'};
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto initial = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        fixture->connection = initial;
+        initial->queue(Network::serializeAdmissionRequest(requestFor(host)), fixture->now);
+        auto dependencies = runtimeDependencies(fixture, host);
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(
+            Network::ManifestBuildResult{Network::ManifestStatus::Valid, host, content});
+        auto observations = std::make_shared<Server::RuntimeObservations>();
+        dependencies.observations = observations;
+        std::optional<Network::AdmissionOfferPayload> initialOffer;
+        std::optional<Network::Lifecycle::ReconnectGrant> grant;
+        std::shared_ptr<FakeAdmissionConnection> arrival, reconnect, silent, closed;
+        auto snapshot = std::make_shared<Server::Authoritative::CanonicalWorldSnapshot>();
+        bool started = false, jumped = false, exhausted = false, stop = false, timedOut = false;
+        bool offered = false, confirmed = false, rejected = false, restored = false;
+        bool inputPending = false, inputApplied = false, inputBeforeDisconnect = false, outcome = false;
+        bool silentClosedAtCap = false;
+        bool endNotice = false;
+        Network::TransportTimePoint capAt{}, offerAt{}, restoreAt{}, silentCloseAt{}, nextInputAt{};
+        std::uint64_t ticksAtDecision = 0;
+        std::uint64_t capTicks = 0;
+        unsigned waits = 0;
+        unsigned pendingInputs = 0;
+        std::uint64_t inputSequence = 3;
+        dependencies.hostReadinessChange = [] { return std::optional<bool>(true); };
+        dependencies.intentionalHostEndRequested = [&] { return stop && mode == "end"; };
+        dependencies.authoritativeRuntimeFactory = [&](const auto &, const auto &players, const auto &) {
+            started = true; snapshot->valid = true; snapshot->stateDigest = 1;
+            const auto append = [snapshot](const auto &definitions) {
+                for (const auto &definition : definitions) {
+                    Server::Authoritative::CanonicalPlayerSnapshot player;
+                    player.playerId = definition.playerId; player.rosterSlot = definition.rosterOrder;
+                    player.alive = true; player.life = Server::Authoritative::MaximumLife;
+                    snapshot->players.push_back(player);
+                }
+            };
+            append(players);
+            Server::Authoritative::MatchRuntimeDependencies runtime;
+            runtime.contentPreflight = [](const auto &) { return true; };
+            runtime.worldSnapshot = [snapshot] { return *snapshot; };
+            runtime.worldAppendPlayers = [append](const auto &additions, auto &) { append(additions); return true; };
+            runtime.worldInput = [&](auto player, auto actions) {
+                if (initialOffer && player == initialOffer->playerIds.front()
+                    && actions == Network::Input::MoveRight) inputApplied = true;
+                return true;
+            };
+            runtime.worldTick = [&](auto, bool) {
+                ++snapshot->worldTick; ++snapshot->stateDigest;
+                if (mode == "winner" && exhausted && observations->hostTicks == capTicks) {
+                    outcome = true; snapshot->roundOver = true;
+                    snapshot->players.back().alive = false; snapshot->players.back().life = 0;
+                }
+                return true;
+            };
+            return runtime;
+        };
+        initial->onSend = [&](const auto &payload) {
+            if (const auto value = Network::Lifecycle::deserializeReconnectGrant(payload)) grant = *value;
+        };
+        dependencies.outboundWriter = [&](auto &connection, auto payload) {
+            endNotice |= Network::Lifecycle::deserializeIntentionalHostEnd(payload).has_value();
+            if (payload.size() >= 4 && payload[3] == 'O') {
+                const auto offer = Network::deserializeAdmissionOffer(payload);
+                if (&connection == initial.get()) {
+                    initialOffer = offer;
+                    initial->queue(Network::serializeAdmissionAcceptance(offer), fixture->now);
+                } else if (&connection == arrival.get()) {
+                    offered = true; offerAt = fixture->now;
+                    arrival->queue(Network::serializeAdmissionAcceptance(offer), fixture->now);
+                }
+            }
+            if (payload.size() >= 4 && payload[3] == 'C') {
+                if (&connection == initial.get()) {
+                    D6R_REQUIRE(grant.has_value());
+                    initial->queue(Network::Lifecycle::serializeParticipantAction({grant->sessionId,
+                        grant->participantId, Network::Lifecycle::ParticipantActionKind::Ready}), fixture->now);
+                } else if (&connection == arrival.get()) {
+                    confirmed = true; ticksAtDecision = observations->hostTicks;
+                }
+            }
+            if (&connection == arrival.get() && payload.size() >= 4 && payload[3] == 'S') {
+                rejected = Network::deserializeAdmissionResult(payload).code == Network::AdmissionResultCode::MatchAlreadyStarted;
+                ticksAtDecision = observations->hostTicks;
+            }
+            if (const auto frame = Network::Input::deserializeFrame(payload); frame && frame->outcome
+                && frame->outcome->category == Network::Input::OutcomeCategory::Pending) {
+                inputPending = true; ++pendingInputs;
+            }
+            return connection.send(std::move(payload));
+        };
+        dependencies.wait = [&](auto amount) {
+            if (++waits > 1000) { timedOut = true; fixture->cancelled = true; return; }
+            if (!started) { fixture->now += amount; return; }
+            if (!jumped) {
+                capTicks = observations->hostTicks + 90;
+                fixture->now += 5s; jumped = true; return;
+            }
+            // Freeze wall time while draining debt, forcing the actual 90-tick
+            // rolling cap, not an inferred call count in a unit model.
+            if (observations->hostTicks < capTicks) return;
+            if (!exhausted) {
+                exhausted = true; capAt = fixture->now; nextInputAt = capAt + 20ms;
+                D6R_REQUIRE_EQ(capTicks, observations->hostTicks.load());
+                D6R_REQUIRE(observations->lastTickDebtUs > 3000000);
+                arrival = std::make_shared<FakeAdmissionConnection>(fixture->now);
+                arrival->queue(Network::serializeAdmissionRequest(requestFor(host)), fixture->now);
+                closed = std::make_shared<FakeAdmissionConnection>(fixture->now);
+                closed->currentState = Network::ClientState::Closed;
+                silent = std::make_shared<FakeAdmissionConnection>(
+                    fixture->now - Network::Trust::FirstAdmissionRequestDeadline + 500ms);
+                silent->closeOnRequest = true;
+                fixture->pendingConnections = {arrival, closed, silent};
+                initial->queue(Network::Input::serializeCommand({initialOffer->participantId,
+                    initialOffer->playerIds.front(), 1, observations->lastTick, Network::Input::MoveRight}), fixture->now);
+                return;
+            }
+            if (inputPending && !reconnect) {
+                inputBeforeDisconnect = true;
+                initial->currentState = Network::ClientState::Closed;
+                initial->terminal = fixture->now;
+                reconnect = std::make_shared<FakeAdmissionConnection>(fixture->now);
+                reconnect->queue(Network::Lifecycle::serializeReconnectAttempt(
+                    {{grant->sessionId, grant->participantId, grant->reservationId, grant->credential},
+                     requestFor(host)}), fixture->now);
+                reconnect->onSend = [&](const auto &payload) {
+                    if (const auto response = Network::Lifecycle::deserializeReconnectResponse(payload)) {
+                        restored = response->outcome == Network::Lifecycle::ReconnectOutcome::Accepted;
+                        restoreAt = fixture->now;
+                        if (restored) reconnect->queue(Network::Input::serializeCommand({initialOffer->participantId,
+                            initialOffer->playerIds.front(), 2, observations->lastTick, Network::Input::MoveRight}), fixture->now);
+                    }
+                };
+                fixture->pendingConnections.push_back(reconnect);
+            }
+            if (restored && fixture->now >= nextInputAt && observations->hostTicks == capTicks) {
+                reconnect->queue(Network::Input::serializeCommand({initialOffer->participantId,
+                    initialOffer->playerIds.front(), inputSequence++, observations->lastTick,
+                    Network::Input::MoveRight}), fixture->now);
+                nextInputAt += 20ms; // Sustained 50 Hz, below unchanged production limits.
+            }
+            if (silent->closeRequested && !silentClosedAtCap) {
+                silentClosedAtCap = observations->hostTicks == capTicks;
+                silentCloseAt = fixture->now;
+            }
+            if (offered && restored && silentClosedAtCap && (mode == "cancel" || mode == "end")) {
+                D6R_REQUIRE_EQ(capTicks, observations->hostTicks.load());
+                stop = true;
+                if (mode == "cancel") fixture->cancelled = true;
+            }
+            if (confirmed || rejected) fixture->cancelled = true;
+            fixture->now += amount;
+            if (fixture->now - capAt > 1500ms) { timedOut = true; fixture->cancelled = true; }
+        };
+        std::ostringstream output;
+        Server::HeadlessServer server(runtimeServerConfig(), std::move(dependencies));
+        server.runtimeDependencies.productionReplicationProtocol = true;
+        const int status = server.run(output);
+        const auto require = [&](bool condition, const char *description) {
+            if (!condition) Duel6::Test::fail(description, __FILE__, __LINE__, mode
+                + ";status=" + std::to_string(status) + ";ticks=" + std::to_string(observations->hostTicks.load())
+                + ";timeout=" + std::to_string(timedOut) + ";offer=" + std::to_string(offered)
+                + ";input=" + std::to_string(inputPending) + ";reconnect=" + std::to_string(restored)
+                + ";applied=" + std::to_string(inputApplied) + ";confirmed=" + std::to_string(confirmed)
+                + ";decision-tick=" + std::to_string(ticksAtDecision) + ";cap-tick=" + std::to_string(capTicks)
+                + ";silent-close=" + std::to_string(silentClosedAtCap) + ": " + output.str());
+        };
+        require(status == 0 && !timedOut && exhausted, "bounded successful host loop");
+        require(inputBeforeDisconnect && pendingInputs >= 20 && offered && offerAt - capAt < 1s,
+                "sustained input and pending Join serviced under cap");
+        require(restored && reconnect->succeeded && restoreAt - capAt < 1s, "disconnect and reconnect serviced under cap");
+        require(silentClosedAtCap && silentCloseAt - silent->acceptedAt() >= Network::Trust::FirstAdmissionRequestDeadline
+                && silentCloseAt - silent->acceptedAt() <= Network::Trust::FirstAdmissionRequestDeadline + 5ms,
+                "unchanged first-request deadline");
+        for (const auto id : {1u, 3u, 4u})
+            require(std::any_of(fixture->events.begin(), fixture->events.end(), [&](const auto &event) {
+                return event.stage == Server::AdmissionLifecycleStage::ConnectionClosed && event.connectionId == id;
+            }), "admitted and pending disconnect cleanup observed");
+        if (mode == "admit") require(confirmed && !rejected && arrival->succeeded && ticksAtDecision == capTicks + 1
+                                     && inputApplied, "bounded Join commits after due tick and applied input");
+        else if (mode == "winner") require(outcome && rejected && !confirmed && !arrival->succeeded
+                                           && ticksAtDecision == capTicks + 1, "due winner precedes queued Join acceptance");
+        else {
+            require(stop && !confirmed && arrival->revoked && observations->hostTicks == capTicks,
+                    "Cancel or End rolls back pending admission without advancing past cap");
+            require(endNotice == (mode == "end"), "only intentional End sends its authenticated session notice");
+        }
+        require(fixture->shutdown && fixture->shutdownAttempted, "listener cleanup completes");
     }
 }
 

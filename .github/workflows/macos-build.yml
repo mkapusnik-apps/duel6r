@@ -29,7 +29,7 @@ jobs:
           ref: ${{ inputs.source_sha }}
 
       - name: Install native build dependencies
-        run: brew install cmake ninja pkg-config python@3.13 sdl2 sdl2_image sdl2_mixer sdl2_ttf glew curl
+        run: brew install cmake ninja pkg-config python@3.13 sdl2 sdl2_image sdl2_mixer sdl2_ttf glew openssl@3
 
       - name: Build, test, and package macOS app
         env:

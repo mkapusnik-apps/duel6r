@@ -205,6 +205,19 @@ requiring native confirmation:
 The focused input case passed once, which is not qualification. None of these
 corrections relax calibration, progress, cleanup, sampling or admission bounds.
 
+The subsequent integrated pacing regression runs the production host loop with
+deterministic transport/world/clock seams. It retains several seconds of debt,
+exhausts the real rolling cap and supplies continuous 50 Hz admitted input alongside
+pending Join, reconnect and terminal/silent peers. At `cf6685d`, admitted input
+progressed but the overdue-admission branch starved pending offers, reconnect and
+cleanup. The correction services admitted peers and lifecycle work, performs at
+most one due tick, then services pending peers. A cap-blocked due tick defers only
+new admission commits; requests, reconnects and deadlines still run. The test
+requires sub-second offer/reconnect progress, the unchanged first-request timeout,
+disconnect cleanup, real applied input after cap release, due-winner rejection of
+queued admission, and separate Cancel/End cleanup while the cap is exhausted.
+These deterministic integration results do not replace native execution.
+
 The production HostServiceProcess/HostedServiceChannel and ResolverMain adapters
 are connected without enabling the GUI. Native execution of the complete linked
 suites, boundary faults and adapter regressions remains required. Deeper adapter
