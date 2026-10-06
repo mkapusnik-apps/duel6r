@@ -9,6 +9,10 @@ on:
       retention_days:
         default: 7
         type: number
+      directory_default_url:
+        description: Compiled directory origin; empty for unchannelled builds
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -25,9 +29,11 @@ jobs:
           ref: ${{ inputs.source_sha }}
 
       - name: Install native build dependencies
-        run: brew install cmake ninja pkg-config python@3.13 sdl2 sdl2_image sdl2_mixer sdl2_ttf glew
+        run: brew install cmake ninja pkg-config python@3.13 sdl2 sdl2_image sdl2_mixer sdl2_ttf glew curl
 
-      - name: Build, test, and package local-only app
+      - name: Build, test, and package macOS app
+        env:
+          D6R_DIRECTORY_DEFAULT_URL: ${{ inputs.directory_default_url }}
         run: D6R_SOURCE_REVISION="$(git rev-parse HEAD)" bash macos/build.sh
 
       - name: Upload macOS package
