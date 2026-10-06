@@ -31,9 +31,29 @@ jobs:
       - name: Install native build dependencies
         run: brew install cmake ninja pkg-config python@3.13 sdl2 sdl2_image sdl2_mixer sdl2_ttf glew curl
 
+      # TEMPORARY PR120 diagnosis. DevOps owns removal before full qualification.
+      - name: Record installed curl provenance for native diagnosis
+        run: |
+          curl_prefix="$(brew --prefix curl)"
+          curl_keg="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$curl_prefix")"
+          shasum -a 256 "$curl_keg/.brew/curl.rb" \
+            "$curl_keg/bin/curl-config" "$curl_keg/lib/libcurl.4.dylib"
+          "$curl_keg/bin/curl-config" --configure
+          "$curl_keg/bin/curl-config" --features
+          "$curl_keg/bin/curl-config" --ssl-backends
+          "$curl_keg/bin/curl-config" --ca
+          jq '{homebrew_version,built_as_bottle,poured_from_bottle,
+               compiler,arch,built_on,source,runtime_dependencies}' \
+            "$curl_keg/INSTALL_RECEIPT.json"
+          otool -L "$curl_keg/lib/libcurl.4.dylib"
+          openssl_prefix="$(brew --prefix openssl@3)"
+          "$openssl_prefix/bin/openssl" version -a
+
       - name: Build, test, and package macOS app
         env:
           D6R_DIRECTORY_DEFAULT_URL: ${{ inputs.directory_default_url }}
+          # TEMPORARY PR120 diagnosis: nonzero exit, no package. Remove before qualification.
+          D6R_NATIVE_DIAGNOSTICS: 'ON'
         run: D6R_SOURCE_REVISION="$(git rev-parse HEAD)" bash macos/build.sh
 
       - name: Upload macOS package
