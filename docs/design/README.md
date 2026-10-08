@@ -26,7 +26,7 @@ Network-capable experimental macOS uses the existing NET-01 through NET-10 journ
 | Screen | Authoritative presentation | Structural wireframes |
 |---|---|---|
 | [NET-01](screens/NET-01.md) | Entry and navigation | [NET-01](wireframes/NET-01/NET-01.svg) |
-| [NET-02](screens/NET-02.md) | Editable and pending host setup | [NET-02](wireframes/NET-02/NET-02.svg), [NET-02-P](wireframes/NET-02/NET-02-P.svg) |
+| [NET-02](screens/NET-02.md) | Editable host setup, wildcard/explicit listening popup, and pending startup | [NET-02](wireframes/NET-02/NET-02.svg), [NET-02-LA](wireframes/NET-02/NET-02-LA.svg), [NET-02-LE](wireframes/NET-02/NET-02-LE.svg), [NET-02-P](wireframes/NET-02/NET-02-P.svg) |
 | [NET-03](screens/NET-03.md) | Shared direct/directory join and connecting | [NET-03-E](wireframes/NET-03/NET-03-E.svg), [NET-03](../screens/wireframes/network-join.md) |
 | [NET-04](screens/NET-04.md) | Lobby, listing feedback, retained results | [NET-04](../screens/wireframes/network-lobby.md), [NET-04-R](wireframes/NET-04/NET-04-R.svg) |
 | [NET-05](screens/NET-05.md) | Network controls and contextual panels; no arena/HUD redesign | [NET-05](../screens/wireframes/network-match.md), [NET-05-C](wireframes/NET-05/NET-05-C.svg), [NET-05-S](wireframes/NET-05/NET-05-S.svg), [NET-05-R](wireframes/NET-05/NET-05-R.svg) |
@@ -36,7 +36,7 @@ Network-capable experimental macOS uses the existing NET-01 through NET-10 journ
 | NET-09 | [Existing design-system owning section](../design.md#net-09--intentional-host-end-presentation) and [functional contract](../screens/network-host-ended.md) | [NET-09](../screens/wireframes/network-host-ended.md) |
 | [NET-10](screens/NET-10.md) | Session browser | [NET-10](wireframes/NET-10/NET-10.svg) |
 
-The [current capture matrix](screenshots/README.md#network-presentation-current-capture-matrix) owns 16 network representatives. NET-02-P, NET-05-S, and NET-05-R make existing materially different tasks explicit; they do not add product screens or behavior. Existing legacy diagrams remain at their current locations. Shared token values remain unchanged; network presentation adopts the native panel and control treatments. Prior accepted images are references, not evidence for this new treatment.
+The [current capture matrix](screenshots/README.md#network-presentation-current-capture-matrix) owns 18 network representatives, including NET-02-LA and NET-02-LE for the listening popup. NET-02-P, NET-05-S, and NET-05-R make existing materially different tasks explicit; they do not add product screens or behavior. Existing legacy diagrams remain at their current locations. Shared token values remain unchanged; network presentation adopts the native panel and control treatments. Changed NET-02 listening presentation requires new evidence; unaffected representatives retain their original scope.
 
 Read each screen's functional contract before its visual requirements. Changed presentation in the owning sections above supersedes conflicting older appearance examples only. Product owns legacy inventory counts and functional state IDs; UX must not invent replacement states or copy the functional requirements into this index.
 

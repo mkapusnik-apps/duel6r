@@ -12,7 +12,7 @@ The code remains an experimental scaffold with no playable network session. Thes
 
 The current target permits valid public-unicast IPv4 connections as well as loopback and private LAN connections. LAN remains the supported environment. The [directory and password contract](network-host-directory.md) owns password enforcement, protected secret exchange, listing ownership, and secret non-disclosure. Its requirements replace the no-password and no-encryption exclusions below. The implementation must not claim Internet safety merely because a password is present.
 
-The address-policy description and CLI copy below describe the earlier private-only implementation, not the current target. Public address rejection and the blanket Internet-exposure prohibition are superseded; all other invalid-address checks remain required. Guest resolution may retain valid public-unicast IPv4 destinations. Existing resource, ownership, and validation bounds remain required. No automatic routing, firewall, or NAT changes are permitted.
+The address-policy description and CLI copy below describe the earlier private-only implementation, not the current target. The current host listening policy permits default IPv4 wildcard `0.0.0.0` through `Listen on all`, or an explicit selected set. Earlier loopback-default, explicit-non-loopback-selection, wildcard-rejection, public-address-rejection, and blanket Internet-exposure prohibitions do not apply to this host setup policy. Concrete choices and guest destinations retain all other invalid-address checks. Guest resolution may retain valid public-unicast IPv4 destinations. Existing resource, ownership, and validation bounds remain required. No automatic routing, firewall, or NAT changes are permitted.
 
 First release has no initial-admission authentication, passwords, tokens, certificates, TLS, or encryption. It is supported only between trusted game instances:
 
@@ -33,13 +33,18 @@ An unsupported, unassigned, network, or broadcast listener address emits only th
 
 ### Host listening-address selection
 
-- **TRU-BIND-001** The host application must offer only IPv4 loopback and eligible assigned private or public unicast IPv4 addresses for listener selection.
-- **TRU-BIND-002** The host application must require an explicit selection before it binds a non-loopback address.
-- **TRU-BIND-003** The host application must validate the selected address against current local interface information before listener creation.
-- **TRU-BIND-004** The host application must not create a listener when the selected address is no longer eligible.
+- **TRU-BIND-001** The host application must offer `Listen on all` and individual choices limited to IPv4 loopback and eligible assigned private or public unicast IPv4 addresses.
+- **TRU-BIND-002** The host application must create listeners only after the host activates Start session with a valid listening mode.
+- **TRU-BIND-003** Explicit mode must validate every selected address against current local interface information before listener creation.
+- **TRU-BIND-004** Explicit mode must not start a service attempt when any selected address is no longer eligible.
 - **TRU-BIND-005** Address enumeration and selection must not change an interface, route, firewall, Docker network, NAT rule, port-forwarding rule, or other network infrastructure.
 - **TRU-BIND-006** Local interface enumeration must not perform peer, host, or session discovery.
-- **TRU-BIND-007** Address selection must preserve loopback as the default and must not imply that a selected public address guarantees Internet connectivity or security.
+- **TRU-BIND-007** The host application must use wildcard as the default listening mode without claiming guaranteed Internet connectivity or security.
+- **TRU-BIND-008** Wildcard mode must permit only IPv4 `0.0.0.0` as its unspecified listening address.
+- **TRU-BIND-009** The application must not use wildcard `0.0.0.0` as a guest destination or advertised directory address.
+- **TRU-BIND-010** Wildcard mode must not require individual-address enumeration or validation before listener creation.
+
+Wildcard mode can expose the session on private, public, virtual, and later-added IPv4 interfaces according to operating-system behavior. Individual-choice exclusions do not limit wildcard coverage. IPv6 remains outside this hosting contract. Password, admission, resource-limit, ownership, and cleanup requirements remain unchanged.
 
 ## Assets, actors, and boundaries
 
