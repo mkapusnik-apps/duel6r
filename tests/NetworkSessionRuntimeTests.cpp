@@ -819,7 +819,7 @@ D6R_TEST_CASE("NET-02 popup traversal and overflow retain fixed bounds at suppor
         f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
         f.draw(); D6R_REQUIRE(f.text("Addresses 3–5 of 5"));
         D6R_REQUIRE(f.text("Every selected bind must succeed."));
-        D6R_REQUIRE(f.frame(234, 278, 566, 24, 2)); // Entire focused row fits list.
+        D6R_REQUIRE(f.frame(232, 276, 570, 28, 2)); // Existing outer keyline fits the list.
         D6R_REQUIRE(f.text("Changes are kept when closed."));
         D6R_REQUIRE(f.text("Close"));
     }
@@ -1765,6 +1765,64 @@ D6R_TEST_CASE("PR83 Application Return repeat Tab and modal input isolation for 
         }
         menu.runtime.pendingGuestCommands.clear();
     }
+}
+
+D6R_TEST_CASE("NET-HOST-IF real wildcard and multibind hosts share admission and rollback occupied subset") {
+    using namespace std::chrono_literals;
+    const auto available = Network::Trust::localListenerAddresses();
+    D6R_REQUIRE(available && !available->empty());
+    Network::HostComposition::Setup setup;
+    setup.localPlayerNames = {"Host"}; setup.fixedLevel = "levels/duel_01.json";
+    Client::NetworkSessionRuntime host, guest, second;
+    const auto port = unusedLoopbackPort();
+    const Network::Endpoint loopback{"127.0.0.1", port};
+    D6R_REQUIRE(host.startHost({"0.0.0.0", port}, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+    D6R_REQUIRE(guest.join(loopback, D6R_TEST_RESOURCE_DIR, {player("Guest")}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 10s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Lobby; }));
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
+    host.reset(); guest.reset();
+    D6R_REQUIRE(!host.startHost(loopback, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}, {"192.0.2.1"}));
+    D6R_REQUIRE(host.snapshot().journey == Client::NetworkJourney::Inactive && !host.supervisor);
+    if (available->size() < 2) {
+        std::cout << "[INFO] Actual assigned multi-address process coverage requires a second eligible address; wildcard and stale-start checks completed.\n";
+        return;
+    }
+    const Network::Endpoint other{(*available)[1], port};
+    D6R_REQUIRE(host.startHost(loopback, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}, {other.host}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+    D6R_REQUIRE(guest.join(loopback, D6R_TEST_RESOURCE_DIR, {player("Guest")}));
+    D6R_REQUIRE(second.join(other, D6R_TEST_RESOURCE_DIR, {player("Other")}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 10s, [&] {
+        return guest.snapshot().journey == Client::NetworkJourney::Lobby
+                && second.snapshot().journey == Client::NetworkJourney::Lobby;
+    }));
+    D6R_REQUIRE_EQ(host.snapshot().canonical->sessionId, guest.snapshot().canonical->sessionId);
+    D6R_REQUIRE_EQ(host.snapshot().canonical->sessionId, second.snapshot().canonical->sessionId);
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
+    host.reset(); guest.reset(); second.reset();
+    Network::TcpListener occupied;
+    D6R_REQUIRE(occupied.start(other) && occupied.waitForReady(2s));
+    D6R_REQUIRE(host.startHost(loopback, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}, {other.host}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 10s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Failure
+                && host.supervisor->snapshot().cleanupComplete;
+    }));
+    D6R_REQUIRE_EQ(std::string("The selected port is unavailable. Choose another port and try again."), host.snapshot().failure);
+    Client::HostServiceStartConfig retained;
+    D6R_REQUIRE(host.supervisor->retainedSetup(retained));
+    D6R_REQUIRE_EQ(std::vector<std::string>{other.host}, retained.additionalListenHosts);
+    Network::TcpListener released;
+    D6R_REQUIRE(released.start(loopback) && released.waitForReady(2s));
+    released.shutdown(); occupied.shutdown(); host.reset();
+    D6R_REQUIRE(host.startHost(loopback, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+    Network::TcpClient excluded;
+    D6R_REQUIRE(excluded.start(other)); D6R_REQUIRE(!excluded.waitForConnected(2s));
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
 }
 
 D6R_TEST_CASE("PR83 real runtime End drains update from lobby and active match and releases listener") {

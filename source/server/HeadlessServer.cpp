@@ -1527,6 +1527,7 @@ namespace Duel6::Server {
         }
 
         std::vector<Network::Endpoint> listenEndpoints{config.listenEndpoint};
+        bool coverageLoopback = endpointScope == Network::Trust::EndpointScope::Loopback;
         for (const auto &host: config.additionalListenHosts) {
             std::array<std::uint8_t, 4> bytes{};
             const auto scope = Network::Trust::classifyIpv4Literal(host, &bytes);
@@ -1536,9 +1537,10 @@ namespace Duel6::Server {
                 reportHostedStatus(Network::HostServiceStatusCode::StartFailed); return 2;
             }
             listenEndpoints.push_back({host, config.listenEndpoint.port});
+            coverageLoopback = coverageLoopback && scope == Network::Trust::EndpointScope::Loopback;
         }
 
-        output << (endpointScope == Network::Trust::EndpointScope::Loopback
+        output << (coverageLoopback
                    ? Network::Trust::LoopbackExposureCopy : Network::Trust::PrivateLanExposureCopy) << '\n';
         output.flush();
 

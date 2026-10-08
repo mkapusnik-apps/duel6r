@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -29,6 +30,11 @@ namespace Duel6::Client {
         std::string nextCursor;
     };
     struct DirectoryResponse { long status = 0; std::string body; };
+    struct DirectoryPublisherDependencies {
+        std::function<std::optional<std::vector<std::string>>()> listeningAddresses;
+        std::function<DirectoryResponse(const std::string &, const std::string &, const std::string &,
+                const std::string &, unsigned, const std::atomic<bool> *)> request;
+    };
     DirectoryResponse directoryRequest(const std::string &method, const std::string &path,
                                        const std::string &body = {}, const std::string &owner = {}, unsigned revision = 0,
                                        const std::atomic<bool> *cancelled = nullptr);
@@ -58,7 +64,8 @@ namespace Duel6::Client {
 
     class DirectoryPublisher final {
     public:
-        explicit DirectoryPublisher(std::vector<std::string> listeningCoverage = {});
+        explicit DirectoryPublisher(std::vector<std::string> listeningCoverage = {},
+                                    DirectoryPublisherDependencies dependencies = {});
         ~DirectoryPublisher();
         void update(DirectoryListing listing);
         void retry();

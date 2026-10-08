@@ -228,6 +228,7 @@ namespace Duel6::Client {
         std::condition_variable changed;
         DirectoryListing desired;
         std::vector<std::string> coverage;
+        DirectoryPublisherDependencies dependencies;
         bool dirty = false;
         std::atomic<bool> stopping{false};
         std::thread worker;
@@ -250,22 +251,23 @@ namespace Duel6::Client {
                 }
                 const auto candidate = Network::publicationAddress(
                         coverage.empty() ? std::vector<std::string>{listing.endpoint.host} : coverage,
-                        Network::Trust::localListenerAddresses());
+                        dependencies.listeningAddresses());
                 if (candidate) listing.endpoint.host = *candidate;
                 const auto body = candidate ? encode(listing) : std::string();
                 if (body.empty()) {
-                    published.store(false); pending.store(false);
+                    published.store(false);
                     if (!id.empty()) {
-                        const auto removal = directoryRequest("DELETE", "/v1/listings/" + id, {}, owner, revision, &stopping);
+                        const auto removal = dependencies.request("DELETE", "/v1/listings/" + id, {}, owner, revision, &stopping);
                         if (removal.status == 200 || removal.status == 204 || removal.status == 404) {
                             id.clear(); Network::Trust::secureEraseMemory(owner.data(), owner.size()); owner.clear();
                         }
                     }
+                    pending.store(false);
                     next = Clock::now() + std::chrono::seconds(20); continue;
                 }
                 const auto attempted = Clock::now();
                 pending.store(true);
-                auto response = directoryRequest(id.empty() ? "POST" : "PUT",
+                auto response = dependencies.request(id.empty() ? "POST" : "PUT",
                     id.empty() ? "/v1/listings" : "/v1/listings/" + id, body, owner, revision, &stopping);
                 bool success = false;
                 try {
@@ -295,14 +297,19 @@ namespace Duel6::Client {
                 pending.store(dirty);
                 changed.wait_for(lock, std::chrono::seconds(1), [&] { return stopping.load(); });
             }
-            if (!id.empty()) (void) directoryRequest("DELETE", "/v1/listings/" + id, {}, owner, revision);
+            if (!id.empty()) (void) dependencies.request("DELETE", "/v1/listings/" + id, {}, owner, revision, nullptr);
             Network::Trust::secureEraseMemory(owner.data(), owner.size());
             published.store(false);
             pending.store(false);
         }
     };
-    DirectoryPublisher::DirectoryPublisher(std::vector<std::string> listeningCoverage)
-            : impl(std::make_unique<Impl>(published, pending, validUntil)) { impl->coverage = std::move(listeningCoverage); }
+    DirectoryPublisher::DirectoryPublisher(std::vector<std::string> listeningCoverage, DirectoryPublisherDependencies dependencies)
+            : impl(std::make_unique<Impl>(published, pending, validUntil)) {
+        impl->coverage = std::move(listeningCoverage);
+        if (!dependencies.listeningAddresses) dependencies.listeningAddresses = Network::Trust::localListenerAddresses;
+        if (!dependencies.request) dependencies.request = directoryRequest;
+        impl->dependencies = std::move(dependencies);
+    }
     DirectoryPublisher::~DirectoryPublisher() { stop(); }
     void DirectoryPublisher::update(DirectoryListing listing) {
         std::lock_guard<std::mutex> lock(impl->mutex);

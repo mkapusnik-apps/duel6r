@@ -533,10 +533,12 @@ namespace Duel6 {
 
     bool NetworkMenu::refreshHostAddresses(bool initialSelection) {
         (void) initialSelection;
+        const bool closeFocused = hostAddressSelectorOpen && hostAddressHighlight == hostAddresses.size() + 1;
         const auto retained = hostAddressHighlight > 0 && hostAddressHighlight <= hostAddresses.size()
                 ? hostAddresses[hostAddressHighlight - 1] : std::string();
         listening.available = Network::Trust::localListenerAddresses();
         hostAddresses = listening.rows();
+        if (closeFocused) hostAddressHighlight = hostAddresses.size() + 1;
         if (!retained.empty()) {
             const auto found = std::find(hostAddresses.begin(), hostAddresses.end(), retained);
             hostAddressHighlight = found == hostAddresses.end() ? 0 : static_cast<std::size_t>(found - hostAddresses.begin()) + 1;
