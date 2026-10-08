@@ -76,6 +76,20 @@ namespace Duel6::Server {
                 config.listenEndpoint.host = valueAfter(argument, "--host=");
             } else if (startsWith(argument, "--port=")) {
                 config.listenEndpoint.port = parsePort(valueAfter(argument, "--port="));
+            } else if (startsWith(argument, "--listen-hosts=")) {
+                const auto hosts = valueAfter(argument, "--listen-hosts=");
+                if (hosts.empty() || hosts.size() > 4096 || !config.additionalListenHosts.empty())
+                    throw std::invalid_argument("Invalid listening address set");
+                std::size_t first = 0;
+                do {
+                    const auto end = hosts.find(',', first);
+                    auto host = hosts.substr(first, end == std::string::npos ? end : end - first);
+                    if (host.empty() || config.additionalListenHosts.size() >= 255)
+                        throw std::invalid_argument("Invalid listening address set");
+                    config.additionalListenHosts.push_back(std::move(host));
+                    if (end == std::string::npos) break;
+                    first = end + 1;
+                } while (true);
             } else if (startsWith(argument, "--name=")) {
                 config.serverName = valueAfter(argument, "--name=");
             } else if (startsWith(argument, "--build-version=")) {
@@ -141,6 +155,7 @@ namespace Duel6::Server {
         requireText("build version", config.buildVersion);
         requireText("resource path", config.resourcePath);
         if (config.localOnly) {
+            if (!config.additionalListenHosts.empty()) throw std::invalid_argument("Local-only listener cannot use multiple addresses");
             config.listenEndpoint.host = "127.0.0.1";
         }
         if (config.tickRate > 1000) {
@@ -152,6 +167,8 @@ namespace Duel6::Server {
         if (config.admissionClient && (config.transportEnabled || config.transportEcho)) {
             throw std::invalid_argument("admission client mode cannot start a listener");
         }
+        if (config.admissionClient && !config.additionalListenHosts.empty())
+            throw std::invalid_argument("Guest cannot use a listening address set");
         if (config.hostedServiceIpc && (!config.transportEnabled || config.transportEcho || config.admissionClient
                                        || config.hostedServiceParent == 0))
             throw std::invalid_argument("host service IPC requires a production transport listener and parent");

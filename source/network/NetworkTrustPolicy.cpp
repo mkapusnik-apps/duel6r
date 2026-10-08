@@ -313,7 +313,8 @@ namespace Duel6::Network::Trust {
         const std::array<std::uint8_t, 4> loopback{127, 0, 0, 1};
         for (const auto &record: *interfaces)
             if ((classifyIpv4(record.address) == EndpointScope::PrivateLan
-                 || classifyIpv4(record.address) == EndpointScope::PublicUnicast)
+                 || classifyIpv4(record.address) == EndpointScope::PublicUnicast
+                 || (classifyIpv4(record.address) == EndpointScope::Loopback && record.address != loopback))
                 && decideLocalListenerBind(record.address, *interfaces) == LocalListenerBindDecision::Allowed)
                 candidates.push_back(record.address);
         std::sort(candidates.begin(), candidates.end());

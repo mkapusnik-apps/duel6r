@@ -58,7 +58,7 @@ namespace Duel6::Client {
 
     class DirectoryPublisher final {
     public:
-        DirectoryPublisher();
+        explicit DirectoryPublisher(std::vector<std::string> listeningCoverage = {});
         ~DirectoryPublisher();
         void update(DirectoryListing listing);
         void retry();

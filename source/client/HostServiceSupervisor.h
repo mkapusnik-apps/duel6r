@@ -59,6 +59,7 @@ namespace Duel6::Client {
     struct HostServiceStartConfig {
         std::string serverExecutable;
         Network::Endpoint endpoint;
+        std::vector<std::string> additionalListenHosts;
         std::string resourcePath;
         std::vector<std::string> enabledGameplayScripts;
         std::uint8_t localPlayers = 1;

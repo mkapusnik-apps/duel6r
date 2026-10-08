@@ -119,7 +119,7 @@ def exercise(executable, host):
         assert any("no lobby, admission, simulation" in line for line in output)
         payloads = [bytes([index, 0, 255]) + f"opaque-handshake-{index}".encode() for index in range(15)]
         for index, payload in enumerate(payloads):
-            client = socket.create_connection((host, port), timeout=3)
+            client = socket.create_connection(("127.0.0.1" if host == "0.0.0.0" else host, port), timeout=3)
             client.settimeout(5)
             clients.append(client)
             send_frame(client, payload)
@@ -163,7 +163,7 @@ def ordinary_startup_has_no_listener(executable):
 
 def unsupported_listener_addresses_are_rejected_before_listen(executable):
     expected = "Network session requires an eligible assigned unicast IPv4 listening address.\n"
-    for host in ("0.0.0.0", "8.8.8.8", "169.254.1.1", "224.0.0.1", "255.255.255.255",
+    for host in ("8.8.8.8", "169.254.1.1", "224.0.0.1", "255.255.255.255",
                  "10.0.0.255", "172.16.0.255", "192.168.0.255"):
         port = unused_port()
         completed = subprocess.run(
@@ -195,4 +195,5 @@ if __name__ == "__main__":
     ordinary_startup_has_no_listener(sys.argv[1]); unsupported_listener_addresses_are_rejected_before_listen(sys.argv[1])
     hostname_startup_stress(sys.argv[1])
     exercise(sys.argv[1], "127.0.0.1"); exercise(sys.argv[1], "localhost")
+    exercise(sys.argv[1], "0.0.0.0")
     print("separate-process transport behavior passed for IPv4 literal and hostname")

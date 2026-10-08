@@ -204,6 +204,7 @@ namespace {
             listener = std::make_unique<Duel6::Network::TcpListener>(maxConnections, std::move(dependencies));
         }
         bool start(const Duel6::Network::Endpoint &endpoint) override { return listener->start(endpoint); }
+        bool startAll(const std::vector<Duel6::Network::Endpoint> &endpoints) override { return listener->startAll(endpoints); }
         bool waitForReady(std::chrono::milliseconds timeout) override { return listener->waitForReady(timeout); }
         Duel6::Network::ListenerState state() const override { return listener->state(); }
         Duel6::Network::TransportFailure failure() const override { return listener->failure(); }
@@ -1513,15 +1514,28 @@ namespace Duel6::Server {
         auto endpointScope = Network::Trust::classifyIpv4Literal(config.listenEndpoint.host, &listenAddress);
         const bool loopbackHostname = config.listenEndpoint.host == "localhost";
         if (loopbackHostname) endpointScope = Network::Trust::EndpointScope::Loopback;
-        if ((endpointScope != Network::Trust::EndpointScope::Loopback
+        const bool wildcard = config.listenEndpoint.host == "0.0.0.0" && config.additionalListenHosts.empty();
+        if (!wildcard && ((endpointScope != Network::Trust::EndpointScope::Loopback
              && endpointScope != Network::Trust::EndpointScope::PrivateLan
              && endpointScope != Network::Trust::EndpointScope::PublicUnicast)
             || (!loopbackHostname
                 && Network::Trust::localListenerBindDecision(listenAddress)
-                   != Network::Trust::LocalListenerBindDecision::Allowed)) {
+                    != Network::Trust::LocalListenerBindDecision::Allowed))) {
             output << Network::Trust::UnsupportedAddressCopy << '\n';
             reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
             return 2;
+        }
+
+        std::vector<Network::Endpoint> listenEndpoints{config.listenEndpoint};
+        for (const auto &host: config.additionalListenHosts) {
+            std::array<std::uint8_t, 4> bytes{};
+            const auto scope = Network::Trust::classifyIpv4Literal(host, &bytes);
+            if ((scope != Network::Trust::EndpointScope::Loopback && scope != Network::Trust::EndpointScope::PrivateLan
+                 && scope != Network::Trust::EndpointScope::PublicUnicast)
+                || Network::Trust::localListenerBindDecision(bytes) != Network::Trust::LocalListenerBindDecision::Allowed) {
+                reportHostedStatus(Network::HostServiceStatusCode::StartFailed); return 2;
+            }
+            listenEndpoints.push_back({host, config.listenEndpoint.port});
         }
 
         output << (endpointScope == Network::Trust::EndpointScope::Loopback
@@ -1683,7 +1697,7 @@ namespace Duel6::Server {
         }
         bool listenerReady = false;
         bool listenerStarted = false;
-        try { listenerStarted = listener->start(config.listenEndpoint); } catch (...) {}
+        try { listenerStarted = listener->startAll(listenEndpoints); } catch (...) {}
         while (listenerStarted && runtimeNow(runtimeDependencies) < startupDeadline) {
             bool cancelled = true;
             try { cancelled = runtimeDependencies.cancelled(); } catch (...) {}

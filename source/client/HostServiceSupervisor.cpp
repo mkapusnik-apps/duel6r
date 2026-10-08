@@ -74,6 +74,11 @@ namespace Duel6::Client {
             || config.endpoint.port == 0 || config.resourcePath.empty() || config.resourcePath.size() > 4096
             || config.localPlayers == 0 || config.localPlayers > Network::MaxNetworkPlayers
             || config.enabledGameplayScripts.size() > 16) return false;
+        if (config.additionalListenHosts.size() > 255) return false;
+        for (const auto &host: config.additionalListenHosts) {
+            if (host.empty() || host.size() > 15 || host.find_first_not_of("0123456789.") != std::string::npos)
+                return false;
+        }
         for (const auto &script: config.enabledGameplayScripts) {
             if (script.empty() || script.size() > 4096 || script.find('\0') != std::string::npos) return false;
         }

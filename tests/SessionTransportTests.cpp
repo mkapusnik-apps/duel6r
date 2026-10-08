@@ -1119,7 +1119,7 @@ void productionListenerPolicy() {
         if (!Trust::isLocalIpv4AddressAssigned(bytes)) { stale = candidate; break; }
     }
     CHECK(!stale.empty());
-    for (const auto &address : {stale, std::string("0.0.0.0"), std::string("255.255.255.255"),
+    for (const auto &address : {stale, std::string("255.255.255.255"),
                                std::string("224.0.0.1"), std::string("::1")}) {
         TcpListener denied(1, dependencies);
         CHECK(denied.start({address, port}));
@@ -1128,6 +1128,68 @@ void productionListenerPolicy() {
         CHECK(denied.failure() == (address == stale ? TransportFailure::BindFailed : TransportFailure::InvalidEndpoint));
         denied.shutdown();
     }
+}
+
+void transactionalListeningCoverage() {
+    // Native transport fixture binds loopback literals; no interface configuration is changed.
+    const auto port = unusedPort();
+    TcpListener listener(2);
+    CHECK(listener.startAll({{"127.0.0.1", port}, {"127.0.0.2", port}}));
+    CHECK(listener.waitForReady(NativeObserverWait));
+    TcpClient first, second;
+    CHECK(first.start({"127.0.0.1", port})); requireConnected(first, "first selected bind");
+    auto acceptedFirst = awaitAccept(listener);
+    CHECK(second.start({"127.0.0.2", port})); requireConnected(second, "second selected bind");
+    auto acceptedSecond = awaitAccept(listener);
+    CHECK(first.connection()->send({1}) == SendResult::Accepted);
+    CHECK(second.connection()->send({2}) == SendResult::Accepted);
+    TransportFrame frame;
+    CHECK(waitUntil([&] { return acceptedFirst->receive(frame); }, NativeObserverWait)); CHECK(frame.payload == std::vector<std::uint8_t>{1});
+    CHECK(waitUntil([&] { return acceptedSecond->receive(frame); }, NativeObserverWait)); CHECK(frame.payload == std::vector<std::uint8_t>{2});
+    TcpClient excluded; CHECK(excluded.start({"127.0.0.3", port}));
+    CHECK(!excluded.waitForConnected(NativeObserverWait));
+    first.close(); second.close(); listener.shutdown(); listener.shutdown();
+
+    TcpListener occupied; startListener(occupied, port, "127.0.0.2");
+    TcpListener transaction;
+    CHECK(transaction.startAll({{"127.0.0.1", port}, {"127.0.0.2", port}}));
+    CHECK(!transaction.waitForReady(NativeObserverWait));
+    CHECK(transaction.failure() == TransportFailure::BindFailed && transaction.addressInUse());
+    transaction.shutdown();
+    TcpListener released; startListener(released, port); released.shutdown(); occupied.shutdown();
+
+    SessionTransportDependencies dependencies;
+    dependencies.enforceNetworkSessionPolicy = true;
+    dependencies.resolve = [](const auto &, auto, auto, const auto &) -> ResolveOutcome {
+        throw Failure("wildcard must not invoke resolution or individual bind eligibility");
+    };
+    TcpListener wildcard(2, dependencies);
+    CHECK(wildcard.start({"0.0.0.0", port})); CHECK(wildcard.waitForReady(NativeObserverWait));
+    wildcard.shutdown();
+    TcpListener invalid;
+    CHECK(!invalid.startAll({}));
+    CHECK(!invalid.startAll({{"0.0.0.0", port}, {"127.0.0.1", port}}));
+    CHECK(!invalid.startAll({{"127.0.0.1", port}, {"127.0.0.1", port}}));
+}
+
+void transactionalPartialBindCancellation() {
+    const auto port = unusedPort();
+    std::atomic<bool> secondResolving{false};
+    SessionTransportDependencies dependencies;
+    dependencies.resolve = [&](const auto &host, auto requestedPort, auto, const auto &cancelled) {
+        if (host == "second.test") {
+            secondResolving = true;
+            while (!cancelled()) std::this_thread::sleep_for(1ms);
+            return ResolveOutcome{ResolveStatus::Cancelled, {}};
+        }
+        return ResolveOutcome{ResolveStatus::Resolved, {{{127, 0, 0, 1}, requestedPort}}};
+    };
+    TcpListener listener(2, dependencies);
+    CHECK(listener.startAll({{"127.0.0.1", port}, {"second.test", port}}));
+    CHECK(waitUntil([&] { return secondResolving.load(); }, NativeObserverWait));
+    CHECK(listener.state() == ListenerState::Starting); // Never partial Ready.
+    listener.cancel(); listener.shutdown(); CHECK(listener.state() == ListenerState::Cancelled);
+    TcpListener released; startListener(released, port); released.shutdown();
 }
 
 void fifteenIsolatedConnections() {
@@ -2017,6 +2079,8 @@ int main() {
     }
 #endif
     const std::vector<std::pair<const char *, void (*)()>> tests = {
+        {"transactional listening coverage and wildcard policy", transactionalListeningCoverage},
+        {"transactional partial bind cancellation", transactionalPartialBindCancellation},
         {"secure encrypted wire hides credentials and rejects cross-connection replay", secureWireRejectsReplay},
         {"secure session password and unlocked exchange", secureSessionPasswordAdmission},
         {"secure session enforces byte record and lifetime budgets", secureSessionKeyBudgets},
