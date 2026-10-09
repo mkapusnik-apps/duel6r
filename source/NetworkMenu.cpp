@@ -2176,16 +2176,14 @@ namespace Duel6 {
         const Int32 settingsLeft = state.result.available ? 406 : LobbySettingLeft - 6;
         const Int32 settingsWidth = 816 - settingsLeft;
         drawPanel(settingsLeft, settingsBottom, settingsWidth, 482 - settingsBottom, "HOST MATCH SETTINGS");
-        const std::vector<std::string> settingRows{
-                "Mode: " + state.settings.mode,
-                "Team count: " + std::to_string(state.settings.teamCount),
-                "Friendly fire: " + onOff(state.settings.friendlyFire),
-                "Level plan: " + state.settings.levelPlan,
-                "Fixed level: " + levelDisplayName(state.settings.fixedLevel),
-                "Round limit: " + std::to_string(state.settings.roundLimit),
-                "Assistance: " + onOff(state.settings.assistance),
-                "Quick Liquid: " + onOff(state.settings.quickLiquid),
-                "Burnable Trees: " + onOff(state.settings.burnableTrees)};
+        const std::vector<std::string> settingLabels{
+                "Mode", "Teams", "Friendly fire", "", "Level", "Rounds 1–99",
+                "Assistance", "Quick Liquid", "Burnable Trees"};
+        const std::vector<std::string> settingValues{
+                state.settings.mode, std::to_string(state.settings.teamCount), onOff(state.settings.friendlyFire),
+                state.settings.levelPlan, levelDisplayName(state.settings.fixedLevel),
+                std::to_string(state.settings.roundLimit), onOff(state.settings.assistance),
+                onOff(state.settings.quickLiquid), onOff(state.settings.burnableTrees)};
         const bool retainedResult = state.result.available;
         if (!retainedResult) {
             drawPanel(40, 196, 526, 188, "PLAYERS AND CONTROLS");
@@ -2268,9 +2266,29 @@ namespace Duel6 {
             const int index = settings[row];
             const auto rectangle = lobbySettingRectangle(static_cast<int>(row), retainedResult);
             const bool selected = snap.host && focus == readyIndex + 1 + index;
-            if (snap.host) drawField(rectangle.left, rectangle.bottom, rectangle.width, rectangle.height, selected);
-            drawClippedText(rectangle.left + 4, rectangle.bottom + 2,
-                            (selected ? "> " : "  ") + settingRows[index], retainedResult ? 24 : 26);
+            const bool toggle = index == 2 || index >= 6;
+            const auto &label = settingLabels[index];
+            const auto &value = settingValues[index];
+            const Int32 textY = rectangle.bottom + (rectangle.height - 16) / 2;
+            if (toggle) {
+                if (snap.host) {
+                    renderer.quadXY(Vector(rectangle.left + 2, rectangle.bottom + 1), Vector(16, 16), Color(192));
+                    drawBevel(rectangle.left + 2, rectangle.bottom + 1, 16, 16, value == "On");
+                }
+                const Int32 textX = rectangle.left + (snap.host ? 22 : 4);
+                drawClippedText(textX, textY, label + ": " + value,
+                                static_cast<std::size_t>((rectangle.left + rectangle.width - 2 - textX) / 8));
+            } else {
+                // These are still single forward-cycle rows, not Spinner or Textbox controls.
+                const std::string prefix = (snap.host ? "↻ " : "") + (label.empty() ? "" : label + ": ");
+                const Int32 valueX = rectangle.left + 2 + static_cast<Int32>(utf8Length(prefix)) * 8;
+                drawText(rectangle.left + 2, textY, prefix);
+                if (snap.host) drawField(valueX, rectangle.bottom, rectangle.left + rectangle.width - valueX,
+                                         rectangle.height);
+                drawClippedText(valueX + 2, textY, value,
+                                static_cast<std::size_t>((rectangle.left + rectangle.width - valueX - 4) / 8));
+            }
+            drawFocusKeyline(rectangle.left, rectangle.bottom, rectangle.width, rectangle.height, selected);
         }
         std::string readyReason;
         drawButton(40, retainedResult ? 54 : LobbyReadyBottom, 220, 24, "Ready / Not ready", focus == readyIndex,

@@ -298,6 +298,8 @@ Focus and availability are separate states. A disabled control that has baseline
 
 The standard 16 px text and 18 px list-row rhythm remain the default. Compact 20–24 px row controls must keep at least 2 logical px of caption space on each side. Existing 32–40 px primary actions may retain their size. This change does not force the local menu's 25 px roster buttons onto network footers. Fields must preserve the visible value width after their frame and padding are allocated. Main-menu bevels are a visual reference, not permission to import its pointer-release activation or held-spinner repetition.
 
+NET-04 and NET-04-R use the bounded [host game-settings mapping](design/screens/NET-04.md#host-game-settings-appearance), UX-NET-04-006 and UX-NET-04-019–031. Main-menu inset values and square checkbox states must remain inside the existing whole-row controls. A cycle marker must not create a directional target. The Rounds value must not imply text entry or local unlimited-round semantics. This clarification does not relax UX-NET-015, UX-NET-018, UX-NET-024, or UX-NET-AC-07. Shared tokens and other screens remain unchanged.
+
 ##### Fixed visual acceptance
 
 - **UX-NET-AC-01** Every affected representative must show the same MENU-01 panel, field, list, and button vocabulary without a pale inner-card or alternate blue-grey focus theme.

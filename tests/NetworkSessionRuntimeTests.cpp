@@ -1021,6 +1021,94 @@ D6R_TEST_CASE("UX-NET review disabled focused setup start and missing-controller
     D6R_REQUIRE(!menu.runtime.current.canonical->participants[1].ready);
 }
 
+D6R_TEST_CASE("UX-NET-04 settings retain bounded cycle values checkbox states and guest read-only presentation") {
+    ReviewMenuFixture f;
+    for (bool retained: {false, true}) for (bool host: {true, false}) {
+        f.lobby(host, retained);
+        auto &state = *f.menu.runtime.current.canonical;
+        state.settings.mode = "Team deathmatch"; state.settings.teamCount = 4;
+        state.settings.friendlyFire = state.settings.assistance = state.settings.burnableTrees = true;
+        state.settings.quickLiquid = false; state.settings.roundLimit = 99;
+        state.settings.levelPlan = "Shuffle all levels";
+        state.settings.fixedLevel = "levels/" + std::string(40, 'x') + "ž.json";
+        f.menu.focus = host ? 3 : 0; // One row-level Mode stop, or a guest-owned value.
+        const auto before = lobbyConfigurationFingerprint(f.menu.runtime.snapshot());
+        f.draw();
+        for (const auto &text: {"Team deathmatch", "Shuffle all levels", "99", "Friendly fire: On",
+                               "Assistance: On", "Quick Liquid: Off", "Burnable Trees: On"})
+            D6R_REQUIRE(f.text(text));
+        D6R_REQUIRE_EQ(host, f.text("↻ Mode: "));
+        D6R_REQUIRE_EQ(host, f.text("↻ Rounds 1–99: "));
+        D6R_REQUIRE_EQ(!host, f.text("Rounds 1–99: "));
+        const int left = retained ? 408 : 584;
+        const int bottom = retained ? 440 : 430;
+        const int width = retained ? 198 : 226;
+        D6R_REQUIRE_EQ(host, f.frame(left - 2, bottom - 2, width + 4, (retained ? 18 : 19) + 4, 2));
+        // Checked and unchecked squares use opposite MENU-01 bevels; guests get neither.
+        const int squareX = left + 2;
+        const int squareY = retained ? 419 : 383;
+        const auto checked = std::find_if(f.recorder.lines.begin(), f.recorder.lines.end(), [&](const auto &line) {
+            return line.start.x == squareX && line.start.y == squareY
+                && line.end.x == squareX && line.end.y == squareY + 15 && line.color == Color::BLACK;
+        });
+        D6R_REQUIRE_EQ(host, checked != f.recorder.lines.end());
+        const int offX = retained ? 614 : 586;
+        const int offY = retained ? 375 : 263;
+        const auto unchecked = std::find_if(f.recorder.lines.begin(), f.recorder.lines.end(), [&](const auto &line) {
+            return line.start.x == offX && line.start.y == offY
+                && line.end.x == offX && line.end.y == offY + 15 && line.color == Color(235);
+        });
+        D6R_REQUIRE_EQ(host, unchecked != f.recorder.lines.end());
+        // Full-size text and all setting text stay inside the existing row, including UTF-8 clipping.
+        for (const auto &quad: f.recorder.quads) {
+            const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                [&](const auto &item) { return item.texture == quad.material.getTexture(); });
+            if (entry == f.font.fontCache.entryList.end()) continue;
+            const float x = quad.vertices[0].x, y = quad.vertices[0].y;
+            if (x < left || y < (retained ? 351 : 238) || y > bottom + 1) continue;
+            D6R_REQUIRE_EQ(16.0f, quad.vertices[2].y - y);
+            const int rowLeft = retained && x >= 612 ? 612 : left;
+            D6R_REQUIRE(quad.vertices[2].x <= rowLeft + width - 2);
+        }
+        D6R_REQUIRE_EQ(before, lobbyConfigurationFingerprint(f.menu.runtime.snapshot()));
+        D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty());
+        state.settings.mode = "Deathmatch";
+        f.draw();
+        D6R_REQUIRE(!f.text("Friendly fire: On") && !f.text("↻ Teams: ") && !f.text("Teams: "));
+    }
+}
+
+D6R_TEST_CASE("UX-NET-04 settings preserve whole-row press wrap toggles traversal and rejection") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    f.lobby();
+    menu.runtime.current.canonical->settings.mode = "Team deathmatch";
+    menu.hostSetup.localPlayerNames = {"Ada"};
+    menu.hostSetup.roundLimit = 99;
+    menu.runtime.supervisor = std::make_unique<Client::HostServiceSupervisor>();
+    f.click(590, 312); // Existing round row: press once, regardless of subregion.
+    D6R_REQUIRE_EQ(8, menu.focus); D6R_REQUIRE_EQ(1u, menu.hostSetup.roundLimit);
+    D6R_REQUIRE_EQ(std::size_t(1), menu.runtime.pendingHostCommands.size());
+    f.click(590, 312, false);
+    menu.keyEvent(KeyPressEvent(SDLK_RETURN, SysEvent::ButtonState::PRESSED, 0, true));
+    D6R_REQUIRE_EQ(std::size_t(1), menu.runtime.pendingHostCommands.size());
+    f.key(SDLK_9); D6R_REQUIRE_EQ(1u, menu.hostSetup.roundLimit); // Not a textbox.
+    f.key(SDLK_TAB); D6R_REQUIRE_EQ(9, menu.focus);
+    const bool assistance = menu.hostSetup.assistance;
+    f.click(795, 290); D6R_REQUIRE_EQ(!assistance, menu.hostSetup.assistance);
+    D6R_REQUIRE_EQ(std::size_t(2), menu.runtime.pendingHostCommands.size());
+    menu.availableLevels = {"levels/duel_01.json", "levels/duel_02.json"};
+    menu.hostSetup.levelPlan = "Random level";
+    f.click(590, 336); D6R_REQUIRE_EQ(std::string("Fixed level"), menu.hostSetup.levelPlan);
+    menu.runtime.supervisor.reset();
+    const auto rejectedRounds = menu.hostSetup.roundLimit;
+    f.click(795, 312); D6R_REQUIRE_EQ(rejectedRounds, menu.hostSetup.roundLimit);
+    const auto queued = menu.runtime.pendingHostCommands.size();
+    f.lobby(false);
+    f.click(590, 312); f.key(SDLK_9);
+    D6R_REQUIRE_EQ(0, menu.focus); D6R_REQUIRE_EQ(queued, menu.runtime.pendingHostCommands.size());
+}
+
 D6R_TEST_CASE("UX-NET review retained host reorder help is inert until baseline keyboard or controller focus") {
     ReviewMenuFixture f;
     ReviewController controller(f);

@@ -34,11 +34,29 @@
     <text x="62" y="315">Host reorder: focus Reorder with Tab/Up/Down</text>
     <text x="62" y="333">or controller directions; Enter/Space / Confirm</text>
     <text x="594" y="125">HOST MATCH SETTINGS</text>
-    <text x="594" y="160">Mode: Predator  [previous / next]</text>
-    <text x="594" y="190">Level plan • Rounds</text>
-    <text x="594" y="220">Assistance • Quick Liquid</text>
-    <text x="594" y="250">Burnable Trees</text>
-    <text x="594" y="325">Settings stay within this region</text>
+    <g font-size="10">
+      <g fill="white" stroke="black" stroke-width="1">
+        <rect x="587" y="142" width="126" height="22"/><rect x="719" y="142" width="126" height="22"/>
+        <rect x="587" y="174" width="126" height="22"/><rect x="719" y="174" width="126" height="22"/>
+        <rect x="587" y="206" width="126" height="22"/><rect x="719" y="206" width="126" height="22"/>
+        <rect x="587" y="238" width="126" height="22"/><rect x="719" y="238" width="126" height="22"/>
+        <rect x="587" y="270" width="126" height="22"/>
+        <rect x="628" y="145" width="82" height="16"/><rect x="774" y="145" width="68" height="16"/>
+        <rect x="738" y="177" width="104" height="16"/><rect x="628" y="209" width="82" height="16"/>
+        <rect x="813" y="209" width="29" height="16"/>
+        <rect x="590" y="177" width="16" height="16"/><rect x="590" y="241" width="16" height="16"/>
+        <rect x="722" y="241" width="16" height="16"/><rect x="590" y="273" width="16" height="16"/>
+      </g>
+      <path d="M592 180L604 190 M604 180L592 190 M592 244L604 254 M604 244L592 254 M592 276L604 286 M604 276L592 286" fill="none" stroke="black"/>
+      <text x="590" y="157">↻ Mode:</text><text x="630" y="157">Team deathmatch</text><text x="722" y="157">↻ Teams:</text><text x="778" y="157">4</text>
+      <text x="609" y="189">Friendly fire: On</text><text x="722" y="189">↻</text><text x="740" y="189">Shuffle all levels</text>
+      <text x="590" y="221">↻ Level:</text><text x="630" y="221">Selected level</text><text x="722" y="221">↻ Rounds 1–99:</text><text x="817" y="221">99</text>
+      <text x="609" y="253">Assistance: On</text><text x="741" y="253">Quick Liquid: Off</text>
+      <text x="609" y="285">Burnable Trees: On</text>
+      <text x="587" y="307">ANNOTATION: one target per row; ↻ cycles.</text>
+      <text x="587" y="323">ANNOTATION: squares show toggle states.</text>
+      <text x="587" y="337">ANNOTATION: UX-NET-04-006/019–031.</text>
+    </g>
     <text x="62" y="384">RETAINED RESULT • Session only • Completed</text>
     <text x="62" y="408">Match outcome: 14 winners • See outcome rows</text>
     <text x="62" y="430">Last completed round: 1 • 14 winners • See outcome rows</text>
