@@ -57,6 +57,15 @@
 
 namespace Duel6 {
     namespace {
+        const std::string &personDataPath() {
+#ifdef D6_MACOS_PLATFORM
+            return MacLocal::personDataPath();
+#else
+            static const std::string path = D6_FILE_PHIST;
+            return path;
+#endif
+        }
+
         Image coverImage(const Image &source, Size width, Size height) {
             Image result(width, height);
             Float32 sourceAspect = Float32(source.getWidth()) / Float32(source.getHeight());
@@ -726,7 +735,7 @@ namespace Duel6 {
         json.set("rounds", Json::Value::makeNumber(game->getPlayedRounds()));
 
         Json::Writer writer(true);
-        writer.writeToFile(D6_FILE_PHIST, json);
+        writer.writeToFile(personDataPath(), json);
     }
 
     void Menu::rebuildTable() {
@@ -821,6 +830,11 @@ namespace Duel6 {
     }
 
     void Menu::showMessage(const std::string &message) {
+        renderMessage(message);
+        video.screenUpdate(appService.getConsole(), font);
+    }
+
+    void Menu::renderMessage(const std::string &message) const {
         Size maxCharacters = (D6_MENU_MESSAGE_MAX_WIDTH - 60) / 8;
         std::vector<std::string> lines = wrapMessage(message, maxCharacters);
         Size longestLine = 0;
@@ -838,7 +852,6 @@ namespace Duel6 {
             font.print(x + 30, y + 2 + Int32(lines.size() - line - 1) * 16, Color::RED, lines[line]);
         }
         renderer.setViewMatrix(Matrix::IDENTITY);
-        video.screenUpdate(appService.getConsole(), font);
     }
 
     bool Menu::question(const std::string &question) {
@@ -1100,7 +1113,7 @@ namespace Duel6 {
 
     void Menu::beforeStart(Context *prevContext) {
         updateRoundsTextbox();
-        loadPersonData(D6_FILE_PHIST);
+        loadPersonData(personDataPath());
         joyRescan();
         SDL_ShowCursor(SDL_ENABLE);
         SDL_StartTextInput();
@@ -1115,6 +1128,9 @@ namespace Duel6 {
     }
 
     void Menu::render() const {
+#ifdef D6_MACOS_PLATFORM
+        video.resetDrawableViewport();
+#endif
         if (menuBackgroundInitialFrameRendered) {
             publishPreparedMenuBackground();
         } else {
@@ -1176,6 +1192,11 @@ namespace Duel6 {
             game->getSettings().setMaxRounds(0);
             updateRoundsTextbox();
         }
+    }
+
+    bool Menu::usesMenuPointerCoordinates(const Context &context) const {
+        if (context.is(*this)) return true;
+        return networkMenu && context.is(*networkMenu);
     }
 
     void Menu::mouseMotionEvent(const MouseMotionEvent &event) {

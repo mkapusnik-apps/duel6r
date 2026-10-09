@@ -4,7 +4,7 @@
 
 **Experimental/prototype networking: packaging is not accepted end-to-end network support.** This guide describes the production-path procedures to validate against the [deployment requirements](network-deployments.md). It does not remove the prototype warning or approve release readiness. Issue #41 remains the final network release gate.
 
-This guide covers Linux x86-64 and Windows x86-64 player-hosted packages, including Linux/Windows participants together. Same-machine and LAN play remain supported. Eligible public-unicast IPv4 endpoints are permitted without an Internet reachability or performance guarantee. Password and secret protection follows NET-PASS and the current trust policy. The separate invite-only dedicated pilot follows NET-PUB, HSL-PUB, TRU-PUB, and NET-PUB-DEP; this guide does not authorize its live activation. Accounts, NAT traversal, relays, automatic firewall changes, and hostile-machine safety remain unsupported.
+The current player-hosted IPv4 journey includes secure transport, optional passwords, wildcard or explicit listening coverage, and directory or direct joining. The experimental Apple Silicon macOS 14+ extension follows [its platform contract](macos.md), alongside Linux/Windows targets and separate Raspberry Pi validation. The operator-configured dedicated extension follows NET-PUB, HSL-PUB, and TRU-PUB, with a Linux x86-64 service and Linux x86-64/Windows x86-64 clients. The former dedicated cloud packet is retired. This guide does not authorize new cloud gameplay activation, domains, or billable resources, and does not replace approved directory deployment. Package availability is not completed platform acceptance.
 
 ### Evidence boundary
 
@@ -48,6 +48,32 @@ Use the extracted package root as the process working directory: resource and sa
 For repository validation these launch instructions apply only inside an approved Docker runtime with the package, prerequisites, display, and input configured by the evidence owner. They are not authorization to run on the native host or change firewall/display infrastructure. Windows graphical validation must wait for the approved environment/policy decision above. A developer build container containing extra libraries must not be passed off as a clean-machine installation.
 
 ## Host, join, and stop
+
+### Directory origin and distribution channel
+
+Network-capable nightly clients use `https://staging.duel.netusite.cz` when
+`D6R_DIRECTORY_URL` is absent. Release clients use `https://duel.netusite.cz`,
+including packages from manual release-workflow invocations. The distribution
+channel is independent of `Release` versus `Debug` build optimization. Ordinary
+unchannelled builds have no compiled default; their CMake option
+`D6R_DIRECTORY_DEFAULT_URL` defaults to empty. The experimental macOS network
+package follows the same origin selection and failure-independence rules.
+
+Set `D6R_DIRECTORY_URL` in the client process environment to explicitly override
+the compiled origin. A present empty or invalid value makes the directory
+unavailable without falling back to a compiled origin. A failed request never
+switches between staging and production. HTTPS certificate-chain and hostname
+verification remain required. Only explicit local development may combine
+`D6R_DIRECTORY_ALLOW_HTTP=1` with `http://127.0.0.1:<port>`; this is not a LAN or
+cloud-deployment exception.
+
+Directory failure does not block direct joining or Local Play, or end an active
+hosted session. Local Play does not contact the directory. Directory availability
+does not establish gameplay reachability. Domain mapping alone does not prove
+public TLS readiness, environment isolation, or owner authorization; see the
+[directory contract](network-host-directory.md#directory-deployment-acceptance-criteria)
+for required evidence. These directory origins are not dedicated gameplay
+defaults. Dedicated Direct connect uses the supplied operator endpoint.
 
 ### Endpoints and manual firewall configuration
 

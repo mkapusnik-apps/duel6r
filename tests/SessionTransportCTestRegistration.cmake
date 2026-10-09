@@ -21,7 +21,7 @@ include_guard(GLOBAL)
 # No OpenSSL CLI, Python TLS fixture, GUI, or fake platform macros are needed.
 option(D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS
         "Opt into temporary container LocalMachine ROOT TLS tests ONLY in disposable Windows Docker containers" OFF)
-if (NOT WIN32 OR D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS)
+if (D6R_PUBLIC_DEDICATED AND (NOT WIN32 OR D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS))
     add_executable(duel6r-portable-tls-tests ${CMAKE_SOURCE_DIR}/tests/PortableTlsTests.cpp)
     target_include_directories(duel6r-portable-tls-tests PRIVATE ${CMAKE_SOURCE_DIR})
     target_link_libraries(duel6r-portable-tls-tests duel6r-network-scaffold)
@@ -37,6 +37,15 @@ if (NOT WIN32 OR D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS)
     endif ()
     set_tests_properties(duel6r-portable-tls-tests PROPERTIES LABELS "application;network;tls;security;native" TIMEOUT 90)
 endif ()
+if (UNIX)
+    add_executable(duel6r-native-secure-session-tests
+            ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp ${CMAKE_SOURCE_DIR}/tests/NativeSecureSessionTests.cpp)
+    target_include_directories(duel6r-native-secure-session-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-native-secure-session-tests PRIVATE duel6r-network-scaffold)
+    add_test(NAME native-secure-session COMMAND duel6r-native-secure-session-tests)
+    set_tests_properties(native-secure-session PROPERTIES TIMEOUT 30 LABELS "application;network;security")
+endif ()
+
 add_executable(duel6r-hardware-crypto-tests ${CMAKE_SOURCE_DIR}/tests/HardwareCryptoTests.cpp)
 target_include_directories(duel6r-hardware-crypto-tests PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(duel6r-hardware-crypto-tests PRIVATE duel6r-network-scaffold)
@@ -273,7 +282,7 @@ if (NOT D6R_TRANSPORT_ONLY)
             LABELS "application;integration;network;runtime;presentation;reconnect;regression"
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
             TIMEOUT 180)
-    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND D6R_PUBLIC_DEDICATED)
         add_test(NAME duel6r-public-dedicated-relay-tests
                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedRelayTests.py)
         set_tests_properties(duel6r-public-dedicated-relay-tests PROPERTIES
@@ -311,6 +320,26 @@ if (NOT D6R_TRANSPORT_ONLY)
         set_tests_properties(duel6r-public-dedicated-authorization-tests PROPERTIES
                 LABELS "application;integration;network;public;tls;authorization;security"
                 TIMEOUT 300)
+    endif ()
+    if (UNIX AND NOT APPLE)
+        add_executable(duel6r-host-end-boundary-harness
+                ${CMAKE_SOURCE_DIR}/tests/HostEndBoundaryHarness.cpp
+                ${CMAKE_SOURCE_DIR}/tests/HostEndBoundaryRuntime.cpp)
+        target_include_directories(duel6r-host-end-boundary-harness PRIVATE ${CMAKE_SOURCE_DIR})
+        get_target_property(D6R_BOUNDARY_TEST_LIBRARIES duel6r-network-session-runtime-tests LINK_LIBRARIES)
+        target_link_libraries(duel6r-host-end-boundary-harness PRIVATE ${D6R_BOUNDARY_TEST_LIBRARIES})
+        target_compile_definitions(duel6r-host-end-boundary-harness PRIVATE
+                D6R_RUNTIME_TEST_SERVER="$<TARGET_FILE:${D6R_SERVER_APP_NAME}>"
+                D6R_TEST_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/resources")
+        add_dependencies(duel6r-host-end-boundary-harness ${D6R_SERVER_APP_NAME})
+        foreach (scenario host-end ordinary-close)
+            add_test(NAME host-end-boundary-${scenario}
+                    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/HostEndBoundaryHarnessRunner.py
+                            $<TARGET_FILE:duel6r-host-end-boundary-harness> ${scenario})
+            set_tests_properties(host-end-boundary-${scenario} PROPERTIES
+                    LABELS "application;integration;network;runtime;presentation;regression"
+                    TIMEOUT 65)
+        endforeach ()
     endif ()
 endif ()
 

@@ -1,4 +1,4 @@
-# NET-09 — Confirmed session end
+# NET-09 — Confirmed dedicated session end
 
 Functional authority: [NET-09](../../screens/network-host-ended.md). Structural wireframe: existing [NET-09](../../screens/wireframes/network-host-ended.md). Use develop's [unified intentional-end presentation](../../design.md#net-09--intentional-host-end-presentation), including the framed Return action and retained context. No layout change is proposed.
 
@@ -13,6 +13,6 @@ State `NET-09-PUBLIC-CONTROLLER-END` consumes HSL-PUB-005 and HSL-PUB-012. It us
 - The action must remain visible when explanatory text wraps.
 - Keyboard and controller Back must use the approved Return to Network behavior.
 
-SS-023 remains the representative: a real accepted intentional end notice over an arena context. Normal shutdown, expiry, and deployment cases require behavioral evidence for their distinct functional mappings. Unreachable outcomes must not be fabricated for capture. No new layout is needed.
+SS-023 remains the representative: a real accepted intentional end notice over dedicated arena context. Normal shutdown, expiry, and authenticated maintenance require behavioral evidence for their distinct functional mappings. No cloud operation or deployment screen is introduced. Unreachable outcomes must not be fabricated for capture. No new layout is needed.
 
-The [coordinated matrix](../screenshots/README.md#network-presentation-current-capture-matrix) requires native Windows pilot evidence. Prior Linux end screenshots remain historical. A shutdown can use this outcome only when product's approved request is actually accepted; a socket close alone cannot establish intentional end.
+The [scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) covers retained dedicated status and confirmed cause. Native Windows dedicated verification remains required and unwaived. A shutdown can use this outcome only when product's approved request is actually accepted; a socket close alone cannot establish intentional end. Preserve current develop's host-end notice boundary and retained-context presentation.

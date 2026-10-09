@@ -30,6 +30,11 @@
 #include <SDL2/SDL.h>
 #include "Exception.h"
 #include "Application.h"
+#ifdef D6_MACOS_PLATFORM
+#include "platform/MacLocal.h"
+#include <memory>
+#include <stdexcept>
+#endif
 
 static void reportError(const std::string &err) {
     fprintf(stderr, "Error occured: %s\n", err.c_str());
@@ -38,6 +43,15 @@ static void reportError(const std::string &err) {
 
 int main(int argc, char **argv) {
     try {
+#ifdef D6_MACOS_PLATFORM
+        // SDL's bundle base path is Contents/Resources (also fixed in Info.plist).
+        // Resolve it before Application's audio, configuration and resource loads.
+        std::unique_ptr<char, decltype(&SDL_free)> resources(SDL_GetBasePath(), SDL_free);
+        std::unique_ptr<char, decltype(&SDL_free)> support(
+                SDL_GetPrefPath("", "Duel 6 Reloaded"), SDL_free);
+        if (!resources || !support) throw std::runtime_error(SDL_GetError());
+        Duel6::MacLocal::preparePaths(resources.get(), support.get());
+#endif
         Duel6::Application app(argc, argv);
         app.run();
         return 0;

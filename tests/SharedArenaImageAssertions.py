@@ -356,6 +356,26 @@ def assert_score_overlay(data, label, players, teams, team_separators=True):
     return groups, header, header_y - 48
 
 
+def assert_score_overlay_closed(data, with_score, label, players, teams):
+    _, _, panel_top = assert_score_overlay(
+        with_score, label + "-open-reference", players, teams)
+    header_y = panel_top + 48
+    # The SCORE title has static white glyphs on an opaque blue strip. Blue
+    # alone is not evidence of that strip: shipped arena textures can be blue
+    # at the same location. Compare the glyph pattern to the validated open
+    # frame, independently of the animated arena and changing score rows.
+    box = (WIDTH // 2 - 88, header_y - 16, WIDTH // 2 + 88, header_y + 16)
+    expected = [min(rgb) >= 205 for rgb in region_pixels(with_score, *box)]
+    observed = [min(rgb) >= 205 for rgb in region_pixels(data, *box)]
+    if not any(expected):
+        fail(f"{label}: open reference has no SCORE title glyphs")
+    overlap = sum(a and b for a, b in zip(expected, observed))
+    similarity = 2.0 * overlap / (sum(expected) + sum(observed))
+    if similarity >= 0.80:
+        fail(f"{label}: SCORE overlay header still visible: glyph-similarity={similarity:.3f}")
+    return similarity
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("image")
@@ -366,6 +386,7 @@ def main():
     parser.add_argument("--final-score", action="store_true")
     parser.add_argument("--viewport-only", action="store_true")
     parser.add_argument("--without-ranking")
+    parser.add_argument("--without-score", help="validated open-summary image to compare with the closed state")
     parser.add_argument("--font")
     args = parser.parse_args()
 
@@ -374,6 +395,11 @@ def main():
     if args.viewport_only:
         print(f"{args.label}: viewport dividers={horizontal}/{vertical} "
               f"edge={edge_count}/{edge_total}")
+    elif args.without_score:
+        with_score = load_rgb(args.without_score)
+        similarity = assert_score_overlay_closed(
+            data, with_score, args.label, args.players, args.teams)
+        print(f"{args.label}: SCORE overlay header absent: glyph-similarity={similarity:.3f}")
     elif args.score or args.final_score:
         groups, header, panel_top = assert_score_overlay(
             data, args.label, args.players, args.teams,

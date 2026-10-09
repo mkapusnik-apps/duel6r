@@ -1,4 +1,4 @@
-# NET-07 — Public connection loss
+# NET-07 — Dedicated connection loss
 
 Functional authority: [NET-07](../../screens/network-reconnect.md). Structural wireframe: existing [NET-07](../../screens/wireframes/network-reconnect.md). Use develop's [unified reconnect presentation](../../design.md#net-07--reconnect-presentation), including its title strip, framed actions, client-relative placement, and retained context. No layout change is proposed.
 
@@ -22,4 +22,4 @@ State `NET-07-PUBLIC-RECONNECT` covers Host and Guest under NET-PUB-010–012 an
 
 Acceptance requires a genuine Host connection-loss capture and QA evidence for guest recovery, Host restoration, expiry, and End during isolation. SS-021 remains the representative wireframe entry with a Host reservation and a positive countdown. The Host action occupies the existing guest action slot; no new layout is needed. Focus must start on the role-appropriate action. Do not substitute a simulated static overlay for an unreachable state.
 
-The [coordinated matrix](../screenshots/README.md#network-presentation-current-capture-matrix) requires native Windows pilot evidence. Prior Linux recovery screenshots do not close that requirement. Preserve baseline focus retention and confirmation-arming semantics.
+The [scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) covers the changed controller recovery and isolated-End confirmation. Preserve current develop's panel appearance, baseline focus retention, and confirmation-arming semantics. Native Windows dedicated evidence under NET-PUB-AC-006 remains required and unwaived; Linux or historical PR90 evidence cannot substitute.

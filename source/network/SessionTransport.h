@@ -2,6 +2,7 @@
 #define DUEL6_NETWORK_SESSIONTRANSPORT_H
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -159,10 +160,18 @@ namespace Duel6::Network {
     // Optional connection-writer seam. The callback receives the native socket, wire frame kind,
     // current frame segment, and segment size. Dependencies are copied before writer threads start;
     // callbacks shared by multiple connections must synchronize their own captured state.
+    // Observation only: never read by transport decisions and never invokes
+    // external code. Unlike the send seam, this does not bypass native polling.
+    struct NativeWriteObservations {
+        std::atomic<std::uint64_t> polls{0}, pollReady{0}, calls{0}, bytes{0}, wouldBlock{0}, zeroWrites{0};
+        std::atomic<int> lastError{0};
+        std::atomic<TransportTimePoint> lastProgress{TransportTimePoint{}};
+    };
     struct OutboundTransportDependencies {
         std::function<OutboundSendOutcome(std::intptr_t, std::uint16_t, const std::uint8_t *, std::size_t)> send;
         std::function<TransportTimePoint()> now;
         std::function<void(std::chrono::milliseconds)> wait;
+        std::shared_ptr<NativeWriteObservations> observations;
     };
 
     // Optional dependency seams for deterministic lifecycle tests. Empty functions select
@@ -268,6 +277,8 @@ namespace Duel6::Network {
         bool start(const Endpoint &endpoint);
         void cancel();
         void shutdown();
+        // One transactional coverage set, shared deadline, admission accounting and connection cap.
+        bool startAll(const std::vector<Endpoint> &endpoints);
         ListenerState state() const;
         TransportFailure failure() const;
         bool addressInUse() const;

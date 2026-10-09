@@ -1,6 +1,11 @@
 #include "HostDirectory.h"
+#include "../network/ListeningSelection.h"
+#include "DirectoryOrigin.h"
 #include "../json/JsonParser.h"
 #include "../network/NetworkTrustPolicy.h"
+#ifdef __APPLE__
+#include "../network/SecureSession.h"
+#endif
 #include <curl/curl.h>
 #include <algorithm>
 #include <condition_variable>
@@ -108,16 +113,17 @@ namespace Duel6::Client {
     DirectoryResponse directoryRequest(const std::string &method, const std::string &path,
                                        const std::string &body, const std::string &owner, unsigned revision,
                                        const std::atomic<bool> *cancelled) {
-        static const CURLcode initialized = curl_global_init(CURL_GLOBAL_DEFAULT);
         DirectoryResponse result;
-        const char *configured = std::getenv("D6R_DIRECTORY_URL");
-        if (initialized != CURLE_OK || !configured || !(curl_version_info(CURLVERSION_NOW)->features & CURL_VERSION_ASYNCHDNS)) return result;
-        std::string base(configured);
-        const char *dev = std::getenv("D6R_DIRECTORY_ALLOW_HTTP");
-        const bool local = dev && std::string(dev) == "1" && base.rfind("http://127.0.0.1:", 0) == 0;
-        if (base.size() > 512 || base.find_first_of("@?#\r\n") != std::string::npos
-            || (base.rfind("https://", 0) != 0 && !local)) return result;
-        while (!base.empty() && base.back() == '/') base.pop_back();
+#ifdef __APPLE__
+        // Browse can be entered without starting a gameplay socket. Its HTTPS
+        // initialization must obey the same physical capability admission gate.
+        if (!Network::SecureSession::supported()) return result;
+#endif
+        static const CURLcode initialized = curl_global_init(CURL_GLOBAL_DEFAULT);
+        if (initialized != CURLE_OK || !(curl_version_info(CURLVERSION_NOW)->features & CURL_VERSION_ASYNCHDNS)) return result;
+        const auto base = directoryOrigin(std::getenv("D6R_DIRECTORY_URL"), std::getenv("D6R_DIRECTORY_ALLOW_HTTP"));
+        if (base.empty()) return result;
+        const bool local = base.rfind("http://", 0) == 0;
         CURL *curl = curl_easy_init();
         if (!curl) return result;
         curl_slist *headers = curl_slist_append(nullptr, "Content-Type: application/json");
@@ -221,6 +227,8 @@ namespace Duel6::Client {
         std::mutex mutex;
         std::condition_variable changed;
         DirectoryListing desired;
+        std::vector<std::string> coverage;
+        DirectoryPublisherDependencies dependencies;
         bool dirty = false;
         std::atomic<bool> stopping{false};
         std::thread worker;
@@ -241,11 +249,25 @@ namespace Duel6::Client {
                     if (stopping) break;
                     listing = desired; dirty = false;
                 }
-                const auto body = encode(listing);
-                if (body.empty()) { next = Clock::now() + std::chrono::seconds(20); continue; }
+                const auto candidate = Network::publicationAddress(
+                        coverage.empty() ? std::vector<std::string>{listing.endpoint.host} : coverage,
+                        dependencies.listeningAddresses());
+                if (candidate) listing.endpoint.host = *candidate;
+                const auto body = candidate ? encode(listing) : std::string();
+                if (body.empty()) {
+                    published.store(false);
+                    if (!id.empty()) {
+                        const auto removal = dependencies.request("DELETE", "/v1/listings/" + id, {}, owner, revision, &stopping);
+                        if (removal.status == 200 || removal.status == 204 || removal.status == 404) {
+                            id.clear(); Network::Trust::secureEraseMemory(owner.data(), owner.size()); owner.clear();
+                        }
+                    }
+                    pending.store(false);
+                    next = Clock::now() + std::chrono::seconds(20); continue;
+                }
                 const auto attempted = Clock::now();
                 pending.store(true);
-                auto response = directoryRequest(id.empty() ? "POST" : "PUT",
+                auto response = dependencies.request(id.empty() ? "POST" : "PUT",
                     id.empty() ? "/v1/listings" : "/v1/listings/" + id, body, owner, revision, &stopping);
                 bool success = false;
                 try {
@@ -275,13 +297,19 @@ namespace Duel6::Client {
                 pending.store(dirty);
                 changed.wait_for(lock, std::chrono::seconds(1), [&] { return stopping.load(); });
             }
-            if (!id.empty()) (void) directoryRequest("DELETE", "/v1/listings/" + id, {}, owner, revision);
+            if (!id.empty()) (void) dependencies.request("DELETE", "/v1/listings/" + id, {}, owner, revision, nullptr);
             Network::Trust::secureEraseMemory(owner.data(), owner.size());
             published.store(false);
             pending.store(false);
         }
     };
-    DirectoryPublisher::DirectoryPublisher() : impl(std::make_unique<Impl>(published, pending, validUntil)) {}
+    DirectoryPublisher::DirectoryPublisher(std::vector<std::string> listeningCoverage, DirectoryPublisherDependencies dependencies)
+            : impl(std::make_unique<Impl>(published, pending, validUntil)) {
+        impl->coverage = std::move(listeningCoverage);
+        if (!dependencies.listeningAddresses) dependencies.listeningAddresses = Network::Trust::localListenerAddresses;
+        if (!dependencies.request) dependencies.request = directoryRequest;
+        impl->dependencies = std::move(dependencies);
+    }
     DirectoryPublisher::~DirectoryPublisher() { stop(); }
     void DirectoryPublisher::update(DirectoryListing listing) {
         std::lock_guard<std::mutex> lock(impl->mutex);

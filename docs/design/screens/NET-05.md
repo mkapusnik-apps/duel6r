@@ -1,8 +1,8 @@
-# NET-05 — Match controls and contextual panels
+# NET-05 — Current match presentation and dedicated context
 
 Functional authority: [NET-05](../../screens/network-match.md), existing NET-VIS and NRP requirements, `NET-ADM-001`–`NET-ADM-012`, `NET-PUB-008`, and `HSL-PUB-005`–`HSL-PUB-010`. Pilot state: `NET-05-PUBLIC`. Structural sources: existing [NET-05](../../screens/wireframes/network-match.md), [NET-05-C](../wireframes/NET-05/NET-05-C.svg), develop's [NET-05-S](../wireframes/NET-05/NET-05-S.svg), and develop's [NET-05-R](../wireframes/NET-05/NET-05-R.svg).
 
-Visual impact: use develop's framed controls and contextual panels. The pilot adds status and consequence copy only. Do not redesign the arena, camera, world assets, gameplay HUD, or compact translucent network status.
+Visual impact: use current develop's framed controls and contextual panels. The dedicated extension adds status and role-specific consequence copy only. Do not redesign the arena, camera, world assets, gameplay HUD, or compact translucent network status.
 
 ## Presentation and allocation
 
@@ -36,15 +36,16 @@ NET-05-S position information is plain non-actionable text. Do not add enabled a
 
 Dedicated round-one admission uses the same confirmed live-arena destination under NET-ADM-011. Do not restore the old blanket join-in-progress rejection or add a pilot waiting lobby.
 
-## Dedicated pilot status
+## Dedicated status
 
-- The pilot status region must use `Public session` instead of legacy LAN-only scope copy.
+- The dedicated status region must use `Dedicated session` instead of legacy LAN-only scope copy.
 - Role must remain the confirmed Host or Guest.
 - Status must retain its wrapping, three-row limit, and no-focus behavior.
 - Host End and guest Leave must retain distinct consequences and NET-05-C structure.
 - Explicit controller departure must not imply termination of the remote service process.
-- Retained public context in NET-07 and NET-09 must keep the same identity and orientation.
+- Retained dedicated context in NET-07 and NET-09 must keep the same identity and orientation.
+- Dedicated status must omit directory publication state and Retry publication targets without changing player-hosted publication feedback.
 
 ## Acceptance
 
-Use an ordinary real Connected match for the live representative. Capture actual pre-winner data for NET-05-S and an actual non-final frozen outcome for NET-05-R. A completed summary cannot substitute for the non-final result. Check all confirmation contexts, both role actions, degraded/resynchronizing status, long outcomes, maximum ranking, all modes, and first-round arrival. Public representatives do not establish Invisibility, orientation, extreme-result, or gameplay-continuity regression acceptance. The [coordinated matrix](../screenshots/README.md#network-presentation-current-capture-matrix) owns capture.
+Use an ordinary real dedicated Connected match for changed status coverage. The scoped confirmation representative uses the dedicated controller's isolated-End consequence over NET-07; guest Leave and other contexts retain their current structure and focused QA. Unchanged NET-05-S and NET-05-R may retain develop evidence with source-impact confirmation rather than receive automatic replacements. A completed summary cannot substitute for a non-final result when that result presentation changes. Preserve degraded/resynchronizing containment, all modes, maximum ranking, and real first-round arrival. The [scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) owns changed capture; it does not claim new Invisibility, orientation, result-extreme, or gameplay-continuity acceptance.

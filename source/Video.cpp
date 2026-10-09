@@ -236,4 +236,31 @@ namespace Duel6 {
     Renderer &Video::getRenderer() const {
         return *renderer;
     }
+
+#ifdef D6_MACOS_PLATFORM
+    void Video::resetDrawableViewport() const {
+        int width = 0, height = 0;
+        SDL_GL_GetDrawableSize(window, &width, &height);
+        // Viewports use backing pixels, not the cached projection/layout size.
+        // Keep the last viewport while the drawable is unavailable; query again
+        // on the next render so a restored or changed display is not cached.
+        if (width > 0 && height > 0) {
+            renderer->setViewport(0, 0, width, height);
+        }
+    }
+
+    MacLocal::PointerTransform Video::menuPointerTransform() const {
+        int windowWidth, windowHeight, drawableWidth, drawableHeight;
+        GLint viewport[4];
+        SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+        SDL_GL_GetDrawableSize(window, &drawableWidth, &drawableHeight);
+        glGetIntegerv(GL_VIEWPORT, viewport);
+        // Query at dispatch, not startup: fullscreen/display transitions can
+        // change these sizes. Use the viewport actually rendering the menu,
+        // including a retained viewport after returning from local gameplay.
+        return {windowWidth, windowHeight, drawableWidth, drawableHeight,
+                viewport[0], viewport[1], viewport[2], viewport[3],
+                screen.getClientWidth(), screen.getClientHeight()};
+    }
+#endif
 }

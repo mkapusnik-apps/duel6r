@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="820" viewBox="0 0 900 820">
-  <title>NET-02 — Host setup with optional password</title>
+  <title>NET-02 — Wildcard host setup with optional password</title>
   <desc>850 by 700 logical canvas with fixed banner, endpoint fields, status, and footer. Two scrolling player setup panels share the remaining body. Port keeps initial focus.</desc>
   <rect width="900" height="820" fill="white"/>
   <g fill="none" stroke="black">
@@ -18,7 +18,7 @@
     <text x="363" y="92">Existing banner / version</text>
     <text x="320" y="180">HOST NETWORK SESSION</text>
     <text x="75" y="225">Port</text><text x="295" y="225">26660</text>
-    <text x="75" y="257">Listening interface</text><text x="295" y="257">192.168.1.24 (Private LAN) [selector]</text>
+    <text x="75" y="257">Listening interface</text><text x="295" y="257">Listen on all (0.0.0.0) [popup]</text>
     <text x="75" y="289">Password (optional)</text><text x="295" y="289">********</text>
     <text x="285" y="316">Leave empty for no password.</text>
     <text x="87" y="349">PERSONS</text><text x="467" y="349">LOCAL PLAYERS AND CONTROLS</text>
@@ -33,6 +33,6 @@
   </g>
   <g font-family="sans-serif" font-size="14">
     <text x="25" y="755">Annotation: Read top to bottom; left setup panel before right. Password is masked.</text>
-    <text x="25" y="777">Keep fixed footer. Interface options overlay only the body. No new styling tokens.</text>
+    <text x="25" y="777">Fixed footer. Popup variants: NET-02-LA (wildcard), NET-02-LE (explicit).</text>
   </g>
 </svg>

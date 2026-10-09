@@ -15,6 +15,7 @@
 #include "source/network/NetworkTrustPolicy.h"
 #include "source/network/SessionTransport.h"
 #include "source/network/PublicSession.h"
+#include "source/network/ListeningSelection.h"
 
 D6R_TEST_CASE("public invitations are bounded exact environment credentials and erased on denial") {
     namespace P = Duel6::Network::PublicSession;
@@ -67,6 +68,39 @@ namespace {
     bool allZero(const ReconnectCredential &value) {
         return std::all_of(value.bytes.begin(), value.bytes.end(), [](std::uint8_t byte) { return byte == 0; });
     }
+}
+
+D6R_TEST_CASE("host listening journey initializes once retains subsets and preserves invalid selections") {
+    Network::ListeningSelection value;
+    value.available = std::vector<std::string>{"127.0.0.1", "10.1.2.3", "192.168.1.2"};
+    D6R_REQUIRE(value.all && value.validation().empty());
+    value.toggle("10.1.2.3"); D6R_REQUIRE(value.selected.empty());
+    value.setAll(false); D6R_REQUIRE_EQ(*value.available, value.selected);
+    value.toggle("10.1.2.3"); D6R_REQUIRE(!value.contains("10.1.2.3"));
+    value.setAll(true); value.available->push_back("10.2.3.4");
+    value.setAll(false); D6R_REQUIRE_EQ(2u, value.selected.size());
+    D6R_REQUIRE(!value.contains("10.2.3.4"));
+    value.available = std::vector<std::string>{"127.0.0.1", "10.2.3.4"};
+    D6R_REQUIRE_EQ("Selected listening interface is no longer available. Choose another interface.", value.validation());
+    D6R_REQUIRE_EQ(std::string("192.168.1.2"), value.rows().back());
+    value.toggle("192.168.1.2"); D6R_REQUIRE(value.validation().empty());
+    value.available.reset();
+    D6R_REQUIRE_EQ("Listening interfaces could not be verified. Use Listen on all or correct the selection.", value.validation());
+    value.setAll(true); D6R_REQUIRE(value.validation().empty());
+    value.setAll(false); value.toggle("127.0.0.1");
+    D6R_REQUIRE_EQ("Select at least one listening interface.", value.validation());
+    value = {}; D6R_REQUIRE(value.all && !value.initialized && value.selected.empty());
+}
+
+D6R_TEST_CASE("publication selects numeric public then private only within ready coverage") {
+    const std::optional<std::vector<std::string>> available = std::vector<std::string>{
+            "127.0.0.1", "192.168.1.2", "10.0.0.20", "10.0.0.3", "8.8.8.8", "1.2.3.4"};
+    D6R_REQUIRE_EQ(std::string("1.2.3.4"), *Network::publicationAddress({"0.0.0.0"}, available));
+    D6R_REQUIRE_EQ(std::string("8.8.8.8"), *Network::publicationAddress({"10.0.0.3", "8.8.8.8"}, available));
+    D6R_REQUIRE_EQ(std::string("10.0.0.3"), *Network::publicationAddress({"10.0.0.20", "10.0.0.3"}, available));
+    D6R_REQUIRE(!Network::publicationAddress({"127.0.0.1"}, available));
+    D6R_REQUIRE(!Network::publicationAddress({"10.0.0.99"}, available));
+    D6R_REQUIRE(!Network::publicationAddress({"0.0.0.0"}, std::nullopt));
 }
 
 D6R_TEST_CASE("network trust constants retain exact approved limits") {
@@ -234,13 +268,18 @@ D6R_TEST_CASE("hostname syntax and resolver policy enforce exact boundaries befo
         ++resolverCalls;
         return Network::ResolveOutcome{};
     };
-    for (const std::string host: {"0.0.0.0", "255.255.255.255", "224.0.0.1", "169.254.1.1", "bad host"}) {
+    for (const std::string host: {"255.255.255.255", "224.0.0.1", "169.254.1.1", "bad host"}) {
         Network::TcpListener listener(1, rejectedDependencies);
         D6R_REQUIRE(listener.start({host, 26660}));
         D6R_REQUIRE(!listener.waitForReady(1s));
         D6R_REQUIRE(listener.failure() == Network::TransportFailure::InvalidEndpoint);
         listener.shutdown();
     }
+    D6R_REQUIRE_EQ(0, resolverCalls.load());
+    Network::TcpClient wildcardGuest(rejectedDependencies);
+    D6R_REQUIRE(wildcardGuest.start({"0.0.0.0", 26660}));
+    D6R_REQUIRE(!wildcardGuest.waitForConnected(1s));
+    D6R_REQUIRE(wildcardGuest.failure() == Network::TransportFailure::InvalidEndpoint);
     D6R_REQUIRE_EQ(0, resolverCalls.load());
 
     std::atomic<int> connectorCalls{0};

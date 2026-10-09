@@ -50,6 +50,9 @@
 #include "gui/TextBox.h"
 #include "gui/Spinner.h"
 #include "GameMode.h"
+#ifdef D6_MACOS_PLATFORM
+#include "platform/MacLocal.h"
+#endif
 #include "client/NetworkSessionRuntime.h"
 
 namespace Duel6 {
@@ -125,6 +128,8 @@ namespace Duel6 {
 
         void initialize();
 
+        bool usesMenuPointerCoordinates(const Context &context) const;
+
         void joyRescan();
 
         void savePersonData() const;
@@ -199,6 +204,7 @@ namespace Duel6 {
         void renderMenuBackground() const;
 
         void showMessage(const std::string &message);
+        void renderMessage(const std::string &message) const;
 
         bool validateStartPrerequisites(const std::vector<std::string> &levels);
 

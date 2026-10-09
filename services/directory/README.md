@@ -45,17 +45,22 @@ This target contains the backend and its production dependencies. It does not
 contain Java, Firebase CLI, the emulator, or tests. It runs as the `node` user.
 Set `GOOGLE_CLOUD_PROJECT` explicitly. The server listens on `0.0.0.0:$PORT`;
 the default port is 8080. Cloud Run terminates HTTPS outside the container.
-Use a service identity for future cloud access, not embedded credential files.
+Use a service identity for cloud access, not embedded credential files.
+`D6R_DIRECTORY_FIRESTORE_DATABASE` selects a named database; the default is
+`(default)`. The approved cloud services must set their distinct named databases.
 
-Cloud provisioning and deployment are not authorized. Before deployment, agree
-the project, database, region, service identity, access policy, and operational
-owner. Emulator success does not validate production IAM, HTTPS ingress,
-compound indexes, or all Firestore limits and transaction behavior.
+The [approved deployment contract](../../docs/network-host-directory.md#directory-deployment)
+authorizes public HTTPS directory services in `duel-6-reloaded`, `europe-west1`.
+The [deployment runbook](../../docs/directory-cloud-run.md) defines service identities,
+named databases, TTL, immutable image promotion, bootstrap, and evidence boundaries.
+Emulator success does not validate production IAM, HTTPS ingress, query indexes,
+or all Firestore limits and transaction behavior.
 
 Shared application quotas bound admitted operations, not total database costs.
-Rejected requests can still incur database work. Public deployment needs reviewed
-maximum-instance limits and ingress/abuse cost controls before authorization.
-No public deployment is authorized by these container instructions.
+Rejected requests can still incur database work. The approved services use minimum
+0, maximum 2, and concurrency 32. These limits are not a hard spending cap or an
+abuse shield. No budget alert amount or recipient was approved. Directory deployment
+does not authorize gameplay hosting or prove Internet gameplay reachability.
 
 References: [Cloud Run container contract](https://cloud.google.com/run/docs/container-contract),
 [Firebase emulator lifecycle](https://firebase.google.com/docs/emulator-suite/install_and_configure),

@@ -14,6 +14,7 @@ namespace Duel6::Server {
         std::string serverName = "Duel 6 Reloaded Server";
         std::string buildVersion = Network::PrototypeBuildVersion;
         Network::Endpoint listenEndpoint;
+        std::vector<std::string> additionalListenHosts;
         std::string resourcePath = "resources";
         std::string authToken;
         std::uint32_t tickRate = 60;

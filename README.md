@@ -7,7 +7,7 @@ The canonical behavior specification is [`docs/features.md`](docs/features.md). 
 
 ## Network package operations (experimental)
 
-Networking remains experimental/prototype work; package availability does not establish accepted playable end-to-end support. See the [package operations guide](docs/network-package-operations.md) for package verification, runtime prerequisites, trusted player-hosted deployment, local-data backup, offline same-release reinstallation, rollback, and the outstanding execution-evidence boundaries. The approved network targets are Linux x86-64 and Windows x86-64, not every historical local-game platform listed below. The [deployment specification](docs/network-deployments.md) defines acceptance; issue #41 remains the final release-validation gate.
+Networking remains experimental/prototype work; package availability does not establish accepted playable end-to-end support. See the [package operations guide](docs/network-package-operations.md) for package verification, runtime prerequisites, player-hosted deployment, local-data backup, offline same-release reinstallation, rollback, and outstanding execution-evidence boundaries. The experimental Apple Silicon network extension follows the [macOS contract](docs/macos.md), alongside existing Linux/Windows networking and the separate Raspberry Pi validation scope. Not every historical local-game platform is a network target. The [deployment specification](docs/network-deployments.md) defines acceptance; issue #41 remains the final release-validation gate.
 
 ## History
 
@@ -72,6 +72,14 @@ The build images are published to GitHub Container Registry by the `Develop - Bu
 
 ## Supported platforms
 
+The experimental **Apple Silicon macOS 14+** port provides GL1 Local Play and
+the existing Host, direct Join, Browse, password and recovery flows in a
+self-contained, unsigned `.app`, with per-user Application Support saves.
+See the [macOS contract](docs/macos.md) and [build, installation, unsigned-app
+approval and replacement instructions](macos/README.md). Native Mac launch,
+gameplay and visual verification remain deferred until after merge and the next
+nightly; build evidence alone is not verified platform support.
+
 Raspberry Pi 5 64-bit Linux support is under validation. See the
 [platform contract, Docker build and acceptance requirements](docs/raspberry-pi5.md).
 Linux AArch64 defaults to `gl1`; x86-64 keeps `gl4`. Secure networking uses
@@ -79,7 +87,8 @@ hardware AES on both architectures and does not fall back to software AES.
 ARM bundles are separate from the existing x86 nightly release. Raspberry Pi 4
 and 32-bit ARM are not included in this extension.
 
-The game has been tested on the following platforms:
+Historical versions of the game were tested on the following platforms (this
+does not certify the experimental targets above):
 - **MS Windows** with Visual Studio 2017 and MinGW 64 compilers
 - **Linux** with GCC 7.1 compiler
 - **Mac OS X** with LLVM/Clang compiler

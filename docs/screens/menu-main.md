@@ -4,7 +4,7 @@
 
 The implemented screen builds the local roster, assigns controls, selects match settings, shows persistent results, starts a local match, provides the distinct issue #38 network entry, and exits the application. The network entry does not change local Play.
 Entry occurs when the application starts or when gameplay closes.
-Exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action. `Network (F2)` enters `NET-01`.
+Exit occurs through `Play (F1)`, `Quit (ESC)`, or the window close action. `Network (F2)` enters `NET-01`, including on the experimental network-capable macOS target.
 The screen implements `SET-001`–`SET-091`, `LIF-023`–`LIF-029`, `INP-001`–`INP-011`, `SCO-019`–`SCO-024`, `PER-001`–`PER-005`, `AC-011`, `AC-040`–`AC-051`, and `AC-053`–`AC-069` from [`docs/features.md`](../features.md). The Network action traces to `NET-AC-002`, `NET-AC-009`, and `NET-AC-015` in [`docs/network-play-first-release.md`](../network-play-first-release.md) and is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`.
 The Equalize and Shuffle behavior specifically traces to `SET-017`–`SET-019`, `SET-073`–`SET-077`, `AC-011`, and `AC-063`–`AC-064` at fixed product baseline `e75552f`.
 The person-action alignment specifically traces to `SET-078`–`SET-083` and `AC-065` at fixed product baseline `e75552f`.
@@ -12,6 +12,10 @@ The person-list and action-button refinement specifically traces to `SET-084`–
 Stitch screen `681ae093051749fd922ab74454f47121` in project `1219346282527961142` is supplementary historical context for the retro treatment only.
 The Stitch screen does not define the consolidated Persons panel.
 Behavioral sources are `source/Menu.cpp`, `source/gui/`, `source/GameSettings.cpp`, and `resources/textures/menu/`.
+
+## macOS network entry
+
+Pointer activation of the unchanged `Network (F2)` button and the F2 shortcut enter `NET-01` under [MAC-NET-001, MAC-NET-002, and MAC-NET-004](../macos.md#network-entry). `MENU-01-MAC-LOCAL` and its local-only notice are historical-only. Local Play and other-platform entry remain unchanged. Retain `MENU-01-A` and `MENU-01-B` wireframes, saved-data behavior, pointer alignment, and full-drawable rendering. Native automated and deferred manual acceptance remain distinct under the macOS contract.
 
 ## Prerequisites
 

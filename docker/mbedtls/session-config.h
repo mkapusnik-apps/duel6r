@@ -13,10 +13,10 @@
 #define MBEDTLS_HAVE_ASM
 #if defined(__x86_64__) || defined(_M_X64)
 #define MBEDTLS_AESNI_C
-#elif defined(__linux__) && defined(__aarch64__)
+#elif (defined(__linux__) || defined(__APPLE__)) && defined(__aarch64__)
 #define MBEDTLS_AESCE_C
 #else
-#error "The private session TLS profile requires x86_64 AES-NI or Linux AArch64 AES admission."
+#error "The private session TLS profile requires x86_64 AES-NI or approved AArch64 hardware AES admission."
 #endif
 #define MBEDTLS_AES_USE_HARDWARE_ONLY
 #define MBEDTLS_AES_ROM_TABLES

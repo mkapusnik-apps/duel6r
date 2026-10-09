@@ -6,6 +6,7 @@ output_dir="build"
 build_type="${BUILD_TYPE:-Release}"
 renderer="${D6R_RENDERER:-gl4}"
 with_lua="${D6R_WITH_LUA:-ON}"
+directory_default_url="${D6R_DIRECTORY_DEFAULT_URL:-}"
 build_testing="${BUILD_TESTING:-ON}"
 run_tests="${RUN_TESTS:-OFF}"
 toolchain_file="${TOOLCHAIN_FILE:-/opt/toolchains/mingw-w64-x86_64.cmake}"
@@ -22,7 +23,8 @@ cmake -S "${workspace_dir}" -B "${tmp_build_dir}" \
   -DCMAKE_BUILD_TYPE="${build_type}" \
   -DBUILD_TESTING="${build_testing}" \
   -DD6R_RENDERER="${renderer}" \
-  -DD6R_WITH_LUA="${with_lua}"
+  -DD6R_WITH_LUA="${with_lua}" \
+  -DD6R_DIRECTORY_DEFAULT_URL="${directory_default_url}"
 
 icon_file="${workspace_dir}/source/icon1.ico"
 if [[ -f "${icon_file}" ]]; then

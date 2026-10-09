@@ -1,5 +1,6 @@
 #include "source/client/HostDirectory.h"
 #include "source/client/NetworkSessionRuntime.h"
+#include "source/network/ListeningSelection.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -67,7 +68,9 @@ int main(int argc, char **argv) {
     try {
         DirectoryListing listing;
         listing.sessionId = directorySessionId(987654321);
-        listing.endpoint = {"127.0.0.1", 25660}; listing.mode = "predator";
+        const auto publishAddress = Duel6::Network::publicationAddress({"0.0.0.0"}, Duel6::Network::Trust::localListenerAddresses());
+        require(publishAddress.has_value(), "A real eligible non-loopback publication address is required.");
+        listing.endpoint = {*publishAddress, 25660}; listing.mode = "predator";
         listing.phase = "lobby"; listing.players = 2; listing.capacity = 15;
         listing.passwordRequired = true;
         DirectoryPublisher publisher;
@@ -119,7 +122,7 @@ int main(int argc, char **argv) {
         setup.localPlayerNames = {"Directory host"}; setup.fixedLevel = "levels/duel_01.json";
         setup.quickLiquid = false; setup.roundLimit = 2;
         setup.password = std::make_shared<Duel6::Network::SessionPassword>("directory-runtime-fixture");
-        const Duel6::Network::Endpoint endpoint{"127.0.0.1", unusedPort()};
+        const Duel6::Network::Endpoint endpoint{"0.0.0.0", unusedPort()};
         std::cout << "[STEP] Real hosted readiness and publication\n" << std::flush;
         require(host.startHost(endpoint, argv[1], argv[2], setup, {{"Directory host", nullptr, {}}}), "Hosted runtime did not start.");
         const auto pump = [&] { host.update(); guest.update(); arrival.update(); };

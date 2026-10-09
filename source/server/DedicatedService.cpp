@@ -3,7 +3,7 @@
 #include <array>
 #include <cstring>
 #include <stdexcept>
-#ifndef D6R_TRANSPORT_WINDOWS
+#if defined(__linux__) && defined(D6R_PUBLIC_DEDICATED)
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/socket.h>
@@ -14,7 +14,7 @@
 
 namespace Duel6::Server {
     std::shared_ptr<Network::PublicSession::Secret> loadInvitation(const std::string &path) {
-#ifndef D6R_TRANSPORT_WINDOWS
+#if defined(__linux__) && defined(D6R_PUBLIC_DEDICATED)
         const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
         if (fd < 0) throw std::runtime_error("Dedicated invitation configuration invalid");
         struct stat status{};
@@ -34,7 +34,7 @@ namespace Duel6::Server {
         throw std::runtime_error("Dedicated service requires Linux");
 #endif
     }
-#ifndef D6R_TRANSPORT_WINDOWS
+#if defined(__linux__) && defined(D6R_PUBLIC_DEDICATED)
     namespace {
         sockaddr_un addressFor(const std::string &path) {
             sockaddr_un address{}; address.sun_family = AF_UNIX;
@@ -46,7 +46,7 @@ namespace Duel6::Server {
     }
 #endif
     DedicatedReadiness::DedicatedReadiness(const std::string &value) : path(value) {
-#ifndef D6R_TRANSPORT_WINDOWS
+#if defined(__linux__) && defined(D6R_PUBLIC_DEDICATED)
         auto address = addressFor(path);
         socket = ::socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
         if (socket < 0) throw std::runtime_error("Readiness socket unavailable");
@@ -64,12 +64,12 @@ namespace Duel6::Server {
 #endif
     }
     DedicatedReadiness::~DedicatedReadiness() {
-#ifndef D6R_TRANSPORT_WINDOWS
+#if defined(__linux__) && defined(D6R_PUBLIC_DEDICATED)
         if (socket >= 0) { close(socket); unlink(path.c_str()); }
 #endif
     }
     void DedicatedReadiness::poll(bool ready) {
-#ifndef D6R_TRANSPORT_WINDOWS
+#if defined(__linux__) && defined(D6R_PUBLIC_DEDICATED)
         for (int i = 0; i < 4; ++i) {
             const int peer = accept4(socket, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
             if (peer < 0) break;
@@ -79,7 +79,7 @@ namespace Duel6::Server {
 #endif
     }
     bool DedicatedReadiness::check(const std::string &path) {
-#ifndef D6R_TRANSPORT_WINDOWS
+#if defined(__linux__) && defined(D6R_PUBLIC_DEDICATED)
         try {
             auto address = addressFor(path);
             const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);

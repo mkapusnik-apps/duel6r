@@ -41,7 +41,9 @@ Duel 6 Reloaded is a cross-platform, local-only 2D arena combat game in which 2 
 
 ## Build & Development Commands
 
-Docker-based commands are the only supported and allowed way to build, test, lint, type-check, package, and run this project. Native host compilation commands are not supported.
+Docker-based commands are required to build, test, lint, type-check, package, and run this project, except for the approved macOS target. Native macOS commands may build, test, package, and run the experimental Apple Silicon macOS 14+ application, including Host, direct Join, and Browse IPv4 networking, where Docker cannot provide the required environment. This includes native automated transport, security, and process verification. This exception does not change the Docker-only policy for other platforms or infrastructure validation.
+
+The [macOS contract](docs/macos.md) defines the target and acceptance limits. See [workflow documentation](.github/workflows.md#experimental-macos-build-and-nightly) for native build and publication details. Native automated transport, security, process, build, and package verification is required before merge. Actual Mac GUI and live cross-OS verification remain user-owned after merge and the subsequent nightly publication; they are deferred, not passed. Automated evidence does not prove these deferred behaviors.
 
 Build (or refresh) the local build container image:
 

@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "tests/TestHarness.h"
+#include "tests/RuntimeObservationReceipt.h"
 #include "source/network/AdmissionProtocol.h"
 #include "source/network/CompatibilityManifest.h"
 #include "source/network/HostCompositionProtocol.h"
@@ -111,6 +112,7 @@ namespace {
     struct RuntimeFixture {
         Network::Trust::TimePoint now{};
         std::shared_ptr<class FakeAdmissionConnection> connection;
+        std::deque<std::shared_ptr<class FakeAdmissionConnection>> pendingConnections;
         bool accepted = false;
         bool cancelled = false;
         bool shutdownAttempted = false;
@@ -177,7 +179,10 @@ namespace {
         bool permitAdmissionAcceptance() override { permission = true; return permitResult; }
         void revokeAdmissionAcceptance() override { permission = false; revoked = true; }
         void markAdmissionSucceeded() override { succeeded = true; inputSealed = false; }
-        void requestClose() override { closeRequested = true; }
+        void requestClose() override {
+            closeRequested = true;
+            if (closeOnRequest) currentState = Network::ClientState::Closed;
+        }
 
         void queue(std::vector<std::uint8_t> payload, Network::TransportTimePoint received) {
             if (inputSealed) return;
@@ -195,6 +200,7 @@ namespace {
         bool inputSealed = false;
         unsigned seals = 0;
         bool closeRequested = false;
+        bool closeOnRequest = false;
         std::function<void(const Network::TransportFrame &)> onReceive;
         std::function<void(const std::vector<std::uint8_t> &)> onSend;
         std::function<void()> onAcceptanceBeforeInsert;
@@ -212,6 +218,11 @@ namespace {
         Network::TransportFailure failure() const override { return readyResult ? Network::TransportFailure::None
                                                                                 : Network::TransportFailure::SystemError; }
         std::shared_ptr<Server::AdmissionRuntimeConnection> acceptConnection() override {
+            if (!fixture->pendingConnections.empty()) {
+                auto connection = fixture->pendingConnections.front();
+                fixture->pendingConnections.pop_front();
+                return connection;
+            }
             if (fixture->accepted || !fixture->connection) return {};
             fixture->accepted = true; return fixture->connection;
         }
@@ -841,9 +852,14 @@ D6R_TEST_CASE("secure manifest descriptors reject symlink roots hardlinks nonreg
                 Network::ManifestStatus::UnsafeFilesystemEntry);
 
     TemporaryResources invalidName; invalidName.required();
-    invalidName.write(std::string("levels/nonascii-") + static_cast<char>(0xff), "x");
-    D6R_REQUIRE(Network::CompatibilityManifestBuilder(invalidName.root.string()).build().status ==
-                Network::ManifestStatus::InvalidLogicalPath);
+    // Use a representable filesystem name that is still forbidden by the
+    // ASCII logical-path contract. APFS need not represent an isolated 0xff.
+    const std::string nonAsciiName = "levels/nonascii-\xc3\xa9";
+    invalidName.write(nonAsciiName, "x");
+    D6R_REQUIRE(fs::is_regular_file(invalidName.root / nonAsciiName));
+    D6R_REQUIRE(!Network::Trust::validLogicalPath(std::string("levels/nonascii-") + static_cast<char>(0xff)));
+    const auto invalidNameStatus = Network::CompatibilityManifestBuilder(invalidName.root.string()).build().status;
+    D6R_REQUIRE_EQ(Network::ManifestStatus::InvalidLogicalPath, invalidNameStatus);
 
     TemporaryResources deep; deep.required();
     fs::path nested = deep.root / "levels";
@@ -1116,6 +1132,371 @@ D6R_TEST_CASE("NET-ADM reviewed production admission loop rejects offers crossin
     }
 }
 
+D6R_TEST_CASE("NET-AC-013 AHM-024 AHM-028 production reserved Leave shares the pre-completion lifecycle batch") {
+    for (const std::string mode : {"complete", "reserved", "simultaneous", "cap-simultaneous"}) {
+        const bool simultaneous = mode.find("simultaneous") != std::string::npos;
+        const bool cap = mode == "cap-simultaneous";
+        const auto host = manifest({{"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+        auto content = std::make_shared<Network::FrozenGameplayContent>();
+        (*content)["data/blocks.json"] = {'{', '}'};
+        (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+        (*content)["levels/a.json"] = {'{', '}'};
+        auto fixture = std::make_shared<RuntimeFixture>();
+        std::vector<std::shared_ptr<FakeAdmissionConnection>> peers;
+        std::vector<std::optional<Network::Lifecycle::ReconnectGrant>> grants(simultaneous ? 2 : 1);
+        for (std::size_t index = 0; index < grants.size(); ++index) {
+            auto peer = std::make_shared<FakeAdmissionConnection>(fixture->now);
+            peer->queue(Network::serializeAdmissionRequest(requestFor(host)), fixture->now);
+            peer->onSend = [&, index](const auto &payload) {
+                if (auto grant = Network::Lifecycle::deserializeReconnectGrant(payload)) grants[index] = *grant;
+            };
+            peers.push_back(peer); fixture->pendingConnections.push_back(peer);
+        }
+        auto dependencies = runtimeDependencies(fixture, host);
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(
+            Network::ManifestBuildResult{Network::ManifestStatus::Valid, host, content});
+        auto observations = std::make_shared<Server::RuntimeObservations>();
+        dependencies.observations = observations;
+        auto snapshot = std::make_shared<Server::Authoritative::CanonicalWorldSnapshot>();
+        std::vector<std::vector<std::uint64_t>> removalBatches;
+        std::optional<Network::Replication::CanonicalState> result;
+        bool disconnected = false, queued = false, jumped = false, timedOut = false;
+        unsigned waits = 0;
+        std::uint64_t ticksWhenQueued = 0;
+        Network::TransportTimePoint jumpAt{};
+        dependencies.hostReadinessChange = [] { return std::optional<bool>(true); };
+        dependencies.authoritativeRuntimeFactory = [&](const auto &config, const auto &players, const auto &) {
+            D6R_REQUIRE_EQ(1u, config.roundLimit);
+            D6R_REQUIRE_EQ(grants.size() + 1, players.size());
+            snapshot->valid = true; snapshot->stateDigest = 1;
+            for (const auto &definition : players) {
+                Server::Authoritative::CanonicalPlayerSnapshot player;
+                player.playerId = definition.playerId; player.rosterSlot = definition.rosterOrder;
+                player.alive = true; player.life = Server::Authoritative::MaximumLife;
+                snapshot->players.push_back(player);
+            }
+            Server::Authoritative::MatchRuntimeDependencies runtime;
+            runtime.contentPreflight = [](const auto &) { return true; };
+            runtime.worldSnapshot = [snapshot] { return *snapshot; };
+            runtime.worldTick = [snapshot](auto, bool) {
+                ++snapshot->worldTick; ++snapshot->stateDigest;
+                snapshot->roundOver = true;
+                for (std::size_t index = 1; index < snapshot->players.size(); ++index) {
+                    snapshot->players[index].alive = false; snapshot->players[index].life = 0;
+                }
+                return true;
+            };
+            runtime.worldRemoveBatch = [&](const auto &players) {
+                removalBatches.push_back(players);
+                snapshot->players.erase(std::remove_if(snapshot->players.begin(), snapshot->players.end(),
+                    [&](const auto &player) { return std::find(players.begin(), players.end(), player.playerId) != players.end(); }),
+                    snapshot->players.end());
+                ++snapshot->stateDigest;
+                return true;
+            };
+            return runtime;
+        };
+        dependencies.outboundWriter = [&](auto &connection, auto payload) {
+            const auto found = std::find_if(peers.begin(), peers.end(), [&](const auto &peer) { return peer.get() == &connection; });
+            if (found != peers.end()) {
+                const auto index = static_cast<std::size_t>(found - peers.begin());
+                if (payload.size() >= 4 && payload[3] == 'O')
+                    (*found)->queue(Network::serializeAdmissionAcceptance(Network::deserializeAdmissionOffer(payload)), fixture->now);
+                if (payload.size() >= 4 && payload[3] == 'C') {
+                    D6R_REQUIRE(grants[index].has_value());
+                    (*found)->queue(Network::Lifecycle::serializeParticipantAction({grants[index]->sessionId,
+                        grants[index]->participantId, Network::Lifecycle::ParticipantActionKind::Ready}), fixture->now);
+                }
+            }
+            return connection.send(std::move(payload));
+        };
+        dependencies.hostSessionPresentation = [&](const auto &payload) {
+            const auto message = Network::HostComposition::deserialize(payload);
+            if (!message) return false;
+            const auto frame = Network::Replication::deserializeReplicationFrame(message->payload);
+            if (!frame || !frame->snapshot) return false;
+            if (frame->snapshot->state.result.available) {
+                result = frame->snapshot->state;
+                fixture->cancelled = true;
+            }
+            return true;
+        };
+        dependencies.wait = [&](auto amount) {
+            if (++waits > 3000) { timedOut = true; fixture->cancelled = true; return; }
+            if (observations->hostTicks >= 100 && !disconnected && mode != "simultaneous") {
+                // Keep the participant reserved; only the later authenticated
+                // request may remove it. This is not a transport-close shortcut.
+                peers.front()->currentState = Network::ClientState::Closed;
+                peers.front()->terminal = fixture->now;
+                disconnected = true;
+            }
+            if (cap && observations->hostTicks == 269 && !jumped) {
+                fixture->now += 5s; jumpAt = fixture->now; jumped = true;
+                return;
+            }
+            if (cap && jumped && observations->hostTicks < 359) return;
+            if (observations->hostTicks == 359 && !queued) {
+                if (!disconnected) {
+                    // In this variant the close precedes another admitted
+                    // peer's Leave in the same intake pass. Cleanup must not
+                    // stop the scan and split the atomic removal batch.
+                    peers.front()->currentState = Network::ClientState::Closed;
+                    peers.front()->terminal = fixture->now;
+                    disconnected = true;
+                }
+                D6R_REQUIRE(disconnected && grants.front().has_value());
+                D6R_REQUIRE_EQ(static_cast<int>(Server::Authoritative::MatchPhase::RoundEndFrozen), observations->lastPhase.load());
+                ticksWhenQueued = observations->hostTicks;
+                if (cap) {
+                    D6R_REQUIRE(fixture->now == jumpAt); // Ninety real ticks in this rolling window.
+                    D6R_REQUIRE(observations->lastTickDebtUs > 3000000);
+                }
+                if (mode != "complete") {
+                    const auto &grant = *grants.front();
+                    auto leave = std::make_shared<FakeAdmissionConnection>(fixture->now);
+                    leave->closeOnRequest = true;
+                    leave->queue(Network::Lifecycle::serializeReconnectRequest(
+                        {grant.sessionId, grant.participantId, grant.reservationId, grant.credential}), fixture->now);
+                    fixture->pendingConnections.push_back(leave);
+                    if (simultaneous) {
+                        const auto &admitted = *grants.back();
+                        peers.back()->queue(Network::Lifecycle::serializeParticipantAction({admitted.sessionId,
+                            admitted.participantId, Network::Lifecycle::ParticipantActionKind::Leave}), fixture->now);
+                    }
+                }
+                queued = true;
+                fixture->now += cap ? 5ms : 20ms; // Due final tick, or its exhausted-cap boundary.
+                return;
+            }
+            fixture->now += amount;
+        };
+        std::ostringstream output;
+        Server::HeadlessServer server(runtimeServerConfig(), std::move(dependencies));
+        server.runtimeDependencies.productionReplicationProtocol = true;
+        const int status = server.run(output);
+        const auto require = [&](bool condition, const char *description) {
+            if (!condition) Duel6::Test::fail(description, __FILE__, __LINE__, mode
+                + ";ticks=" + std::to_string(observations->hostTicks.load())
+                + ";batches=" + std::to_string(removalBatches.size())
+                + ";result=" + (result ? result->result.state : "missing") + ": " + output.str());
+        };
+        require(status == 0 && !timedOut && queued && result.has_value(), "bounded production completion boundary");
+        if (mode == "complete") {
+            require(result->result.state == "Completed" && observations->hostTicks == 360
+                    && removalBatches.empty(), "control really reaches final completion on next tick");
+        } else {
+            require(result->phase == Network::Replication::Phase::Lobby && result->result.state == "Interrupted"
+                    && result->score.winner.noWinner && result->score.winner.winnerPlayerIds.empty(),
+                    "pre-completion Leave interrupts without a final winner");
+            require(observations->hostTicks == ticksWhenQueued, "removal batch precedes completion tick");
+            require(removalBatches.size() == 1 && removalBatches.front().size() == grants.size(),
+                    "admitted and authenticated reserved leaves form one atomic removal batch");
+            require(result->participants.size() == 1 && result->players.size() == 1,
+                    "both departed participants removed from following lobby");
+        }
+        require(fixture->shutdown, "listener cleanup completed");
+    }
+}
+
+D6R_TEST_CASE("Production pacing services pending peers and lifecycle under sustained debt and exhausted rolling cap") {
+    // Only transport, world and time are deterministic seams. Admission, input
+    // authorization, lifecycle, tick pacing and outcome precedence are the real loop.
+    for (const std::string mode : {"admit", "winner", "cancel", "end"}) {
+        const auto host = manifest({{"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+        auto content = std::make_shared<Network::FrozenGameplayContent>();
+        (*content)["data/blocks.json"] = {'{', '}'};
+        (*content)["data/config.script"] = {'i', 'n', 'v', 'a', 'l', 'i', 'd'};
+        (*content)["levels/a.json"] = {'{', '}'};
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto initial = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        fixture->connection = initial;
+        initial->queue(Network::serializeAdmissionRequest(requestFor(host)), fixture->now);
+        auto dependencies = runtimeDependencies(fixture, host);
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(
+            Network::ManifestBuildResult{Network::ManifestStatus::Valid, host, content});
+        auto observations = std::make_shared<Server::RuntimeObservations>();
+        dependencies.observations = observations;
+        std::optional<Network::AdmissionOfferPayload> initialOffer;
+        std::optional<Network::Lifecycle::ReconnectGrant> grant;
+        std::shared_ptr<FakeAdmissionConnection> arrival, reconnect, silent, closed;
+        auto snapshot = std::make_shared<Server::Authoritative::CanonicalWorldSnapshot>();
+        bool started = false, jumped = false, exhausted = false, stop = false, timedOut = false;
+        bool offered = false, confirmed = false, rejected = false, restored = false;
+        bool inputPending = false, inputApplied = false, inputBeforeDisconnect = false, outcome = false;
+        bool silentClosedAtCap = false;
+        bool endNotice = false;
+        Network::TransportTimePoint capAt{}, offerAt{}, restoreAt{}, silentCloseAt{}, nextInputAt{};
+        std::uint64_t ticksAtDecision = 0;
+        std::uint64_t capTicks = 0;
+        unsigned waits = 0;
+        unsigned pendingInputs = 0;
+        std::uint64_t inputSequence = 3;
+        dependencies.hostReadinessChange = [] { return std::optional<bool>(true); };
+        dependencies.intentionalHostEndRequested = [&] { return stop && mode == "end"; };
+        dependencies.authoritativeRuntimeFactory = [&](const auto &, const auto &players, const auto &) {
+            started = true; snapshot->valid = true; snapshot->stateDigest = 1;
+            const auto append = [snapshot](const auto &definitions) {
+                for (const auto &definition : definitions) {
+                    Server::Authoritative::CanonicalPlayerSnapshot player;
+                    player.playerId = definition.playerId; player.rosterSlot = definition.rosterOrder;
+                    player.alive = true; player.life = Server::Authoritative::MaximumLife;
+                    snapshot->players.push_back(player);
+                }
+            };
+            append(players);
+            Server::Authoritative::MatchRuntimeDependencies runtime;
+            runtime.contentPreflight = [](const auto &) { return true; };
+            runtime.worldSnapshot = [snapshot] { return *snapshot; };
+            runtime.worldAppendPlayers = [append](const auto &additions, auto &) { append(additions); return true; };
+            runtime.worldInput = [&](auto player, auto actions) {
+                if (initialOffer && player == initialOffer->playerIds.front()
+                    && actions == Network::Input::MoveRight) inputApplied = true;
+                return true;
+            };
+            runtime.worldTick = [&](auto, bool) {
+                ++snapshot->worldTick; ++snapshot->stateDigest;
+                if (mode == "winner" && exhausted && observations->hostTicks == capTicks) {
+                    outcome = true; snapshot->roundOver = true;
+                    snapshot->players.back().alive = false; snapshot->players.back().life = 0;
+                }
+                return true;
+            };
+            return runtime;
+        };
+        initial->onSend = [&](const auto &payload) {
+            if (const auto value = Network::Lifecycle::deserializeReconnectGrant(payload)) grant = *value;
+        };
+        dependencies.outboundWriter = [&](auto &connection, auto payload) {
+            endNotice |= Network::Lifecycle::deserializeIntentionalHostEnd(payload).has_value();
+            if (payload.size() >= 4 && payload[3] == 'O') {
+                const auto offer = Network::deserializeAdmissionOffer(payload);
+                if (&connection == initial.get()) {
+                    initialOffer = offer;
+                    initial->queue(Network::serializeAdmissionAcceptance(offer), fixture->now);
+                } else if (&connection == arrival.get()) {
+                    offered = true; offerAt = fixture->now;
+                    arrival->queue(Network::serializeAdmissionAcceptance(offer), fixture->now);
+                }
+            }
+            if (payload.size() >= 4 && payload[3] == 'C') {
+                if (&connection == initial.get()) {
+                    D6R_REQUIRE(grant.has_value());
+                    initial->queue(Network::Lifecycle::serializeParticipantAction({grant->sessionId,
+                        grant->participantId, Network::Lifecycle::ParticipantActionKind::Ready}), fixture->now);
+                } else if (&connection == arrival.get()) {
+                    confirmed = true; ticksAtDecision = observations->hostTicks;
+                }
+            }
+            if (&connection == arrival.get() && payload.size() >= 4 && payload[3] == 'S') {
+                rejected = Network::deserializeAdmissionResult(payload).code == Network::AdmissionResultCode::MatchAlreadyStarted;
+                ticksAtDecision = observations->hostTicks;
+            }
+            if (const auto frame = Network::Input::deserializeFrame(payload); frame && frame->outcome
+                && frame->outcome->category == Network::Input::OutcomeCategory::Pending) {
+                inputPending = true; ++pendingInputs;
+            }
+            return connection.send(std::move(payload));
+        };
+        dependencies.wait = [&](auto amount) {
+            if (++waits > 1000) { timedOut = true; fixture->cancelled = true; return; }
+            if (!started) { fixture->now += amount; return; }
+            if (!jumped) {
+                capTicks = observations->hostTicks + 90;
+                fixture->now += 5s; jumped = true; return;
+            }
+            // Freeze wall time while draining debt, forcing the actual 90-tick
+            // rolling cap, not an inferred call count in a unit model.
+            if (observations->hostTicks < capTicks) return;
+            if (!exhausted) {
+                exhausted = true; capAt = fixture->now; nextInputAt = capAt + 20ms;
+                D6R_REQUIRE_EQ(capTicks, observations->hostTicks.load());
+                D6R_REQUIRE(observations->lastTickDebtUs > 3000000);
+                arrival = std::make_shared<FakeAdmissionConnection>(fixture->now);
+                arrival->queue(Network::serializeAdmissionRequest(requestFor(host)), fixture->now);
+                closed = std::make_shared<FakeAdmissionConnection>(fixture->now);
+                closed->currentState = Network::ClientState::Closed;
+                silent = std::make_shared<FakeAdmissionConnection>(
+                    fixture->now - Network::Trust::FirstAdmissionRequestDeadline + 500ms);
+                silent->closeOnRequest = true;
+                fixture->pendingConnections = {arrival, closed, silent};
+                initial->queue(Network::Input::serializeCommand({initialOffer->participantId,
+                    initialOffer->playerIds.front(), 1, observations->lastTick, Network::Input::MoveRight}), fixture->now);
+                return;
+            }
+            if (inputPending && !reconnect) {
+                inputBeforeDisconnect = true;
+                initial->currentState = Network::ClientState::Closed;
+                initial->terminal = fixture->now;
+                reconnect = std::make_shared<FakeAdmissionConnection>(fixture->now);
+                reconnect->queue(Network::Lifecycle::serializeReconnectAttempt(
+                    {{grant->sessionId, grant->participantId, grant->reservationId, grant->credential},
+                     requestFor(host)}), fixture->now);
+                reconnect->onSend = [&](const auto &payload) {
+                    if (const auto response = Network::Lifecycle::deserializeReconnectResponse(payload)) {
+                        restored = response->outcome == Network::Lifecycle::ReconnectOutcome::Accepted;
+                        restoreAt = fixture->now;
+                        if (restored) reconnect->queue(Network::Input::serializeCommand({initialOffer->participantId,
+                            initialOffer->playerIds.front(), 2, observations->lastTick, Network::Input::MoveRight}), fixture->now);
+                    }
+                };
+                fixture->pendingConnections.push_back(reconnect);
+            }
+            if (restored && fixture->now >= nextInputAt && observations->hostTicks == capTicks) {
+                reconnect->queue(Network::Input::serializeCommand({initialOffer->participantId,
+                    initialOffer->playerIds.front(), inputSequence++, observations->lastTick,
+                    Network::Input::MoveRight}), fixture->now);
+                nextInputAt += 20ms; // Sustained 50 Hz, below unchanged production limits.
+            }
+            if (silent->closeRequested && !silentClosedAtCap) {
+                silentClosedAtCap = observations->hostTicks == capTicks;
+                silentCloseAt = fixture->now;
+            }
+            if (offered && restored && silentClosedAtCap && (mode == "cancel" || mode == "end")) {
+                D6R_REQUIRE_EQ(capTicks, observations->hostTicks.load());
+                stop = true;
+                if (mode == "cancel") fixture->cancelled = true;
+            }
+            if (confirmed || rejected) fixture->cancelled = true;
+            fixture->now += amount;
+            if (fixture->now - capAt > 1500ms) { timedOut = true; fixture->cancelled = true; }
+        };
+        std::ostringstream output;
+        Server::HeadlessServer server(runtimeServerConfig(), std::move(dependencies));
+        server.runtimeDependencies.productionReplicationProtocol = true;
+        const int status = server.run(output);
+        const auto require = [&](bool condition, const char *description) {
+            if (!condition) Duel6::Test::fail(description, __FILE__, __LINE__, mode
+                + ";status=" + std::to_string(status) + ";ticks=" + std::to_string(observations->hostTicks.load())
+                + ";timeout=" + std::to_string(timedOut) + ";offer=" + std::to_string(offered)
+                + ";input=" + std::to_string(inputPending) + ";reconnect=" + std::to_string(restored)
+                + ";applied=" + std::to_string(inputApplied) + ";confirmed=" + std::to_string(confirmed)
+                + ";decision-tick=" + std::to_string(ticksAtDecision) + ";cap-tick=" + std::to_string(capTicks)
+                + ";silent-close=" + std::to_string(silentClosedAtCap) + ": " + output.str());
+        };
+        require(status == 0 && !timedOut && exhausted, "bounded successful host loop");
+        require(inputBeforeDisconnect && pendingInputs >= 20 && offered && offerAt - capAt < 1s,
+                "sustained input and pending Join serviced under cap");
+        require(restored && reconnect->succeeded && restoreAt - capAt < 1s, "disconnect and reconnect serviced under cap");
+        require(silentClosedAtCap && silentCloseAt - silent->acceptedAt() >= Network::Trust::FirstAdmissionRequestDeadline
+                && silentCloseAt - silent->acceptedAt() <= Network::Trust::FirstAdmissionRequestDeadline + 5ms,
+                "unchanged first-request deadline");
+        for (const auto id : {1u, 3u, 4u})
+            require(std::any_of(fixture->events.begin(), fixture->events.end(), [&](const auto &event) {
+                return event.stage == Server::AdmissionLifecycleStage::ConnectionClosed && event.connectionId == id;
+            }), "admitted and pending disconnect cleanup observed");
+        if (mode == "admit") require(confirmed && !rejected && arrival->succeeded && ticksAtDecision == capTicks + 1
+                                     && inputApplied, "bounded Join commits after due tick and applied input");
+        else if (mode == "winner") require(outcome && rejected && !confirmed && !arrival->succeeded
+                                           && ticksAtDecision == capTicks + 1, "due winner precedes queued Join acceptance");
+        else {
+            require(stop && !confirmed && arrival->revoked && observations->hostTicks == capTicks,
+                    "Cancel or End rolls back pending admission without advancing past cap");
+            require(endNotice == (mode == "end"), "only intentional End sends its authenticated session notice");
+        }
+        require(fixture->shutdown && fixture->shutdownAttempted, "listener cleanup completes");
+    }
+}
+
 D6R_TEST_CASE("four-message runtime permits immediate acceptance before offer visibility and commits before confirmation") {
     const auto host = manifest({{"levels/a", 1}});
     auto fixture = std::make_shared<RuntimeFixture>();
@@ -1176,9 +1557,11 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
         const char *name;
         R::CanonicalState state;
         bool valid;
+        bool forceCalibrationRetry = false;
     };
     std::vector<Scenario> scenarios;
     scenarios.push_back({"valid", admissionLobby({11, 12}), true});
+    scenarios.push_back({"valid-retry", admissionLobby({11, 12}), true, true});
     scenarios.push_back({"missing", admissionLobby({11}), false});
     scenarios.push_back({"extra", admissionLobby({11, 12, 13}), false});
     scenarios.push_back({"substituted", admissionLobby({11, 13}), false});
@@ -1186,6 +1569,7 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
     scenarios.push_back({"foreign-owned", admissionLobby({11}, true), false});
 
     for (const auto &scenario: scenarios) {
+        Test::RuntimeObservationReceipt receipt{std::string("admission-") + scenario.name};
         D6R_REQUIRE(R::validateCanonicalState(scenario.state));
         const auto port = unusedLoopbackPort();
         D6R_REQUIRE(port != 0);
@@ -1198,6 +1582,13 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
         std::atomic<unsigned> localActions{0};
         std::atomic<bool> cancelGuest{false};
         std::atomic<bool> snapshotWasUnavailableBeforeConfirmation{false};
+        std::atomic<unsigned> hostProbesSeen{0};
+        std::atomic<int> hostCloseState{-1};
+        std::atomic<std::int64_t> hostCloseUs{-1};
+        std::atomic<std::int64_t> hostCloseDeadlineUs{-1};
+        // One deadline covering this admission fixture, established before the
+        // guest starts. Do not invent another window after a rejected sample.
+        const auto fixtureAdmissionDeadline = std::chrono::steady_clock::now() + 10s;
         std::exception_ptr hostFailure;
         std::thread host([&] {
             try {
@@ -1253,20 +1644,29 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
                     != Network::SendResult::Accepted)
                     throw std::runtime_error("fake host could not send confirmation");
 
-                receive(frame);
-                const auto probe = R::deserializeReplicationFrame(frame.payload);
-                if (!probe || !probe->qualitySequence)
-                    throw std::runtime_error("guest did not request clock calibration");
-                const auto hostNow = static_cast<std::uint64_t>(
-                        std::chrono::duration_cast<std::chrono::milliseconds>(
-                                std::chrono::steady_clock::now().time_since_epoch()).count());
-                if (connection->send(R::serializeQualityResponse(*probe->qualitySequence, hostNow))
-                    != Network::SendResult::Accepted)
-                    throw std::runtime_error("fake host could not send calibration");
-                const auto deadline = std::chrono::steady_clock::now() + 2s;
+                // The intentional pre-confirmation delay can invalidate the
+                // first 20 ms calibration sample. Behave like a host: service
+                // subsequent probes, never weaken calibration or fabricate time.
+                hostCloseDeadlineUs = Server::RuntimeObservations::micros(fixtureAdmissionDeadline);
                 while (connection->state() == Network::ClientState::Connected
-                       && std::chrono::steady_clock::now() < deadline)
-                    std::this_thread::sleep_for(1ms);
+                       && std::chrono::steady_clock::now() < fixtureAdmissionDeadline) {
+                    if (!connection->receive(frame)) { std::this_thread::sleep_for(1ms); continue; }
+                    const auto probe = R::deserializeReplicationFrame(frame.payload);
+                    if (!probe || probe->kind != R::ReplicationFrameKind::QualityProbe || !probe->qualitySequence)
+                        throw std::runtime_error("guest sent an unexpected calibration retry frame");
+                    if (++hostProbesSeen > 64) throw std::runtime_error("calibration fixture work bound exceeded");
+                    if (scenario.forceCalibrationRetry && hostProbesSeen == 1) std::this_thread::sleep_for(25ms);
+                    const auto hostNow = static_cast<std::uint64_t>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch()).count());
+                    if (connection->send(R::serializeQualityResponse(*probe->qualitySequence, hostNow))
+                        != Network::SendResult::Accepted) {
+                        if (connection->state() != Network::ClientState::Connected || cancelGuest) break;
+                        throw std::runtime_error("fake host could not send calibration");
+                    }
+                }
+                hostCloseState = static_cast<int>(connection->state());
+                hostCloseUs = Server::RuntimeObservations::micros(std::chrono::steady_clock::now());
                 connection->close();
             } catch (...) {
                 hostFailure = std::current_exception();
@@ -1276,6 +1676,7 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
         auto config = runtimeGuestConfig();
         config.listenEndpoint.port = port;
         Server::AdmissionRuntimeDependencies dependencies;
+        dependencies.observations = receipt.data;
         dependencies.manifestSource = std::make_shared<FixedManifestSource>(
                 Network::ManifestBuildResult{Network::ManifestStatus::Valid, hostedManifest});
         dependencies.cancelled = [&] { return cancelGuest.load(); };
@@ -1299,13 +1700,25 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
         host.join();
         listener.shutdown();
         if (hostFailure) std::rethrow_exception(hostFailure);
+        std::cout << "DIAGNOSTIC admission-host-fixture;scenario=" << scenario.name
+                  << ";probes-serviced=" << hostProbesSeen << ";close-state=" << hostCloseState
+                  << ";close-us=" << hostCloseUs << ";close-deadline-us=" << hostCloseDeadlineUs
+                  << ";admission-fixture-budget-ms=10000\n";
 
         D6R_REQUIRE(snapshotWasUnavailableBeforeConfirmation);
         D6R_REQUIRE_EQ(0u, localActions.load());
         if (scenario.valid) {
             D6R_REQUIRE_EQ(2, status); // tester cancellation after observing the admitted lobby
-            D6R_REQUIRE(output.str().find("admitted\nparticipant-id=10 player-ids=11,12\n") == 0);
+            if (output.str().find("admitted\nparticipant-id=10 player-ids=11,12\n") != 0)
+                Test::fail("production admission prefix", __FILE__, __LINE__,
+                           std::string("scenario=") + scenario.name + ";status=" + std::to_string(status)
+                           + ";presentations=" + std::to_string(presentations.load()) + ";output=" + output.str());
             D6R_REQUIRE(presentations.load() >= 1);
+            if (scenario.forceCalibrationRetry) {
+                D6R_REQUIRE(hostProbesSeen >= 2);
+                D6R_REQUIRE(receipt.data->responsesOverBudget >= 1);
+                D6R_REQUIRE(receipt.data->calibrated);
+            }
         } else {
             D6R_REQUIRE_EQ(2, status);
             D6R_REQUIRE_EQ(std::string(Network::InvalidHostAdmissionMessageIdentifier) + "\n"
@@ -1316,6 +1729,7 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
 }
 
 D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest input at 60 Hz") {
+    Test::RuntimeObservationReceipt hostReceipt{"input-host"}, guestReceipt{"input-guest"};
     auto &transportBudget = Network::Trust::processQueueBudget();
     const auto transportBudgetBaseline = transportBudget.used();
     const auto hostedManifest = manifest({
@@ -1342,6 +1756,7 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
     hostConfig.localPlayers = 4;
 
     Server::AdmissionRuntimeDependencies hostDependencies;
+    hostDependencies.observations = hostReceipt.data;
     hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
     // Bound the fixture itself so a guest admission/drain failure is reported by the behavioral
     // assertions below instead of stranding host.join() until the outer CTest timeout.
@@ -1413,6 +1828,7 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
     bool guestOwnershipSetPresented = false;
     std::string ownershipEvidence;
     Server::AdmissionRuntimeDependencies guestDependencies;
+    guestDependencies.observations = guestReceipt.data;
     guestDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
     guestDependencies.localPlayerActions = [&](std::uint64_t playerId) {
         // The production guest must not sample or submit local control before the final
@@ -1477,6 +1893,12 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
     const int guestStatus = guest.run(guestOutput);
     host.join();
 
+    std::cout << "DIAGNOSTIC input-fixture;completion-condition=" << stopHost
+              << ";fixture-deadline-us=" << Server::RuntimeObservations::micros(fixtureDeadline) << '\n';
+    for (const auto &entry : samples)
+        std::cout << "DIAGNOSTIC input-count;player=" << entry.first << ";samples=" << entry.second
+                  << ";applications=" << applications[entry.first] << ";required=" << SustainedTicks << '\n';
+
     D6R_REQUIRE_EQ(0, hostStatus);
     D6R_REQUIRE_EQ(2, guestStatus);
     const std::string presentationEvidence = completeConfirmedSnapshotPresented ? "complete=true"
@@ -1498,8 +1920,13 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
         D6R_REQUIRE(applications[playerId] >= SustainedTicks);
     }
     for (const auto playerId: guestPlayers) {
-        D6R_REQUIRE(samples[playerId] >= SustainedTicks);
-        D6R_REQUIRE(applications[playerId] >= SustainedTicks);
+        if (samples[playerId] < SustainedTicks || applications[playerId] < SustainedTicks)
+            Test::fail("sustained guest sampling and application", __FILE__, __LINE__,
+                       "player=" + std::to_string(playerId) + ";samples=" + std::to_string(samples[playerId])
+                       + ";applications=" + std::to_string(applications[playerId])
+                       + ";required=" + std::to_string(SustainedTicks)
+                       + ";presentation=" + presentationEvidence + ";guest-output=" + guestOutput.str()
+                       + ";host-output=" + hostOutput.str());
     }
     D6R_REQUIRE_EQ(transportBudgetBaseline, transportBudget.used());
 }
@@ -1830,6 +2257,7 @@ D6R_TEST_CASE("PR83 production ingress shares burst sixty and sustained thirty a
 
 D6R_TEST_CASE("PR83 production final-summary Leave and expiry remove membership on direct lobby return") {
     for (const bool expire : {false, true}) {
+        Test::RuntimeObservationReceipt receipt{expire ? "summary-expiry-host" : "summary-leave-host"};
         const auto hostedManifest = manifest({
                 {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
         auto content = std::make_shared<Network::FrozenGameplayContent>();
@@ -1841,6 +2269,7 @@ D6R_TEST_CASE("PR83 production final-summary Leave and expiry remove membership 
         std::atomic<bool> ready{false}, cancelled{false}, hostReady{false}, lobbyRequested{false}, startRequested{false};
         std::atomic<std::int64_t> clockOffset{0};
         Server::AdmissionRuntimeDependencies dependencies;
+        dependencies.observations = receipt.data;
         dependencies.now = [&] { return std::chrono::steady_clock::now() + std::chrono::milliseconds(clockOffset.load()); };
         dependencies.cancelled = [&] { return cancelled.load(); };
         dependencies.manifestSource = std::make_shared<FixedManifestSource>(
@@ -1902,10 +2331,24 @@ D6R_TEST_CASE("PR83 production final-summary Leave and expiry remove membership 
                 departing->reconnectGrant->sessionId, departing->offer->participantId,
                 Network::Lifecycle::ParticipantActionKind::Ready})) == Network::SendResult::Accepted);
         hostReady = true;
-        D6R_REQUIRE(pumpUntil(*survivor, [&] {
+        const bool reachedFinal = pumpUntil(*survivor, [&] {
             pumpProductionPeer(*departing);
             return !survivor->states.empty() && survivor->states.back().phase == Network::Replication::Phase::FinalSummary;
-        }, 9s));
+        }, 9s);
+        if (!reachedFinal) {
+            std::ostringstream detail;
+            detail << "expire=" << expire << ";snapshots=" << survivor->states.size()
+                   << ";transport-state=" << static_cast<int>(survivor->connection->state())
+                   << ";transport-failure=" << static_cast<int>(survivor->connection->failure());
+            if (!survivor->states.empty()) {
+                const auto &state = survivor->states.back();
+                detail << ";phase=" << static_cast<int>(state.phase) << ";tick=" << state.phaseTime;
+                for (const auto &participant : state.participants)
+                    detail << ";participant=" << participant.participantId << ",ready=" << participant.ready
+                           << ",connection=" << static_cast<int>(participant.connection);
+            }
+            Test::fail("production final summary within original nine seconds", __FILE__, __LINE__, detail.str());
+        }
         const auto before = survivor->states.back();
         const auto removed = departing->offer->participantId;
         if (expire) {
@@ -2060,6 +2503,7 @@ D6R_TEST_CASE("PR83 production guest Leave after host restore before reconnect r
 }
 
 D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby disconnect and admission preserve explicit readiness and result ranking") {
+    Test::RuntimeObservationReceipt receipt{"following-lobby-host"};
     const auto hostedManifest = manifest({
             {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
     auto content = std::make_shared<Network::FrozenGameplayContent>();
@@ -2073,6 +2517,7 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
     hostConfig.listenEndpoint.port = unusedLoopbackPort();
     D6R_REQUIRE(hostConfig.listenEndpoint.port != 0);
     Server::AdmissionRuntimeDependencies hostDependencies;
+    hostDependencies.observations = receipt.data;
     hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
     std::atomic<bool> ready{false};
     std::atomic<bool> cancelled{false};
@@ -2147,10 +2592,21 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
         });
     }, 8s);
     if (!finalSummaryReceived) {
+        std::ostringstream detail;
+        detail << "match-starts=" << matchStarts.load() << ";snapshots=" << first->states.size()
+               << ";transport-state=" << static_cast<int>(first->connection->state())
+               << ";transport-failure=" << static_cast<int>(first->connection->failure());
+        if (!first->states.empty()) {
+            const auto &state = first->states.back();
+            detail << ";phase=" << static_cast<int>(state.phase) << ";tick=" << state.phaseTime
+                   << ";result-available=" << state.result.available << ";result-state=" << state.result.state;
+            for (const auto &participant : state.participants)
+                detail << ";participant=" << participant.participantId << ",ready=" << participant.ready;
+        }
         first->client->close();
         cancelled = true;
         host.join();
-        Duel6::Test::fail("finalSummaryReceived", __FILE__, __LINE__, hostOutput.str());
+        Duel6::Test::fail("finalSummaryReceived", __FILE__, __LINE__, detail.str() + ";output=" + hostOutput.str());
     }
 
     Server::ServerConfig blockedConfig = runtimeGuestConfig();
@@ -2431,6 +2887,113 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reop
             "next-active=true;next-reset=true;match-starts=2;host-status=0"), evidence);
 }
 
+D6R_TEST_CASE("NET-AC-011 NET-AC-014 established guest honors queued host end at the close boundary despite failed quality output") {
+    namespace R = Network::Replication;
+    namespace L = Network::Lifecycle;
+    enum class Notice { BeforeClose, AtClose, Late, WrongSession, Malformed, None };
+    struct Scenario { const char *name; Notice notice; bool probeDue; bool cancel = false; };
+    const Scenario scenarios[] = {
+            {"queued valid notice with rejected probe", Notice::BeforeClose, true},
+            {"received valid notice", Notice::BeforeClose, false},
+            {"queued notice exactly at close", Notice::AtClose, true},
+            {"received notice exactly at close", Notice::AtClose, false},
+            {"queued late notice", Notice::Late, true},
+            {"received late notice", Notice::Late, false},
+            {"queued wrong session", Notice::WrongSession, true},
+            {"received wrong session", Notice::WrongSession, false},
+            {"queued malformed notice", Notice::Malformed, true},
+            {"received malformed notice", Notice::Malformed, false},
+            {"ordinary close with rejected probe", Notice::None, true},
+            {"ordinary close", Notice::None, false},
+            {"cancel precedes queued valid notice", Notice::BeforeClose, true, true}};
+    for (const auto &scenario: scenarios) {
+        const auto host = manifest({{"levels/a.json", 1}});
+        const Network::AdmissionIdentitySet identities{10, {11, 12}};
+        R::FullSnapshot snapshot{1, admissionLobby({11, 12})};
+        snapshot.authoritativeProducedAt = 100;
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto client = std::make_shared<FakeClientState>();
+        client->connection = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        const auto connection = client->connection;
+        connection->queue(Network::serializeAdmissionOffer(identities), fixture->now + 1ms);
+        unsigned failedQuality = 0;
+        bool established = false;
+        // The fake transport completes real production admission/calibration;
+        // only the established close schedule and outbound result are controlled.
+        const std::weak_ptr<FakeAdmissionConnection> weakConnection = connection;
+        connection->onSend = [&, weakConnection, identities, snapshot](const auto &payload) {
+            const auto transport = weakConnection.lock();
+            D6R_REQUIRE(transport);
+            if (payload.size() >= 4 && payload[3] == 'K') {
+                transport->queue(Network::serializeAdmissionConfirmation(identities), Network::Trust::TimePoint{} + 2ms);
+                L::ReconnectGrant grant;
+                grant.sessionId = 100; grant.participantId = 10; grant.reservationId = 1;
+                grant.credential.bytes.fill(1);
+                transport->queue(L::serializeReconnectGrant(grant), Network::Trust::TimePoint{} + 3ms);
+                transport->queue(R::serializeReplicationSnapshot(snapshot), Network::Trust::TimePoint{} + 4ms);
+            }
+            const auto frame = R::deserializeReplicationFrame(payload);
+            if (frame && frame->kind == R::ReplicationFrameKind::QualityProbe && frame->qualitySequence) {
+                if (established) ++failedQuality;
+                else {
+                    transport->queue(R::serializeQualityResponse(*frame->qualitySequence, 100), Network::Trust::TimePoint{} + 5ms);
+                    fixture->now = Network::Trust::TimePoint{} + 6ms;
+                }
+            }
+        };
+        auto dependencies = guestRuntimeDependencies(fixture, client, host);
+        dependencies.guestAdmission = [&](auto, const auto &) {
+            established = true;
+            if (scenario.notice != Notice::None) {
+                auto notice = L::serializeIntentionalHostEnd({scenario.notice == Notice::WrongSession ? 101u : 100u});
+                if (scenario.notice == Notice::Malformed) notice.pop_back();
+                const auto receivedAt = scenario.notice == Notice::AtClose ? 8ms
+                        : scenario.notice == Notice::Late ? 9ms : 7ms;
+                connection->queue(std::move(notice), Network::Trust::TimePoint{} + receivedAt);
+            }
+            connection->terminal = Network::Trust::TimePoint{} + 8ms;
+            connection->currentState = Network::ClientState::Closed;
+            connection->sendResult = Network::SendResult::NotConnected;
+            fixture->now = Network::Trust::TimePoint{} + (scenario.probeDue ? 2000ms : 10ms);
+            if (scenario.cancel) fixture->cancelled = true;
+        };
+        std::vector<L::GuestJourney> journeys;
+        std::optional<unsigned> remaining;
+        dependencies.guestRecoveryPresentation = [&](auto journey, auto seconds, auto) {
+            journeys.push_back(journey);
+            remaining = seconds;
+            // Stop after observing the real recovery outcome, not by replacing
+            // that outcome or waiting through the unrelated reconnect campaign.
+            if (journey == L::GuestJourney::Reconnecting) fixture->cancelled = true;
+        };
+        Server::HeadlessServer guest(runtimeGuestConfig(), std::move(dependencies));
+        guest.runtimeDependencies.productionReplicationProtocol = true;
+        std::ostringstream output;
+        const int status = guest.run(output);
+        const bool expectedEnd = !scenario.cancel
+                && (scenario.notice == Notice::BeforeClose || scenario.notice == Notice::AtClose);
+        const bool ended = std::find(journeys.begin(), journeys.end(), L::GuestJourney::HostEnded) != journeys.end();
+        const bool reconnect = std::find(journeys.begin(), journeys.end(), L::GuestJourney::Reconnecting) != journeys.end();
+        if (!connection->succeeded || ended != expectedEnd || reconnect != (!expectedEnd && !scenario.cancel)) {
+            std::ostringstream detail;
+            detail << "scenario=" << scenario.name << ";admitted=" << connection->succeeded
+                   << ";status=" << status << ";host-ended=" << ended << ";reconnecting=" << reconnect
+                   << ";failed-quality=" << failedQuality << ";unread=" << connection->incoming.size();
+            Test::fail("established close respects notice validity and precedence", __FILE__, __LINE__, detail.str());
+        }
+        D6R_REQUIRE_EQ(expectedEnd ? 0 : 2, status);
+        D6R_REQUIRE_EQ(scenario.probeDue && !scenario.cancel ? 1u : 0u, failedQuality);
+        D6R_REQUIRE(client->closed);
+        if (expectedEnd) {
+            D6R_REQUIRE_EQ(1u, journeys.size());
+            D6R_REQUIRE(connection->incoming.empty());
+            D6R_REQUIRE(!remaining);
+        } else if (!scenario.cancel) {
+            D6R_REQUIRE(remaining && *remaining == 30u);
+        }
+    }
+}
+
 D6R_TEST_CASE("NET-09 production Headless sends one intentional End notice and none for Stop or failure") {
     enum class Termination { End, Stop, Failure };
     const auto hostedManifest = manifest({
@@ -2497,6 +3060,7 @@ D6R_TEST_CASE("NET-09 production Headless sends one intentional End notice and n
     }
 }
 
+#if defined(__linux__) && defined(D6R_PUBLIC_DEDICATED)
 namespace {
     enum class TerminalTail { Leave, ReadOnly, Eof, Invalid, WrongIdentity, WrongSession,
                               LateLeave, OverBudget, InvalidAfterReadOnly, WrongIdentityAfterReadOnly };
@@ -2653,6 +3217,7 @@ D6R_TEST_CASE("terminal admitted ingress invalid unauthorized late and over-budg
         D6R_REQUIRE(result.retired && result.maximumPerTurn <= Network::MaxNetworkPlayers);
     }
 }
+#endif
 #endif
 
 D6R_TEST_CASE("lost confirmation after atomic commit never rolls back host and never reports host success") {

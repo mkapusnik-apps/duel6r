@@ -2,11 +2,13 @@
 
 ## Status and authority
 
-The product supports player-hosted network play and an encrypted, invite-only public dedicated pilot. The pilot requirements replace dedicated-hosting exclusions only for that pilot. Player-hosted service ownership does not apply to dedicated participants. Both modes use the current compatibility, round-one admission, gameplay, ownership, readiness, result, and recovery contracts except for the explicit controller and service-lifecycle differences below. Local Play remains unchanged. Target support does not establish live availability or release acceptance.
+The product supports the current player-hosted network journey and an operator-configured encrypted, invite-only dedicated extension. NET-PUB replaces dedicated-hosting exclusions only for this extension. Player-hosted service ownership does not apply to dedicated participants. Both modes use the current compatibility, round-one admission, gameplay, ownership, readiness, result, and recovery contracts except for the explicit controller and service-lifecycle differences below. Local Play remains unchanged. Target support does not establish live availability or release acceptance. The current platform contracts, directory channel origins, host settings, and UI presentation remain authoritative for player-hosted play.
 
 ## Public dedicated pilot
 
-A **session controller** is the first successfully admitted participant in a dedicated session. This participant has the existing host's match-control permissions but does not own the server process. A **pilot environment** is either staging or production. The service clock supplies the existing host-session clock for dedicated sessions.
+A **session controller** is the first successfully admitted participant in a dedicated session. This participant has the existing host's match-control permissions but does not own the server process. A **pilot environment** is one independently configured operator service environment; it is not a required cloud staging or production deployment. The service clock supplies the existing host-session clock for dedicated sessions.
+
+The retained dedicated target is a Linux x86-64 service with Linux x86-64 and Windows x86-64 clients. This extension does not add dedicated macOS or Raspberry Pi support. Their current player-hosted platform behavior and acceptance boundaries remain unchanged. The client uses an operator-supplied endpoint through Direct connect. No gameplay domain, compiled gameplay endpoint, directory registration, cloud provider, provisioning, or billable activation is selected by this contract. Current directory origins remain directory endpoints, not dedicated-gameplay defaults.
 
 - **NET-PUB-001** Each pilot environment must provide at most one active session.
 - **NET-PUB-002** The service must create a session when the first authorized, compatible participant completes admission to an environment without a session.
@@ -23,16 +25,14 @@ A **session controller** is the first successfully admitted participant in a ded
 - **NET-PUB-013** Session end must discard session-only results and invalidate all session identities and reconnect credentials.
 - **NET-PUB-014** After session cleanup, the service must permit a new first authorized participant to create a new session.
 - **NET-PUB-015** A service restart must not restore an ended session or its controller authority.
-- **NET-PUB-016** Public Join setup must prefill `duel.netusite.cz` on first direct use without a selected directory listing.
-- **NET-PUB-017** The user must be able to replace the prefilled endpoint with a custom endpoint, including `staging.duel.netusite.cz` or a trusted LAN endpoint.
+- **NET-PUB-017** Dedicated Join setup must let the user enter an operator-supplied hostname or IPv4 endpoint and port without replacing a browser-selected player-hosted endpoint.
 - **NET-PUB-018** The application must not connect until the user requests Connect.
-- **NET-PUB-019** The application must not fall back from an unavailable production endpoint to staging, LAN, another public endpoint, or an unencrypted connection.
+- **NET-PUB-019** The application must not fall back from an unavailable dedicated endpoint to another endpoint, player-hosted mode, or an unencrypted connection.
 - **NET-PUB-020** Public connection, security checks, admission, clock calibration, and initial-state validation must share the existing single 10-second connection deadline.
-- **NET-PUB-021** Public session behavior must preserve offline Local Play and the existing explicit private-LAN hosting journey.
-- **NET-PUB-022** Public Join setup must prefill port `26660` with the production hostname and permit a custom port.
+- **NET-PUB-021** Dedicated session behavior must preserve offline Local Play and the current player-hosted journey, platform contracts, listening modes, directory origins, and host settings.
 - **NET-PUB-023** Normal controller application shutdown must request session end; when the service cannot receive that request, the existing controller reservation expiry must end the session.
 
-Deployment can interrupt a session under `NET-PUB-DEP-008` in [network-deployments.md](network-deployments.md). The public security policy is authoritative in [network-trust-and-abuse-limits.md](network-trust-and-abuse-limits.md). Dedicated service and terminal-outcome behavior is authoritative in [network-host-service-lifecycle.md](network-host-service-lifecycle.md).
+NET-PUB-016 and NET-PUB-022 are retired; no hard-coded gameplay hostname or production prefill is required. Retired identifiers must not be reused. The public security policy remains authoritative in [network-trust-and-abuse-limits.md](network-trust-and-abuse-limits.md). Dedicated service and confirmed interruption behavior remains authoritative in [network-host-service-lifecycle.md](network-host-service-lifecycle.md). [Network deployments](network-deployments.md) distinguishes this repository extension from live operation and the separately approved directory deployment.
 
 ### Public pilot acceptance criteria
 
@@ -42,8 +42,8 @@ Deployment can interrupt a session under `NET-PUB-DEP-008` in [network-deploymen
 | **NET-PUB-AC-002** | Only the controller can change host-owned settings, order the roster, start, return to lobby, or end the session. Current readiness, cardinality, compatibility, and round-one admission rules remain enforced. | NET-PUB-006–008 |
 | **NET-PUB-AC-003** | Controller Leave ends the session. Normal controller application shutdown requests session end. Controller contact loss permits the existing 30-second restore to the same authority; expiry ends the session without migration. Guest departure retains existing behavior. | NET-PUB-009–012, NET-PUB-023 |
 | **NET-PUB-AC-004** | Ending or restarting the service leaves no resumable old session, result, or authority. After cleanup, a new authorized join creates a distinct session. | NET-PUB-013–015 |
-| **NET-PUB-AC-005** | First direct public Join setup prefills the production hostname and published port without replacing a selected directory endpoint. Custom staging and player-hosted endpoints and ports remain usable through their selected security mode. No connection starts implicitly and no failure causes endpoint or security fallback. Complete admission retains the 10-second boundary. | NET-PUB-016–020, NET-PUB-022 |
-| **NET-PUB-AC-006** | Linux and Windows clients exercise dedicated lobby, match, summary, and return behavior with the existing gameplay and result contracts. Offline Local Play and trusted private-LAN play remain available. | NET-PUB-008, NET-PUB-021 |
+| **NET-PUB-AC-005** | Direct dedicated setup accepts an operator endpoint without overwriting a browser-selected player-hosted endpoint or the compiled directory origin. No connection starts implicitly and no failure causes endpoint or security fallback. Complete admission retains the 10-second boundary. | NET-PUB-017–020 |
+| **NET-PUB-AC-006** | Linux x86-64 and Windows x86-64 clients exercise admission, dedicated lobby, match, completed summary, and same-session return to lobby against the Linux x86-64 service. Current Local Play and player-hosted behavior remain available under their platform contracts. No dedicated macOS or Raspberry Pi support is claimed. | NET-PUB-008, NET-PUB-021 |
 
 This document is the authoritative product target for issue [#28](https://github.com/mkapusnik-apps/duel6r/issues/28), a subtask of [#27](https://github.com/mkapusnik-apps/duel6r/issues/27). It defines approved first-release network-play scope and journeys, not implemented behavior. The current code remains an experimental scaffold with no playable network support, as documented in [`docs/networking.md`](networking.md). The enforced trusted-loopback/private-LAN deployment boundary and abuse limits are defined in [`docs/network-trust-and-abuse-limits.md`](network-trust-and-abuse-limits.md).
 
@@ -69,7 +69,9 @@ The authoritative package, deployment, reinstallation, and rollback requirements
 - **Roster player:** One combatant in the authoritative session roster. Every roster player belongs to exactly one participant until removal.
 - **Host:** The participant that creates the session, owns the authoritative server process, configures the match, and controls session progression.
 - **Guest:** A participant admitted through the host's direct endpoint.
-- **Endpoint:** A host address plus port. The host selects an eligible local listening address. A guest directly enters the host address or hostname.
+- **Endpoint:** A host address plus port. A guest directly enters a connectable host address or hostname.
+- **Listening mode:** `Listen on all` binds IPv4 wildcard `0.0.0.0` on the selected port. Explicit mode binds each selected eligible local IPv4 address on that port.
+- **Individual listening choice:** One eligible assigned IPv4 address on a local interface. An interface with multiple eligible addresses has multiple choices.
 - **Lobby:** The pre-match and between-match state showing admission, connection, ownership, roster, readiness, and host settings.
 - **Ready:** A participant's confirmation of the current configuration. Clearing mutations invalidate every participant's readiness.
 - **Session:** The period from confirmed host startup until intentional host End session, host-local supervised service failure, or application shutdown.
@@ -86,10 +88,10 @@ The [host directory contract](network-host-directory.md) owns listing, browsing,
 
 | Dimension | Supported target | Explicitly unsupported |
 |---|---|---|
-| Platforms | Linux x86-64 and Windows x86-64 | Other operating systems and architectures |
-| Cross-platform play | Linux and Windows x86-64 participants in one session | Other targets |
+| Platforms | Current player-hosted platforms under their contracts; dedicated Linux x86-64 service with Linux x86-64 and Windows x86-64 clients | Other dedicated targets; blanket verified-platform claims |
+| Cross-platform play | Approved platforms using the same supported release and gameplay content; platform-specific acceptance boundaries apply | Other targets; blanket claims of verified interoperability |
 | Network environments | Same-machine and LAN support; other valid IPv4 connections permitted; encrypted dedicated pilot | Guaranteed Internet reachability or performance, NAT traversal, relays, public-service safety claims |
-| Connection method | Explicit listening address; direct join; central player-host browser | Automatic LAN discovery, matchmaking |
+| Connection method | IPv4 wildcard or explicit listening addresses; direct join; central player-host browser; operator-endpoint dedicated direct join | Automatic LAN discovery, dedicated listings, matchmaking |
 | Hosting | Player-hosted authoritative session; public dedicated pilot under NET-PUB | Other dedicated deployment and host migration |
 | Identity and access | Session-local participant identity; optional player-host password; dedicated-pilot invitation | Accounts, cloud identity, ranked identity |
 | Lobby cardinality | 1–15 admitted participants and 1–15 roster players; a host-alone lobby is valid | Empty or over-capacity admitted lobby |
@@ -106,20 +108,33 @@ Same-machine support means separate running instances communicating through the 
 
 ## Host listening address
 
-- **NET-HOST-IF-001** `NET-02` must provide an explicit host control labeled `Listening interface`.
-- **NET-HOST-IF-002** `Listening interface` must list IPv4 loopback and eligible assigned private or public unicast IPv4 addresses that are available on the host.
-- **NET-HOST-IF-003** `Listening interface` must not list a wildcard, unspecified, multicast, link-local, unassigned, network, or broadcast address.
-- **NET-HOST-IF-004** On first entry to `NET-02`, `Listening interface` must select IPv4 loopback by default.
-- **NET-HOST-IF-005** The application must retain the selected listening address with the other retained host setup.
-- **NET-HOST-IF-006** On a multihomed host, the application must not automatically select one private LAN address instead of another.
-- **NET-HOST-IF-007** The application must validate the selected listening address again before it starts the hosted service.
-- **NET-HOST-IF-008** If the selected listening address is no longer eligible, the application must keep the host in editable `NET-02` and require another eligible selection.
+- **NET-HOST-IF-001** `NET-02` must provide a control labeled `Listening interface` that opens a multiple-choice popup.
+- **NET-HOST-IF-002** The popup must list IPv4 loopback and eligible assigned private or public unicast IPv4 addresses that are available on local interfaces.
+- **NET-HOST-IF-003** Individual choices must not include wildcard, unspecified, multicast, link-local, unassigned, network, or broadcast addresses.
+- **NET-HOST-IF-004** Each opening of the Network journey from Local Play must enable `Listen on all` by default.
+- **NET-HOST-IF-005** The application must retain the listening mode and explicit selected set with the other host setup during the Network journey.
+- **NET-HOST-IF-006** Explicit mode must use the selected set without substituting another address or falling back to wildcard mode.
+- **NET-HOST-IF-007** Before explicit startup, the application must validate every selected address against current local interface information.
+- **NET-HOST-IF-008** If an explicit selected address is no longer eligible, the application must keep `NET-02` editable and require the host to correct the selection.
 - **NET-HOST-IF-009** Selecting a listening address must not change a host interface, route, firewall, Docker network, port forwarding, or other network infrastructure.
 - **NET-HOST-IF-010** The Port field must keep initial focus in editable `NET-02`.
 - **NET-HOST-IF-011** `Listening interface` must follow Port in the keyboard and controller focus order.
 - **NET-HOST-IF-012** Local interface enumeration must not discover or list another host or session.
 
-Loopback supports same-machine play. An explicitly selected eligible private address supports direct private-LAN play.
+- **NET-HOST-IF-013** The popup must provide a checkbox labeled `Listen on all` and a checkbox for each individual choice.
+- **NET-HOST-IF-014** While `Listen on all` is enabled, individual choices must appear checked and disabled.
+- **NET-HOST-IF-015** Wildcard startup must delegate interface coverage to the operating system and must not depend on successful individual-address enumeration.
+- **NET-HOST-IF-016** The first switch to explicit mode in a Network journey must select every currently eligible individual choice.
+- **NET-HOST-IF-017** Explicit mode must let the host independently select or clear each individual choice.
+- **NET-HOST-IF-018** An empty explicit selected set must block Start session in editable `NET-02`.
+- **NET-HOST-IF-019** Returning from wildcard mode to explicit mode must restore the explicit selected set after its first initialization.
+- **NET-HOST-IF-020** After explicit-set initialization, a newly available address must remain unselected until the host selects it.
+- **NET-HOST-IF-021** An unavailable selected address must remain identifiable as an invalid selection until the host clears it or it becomes eligible again.
+- **NET-HOST-IF-022** Reopening the Network journey from Local Play must discard the prior listening mode and explicit selected set.
+- **NET-HOST-IF-023** Changing a popup checkbox must update retained setup without starting a service.
+- **NET-HOST-IF-024** Closing the popup must retain checkbox changes.
+
+Wildcard mode covers current and later IPv4 interfaces according to operating-system behavior. Individual checkmarks in wildcard mode show coverage, not an explicit bind set. Enumeration failure must not disable `Listen on all`. Explicit mode has no automatic expansion after initialization. The selected port applies to every selected address. [HSL-IF-004](network-host-service-lifecycle.md) owns all-or-nothing startup. [NET-DIR-017 through NET-DIR-020](network-host-directory.md) own the advertised connectable endpoint. Neither mode guarantees Internet reachability or security.
 
 ## Ownership and configuration
 
@@ -433,8 +448,8 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 
 - **NET-SET-AC-001 — Mode changes:** Switching from Team deathmatch with Friendly Fire on to Deathmatch and then Predator must apply valid non-team settings on host and guests. A subsequent setting edit must apply normally. Each configuration change must clear readiness. Returning to Team deathmatch must restore both Team preferences.
 - **NET-RES-AC-001 — Complete retained winners:** After Leave or reservation expiry during final summary, each completed outcome must preserve its complete winner identities. Affected result rows must show `Departed`. Returning directly to the lobby must exclude removed participants and their players from membership and readiness. Participants must be able to read every winner's complete display name and identity in the summary and retained lobby result, including multiwinner outcomes with supported maximum-length names.
-- **NET-AC-001 — Platform:** Linux x86-64 and Windows x86-64 instances can participate together, and no other platform or architecture is claimed.
-- **NET-AC-002 — Endpoints:** A host can select an eligible assigned loopback, private, or public unicast IPv4 address. Direct and browser joining preserve LAN support without promising Internet reachability. Invalid address exclusions and no network-infrastructure automation remain enforced.
+- **NET-AC-001 — Platform:** Linux x86-64, Windows x86-64, Raspberry Pi 5 Linux 64-bit under [its contract](raspberry-pi5.md), and Apple Silicon macOS 14+ under [its experimental contract](macos.md) are approved participation targets using the same supported release and gameplay content. This is not a blanket verified-platform claim. Native Mac automated acceptance is required before pre-review and merge; actual Mac GUI and live cross-OS gameplay are deferred to the user after merge/nightly under MAC-NET-AC-006. Dedicated participation remains limited to NET-PUB-AC-006.
+- **NET-AC-002 — Endpoints:** A host can use IPv4 wildcard mode or an explicit selected set of eligible assigned loopback, private, or public unicast IPv4 addresses. Direct and browser joining use concrete connectable endpoints and preserve LAN support without promising Internet reachability. Concrete-address exclusions and no network-infrastructure automation remain enforced.
 - **NET-AC-003 — Host model:** A player-hosted session remains authoritative and has no host migration. The separate dedicated-pilot controller and service model must follow NET-PUB and HSL-PUB.
 - **NET-AC-004 — Lifecycle cardinality:** A lobby admits 1–15 participants and players including a valid host-alone lobby; Start requires 2–15 connected participants and players with at least one player each; a degraded match may continue with one connected host while at least two roster players remain; fewer than two ends without winner.
 - **NET-AC-005 — Ownership:** The host controls match settings and roster order. Each participant controls only the persons and controls assigned to its immutable admitted player slots. A person, control, or roster-order change does not change player identity or ownership. Authoritative input and state ownership are enforced.
@@ -468,12 +483,13 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 - **NET-OWN-AC-003 — Lobby edits:** In `NET-04`, a participant can change the person or control for an existing owned slot. The change clears all readiness and preserves the slot's identity and owner.
 - **NET-OWN-AC-004 — Roster order:** A host roster-order change clears all readiness and preserves every player identity and owner.
 - **NET-OWN-AC-005 — Removal:** Participant Leave or expiry removes all of that participant's slots and permanently revokes their identities for the session.
-- **NET-HOST-IF-AC-001 — Same-machine host:** A host can select IPv4 loopback and start a same-machine session without changing network infrastructure.
-- **NET-HOST-IF-AC-002 — Multihomed LAN host:** A multihomed host can explicitly select each eligible assigned private RFC1918 IPv4 address and start a direct LAN session on the selected address.
-- **NET-HOST-IF-AC-003 — Address exclusion:** The host selector omits every wildcard, unspecified, multicast, link-local, unassigned, network, and broadcast address.
-- **NET-HOST-IF-AC-004 — Stale selection:** An address that becomes ineligible before Start blocks startup in editable `NET-02` until the host selects an eligible address.
-- **NET-HOST-IF-AC-005 — Focus and retention:** Port has initial focus. `Listening interface` follows Port in focus order. Cancel, Edit setup, and eligible Retry retain the selected address.
+- **NET-HOST-IF-AC-001 — Default wildcard:** Reopening the Network journey enables `Listen on all` and shows individual choices checked and disabled. Successful wildcard bind permits startup even when individual enumeration fails.
+- **NET-HOST-IF-AC-002 — Explicit subset:** First disabling `Listen on all` selects all currently eligible choices. The host can remove choices and start one session on every remaining selected address without accepting connections on unselected addresses.
+- **NET-HOST-IF-AC-003 — Address exclusion:** Individual choices omit wildcard, unspecified, multicast, link-local, unassigned, network, and broadcast addresses. `0.0.0.0` is permitted only as the wildcard listening mode, not as a concrete guest or directory endpoint.
+- **NET-HOST-IF-AC-004 — Empty and stale selection:** Empty explicit selection blocks Start. An unavailable selected address remains identifiable and blocks explicit startup until corrected. A newly available address remains unchecked after explicit-set initialization. Wildcard startup does not use these enumeration checks.
+- **NET-HOST-IF-AC-005 — Focus and retention:** Port has initial focus. `Listening interface` follows Port in focus order. Popup closure, Cancel, Edit setup, and eligible Retry retain the mode and explicit set. Switching modes restores the initialized explicit set. Reopening the Network journey resets it.
 - **NET-HOST-IF-AC-006 — Scope:** Address selection does not reconfigure host or Docker networking and does not provide discovery, public Internet, NAT traversal, or port forwarding.
+- **NET-HOST-IF-AC-007 — Atomic startup:** A failure on any explicit selected bind prevents readiness and leaves no session or listener after cleanup. The host sees the applicable existing startup error and can edit retained setup.
 
 ## Exact downstream issue mapping
 
@@ -495,7 +511,7 @@ Each issue owns the listed criteria without changing their normative boundaries.
 | [#40](https://github.com/mkapusnik-apps/duel6r/issues/40) | Supported network packaging and deployment documentation | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-008`, `NET-AC-015`, `NET-AC-019` |
 | [#41](https://github.com/mkapusnik-apps/duel6r/issues/41) | Complete release-candidate validation | `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-006`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-010`, `NET-AC-011`, `NET-AC-012`, `NET-AC-013`, `NET-AC-014`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-018`, `NET-AC-019` |
 
-Issue #38 owns `NET-VIS-001` through `NET-VIS-017`, `NET-VIS-AC-001` through `NET-VIS-AC-008`, `NET-OWN-001` through `NET-OWN-009`, `NET-OWN-AC-001` through `NET-OWN-AC-005`, `NET-HOST-IF-001` through `NET-HOST-IF-012`, and `NET-HOST-IF-AC-001` through `NET-HOST-IF-AC-006`. Issue #41 owns final validation of those requirements.
+The graphical host journey consumes `NET-VIS-001` through `NET-VIS-017`, `NET-VIS-AC-001` through `NET-VIS-AC-008`, `NET-OWN-001` through `NET-OWN-009`, `NET-OWN-AC-001` through `NET-OWN-AC-005`, `NET-HOST-IF-001` through `NET-HOST-IF-024`, and `NET-HOST-IF-AC-001` through `NET-HOST-IF-AC-007`. Issue #38 owns its existing graphical journey. Issue #41 owns complete network-release validation.
 
 Issue #28 approves this target but does not satisfy parent issue #27's implementation or release evidence. In-process loopback, documentation, or planned screenshots are insufficient to claim playable networking.
 

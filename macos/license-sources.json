@@ -1,0 +1,66 @@
+{
+  "glib": {
+    "version": "2.88.3",
+    "recipe_sha256": [
+      "d2ebed597d64ab5518ea78604840e28fb9839fa923bd3917bef5f50b76d369be",
+      "0105d4552c1cc68b38cdcd23c4df05c2cb0d93ce44929f581204a6d33dd16d59"
+    ],
+    "required_notices": ["glib-2.88.3/LICENSES/LGPL-2.1-or-later.txt"],
+    "sources": [
+      {
+        "url": "https://download.gnome.org/sources/glib/2.88/glib-2.88.3.tar.xz",
+        "sha256": "ab24d24e698dfa1e408b7bcdb508f4aafc906185a8b8ce72fdf79bbbdc9b383b"
+      },
+      {
+        "url": "https://download.gnome.org/sources/gobject-introspection/1.86/gobject-introspection-1.86.0.tar.xz",
+        "sha256": "920d1a3fcedeadc32acff95c2e203b319039dd4b4a08dd1a2dfd283d19c0b9ae"
+      },
+      {
+        "url": "https://raw.githubusercontent.com/Homebrew/homebrew-core/2266c96b4f406760747a3ca11a6b14124b4f68d6/Patches/glib/hardcoded-paths.diff",
+        "sha256": "d846efd0bf62918350da94f850db33b0f8727fece9bfaf8164566e3094e80c97"
+      },
+      {
+        "url": "https://raw.githubusercontent.com/Homebrew/homebrew-core/2266c96b4f406760747a3ca11a6b14124b4f68d6/LICENSE.txt",
+        "sha256": "f80329e58613ad669c0e73cb132d8060b9b2c55e339c73848068e4d1567f4627"
+      }
+    ]
+  },
+  "gettext": {
+    "version": "1.0",
+    "recipe_sha256": [
+      "dd8d1b5914bb96c9c59140dd8cf76ad1d270f65a88111a395f79fe22106367c6",
+      "170f5a29d2eb95b9dd1f1f754c0f9b90692c3d5dcf6db02c199c93e2c445177d"
+    ],
+    "required_notices": ["gettext-1.0/gettext-runtime/intl/COPYING.LIB"],
+    "sources": [
+      {
+        "url": "https://ftp.gnu.org/gnu/gettext/gettext-1.0.tar.gz",
+        "fallback_urls": ["https://mirrors.kernel.org/gnu/gettext/gettext-1.0.tar.gz"],
+        "sha256": "85d99b79c981a404874c02e0342176cf75c7698e2b51fe41031cf6526d974f1a"
+      }
+    ]
+  },
+  "libxmp": {
+    "version": "4.7.2",
+    "recipe_sha256": ["27d5a9516c44e8345bdb238c43e4a24f579431fe5b668b4dcc92f3669504f116"],
+    "required_notices": ["libxmp-4.7.2/README", "libxmp-4.7.2/docs/CREDITS"],
+    "sources": [
+      {
+        "url": "https://downloads.sourceforge.net/project/xmp/libxmp/4.7.2/libxmp-4.7.2.tar.gz",
+        "sha256": "510a96eefd79e4558fb1fa41fb5494870328776b3f77563f94f61f241f64bde1",
+        "notices_only": true
+      }
+    ]
+  },
+  "libunistring": {
+    "version": "1.4.2",
+    "recipe_sha256": ["475a2914858445ba29061977337b455660e99ba50086565ce5089dd1f873dc2a"],
+    "required_notices": ["libunistring-1.4.2/COPYING.LIB", "libunistring-1.4.2/COPYING"],
+    "sources": [
+      {
+        "url": "https://ftp.gnu.org/gnu/libunistring/libunistring-1.4.2.tar.gz",
+        "sha256": "e82664b170064e62331962126b259d452d53b227bb4a93ab20040d846fec01d8"
+      }
+    ]
+  }
+}

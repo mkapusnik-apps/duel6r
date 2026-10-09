@@ -10,6 +10,9 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#ifdef __APPLE__
+#include "../platform/DarwinChild.h"
+#endif
 
 #ifdef D6R_TRANSPORT_WINDOWS
 #define WIN32_LEAN_AND_MEAN
@@ -49,6 +52,8 @@ namespace {
         const DWORD count = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
         if (count == 0 || count >= path.size()) return {};
         return std::filesystem::path(std::wstring(path.data(), count));
+#elif defined(__APPLE__)
+        return Duel6::Platform::Darwin::executablePath();
 #else
         std::array<char, 4096> path{};
         const ssize_t count = readlink("/proc/self/exe", path.data(), path.size() - 1);

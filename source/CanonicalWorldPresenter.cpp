@@ -517,6 +517,9 @@ namespace Duel6 {
             const Network::Responsiveness::ConnectionPresentationState &presentation,
             const std::vector<Network::Responsiveness::PresentedPlayerPose> &presentedPlayers,
             Int32 width, Int32 height) const {
+#ifdef D6_MACOS_PLATFORM
+        service.getVideo().resetDrawableViewport();
+#endif
         if (!state.round || !level || !levelRenderData || width <= 0 || height <= 0) return false;
         const Float32 scale = std::min(static_cast<Float32>(width) / level->getWidth(),
                                       static_cast<Float32>(height) / level->getHeight());

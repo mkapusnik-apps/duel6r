@@ -69,6 +69,15 @@ namespace Duel6::Network::Replication {
 
     class ClientReplicationConnection final {
     public:
+        struct CalibrationObservation {
+            std::uint64_t probes;
+            std::optional<Responsiveness::TimePoint> pendingProbe;
+            bool calibrated;
+            std::chrono::milliseconds budget;
+        };
+        CalibrationObservation calibrationObservation() const noexcept {
+            return {qualityProbeSequence, qualityProbeSentAt, localClockSynchronizedAt.has_value(), maximumCalibrationRoundTrip};
+        }
         explicit ClientReplicationConnection(
                 ReplicationSender sender,
                 Responsiveness::Environment environment = Responsiveness::Environment::PrivateLan,

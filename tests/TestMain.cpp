@@ -45,5 +45,9 @@ int main() {
     }
 
     if (!listOnly) std::cout << "Executed " << executed << " test(s), failures: " << failed << '\n';
+    if (!listOnly && !filter.empty() && executed == 0) {
+        std::cerr << "Requested test filter matched no cases\n";
+        return 2;
+    }
     return failed == 0 ? 0 : 1;
 }

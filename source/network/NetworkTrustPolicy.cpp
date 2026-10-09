@@ -128,6 +128,14 @@ namespace Duel6::Network::Trust {
         bool secureRandom(std::uint8_t *target, std::size_t size) {
 #ifdef D6R_TRANSPORT_WINDOWS
             return BCryptGenRandom(nullptr, target, static_cast<ULONG>(size), BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0;
+#elif defined(__APPLE__)
+            while (size) {
+                const auto count = std::min<std::size_t>(size, 256);
+                if (getentropy(target, count) != 0) return false;
+                target += count;
+                size -= count;
+            }
+            return true;
 #else
             std::size_t offset = 0;
             while (offset < size) {
@@ -305,7 +313,8 @@ namespace Duel6::Network::Trust {
         const std::array<std::uint8_t, 4> loopback{127, 0, 0, 1};
         for (const auto &record: *interfaces)
             if ((classifyIpv4(record.address) == EndpointScope::PrivateLan
-                 || classifyIpv4(record.address) == EndpointScope::PublicUnicast)
+                 || classifyIpv4(record.address) == EndpointScope::PublicUnicast
+                 || (classifyIpv4(record.address) == EndpointScope::Loopback && record.address != loopback))
                 && decideLocalListenerBind(record.address, *interfaces) == LocalListenerBindDecision::Allowed)
                 candidates.push_back(record.address);
         std::sort(candidates.begin(), candidates.end());

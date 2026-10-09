@@ -10,6 +10,7 @@
 #include "CanonicalWorldPresenter.h"
 #include "client/NetworkSessionRuntime.h"
 #include "client/HostDirectory.h"
+#include "network/ListeningSelection.h"
 
 namespace Duel6 {
     class NetworkMenu final : public Context {
@@ -52,7 +53,9 @@ namespace Duel6 {
         SetupScreen setupScreen = SetupScreen::Entry;
         std::string address = "127.0.0.1";
         bool publicConnection = false;
-        bool directSetupInitialized = false;
+        std::string playerHostedAddress = "127.0.0.1";
+        std::string playerHostedPort = std::to_string(Network::DefaultServerPort);
+        std::string dedicatedAddress, dedicatedPort;
         Network::PublicSession::Secret invitation;
         bool invalidInvitationInput = false;
         std::string password;
@@ -61,10 +64,10 @@ namespace Duel6 {
         std::optional<Client::DirectoryListing> browserSelection;
         bool joinFromBrowser = false;
         int browserScroll = 0;
-        std::string hostAddress;
+        Network::ListeningSelection listening;
         std::vector<std::string> hostAddresses;
         bool hostAddressSelectorOpen = false;
-        bool hostAddressSelectionBecameInvalid = false;
+        Float32 hostAddressRefreshElapsed = 0;
         std::size_t hostAddressHighlight = 0;
         std::size_t hostAddressScroll = 0;
         std::string port = std::to_string(Network::DefaultServerPort);
@@ -110,7 +113,10 @@ namespace Duel6 {
         bool localReadyEligible(std::string &reason) const;
         bool endpoint(Network::Endpoint &result) const;
         bool editingEndpoint(const Client::NetworkRuntimeSnapshot &snapshot) const;
-        int setupFields() const { return setupScreen == SetupScreen::Join ? 4 : 3; }
+        bool serviceTypeAvailable() const {
+            return setupScreen == SetupScreen::Join && !joinFromBrowser && Network::PublicSession::supported();
+        }
+        int setupFields() const { return serviceTypeAvailable() ? 4 : 3; }
         int setupFirstRow() const { return setupScreen == SetupScreen::Join && publicConnection ? 292 : 364; }
         int setupVisibleRows() const { return setupScreen == SetupScreen::Join && publicConnection ? 4 : 8; }
         void clearInvitation();
@@ -118,6 +124,10 @@ namespace Duel6 {
         void joinEndpoint(const Network::Endpoint &endpoint);
         void enterText(std::string_view text);
         bool refreshHostAddresses(bool initialSelection);
+        void moveListeningFocus(int direction);
+        void activateListeningChoice();
+        std::string listeningSummary() const;
+        std::vector<std::string> additionalListenHosts() const;
         std::string serverExecutable() const;
         void drawText(Int32 x, Int32 y, const std::string &text, Color color = Color::BLACK) const;
         void drawClippedText(Int32 x, Int32 y, const std::string &text, std::size_t characters,

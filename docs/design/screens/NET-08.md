@@ -2,7 +2,7 @@
 
 Functional authority: [NET-08](../../screens/network-failure.md), `NET-PASS-003/004`, `NET-DIR-014`, `NET-ADM-002`–`NET-ADM-005`, the [trust policy](../../network-trust-and-abuse-limits.md), and the [lifecycle contract](../../network-host-service-lifecycle.md). Structural source: existing [NET-08](../../screens/wireframes/network-failure.md).
 
-Visual impact: preserve develop's unified failure panel and browser recovery. Add pilot-specific outcomes without new controls or disclosure.
+Visual impact: preserve current develop's unified failure panel and browser recovery. Add dedicated outcomes without new controls, styles, or disclosure.
 
 ## Presentation and allocation
 
@@ -44,5 +44,8 @@ Visual impact: preserve develop's unified failure panel and browser recovery. Ad
 - Resolution failure must not be relabeled as maintenance or authorization failure.
 - Fixed outcome copy must retain `controller` where product uses that term.
 - Any baseline-focused disabled Retry must keep its focus outline without activation.
+- Maintenance and controller-expiry outcomes must use SESSION ENDED for either participant role.
+- Security and invitation outcomes must have no Retry frame, focus stop, pointer target, or bypass.
+- Endpoint context must remain absent from confirmed session-end and terminal reconnect outcomes.
 
-Do not offer an insecure fallback for any connection type. The service type does not determine the security failure cause. The [coordinated matrix](../screenshots/README.md#network-presentation-current-capture-matrix) keeps one representative and requires focused real-path checks for browser/password and terminal pilot outcomes. No screenshot may substitute silence for an authenticated maintenance or controller-expiry notice.
+Do not offer an insecure fallback for any connection type. Service type does not prove a failure cause. The [scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) keeps one security representative and focused real-path coverage for invitation rejection and confirmed expiry/maintenance. These service notices do not require a cloud-operation screen, deployment evidence, or rollback task. No screenshot may substitute silence or SIGTERM for an authenticated terminal cause. Browser/password failures remain a separate unchanged journey.

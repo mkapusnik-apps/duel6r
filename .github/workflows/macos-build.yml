@@ -1,0 +1,57 @@
+name: macOS - Apple Silicon build
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      retention_days:
+        default: 7
+        type: number
+      directory_default_url:
+        description: Compiled directory origin; empty for unchannelled builds
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build experimental macOS app
+    # macOS 14 enforces the initial minimum OS; this image retires on 2026-11-02.
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Install native build dependencies
+        run: brew install cmake ninja pkg-config python@3.13 sdl2 sdl2_image sdl2_mixer sdl2_ttf glew openssl@3
+
+      - name: Build, test, and package macOS app
+        env:
+          D6R_DIRECTORY_DEFAULT_URL: ${{ inputs.directory_default_url }}
+        run: D6R_SOURCE_REVISION="$(git rev-parse HEAD)" bash macos/build.sh
+
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-release-asset
+          path: |
+            build/macos/duel6r-macos-arm64.zip
+            build/macos/duel6r-macos-arm64.zip.sha256
+            build/macos/build-info.json
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}
+
+      - name: Upload macOS CTest diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-ctest-diagnostics
+          path: build/macos-build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+          retention-days: 7

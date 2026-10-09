@@ -27,6 +27,12 @@ An active listing is an unexpired registration for a ready player-hosted session
 - **NET-DIR-014** A stale, expired, changed, or unreachable selection must produce an actionable failure without joining a different advertised session silently. The user must be able to edit direct setup or return to the browser and refresh.
 - **NET-DIR-015** Directory failure must not end a running hosted session or block direct joining or Local Play. The host must be able to see that publication failed and retry publication without restarting the match. Background retries must be bounded.
 - **NET-DIR-016** The browser must state that listing visibility does not guarantee reachability. It must not represent another machine's loopback address or an overlapping private address as verified contact with the advertised host.
+- **NET-DIR-017** A host must advertise one concrete non-loopback IPv4 endpoint covered by the ready session, never wildcard `0.0.0.0`.
+- **NET-DIR-018** Publication must select the numerically lowest eligible assigned public unicast IPv4 address within ready listening coverage, or the numerically lowest eligible assigned private unicast IPv4 address when no public candidate exists.
+- **NET-DIR-019** If no eligible non-loopback publication candidate is available or enumeration fails, the host must report publication unavailable without failing the ready session or blocking direct joining.
+- **NET-DIR-020** Each registration, renewal, or publication retry must revalidate the advertised address against current local interface information and ready listening coverage.
+
+Wildcard coverage permits candidates on current eligible interfaces. Explicit coverage permits only successfully bound selected addresses. Publication retains one listing and one endpoint per session. Public-address preference is not a reachability test or a NAT rule. A candidate change updates the same owned listing through the existing lifecycle. If no candidate remains, the host must attempt removal of its listing and use the existing expiry rule when removal fails. Loopback-only hosting remains usable through direct same-machine joining but has no directory endpoint.
 
 ## Optional password
 
@@ -47,7 +53,45 @@ LAN is the supported gameplay environment. Valid public IPv4 endpoints are permi
 
 Unlocked endpoint-only direct joining protects against passive interception, not an active intermediary during first contact. A session identity check does not establish cryptographic host identity. This limitation does not waive listing-owner authorization, protected directory access, password-protected admission, or reconnect scope and replay checks. An authenticated directory may supply host-authentication information for browser joining, but this contract does not require a particular mechanism. Accounts, manual fingerprint comparison, and out-of-band key verification are not required user journeys.
 
-This contract does not authorize cloud deployment, provisioning, accounts, billing, or infrastructure changes. It does not select a cloud provider, database, wire protocol, or cryptographic implementation. Local Play must not contact the directory.
+The directory deployment section below authorizes only the specified cloud directory environments and their required provisioning. It supersedes earlier blanket cloud-deployment prohibitions for these environments only. It does not authorize cloud gameplay hosting or player accounts. Local Play must not contact the directory.
+
+## Directory deployment
+
+This section owns the operational product contract for the staging and production directory. It records approved deployment constraints, not a claim that either environment is deployed or verified. Player-hosted gameplay, admission, directory behavior, and security requirements remain unchanged.
+
+- **NET-DIR-DEP-001** The directory deployments must use Cloud Run in project `duel-6-reloaded` and region `europe-west1`.
+- **NET-DIR-DEP-002** A successful nightly must deploy its directory image to `staging-directory`.
+- **NET-DIR-DEP-003** A push to `master` must deploy the same immutable image from the last successfully verified staging deployment to the production directory.
+- **NET-DIR-DEP-004** Production promotion must not rebuild the image.
+- **NET-DIR-DEP-005** Both directory services must provide public HTTPS access without removing the existing listing-owner authorization requirements.
+- **NET-DIR-DEP-006** Staging and production must use separate named Firestore databases and separate runtime identities.
+- **NET-DIR-DEP-007** Each directory service must use a minimum of zero instances, a maximum of two instances, and a concurrency limit of 32.
+- **NET-DIR-DEP-008** The staging directory must provide HTTPS directory access at `https://staging.duel.netusite.cz`.
+- **NET-DIR-DEP-009** The production directory must provide HTTPS directory access at `https://duel.netusite.cz`.
+- **NET-DIR-DEP-010** A network-capable nightly client distribution must use the compiled default origin `https://staging.duel.netusite.cz` when `D6R_DIRECTORY_URL` is absent.
+- **NET-DIR-DEP-011** A network-capable release client distribution must use the compiled default origin `https://duel.netusite.cz` when `D6R_DIRECTORY_URL` is absent.
+- **NET-DIR-DEP-012** The client must use a valid explicit `D6R_DIRECTORY_URL` setting instead of the compiled default. The client must treat a present empty or invalid setting as directory unavailable without fallback to the compiled default.
+- **NET-DIR-DEP-013** Distribution workflows must select the compiled default origin by distribution channel independently of the CMake build optimization configuration. An unchannelled build must have no compiled default origin.
+
+A failed or unverified staging deployment is not eligible for production promotion. If no successfully verified staging image exists, there is no eligible image to promote. Public HTTPS directory access does not establish public gameplay reachability or overall network-release readiness.
+
+The nightly distribution path selects staging. The release distribution path selects production, including a manual invocation of the release workflow. `Release` optimization does not identify the release distribution channel. Network-capable macOS distributions follow these same channel rules under [MAC-NET-016](macos.md#network-entry); unchannelled builds have no default origin. This requirement does not add a macOS caller to the existing release workflow or authorize a new cloud deployment campaign.
+
+The client must not switch between staging and production after a directory failure. Explicit overrides must retain the existing origin validation and HTTPS certificate-chain and hostname verification. The explicit loopback-HTTP development exception remains limited to local development. A missing origin in an unchannelled build means directory unavailable. These outcomes must preserve NET-DIR-015 and Local Play independence. Local Play must not contact the directory.
+
+### Directory deployment acceptance criteria
+
+- **NET-DIR-DEP-AC-001 — Staging:** A successful nightly deploys its identifiable immutable directory image to `staging-directory` in the approved project and region. A failed nightly does not qualify for this deployment path. This criterion covers NET-DIR-DEP-001 and NET-DIR-DEP-002.
+- **NET-DIR-DEP-AC-002 — Promotion:** A push to `master` deploys the exact image digest from the last successfully verified staging deployment without a rebuild. Failed or unverified staging deployments cannot replace the eligible image. No promotion occurs when no eligible image exists. This criterion covers NET-DIR-DEP-003 and NET-DIR-DEP-004.
+- **NET-DIR-DEP-AC-003 — Environment boundaries:** Both services provide public HTTPS directory access and retain listing-owner authorization. The services use separate named Firestore databases and runtime identities, with the instance and concurrency limits from NET-DIR-DEP-007. This criterion covers NET-DIR-DEP-001 and NET-DIR-DEP-005 through NET-DIR-DEP-007.
+- **NET-DIR-DEP-AC-004 — Scope and independence:** Deployment instructions distinguish directory availability from gameplay reachability and network-release readiness. The domain and distribution-default changes preserve UI contracts, gameplay admission, direct joining, running hosted sessions, and platform evidence requirements. Local Play does not contact the directory. Experimental macOS follows the same channel rules; native automated directory/package verification is required before pre-review and merge under MAC-NET-AC-004, while actual Mac GUI and live cross-OS checks remain deferred after merge/nightly under MAC-NET-AC-006. No new cloud campaign is required by this platform extension.
+- **NET-DIR-DEP-AC-005 — Domain access:** Each approved domain provides certificate-validated HTTPS directory access to its corresponding environment. Domain access retains listing-owner authorization and staging/production isolation. This criterion covers NET-DIR-DEP-008 and NET-DIR-DEP-009.
+- **NET-DIR-DEP-AC-006 — Distribution defaults:** With `D6R_DIRECTORY_URL` absent, network-capable nightly packages select the compiled staging origin and release packages select the compiled production origin. Manual release-workflow invocation selects production. Distribution-channel selection remains independent of CMake build optimization configuration. Unchannelled builds have no compiled default origin. This criterion covers NET-DIR-DEP-010, NET-DIR-DEP-011, and NET-DIR-DEP-013.
+- **NET-DIR-DEP-AC-007 — Explicit override:** A valid explicit `D6R_DIRECTORY_URL` setting selects the requested directory instead of the compiled default. A present empty or invalid setting makes the directory unavailable without fallback. Directory failure does not switch between staging and production. Existing secure-origin validation and the explicit local-development exception remain unchanged. This criterion covers NET-DIR-DEP-012.
+
+Deployment evidence must identify the immutable source checkpoint, nightly or promotion event, image digest, deployed service revision, project, region, endpoint, and verification result. Promotion evidence must identify the eligible staging deployment and show digest equality with production. Hosted observations must establish HTTPS directory operation and retained listing-owner authorization; emulator results alone do not establish these outcomes. Configuration and access-policy evidence must establish environment separation and service limits. Team supplies this evidence; these criteria do not require a new gameplay or screenshot campaign.
+
+Domain-access evidence must identify each approved origin, its environment and serving service revision, and its certificate-validated HTTPS directory and owner-authorization results. A configured domain mapping alone does not establish DNS resolution or public TLS readiness. Distribution-default and override evidence must identify the immutable client source checkpoint, package identity, distribution channel, build optimization configuration, override presence and validity, and selected origin or unavailable outcome. Relevant consumer results must establish selection behavior and independence; configuration review may support workflow channel selection. These criteria do not require another full gameplay or screenshot campaign.
 
 ## Acceptance criteria
 
@@ -56,6 +100,7 @@ This contract does not authorize cloud deployment, provisioning, accounts, billi
 - **NET-DIR-AC-003 — Real joining:** An eligible selection reaches actual host admission and the correct lobby or live-round destination. Unreachable, expired, wrong-session, incompatible, full, and cutoff-race selections fail truthfully without silent substitution.
 - **NET-DIR-AC-004 — Independence:** A directory outage preserves an active match, direct joining, and offline Local Play. Publication can recover without match restart.
 - **NET-DIR-AC-005 — Ownership and limits:** Unauthorized registration-lifecycle changes fail. Malformed, oversized, and excessive requests fail within documented implementation limits without compromising valid session authority.
+- **NET-DIR-AC-006 — Listening coverage publication:** Wildcard and explicit-subset sessions publish the deterministic concrete endpoint in NET-DIR-017 through NET-DIR-020. A listing never contains `0.0.0.0`, loopback, or an address outside ready listening coverage. No candidate or enumeration failure reports publication unavailable while the session and direct joining remain available. Renewals revalidate candidates and update or remove the same owned listing without creating duplicate sessions.
 - **NET-PASS-AC-001 — Host enforcement:** No-password admission and correct-password admission succeed when otherwise eligible. Missing and wrong passwords fail on direct and browser paths before commitment. Correction retains non-secret setup.
 - **NET-PASS-AC-002 — Secret protection:** Reviewer evidence establishes maintained secure mechanisms, encrypted secret exchange, replay rejection, and host enforcement. For password-protected admission, evidence must establish protection against an active intermediary without the password and no unprotected fallback. For unlocked endpoint-only direct first contact, evidence must establish passive-interception protection and truthful disclosure of the active-intermediary limitation; authenticated first contact is not required. Behavioral evidence covers rejected replay and bounded guessing. Listings, generated arguments, diagnostics, and persistence disclose no secrets.
 - **NET-PASS-AC-003 — Reconnect:** A password-protected session restores only the reserved participant and current player state through the existing reconnect rules.
@@ -76,7 +121,7 @@ On two distinct LAN endpoints, testing must cover Linux host to Windows guest an
 - Round-one arrival with the new player controllable and visible on both endpoints, without resetting existing gameplay.
 - Direct joining through the secure admission path.
 
-These checks complete the deferred platform evidence for NET-DIR-AC-003, NET-PASS-AC-001, and NET-ADM-AC-001. Existing invariant mode, timing, hazard, paging, and failure evidence need not be repeated unless the nightly implementation materially changes the relevant behavior. The deferred checks must remain recorded as not executed until results are supplied. This deferral does not authorize production cloud deployment or defer NET-PUB-AC-006.
+These checks complete the deferred platform evidence for NET-DIR-AC-003, NET-PASS-AC-001, and NET-ADM-AC-001. Existing invariant mode, timing, hazard, paging, and failure evidence need not be repeated unless the nightly implementation materially changes the relevant behavior. The deferred checks must remain recorded as not executed until results are supplied. Directory deployment authorization is separate and limited to the directory deployment section above. This deferral does not defer the retained dedicated Windows journey in NET-PUB-AC-006.
 
 ### Historical feature acceptance
 

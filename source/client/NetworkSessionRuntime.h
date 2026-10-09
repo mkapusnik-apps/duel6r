@@ -69,7 +69,8 @@ namespace Duel6::Client {
         bool startHost(const Network::Endpoint &endpoint, const std::string &serverExecutable,
                        const std::string &resourcePath,
                        const Network::HostComposition::Setup &setup,
-                       std::vector<NetworkLocalPlayer> players);
+                        std::vector<NetworkLocalPlayer> players,
+                        std::vector<std::string> additionalListenHosts = {});
         bool join(const Network::Endpoint &endpoint, const std::string &resourcePath,
                   std::vector<NetworkLocalPlayer> players,
                   std::shared_ptr<const Network::SessionPassword> password = {},

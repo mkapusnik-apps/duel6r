@@ -18,45 +18,17 @@ Requirement and acceptance criterion identifiers in this document are stable ref
 
 ## Terms
 
-The player-hosted package and replacement requirements below remain authoritative for player-hosted packages. Current address, directory, password, and round-one admission behavior follows network play, NET-DIR, and NET-PASS. Public/dedicated exclusions do not apply to the dedicated pilot defined here. The pilot does not turn a diagnostic transport command into a supported public service.
+The player-hosted package and replacement requirements below remain authoritative for player-hosted packages. Current address, directory, password, and round-one admission behavior follows network play, NET-DIR, and NET-PASS. The retained operator-configured dedicated extension follows NET-PUB, TRU-PUB, and HSL-PUB. It does not turn a diagnostic transport command into a supported public service.
 
-### Public pilot environments and release boundary
+### Dedicated extension and directory boundary
 
-- **NET-PUB-DEP-001** The dedicated pilot must support staging and production in the single GCP project `duel-6-reloaded`.
-- **NET-PUB-DEP-002** Each environment must have a distinct endpoint, invitation authority, session state, and deployment target.
-- **NET-PUB-DEP-003** A staging deployment or session must not change production configuration, credentials, or session state.
-- **NET-PUB-DEP-004** The deployment target must be Compute Engine in a European region selected for the lowest practical pilot cost that satisfies the approved security and gameplay requirements.
-- **NET-PUB-DEP-005** Changes on `develop` must trigger the staging deployment path after its required checks pass.
-- **NET-PUB-DEP-006** Changes on `master` must trigger the production deployment path after its required checks pass and the production environment approval is granted.
-- **NET-PUB-DEP-007** Every deployment and rollback must identify its immutable source revision and deployed artifact.
-- **NET-PUB-DEP-008** Deployment and rollback may interrupt active sessions; neither operation must claim session continuity or restoration.
-- **NET-PUB-DEP-009** A failed deployment must not be reported as successful or ready.
-- **NET-PUB-DEP-010** An authorized operator must be able to restore a previously identified complete service artifact and compatible configuration as a new service instance without restoring old sessions.
-- **NET-PUB-DEP-011** Production must use `duel.netusite.cz` and staging must use `staging.duel.netusite.cz` after manual domain activation.
-- **NET-PUB-DEP-012** Deployment configuration must not require live provisioning to prepare or review repository changes.
-- **NET-PUB-DEP-013** Provisioning, IAM changes, billable operations, and live deployment must require separate operator authorization.
-- **NET-PUB-DEP-014** A public listener must not become available before valid endpoint identity, encryption, invitation enforcement, and environment isolation are configured.
-- **NET-PUB-DEP-015** Operator documentation must identify required configuration, published service ports, cost assumptions, region selection rationale, manual domain activation, readiness checks, rollback, and teardown.
-- **NET-PUB-DEP-016** Missing cloud authorization, credentials, DNS, or certificates must block live deployment safely without weakening security requirements.
-- **NET-PUB-DEP-017** The pilot must permit staging to remain stopped outside authorized deployment and test periods.
-- **NET-PUB-DEP-018** Staging shutdown must use the existing interruption contract without changing production availability or claiming a resumable staging session.
+NET-PUB-DEP-001 through NET-PUB-DEP-018 and NET-PUB-DEP-AC-001 through NET-PUB-DEP-AC-004 are retired. The former VM, Terraform, proxy deployment packet, cloud staging/production automation, fixed gameplay domains, sizing, costs, rollback campaign, and activation requirements are not part of the retained extension. Retired identifiers must not be reused.
 
-The single-project constraint permits shared billing and project administration. It does not permit shared invitations or session state. No availability SLA, zero-downtime deployment, spare capacity, or multi-region requirement is introduced. Cost optimization must not remove encryption, invitation enforcement, isolation, or validation. DevOps owns service sizing, region price comparison, deployment mechanics, and operational documentation.
+The retained service uses an operator-configured endpoint under NET-PUB-017. Repository acceptance covers real secure admission, dedicated sessions, controller authority, recovery, cleanup, and current-design client integration. It requires no new domain, cloud deployment, provisioning, or billable activation. TRU-PUB still prohibits insecure exposure; no retired deployment requirement weakens that contract. HSL-PUB still distinguishes confirmed maintenance from ambiguous loss, and a restarted service does not restore an old session.
 
-Production is intended for continuous operation after authorized activation; staging is on demand. A stopped staging environment is an expected unavailable endpoint, not evidence of failed production. Cost examples must identify assumed staging hours and exclusions such as traffic; they are estimates, not a fixed product price or spending authorization.
+The operator supplies the secure service endpoint, server-identity configuration, and invitation externally to the frontend. The frontend does not provision them. This scope requires no new generic deployment recipe or dedicated distribution package. Controlled verification must still exercise the retained real service and client contracts; an external prerequisite is not a waiver of their acceptance criteria.
 
-| Criterion | Required outcome | Requirements |
-|---|---|---|
-| **NET-PUB-DEP-AC-001** | Configuration names one project and separate staging/production targets, credentials, state, and endpoints. Staging deployment or shutdown cannot select or mutate production. Staging can remain stopped between deployment/test periods. The European Compute Engine configuration has a cost rationale with explicit runtime and traffic assumptions. | NET-PUB-DEP-001–004, NET-PUB-DEP-011, NET-PUB-DEP-015, NET-PUB-DEP-017–018 |
-| **NET-PUB-DEP-AC-002** | The develop path targets staging. The master path cannot deploy production without passing checks and production approval. Failure is not success. Deployment records identify revision and artifact. | NET-PUB-DEP-005–007, NET-PUB-DEP-009 |
-| **NET-PUB-DEP-AC-003** | Replacement and rollback use identifiable complete artifacts and compatible configuration. Interrupted participants follow HSL-PUB outcomes. No old session or authority is restored. | NET-PUB-DEP-008, NET-PUB-DEP-010 |
-| **NET-PUB-DEP-AC-004** | Repository preparation needs no live resources. Missing approval or runtime prerequisites blocks live changes and public exposure. Operator instructions identify all external prerequisites and safe teardown. | NET-PUB-DEP-012–016 |
-
-#### Repository acceptance and external activation
-
-Repository acceptance covers implemented behavior, functional screen contracts, configurable deployment paths, safety gates, and operational instructions. Evidence must cover the criteria above in explicitly identified controlled environments and must identify the immutable checkpoint SHA. Controlled public-mode observations must exercise real encrypted admission and gameplay, not transport echo. Security review and workflow validation must demonstrate enforcement, not merely the presence of configuration text.
-
-Live-service acceptance is separate. It requires authorized project provisioning and IAM, billable-resource authorization, operator-managed invitation provisioning, manual DNS activation, trusted certificates for both published names, and hosted observations of actual deployment, admission, gameplay, isolation, interruption, and rollback. Repository acceptance must mark these live criteria as externally pending, not passed or waived. Until that evidence exists, documentation must not claim that either public endpoint is available or that the public service is release-ready.
+The separately approved directory deployment remains governed by [NET-DIR-DEP](network-host-directory.md#directory-deployment) and its operations documentation. `https://duel.netusite.cz` and `https://staging.duel.netusite.cz` remain the approved directory origins, not dedicated gameplay defaults. This extension must not replace their domain mappings, deployment paths, channel selection, or authorization boundaries. No public gameplay service availability is claimed.
 
 - **Complete package:** One target-platform package with the client, required player-hosted service components, runtime dependencies, and shipped resources.
 - **Matching package set:** Complete Linux x86-64 and Windows x86-64 packages that satisfy the authoritative compatibility contract for one network release and gameplay-content set.
@@ -80,7 +52,7 @@ Live-service acceptance is separate. It requires authorized project provisioning
 - **NET-DEP-011** Published instructions must distinguish transport connection, participant admission, and playable-session evidence.
 - **NET-DEP-012** A packaged Local Play session must start and complete without requiring or starting a network service.
 
-The supported player-hosted environment is same-machine or LAN operation. Valid public-unicast IPv4 endpoints remain permitted without an Internet reachability or performance guarantee. The current trust policy defines eligible listening addresses, explicit non-loopback selection, and protected admission. The dedicated pilot uses NET-PUB-DEP and TRU-PUB. Packaging must not weaken either mode's security contract.
+The supported player-hosted environment is same-machine or LAN operation. Valid public-unicast IPv4 endpoints remain permitted without an Internet reachability or performance guarantee. The current trust policy defines wildcard or explicit selected listening coverage and protected admission. The retained operator-endpoint dedicated extension uses NET-PUB, HSL-PUB, and TRU-PUB. Packaging must not weaken either mode's security contract. The macOS and Raspberry Pi player-hosted platform contracts remain unchanged.
 
 ## Replacement and local data
 
