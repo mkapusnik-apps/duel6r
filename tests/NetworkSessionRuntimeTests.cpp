@@ -1083,6 +1083,7 @@ D6R_TEST_CASE("UX-NET-04 settings preserve whole-row press wrap toggles traversa
     auto &menu = f.menu;
     f.lobby();
     menu.runtime.current.canonical->settings.mode = "Team deathmatch";
+    menu.hostSetup.localPlayerNames = {"Ada"};
     menu.hostSetup.roundLimit = 99;
     menu.runtime.supervisor = std::make_unique<Client::HostServiceSupervisor>();
     f.click(590, 312); // Existing round row: press once, regardless of subregion.
