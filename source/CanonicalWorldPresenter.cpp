@@ -351,7 +351,7 @@ namespace Duel6 {
     }
 
     void CanonicalWorldPresenter::renderEntity(
-            const Network::Replication::WorldEntityState &entity, std::uint64_t phaseTick) const {
+            const Network::Replication::WorldEntityState &entity) const {
         if (!entity.active && entity.kind != Network::Replication::EntityKind::Tree
             && entity.kind != Network::Replication::EntityKind::Water) return;
         const Vector centre(worldValue(entity.positionX), worldValue(entity.positionY), 0.65f);
@@ -361,6 +361,13 @@ namespace Duel6 {
             case Kind::Projectile:
                 if (const Weapon *weapon = weaponFor(entity.type)) {
                     const auto visual = weapon->getNetworkProjectileVisual();
+                    const auto frame = entity.primaryValue;
+                    if (frame < 0 || frame > Network::Replication::MaxProjectileAnimationFrame
+                        || frame % 2 != 0) return;
+                    // The transport bounds the offset; also check this weapon's
+                    // actual animation before indexing its metadata.
+                    for (std::int64_t offset = 0; offset <= frame; offset += 2)
+                        if (visual.animation[offset] == -1) return;
                     const bool facingLeft = entity.velocityX < 0;
                     // Replication carries the collision centre, not the sprite origin.
                     // Mirror the same weapon-specific rectangle used by LegacyShot.
@@ -369,7 +376,7 @@ namespace Duel6 {
                                         centre.y - anchor.y);
                     Sprite sprite(visual.animation, weapon->getNetworkProjectileTexture());
                     sprite.setPosition(origin, 0.65f)
-                            .setFrame(animationFrame(visual.animation, phaseTick))
+                            .setFrame(static_cast<Size>(frame))
                             .setOrientation(facingLeft ? Orientation::Left : Orientation::Right);
                     sprite.render(renderer);
                 }
@@ -553,7 +560,7 @@ namespace Duel6 {
         renderer.enableDepthTest(false);
         levelRenderData->getWalls().render(resources.getBlockTextures(), false);
         levelRenderData->getSprites().render(resources.getBlockTextures(), true);
-        for (const auto &entity: state.entities) renderEntity(entity, state.phaseTime);
+        for (const auto &entity: state.entities) renderEntity(entity);
         for (const auto &player: state.players) {
             if (!player.visible || player.lifeState == Network::Replication::LifeState::Departed) continue;
             const auto pose = std::find_if(presentedPlayers.begin(), presentedPlayers.end(), [&](const auto &value) {

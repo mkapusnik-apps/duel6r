@@ -68,8 +68,7 @@ namespace Duel6 {
                 Network::Replication::Identity identity) const;
         void presentEvent(const Network::Replication::CanonicalState &state,
                           const Network::Replication::PresentationEvent &event);
-        void renderEntity(const Network::Replication::WorldEntityState &entity,
-                          std::uint64_t phaseTick) const;
+        void renderEntity(const Network::Replication::WorldEntityState &entity) const;
         void renderHeldWeapon(const Network::Replication::PlayerState &player,
                               Float32 x, Float32 y) const;
         void renderPlayerEffects(const Network::Replication::CanonicalState &state,

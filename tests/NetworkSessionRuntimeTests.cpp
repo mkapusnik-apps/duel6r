@@ -2316,7 +2316,7 @@ D6R_TEST_CASE("network restoration all default weapons retain offline sprite att
             shot.positionX = 7 * 65536; shot.positionY = 4 * 65536;
             shot.velocityX = left ? -65536 : 65536;
             recording.quads.clear();
-            presenter.renderEntity(shot, 0);
+            presenter.renderEntity(shot);
             D6R_REQUIRE_EQ(1u, recording.quads.size());
             const auto actual = recording.quads.front();
             recording.quads.clear();
@@ -2326,13 +2326,116 @@ D6R_TEST_CASE("network restoration all default weapons retain offline sprite att
                     .setOrientation(left ? Orientation::Left : Orientation::Right);
             expected.render(recording);
             sameDraw(actual, recording.quads.front());
-            // Animation selection remains weapon-specific, not always layer zero.
+            // Every authoritative frame selects its exact weapon-specific layer.
+            for (Size frame = 0; visual.animation[frame] != -1; frame += 2) {
+                D6R_REQUIRE(frame <= Network::Replication::MaxProjectileAnimationFrame);
+                shot.primaryValue = static_cast<std::int64_t>(frame);
+                recording.quads.clear();
+                presenter.renderEntity(shot);
+                D6R_REQUIRE_EQ(1u, recording.quads.size());
+                D6R_REQUIRE_EQ(static_cast<Float32>(visual.animation[frame]),
+                               recording.quads.front().uv.front().z);
+            }
+            // A short animation cannot be indexed through a valid generic bound.
+            Size end = 0;
+            while (visual.animation[end] != -1) end += 2;
+            shot.primaryValue = static_cast<std::int64_t>(end);
             recording.quads.clear();
-            presenter.renderEntity(shot, 12);
-            bool validLayer = false;
-            for (Size frame = 0; visual.animation[frame] != -1; frame += 2)
-                validLayer |= recording.quads.front().uv.front().z == visual.animation[frame];
-            D6R_REQUIRE(validLayer);
+            presenter.renderEntity(shot);
+            D6R_REQUIRE(recording.quads.empty());
+        }
+    }
+}
+
+D6R_TEST_CASE("network projectile frames render exact authoritative lifecycle through full incremental and fresh snapshots") {
+    using namespace std::chrono_literals;
+    const auto root = std::filesystem::temp_directory_path()
+            / ("duel6r-projectile-frame-presenter-" + std::to_string(::getpid()));
+    D6R_REQUIRE(std::filesystem::create_directory(root));
+    struct Cleanup {
+        std::filesystem::path root;
+        pid_t child = -1;
+        ~Cleanup() {
+            if (child > 0) {
+                ::kill(child, SIGKILL);
+                while (::waitpid(child, nullptr, 0) < 0 && errno == EINTR) {}
+            }
+            std::error_code ignored; std::filesystem::remove_all(root, ignored);
+        }
+    } cleanup{root};
+    const auto trace = (root / "frames.trace").string();
+    std::vector<std::string> command{"env", std::string("D6R_TEST_FILTER=") + Test::ProjectileFrameProducer,
+            "D6R_TEST_EXACT=1", "D6R_PROJECTILE_FRAME_TRACE=" + trace, D6R_CANONICAL_MOTION_TEST_PRODUCER};
+    std::vector<char *> argv;
+    for (auto &argument : command) argv.push_back(argument.data());
+    argv.push_back(nullptr);
+    D6R_REQUIRE_EQ(0, ::posix_spawnp(&cleanup.child, "env", nullptr, nullptr, argv.data(), environ));
+    bool exited = false;
+    const auto deadline = std::chrono::steady_clock::now() + 30s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        int status = 0;
+        const auto result = ::waitpid(cleanup.child, &status, WNOHANG);
+        if (result == cleanup.child) {
+            cleanup.child = -1;
+            D6R_REQUIRE(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+            exited = true; break;
+        }
+        D6R_REQUIRE(result == 0 || (result < 0 && errno == EINTR));
+        std::this_thread::sleep_for(10ms);
+    }
+    D6R_REQUIRE(exited);
+    const auto samples = Test::readCanonicalMotionTrace(trace);
+    char name[] = "duel6r-projectile-frame-presenter-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot;
+        std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recorder = std::make_unique<Test::RecordingRenderer>();
+    auto &recording = *recorder;
+    video.renderer = std::move(recorder);
+    CanonicalWorldPresenter presenter(*application.service, application.gameResources);
+    const auto visual = presenter.weaponFor("triton")->getNetworkProjectileVisual();
+    const auto projectile = [](const auto &state) {
+        const auto found = std::find_if(state.entities.begin(), state.entities.end(), [](const auto &entity) {
+            return entity.kind == Network::Replication::EntityKind::Projectile;
+        });
+        D6R_REQUIRE(found != state.entities.end());
+        return *found;
+    };
+    for (unsigned batch : {0u, 4u}) {
+        Network::Replication::AuthoritativeStateReplicator publisher;
+        D6R_REQUIRE(publisher.initialize(samples[batch].snapshot.state));
+        Network::Replication::ReplicatedState incremental;
+        D6R_REQUIRE(incremental.apply(*publisher.fullSnapshot()) == Network::Replication::ApplyResult::Applied);
+        for (unsigned offset = 0; offset < 4; ++offset) {
+            const auto &state = samples[batch + offset].snapshot.state;
+            if (offset) {
+                const auto update = publisher.publish(state);
+                D6R_REQUIRE(update);
+                const auto wire = Network::Replication::deserializeReplicationFrame(
+                        Network::Replication::serializeReplicationUpdate(*update));
+                D6R_REQUIRE(wire && wire->update);
+                D6R_REQUIRE(incremental.apply(*wire->update) == Network::Replication::ApplyResult::Applied);
+            }
+            Network::Replication::ReplicatedState fresh;
+            const auto wire = Network::Replication::deserializeReplicationFrame(
+                    Network::Replication::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+            D6R_REQUIRE(wire && wire->snapshot);
+            D6R_REQUIRE(fresh.apply(*wire->snapshot) == Network::Replication::ApplyResult::Applied);
+            const auto canonicalShot = projectile(state);
+            for (const auto *view : {incremental.state(), fresh.state()}) {
+                const auto shot = projectile(*view);
+                D6R_REQUIRE_EQ(canonicalShot.primaryValue, shot.primaryValue);
+                recording.quads.clear();
+                presenter.renderEntity(shot);
+                D6R_REQUIRE_EQ(1u, recording.quads.size());
+                D6R_REQUIRE_EQ(static_cast<Float32>(visual.animation[shot.primaryValue]),
+                               recording.quads.front().uv.front().z);
+            }
         }
     }
 }
