@@ -7,6 +7,7 @@ an application protocol peer, not a deployment or proxy configuration test.
 """
 import contextlib
 from collections import deque
+import errno
 import json
 import os
 from pathlib import Path
@@ -150,8 +151,22 @@ class TlsPeer:
                 remaining = deadline - time.monotonic()
                 assert remaining > 0, "End regression backend EOF deadline"
                 select.select([backend], [], [], min(.01, remaining))
+            except OSError as error:
+                self.record(connection, "race-backend-read-error", "backend-to-client", error.errno or 0)
+                raise
         self.record(connection, "race-backend-eof", "backend-to-client")
-        backend.shutdown(socket.SHUT_WR)
+        self.record(connection, "race-backend-shutdown-attempt", "client-to-backend")
+        try:
+            backend.shutdown(socket.SHUT_WR)
+        except OSError as error:
+            self.record(connection, "race-backend-shutdown-error", "client-to-backend", error.errno or 0)
+            # TCP may already have completed its close handshake after EOF.
+            # This is shutdown evidence only, never the qualifying write failure.
+            # Still consume ordinary client traffic and attempt the actual send.
+            if error.errno != errno.ENOTCONN: raise
+        else:
+            self.record(connection, "race-backend-shutdown-complete", "client-to-backend")
+        self.record(connection, "race-client-read-attempt", "client-to-backend")
         while True:
             try:
                 traffic = client.recv(65536)
@@ -162,9 +177,16 @@ class TlsPeer:
                 assert remaining > 0, "End regression client traffic deadline"
                 select.select([] if isinstance(error, ssl.SSLWantWriteError) else [client],
                               [client] if isinstance(error, ssl.SSLWantWriteError) else [], [], min(.01, remaining))
+            except OSError as error:
+                self.record(connection, "race-client-read-error", "client-to-backend", error.errno or 0)
+                raise
+        self.record(connection, "race-opposite-write-attempt", "client-to-backend")
         try:
             backend.send(traffic)
         except OSError as error:
+            if error.errno not in (errno.EPIPE, errno.ENOTCONN):
+                self.record(connection, "race-opposite-write-unexpected-error", "client-to-backend", error.errno or 0)
+                raise
             self.race_write_failed.set()
             self.record(connection, "race-opposite-write-failed", "client-to-backend", error.errno or 0)
             raise
@@ -374,8 +396,8 @@ class TlsPeer:
                     try:
                         self.synchronize_end_write_race(client, backend, connection_id)
                     except OSError as error:
-                        read_open[backend] = False  # The barrier observed actual backend EOF.
-                        lose_backend_write("write-error", error.errno or 0)
+                        read_open[backend] = False  # Operation-specific synchronization evidence is retained above.
+                        lose_backend_write("race-sync-error", error.errno or 0)
 
             for destination in (client, backend):
                 if not write_open[destination] or not outgoing[destination]:

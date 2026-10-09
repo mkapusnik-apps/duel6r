@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Deterministic relay total-budget tests without sockets or wall-clock sleeps."""
 from collections import deque
+import errno
+import socket
 import ssl
 import struct
 import threading
@@ -8,6 +10,132 @@ import unittest
 from unittest.mock import patch
 
 from PublicDedicatedProcessTests import TlsPeer
+
+
+class EndWriteRaceTests(unittest.TestCase):
+    @staticmethod
+    def peer():
+        peer = object.__new__(TlsPeer)
+        peer.events = deque(maxlen=64)
+        peer.evidence_lock = threading.Lock()
+        peer.race_write_failed = threading.Event()
+        return peer
+
+    def probe(self, shutdown_error, send_error):
+        peer = self.peer()
+        operations = []
+
+        class Backend:
+            def recv(self, _):
+                operations.append('backend.recv')
+                return b''
+            def shutdown(self, how):
+                self_case.assertEqual(how, socket.SHUT_WR)
+                operations.append('backend.shutdown')
+                if shutdown_error is not None: raise OSError(shutdown_error, 'socket double')
+            def send(self, data):
+                operations.append('backend.send')
+                self_case.assertEqual(data, b'ordinary client traffic')
+                if send_error is not None: raise OSError(send_error, 'socket double')
+                return len(data)
+
+        class Client:
+            def recv(self, _):
+                operations.append('client.recv')
+                return b'ordinary client traffic'
+
+        self_case = self
+        with self.assertRaises(OSError) as failure:
+            peer.synchronize_end_write_race(Client(), Backend(), 3)
+        return peer, operations, failure.exception.errno
+
+    def test_shutdown_enotconn_still_attempts_real_send_before_qualifying_epipe(self):
+        peer, operations, code = self.probe(errno.ENOTCONN, errno.EPIPE)
+        self.assertEqual(operations, ['backend.recv', 'backend.shutdown', 'client.recv', 'backend.send'])
+        self.assertEqual(code, errno.EPIPE)
+        self.assertTrue(peer.race_write_failed.is_set())
+        self.assertIn((3, 'client-to-backend', 'race-opposite-write-failed', errno.EPIPE), peer.events)
+
+    def test_only_closed_write_send_errors_qualify(self):
+        for code in (errno.EPIPE, errno.ENOTCONN):
+            with self.subTest(code=code):
+                peer, operations, actual = self.probe(None, code)
+                self.assertEqual(operations[-1], 'backend.send')
+                self.assertEqual(actual, code)
+                self.assertTrue(peer.race_write_failed.is_set())
+        peer, operations, code = self.probe(None, errno.EIO)
+        self.assertEqual(operations[-1], 'backend.send')
+        self.assertEqual(code, errno.EIO)
+        self.assertFalse(peer.race_write_failed.is_set(), 'unrelated send error qualified a closed-write race')
+
+    def test_unrelated_shutdown_error_never_qualifies_or_skips_into_send(self):
+        for code in (errno.EIO, errno.EPIPE):
+            with self.subTest(code=code):
+                peer, operations, actual = self.probe(code, errno.EPIPE)
+                self.assertEqual(operations, ['backend.recv', 'backend.shutdown'])
+                self.assertEqual(actual, code)
+                self.assertFalse(peer.race_write_failed.is_set())
+
+    def test_shutdown_enotconn_does_not_discard_held_end_after_actual_send_failure(self):
+        peer = self.peer()
+        peer.stop = threading.Event()
+        peer.control_root = None
+        peer.frames = deque(maxlen=64)
+        peer.application_bytes = peer.forwarded_ends = 0
+        peer.eof_observation = None
+        peer.end_write_race = True
+        # Unit-only protocol vectors; the native integration still obtains End
+        # from the real service and checks the native consumer/forwarding count.
+        end = b'D6LC\0\1\0\3' + bytes(8)
+        ordinary = b'D6LC\0\1\0\6\0\1' + bytes(16)
+        wire = struct.pack('!IHHI', 0x44365254, 1, 0, len(end)) + end
+        traffic = struct.pack('!IHHI', 0x44365254, 1, 0, len(ordinary)) + ordinary
+        operations = []
+        clock = [100.0]
+        self_case = self
+
+        class Backend:
+            first = True
+            def setblocking(self, _): pass
+            def recv(self, _):
+                if self.first:
+                    self.first = False
+                    return wire
+                return b''
+            def shutdown(self, _):
+                operations.append('shutdown')
+                raise OSError(errno.ENOTCONN, 'socket double')
+            def send(self, data):
+                operations.append('ordinary-send')
+                self_case.assertEqual(data, traffic)
+                raise OSError(errno.EPIPE, 'socket double')
+
+        class Client:
+            forwarded = b''
+            def setblocking(self, _): pass
+            def pending(self): return 0
+            def recv(self, _): return traffic
+            def send(self, data):
+                operations.append('end-forward')
+                self.forwarded += data
+                peer.stop.set()
+                return len(data)
+
+        client, backend = Client(), Backend()
+        def readiness(reads, writes, errors, timeout):
+            clock[0] += .01
+            self.assertLess(clock[0], 102.0, 'original relay budget exceeded')
+            return list(reads), list(writes), []
+        with patch('PublicDedicatedProcessTests.time.monotonic', lambda: clock[0]), \
+             patch('PublicDedicatedProcessTests.select.select', readiness):
+            peer.relay_streams(client, backend, 3)
+        self.assertEqual(operations, ['shutdown', 'ordinary-send', 'end-forward'])
+        self.assertTrue(peer.race_write_failed.is_set())
+        self.assertEqual(client.forwarded, wire)
+        self.assertEqual(peer.forwarded_ends, 1)
+        stages = [event[2] for event in peer.events]
+        self.assertLess(stages.index('race-backend-shutdown-error'), stages.index('race-opposite-write-failed'))
+        self.assertLess(stages.index('race-opposite-write-failed'), stages.index('end-forwarded'))
 
 
 class RelayBudgetTests(unittest.TestCase):
