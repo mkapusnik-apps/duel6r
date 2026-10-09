@@ -16,7 +16,9 @@
 #include <cerrno>
 #include <csignal>
 #include <fcntl.h>
+#ifdef __linux__
 #include <sys/prctl.h>
+#endif
 #include <sys/wait.h>
 #include <unistd.h>
 extern char **environ;
@@ -29,7 +31,7 @@ extern char **environ;
 #endif
 
 namespace {
-#ifndef _WIN32
+#ifdef __linux__
 volatile std::sig_atomic_t applicationStop = 0;
 void requestApplicationStop(int) { applicationStop = 1; }
 #endif
@@ -130,7 +132,7 @@ int main(int count, char **arguments) {
     }
 #endif
     const std::string mode = modeFromArguments(count, arguments);
-#ifndef _WIN32
+#ifdef __linux__
     if (mode == "tree-teardown-inherited-mask") {
         sigset_t mask; sigemptyset(&mask); sigaddset(&mask, SIGUSR2);
         if (sigprocmask(SIG_BLOCK, &mask, nullptr) != 0) return 92;
@@ -139,7 +141,7 @@ int main(int count, char **arguments) {
     }
 #endif
     auto channel = Duel6::Server::HostedServiceChannel::fromCommandLine(count, arguments);
-#ifndef _WIN32
+#ifdef __linux__
     if (mode == "guard-signal-conflict") {
         if (!publishMarker(gameplayScriptFromArguments(count, arguments), channel ? "accepted\n" : "rejected\n")) return 83;
         return channel ? 83 : 0;
@@ -234,14 +236,19 @@ int main(int count, char **arguments) {
         }
         if (!channel->send(Duel6::Network::HostServiceStatusCode::Ready)) return 80;
     }
-    if (mode == "tree" || mode == "tree-eof-before-signal" || mode == "tree-application-stop"
-        || mode == "tree-teardown" || mode == "tree-teardown-inherited-mask") {
+    if (mode == "tree"
+#ifdef __linux__
+        || mode == "tree-eof-before-signal" || mode == "tree-application-stop"
+        || mode == "tree-teardown" || mode == "tree-teardown-inherited-mask"
+#endif
+        ) {
         const std::string pidFile = gameplayScriptFromArguments(count, arguments);
         const pid_t descendant = fork();
         if (descendant < 0) return 81;
         if (descendant == 0) {
             for (;;) pause();
         }
+#ifdef __linux__
         if (mode == "tree-eof-before-signal") {
             // Select control EOF before parent-death signal dispatch without
             // extending the original process-identity/termination deadline.
@@ -266,8 +273,10 @@ int main(int count, char **arguments) {
             while (!applicationStop) pause();
             return 0;
         }
+#endif
         if (!publishMarker(pidFile, std::to_string(descendant) + "\n")) return 82;
     }
+#ifdef __linux__
     if (mode == "unowned-group" || mode == "unowned-control") {
         const std::string marker = gameplayScriptFromArguments(count, arguments);
         if (mode == "unowned-group") {
@@ -294,6 +303,7 @@ int main(int count, char **arguments) {
         do { reaped = waitpid(descendant, &status, 0); } while (reaped < 0 && errno == EINTR);
         if (reaped != descendant || !publishMarker(gameplayScriptFromArguments(count, arguments), "guarded\n")) return 83;
     }
+#endif
 #else
     if (mode == "tree") {
         const std::string pidFile = gameplayScriptFromArguments(count, arguments);
@@ -333,7 +343,7 @@ int main(int count, char **arguments) {
 
     // "timeout" deliberately never reports status. All long-lived modes cooperate with Stop.
     for (;;) {
-#ifndef _WIN32
+#ifdef __linux__
         if (applicationStop) return 0;
 #endif
         if (channel->stopRequested()) return 0;

@@ -22,9 +22,7 @@
 #include <windows.h>
 #include <bcrypt.h>
 #else
-#ifndef __APPLE__
 #include <sys/random.h>
-#endif
 #include <unistd.h>
 #endif
 
