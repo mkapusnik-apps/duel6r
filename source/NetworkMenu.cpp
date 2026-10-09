@@ -2142,7 +2142,7 @@ namespace Duel6 {
         }
         std::vector<std::string> statusRows;
         statusRows.push_back(std::string(snap.host ? "Host" : "Guest")
-                             + (snap.publicSession ? " • Dedicated session • " : " • Player-hosted session • ") + connectionState);
+                             + (snap.publicSession ? " • Dedicated session • " : " • LAN session • ") + connectionState);
         if (snap.host && !snap.publicSession) statusRows.push_back(snap.directoryAvailable ? "Directory: Listed"
             : snap.directoryRegistering ? "Directory: Registering…" : "Directory: Unavailable • Retry publication (F5)");
         const std::string right = "Session only scores • Optional scripts disabled";
