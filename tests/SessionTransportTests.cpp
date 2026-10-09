@@ -1119,7 +1119,7 @@ void productionListenerPolicy() {
         if (!Trust::isLocalIpv4AddressAssigned(bytes)) { stale = candidate; break; }
     }
     CHECK(!stale.empty());
-    for (const auto &address : {stale, std::string("0.0.0.0"), std::string("255.255.255.255"),
+    for (const auto &address : {stale, std::string("255.255.255.255"),
                                std::string("224.0.0.1"), std::string("::1")}) {
         TcpListener denied(1, dependencies);
         CHECK(denied.start({address, port}));
@@ -1128,6 +1128,94 @@ void productionListenerPolicy() {
         CHECK(denied.failure() == (address == stale ? TransportFailure::BindFailed : TransportFailure::InvalidEndpoint));
         denied.shutdown();
     }
+}
+
+void transactionalListeningCoverage() {
+    // Bind actual assigned destinations on every platform. Linux's ability to bind
+    // arbitrary 127/8 aliases is not a portable fixture or an assignment guarantee.
+    const auto addresses = Trust::localListenerAddresses();
+    if (!addresses || addresses->size() < 2)
+        throw Failure("transactional listening coverage requires two actual eligible assigned IPv4 addresses; no interfaces are fabricated or skipped");
+    const auto &primary = addresses->front();
+    const auto &secondary = addresses->at(1);
+    CHECK(primary != secondary);
+    for (const auto &host: {primary, secondary}) {
+        std::array<std::uint8_t, 4> bytes{};
+        CHECK(Trust::classifyIpv4Literal(host, &bytes) != Trust::EndpointScope::Invalid);
+        CHECK(Trust::localListenerBindDecision(bytes) == Trust::LocalListenerBindDecision::Allowed);
+    }
+    const auto port = unusedPort();
+    std::cout << "assigned multibind fixture;primary=" << primary << ";secondary=" << secondary
+              << ";port=" << port << '\n';
+    SessionTransportDependencies assignedPolicy;
+    assignedPolicy.enforceNetworkSessionPolicy = true;
+    TcpListener listener(2, assignedPolicy);
+    CHECK(listener.startAll({{primary, port}, {secondary, port}}));
+    if (!listener.waitForReady(NativeObserverWait))
+        throw Failure("assigned multibind startup failed;primary=" + primary + ";secondary=" + secondary
+                      + ";state=" + std::to_string(static_cast<int>(listener.state()))
+                      + ";failure=" + std::to_string(static_cast<int>(listener.failure()))
+                      + ";addressInUse=" + std::to_string(listener.addressInUse()));
+    TcpClient first(assignedPolicy), second(assignedPolicy);
+    CHECK(first.start({primary, port})); requireConnected(first, "first selected bind");
+    auto acceptedFirst = awaitAccept(listener);
+    CHECK(second.start({secondary, port})); requireConnected(second, "second selected bind");
+    auto acceptedSecond = awaitAccept(listener);
+    CHECK(first.connection()->send({1}) == SendResult::Accepted);
+    CHECK(second.connection()->send({2}) == SendResult::Accepted);
+    TransportFrame frame;
+    CHECK(waitUntil([&] { return acceptedFirst->receive(frame); }, NativeObserverWait)); CHECK(frame.payload == std::vector<std::uint8_t>{1});
+    CHECK(waitUntil([&] { return acceptedSecond->receive(frame); }, NativeObserverWait)); CHECK(frame.payload == std::vector<std::uint8_t>{2});
+    first.close(); second.close(); listener.shutdown(); listener.shutdown();
+
+    // A real assigned but unselected destination must refuse, rather than relying
+    // on an unassigned alias to manufacture the negative observation.
+    TcpListener subset(2, assignedPolicy); startListener(subset, port, primary);
+    TcpClient excluded(assignedPolicy); CHECK(excluded.start({secondary, port}));
+    CHECK(!excluded.waitForConnected(NativeObserverWait));
+    CHECK(excluded.failure() == TransportFailure::ConnectionRefused);
+    excluded.close(); subset.shutdown();
+
+    TcpListener occupied(2, assignedPolicy); startListener(occupied, port, secondary);
+    TcpListener transaction(2, assignedPolicy);
+    CHECK(transaction.startAll({{primary, port}, {secondary, port}}));
+    CHECK(!transaction.waitForReady(NativeObserverWait));
+    CHECK(transaction.failure() == TransportFailure::BindFailed && transaction.addressInUse());
+    transaction.shutdown();
+    TcpListener released(2, assignedPolicy); startListener(released, port, primary); released.shutdown(); occupied.shutdown();
+
+    SessionTransportDependencies dependencies;
+    dependencies.enforceNetworkSessionPolicy = true;
+    dependencies.resolve = [](const auto &, auto, auto, const auto &) -> ResolveOutcome {
+        throw Failure("wildcard must not invoke resolution or individual bind eligibility");
+    };
+    TcpListener wildcard(2, dependencies);
+    CHECK(wildcard.start({"0.0.0.0", port})); CHECK(wildcard.waitForReady(NativeObserverWait));
+    wildcard.shutdown();
+    TcpListener invalid;
+    CHECK(!invalid.startAll({}));
+    CHECK(!invalid.startAll({{"0.0.0.0", port}, {primary, port}}));
+    CHECK(!invalid.startAll({{primary, port}, {primary, port}}));
+}
+
+void transactionalPartialBindCancellation() {
+    const auto port = unusedPort();
+    std::atomic<bool> secondResolving{false};
+    SessionTransportDependencies dependencies;
+    dependencies.resolve = [&](const auto &host, auto requestedPort, auto, const auto &cancelled) {
+        if (host == "second.test") {
+            secondResolving = true;
+            while (!cancelled()) std::this_thread::sleep_for(1ms);
+            return ResolveOutcome{ResolveStatus::Cancelled, {}};
+        }
+        return ResolveOutcome{ResolveStatus::Resolved, {{{127, 0, 0, 1}, requestedPort}}};
+    };
+    TcpListener listener(2, dependencies);
+    CHECK(listener.startAll({{"127.0.0.1", port}, {"second.test", port}}));
+    CHECK(waitUntil([&] { return secondResolving.load(); }, NativeObserverWait));
+    CHECK(listener.state() == ListenerState::Starting); // Never partial Ready.
+    listener.cancel(); listener.shutdown(); CHECK(listener.state() == ListenerState::Cancelled);
+    TcpListener released; startListener(released, port); released.shutdown();
 }
 
 void fifteenIsolatedConnections() {
@@ -2017,6 +2105,8 @@ int main() {
     }
 #endif
     const std::vector<std::pair<const char *, void (*)()>> tests = {
+        {"transactional listening coverage and wildcard policy", transactionalListeningCoverage},
+        {"transactional partial bind cancellation", transactionalPartialBindCancellation},
         {"secure encrypted wire hides credentials and rejects cross-connection replay", secureWireRejectsReplay},
         {"secure session password and unlocked exchange", secureSessionPasswordAdmission},
         {"secure session enforces byte record and lifetime budgets", secureSessionKeyBudgets},

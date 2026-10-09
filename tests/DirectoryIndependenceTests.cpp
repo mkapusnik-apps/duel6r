@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <thread>
+#include <mutex>
 
 namespace {
     using namespace Duel6;
@@ -40,6 +41,67 @@ namespace {
         while (std::chrono::steady_clock::now() < deadline);
         return predicate();
     }
+}
+
+D6R_TEST_CASE("NET-DIR publication revalidates concrete coverage updates one listing and removes unavailable coverage") {
+    // Synchronized protocol mock, not emulator or hosted backend evidence.
+    std::mutex mutex;
+    std::optional<std::vector<std::string>> addresses = std::vector<std::string>{"127.0.0.1", "10.0.0.20", "10.0.0.3"};
+    std::vector<std::pair<std::string, std::string>> requests;
+    const std::string id(32, 'a'), owner(64, 'b');
+    const auto session = Client::directorySessionId(99);
+    unsigned revision = 0;
+    Client::DirectoryPublisherDependencies dependencies;
+    dependencies.listeningAddresses = [&] { std::lock_guard<std::mutex> lock(mutex); return addresses; };
+    dependencies.request = [&](const auto &method, const auto &path, const auto &body, const auto &token, auto expectedRevision, const auto *) {
+        std::lock_guard<std::mutex> lock(mutex);
+        requests.emplace_back(method, body);
+        if (method != "POST") {
+            D6R_REQUIRE_EQ(std::string("/v1/listings/") + id, path);
+            D6R_REQUIRE_EQ(owner, token); D6R_REQUIRE_EQ(revision, expectedRevision);
+        }
+        if (method == "DELETE") return Client::DirectoryResponse{204, {}};
+        ++revision;
+        const auto address = body.find("1.2.3.4") != std::string::npos ? "1.2.3.4" : "10.0.0.3";
+        return Client::DirectoryResponse{method == "POST" ? 201 : 200,
+            "{\"id\":\"" + id + "\",\"sessionId\":\"" + session + "\",\"address\":\"" + address
+            + "\",\"port\":26660,\"players\":1,\"capacity\":15,\"mode\":\"deathmatch\",\"phase\":\"lobby\","
+            "\"passwordRequired\":false,\"expiresAt\":2000000000000,\"revision\":" + std::to_string(revision)
+            + ",\"ownerToken\":\"" + owner + "\"}"};
+    };
+    Client::DirectoryPublisher publisher({"0.0.0.0"}, dependencies);
+    Client::DirectoryListing listing;
+    listing.sessionId = session; listing.endpoint = {"0.0.0.0", 26660};
+    listing.players = 1; listing.capacity = 15; listing.mode = "deathmatch"; listing.phase = "lobby";
+    publisher.update(listing);
+    D6R_REQUIRE(await([&] { return publisher.available() && !publisher.busy(); }));
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        D6R_REQUIRE_EQ(1u, requests.size());
+        D6R_REQUIRE(requests.front().second.find("10.0.0.3") != std::string::npos);
+        D6R_REQUIRE(requests.front().second.find("0.0.0.0") == std::string::npos);
+        addresses->push_back("1.2.3.4");
+    }
+    publisher.retry();
+    D6R_REQUIRE(await([&] { return publisher.available() && !publisher.busy(); }));
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        D6R_REQUIRE_EQ(2u, requests.size()); D6R_REQUIRE_EQ(std::string("PUT"), requests.back().first);
+        D6R_REQUIRE(requests.back().second.find("1.2.3.4") != std::string::npos);
+        addresses.reset();
+    }
+    publisher.retry();
+    D6R_REQUIRE(await([&] { return !publisher.available() && !publisher.busy(); }));
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        D6R_REQUIRE_EQ(3u, requests.size()); D6R_REQUIRE_EQ(std::string("DELETE"), requests.back().first);
+    }
+    publisher.stop();
+    Client::DirectoryPublisher loopbackOnly({"127.0.0.1"}, dependencies);
+    loopbackOnly.update(listing);
+    D6R_REQUIRE(await([&] { return !loopbackOnly.busy(); }));
+    D6R_REQUIRE(!loopbackOnly.available()); loopbackOnly.stop();
+    { std::lock_guard<std::mutex> lock(mutex); D6R_REQUIRE_EQ(3u, requests.size()); }
 }
 
 D6R_TEST_CASE("Directory outage does not block actual protected Host direct Join or End") {

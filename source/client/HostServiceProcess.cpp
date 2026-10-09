@@ -127,6 +127,14 @@ namespace Duel6::Client {
                     "--local-players=" + std::to_string(config.localPlayers),
                     "--host-service-ipc"
             };
+            if (!config.additionalListenHosts.empty()) {
+                std::string hosts;
+                for (const auto &host: config.additionalListenHosts) {
+                    if (!hosts.empty()) hosts += ',';
+                    hosts += host;
+                }
+                arguments.push_back("--listen-hosts=" + hosts);
+            }
             for (const auto &script: config.enabledGameplayScripts)
                 arguments.push_back("--gameplay-script=" + script);
             if (config.graphicalComposition) arguments.push_back("--graphical-host-composition");

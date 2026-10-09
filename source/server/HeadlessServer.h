@@ -128,6 +128,9 @@ namespace Duel6::Server {
         virtual ~AdmissionRuntimeListener() = default;
         virtual bool start(const Network::Endpoint &endpoint) = 0;
         virtual bool waitForReady(std::chrono::milliseconds timeout) = 0;
+        virtual bool startAll(const std::vector<Network::Endpoint> &endpoints) {
+            return endpoints.size() == 1 && start(endpoints.front());
+        }
         virtual Network::ListenerState state() const = 0;
         virtual Network::TransportFailure failure() const = 0;
         virtual bool portUnavailable() const { return false; }

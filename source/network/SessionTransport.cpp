@@ -1751,10 +1751,19 @@ namespace Duel6::Network {
                   dependencies(std::move(dependencies)), admissionLimiter(this->dependencies.now) {}
         ~Impl() { shutdown(); }
 
-        bool start(const Endpoint &value) {
+        bool start(const std::vector<Endpoint> &values) {
+            if (values.empty() || values.size() > Trust::MaxCollectionEntries) return false;
+            std::set<std::string> hosts;
+            for (const auto &value: values) {
+                if (value.port != values.front().port || !hosts.insert(value.host).second
+                    || (values.size() > 1 && value.host == "0.0.0.0")) return false;
+            }
+            std::lock_guard<std::mutex> lock(mutex);
             ListenerState expected = ListenerState::NotStarted;
             if (!state.compare_exchange_strong(expected, ListenerState::Starting)) return false;
-            endpoint = value;
+            endpoints = values;
+            for (std::size_t index = 0; index < values.size(); ++index)
+                listeners.push_back(std::make_unique<PendingSocket>());
             worker = std::thread([this] { listenLoop(); });
             return true;
         }
@@ -1800,17 +1809,26 @@ namespace Duel6::Network {
 
         void listenLoop() {
             const auto deadline = dependencyNow(dependencies) + StartupDeadline;
+            std::vector<SocketHandle> boundSockets;
+            struct Cleanup {
+                std::vector<std::unique_ptr<PendingSocket>> &listeners;
+                std::vector<SocketHandle> &sockets;
+                ~Cleanup() { for (std::size_t index = 0; index < sockets.size(); ++index)
+                    listeners[index]->closeOwned(sockets[index]); }
+            } cleanup{listeners, boundSockets};
             if (dependencies.secureSession && !SecureSession::supported(dependencies.secureLimits.hardwarePermitted)) {
                 fail(TransportFailure::SecureUnavailable); return;
             }
+            for (const auto &endpoint: endpoints) {
             std::array<std::uint8_t, 4> requestedAddress{};
             const auto requestedScope = Trust::classifyIpv4Literal(endpoint.host, &requestedAddress);
             const bool loopbackHostname = endpoint.host == "localhost";
+            const bool wildcard = endpoint.host == "0.0.0.0" && endpoints.size() == 1;
             const bool policyEndpointInvalid = dependencies.enforceNetworkSessionPolicy
                                                && requestedScope != Trust::EndpointScope::Loopback
                                                 && requestedScope != Trust::EndpointScope::PrivateLan
                                                 && requestedScope != Trust::EndpointScope::PublicUnicast
-                                               && !loopbackHostname;
+                                                && !loopbackHostname && !wildcard;
             if (!socketRuntime().ready() || endpoint.host.empty() || endpoint.host.find('\0') != std::string::npos
                 || endpoint.host.size() > MaxProtocolStringBytes || policyEndpointInvalid
                 || endpoint.port == 0 || maxConnections == 0) {
@@ -1818,7 +1836,9 @@ namespace Duel6::Network {
                 return;
             }
             const auto isCancelled = [this] { return cancelled.load(); };
-            ResolveOutcome resolution = resolveEndpoint(dependencies, endpoint.host, endpoint.port, deadline, isCancelled);
+            ResolveOutcome resolution = wildcard
+                    ? ResolveOutcome{ResolveStatus::Resolved, {{{0, 0, 0, 0}, endpoint.port}}}
+                    : resolveEndpoint(dependencies, endpoint.host, endpoint.port, deadline, isCancelled);
             if (cancelled.load() || resolution.status == ResolveStatus::Cancelled) return;
             if (resolution.status == ResolveStatus::TimedOut || dependencyNow(dependencies) >= deadline) {
                 timeout();
@@ -1836,8 +1856,8 @@ namespace Duel6::Network {
                     const auto resolvedScope = Trust::classifyIpv4(resolved.address);
                     if ((loopbackHostname && resolvedScope != Trust::EndpointScope::Loopback)
                         || (!loopbackHostname && resolved.address != requestedAddress)
-                        || Trust::localListenerBindDecision(resolved.address)
-                           != Trust::LocalListenerBindDecision::Allowed) continue;
+                         || (!wildcard && Trust::localListenerBindDecision(resolved.address)
+                            != Trust::LocalListenerBindDecision::Allowed)) continue;
                 }
                 sockaddr_in address = socketAddress(resolved);
                 bound = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -1862,16 +1882,19 @@ namespace Duel6::Network {
                 fail(TransportFailure::BindFailed);
                 return;
             }
-            listener.publish(bound);
+            listeners[boundSockets.size()]->publish(bound);
+            boundSockets.push_back(bound);
+            }
             ListenerState expected = ListenerState::Starting;
             if (!state.compare_exchange_strong(expected, ListenerState::Ready)) {
-                listener.closeOwned(bound);
                 return;
             }
             changed.notify_all();
 
             while (!stop.load()) {
-                if (!waitSocket(bound, false, std::chrono::milliseconds(100))) {
+                for (const auto bound: boundSockets) {
+                if (stop.load()) break;
+                if (!waitSocket(bound, false, std::chrono::milliseconds(boundSockets.size() == 1 ? 100 : 0))) {
                     reapClosed();
                     continue;
                 }
@@ -1917,8 +1940,9 @@ namespace Duel6::Network {
                                                                std::move(admissionReservation), dependencies.secureSession, true, dependencies.password, dependencies.secureLimits)));
                 connections.push_back(connection);
                 pending.push_back(connection);
+                }
+                if (boundSockets.size() > 1 && !stop.load()) std::this_thread::sleep_for(std::chrono::milliseconds(5));
             }
-            listener.closeOwned(bound);
         }
 
         void reapClosed() {
@@ -1933,7 +1957,8 @@ namespace Duel6::Network {
         }
 
         void closeListener() {
-            listener.interrupt();
+            std::lock_guard<std::mutex> lock(mutex);
+            for (const auto &listener: listeners) listener->interrupt();
         }
 
         void fail(TransportFailure reason) {
@@ -1950,7 +1975,7 @@ namespace Duel6::Network {
             changed.notify_all();
         }
 
-        Endpoint endpoint;
+        std::vector<Endpoint> endpoints;
         const std::size_t maxConnections;
         SessionTransportDependencies dependencies;
         Trust::PendingAdmissionLimiter admissionLimiter;
@@ -1959,7 +1984,7 @@ namespace Duel6::Network {
         std::atomic<bool> addressInUseFailure{false};
         std::atomic<bool> stop{false};
         std::atomic<bool> cancelled{false};
-        PendingSocket listener;
+        std::vector<std::unique_ptr<PendingSocket>> listeners;
         mutable std::mutex mutex;
         std::condition_variable changed;
         std::deque<std::shared_ptr<TcpConnection>> pending;
@@ -1972,7 +1997,8 @@ namespace Duel6::Network {
     TcpListener::TcpListener(std::size_t maxConnections, SessionTransportDependencies dependencies)
             : impl(std::make_unique<Impl>(maxConnections, std::move(dependencies))) {}
     TcpListener::~TcpListener() = default;
-    bool TcpListener::start(const Endpoint &endpoint) { return impl->start(endpoint); }
+    bool TcpListener::start(const Endpoint &endpoint) { return impl->start({endpoint}); }
+    bool TcpListener::startAll(const std::vector<Endpoint> &endpoints) { return impl->start(endpoints); }
     void TcpListener::cancel() { impl->cancel(); }
     void TcpListener::shutdown() { impl->shutdown(); }
     ListenerState TcpListener::state() const { return impl->state.load(); }

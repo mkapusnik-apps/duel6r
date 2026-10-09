@@ -10,6 +10,7 @@
 #include "CanonicalWorldPresenter.h"
 #include "client/NetworkSessionRuntime.h"
 #include "client/HostDirectory.h"
+#include "network/ListeningSelection.h"
 
 namespace Duel6 {
     class NetworkMenu final : public Context {
@@ -57,10 +58,10 @@ namespace Duel6 {
         std::optional<Client::DirectoryListing> browserSelection;
         bool joinFromBrowser = false;
         int browserScroll = 0;
-        std::string hostAddress;
+        Network::ListeningSelection listening;
         std::vector<std::string> hostAddresses;
         bool hostAddressSelectorOpen = false;
-        bool hostAddressSelectionBecameInvalid = false;
+        Float32 hostAddressRefreshElapsed = 0;
         std::size_t hostAddressHighlight = 0;
         std::size_t hostAddressScroll = 0;
         std::string port = std::to_string(Network::DefaultServerPort);
@@ -107,6 +108,10 @@ namespace Duel6 {
         bool endpoint(Network::Endpoint &result) const;
         bool editingEndpoint(const Client::NetworkRuntimeSnapshot &snapshot) const;
         bool refreshHostAddresses(bool initialSelection);
+        void moveListeningFocus(int direction);
+        void activateListeningChoice();
+        std::string listeningSummary() const;
+        std::vector<std::string> additionalListenHosts() const;
         std::string serverExecutable() const;
         void drawText(Int32 x, Int32 y, const std::string &text, Color color = Color::BLACK) const;
         void drawClippedText(Int32 x, Int32 y, const std::string &text, std::size_t characters,

@@ -22,7 +22,7 @@ Local Play remains subject to [`features.md`](features.md). This document does n
 - **Startup attempt:** The period from Start session activation until readiness, cancellation, or a startup failure.
 - **Readiness:** Confirmation that all readiness conditions in this document are true.
 - **Stop request:** A request to end an owned service and release all service resources.
-- **Retained setup:** The valid selected listening address, port, local-player setup, and other editable values from `NET-02`.
+- **Retained setup:** The listening mode, explicit selected address set, port, local-player setup, and other editable values from `NET-02`.
 
 ## Ownership model
 
@@ -59,9 +59,13 @@ The state names are product states. They do not prescribe implementation names o
 
 Start session must be available only when the retained setup is valid. The host must own from 1 through 15 valid local players.
 
-- **HSL-IF-001** Retained setup must include one listening address allowed by the trust policy.
-- **HSL-IF-002** Start session must validate the selected listening address before service creation.
-- **HSL-IF-003** A locally invalid selected address must keep the host in editable `NET-02` and must not start a service attempt.
+- **HSL-IF-001** Retained setup must include wildcard mode or a non-empty explicit selected address set allowed by the trust policy.
+- **HSL-IF-002** Start session must validate every explicit selected address before service creation without requiring individual enumeration in wildcard mode.
+- **HSL-IF-003** An empty or locally invalid explicit selected set must keep the host in editable `NET-02` without starting a service attempt.
+- **HSL-IF-004** Explicit startup must succeed on every selected address before the hosted service reports readiness.
+- **HSL-IF-005** Failure of any required bind must fail the whole startup attempt and release every listener created by that attempt before the application reports completed failure.
+
+All selected binds belong to one hosted session, use one port, and share the existing startup deadline. Wildcard readiness requires successful IPv4 wildcard bind and active accept processing. A bind failure uses the existing port-unavailable or generic startup-failure outcome as applicable. Partial readiness and automatic fallback are not permitted.
 
 Start session must move `No service` or an eligible `Startup failed` state to `Starting`. It must start one new startup deadline.
 
@@ -97,8 +101,8 @@ The hosted service is ready only when all these conditions are true:
 2. The host compatibility claim satisfies the issue #30 contract.
 3. The host gameplay-content manifest is valid and frozen for the session.
 4. The host participant and all host player identities are stable, unique, and nonzero.
-5. The production listener has bound the approved endpoint.
-6. The listener is accepting production transport connections.
+5. The production listener coverage includes the IPv4 wildcard endpoint or every explicit selected endpoint.
+6. Every required listening endpoint is accepting production transport connections.
 7. The service can apply the approved compatibility and admission contract to a new connection.
 8. No cancellation, shutdown, failure, or deadline outcome has already won.
 
@@ -153,7 +157,7 @@ Trusted local diagnostics may contain an enumerated failure category. They must 
 
 ## Retained setup, Retry, and destinations
 
-Cancel, startup failure, and startup timeout must retain all editable `NET-02` setup. This setup includes the selected listening address, port, and local-player configuration.
+Cancel, startup failure, and startup timeout must retain all editable `NET-02` setup. This setup includes the listening mode, explicit selected address set, port, and local-player configuration. [NET-HOST-IF-005 through NET-HOST-IF-024](network-play-first-release.md) own selection retention, validation, and reset behavior. Every listener created by an attempt or session is subject to this document's cleanup and orphan-prevention requirements.
 
 Retry must repeat the retained startup attempt only after final cleanup. Retry must use the same 10-second startup deadline rules.
 
@@ -308,7 +312,7 @@ The affected target states are `NET-02` and `NET-08`. This document does not cha
 - **HSL-AC-016 — Redaction:** Startup configuration and all outcomes must satisfy the secret and non-disclosure rules.
 - **HSL-AC-017 — Local independence:** Local Play must start and complete without any hosted service or network availability.
 - **HSL-AC-018 — Scope truth:** Completion of issue #31 alone must not create or support a playable-networking claim.
-- **HSL-AC-019 — Listening address:** Start validates and binds only the selected eligible local listening address. Cancel, failure, timeout, Edit setup, and eligible Retry retain that selection without changing network infrastructure.
+- **HSL-AC-019 — Listening coverage:** Wildcard Start does not depend on individual enumeration. Explicit Start validates and binds every selected eligible address on the selected port. Failure of any required bind leaves no listener or session after cleanup. Cancel, failure, timeout, Edit setup, and eligible Retry retain the listening mode and explicit set without changing network infrastructure.
 
 ## Future acceptance evidence
 

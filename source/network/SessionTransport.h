@@ -273,6 +273,8 @@ namespace Duel6::Network {
         bool start(const Endpoint &endpoint);
         void cancel();
         void shutdown();
+        // One transactional coverage set, shared deadline, admission accounting and connection cap.
+        bool startAll(const std::vector<Endpoint> &endpoints);
         ListenerState state() const;
         TransportFailure failure() const;
         bool addressInUse() const;

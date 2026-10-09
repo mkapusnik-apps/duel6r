@@ -761,6 +761,106 @@ namespace {
     };
 }
 
+D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choices and exposes recovery") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    menu.setupScreen = NetworkMenu::SetupScreen::Host; menu.focus = 1;
+    f.key(SDLK_RETURN);
+    D6R_REQUIRE(menu.hostAddressSelectorOpen && menu.listening.all);
+    D6R_REQUIRE_EQ(0u, menu.hostAddressHighlight); // Opening input cannot toggle mode.
+    // Disclosed deterministic draw/input fixture, not OS enumeration or capture evidence.
+    menu.listening.available = std::vector<std::string>{"127.0.0.1", "10.1.2.3", "192.168.1.2"};
+    menu.hostAddresses = menu.listening.rows();
+    f.draw(); D6R_REQUIRE(f.text("Listen on all (0.0.0.0)"));
+    D6R_REQUIRE(f.text("Uses 0.0.0.0. The operating system controls coverage."));
+    f.click(300, 338); D6R_REQUIRE(menu.listening.all && menu.listening.selected.empty());
+    f.key(SDLK_TAB); D6R_REQUIRE_EQ(menu.hostAddresses.size() + 1, menu.hostAddressHighlight);
+    menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+    D6R_REQUIRE_EQ(0u, menu.hostAddressHighlight);
+    f.key(SDLK_SPACE); D6R_REQUIRE(!menu.listening.all);
+    D6R_REQUIRE_EQ(*menu.listening.available, menu.listening.selected);
+    f.key(SDLK_DOWN); f.key(SDLK_DOWN); f.key(SDLK_SPACE);
+    D6R_REQUIRE(menu.hostAddressSelectorOpen && !menu.listening.contains("10.1.2.3"));
+    D6R_REQUIRE_EQ(std::string("Explicit: 2 addresses"), menu.listeningSummary());
+    f.click(425, 94); D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+    f.key(SDLK_ESCAPE); D6R_REQUIRE(!menu.hostAddressSelectorOpen); D6R_REQUIRE_EQ(1, menu.focus);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host && menu.listening.selected.size() == 2);
+    f.key(SDLK_RETURN); f.key(SDLK_SPACE); D6R_REQUIRE(menu.listening.all);
+    f.key(SDLK_SPACE); D6R_REQUIRE(!menu.listening.all && menu.listening.selected.size() == 2);
+    menu.listening.available = std::vector<std::string>{"127.0.0.1", "10.1.2.3"};
+    menu.hostAddresses = menu.listening.rows();
+    std::string reason; D6R_REQUIRE(!menu.setupValid(reason));
+    f.draw(); D6R_REQUIRE(f.text("192.168.1.2 (Private LAN) • Unavailable"));
+    f.click(300, 290); D6R_REQUIRE(!menu.listening.contains("192.168.1.2"));
+    D6R_REQUIRE(menu.setupValid(reason));
+    menu.listening.available.reset(); menu.hostAddresses = menu.listening.rows();
+    D6R_REQUIRE(!menu.setupValid(reason));
+    D6R_REQUIRE_EQ("Listening interfaces could not be verified. Use Listen on all or correct the selection.", reason);
+    menu.hostAddressHighlight = 0; f.key(SDLK_SPACE);
+    D6R_REQUIRE(menu.setupValid(reason)); f.draw();
+    D6R_REQUIRE(f.text("Individual addresses could not be listed."));
+    f.click(744, 226); D6R_REQUIRE(!menu.hostAddressSelectorOpen && menu.focus == 1);
+}
+
+D6R_TEST_CASE("PA-NET-02-01 popup checked enabled frames remain reversed while disabled coverage stays flat") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    menu.setupScreen = NetworkMenu::SetupScreen::Host; menu.focus = 1;
+    f.key(SDLK_RETURN);
+    menu.listening.available = std::vector<std::string>{"127.0.0.1", "10.1.2.3"};
+    menu.hostAddresses = menu.listening.rows();
+    const auto topFrameColor = [&](int bottom) {
+        // Last submitted edge is the visible frame, including the persistent checked treatment.
+        const auto edge = std::find_if(f.recorder.lines.rbegin(), f.recorder.lines.rend(), [&](const auto &line) {
+            return line.start.x == 238 && line.start.y == bottom + 19
+                    && line.end.x == 253 && line.end.y == bottom + 19;
+        });
+        D6R_REQUIRE(edge != f.recorder.lines.rend());
+        return edge->color;
+    };
+    menu.pointerHeld = false; menu.controllerConfirm = false;
+    f.draw();
+    D6R_REQUIRE(topFrameColor(396) == Color::BLACK); // Checked mode persists when idle.
+    D6R_REQUIRE(f.frame(238, 330, 16, 16, 1)); // Checked disabled address remains flat.
+    D6R_REQUIRE(f.frame(232, 394, 570, 28, 2)); // Existing mode-row focus.
+    f.key(SDLK_SPACE); // First explicit mode: mode unchecked, both addresses checked.
+    f.draw(); D6R_REQUIRE(topFrameColor(396) == Color(235));
+    D6R_REQUIRE(topFrameColor(326) == Color::BLACK);
+    D6R_REQUIRE(topFrameColor(302) == Color::BLACK);
+    f.click(300, 338); f.click(300, 338, false); // Label target toggles on press only.
+    f.draw(); D6R_REQUIRE(topFrameColor(326) == Color(235));
+    D6R_REQUIRE(topFrameColor(302) == Color::BLACK);
+    D6R_REQUIRE(!menu.listening.contains("127.0.0.1") && menu.listening.contains("10.1.2.3"));
+    D6R_REQUIRE(menu.hostAddressSelectorOpen && menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+    D6R_REQUIRE(f.frame(232, 324, 570, 28, 2)); // Hit bounds and retained row focus unchanged.
+}
+
+D6R_TEST_CASE("NET-02 popup traversal and overflow retain fixed bounds at supported desktop scales") {
+    ReviewMenuFixture f;
+    ReviewController controller(f);
+    auto &menu = f.menu;
+    menu.setupScreen = NetworkMenu::SetupScreen::Host; menu.focus = 1;
+    controller.pulse(SDL_CONTROLLER_BUTTON_A);
+    D6R_REQUIRE(menu.hostAddressSelectorOpen && menu.listening.all);
+    menu.listening.available = std::vector<std::string>{"127.0.0.1", "10.1.2.3", "10.2.3.4", "192.168.1.2", "192.168.2.2"};
+    menu.hostAddresses = menu.listening.rows();
+    controller.pulse(SDL_CONTROLLER_BUTTON_A); D6R_REQUIRE(!menu.listening.all);
+    for (unsigned row = 0; row < 5; ++row) controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+    D6R_REQUIRE_EQ(5u, menu.hostAddressHighlight); D6R_REQUIRE_EQ(2u, menu.hostAddressScroll);
+    controller.pulse(SDL_CONTROLLER_BUTTON_A); D6R_REQUIRE(!menu.listening.contains("192.168.2.2"));
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1280, 900}, std::pair{1920, 1080}}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        f.draw(); D6R_REQUIRE(f.text("Addresses 3–5 of 5"));
+        D6R_REQUIRE(f.text("Every selected bind must succeed."));
+        D6R_REQUIRE(f.frame(232, 276, 570, 28, 2)); // Existing outer keyline fits the list.
+        D6R_REQUIRE(f.text("Changes are kept when closed."));
+        D6R_REQUIRE(f.text("Close"));
+    }
+    controller.pulse(SDL_CONTROLLER_BUTTON_B);
+    D6R_REQUIRE(!menu.hostAddressSelectorOpen && menu.focus == 1);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host);
+}
+
 D6R_TEST_CASE("UX-NET geometry keeps endpoint gaps external password help and Ready hit bounds aligned") {
     ReviewMenuFixture f;
     auto &menu = f.menu;
@@ -791,7 +891,7 @@ D6R_TEST_CASE("UX-NET geometry keeps endpoint gaps external password help and Re
         f.video.screen = ScreenParameters(size.first,size.second,24,24,0,false);
         for (auto setup: {NetworkMenu::SetupScreen::Host, NetworkMenu::SetupScreen::Join}) {
             menu.runtime.current = {}; menu.setupScreen = setup;
-            menu.hostAddress = menu.address = "127.0.0.1"; menu.port = "26660";
+            menu.listening = {}; menu.address = "127.0.0.1"; menu.port = "26660";
             menu.hostAddresses.clear(); menu.password = "masked";
             menu.browserSelection = Client::DirectoryListing{};
             menu.browserSelection->passwordRequired = true;
@@ -810,15 +910,15 @@ D6R_TEST_CASE("UX-NET geometry keeps endpoint gaps external password help and Re
             menu.focus = 2; click(300,506,false); D6R_REQUIRE_EQ(2,menu.focus);
             click(300,506); D6R_REQUIRE_EQ(0,menu.focus);
             click(300,474); D6R_REQUIRE_EQ(1,menu.focus);
+            if (setup == NetworkMenu::SetupScreen::Host) menu.back();
             click(300,442); D6R_REQUIRE_EQ(2,menu.focus);
             click(300,490); D6R_REQUIRE_EQ(2,menu.focus); // Eight-pixel gaps are not controls.
             click(300,458); D6R_REQUIRE_EQ(2,menu.focus);
             if (setup == NetworkMenu::SetupScreen::Host) {
-                menu.hostAddresses = {"127.0.0.1","192.168.0.2"}; menu.hostAddressHighlight = 0;
                 menu.focus = 1; f.key(SDLK_RETURN); D6R_REQUIRE(menu.hostAddressSelectorOpen);
-                f.draw(); D6R_REQUIRE(fill(224,438,586,22,Color::WHITE));
-                click(300,426); D6R_REQUIRE(!menu.hostAddressSelectorOpen);
-                D6R_REQUIRE_EQ(std::string("192.168.0.2"),menu.hostAddress);
+                f.draw(); D6R_REQUIRE(fill(232,276,570,76,Color::WHITE));
+                click(744,226); D6R_REQUIRE(!menu.hostAddressSelectorOpen);
+                D6R_REQUIRE(menu.listening.all);
                 D6R_REQUIRE_EQ(1,menu.focus);
             }
         }
@@ -1307,7 +1407,8 @@ D6R_TEST_CASE("PR83 capture flat bundle menu Host Join Retry and effective level
     const auto prepare = [&](NetworkMenu &menu, bool isHost, std::uint16_t port) {
         menu.runtime.reset();
         menu.setupScreen = isHost ? NetworkMenu::SetupScreen::Host : NetworkMenu::SetupScreen::Join;
-        menu.hostAddress = menu.address = "127.0.0.1"; menu.port = std::to_string(port);
+        menu.listening = {}; menu.listening.available = std::vector<std::string>{"127.0.0.1"};
+        menu.listening.setAll(false); menu.address = "127.0.0.1"; menu.port = std::to_string(port);
         menu.localPlayers = {{isHost ? "Host" : "Guest", isHost ? k1.get() : k2.get(), isHost ? "K1" : "K2"}};
         menu.availablePersons = {menu.localPlayers[0].name};
         menu.availableLevels = {"levels/duel_01.json", "levels/duel_02.json"};
@@ -1697,6 +1798,64 @@ D6R_TEST_CASE("PR83 Application Return repeat Tab and modal input isolation for 
         }
         menu.runtime.pendingGuestCommands.clear();
     }
+}
+
+D6R_TEST_CASE("NET-HOST-IF real wildcard and multibind hosts share admission and rollback occupied subset") {
+    using namespace std::chrono_literals;
+    const auto available = Network::Trust::localListenerAddresses();
+    D6R_REQUIRE(available && !available->empty());
+    Network::HostComposition::Setup setup;
+    setup.localPlayerNames = {"Host"}; setup.fixedLevel = "levels/duel_01.json";
+    Client::NetworkSessionRuntime host, guest, second;
+    const auto port = unusedLoopbackPort();
+    const Network::Endpoint loopback{"127.0.0.1", port};
+    D6R_REQUIRE(host.startHost({"0.0.0.0", port}, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+    D6R_REQUIRE(guest.join(loopback, D6R_TEST_RESOURCE_DIR, {player("Guest")}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 10s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Lobby; }));
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
+    host.reset(); guest.reset();
+    D6R_REQUIRE(!host.startHost(loopback, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}, {"192.0.2.1"}));
+    D6R_REQUIRE(host.snapshot().journey == Client::NetworkJourney::Inactive && !host.supervisor);
+    if (available->size() < 2) {
+        std::cout << "[INFO] Actual assigned multi-address process coverage requires a second eligible address; wildcard and stale-start checks completed.\n";
+        return;
+    }
+    const Network::Endpoint other{(*available)[1], port};
+    D6R_REQUIRE(host.startHost(loopback, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}, {other.host}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+    D6R_REQUIRE(guest.join(loopback, D6R_TEST_RESOURCE_DIR, {player("Guest")}));
+    D6R_REQUIRE(second.join(other, D6R_TEST_RESOURCE_DIR, {player("Other")}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 10s, [&] {
+        return guest.snapshot().journey == Client::NetworkJourney::Lobby
+                && second.snapshot().journey == Client::NetworkJourney::Lobby;
+    }));
+    D6R_REQUIRE_EQ(host.snapshot().canonical->sessionId, guest.snapshot().canonical->sessionId);
+    D6R_REQUIRE_EQ(host.snapshot().canonical->sessionId, second.snapshot().canonical->sessionId);
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
+    host.reset(); guest.reset(); second.reset();
+    Network::TcpListener occupied;
+    D6R_REQUIRE(occupied.start(other) && occupied.waitForReady(2s));
+    D6R_REQUIRE(host.startHost(loopback, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}, {other.host}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 10s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Failure
+                && host.supervisor->snapshot().cleanupComplete;
+    }));
+    D6R_REQUIRE_EQ(std::string("The selected port is unavailable. Choose another port and try again."), host.snapshot().failure);
+    Client::HostServiceStartConfig retained;
+    D6R_REQUIRE(host.supervisor->retainedSetup(retained));
+    D6R_REQUIRE_EQ(std::vector<std::string>{other.host}, retained.additionalListenHosts);
+    Network::TcpListener released;
+    D6R_REQUIRE(released.start(loopback) && released.waitForReady(2s));
+    released.shutdown(); occupied.shutdown(); host.reset();
+    D6R_REQUIRE(host.startHost(loopback, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+    Network::TcpClient excluded;
+    D6R_REQUIRE(excluded.start(other)); D6R_REQUIRE(!excluded.waitForConnected(2s));
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, guest, second, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
 }
 
 D6R_TEST_CASE("PR83 real runtime End drains update from lobby and active match and releases listener") {

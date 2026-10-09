@@ -30,7 +30,8 @@ namespace Duel6 {
         constexpr Int32 CanvasWidth = 850, CanvasHeight = 700;
         constexpr int SetupVisibleRows = 8, SetupFirstRow = 364, SetupHeading = 386;
         constexpr Int32 EndpointFirstBottom = 494, EndpointPitch = 32, EndpointHeight = 24;
-        constexpr Int32 InterfaceFirstOption = EndpointFirstBottom - EndpointPitch - 24;
+        constexpr Int32 InterfaceFirstOption = 326;
+        constexpr std::size_t InterfaceVisibleRows = 3;
         constexpr Int32 LobbyReadyBottom = 164;
         constexpr Float32 CanvasMaximumScale = 1.35f;
 #ifdef D6_MACOS_PLATFORM
@@ -62,7 +63,9 @@ namespace Duel6 {
 
         std::string listeningAddressLabel(const std::string &address) {
             if (address.empty()) return "Select an eligible interface";
-            return address + (address == "127.0.0.1" ? " (Same machine)" : " (Selected interface)");
+            const auto scope = Network::Trust::classifyIpv4Literal(address);
+            return address + (scope == Network::Trust::EndpointScope::Loopback ? " (Same machine)"
+                    : scope == Network::Trust::EndpointScope::PrivateLan ? " (Private LAN)" : " (Public IPv4)");
         }
 
         std::string levelDisplayName(std::string value) {
@@ -514,7 +517,8 @@ namespace Duel6 {
         }
         availablePersons = std::move(persons); availableLevels = std::move(levels);
         worldPresenter.setCanonicalLevels(availableLevels);
-        hostAddress.clear();
+        listening = {}; hostAddressSelectorOpen = false;
+        hostAddressHighlight = 0; hostAddressScroll = 0;
         (void) refreshHostAddresses(true);
         for (auto &player: localPlayers)
             if (player.controlDescription.empty() && player.controls)
@@ -528,29 +532,55 @@ namespace Duel6 {
     }
 
     bool NetworkMenu::refreshHostAddresses(bool initialSelection) {
-        const bool hadSelection = !hostAddress.empty();
-        const auto available = Network::Trust::localListenerAddresses();
-        hostAddresses = available.value_or(std::vector<std::string>{});
-        const auto retained = std::find(hostAddresses.begin(), hostAddresses.end(), hostAddress);
-        if (retained != hostAddresses.end()) {
-            hostAddressHighlight = static_cast<std::size_t>(std::distance(hostAddresses.begin(), retained));
-            hostAddressSelectionBecameInvalid = false;
-            return true;
+        (void) initialSelection;
+        const bool closeFocused = hostAddressSelectorOpen && hostAddressHighlight == hostAddresses.size() + 1;
+        const auto retained = hostAddressHighlight > 0 && hostAddressHighlight <= hostAddresses.size()
+                ? hostAddresses[hostAddressHighlight - 1] : std::string();
+        listening.available = Network::Trust::localListenerAddresses();
+        hostAddresses = listening.rows();
+        if (closeFocused) hostAddressHighlight = hostAddresses.size() + 1;
+        if (!retained.empty()) {
+            const auto found = std::find(hostAddresses.begin(), hostAddresses.end(), retained);
+            hostAddressHighlight = found == hostAddresses.end() ? 0 : static_cast<std::size_t>(found - hostAddresses.begin()) + 1;
         }
-        if (initialSelection) {
-            const auto loopback = std::find(hostAddresses.begin(), hostAddresses.end(), "127.0.0.1");
-            if (loopback != hostAddresses.end()) {
-                hostAddress = *loopback;
-                hostAddressHighlight = static_cast<std::size_t>(std::distance(hostAddresses.begin(), loopback));
-                hostAddressSelectionBecameInvalid = false;
-                return true;
-            }
+        hostAddressScroll = std::min(hostAddressScroll, hostAddresses.size() > InterfaceVisibleRows
+                ? hostAddresses.size() - InterfaceVisibleRows : 0);
+        return listening.validation().empty();
+    }
+
+    std::vector<std::string> NetworkMenu::additionalListenHosts() const {
+        if (listening.all || listening.selected.empty()) return {};
+        return {listening.selected.begin() + 1, listening.selected.end()};
+    }
+
+    std::string NetworkMenu::listeningSummary() const {
+        if (listening.all) return "Listen on all (0.0.0.0)";
+        if (listening.selected.empty()) return "Explicit: no addresses selected";
+        if (!listening.validation().empty()) return "Explicit: selection unavailable";
+        if (listening.selected.size() == 1) return listeningAddressLabel(listening.selected.front());
+        return "Explicit: " + std::to_string(listening.selected.size()) + " addresses";
+    }
+
+    void NetworkMenu::moveListeningFocus(int direction) {
+        const auto count = hostAddresses.size() + 2;
+        do {
+            hostAddressHighlight = static_cast<std::size_t>((static_cast<int>(hostAddressHighlight)
+                    + direction + static_cast<int>(count)) % static_cast<int>(count));
+        } while (listening.all && hostAddressHighlight > 0 && hostAddressHighlight <= hostAddresses.size());
+        if (hostAddressHighlight > 0 && hostAddressHighlight <= hostAddresses.size()) {
+            const auto row = hostAddressHighlight - 1;
+            if (row < hostAddressScroll) hostAddressScroll = row;
+            if (row >= hostAddressScroll + InterfaceVisibleRows) hostAddressScroll = row - InterfaceVisibleRows + 1;
         }
-        hostAddress.clear();
-        hostAddressHighlight = 0;
-        hostAddressScroll = 0;
-        hostAddressSelectionBecameInvalid = hadSelection && !initialSelection;
-        return false;
+    }
+
+    void NetworkMenu::activateListeningChoice() {
+        if (hostAddressHighlight == 0) {
+            listening.setAll(!listening.all);
+            hostAddresses = listening.rows(); hostAddressScroll = 0;
+        } else if (hostAddressHighlight <= hostAddresses.size()) {
+            listening.toggle(hostAddresses[hostAddressHighlight - 1]);
+        } else { hostAddressSelectorOpen = false; focus = 1; }
     }
 
     void NetworkMenu::beforeStart(Context *) { SDL_ShowCursor(SDL_ENABLE); SDL_StartTextInput(); }
@@ -561,7 +591,8 @@ namespace Duel6 {
     }
 
     bool NetworkMenu::endpoint(Network::Endpoint &result) const {
-        const std::string host = setupScreen == SetupScreen::Host ? hostAddress : address;
+        const std::string host = setupScreen == SetupScreen::Host
+                ? (listening.all ? "0.0.0.0" : listening.selected.empty() ? "" : listening.selected.front()) : address;
         if (host.empty() || host.size() > 253 || port.empty()) return false;
         try {
             std::size_t used = 0; const auto parsed = std::stoul(port, &used);
@@ -589,11 +620,9 @@ namespace Duel6 {
     bool NetworkMenu::setupValid(std::string &reason) const {
         if (!Network::SecureSession::supported()) { reason = Network::SecureNetworkingUnavailableCopy; return false; }
         Network::Endpoint ignored;
-        if (setupScreen == SetupScreen::Host && hostAddress.empty()) {
-            reason = hostAddressSelectionBecameInvalid
-                     ? "Selected listening interface is no longer available. Choose another interface."
-                     : "Select an eligible listening interface.";
-            return false;
+        if (setupScreen == SetupScreen::Host) {
+            reason = listening.validation();
+            if (!reason.empty()) return false;
         }
         if (!endpoint(ignored)) {
             reason = setupScreen == SetupScreen::Host ? "Enter a valid port (1–65535)."
@@ -827,16 +856,19 @@ namespace Duel6 {
         } else if (snap.journey == Client::NetworkJourney::Inactive) {
             const int fields = 3;
             if (setupScreen == SetupScreen::Host && hostAddressSelectorOpen) {
-                const std::size_t visible = std::min<std::size_t>(8, hostAddresses.size());
+                if (pointerInside(x, y, 234, 396, 566, 24)) {
+                    hostAddressHighlight = 0; activateListeningChoice(); return;
+                }
+                if (pointerInside(x, y, 690, 214, 108, 28)) {
+                    hostAddressSelectorOpen = false; focus = 1; return;
+                }
+                const std::size_t visible = std::min(InterfaceVisibleRows, hostAddresses.size());
                 const std::size_t maximumFirst = hostAddresses.size() > visible ? hostAddresses.size() - visible : 0;
                 const std::size_t first = std::min(hostAddressScroll, maximumFirst);
                 for (std::size_t row = 0; row < visible; ++row) {
-                    if (pointerInside(x, y, 224, InterfaceFirstOption - static_cast<Int32>(row) * 22, 586, 22)) {
-                        hostAddressHighlight = first + row;
-                        hostAddress = hostAddresses[hostAddressHighlight];
-                        hostAddressSelectionBecameInvalid = false;
-                        hostAddressSelectorOpen = false;
-                        focus = 1;
+                    if (!listening.all && pointerInside(x, y, 234, InterfaceFirstOption - static_cast<Int32>(row) * 24, 566, 24)) {
+                        hostAddressHighlight = first + row + 1;
+                        activateListeningChoice();
                         return;
                     }
                 }
@@ -1000,6 +1032,12 @@ namespace Duel6 {
     }
     void NetworkMenu::mouseWheelEvent(const MouseWheelEvent &event) {
         const auto snap = runtime.snapshot();
+        if (hostAddressSelectorOpen) {
+            const auto maximum = hostAddresses.size() > InterfaceVisibleRows ? hostAddresses.size() - InterfaceVisibleRows : 0;
+            hostAddressScroll = static_cast<std::size_t>(std::clamp(static_cast<int>(hostAddressScroll) - event.getAmountY(),
+                    0, static_cast<int>(maximum)));
+            return;
+        }
         if (snap.journey == Client::NetworkJourney::Inactive
             && (setupScreen == SetupScreen::Host || setupScreen == SetupScreen::Join) && !hostAddressSelectorOpen) {
             const auto &screen = service.getVideo().getScreen();
@@ -1197,16 +1235,13 @@ namespace Duel6 {
                 return;
             }
             const int fields = 3;
-            if (setupScreen == SetupScreen::Host && focus == 1 && !hostAddresses.empty()) {
+            if (setupScreen == SetupScreen::Host && focus == 1) {
                 if (hostAddressSelectorOpen) {
-                    hostAddress = hostAddresses[hostAddressHighlight];
-                    hostAddressSelectionBecameInvalid = false;
-                    hostAddressSelectorOpen = false;
+                    activateListeningChoice();
                     return;
                 }
-                const auto selected = std::find(hostAddresses.begin(), hostAddresses.end(), hostAddress);
-                hostAddressHighlight = selected == hostAddresses.end() ? 0u
-                        : static_cast<std::size_t>(std::distance(hostAddresses.begin(), selected));
+                (void) refreshHostAddresses(false);
+                hostAddressHighlight = 0;
                 hostAddressSelectorOpen = true;
                 return;
             }
@@ -1239,7 +1274,7 @@ namespace Duel6 {
             if (setupScreen == SetupScreen::Host)
                 // The graphical client loads data/ and levels/ from its working
                 // content root, including the normal flat packaged runtime.
-                (void) runtime.startHost(target, serverExecutable(), networkResources(), hostSetup, localPlayers);
+                (void) runtime.startHost(target, serverExecutable(), networkResources(), hostSetup, localPlayers, additionalListenHosts());
             else (void) runtime.join(target, networkResources(), localPlayers, hostSetup.password,
                                     browserSelection ? browserSelection->sessionId : "");
             focus = 0; return;
@@ -1347,7 +1382,7 @@ namespace Duel6 {
                 }
                 Network::Endpoint target; if (!endpoint(target)) return;
                 runtime.reset();
-                if (snap.host) (void) runtime.startHost(target, serverExecutable(), networkResources(), hostSetup, localPlayers);
+                if (snap.host) (void) runtime.startHost(target, serverExecutable(), networkResources(), hostSetup, localPlayers, additionalListenHosts());
                 else (void) runtime.join(target, networkResources(), localPlayers, std::make_shared<Network::SessionPassword>(password),
                                         browserSelection ? browserSelection->sessionId : "");
             } else if (action == 1) {
@@ -1428,25 +1463,20 @@ namespace Duel6 {
         if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Host
             && hostAddressSelectorOpen) {
             if (event.getCode() == SDLK_ESCAPE) { consumeKey(); hostAddressSelectorOpen = false; focus = 1; return; }
-            if ((event.getCode() == SDLK_UP || event.getCode() == SDLK_DOWN) && !hostAddresses.empty()) {
+            if (event.getCode() == SDLK_UP || event.getCode() == SDLK_DOWN || event.getCode() == SDLK_LEFT
+                || event.getCode() == SDLK_RIGHT || event.getCode() == SDLK_TAB) {
                 consumeKey();
-                const int direction = event.getCode() == SDLK_DOWN ? 1 : -1;
-                hostAddressHighlight = static_cast<std::size_t>((static_cast<int>(hostAddressHighlight) + direction
-                        + static_cast<int>(hostAddresses.size())) % static_cast<int>(hostAddresses.size()));
-                if (hostAddressHighlight < hostAddressScroll) hostAddressScroll = hostAddressHighlight;
-                if (hostAddressHighlight >= hostAddressScroll + 8) hostAddressScroll = hostAddressHighlight - 7;
+                const int direction = event.getCode() == SDLK_UP || event.getCode() == SDLK_LEFT
+                        || (event.getCode() == SDLK_TAB && (event.getModifiers() & KMOD_SHIFT)) ? -1 : 1;
+                moveListeningFocus(direction);
                 return;
             }
             if (event.getCode() == SDLK_RETURN || event.getCode() == SDLK_SPACE) {
                 consumeKey();
-                if (!hostAddresses.empty()) {
-                    hostAddress = hostAddresses[hostAddressHighlight];
-                    hostAddressSelectionBecameInvalid = false;
-                }
-                hostAddressSelectorOpen = false;
-                focus = 1;
+                activateListeningChoice();
                 return;
             }
+            return;
         }
         if (snap.journey == Client::NetworkJourney::Match && confirmation == Confirmation::None) {
             if (event.getCode() == SDLK_TAB) {
@@ -1546,6 +1576,11 @@ namespace Duel6 {
     }
 
     void NetworkMenu::update(Float32 elapsedTime) {
+        hostAddressRefreshElapsed += elapsedTime;
+        if (hostAddressRefreshElapsed >= 1 && setupScreen == SetupScreen::Host
+            && runtime.snapshot().journey == Client::NetworkJourney::Inactive) {
+            (void) refreshHostAddresses(false); hostAddressRefreshElapsed = 0;
+        }
         if (runtime.snapshot().journey == Client::NetworkJourney::Inactive
             && (setupScreen == SetupScreen::Host || setupScreen == SetupScreen::Join)) syncSetupScroll();
         if (setupScreen == SetupScreen::Browser) {
@@ -1660,13 +1695,10 @@ namespace Duel6 {
                 controllerUp = uiUp; controllerDown = uiDown;
                 controllerLeft = uiLeft; controllerRight = uiRight;
             }
-            if (hostAddressSelectorOpen && !hostAddresses.empty()) {
-                if ((uiUp && !controllerUp) || (uiDown && !controllerDown)) {
-                    const int direction = uiDown ? 1 : -1;
-                    hostAddressHighlight = static_cast<std::size_t>((static_cast<int>(hostAddressHighlight) + direction
-                            + static_cast<int>(hostAddresses.size())) % static_cast<int>(hostAddresses.size()));
-                    if (hostAddressHighlight < hostAddressScroll) hostAddressScroll = hostAddressHighlight;
-                    if (hostAddressHighlight >= hostAddressScroll + 8) hostAddressScroll = hostAddressHighlight - 7;
+            if (hostAddressSelectorOpen) {
+                if ((uiUp && !controllerUp) || (uiDown && !controllerDown)
+                    || (uiLeft && !controllerLeft) || (uiRight && !controllerRight)) {
+                    moveListeningFocus(uiDown || uiRight ? 1 : -1);
                 }
             } else if (setupScreen == SetupScreen::Browser && currentSnapshot.journey == Client::NetworkJourney::Inactive && focus == 0) {
                 if (uiUp && !controllerUp) selectBrowserRow(-1);
@@ -2489,8 +2521,8 @@ namespace Duel6 {
                 drawText(228, y, port + (focus == 0 ? " <" : ""));
                 y -= EndpointPitch;
                 drawText(50, y, "Listening interface:");
-                drawClippedText(228, y, listeningAddressLabel(hostAddress)
-                        + (focus == 1 ? (hostAddressSelectorOpen ? " < Select" : " < Enter opens") : ""), 72);
+                drawClippedText(228, y, listeningSummary(), 64);
+                drawText(786, y, "v");
             }
             drawText(50, 434, setupScreen == SetupScreen::Host ? "Password (optional):" : "Password:");
             drawText(228, 434, std::string(std::min<std::size_t>(utf8Length(password), 40), '*'));
@@ -2534,20 +2566,34 @@ namespace Duel6 {
                                  : (setupScreen == SetupScreen::Host ? "Start session (disabled)" : "Connect (disabled)"), focus == footer, valid);
             drawAction(38, "Back", focus == footer + 1);
             if (setupScreen == SetupScreen::Host && hostAddressSelectorOpen) {
-                const std::size_t visible = std::min<std::size_t>(8, hostAddresses.size());
+                drawPanel(224, 202, 586, 252, "LISTENING INTERFACE");
+                const auto checkbox = [&](Int32 bottom, const std::string &label, bool checked, bool selected, bool enabled) {
+                    drawButton(238, bottom + 4, 16, 16, checked ? "x" : "", false, enabled);
+                    if (enabled && checked) drawBevel(238, bottom + 4, 16, 16, true);
+                    drawClippedText(264, bottom + 4, label, 66);
+                    drawFocusKeyline(234, bottom, 566, 24, selected);
+                };
+                checkbox(396, "Listen on all", listening.all, hostAddressHighlight == 0, true);
+                drawText(234, 376, listening.all ? "Uses 0.0.0.0. The operating system controls coverage."
+                        : "Only checked addresses will listen on the selected port.");
+                drawText(234, 354, listening.all ? "Turn off Listen on all to choose individual addresses."
+                        : "Every selected bind must succeed.");
+                drawField(232, 276, 570, 76);
+                const std::size_t visible = std::min(InterfaceVisibleRows, hostAddresses.size());
                 const std::size_t maximumFirst = hostAddresses.size() > visible ? hostAddresses.size() - visible : 0;
                 const std::size_t first = std::min(hostAddressScroll, maximumFirst);
                 for (std::size_t row = 0; row < visible; ++row) {
                     const std::size_t index = first + row;
-                    const Int32 optionY = InterfaceFirstOption - static_cast<Int32>(row) * 22;
-                    drawField(224, optionY, 586, 22);
-                    if (index == hostAddressHighlight)
-                        renderer.quadXY(Vector(226, optionY + 2), Vector(582, 18), Color(0, 0, 200));
-                    drawClippedText(230, optionY + 3,
-                            (index == hostAddressHighlight ? "> " : "  ") + listeningAddressLabel(hostAddresses[index]),
-                            72, index == hostAddressHighlight ? Color::WHITE : Color::BLACK);
-                    drawFocusKeyline(224, optionY, 586, 22, index == hostAddressHighlight);
+                    const Int32 optionY = InterfaceFirstOption - static_cast<Int32>(row) * 24;
+                    const bool unavailable = listening.available && !listening.eligible(hostAddresses[index]);
+                    checkbox(optionY, listeningAddressLabel(hostAddresses[index]) + (unavailable ? " • Unavailable" : ""),
+                            listening.all || listening.contains(hostAddresses[index]), index + 1 == hostAddressHighlight, !listening.all);
                 }
+                if (!listening.available) drawText(234, 256, "Individual addresses could not be listed.");
+                else if (hostAddresses.size() > visible) drawText(234, 256, "Addresses " + std::to_string(first + 1)
+                        + "–" + std::to_string(first + visible) + " of " + std::to_string(hostAddresses.size()));
+                drawText(234, 220, "Changes are kept when closed.");
+                drawButton(690, 214, 108, 28, "Close", hostAddressHighlight == hostAddresses.size() + 1);
             }
         } else if (snap.journey == Client::NetworkJourney::Starting || snap.journey == Client::NetworkJourney::Cancelling) {
             if (snap.journey == Client::NetworkJourney::Starting

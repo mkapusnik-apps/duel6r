@@ -1,0 +1,147 @@
+{
+  "common": {
+    "source": "7b9301fad6f269d4e5a0cc8618990bddc9c7a42d",
+    "branch": "feature/host-network-multiselect",
+    "worktree_at_start": "clean",
+    "frozen_archive_sha256": "87b2b98f891809c8ec3edaf2f2337624f377974693d5478af0138e9704f8653b",
+    "application_sha256": "fd26aa12ca052666218e34522802bf74187982590c04a091261628f673bd10f3",
+    "runtime_asset_manifest_sha256": "76b8ac391b15e07bdb905f20c5d37b8369bbf31115b4b191f1aa5d7a04d833ad",
+    "environment": {
+      "namespace": "d6r-host-multiselect-capture-7b9301f",
+      "platform": "Linux x86-64",
+      "configuration": "Release GL4 Lua ON",
+      "image": "sha256:604c41dbb788156bb580ae4eee88c7a00d6e06e9facf9cadccc1ba705e00d57e",
+      "audio": "SDL dummy",
+      "rendering": "Mesa software OpenGL",
+      "display": ":99",
+      "viewport": [
+        1280,
+        900
+      ],
+      "logical_canvas": [
+        850,
+        700
+      ],
+      "scale": 1.2857142857142858,
+      "origin": [
+        93,
+        0
+      ],
+      "window_geometry": "WINDOW=2097158\nX=0\nY=0\nWIDTH=1280\nHEIGHT=900\nSCREEN=0\n"
+    },
+    "backend": "not started / not required",
+    "transport_mapping": "none",
+    "port": 26660,
+    "actual_os_enumeration": [
+      {
+        "interface": "lo",
+        "address": "127.0.0.1",
+        "netmask": "255.0.0.0",
+        "prefix": 8,
+        "broadcast": null,
+        "flags": 65609,
+        "scope": "Same machine",
+        "eligible": true
+      },
+      {
+        "interface": "eth0",
+        "address": "172.17.0.3",
+        "netmask": "255.255.0.0",
+        "prefix": 16,
+        "broadcast": "172.17.255.255",
+        "flags": 69699,
+        "scope": "Private LAN",
+        "eligible": true
+      }
+    ],
+    "actual_eligible_addresses": [
+      {
+        "interface": "lo",
+        "address": "127.0.0.1",
+        "netmask": "255.0.0.0",
+        "prefix": 8,
+        "broadcast": null,
+        "flags": 65609,
+        "scope": "Same machine",
+        "eligible": true
+      },
+      {
+        "interface": "eth0",
+        "address": "172.17.0.3",
+        "netmask": "255.255.0.0",
+        "prefix": 16,
+        "broadcast": "172.17.255.255",
+        "flags": 69699,
+        "scope": "Private LAN",
+        "eligible": true
+      }
+    ],
+    "person_setup": {
+      "creation": "native Local Play person-name/Add UI; no save fixture",
+      "names": [
+        "Cedar",
+        "Dogwood"
+      ],
+      "controls": [
+        "K1: Arrows",
+        "K2: WSAD"
+      ]
+    },
+    "password": {
+      "disposable": true,
+      "plaintext_recorded": false,
+      "mask_characters": 12
+    },
+    "capture_method": "ImageMagick import of the complete native client window; original lossless PNG",
+    "image_modifications": "none; no crop, resize, retouch, composite or synthetic state",
+    "application_session_identifier": "pid-41-startticks-117224019",
+    "application_started_at": "2026-10-09T00:47:38.974468+00:00",
+    "menu_background": "alpine-flood.png",
+    "graphics": [
+      "Version 5.7",
+      "Vendor     : Mesa",
+      "Renderer   : llvmpipe (LLVM 20.1.2, 256 bits)",
+      "Version    : 4.5 (Core Profile) Mesa 25.2.8-0ubuntu0.24.04.2"
+    ]
+  },
+  "captures": [
+    {
+      "wireframe": "NET-02",
+      "scenario": "MENU-01 -> Network (F2) -> Host; inherited two valid local players; optional password entered; popup closed",
+      "listening_mode": "Listen on all (0.0.0.0)",
+      "retained_explicit_set": [],
+      "focus": "Password",
+      "capture_start_utc": "2026-10-09T00:47:52.761238+00:00",
+      "capture_end_utc": "2026-10-09T00:47:52.997399+00:00",
+      "path": "docs/design/screenshots/NET-02/NET-02.png",
+      "sha256": "94d5419723da0c0be3e15a4a3eaf91aa25134da4f2957c933bc88386505100ce",
+      "dimensions": "1280x900"
+    },
+    {
+      "wireframe": "NET-02-LA",
+      "scenario": "Same editable setup -> open Listening interface without toggling its default",
+      "listening_mode": "Listen on all (0.0.0.0)",
+      "retained_explicit_set": [],
+      "focus": "Listen on all",
+      "capture_start_utc": "2026-10-09T00:47:54.405085+00:00",
+      "capture_end_utc": "2026-10-09T00:47:54.638411+00:00",
+      "path": "docs/design/screenshots/NET-02/NET-02-LA.png",
+      "sha256": "49381777b090076e3a7177fec669f07deb4bb4268312f04054e5eadc74dfecfd",
+      "dimensions": "1280x900"
+    },
+    {
+      "wireframe": "NET-02-LE",
+      "scenario": "Same popup -> disable Listen on all for first time -> both initialized checked -> clear loopback -> focus selected non-loopback",
+      "listening_mode": "Explicit",
+      "retained_explicit_set": [
+        "172.17.0.3"
+      ],
+      "focus": "172.17.0.3",
+      "capture_start_utc": "2026-10-09T00:47:56.658369+00:00",
+      "capture_end_utc": "2026-10-09T00:47:56.904611+00:00",
+      "path": "docs/design/screenshots/NET-02/NET-02-LE.png",
+      "sha256": "dae32915c6bd50407ce81da1da2803609fba2fb9b7ea27234344560ad1deaca7",
+      "dimensions": "1280x900"
+    }
+  ]
+}

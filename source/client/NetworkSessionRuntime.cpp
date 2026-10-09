@@ -7,6 +7,7 @@
 #include "../network/StateReplicationProtocol.h"
 #include "../network/PlayerInputProtocol.h"
 #include "../network/NetworkTrustPolicy.h"
+#include "../network/ListeningSelection.h"
 #include "../server/HeadlessServer.h"
 #include "../server/ServerConfig.h"
 
@@ -46,7 +47,16 @@ namespace Duel6::Client {
     bool NetworkSessionRuntime::startHost(
             const Network::Endpoint &endpoint, const std::string &serverExecutable,
             const std::string &resourcePath, const Network::HostComposition::Setup &setup,
-            std::vector<NetworkLocalPlayer> localPlayers) {
+            std::vector<NetworkLocalPlayer> localPlayers, std::vector<std::string> additionalListenHosts) {
+        if (endpoint.host == "0.0.0.0") {
+            if (!additionalListenHosts.empty()) return false;
+        } else {
+            Network::ListeningSelection selection;
+            selection.all = false; selection.selected = additionalListenHosts;
+            selection.selected.insert(selection.selected.begin(), endpoint.host);
+            selection.available = Network::Trust::localListenerAddresses();
+            if (!selection.validation().empty()) return false;
+        }
         std::vector<std::uint8_t> setupPayload;
         try { setupPayload = Network::HostComposition::serializeSetup(setup); }
         catch (...) { return false; }
@@ -57,7 +67,9 @@ namespace Duel6::Client {
         reset();
         HostServiceDependencies dependencies;
         passwordRequired = setup.password && setup.password->required();
-        publisher = std::make_unique<DirectoryPublisher>();
+        auto coverage = additionalListenHosts;
+        coverage.insert(coverage.begin(), endpoint.host);
+        publisher = std::make_unique<DirectoryPublisher>(std::move(coverage));
         dependencies.lifecycleObserver = [this](const auto &value) { observeHostLifecycle(value); };
         dependencies.sessionPayloadObserver = [this](const auto &payload) { receiveHostPayload(payload); };
         supervisor = std::make_unique<HostServiceSupervisor>(std::move(dependencies));
@@ -71,6 +83,7 @@ namespace Duel6::Client {
         }
         HostServiceStartConfig config;
         config.serverExecutable = serverExecutable; config.endpoint = endpoint;
+        config.additionalListenHosts = std::move(additionalListenHosts);
         config.resourcePath = resourcePath; config.localPlayers = static_cast<std::uint8_t>(players.size());
         config.graphicalComposition = true;
         if (!supervisor->start(config)) { reset(); return false; }
