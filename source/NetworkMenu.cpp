@@ -2569,6 +2569,7 @@ namespace Duel6 {
                 drawPanel(224, 202, 586, 252, "LISTENING INTERFACE");
                 const auto checkbox = [&](Int32 bottom, const std::string &label, bool checked, bool selected, bool enabled) {
                     drawButton(238, bottom + 4, 16, 16, checked ? "x" : "", false, enabled);
+                    if (enabled && checked) drawBevel(238, bottom + 4, 16, 16, true);
                     drawClippedText(264, bottom + 4, label, 66);
                     drawFocusKeyline(234, bottom, 566, 24, selected);
                 };

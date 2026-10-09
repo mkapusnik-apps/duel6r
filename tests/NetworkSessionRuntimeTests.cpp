@@ -802,6 +802,39 @@ D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choic
     f.click(744, 226); D6R_REQUIRE(!menu.hostAddressSelectorOpen && menu.focus == 1);
 }
 
+D6R_TEST_CASE("PA-NET-02-01 popup checked enabled frames remain reversed while disabled coverage stays flat") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    menu.setupScreen = NetworkMenu::SetupScreen::Host; menu.focus = 1;
+    f.key(SDLK_RETURN);
+    menu.listening.available = std::vector<std::string>{"127.0.0.1", "10.1.2.3"};
+    menu.hostAddresses = menu.listening.rows();
+    const auto topFrameColor = [&](int bottom) {
+        // Last submitted edge is the visible frame, including the persistent checked treatment.
+        const auto edge = std::find_if(f.recorder.lines.rbegin(), f.recorder.lines.rend(), [&](const auto &line) {
+            return line.start.x == 238 && line.start.y == bottom + 19
+                    && line.end.x == 253 && line.end.y == bottom + 19;
+        });
+        D6R_REQUIRE(edge != f.recorder.lines.rend());
+        return edge->color;
+    };
+    menu.pointerHeld = false; menu.controllerConfirm = false;
+    f.draw();
+    D6R_REQUIRE(topFrameColor(396) == Color::BLACK); // Checked mode persists when idle.
+    D6R_REQUIRE(f.frame(238, 330, 16, 16, 1)); // Checked disabled address remains flat.
+    D6R_REQUIRE(f.frame(232, 394, 570, 28, 2)); // Existing mode-row focus.
+    f.key(SDLK_SPACE); // First explicit mode: mode unchecked, both addresses checked.
+    f.draw(); D6R_REQUIRE(topFrameColor(396) == Color(235));
+    D6R_REQUIRE(topFrameColor(326) == Color::BLACK);
+    D6R_REQUIRE(topFrameColor(302) == Color::BLACK);
+    f.click(300, 338); f.click(300, 338, false); // Label target toggles on press only.
+    f.draw(); D6R_REQUIRE(topFrameColor(326) == Color(235));
+    D6R_REQUIRE(topFrameColor(302) == Color::BLACK);
+    D6R_REQUIRE(!menu.listening.contains("127.0.0.1") && menu.listening.contains("10.1.2.3"));
+    D6R_REQUIRE(menu.hostAddressSelectorOpen && menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+    D6R_REQUIRE(f.frame(232, 324, 570, 28, 2)); // Hit bounds and retained row focus unchanged.
+}
+
 D6R_TEST_CASE("NET-02 popup traversal and overflow retain fixed bounds at supported desktop scales") {
     ReviewMenuFixture f;
     ReviewController controller(f);
