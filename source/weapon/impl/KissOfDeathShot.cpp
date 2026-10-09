@@ -26,6 +26,7 @@
 */
 
 #include "KissOfDeathShot.h"
+#include "KissOfDeath.h"
 
 namespace Duel6 {
     namespace {
@@ -58,5 +59,8 @@ namespace Duel6 {
         auto sprite = LegacyShot::makeBoomSprite(spriteList);
         sprite->setGrow(0.61f * getPowerFactor());
         return sprite;
+    }
+    WeaponImpl::ProjectileVisual KissOfDeath::getNetworkProjectileVisual() const {
+        return {collistionRectangle, shotAnimation};
     }
 }

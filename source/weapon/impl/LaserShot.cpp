@@ -26,6 +26,7 @@
 */
 
 #include "LaserShot.h"
+#include "Laser.h"
 
 namespace Duel6 {
     namespace {
@@ -36,5 +37,8 @@ namespace Duel6 {
 
     LaserShot::LaserShot(Player &player, World &world, const LegacyWeapon &weapon, Orientation orientation)
             : LegacyShot(player, world, weapon, shotAnimation, boomAnimation, orientation, collistionRectangle) {
+    }
+    WeaponImpl::ProjectileVisual Laser::getNetworkProjectileVisual() const {
+        return {collistionRectangle, shotAnimation};
     }
 }

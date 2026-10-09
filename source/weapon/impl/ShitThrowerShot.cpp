@@ -26,6 +26,7 @@
 */
 
 #include "ShitThrowerShot.h"
+#include "ShitThrower.h"
 
 namespace Duel6 {
     namespace {
@@ -69,5 +70,8 @@ namespace Duel6 {
         auto sprite = LegacyShot::makeBoomSprite(spriteList);
         sprite->setNoDepth(true).setGrow(2.44f * getPowerFactor());
         return sprite;
+    }
+    WeaponImpl::ProjectileVisual ShitThrower::getNetworkProjectileVisual() const {
+        return {collistionRectangle, shotAnimation};
     }
 }

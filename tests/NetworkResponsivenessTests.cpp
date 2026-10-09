@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <set>
 #include <vector>
 
@@ -70,6 +71,65 @@ namespace {
         D6R_REQUIRE(monitor.observeNetworkSample({latency, 100, 0}, now));
         D6R_REQUIRE(monitor.observeCanonicalState(version, now));
     }
+}
+
+D6R_TEST_CASE("network restoration local input pose never treats velocity as displacement") {
+    auto state = activeState();
+    auto &player = state.players.front();
+    player.positionX = 4 * 65536; player.positionY = 3 * 65536;
+    for (const std::int64_t velocity : {std::int64_t(504627), std::int64_t(-319816),
+                                      (std::numeric_limits<std::int64_t>::max)(),
+                                      (std::numeric_limits<std::int64_t>::min)()}) {
+        player.velocityX = velocity; player.velocityY = velocity;
+        const auto bytes = R::serializeReplicationSnapshot({1, state});
+        for (const bool left : {false, true}) for (const bool right : {false, true})
+            for (const bool crouch : {false, true}) {
+                const auto pose = N::localInputPose(player, left, right, crouch);
+                D6R_REQUIRE_EQ(player.playerId, pose.playerId);
+                D6R_REQUIRE_EQ(player.positionX, pose.positionX);
+                D6R_REQUIRE_EQ(player.positionY, pose.positionY);
+                D6R_REQUIRE_EQ(left != right ? left : player.facingLeft, pose.facingLeft);
+                D6R_REQUIRE_EQ(crouch, pose.crouching);
+            }
+        D6R_REQUIRE(bytes == R::serializeReplicationSnapshot({1, state}));
+    }
+}
+
+D6R_TEST_CASE("network restoration full and incremental wire state preserve local pose and visual inputs") {
+    auto state = activeState();
+    state.players.front().heldWeapon = "pistol";
+    R::WorldEntityState shot;
+    shot.entityId = 200; shot.ownerPlayerId = state.players.front().playerId;
+    shot.kind = R::EntityKind::Projectile; shot.type = "pistol"; shot.active = true;
+    shot.positionX = 7 * 65536; shot.positionY = 4 * 65536; shot.velocityX = 65536;
+    state.entities = {shot};
+    R::AuthoritativeStateReplicator service;
+    D6R_REQUIRE(service.initialize(state));
+    R::ReplicatedState incremental, full;
+    const auto initial = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*service.fullSnapshot()));
+    D6R_REQUIRE(initial && initial->snapshot);
+    D6R_REQUIRE(incremental.apply(*initial->snapshot) == R::ApplyResult::Applied);
+    state.phaseTime += 3;
+    state.players.front().heldWeapon = "bazooka";
+    state.players.front().facingLeft = true; state.players.front().crouching = true;
+    state.players.front().positionY += 8192; state.players.front().velocityY = 504627;
+    state.entities.front().type = "bazooka"; state.entities.front().velocityX = -65536;
+    const auto update = service.publish(state);
+    D6R_REQUIRE(update);
+    const auto decodedUpdate = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+    D6R_REQUIRE(decodedUpdate && decodedUpdate->update);
+    D6R_REQUIRE(incremental.apply(*decodedUpdate->update) == R::ApplyResult::Applied);
+    const auto decodedFull = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*service.fullSnapshot()));
+    D6R_REQUIRE(decodedFull && decodedFull->snapshot);
+    D6R_REQUIRE(full.apply(*decodedFull->snapshot) == R::ApplyResult::Applied);
+    D6R_REQUIRE(R::serializeReplicationSnapshot({service.version(), *incremental.state()})
+                == R::serializeReplicationSnapshot({service.version(), *full.state()}));
+    const auto expected = N::localInputPose(full.state()->players.front(), true, false, true);
+    const auto actual = N::localInputPose(incremental.state()->players.front(), true, false, true);
+    D6R_REQUIRE_EQ(expected.positionX, actual.positionX);
+    D6R_REQUIRE_EQ(expected.positionY, actual.positionY);
+    D6R_REQUIRE_EQ(expected.facingLeft, actual.facingLeft);
+    D6R_REQUIRE_EQ(expected.crouching, actual.crouching);
 }
 
 D6R_TEST_CASE("responsiveness budgets expose the approved same-machine and private-LAN limits") {

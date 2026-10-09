@@ -34,6 +34,7 @@
 #include "Type.h"
 #include "Sound.h"
 #include "SpriteList.h"
+#include "Rectangle.h"
 #ifndef D6R_HEADLESS_CORE
 #include "TextureManager.h"
 #endif
@@ -47,6 +48,10 @@ namespace Duel6 {
 
     class WeaponImpl {
     public:
+        struct ProjectileVisual {
+            Rectangle collisionRect;
+            Animation animation;
+        };
         virtual ~WeaponImpl() {}
 
         virtual std::string getName() const = 0;
@@ -65,6 +70,7 @@ namespace Duel6 {
 
         virtual Texture getNetworkWeaponTexture() const = 0;
         virtual Texture getNetworkProjectileTexture() const = 0;
+        virtual ProjectileVisual getNetworkProjectileVisual() const = 0;
         virtual Texture getNetworkExplosionTexture() const = 0;
         virtual void playNetworkShotSound() const = 0;
         virtual void playNetworkExplosionSound() const = 0;
@@ -115,6 +121,7 @@ namespace Duel6 {
         bool isChargeable() const;
         Texture getNetworkWeaponTexture() const;
         Texture getNetworkProjectileTexture() const;
+        WeaponImpl::ProjectileVisual getNetworkProjectileVisual() const;
         Texture getNetworkExplosionTexture() const;
         void playNetworkShotSound() const;
         void playNetworkExplosionSound() const;

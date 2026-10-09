@@ -1,5 +1,60 @@
 # Screenshot coverage and assessment
 
+## Network weapon, projectile, and jump restoration
+
+**Capture release: held. Current conformance: Pending.** Team must declare functional closure of the frozen candidate before developer captures this coordinated packet. The prepared branch is `bugfix/network-jump-and-render-parity`, with clean baseline `412abfaae857ab65ba21746819de54c3ac4446be`. This section authorizes evidence coverage only. It does not change normative visual intent, functional behavior, or wireframes.
+
+### Fixed sources and scope
+
+- [PLAY-01 functional and legacy presentation contract](../../screens/play-fullscreen.md) and [PLAY-01 structural wireframe](../../screens/wireframes/play-fullscreen.md) at the baseline define the existing offline shared arena.
+- [NET-05 functional contract](../../screens/network-match.md), [NET-05 UX specification](../screens/NET-05.md), and [NET-05 structural wireframe](../../screens/wireframes/network-match.md) at the baseline define the existing network shared arena.
+- [Existing visual design rules](../../design.md), [local behavior](../../features.md), [network visual requirements](../../network-play-first-release.md), and [movement/correction requirements](../../network-responsiveness-and-recovery.md) remain authoritative at that baseline.
+- Preserve the existing offline visible weapon size, player-relative attachment, projectile appearance and placement, and established jump behavior. Network players retain the approved default network visual set. Selected-profile parity is not part of this restoration.
+- Reuse stable screen/wireframe IDs `PLAY-01` and `NET-05`. `Active play` and `Connected active play` below are approved descriptive labels, not new functional state IDs. No new screen, wireframe, viewport class, or product state is added.
+- The affected weapon is not yet identified. Pistol is an explicitly disclosed representative, not proof of every weapon. Developer must run routine tests for all changed visual mappings. Request additional images only for materially different rendering paths or unresolved findings.
+- Preserve existing canonical representatives and their historical assessment scopes where presentation remains unchanged. These focused comparisons do not replace SS-003 or the degraded/Invisibility SS-019 fixture. Team must retire affected evidence if presentation-source changes invalidate its scope.
+
+### Coordinated still-image matrix
+
+Use actual desktop clients, standard input and fonts, original lossless full-client PNGs without window chrome, and no crop, resize, retouch, composition, or injected gameplay state. Use Linux Docker and the existing supported renderer profile for representative capture. Both rows use 1280 by 900 client pixels, two living players, Deathmatch, shipped `levels/duel_16.json`, and recorded equal mirror states. Use the built-in/default-compatible offline skin and animation for comparison with default network visuals. Record any background differences; they do not authorize changing background selection. Capture after the start fade, without an overlay or obscuring bonus. Reach the weapon and shot through normal gameplay or disclosed existing configuration controls, not fabricated outcomes.
+
+| Row / screen / wireframe | Route, descriptive state, and setup | Viewport / environment | Expected result | Destination | Status |
+|---|---|---|---|---|---|
+| Restoration offline comparison / PLAY-01 / PLAY-01 | MENU-01 → valid Local Play → Active play. Two living players, disclosed Pistol, visible held weapon and actual fired projectile; record affected player, facing and pose. | Linux desktop, 1280 by 900; existing supported Docker rendering profile | Existing offline weapon attachment and visible footprint, facing, projectile footprint and muzzle relationship provide the unchanged reference. Whole level and existing HUD remain available. | `docs/design/screenshots/PLAY-01/evidence/offline-weapon-projectile.png` | Pending |
+| Restoration network comparison / NET-05 / NET-05 | MENU-01 → Network → Host and direct Join → ready lobby → Connected active play. One player owned by each participant; same level, mode, Pistol and mirror state as offline. Capture actual shot in flight and comparable player pose; identify local and remote ownership. | Linux representative clients, 1280 by 900; authorized task-isolated player-hosted environment | Held weapon stays attached and matches offline visible size/placement for the comparable pose. Projectile matches the existing offline visual mapping. Default network visuals, complete arena, HUD and compact network status remain unchanged. | `docs/design/screenshots/NET-05/evidence/network-weapon-projectile.png` | Pending |
+
+One network still may cover both owned and remote players when relevant weapons and poses are visible. Compare visible texture content and its relationship to the player and muzzle, not only sprite canvas or collision dimensions. Do not demand pixel-level resemblance to the low-fidelity wireframes. If a required projectile cannot be captured visibly through the actual route, report that dependency before changing coverage or substituting evidence.
+
+### Temporal supplements in the same packet
+
+The two recordings below are focused evidence for the same existing wireframes, not new canonical representatives or a second campaign. Use the same supported viewport, renderer, content identity, level/mirror setup, and disclosed weapon as the still rows. Record normal gameplay without state injection. Container-native recording is permitted for Linux evidence; recording-renderer mocks are not visual evidence.
+
+| Owning screen / wireframe | Required sequence and observation | Recording destination |
+|---|---|---|
+| PLAY-01 / PLAY-01 | Show grounded stand, both facings, crouch, actual shooting, jump, apex, descent, and landing. Repeat jump input to show established double-jump. Preserve the offline weapon attachment throughout motion. | `docs/design/screenshots/PLAY-01/evidence/offline-weapon-projectile-jump.mp4` |
+| NET-05 / NET-05 | Show the same sequence under ordinary Connected operation for locally owned and remote players. Identify ownership and inputs in the receipt. Show continuous ascent/descent and landing, one visible sprite, and attached weapon. Identify any separately induced correction segment explicitly and verify it against existing correction requirements. | `docs/design/screenshots/NET-05/evidence/network-weapon-projectile-jump.mp4` |
+
+For the network recording, observe both ownership roles in the same client view where practical by operating each participant in turn. If both client views are needed, supply a separate original companion recording at `docs/design/screenshots/NET-05/evidence/network-peer-weapon-projectile-jump.mp4`; do not composite views or start another campaign. Record actual frame rate, timing basis, capture intervals, dropped-frame limitations, and segment timestamps. Preserve enough lead-in and landing context to distinguish a normal jump from an unexplained upward position discontinuity. A static image cannot prove jump continuity, input behavior, prediction correctness, or correction timing.
+
+Tester owns source-tied verification of jump, double-jump, shooting and reconciliation. Correlate actual input, accepted canonical positions, and presented poses when diagnosing teleportation. Existing authority and correction timing remain the acceptance baseline. Do not infer a new numerical jump tolerance from a recording or alter physics to make the images match. Record bonus state and supported connection conditions; do not silently substitute degraded recovery for ordinary Connected motion.
+
+### Capture receipt, release, and assessment
+
+Developer must submit both stills, both required recordings, any needed peer companion, routine-test results for all changed mappings, and source-impact/reuse confirmation as one packet. Store structured reproduction and provenance at `docs/design/screenshots/NET-05/evidence/restoration-capture-provenance.json`. The receipt must identify each artifact separately and include:
+
+- Immutable frozen source checkpoint, branch, and any uncommitted presentation-source differences at capture.
+- Original artifact path, SHA-256, capture time, actual route, descriptive state, screen ID, and wireframe ID.
+- OS, architecture, renderer, graphics implementation, input profile, full client pixel dimensions, runtime identity, and asset/content identity.
+- Actual level and mirror state, background identity or disclosed observation limit, player identity and ownership, weapon type, pose/facing, bonus state, and scenario setup/configuration differences.
+- For multiplayer evidence, authorized task namespace, backend candidate identity, stable endpoint or transport mapping, session/match/round identities, and near-capture ticks where available. Distinguish nearby observed state from exact GPU-consumed state.
+- For temporal evidence, frame rate/timing information, segment timestamps, ownership/input sequence, connection conditions, and correlation evidence or explicit limits.
+
+Do not print passwords, invitation values, reconnect credentials, or unredacted logs. UX does not provision, reset, or reconfigure the task environment. Report unreachable states rather than fabricate them. Developer owns capture, image files, hashes, and temporary-artifact cleanup. Developer will hash this approved matrix before exact integration.
+
+Linux Docker/software-OpenGL evidence establishes only the supplied representative profile. It does not establish physical-GPU behavior or Windows-host/macOS-client live parity. The user-owned cross-OS check must repeat this focused scenario on matching published Windows and Apple Silicon macOS artifacts and record exact release/source/content identities, native renderer and OS, actual viewport, and Mac logical/drawable dimensions. Its evidence may remain in a supplied user packet; identify original paths and hashes before assessment. The [macOS acceptance boundaries](../../macos.md#acceptance-boundaries) govern the existing live-GUI deferral. Deferred coverage remains deferred, not passed; mandatory native automated checks are separate and are not waived by Linux capture.
+
+No candidate artifact is supplied or assessed by this matrix update. Final visual assessment remains pending until the coordinated packet is supplied after functional closure. Fixed specifications and all legacy wireframes remain read-only and unchanged.
+
 ## Current NET-02 listening coverage status
 
 **NET-02 / SS-016, NET-02-LA, and NET-02-LE conform for their supplied Linux states at 1280 × 900.** UX inspected the exact canonical PNGs and the supplied capture provenance as one coordinated evidence set. Team's freeze, functional closure, and release of these three rows are recorded in the capture packet. Earlier SS-016 conformance and hashes identify historical single-address evidence only.

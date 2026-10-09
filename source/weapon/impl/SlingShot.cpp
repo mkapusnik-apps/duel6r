@@ -26,6 +26,7 @@
 */
 
 #include "SlingShot.h"
+#include "Sling.h"
 
 namespace Duel6 {
     namespace {
@@ -36,5 +37,8 @@ namespace Duel6 {
 
     SlingShot::SlingShot(Player &player, World &world, const LegacyWeapon &weapon, Orientation orientation)
             : LegacyShot(player, world, weapon, shotAnimation, boomAnimation, orientation, collistionRectangle) {
+    }
+    WeaponImpl::ProjectileVisual Sling::getNetworkProjectileVisual() const {
+        return {collistionRectangle, shotAnimation};
     }
 }

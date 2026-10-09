@@ -26,6 +26,7 @@
 */
 
 #include "UziShot.h"
+#include "Uzi.h"
 
 namespace Duel6 {
     namespace {
@@ -36,5 +37,8 @@ namespace Duel6 {
 
     UziShot::UziShot(Player &player, World &world, const LegacyWeapon &weapon, Orientation orientation)
             : LegacyShot(player, world, weapon, shotAnimation, boomAnimation, orientation, collistionRectangle) {
+    }
+    WeaponImpl::ProjectileVisual Uzi::getNetworkProjectileVisual() const {
+        return {collistionRectangle, shotAnimation};
     }
 }

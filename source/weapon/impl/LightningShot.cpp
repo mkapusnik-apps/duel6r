@@ -26,6 +26,7 @@
 */
 
 #include "LightningShot.h"
+#include "Lightning.h"
 
 namespace Duel6 {
     namespace {
@@ -48,5 +49,8 @@ namespace Duel6 {
 
     Color LightningShot::getPlayerExplosionColor() const {
         return Color::CYAN;
+    }
+    WeaponImpl::ProjectileVisual Lightning::getNetworkProjectileVisual() const {
+        return {collistionRectangle, shotAnimation};
     }
 }

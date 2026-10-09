@@ -351,7 +351,7 @@ namespace Duel6 {
     }
 
     void CanonicalWorldPresenter::renderEntity(
-            const Network::Replication::WorldEntityState &entity) const {
+            const Network::Replication::WorldEntityState &entity, std::uint64_t phaseTick) const {
         if (!entity.active && entity.kind != Network::Replication::EntityKind::Tree
             && entity.kind != Network::Replication::EntityKind::Water) return;
         const Vector centre(worldValue(entity.positionX), worldValue(entity.positionY), 0.65f);
@@ -359,10 +359,20 @@ namespace Duel6 {
         switch (entity.kind) {
             case Kind::Shot:
             case Kind::Projectile:
-                if (const Weapon *weapon = weaponFor(entity.type))
-                    renderer.quadXY(centre - Vector(0.18f, 0.12f), Vector(0.36f, 0.24f),
-                                    Vector(0, 1, 0), Vector(1, -1),
-                                    Material::makeMaskedTexture(weapon->getNetworkProjectileTexture()));
+                if (const Weapon *weapon = weaponFor(entity.type)) {
+                    const auto visual = weapon->getNetworkProjectileVisual();
+                    const bool facingLeft = entity.velocityX < 0;
+                    // Replication carries the collision centre, not the sprite origin.
+                    // Mirror the same weapon-specific rectangle used by LegacyShot.
+                    const Vector anchor = visual.collisionRect.getCentre();
+                    const Vector origin(centre.x + (facingLeft ? -anchor.x : anchor.x - 1.0f),
+                                        centre.y - anchor.y);
+                    Sprite sprite(visual.animation, weapon->getNetworkProjectileTexture());
+                    sprite.setPosition(origin, 0.65f)
+                            .setFrame(animationFrame(visual.animation, phaseTick))
+                            .setOrientation(facingLeft ? Orientation::Left : Orientation::Right);
+                    sprite.render(renderer);
+                }
                 else renderer.point(centre, 4.0f, Color(255, 232, 128));
                 break;
             case Kind::WeaponPickup:
@@ -425,12 +435,12 @@ namespace Duel6 {
         if (player.lifeState != Network::Replication::LifeState::Alive || player.heldWeapon.empty()) return;
         const Weapon *weapon = weaponFor(player.heldWeapon);
         if (!weapon || !weapon->getNetworkWeaponTexture()) return;
-        const Float32 direction = player.facingLeft ? -1.0f : 1.0f;
         const bool invisible = player.activeBonus == "invisibility" && player.bonusRemaining > 0;
         if (invisible) renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        renderer.quadXY(Vector(x + direction * 0.38f - 0.26f, y + 0.28f, 0.64f), Vector(0.52f, 0.28f),
-                        player.facingLeft ? Vector(1, 1, 0) : Vector(0, 1, 0),
-                        player.facingLeft ? Vector(-1, -1) : Vector(1, -1),
+        renderer.quadXY(Vector(x, y - (player.crouching ? 0.15f : 0.0f), 0.64f), Vector(1.0f, 1.0f),
+                        Vector(player.facingLeft ? 0.0f : 1.0f, 1.0f,
+                               static_cast<Float32>(weapon->getBonusTextureIndex())),
+                        Vector(player.facingLeft ? 1.0f : -1.0f, -1.0f),
                         Material(weapon->getNetworkWeaponTexture(),
                                  Color(255, 255, 255, invisible ? 51 : 255), !invisible));
         if (invisible) renderer.setBlendFunc(BlendFunc::None);
@@ -543,7 +553,7 @@ namespace Duel6 {
         renderer.enableDepthTest(false);
         levelRenderData->getWalls().render(resources.getBlockTextures(), false);
         levelRenderData->getSprites().render(resources.getBlockTextures(), true);
-        for (const auto &entity: state.entities) renderEntity(entity);
+        for (const auto &entity: state.entities) renderEntity(entity, state.phaseTime);
         for (const auto &player: state.players) {
             if (!player.visible || player.lifeState == Network::Replication::LifeState::Departed) continue;
             const auto pose = std::find_if(presentedPlayers.begin(), presentedPlayers.end(), [&](const auto &value) {
