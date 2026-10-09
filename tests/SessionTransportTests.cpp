@@ -1131,32 +1131,58 @@ void productionListenerPolicy() {
 }
 
 void transactionalListeningCoverage() {
-    // Native transport fixture binds loopback literals; no interface configuration is changed.
+    // Bind actual assigned destinations on every platform. Linux's ability to bind
+    // arbitrary 127/8 aliases is not a portable fixture or an assignment guarantee.
+    const auto addresses = Trust::localListenerAddresses();
+    if (!addresses || addresses->size() < 2)
+        throw Failure("transactional listening coverage requires two actual eligible assigned IPv4 addresses; no interfaces are fabricated or skipped");
+    const auto &primary = addresses->front();
+    const auto &secondary = addresses->at(1);
+    CHECK(primary != secondary);
+    for (const auto &host: {primary, secondary}) {
+        std::array<std::uint8_t, 4> bytes{};
+        CHECK(Trust::classifyIpv4Literal(host, &bytes) != Trust::EndpointScope::Invalid);
+        CHECK(Trust::localListenerBindDecision(bytes) == Trust::LocalListenerBindDecision::Allowed);
+    }
     const auto port = unusedPort();
-    TcpListener listener(2);
-    CHECK(listener.startAll({{"127.0.0.1", port}, {"127.0.0.2", port}}));
-    CHECK(listener.waitForReady(NativeObserverWait));
-    TcpClient first, second;
-    CHECK(first.start({"127.0.0.1", port})); requireConnected(first, "first selected bind");
+    std::cout << "assigned multibind fixture;primary=" << primary << ";secondary=" << secondary
+              << ";port=" << port << '\n';
+    SessionTransportDependencies assignedPolicy;
+    assignedPolicy.enforceNetworkSessionPolicy = true;
+    TcpListener listener(2, assignedPolicy);
+    CHECK(listener.startAll({{primary, port}, {secondary, port}}));
+    if (!listener.waitForReady(NativeObserverWait))
+        throw Failure("assigned multibind startup failed;primary=" + primary + ";secondary=" + secondary
+                      + ";state=" + std::to_string(static_cast<int>(listener.state()))
+                      + ";failure=" + std::to_string(static_cast<int>(listener.failure()))
+                      + ";addressInUse=" + std::to_string(listener.addressInUse()));
+    TcpClient first(assignedPolicy), second(assignedPolicy);
+    CHECK(first.start({primary, port})); requireConnected(first, "first selected bind");
     auto acceptedFirst = awaitAccept(listener);
-    CHECK(second.start({"127.0.0.2", port})); requireConnected(second, "second selected bind");
+    CHECK(second.start({secondary, port})); requireConnected(second, "second selected bind");
     auto acceptedSecond = awaitAccept(listener);
     CHECK(first.connection()->send({1}) == SendResult::Accepted);
     CHECK(second.connection()->send({2}) == SendResult::Accepted);
     TransportFrame frame;
     CHECK(waitUntil([&] { return acceptedFirst->receive(frame); }, NativeObserverWait)); CHECK(frame.payload == std::vector<std::uint8_t>{1});
     CHECK(waitUntil([&] { return acceptedSecond->receive(frame); }, NativeObserverWait)); CHECK(frame.payload == std::vector<std::uint8_t>{2});
-    TcpClient excluded; CHECK(excluded.start({"127.0.0.3", port}));
-    CHECK(!excluded.waitForConnected(NativeObserverWait));
     first.close(); second.close(); listener.shutdown(); listener.shutdown();
 
-    TcpListener occupied; startListener(occupied, port, "127.0.0.2");
-    TcpListener transaction;
-    CHECK(transaction.startAll({{"127.0.0.1", port}, {"127.0.0.2", port}}));
+    // A real assigned but unselected destination must refuse, rather than relying
+    // on an unassigned alias to manufacture the negative observation.
+    TcpListener subset(2, assignedPolicy); startListener(subset, port, primary);
+    TcpClient excluded(assignedPolicy); CHECK(excluded.start({secondary, port}));
+    CHECK(!excluded.waitForConnected(NativeObserverWait));
+    CHECK(excluded.failure() == TransportFailure::ConnectionRefused);
+    excluded.close(); subset.shutdown();
+
+    TcpListener occupied(2, assignedPolicy); startListener(occupied, port, secondary);
+    TcpListener transaction(2, assignedPolicy);
+    CHECK(transaction.startAll({{primary, port}, {secondary, port}}));
     CHECK(!transaction.waitForReady(NativeObserverWait));
     CHECK(transaction.failure() == TransportFailure::BindFailed && transaction.addressInUse());
     transaction.shutdown();
-    TcpListener released; startListener(released, port); released.shutdown(); occupied.shutdown();
+    TcpListener released(2, assignedPolicy); startListener(released, port, primary); released.shutdown(); occupied.shutdown();
 
     SessionTransportDependencies dependencies;
     dependencies.enforceNetworkSessionPolicy = true;
@@ -1168,8 +1194,8 @@ void transactionalListeningCoverage() {
     wildcard.shutdown();
     TcpListener invalid;
     CHECK(!invalid.startAll({}));
-    CHECK(!invalid.startAll({{"0.0.0.0", port}, {"127.0.0.1", port}}));
-    CHECK(!invalid.startAll({{"127.0.0.1", port}, {"127.0.0.1", port}}));
+    CHECK(!invalid.startAll({{"0.0.0.0", port}, {primary, port}}));
+    CHECK(!invalid.startAll({{primary, port}, {primary, port}}));
 }
 
 void transactionalPartialBindCancellation() {

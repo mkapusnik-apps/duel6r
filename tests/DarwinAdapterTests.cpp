@@ -104,32 +104,54 @@ D6R_TEST_CASE("Darwin native eligible IPv4 interfaces exchange data and stale in
         D6R_REQUIRE(Network::Trust::classifyIpv4Literal(literal, &address) != Network::Trust::EndpointScope::Invalid);
         return Network::Trust::isLocalIpv4AddressAssigned(address);
     };
-    for (const auto &address : *addresses) {
-        D6R_REQUIRE(assigned(address));
+    const auto exchange = [&](const std::string &listenAddress, const std::vector<std::string> &destinations) {
         Port port; port.release();
         Network::SessionTransportDependencies dependencies;
         dependencies.secureSession = true;
         dependencies.enforceNetworkSessionPolicy = true;
-        Network::TcpListener listener(1, dependencies);
-        D6R_REQUIRE(listener.start({address, port.number}));
-        D6R_REQUIRE(listener.waitForReady(3s));
-        Network::TcpClient client(dependencies);
-        D6R_REQUIRE(client.start({address, port.number}));
-        D6R_REQUIRE(client.waitForConnected(3s));
-        std::shared_ptr<Network::TcpConnection> peer;
-        D6R_REQUIRE(await([&] { peer = listener.acceptConnection(); return bool(peer); }));
-        D6R_REQUIRE(client.connection()->send({4, 3, 2, 1}) == Network::SendResult::Accepted);
-        Network::TransportFrame frame;
-        D6R_REQUIRE(await([&] { return peer->receive(frame); }));
-        D6R_REQUIRE_EQ((std::vector<std::uint8_t>{4, 3, 2, 1}), frame.payload);
-        client.close(); listener.shutdown();
+        Network::TcpListener listener(Network::MaxTransportConnections, dependencies);
+        D6R_REQUIRE(listener.start({listenAddress, port.number}));
+        if (!listener.waitForReady(3s))
+            Test::fail("native listener ready", __FILE__, __LINE__, "listen=" + listenAddress
+                    + ";state=" + std::to_string(static_cast<int>(listener.state()))
+                    + ";failure=" + std::to_string(static_cast<int>(listener.failure())));
+        for (const auto &address : destinations) {
+            D6R_REQUIRE(assigned(address));
+            Network::TcpClient client(dependencies);
+            D6R_REQUIRE(client.start({address, port.number}));
+            D6R_REQUIRE(client.waitForConnected(3s));
+            std::shared_ptr<Network::TcpConnection> peer;
+            D6R_REQUIRE(await([&] { peer = listener.acceptConnection(); return bool(peer); }));
+            D6R_REQUIRE(client.connection()->send({4, 3, 2, 1}) == Network::SendResult::Accepted);
+            Network::TransportFrame frame;
+            D6R_REQUIRE(await([&] { return peer->receive(frame); }));
+            D6R_REQUIRE_EQ((std::vector<std::uint8_t>{4, 3, 2, 1}), frame.payload);
+            client.close(); peer->close();
+        }
+        listener.shutdown();
+    };
+    for (const auto &address : *addresses) {
+        D6R_REQUIRE(assigned(address));
+        exchange(address, {address});
     }
+    // Wildcard is approved only as listener coverage; guests still use concrete
+    // destinations. Exercise real secure exchange on every enumerated interface.
+    exchange("0.0.0.0", *addresses);
+    Network::SessionTransportDependencies guestPolicy;
+    guestPolicy.secureSession = true;
+    guestPolicy.enforceNetworkSessionPolicy = true;
+    Port guestPort; guestPort.release();
+    Network::TcpClient wildcardGuest(guestPolicy);
+    D6R_REQUIRE(wildcardGuest.start({"0.0.0.0", guestPort.number}));
+    D6R_REQUIRE(!wildcardGuest.waitForConnected(3s));
+    D6R_REQUIRE(wildcardGuest.failure() == Network::TransportFailure::InvalidEndpoint);
+    wildcardGuest.close();
     std::string stale;
     for (const auto *candidate : {"10.254.254.254", "172.31.255.254", "192.168.254.254"})
         if (!assigned(candidate)) { stale = candidate; break; }
     D6R_REQUIRE(!stale.empty());
     D6R_REQUIRE(Network::Trust::classifyIpv4Literal(stale) == Network::Trust::EndpointScope::PrivateLan);
-    for (const auto &address : {stale, std::string("0.0.0.0"), std::string("255.255.255.255"),
+    for (const auto &address : {stale, std::string("255.255.255.255"),
                                std::string("224.0.0.1"), std::string("::1")}) {
         Port port; port.release();
         Network::SessionTransportDependencies dependencies;
