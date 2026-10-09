@@ -89,7 +89,7 @@ The user reports a live test of the current nightly with a Windows host and a ma
 
 These observations establish partial live interoperability only. They do not establish complete gameplay or visual conformance. The report does not identify the nightly artifact, immutable source revision, Mac architecture, macOS version, or display and input context. The tested nightly and its provenance remain unknown.
 
-Automated fix-verification evidence has not been supplied for this report. The reported failures remain unresolved by supplied evidence. Post-fix macOS GUI and Windows-host/macOS-client live verification remain deferred until after merge and nightly publication. Automated results do not establish that the reported graphical defects are resolved. The native automated merge requirements remain unchanged.
+Post-fix verification is supplied for frozen candidate `cb4dbd95c897570292d6f29e8edbc985427fb8ec`: developer Docker GL4/GL1 checks, source review, focused independent QA, and the accepted [bounded Linux Pistol visual comparison](design/screenshots/README.md#network-weapon-projectile-and-jump-restoration). Team reports all required hosted macOS, Windows, ARM, Linux, and Feature Ready checks successful at that candidate. This evidence supports the bounded restoration, not native GUI or live Windows-host/macOS-client verification of the original unknown nightly. The original user observations remain unchanged. Post-fix macOS GUI and Windows-host/macOS-client live verification remain deferred until after merge and matching nightly publication. The native automated merge requirements remain unchanged.
 
 ## Execution policy boundary
 
