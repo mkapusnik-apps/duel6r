@@ -28,7 +28,7 @@ Network-capable experimental macOS uses the existing NET-01 through NET-10 journ
 | [NET-01](screens/NET-01.md) | Entry and navigation | [NET-01](wireframes/NET-01/NET-01.svg) |
 | [NET-02](screens/NET-02.md) | Editable host setup, wildcard/explicit listening popup, and pending startup | [NET-02](wireframes/NET-02/NET-02.svg), [NET-02-LA](wireframes/NET-02/NET-02-LA.svg), [NET-02-LE](wireframes/NET-02/NET-02-LE.svg), [NET-02-P](wireframes/NET-02/NET-02-P.svg) |
 | [NET-03](screens/NET-03.md) | Shared direct/directory join and connecting | [NET-03-E](wireframes/NET-03/NET-03-E.svg), [NET-03](../screens/wireframes/network-join.md) |
-| [NET-04](screens/NET-04.md) | Lobby, listing feedback, retained results | [NET-04](../screens/wireframes/network-lobby.md), [NET-04-R](wireframes/NET-04/NET-04-R.svg) |
+| [NET-04](screens/NET-04.md) | Lobby, listing feedback, host game-settings appearance, retained results | [NET-04](wireframes/NET-04/NET-04.svg), [NET-04-R](wireframes/NET-04/NET-04-R.svg); [legacy relationship context](../screens/wireframes/network-lobby.md) |
 | [NET-05](screens/NET-05.md) | Network controls and contextual panels; no arena/HUD redesign | [NET-05](../screens/wireframes/network-match.md), [NET-05-C](wireframes/NET-05/NET-05-C.svg), [NET-05-S](wireframes/NET-05/NET-05-S.svg), [NET-05-R](wireframes/NET-05/NET-05-R.svg) |
 | NET-06 | [Existing design-system owning section](../design.md#net-06--completed-summary-presentation) and [functional contract](../screens/network-summary.md) | [NET-06](../screens/wireframes/network-summary.md) |
 | NET-07 | [Existing design-system owning section](../design.md#net-07--reconnect-presentation) and [functional contract](../screens/network-reconnect.md) | [NET-07](../screens/wireframes/network-reconnect.md) |
@@ -39,6 +39,8 @@ Network-capable experimental macOS uses the existing NET-01 through NET-10 journ
 The [current capture matrix](screenshots/README.md#network-presentation-current-capture-matrix) owns 18 network representatives, including NET-02-LA and NET-02-LE for the listening popup. NET-02-P, NET-05-S, and NET-05-R make existing materially different tasks explicit; they do not add product screens or behavior. Existing legacy diagrams remain at their current locations. Shared token values remain unchanged; network presentation adopts the native panel and control treatments. Changed NET-02 listening presentation requires new evidence; unaffected representatives retain their original scope.
 
 Read each screen's functional contract before its visual requirements. Changed presentation in the owning sections above supersedes conflicting older appearance examples only. Product owns legacy inventory counts and functional state IDs; UX must not invent replacement states or copy the functional requirements into this index.
+
+The bounded host game-settings refinement uses UX-NET-04-006 and UX-NET-04-019–031 in the existing NET-04 owner. It preserves network interaction and the network-only level plan. Its [current coverage](screenshots/README.md#host-game-settings-current-coverage) replaces only NET-04 and NET-04-R representatives and requires one constrained guest supplement. Other screen and wireframe baselines remain unchanged.
 
 ## Resolved contract alignment
 
