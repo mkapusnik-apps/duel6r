@@ -863,6 +863,85 @@ D6R_TEST_CASE("NET-ENTRY actual main menu backdrop and context dispatch isolate 
     menu.focus = 2; key(SDLK_SPACE); D6R_REQUIRE(menu.isClosed()); Context::pop(); checkRetained();
 }
 
+D6R_TEST_CASE("NET-ENTRY production SDL queue hands off entry release shortcuts pointers and return to the current context") {
+    char name[] = "network-modal-queue-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &main = *application.menu;
+    Context::push(main);
+    struct PopContexts { ~PopContexts() { while (Context::exists()) Context::pop(); } } pop;
+    SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
+    const auto queueKey = [&](SDL_Keycode code, bool down = true) {
+        SDL_Event event{};
+        event.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+        event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+        event.key.keysym.sym = code;
+        D6R_REQUIRE_EQ(1, SDL_PushEvent(&event));
+    };
+    const auto queuePointer = [&](int x, int y, bool down) {
+        SDL_Event event{};
+        event.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+        event.button.button = SDL_BUTTON_LEFT;
+        event.button.state = down ? SDL_PRESSED : SDL_RELEASED;
+        event.button.x = main.menuTranslationX + int(x * main.menuScale);
+        event.button.y = application.video->getScreen().getClientHeight()
+                         - main.menuTranslationY - int(y * main.menuScale);
+        D6R_REQUIRE_EQ(1, SDL_PushEvent(&event));
+    };
+    const auto queued = [&] { return SDL_HasEvents(SDL_KEYDOWN, SDL_MOUSEBUTTONUP) == SDL_TRUE; };
+    const auto frameEvents = [&] {
+        // Select once, exactly as run() does; production processEvents must
+        // stop at ownership transitions, not rely on a test re-fetch per event.
+        application.processEvents(Context::getCurrent());
+        auto &current = Context::getCurrent();
+        if (current.isClosed()) Context::pop();
+    };
+    const auto initialDepth = Context::contextStack.size();
+    main.roundsTextbox->setText("7"); main.applyRoundsTextbox();
+    const auto players = main.playerListBox->size(), persons = main.personListBox->size();
+    const auto mode = main.gameModeSwitch->currentValue();
+    auto &menu = *main.networkMenu;
+    const auto retained = [&] {
+        D6R_REQUIRE_EQ(initialDepth + 1, Context::contextStack.size());
+        D6R_REQUIRE(Context::getCurrent().is(menu)); D6R_REQUIRE(!menu.isClosed());
+        D6R_REQUIRE_EQ(0, menu.focus);
+        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+        D6R_REQUIRE_EQ(players, main.playerListBox->size()); D6R_REQUIRE_EQ(persons, main.personListBox->size());
+        D6R_REQUIRE_EQ(std::string("7"), main.roundsTextbox->getText());
+        D6R_REQUIRE(main.gameModeSwitch->currentValue() == mode);
+    };
+
+    queueKey(SDLK_F2); queueKey(SDLK_F2, false);
+    for (int x: {100, 300, 500, 700}) { queuePointer(x, 45, true); queuePointer(x, 45, false); }
+    queueKey(SDLK_F1); queueKey(SDLK_F1, false);
+    queueKey(SDLK_F2); queueKey(SDLK_F2, false);
+    frameEvents(); retained(); D6R_REQUIRE(queued()); // Entry must leave its release and remaining batch queued.
+    frameEvents(); retained(); D6R_REQUIRE(!queued());
+    D6R_REQUIRE(!application.input.isPressed(SDLK_F1) && !application.input.isPressed(SDLK_F2));
+
+    queueKey(SDLK_ESCAPE); queueKey(SDLK_ESCAPE, false);
+    frameEvents(); D6R_REQUIRE(Context::getCurrent().is(main)); D6R_REQUIRE(queued());
+    frameEvents(); D6R_REQUIRE_EQ(initialDepth, Context::contextStack.size());
+    D6R_REQUIRE(!main.isClosed()); D6R_REQUIRE(!application.input.isPressed(SDLK_ESCAPE));
+
+    // Pointer entry activates on release in the native GUI. A second release
+    // in the same batch must go to the modal, not push it a second time.
+    queuePointer(300, 45, true); queuePointer(300, 45, false); queuePointer(300, 45, false);
+    queueKey(SDLK_F1); queueKey(SDLK_F1, false); queueKey(SDLK_F2); queueKey(SDLK_F2, false);
+    frameEvents(); retained(); D6R_REQUIRE(queued());
+    frameEvents(); retained(); D6R_REQUIRE(!queued()); D6R_REQUIRE(!menu.pointerHeld);
+
+    // A Back press closes the modal; its release is owned by the restored menu.
+    queuePointer(425, 305, true); queuePointer(425, 305, false);
+    frameEvents(); D6R_REQUIRE(Context::getCurrent().is(main)); D6R_REQUIRE(queued());
+    frameEvents(); D6R_REQUIRE_EQ(initialDepth, Context::contextStack.size()); D6R_REQUIRE(!main.isClosed());
+    queueKey(SDLK_F2); queueKey(SDLK_F2, false);
+    frameEvents(); frameEvents(); retained();
+    queueKey(SDLK_ESCAPE); queueKey(SDLK_ESCAPE, false); frameEvents(); frameEvents();
+    D6R_REQUIRE_EQ(initialDepth, Context::contextStack.size());
+    D6R_REQUIRE_EQ(std::string("7"), main.roundsTextbox->getText());
+}
+
 D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choices and exposes recovery") {
     ReviewMenuFixture f;
     auto &menu = f.menu;
