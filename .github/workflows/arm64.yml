@@ -1,10 +1,7 @@
 name: Linux ARM64 - Pi 5 candidate
 
 on:
-  pull_request:
-    branches: [develop]
-  push:
-    branches: [develop]
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -22,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
       - name: Build native tool image
         run: docker build -t duel6r-build:arm64 .
       - name: Build and test default ARM renderer
@@ -50,7 +47,7 @@ jobs:
       - name: Upload ARM candidate (not Pi hardware acceptance)
         uses: actions/upload-artifact@v7
         with:
-          name: duel6r-linux-aarch64-${{ github.event.pull_request.head.sha || github.sha }}
+          name: duel6r-linux-aarch64-${{ github.sha }}
           path: |
             duel6r-linux-aarch64.tar.gz
             duel6r-linux-aarch64.tar.gz.sha256
