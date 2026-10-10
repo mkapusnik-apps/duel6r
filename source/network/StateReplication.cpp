@@ -1464,6 +1464,9 @@ namespace Duel6::Network::Replication {
                 if (!validEntityKind(entity.kind)
                     || (entity.ownerPlayerId && !playerIds.count(entity.ownerPlayerId)) || !validText(entity.type)
                     || !validText(entity.lifecycle, 64, true)) return false;
+                if ((entity.kind == EntityKind::Shot || entity.kind == EntityKind::Projectile)
+                    && (entity.primaryValue < 0 || entity.primaryValue > MaxProjectileAnimationFrame
+                        || entity.primaryValue % 2 != 0)) return false;
             }
             if (state.round) {
                 if (state.round->roundId == 0 || state.round->roundNumber == 0

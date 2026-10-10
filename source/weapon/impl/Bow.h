@@ -37,6 +37,7 @@ namespace Duel6 {
         Bow(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;
+        ProjectileVisual getNetworkProjectileVisual() const override;
 
         bool isChargeable() const override;
 

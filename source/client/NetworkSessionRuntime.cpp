@@ -32,13 +32,6 @@ namespace Duel6::Client {
             return result;
         }
 
-        std::int64_t saturatedAdd(std::int64_t left, std::int64_t right) noexcept {
-            if (right > 0 && left > (std::numeric_limits<std::int64_t>::max)() - right)
-                return (std::numeric_limits<std::int64_t>::max)();
-            if (right < 0 && left < (std::numeric_limits<std::int64_t>::min)() - right)
-                return (std::numeric_limits<std::int64_t>::min)();
-            return left + right;
-        }
     }
 
     NetworkSessionRuntime::NetworkSessionRuntime() = default;
@@ -409,13 +402,10 @@ namespace Duel6::Client {
                 const auto player = std::find_if(current.canonical->players.begin(), current.canonical->players.end(),
                         [&](const auto &value) { return value.playerId == binding.first; });
                 if (player != current.canonical->players.end()) {
-                    Network::Responsiveness::PresentedPlayerPose predicted{
-                            player->playerId, saturatedAdd(player->positionX, player->velocityX),
-                            saturatedAdd(player->positionY, player->velocityY), player->facingLeft, player->crouching};
                     const bool left = (actions & Network::Input::MoveLeft) != 0;
                     const bool right = (actions & Network::Input::MoveRight) != 0;
-                    if (left != right) predicted.facingLeft = left;
-                    predicted.crouching = (actions & Network::Input::Crouch) != 0;
+                    const auto predicted = Network::Responsiveness::localInputPose(
+                            *player, left, right, (actions & Network::Input::Crouch) != 0);
                     (void) hostPresentation->predictLocalMovement(
                             predicted, Network::Responsiveness::Clock::now());
                 }

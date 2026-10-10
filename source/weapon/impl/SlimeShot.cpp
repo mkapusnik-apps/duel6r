@@ -26,6 +26,7 @@
 */
 
 #include "SlimeShot.h"
+#include "Slime.h"
 
 namespace Duel6 {
     namespace {
@@ -36,5 +37,8 @@ namespace Duel6 {
 
     SlimeShot::SlimeShot(Player &player, World &world, const LegacyWeapon &weapon, Orientation orientation)
             : LegacyShot(player, world, weapon, shotAnimation, boomAnimation, orientation, collistionRectangle) {
+    }
+    WeaponImpl::ProjectileVisual Slime::getNetworkProjectileVisual() const {
+        return {collistionRectangle, shotAnimation};
     }
 }

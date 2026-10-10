@@ -26,6 +26,7 @@
 */
 
 #include "DoubleLaserShot.h"
+#include "DoubleLaser.h"
 
 namespace Duel6 {
     namespace {
@@ -62,5 +63,8 @@ namespace Duel6 {
         sprite->setAlpha(1.0f).setBlendFunc(BlendFunc::SrcColor).setNoDepth(true);
         sprite->setGrow(0.3f * getPowerFactor());
         return sprite;
+    }
+    WeaponImpl::ProjectileVisual DoubleLaser::getNetworkProjectileVisual() const {
+        return {collistionRectangle, shotAnimation};
     }
 }

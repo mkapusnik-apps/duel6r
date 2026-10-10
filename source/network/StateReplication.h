@@ -24,6 +24,8 @@ namespace Duel6::Network::Replication {
     constexpr std::size_t MaxReplicatedStringBytes = 4096;
     constexpr std::size_t MaxReplicatedLevels = 256;
     constexpr std::size_t MaxReplicatedIdentityHistory = 65536;
+    // Built-in projectile animations have at most eight frame/duration pairs.
+    constexpr std::int64_t MaxProjectileAnimationFrame = 14;
 
     enum class IdentityCategory { Session, Match, Round, Participant, Player, WorldEntity, PresentationEvent };
     enum class ConnectionState { Connected, Reconnecting };
@@ -113,7 +115,7 @@ namespace Duel6::Network::Replication {
         std::int64_t positionY = 0;
         std::int64_t velocityX = 0;
         std::int64_t velocityY = 0;
-        std::int64_t primaryValue = 0;
+        std::int64_t primaryValue = 0; // Shot/Projectile: authoritative animation pair offset.
         std::int64_t secondaryValue = 0;
         bool active = true;
         std::string lifecycle;

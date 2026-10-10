@@ -26,6 +26,7 @@
 */
 
 #include "BowShot.h"
+#include "Bow.h"
 
 namespace Duel6 {
     namespace {
@@ -36,5 +37,8 @@ namespace Duel6 {
 
     BowShot::BowShot(Player &player, World &world, const LegacyWeapon &weapon, Orientation orientation)
             : LegacyShot(player, world, weapon, shotAnimation, boomAnimation, orientation, collistionRectangle) {
+    }
+    WeaponImpl::ProjectileVisual Bow::getNetworkProjectileVisual() const {
+        return {collistionRectangle, shotAnimation};
     }
 }

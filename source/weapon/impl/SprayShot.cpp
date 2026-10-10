@@ -26,6 +26,7 @@
 */
 
 #include "SprayShot.h"
+#include "Spray.h"
 
 namespace Duel6 {
     namespace {
@@ -40,5 +41,8 @@ namespace Duel6 {
 
     bool SprayShot::hasBlood() const {
         return false;
+    }
+    WeaponImpl::ProjectileVisual Spray::getNetworkProjectileVisual() const {
+        return {collistionRectangle, shotAnimation};
     }
 }

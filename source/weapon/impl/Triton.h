@@ -37,6 +37,7 @@ namespace Duel6 {
         Triton(Sound &sound, TextureManager &textureManager);
 
         Float32 getBulletSpeed() const override;
+        ProjectileVisual getNetworkProjectileVisual() const override;
 
     protected:
         std::unique_ptr<Shot> makeShot(Player &player, World &world, Orientation orientation) const override;

@@ -49,6 +49,7 @@ namespace Duel6 {
 #endif
 
         Float32 getBulletSpeed() const override;
+        ProjectileVisual getNetworkProjectileVisual() const override;
 
     protected:
         std::unique_ptr<Shot> makeShot(Player &player, World &world, Orientation orientation) const override;

@@ -26,6 +26,7 @@
 */
 
 #include "MachineGunShot.h"
+#include "MachineGun.h"
 
 namespace Duel6 {
     namespace {
@@ -36,5 +37,8 @@ namespace Duel6 {
 
     MachineGunShot::MachineGunShot(Player &player, World &world, const LegacyWeapon &weapon, Orientation orientation)
             : LegacyShot(player, world, weapon, shotAnimation, boomAnimation, orientation, collistionRectangle) {
+    }
+    WeaponImpl::ProjectileVisual MachineGun::getNetworkProjectileVisual() const {
+        return {collistionRectangle, shotAnimation};
     }
 }

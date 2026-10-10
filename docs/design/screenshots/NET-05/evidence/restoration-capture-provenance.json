@@ -1,0 +1,1404 @@
+{
+  "source": "cb4dbd95c897570292d6f29e8edbc985427fb8ec",
+  "branch": "bugfix/network-jump-and-render-parity",
+  "worktree": "clean before capture; evidence-only uncommitted outputs afterward",
+  "fixed_specification_baseline": "412abfaae857ab65ba21746819de54c3ac4446be",
+  "release": "User/team declared Functional closure: satisfied and released this exact matrix before capture. Matrix text remains UX-owned and was not edited.",
+  "artifact": {
+    "path": "/tmp/opencode/duel6r-restoration-cb4dbd9.tar.gz",
+    "sha256": "8fb5884e1b438af930bd09d4d3aa1717eef2d283125c1b36523955136df12ad9"
+  },
+  "environment": {
+    "namespace": "duel6r-restoration-capture-cb4dbd9",
+    "container_id": "a52b813e1ca56345a419dbe15a7995ae20a616c7597ea34df8de084c9bac891b",
+    "container_status_after_capture": "exited",
+    "container_stopped_utc": "2026-10-09T19:39:02.507134023Z",
+    "os": "Ubuntu 24.04 Linux x86-64",
+    "configuration": "Release GL4, Lua ON",
+    "image": "sha256:3a8d1fcefbd3119b1be6a9cd58975228be9d9511aea15c1751adb983dcc6064d",
+    "renderer": "Mesa llvmpipe LLVM 20.1.2, OpenGL 4.5 Core, Mesa 25.2.8",
+    "SDL": "2.30.0",
+    "audio": "SDL dummy; recordings have no audio",
+    "displays": [
+      ":91",
+      ":92",
+      ":93"
+    ],
+    "window_ids": "2097158 on each independent display",
+    "application_sha256": "6c1d244e290f873304344b6ce2aca4f6f907d04bf3097fe39cae1e441e5a2aa7",
+    "font": "Unchanged data/font.ttf and normal native game text; logical canvas 850x700 centered/scaled to 1280x900.",
+    "original_runtime_inventory": {
+      "files": 471,
+      "ordered_sha256_inventory": "5b8d0c98f8b21aaa213faf3b180b1243a6397f7fcae269d83a77a189557e79ef",
+      "identity_kind": "local ordered file inventory, not application protocol manifest/release identity"
+    },
+    "sessions": {
+      "offline": {
+        "display": ":91",
+        "runtime": "/tmp/restoration-capture/offline",
+        "pid": 15,
+        "xvfb_pid": 12,
+        "executable_sha256": "6c1d244e290f873304344b6ce2aca4f6f907d04bf3097fe39cae1e441e5a2aa7",
+        "configuration": "volume 128\nmusic off\ngun 0 true\ngun 1 false\ngun 2 false\ngun 3 false\ngun 4 false\ngun 5 false\ngun 6 false\ngun 7 false\ngun 8 false\ngun 9 false\ngun 10 false\ngun 11 false\ngun 12 false\ngun 13 false\ngun 14 false\ngun 15 false\ngun 16 false\nstart_ammo_range 200 200\n",
+        "config_sha256": "c5b24b80c15ff59adb9ad89d1f28da431bb80411443abd7c61cda9e576b01b75",
+        "names": [
+          "Cobalt",
+          "Azure"
+        ],
+        "started_at_utc": "2026-10-09T19:08:08Z",
+        "process_start_ticks": 123826945,
+        "application_session_identity": "pid-15-startticks-123826945",
+        "effective_gameplay_inventory": {
+          "files": 30,
+          "ordered_sha256_inventory": "52a6a141e70c3a4c41541d3aea01fdf19cf4c31bb16031af4a0b95d36f08c558",
+          "identity_kind": "local ordered file inventory, not application protocol manifest/release identity"
+        },
+        "level_sha256": "8ba7a10e56537b76a7b7bf6ac2dff3eb82f892afb8377c4553f24e3fda5ec33c",
+        "controls": "Cobalt K1: Arrows; Azure K2: WSAD",
+        "skin": "configured default-compatible 7070d0, normal hair, no headband, built-in animation; no actor script",
+        "round_limit": 0,
+        "background_observation": "brown rock/cliff photograph",
+        "background_filename": null,
+        "background_identity_limit": "Actual texture filename and deterministic identity inputs are not exported by this unmodified graphical route; visible background differences retained."
+      },
+      "host": {
+        "display": ":92",
+        "runtime": "/tmp/restoration-capture/host",
+        "pid": 45,
+        "xvfb_pid": 17,
+        "executable_sha256": "6c1d244e290f873304344b6ce2aca4f6f907d04bf3097fe39cae1e441e5a2aa7",
+        "configuration": "volume 128\nmusic off\ngun 0 true\ngun 1 false\ngun 2 false\ngun 3 false\ngun 4 false\ngun 5 false\ngun 6 false\ngun 7 false\ngun 8 false\ngun 9 false\ngun 10 false\ngun 11 false\ngun 12 false\ngun 13 false\ngun 14 false\ngun 15 false\ngun 16 false\nstart_ammo_range 200 200\n",
+        "config_sha256": "c5b24b80c15ff59adb9ad89d1f28da431bb80411443abd7c61cda9e576b01b75",
+        "names": [
+          "Cobalt"
+        ],
+        "started_at_utc": "2026-10-09T19:08:08Z",
+        "process_start_ticks": 123827004,
+        "application_session_identity": "pid-45-startticks-123827004",
+        "effective_gameplay_inventory": {
+          "files": 30,
+          "ordered_sha256_inventory": "52a6a141e70c3a4c41541d3aea01fdf19cf4c31bb16031af4a0b95d36f08c558",
+          "identity_kind": "local ordered file inventory, not application protocol manifest/release identity"
+        },
+        "level_sha256": "8ba7a10e56537b76a7b7bf6ac2dff3eb82f892afb8377c4553f24e3fda5ec33c",
+        "controls": "Owned slot K1: Arrows",
+        "skin": "built-in default network visual set; actor profile cannot select network visuals",
+        "round_limit": 1,
+        "background_observation": "orange sunset/lakeshore with tree silhouettes",
+        "background_filename": null,
+        "background_identity_limit": "Actual texture filename and deterministic identity inputs are not exported by this unmodified graphical route; visible background differences retained."
+      },
+      "guest": {
+        "display": ":93",
+        "runtime": "/tmp/restoration-capture/guest",
+        "pid": 76,
+        "xvfb_pid": 47,
+        "executable_sha256": "6c1d244e290f873304344b6ce2aca4f6f907d04bf3097fe39cae1e441e5a2aa7",
+        "configuration": "volume 128\nmusic off\ngun 0 true\ngun 1 false\ngun 2 false\ngun 3 false\ngun 4 false\ngun 5 false\ngun 6 false\ngun 7 false\ngun 8 false\ngun 9 false\ngun 10 false\ngun 11 false\ngun 12 false\ngun 13 false\ngun 14 false\ngun 15 false\ngun 16 false\nstart_ammo_range 200 200\n",
+        "config_sha256": "c5b24b80c15ff59adb9ad89d1f28da431bb80411443abd7c61cda9e576b01b75",
+        "names": [
+          "Azure"
+        ],
+        "started_at_utc": "2026-10-09T19:08:09Z",
+        "process_start_ticks": 123827065,
+        "application_session_identity": "pid-76-startticks-123827065",
+        "effective_gameplay_inventory": {
+          "files": 30,
+          "ordered_sha256_inventory": "52a6a141e70c3a4c41541d3aea01fdf19cf4c31bb16031af4a0b95d36f08c558",
+          "identity_kind": "local ordered file inventory, not application protocol manifest/release identity"
+        },
+        "level_sha256": "8ba7a10e56537b76a7b7bf6ac2dff3eb82f892afb8377c4553f24e3fda5ec33c",
+        "controls": "Owned slot K1: Arrows",
+        "skin": "built-in default network visual set; actor profile cannot select network visuals",
+        "round_limit": 1,
+        "background_observation": "orange sunset/lakeshore with tree silhouettes",
+        "background_filename": null,
+        "background_identity_limit": "Actual texture filename and deterministic identity inputs are not exported by this unmodified graphical route; visible background differences retained."
+      }
+    }
+  },
+  "backend": {
+    "namespace": "duel6r-restoration-capture-cb4dbd9",
+    "source": "cb4dbd95c897570292d6f29e8edbc985427fb8ec",
+    "endpoint": "127.0.0.1:26660",
+    "transport_mapping": "container loopback only, no host port publication",
+    "password": "none (unlocked task-local session)",
+    "ready_by_utc": "2026-10-09T19:10:39Z",
+    "configuration": "Two real participants/owned slots, Deathmatch, fixed shipped Duel 16, round limit 1, Quick Liquid off, Assistance/Burnable Trees on, Pistol-only official configuration controls and 200 starting ammo.",
+    "processes": [
+      {
+        "pid": 286,
+        "start_ticks": 123841919,
+        "started_utc": "2026-10-09T19:10:37.190000+00:00",
+        "executable": "/tmp/restoration-capture/host/duel6r-server",
+        "sha256": "653b382c3e749753250f6c5ed581da5604f580f322d0722a7bba2038e0627067"
+      }
+    ],
+    "listener_verified_before_release": true,
+    "health": "Actual ready lobby, ordinary Connected play in both clients; no induced stall/reconnect/correction segment.",
+    "expected_consumers": [
+      "developer capture"
+    ],
+    "cleanup_owner": "developer",
+    "runtime_release": "Normal host End session accepted through the UI; exact owned server process is absent and the task listener is released. Applications were quit through normal UI. Capture container stopped at 2026-10-09T19:39:02.507134023Z after the last active capture consumer ended.",
+    "cleanup_observation": {
+      "utc": "2026-10-09T19:38:57.296730+00:00",
+      "owned_processes_absent": true,
+      "listener_absent": true,
+      "endpoint": "127.0.0.1:26660"
+    }
+  },
+  "setup_disclosure": "Artifact, executable, level, block, font and texture bytes unchanged. Separate writable session copies use existing gun/start_ammo_range/music controls in config.script; saved person records and cosmetic default-compatible profiles are normal startup setup. Their effective inventory is separately identified; the modified scenario config is not falsely presented as the original artifact content identity.",
+  "preparation": "Initial offline setup ran with Quick Liquid on and different random mirrors; these diagnostic states were not used as matrix rows. Normal UI disabled Quick Liquid and restarted until the actual mirrored state matched network. Initial network degraded startup indication cleared naturally before recording. No successful matrix row was repeated.",
+  "routine_verification": "Reuse frozen cb4dbd9 focused GL4/GL1 projectile and all-17 mappings evidence plus assigned independent gate pass; earlier unchanged motion evidence retains original attribution. No behavioral test rerun or hosted-readiness claim from capture.",
+  "reuse": "Existing canonical SS-003/SS-019 representatives, all fixed wireframes and UX manifest remain untouched; these are the released focused comparison rows only.",
+  "limitations": [
+    "Pistol representative only; not all weapons or physical-controller/GPU/native Windows/macOS proof.",
+    "Held firing animation remains pre-existing network idle presentation and product-approved out of scope.",
+    "Backgrounds and player starting locations differ; equal shipped level/mirror and comparable standing/facing/weapon are recorded.",
+    "Numeric canonical identities/ticks and exact GPU-consumed state unavailable; OS process identities and UI round context are supplied instead.",
+    "Azure opacity pickup is disclosed; guest continuity must be assessed from original primary/companion motion footage, not treated as bonus-free evidence.",
+    "Visual conformance is for UX owner assessment; no independent or hosted QA claim. Actual Windows/macOS post-nightly checks remain deferred."
+  ],
+  "artifacts": [
+    {
+      "path": "docs/design/screenshots/PLAY-01/evidence/offline-weapon-projectile.png",
+      "sha256": "af7b9db87400b251f704d3f8fb928fbeeb152a671643b5b32103e3bfecd615d6",
+      "screen": "PLAY-01",
+      "wireframe": "PLAY-01",
+      "client_role": "offline",
+      "viewport": [
+        1280,
+        900
+      ],
+      "level": "levels/duel_16.json",
+      "mirror": true,
+      "mirror_evidence": "Offline current console explicitly logs mirror true; network screenshot structure matches mirrored shipped Duel 16 (long upper platform right, waterfall left, stairs right).",
+      "mode": "Deathmatch",
+      "weapon": "pistol",
+      "weapon_scope": "Disclosed representative; user-reported affected weapon remains unknown.",
+      "route": "MENU-01 -> Local Play via supported map 0 -> Active play",
+      "application_session_identity": "pid-15-startticks-123826945",
+      "production_source_differences": [],
+      "phase": "active round",
+      "protocol_session_id": null,
+      "protocol_match_id": null,
+      "protocol_round_id": null,
+      "near_capture_tick": null,
+      "canonical_identity_limit": "The frozen graphical artifact exposes no numeric canonical session/match/round/tick diagnostics on this route; no hook or synthetic state was added.",
+      "ownership": {
+        "Cobalt": "K1 local representative",
+        "Azure": "K2 local second living player"
+      },
+      "pixels": "original full-client PNG",
+      "media_validation": {
+        "dimensions": [
+          1280,
+          900
+        ],
+        "sha256": "af7b9db87400b251f704d3f8fb928fbeeb152a671643b5b32103e3bfecd615d6"
+      },
+      "capture_begin_utc": "2026-10-09T19:25:30.226630+00:00",
+      "capture_end_utc": "2026-10-09T19:25:31.766680+00:00",
+      "affected_player": "Cobalt",
+      "pose": "grounded standing, facing left, actual firing; projectile visibly in flight",
+      "bonus_state": "No body-opacity bonus visible on representative at still; offline Life +16 instant-pickup notification remains authentic."
+    },
+    {
+      "path": "docs/design/screenshots/NET-05/evidence/network-weapon-projectile.png",
+      "sha256": "a0c7e8fede46e74393041087810df053ec38d94a8171ad083631eaadc18a4ae2",
+      "screen": "NET-05",
+      "wireframe": "NET-05",
+      "client_role": "guest",
+      "viewport": [
+        1280,
+        900
+      ],
+      "level": "levels/duel_16.json",
+      "mirror": true,
+      "mirror_evidence": "Offline current console explicitly logs mirror true; network screenshot structure matches mirrored shipped Duel 16 (long upper platform right, waterfall left, stairs right).",
+      "mode": "Deathmatch",
+      "weapon": "pistol",
+      "weapon_scope": "Disclosed representative; user-reported affected weapon remains unknown.",
+      "route": "MENU-01 -> F2 -> Host/direct Join -> ready lobby -> Connected active play",
+      "application_session_identity": "pid-76-startticks-123827065",
+      "production_source_differences": [],
+      "phase": "active round",
+      "protocol_session_id": null,
+      "protocol_match_id": null,
+      "protocol_round_id": null,
+      "near_capture_tick": null,
+      "canonical_identity_limit": "The frozen graphical artifact exposes no numeric canonical session/match/round/tick diagnostics on this route; no hook or synthetic state was added.",
+      "ownership": {
+        "Cobalt": "host-owned, remote in guest view",
+        "Azure": "guest-owned, local in guest view"
+      },
+      "pixels": "original full-client PNG",
+      "media_validation": {
+        "dimensions": [
+          1280,
+          900
+        ],
+        "sha256": "a0c7e8fede46e74393041087810df053ec38d94a8171ad083631eaadc18a4ae2"
+      },
+      "capture_begin_utc": "2026-10-09T19:17:58.872983+00:00",
+      "capture_end_utc": "2026-10-09T19:18:00.197994+00:00",
+      "affected_player": "Cobalt",
+      "pose": "grounded standing, facing left, actual firing; projectile visibly in flight",
+      "bonus_state": "No body-opacity bonus visible on representative at still; offline Life +16 instant-pickup notification remains authentic."
+    },
+    {
+      "path": "docs/design/screenshots/PLAY-01/evidence/offline-weapon-projectile-jump.mp4",
+      "sha256": "99caa3a40c4608f58aeb5cd361fa1f563578ef215fb935e33167299fabf451b8",
+      "screen": "PLAY-01",
+      "wireframe": "PLAY-01",
+      "client_role": "offline",
+      "viewport": [
+        1280,
+        900
+      ],
+      "level": "levels/duel_16.json",
+      "mirror": true,
+      "mirror_evidence": "Offline current console explicitly logs mirror true; network screenshot structure matches mirrored shipped Duel 16 (long upper platform right, waterfall left, stairs right).",
+      "mode": "Deathmatch",
+      "weapon": "pistol",
+      "weapon_scope": "Disclosed representative; user-reported affected weapon remains unknown.",
+      "route": "MENU-01 -> Local Play via supported map 0 -> Active play",
+      "application_session_identity": "pid-15-startticks-123826945",
+      "production_source_differences": [],
+      "phase": "active round",
+      "protocol_session_id": null,
+      "protocol_match_id": null,
+      "protocol_round_id": null,
+      "near_capture_tick": null,
+      "canonical_identity_limit": "The frozen graphical artifact exposes no numeric canonical session/match/round/tick diagnostics on this route; no hook or synthetic state was added.",
+      "ownership": {
+        "Cobalt": "K1 local representative",
+        "Azure": "K2 local second living player"
+      },
+      "pixels": "original RGB H.264 recording, libx264rgb CRF 0; no editing, cropping, rescaling or compositing",
+      "media_validation": {
+        "probe": {
+          "programs": [],
+          "streams": [
+            {
+              "codec_name": "h264",
+              "width": 1280,
+              "height": 900,
+              "pix_fmt": "gbrp",
+              "r_frame_rate": "60/1",
+              "avg_frame_rate": "60/1",
+              "time_base": "1/15360",
+              "duration": "15.833333",
+              "nb_read_frames": "950"
+            }
+          ],
+          "format": {
+            "duration": "15.833333",
+            "size": "20781517"
+          }
+        },
+        "sha256": "99caa3a40c4608f58aeb5cd361fa1f563578ef215fb935e33167299fabf451b8",
+        "input_first_frame_epoch": 1791573917.581808,
+        "decoded_frames": 950,
+        "max_frame_pts_gap_seconds": 0.033333999999999975,
+        "repeated_pts": 0,
+        "negative_pts_steps": 0,
+        "decode_returncode": 0,
+        "decode_stderr": "",
+        "capture_warning_count": 5,
+        "capture_warning_examples": [
+          "[mp4 @ 0x55aa9fb0d100] Non-monotonic DTS in output stream 0:0; previous: 75008, current: 75008; changing to 75009. This may result in incorrect timestamps in the output file.",
+          "[mp4 @ 0x55aa9fb0d100] Non-monotonic DTS in output stream 0:0; previous: 116224, current: 116224; changing to 116225. This may result in incorrect timestamps in the output file.",
+          "[mp4 @ 0x55aa9fb0d100] Non-monotonic DTS in output stream 0:0; previous: 119552, current: 119552; changing to 119553. This may result in incorrect timestamps in the output file."
+        ]
+      },
+      "capture_begin_utc": "2026-10-09T19:25:17.473187+00:00",
+      "capture_end_utc": "2026-10-09T19:25:33.474722+00:00",
+      "first_frame_utc": "2026-10-09T19:25:17.581808+00:00",
+      "recording_exit": 255,
+      "recording_exit_note": "Expected 255 from intentional SIGINT; MP4 finalized and complete frame decoding passes.",
+      "timing_basis": "X11 wall-clock capture at requested 60 fps, recorded MP4 1/15360 time base. Input event timestamps use time.time; no exact server/GPU clock correlation claimed.",
+      "timing_limit": "Encoder reports duplicate-DTS repairs by one time-base unit. Final decoded PTS are strictly increasing, with maximum gap approximately 33.334 ms. No postprocessing was used; video alone does not certify 150 ms reconciliation.",
+      "bonus_state": "Cobalt collects an authentic Plus Life pickup during double-jump; no body-opacity bonus observed.",
+      "input_segments": [
+        {
+          "segment": "identify-player",
+          "key": "Return",
+          "begin": 1791573918.481764,
+          "end": 1791573918.7152593,
+          "relative_begin_seconds": 0.8999559879302979,
+          "relative_end_seconds": 1.133451223373413
+        },
+        {
+          "segment": "grounded-stand",
+          "begin": 1791573918.715265,
+          "end": 1791573919.5163589,
+          "relative_begin_seconds": 1.1334569454193115,
+          "relative_end_seconds": 1.9345507621765137
+        },
+        {
+          "segment": "face-left",
+          "key": "Left",
+          "begin": 1791573919.5163705,
+          "end": 1791573919.7628193,
+          "relative_begin_seconds": 1.9345624446868896,
+          "relative_end_seconds": 2.181011199951172
+        },
+        {
+          "segment": "left-facing-stand",
+          "begin": 1791573919.7628257,
+          "end": 1791573920.4129043,
+          "relative_begin_seconds": 2.1810176372528076,
+          "relative_end_seconds": 2.8310961723327637
+        },
+        {
+          "segment": "face-right",
+          "key": "Right",
+          "begin": 1791573920.412912,
+          "end": 1791573920.670109,
+          "relative_begin_seconds": 2.831103801727295,
+          "relative_end_seconds": 3.088300943374634
+        },
+        {
+          "segment": "right-facing-stand",
+          "begin": 1791573920.670115,
+          "end": 1791573921.3202076,
+          "relative_begin_seconds": 3.0883069038391113,
+          "relative_end_seconds": 3.7383995056152344
+        },
+        {
+          "segment": "crouch",
+          "key": "Down",
+          "begin": 1791573921.3202162,
+          "end": 1791573922.0120504,
+          "relative_begin_seconds": 3.738408088684082,
+          "relative_end_seconds": 4.430242300033569
+        },
+        {
+          "segment": "stand-after-crouch",
+          "begin": 1791573922.012056,
+          "end": 1791573922.6121275,
+          "relative_begin_seconds": 4.430248022079468,
+          "relative_end_seconds": 5.030319452285767
+        },
+        {
+          "segment": "identify-before-jump",
+          "key": "Return",
+          "begin": 1791573922.6121352,
+          "end": 1791573922.8632662,
+          "relative_begin_seconds": 5.030327081680298,
+          "relative_end_seconds": 5.281458139419556
+        },
+        {
+          "segment": "single-jump",
+          "key": "Up",
+          "begin": 1791573922.863273,
+          "end": 1791573923.13996,
+          "relative_begin_seconds": 5.2814648151397705,
+          "relative_end_seconds": 5.558151960372925
+        },
+        {
+          "segment": "single-jump-apex-descent-landing",
+          "begin": 1791573923.1399658,
+          "end": 1791573925.340037,
+          "relative_begin_seconds": 5.558157682418823,
+          "relative_end_seconds": 7.75822901725769
+        },
+        {
+          "segment": "identify-before-double-jump",
+          "key": "Return",
+          "begin": 1791573925.3400452,
+          "end": 1791573925.6286933,
+          "relative_begin_seconds": 7.75823712348938,
+          "relative_end_seconds": 8.046885251998901
+        },
+        {
+          "segment": "double-jump-first-input",
+          "key": "Up",
+          "begin": 1791573925.628697,
+          "end": 1791573925.8873084,
+          "relative_begin_seconds": 8.046888828277588,
+          "relative_end_seconds": 8.305500268936157
+        },
+        {
+          "segment": "double-jump-release",
+          "begin": 1791573925.8873134,
+          "end": 1791573926.0675838,
+          "relative_begin_seconds": 8.305505275726318,
+          "relative_end_seconds": 8.485775709152222
+        },
+        {
+          "segment": "double-jump-second-input",
+          "key": "Up",
+          "begin": 1791573926.0676248,
+          "end": 1791573926.3459272,
+          "relative_begin_seconds": 8.485816717147827,
+          "relative_end_seconds": 8.764119148254395
+        },
+        {
+          "segment": "double-jump-apex-descent-landing",
+          "begin": 1791573926.3459337,
+          "end": 1791573929.0463204,
+          "relative_begin_seconds": 8.76412558555603,
+          "relative_end_seconds": 11.464512348175049
+        },
+        {
+          "segment": "face-away-for-shot",
+          "key": "Left",
+          "begin": 1791573929.0463302,
+          "end": 1791573929.3297563,
+          "relative_begin_seconds": 11.464522123336792,
+          "relative_end_seconds": 11.747948169708252
+        },
+        {
+          "segment": "grounded-before-shot",
+          "begin": 1791573929.3297641,
+          "end": 1791573929.9842703,
+          "relative_begin_seconds": 11.747956037521362,
+          "relative_end_seconds": 12.402462244033813
+        },
+        {
+          "segment": "identify-before-shot",
+          "key": "Return",
+          "begin": 1791573929.9842787,
+          "end": 1791573930.2266238,
+          "relative_begin_seconds": 12.402470588684082,
+          "relative_end_seconds": 12.644815683364868
+        },
+        {
+          "segment": "offline-still",
+          "begin": 1791573930.2266302,
+          "end": 1791573931.7666795,
+          "path": "/tmp/restoration-capture/offline-weapon-projectile.png",
+          "relative_begin_seconds": 12.644822120666504,
+          "relative_end_seconds": 14.184871435165405
+        },
+        {
+          "segment": "actual-shoot",
+          "key": "Control_R",
+          "begin": 1791573930.2266302,
+          "end": 1791573931.9064794,
+          "relative_begin_seconds": 12.644822120666504,
+          "relative_end_seconds": 14.324671268463135
+        },
+        {
+          "segment": "final-grounded-context",
+          "begin": 1791573931.9064844,
+          "end": 1791573933.40656,
+          "relative_begin_seconds": 14.324676275253296,
+          "relative_end_seconds": 15.824751853942871
+        }
+      ]
+    },
+    {
+      "path": "docs/design/screenshots/NET-05/evidence/network-weapon-projectile-jump.mp4",
+      "sha256": "3881a2dfb67c448fdbae64bfa2e4e216eb943c7cb6cace94515fa64b446f8f33",
+      "screen": "NET-05",
+      "wireframe": "NET-05",
+      "client_role": "guest",
+      "viewport": [
+        1280,
+        900
+      ],
+      "level": "levels/duel_16.json",
+      "mirror": true,
+      "mirror_evidence": "Offline current console explicitly logs mirror true; network screenshot structure matches mirrored shipped Duel 16 (long upper platform right, waterfall left, stairs right).",
+      "mode": "Deathmatch",
+      "weapon": "pistol",
+      "weapon_scope": "Disclosed representative; user-reported affected weapon remains unknown.",
+      "route": "MENU-01 -> F2 -> Host/direct Join -> ready lobby -> Connected active play",
+      "application_session_identity": "pid-76-startticks-123827065",
+      "production_source_differences": [],
+      "phase": "active round",
+      "protocol_session_id": null,
+      "protocol_match_id": null,
+      "protocol_round_id": null,
+      "near_capture_tick": null,
+      "canonical_identity_limit": "The frozen graphical artifact exposes no numeric canonical session/match/round/tick diagnostics on this route; no hook or synthetic state was added.",
+      "ownership": {
+        "Cobalt": "host-owned, remote in guest view",
+        "Azure": "guest-owned, local in guest view"
+      },
+      "pixels": "original RGB H.264 recording, libx264rgb CRF 0; no editing, cropping, rescaling or compositing",
+      "media_validation": {
+        "probe": {
+          "programs": [],
+          "streams": [
+            {
+              "codec_name": "h264",
+              "width": 1280,
+              "height": 900,
+              "pix_fmt": "gbrp",
+              "r_frame_rate": "60/1",
+              "avg_frame_rate": "60/1",
+              "time_base": "1/15360",
+              "duration": "29.600000",
+              "nb_read_frames": "1776"
+            }
+          ],
+          "format": {
+            "duration": "29.600000",
+            "size": "29756070"
+          }
+        },
+        "sha256": "3881a2dfb67c448fdbae64bfa2e4e216eb943c7cb6cace94515fa64b446f8f33",
+        "input_first_frame_epoch": 1791573466.122671,
+        "decoded_frames": 1776,
+        "max_frame_pts_gap_seconds": 0.033333999999999975,
+        "repeated_pts": 0,
+        "negative_pts_steps": 0,
+        "decode_returncode": 0,
+        "decode_stderr": "",
+        "capture_warning_count": 29,
+        "capture_warning_examples": [
+          "[mp4 @ 0x55db235aa100] Non-monotonic DTS in output stream 0:0; previous: 17920, current: 17920; changing to 17921. This may result in incorrect timestamps in the output file.",
+          "[mp4 @ 0x55db235aa100] Non-monotonic DTS in output stream 0:0; previous: 20736, current: 20736; changing to 20737. This may result in incorrect timestamps in the output file.",
+          "[mp4 @ 0x55db235aa100] Non-monotonic DTS in output stream 0:0; previous: 38656, current: 38656; changing to 38657. This may result in incorrect timestamps in the output file."
+        ]
+      },
+      "capture_begin_utc": "2026-10-09T19:17:46.000994+00:00",
+      "capture_end_utc": "2026-10-09T19:18:15.843908+00:00",
+      "first_frame_utc": "2026-10-09T19:17:46.122671+00:00",
+      "recording_exit": 255,
+      "recording_exit_note": "Expected 255 from intentional SIGINT; MP4 finalized and complete frame decoding passes.",
+      "timing_basis": "X11 wall-clock capture at requested 60 fps, recorded MP4 1/15360 time base. Input event timestamps use time.time; no exact server/GPU clock correlation claimed.",
+      "timing_limit": "Encoder reports duplicate-DTS repairs by one time-base unit. Final decoded PTS are strictly increasing, with maximum gap approximately 33.334 ms. No postprocessing was used; video alone does not certify 150 ms reconciliation.",
+      "bonus_state": "Offline Cobalt collects an authentic Plus Life pickup during motion. In network Azure becomes translucent during its jump sequence, consistent with an ordinary Invisibility pickup; exact canonical bonus identity/duration is not exported. Original footage is retained and not relabeled as bonus-free.",
+      "input_segments": [
+        {
+          "role": "host",
+          "segment": "identify-owned-player",
+          "key": "Return",
+          "begin": 1791573467.003782,
+          "end": 1791573467.2478244,
+          "relative_begin_seconds": 0.8811111450195312,
+          "relative_end_seconds": 1.1251535415649414
+        },
+        {
+          "role": "host",
+          "segment": "grounded-stand",
+          "begin": 1791573467.2478304,
+          "end": 1791573468.0479124,
+          "relative_begin_seconds": 1.125159502029419,
+          "relative_end_seconds": 1.925241470336914
+        },
+        {
+          "role": "host",
+          "segment": "face-left",
+          "key": "Left",
+          "begin": 1791573468.0479243,
+          "end": 1791573468.3138168,
+          "relative_begin_seconds": 1.9252533912658691,
+          "relative_end_seconds": 2.191145896911621
+        },
+        {
+          "role": "host",
+          "segment": "left-facing-stand",
+          "begin": 1791573468.3138223,
+          "end": 1791573468.9648988,
+          "relative_begin_seconds": 2.1911513805389404,
+          "relative_end_seconds": 2.8422279357910156
+        },
+        {
+          "role": "host",
+          "segment": "face-right",
+          "key": "Right",
+          "begin": 1791573468.9649072,
+          "end": 1791573469.2164097,
+          "relative_begin_seconds": 2.842236280441284,
+          "relative_end_seconds": 3.0937387943267822
+        },
+        {
+          "role": "host",
+          "segment": "right-facing-stand",
+          "begin": 1791573469.2164173,
+          "end": 1791573469.8665047,
+          "relative_begin_seconds": 3.0937464237213135,
+          "relative_end_seconds": 3.7438337802886963
+        },
+        {
+          "role": "host",
+          "segment": "crouch",
+          "key": "Down",
+          "begin": 1791573469.866515,
+          "end": 1791573470.5632098,
+          "relative_begin_seconds": 3.7438440322875977,
+          "relative_end_seconds": 4.4405388832092285
+        },
+        {
+          "role": "host",
+          "segment": "stand-after-crouch",
+          "begin": 1791573470.5632162,
+          "end": 1791573471.1632912,
+          "relative_begin_seconds": 4.440545320510864,
+          "relative_end_seconds": 5.04062032699585
+        },
+        {
+          "role": "host",
+          "segment": "identify-before-jump",
+          "key": "Return",
+          "begin": 1791573471.1633,
+          "end": 1791573471.4489098,
+          "relative_begin_seconds": 5.040629148483276,
+          "relative_end_seconds": 5.3262388706207275
+        },
+        {
+          "role": "host",
+          "segment": "single-jump",
+          "key": "Up",
+          "begin": 1791573471.448918,
+          "end": 1791573471.7367382,
+          "relative_begin_seconds": 5.326247215270996,
+          "relative_end_seconds": 5.614067316055298
+        },
+        {
+          "role": "host",
+          "segment": "single-jump-apex-descent-landing",
+          "begin": 1791573471.7367442,
+          "end": 1791573473.9413238,
+          "relative_begin_seconds": 5.614073276519775,
+          "relative_end_seconds": 7.818652868270874
+        },
+        {
+          "role": "host",
+          "segment": "identify-before-double-jump",
+          "key": "Return",
+          "begin": 1791573473.9413335,
+          "end": 1791573474.2094707,
+          "relative_begin_seconds": 7.818662643432617,
+          "relative_end_seconds": 8.08679986000061
+        },
+        {
+          "role": "host",
+          "segment": "double-jump-first-input",
+          "key": "Up",
+          "begin": 1791573474.2094767,
+          "end": 1791573474.4698431,
+          "relative_begin_seconds": 8.086805820465088,
+          "relative_end_seconds": 8.347172260284424
+        },
+        {
+          "role": "host",
+          "segment": "double-jump-release",
+          "begin": 1791573474.469847,
+          "end": 1791573474.6509418,
+          "relative_begin_seconds": 8.34717607498169,
+          "relative_end_seconds": 8.528270959854126
+        },
+        {
+          "role": "host",
+          "segment": "double-jump-second-input",
+          "key": "Up",
+          "begin": 1791573474.6509504,
+          "end": 1791573474.921174,
+          "relative_begin_seconds": 8.528279542922974,
+          "relative_end_seconds": 8.798503160476685
+        },
+        {
+          "role": "host",
+          "segment": "double-jump-apex-descent-landing",
+          "begin": 1791573474.9211805,
+          "end": 1791573477.621254,
+          "relative_begin_seconds": 8.79850959777832,
+          "relative_end_seconds": 11.4985830783844
+        },
+        {
+          "role": "host",
+          "segment": "face-away-for-shot",
+          "key": "Left",
+          "begin": 1791573477.621264,
+          "end": 1791573477.9012105,
+          "relative_begin_seconds": 11.498593091964722,
+          "relative_end_seconds": 11.778539657592773
+        },
+        {
+          "role": "host",
+          "segment": "grounded-before-shot",
+          "begin": 1791573477.901217,
+          "end": 1791573478.5512862,
+          "relative_begin_seconds": 11.77854609489441,
+          "relative_end_seconds": 12.42861533164978
+        },
+        {
+          "role": "host",
+          "segment": "identify-before-shot",
+          "key": "Return",
+          "begin": 1791573478.5512936,
+          "end": 1791573478.8729613,
+          "relative_begin_seconds": 12.428622722625732,
+          "relative_end_seconds": 12.750290393829346
+        },
+        {
+          "role": "guest",
+          "segment": "network-still",
+          "begin": 1791573478.872983,
+          "end": 1791573480.1979938,
+          "path": "/tmp/restoration-capture/network-weapon-projectile.png",
+          "relative_begin_seconds": 12.750312089920044,
+          "relative_end_seconds": 14.07532286643982
+        },
+        {
+          "role": "host",
+          "segment": "actual-shoot",
+          "key": "Control_R",
+          "begin": 1791573478.872983,
+          "end": 1791573480.3651829,
+          "relative_begin_seconds": 12.750312089920044,
+          "relative_end_seconds": 14.242511987686157
+        },
+        {
+          "role": "host",
+          "segment": "grounded-after-shot",
+          "begin": 1791573480.3651886,
+          "end": 1791573481.5653555,
+          "relative_begin_seconds": 14.242517709732056,
+          "relative_end_seconds": 15.442684650421143
+        },
+        {
+          "role": "guest",
+          "segment": "identify-owned-player",
+          "key": "Return",
+          "begin": 1791573481.5653667,
+          "end": 1791573481.8380485,
+          "relative_begin_seconds": 15.44269585609436,
+          "relative_end_seconds": 15.715377569198608
+        },
+        {
+          "role": "guest",
+          "segment": "grounded-stand",
+          "begin": 1791573481.838054,
+          "end": 1791573482.6381712,
+          "relative_begin_seconds": 15.715383052825928,
+          "relative_end_seconds": 16.51550030708313
+        },
+        {
+          "role": "guest",
+          "segment": "face-left",
+          "key": "Left",
+          "begin": 1791573482.63818,
+          "end": 1791573482.8704734,
+          "relative_begin_seconds": 16.515509128570557,
+          "relative_end_seconds": 16.74780249595642
+        },
+        {
+          "role": "guest",
+          "segment": "left-facing-stand",
+          "begin": 1791573482.8704813,
+          "end": 1791573483.5211258,
+          "relative_begin_seconds": 16.74781036376953,
+          "relative_end_seconds": 17.398454904556274
+        },
+        {
+          "role": "guest",
+          "segment": "face-right",
+          "key": "Right",
+          "begin": 1791573483.521135,
+          "end": 1791573483.8111708,
+          "relative_begin_seconds": 17.39846420288086,
+          "relative_end_seconds": 17.688499927520752
+        },
+        {
+          "role": "guest",
+          "segment": "right-facing-stand",
+          "begin": 1791573483.8111792,
+          "end": 1791573484.469763,
+          "relative_begin_seconds": 17.68850827217102,
+          "relative_end_seconds": 18.347092151641846
+        },
+        {
+          "role": "guest",
+          "segment": "crouch",
+          "key": "Down",
+          "begin": 1791573484.4697735,
+          "end": 1791573485.1282618,
+          "relative_begin_seconds": 18.347102642059326,
+          "relative_end_seconds": 19.00559091567993
+        },
+        {
+          "role": "guest",
+          "segment": "stand-after-crouch",
+          "begin": 1791573485.1282678,
+          "end": 1791573485.7283425,
+          "relative_begin_seconds": 19.00559687614441,
+          "relative_end_seconds": 19.605671644210815
+        },
+        {
+          "role": "guest",
+          "segment": "identify-before-jump",
+          "key": "Return",
+          "begin": 1791573485.728352,
+          "end": 1791573485.9809077,
+          "relative_begin_seconds": 19.60568118095398,
+          "relative_end_seconds": 19.85823678970337
+        },
+        {
+          "role": "guest",
+          "segment": "single-jump",
+          "key": "Up",
+          "begin": 1791573485.980916,
+          "end": 1791573486.2335577,
+          "relative_begin_seconds": 19.858245134353638,
+          "relative_end_seconds": 20.110886812210083
+        },
+        {
+          "role": "guest",
+          "segment": "single-jump-apex-descent-landing",
+          "begin": 1791573486.2335658,
+          "end": 1791573488.4339118,
+          "relative_begin_seconds": 20.110894918441772,
+          "relative_end_seconds": 22.311240911483765
+        },
+        {
+          "role": "guest",
+          "segment": "identify-before-double-jump",
+          "key": "Return",
+          "begin": 1791573488.4339228,
+          "end": 1791573488.6704383,
+          "relative_begin_seconds": 22.311251878738403,
+          "relative_end_seconds": 22.547767400741577
+        },
+        {
+          "role": "guest",
+          "segment": "double-jump-first-input",
+          "key": "Up",
+          "begin": 1791573488.6704447,
+          "end": 1791573488.9368374,
+          "relative_begin_seconds": 22.547773838043213,
+          "relative_end_seconds": 22.81416654586792
+        },
+        {
+          "role": "guest",
+          "segment": "double-jump-release",
+          "begin": 1791573488.9368424,
+          "end": 1791573489.1172812,
+          "relative_begin_seconds": 22.81417155265808,
+          "relative_end_seconds": 22.99461030960083
+        },
+        {
+          "role": "guest",
+          "segment": "double-jump-second-input",
+          "key": "Up",
+          "begin": 1791573489.1172905,
+          "end": 1791573489.387187,
+          "relative_begin_seconds": 22.994619607925415,
+          "relative_end_seconds": 23.2645161151886
+        },
+        {
+          "role": "guest",
+          "segment": "double-jump-apex-descent-landing",
+          "begin": 1791573489.3871925,
+          "end": 1791573492.092049,
+          "relative_begin_seconds": 23.264521598815918,
+          "relative_end_seconds": 25.969377994537354
+        },
+        {
+          "role": "guest",
+          "segment": "face-away-for-shot",
+          "key": "Right",
+          "begin": 1791573492.0920599,
+          "end": 1791573492.3532934,
+          "relative_begin_seconds": 25.969388961791992,
+          "relative_end_seconds": 26.23062252998352
+        },
+        {
+          "role": "guest",
+          "segment": "grounded-before-shot",
+          "begin": 1791573492.3533213,
+          "end": 1791573493.00389,
+          "relative_begin_seconds": 26.230650424957275,
+          "relative_end_seconds": 26.881219148635864
+        },
+        {
+          "role": "guest",
+          "segment": "identify-before-shot",
+          "key": "Return",
+          "begin": 1791573493.0038993,
+          "end": 1791573493.2492757,
+          "relative_begin_seconds": 26.88122844696045,
+          "relative_end_seconds": 27.126604795455933
+        },
+        {
+          "role": "guest",
+          "segment": "actual-shoot",
+          "key": "Control_R",
+          "begin": 1791573493.2492824,
+          "end": 1791573493.5207732,
+          "relative_begin_seconds": 27.126611471176147,
+          "relative_end_seconds": 27.398102283477783
+        },
+        {
+          "role": "guest",
+          "segment": "grounded-after-shot",
+          "begin": 1791573493.5207767,
+          "end": 1791573494.7208514,
+          "relative_begin_seconds": 27.39810585975647,
+          "relative_end_seconds": 28.598180532455444
+        },
+        {
+          "role": "both",
+          "segment": "final-grounded-context",
+          "begin": 1791573494.7208614,
+          "end": 1791573495.727484,
+          "relative_begin_seconds": 28.598190546035767,
+          "relative_end_seconds": 29.60481309890747
+        }
+      ]
+    },
+    {
+      "path": "docs/design/screenshots/NET-05/evidence/network-peer-weapon-projectile-jump.mp4",
+      "sha256": "77c984e6b73538a27bc28bf641613189373bf02213774b075e39e0ded3e7c2db",
+      "screen": "NET-05",
+      "wireframe": "NET-05",
+      "client_role": "host",
+      "viewport": [
+        1280,
+        900
+      ],
+      "level": "levels/duel_16.json",
+      "mirror": true,
+      "mirror_evidence": "Offline current console explicitly logs mirror true; network screenshot structure matches mirrored shipped Duel 16 (long upper platform right, waterfall left, stairs right).",
+      "mode": "Deathmatch",
+      "weapon": "pistol",
+      "weapon_scope": "Disclosed representative; user-reported affected weapon remains unknown.",
+      "route": "MENU-01 -> F2 -> Host/direct Join -> ready lobby -> Connected active play",
+      "application_session_identity": "pid-45-startticks-123827004",
+      "production_source_differences": [],
+      "phase": "active round",
+      "protocol_session_id": null,
+      "protocol_match_id": null,
+      "protocol_round_id": null,
+      "near_capture_tick": null,
+      "canonical_identity_limit": "The frozen graphical artifact exposes no numeric canonical session/match/round/tick diagnostics on this route; no hook or synthetic state was added.",
+      "ownership": {
+        "Cobalt": "host-owned, remote in guest view",
+        "Azure": "guest-owned, local in guest view"
+      },
+      "pixels": "original RGB H.264 recording, libx264rgb CRF 0; no editing, cropping, rescaling or compositing",
+      "media_validation": {
+        "probe": {
+          "programs": [],
+          "streams": [
+            {
+              "codec_name": "h264",
+              "width": 1280,
+              "height": 900,
+              "pix_fmt": "gbrp",
+              "r_frame_rate": "60/1",
+              "avg_frame_rate": "60/1",
+              "time_base": "1/15360",
+              "duration": "29.616667",
+              "nb_read_frames": "1777"
+            }
+          ],
+          "format": {
+            "duration": "29.616667",
+            "size": "29890458"
+          }
+        },
+        "sha256": "77c984e6b73538a27bc28bf641613189373bf02213774b075e39e0ded3e7c2db",
+        "input_first_frame_epoch": 1791573466.123666,
+        "decoded_frames": 1777,
+        "max_frame_pts_gap_seconds": 0.03333400000000353,
+        "repeated_pts": 0,
+        "negative_pts_steps": 0,
+        "decode_returncode": 0,
+        "decode_stderr": "",
+        "capture_warning_count": 16,
+        "capture_warning_examples": [
+          "[mp4 @ 0x560229fa7100] Non-monotonic DTS in output stream 0:0; previous: 49664, current: 49664; changing to 49665. This may result in incorrect timestamps in the output file.",
+          "[mp4 @ 0x560229fa7100] Non-monotonic DTS in output stream 0:0; previous: 65536, current: 65536; changing to 65537. This may result in incorrect timestamps in the output file.",
+          "[mp4 @ 0x560229fa7100] Non-monotonic DTS in output stream 0:0; previous: 99584, current: 99584; changing to 99585. This may result in incorrect timestamps in the output file."
+        ]
+      },
+      "capture_begin_utc": "2026-10-09T19:17:46.001589+00:00",
+      "capture_end_utc": "2026-10-09T19:18:15.843935+00:00",
+      "first_frame_utc": "2026-10-09T19:17:46.123666+00:00",
+      "recording_exit": 255,
+      "recording_exit_note": "Expected 255 from intentional SIGINT; MP4 finalized and complete frame decoding passes.",
+      "timing_basis": "X11 wall-clock capture at requested 60 fps, recorded MP4 1/15360 time base. Input event timestamps use time.time; no exact server/GPU clock correlation claimed.",
+      "timing_limit": "Encoder reports duplicate-DTS repairs by one time-base unit. Final decoded PTS are strictly increasing, with maximum gap approximately 33.334 ms. No postprocessing was used; video alone does not certify 150 ms reconciliation.",
+      "bonus_state": "Offline Cobalt collects an authentic Plus Life pickup during motion. In network Azure becomes translucent during its jump sequence, consistent with an ordinary Invisibility pickup; exact canonical bonus identity/duration is not exported. Original footage is retained and not relabeled as bonus-free.",
+      "input_segments": [
+        {
+          "role": "host",
+          "segment": "identify-owned-player",
+          "key": "Return",
+          "begin": 1791573467.003782,
+          "end": 1791573467.2478244,
+          "relative_begin_seconds": 0.8801159858703613,
+          "relative_end_seconds": 1.1241583824157715
+        },
+        {
+          "role": "host",
+          "segment": "grounded-stand",
+          "begin": 1791573467.2478304,
+          "end": 1791573468.0479124,
+          "relative_begin_seconds": 1.124164342880249,
+          "relative_end_seconds": 1.9242463111877441
+        },
+        {
+          "role": "host",
+          "segment": "face-left",
+          "key": "Left",
+          "begin": 1791573468.0479243,
+          "end": 1791573468.3138168,
+          "relative_begin_seconds": 1.9242582321166992,
+          "relative_end_seconds": 2.190150737762451
+        },
+        {
+          "role": "host",
+          "segment": "left-facing-stand",
+          "begin": 1791573468.3138223,
+          "end": 1791573468.9648988,
+          "relative_begin_seconds": 2.1901562213897705,
+          "relative_end_seconds": 2.8412327766418457
+        },
+        {
+          "role": "host",
+          "segment": "face-right",
+          "key": "Right",
+          "begin": 1791573468.9649072,
+          "end": 1791573469.2164097,
+          "relative_begin_seconds": 2.8412411212921143,
+          "relative_end_seconds": 3.0927436351776123
+        },
+        {
+          "role": "host",
+          "segment": "right-facing-stand",
+          "begin": 1791573469.2164173,
+          "end": 1791573469.8665047,
+          "relative_begin_seconds": 3.0927512645721436,
+          "relative_end_seconds": 3.7428386211395264
+        },
+        {
+          "role": "host",
+          "segment": "crouch",
+          "key": "Down",
+          "begin": 1791573469.866515,
+          "end": 1791573470.5632098,
+          "relative_begin_seconds": 3.7428488731384277,
+          "relative_end_seconds": 4.439543724060059
+        },
+        {
+          "role": "host",
+          "segment": "stand-after-crouch",
+          "begin": 1791573470.5632162,
+          "end": 1791573471.1632912,
+          "relative_begin_seconds": 4.439550161361694,
+          "relative_end_seconds": 5.03962516784668
+        },
+        {
+          "role": "host",
+          "segment": "identify-before-jump",
+          "key": "Return",
+          "begin": 1791573471.1633,
+          "end": 1791573471.4489098,
+          "relative_begin_seconds": 5.0396339893341064,
+          "relative_end_seconds": 5.325243711471558
+        },
+        {
+          "role": "host",
+          "segment": "single-jump",
+          "key": "Up",
+          "begin": 1791573471.448918,
+          "end": 1791573471.7367382,
+          "relative_begin_seconds": 5.325252056121826,
+          "relative_end_seconds": 5.613072156906128
+        },
+        {
+          "role": "host",
+          "segment": "single-jump-apex-descent-landing",
+          "begin": 1791573471.7367442,
+          "end": 1791573473.9413238,
+          "relative_begin_seconds": 5.6130781173706055,
+          "relative_end_seconds": 7.817657709121704
+        },
+        {
+          "role": "host",
+          "segment": "identify-before-double-jump",
+          "key": "Return",
+          "begin": 1791573473.9413335,
+          "end": 1791573474.2094707,
+          "relative_begin_seconds": 7.817667484283447,
+          "relative_end_seconds": 8.08580470085144
+        },
+        {
+          "role": "host",
+          "segment": "double-jump-first-input",
+          "key": "Up",
+          "begin": 1791573474.2094767,
+          "end": 1791573474.4698431,
+          "relative_begin_seconds": 8.085810661315918,
+          "relative_end_seconds": 8.346177101135254
+        },
+        {
+          "role": "host",
+          "segment": "double-jump-release",
+          "begin": 1791573474.469847,
+          "end": 1791573474.6509418,
+          "relative_begin_seconds": 8.34618091583252,
+          "relative_end_seconds": 8.527275800704956
+        },
+        {
+          "role": "host",
+          "segment": "double-jump-second-input",
+          "key": "Up",
+          "begin": 1791573474.6509504,
+          "end": 1791573474.921174,
+          "relative_begin_seconds": 8.527284383773804,
+          "relative_end_seconds": 8.797508001327515
+        },
+        {
+          "role": "host",
+          "segment": "double-jump-apex-descent-landing",
+          "begin": 1791573474.9211805,
+          "end": 1791573477.621254,
+          "relative_begin_seconds": 8.79751443862915,
+          "relative_end_seconds": 11.49758791923523
+        },
+        {
+          "role": "host",
+          "segment": "face-away-for-shot",
+          "key": "Left",
+          "begin": 1791573477.621264,
+          "end": 1791573477.9012105,
+          "relative_begin_seconds": 11.497597932815552,
+          "relative_end_seconds": 11.777544498443604
+        },
+        {
+          "role": "host",
+          "segment": "grounded-before-shot",
+          "begin": 1791573477.901217,
+          "end": 1791573478.5512862,
+          "relative_begin_seconds": 11.77755093574524,
+          "relative_end_seconds": 12.42762017250061
+        },
+        {
+          "role": "host",
+          "segment": "identify-before-shot",
+          "key": "Return",
+          "begin": 1791573478.5512936,
+          "end": 1791573478.8729613,
+          "relative_begin_seconds": 12.427627563476562,
+          "relative_end_seconds": 12.749295234680176
+        },
+        {
+          "role": "guest",
+          "segment": "network-still",
+          "begin": 1791573478.872983,
+          "end": 1791573480.1979938,
+          "path": "/tmp/restoration-capture/network-weapon-projectile.png",
+          "relative_begin_seconds": 12.749316930770874,
+          "relative_end_seconds": 14.07432770729065
+        },
+        {
+          "role": "host",
+          "segment": "actual-shoot",
+          "key": "Control_R",
+          "begin": 1791573478.872983,
+          "end": 1791573480.3651829,
+          "relative_begin_seconds": 12.749316930770874,
+          "relative_end_seconds": 14.241516828536987
+        },
+        {
+          "role": "host",
+          "segment": "grounded-after-shot",
+          "begin": 1791573480.3651886,
+          "end": 1791573481.5653555,
+          "relative_begin_seconds": 14.241522550582886,
+          "relative_end_seconds": 15.441689491271973
+        },
+        {
+          "role": "guest",
+          "segment": "identify-owned-player",
+          "key": "Return",
+          "begin": 1791573481.5653667,
+          "end": 1791573481.8380485,
+          "relative_begin_seconds": 15.44170069694519,
+          "relative_end_seconds": 15.714382410049438
+        },
+        {
+          "role": "guest",
+          "segment": "grounded-stand",
+          "begin": 1791573481.838054,
+          "end": 1791573482.6381712,
+          "relative_begin_seconds": 15.714387893676758,
+          "relative_end_seconds": 16.51450514793396
+        },
+        {
+          "role": "guest",
+          "segment": "face-left",
+          "key": "Left",
+          "begin": 1791573482.63818,
+          "end": 1791573482.8704734,
+          "relative_begin_seconds": 16.514513969421387,
+          "relative_end_seconds": 16.74680733680725
+        },
+        {
+          "role": "guest",
+          "segment": "left-facing-stand",
+          "begin": 1791573482.8704813,
+          "end": 1791573483.5211258,
+          "relative_begin_seconds": 16.74681520462036,
+          "relative_end_seconds": 17.397459745407104
+        },
+        {
+          "role": "guest",
+          "segment": "face-right",
+          "key": "Right",
+          "begin": 1791573483.521135,
+          "end": 1791573483.8111708,
+          "relative_begin_seconds": 17.39746904373169,
+          "relative_end_seconds": 17.687504768371582
+        },
+        {
+          "role": "guest",
+          "segment": "right-facing-stand",
+          "begin": 1791573483.8111792,
+          "end": 1791573484.469763,
+          "relative_begin_seconds": 17.68751311302185,
+          "relative_end_seconds": 18.346096992492676
+        },
+        {
+          "role": "guest",
+          "segment": "crouch",
+          "key": "Down",
+          "begin": 1791573484.4697735,
+          "end": 1791573485.1282618,
+          "relative_begin_seconds": 18.346107482910156,
+          "relative_end_seconds": 19.00459575653076
+        },
+        {
+          "role": "guest",
+          "segment": "stand-after-crouch",
+          "begin": 1791573485.1282678,
+          "end": 1791573485.7283425,
+          "relative_begin_seconds": 19.00460171699524,
+          "relative_end_seconds": 19.604676485061646
+        },
+        {
+          "role": "guest",
+          "segment": "identify-before-jump",
+          "key": "Return",
+          "begin": 1791573485.728352,
+          "end": 1791573485.9809077,
+          "relative_begin_seconds": 19.60468602180481,
+          "relative_end_seconds": 19.8572416305542
+        },
+        {
+          "role": "guest",
+          "segment": "single-jump",
+          "key": "Up",
+          "begin": 1791573485.980916,
+          "end": 1791573486.2335577,
+          "relative_begin_seconds": 19.857249975204468,
+          "relative_end_seconds": 20.109891653060913
+        },
+        {
+          "role": "guest",
+          "segment": "single-jump-apex-descent-landing",
+          "begin": 1791573486.2335658,
+          "end": 1791573488.4339118,
+          "relative_begin_seconds": 20.109899759292603,
+          "relative_end_seconds": 22.310245752334595
+        },
+        {
+          "role": "guest",
+          "segment": "identify-before-double-jump",
+          "key": "Return",
+          "begin": 1791573488.4339228,
+          "end": 1791573488.6704383,
+          "relative_begin_seconds": 22.310256719589233,
+          "relative_end_seconds": 22.546772241592407
+        },
+        {
+          "role": "guest",
+          "segment": "double-jump-first-input",
+          "key": "Up",
+          "begin": 1791573488.6704447,
+          "end": 1791573488.9368374,
+          "relative_begin_seconds": 22.546778678894043,
+          "relative_end_seconds": 22.81317138671875
+        },
+        {
+          "role": "guest",
+          "segment": "double-jump-release",
+          "begin": 1791573488.9368424,
+          "end": 1791573489.1172812,
+          "relative_begin_seconds": 22.81317639350891,
+          "relative_end_seconds": 22.99361515045166
+        },
+        {
+          "role": "guest",
+          "segment": "double-jump-second-input",
+          "key": "Up",
+          "begin": 1791573489.1172905,
+          "end": 1791573489.387187,
+          "relative_begin_seconds": 22.993624448776245,
+          "relative_end_seconds": 23.26352095603943
+        },
+        {
+          "role": "guest",
+          "segment": "double-jump-apex-descent-landing",
+          "begin": 1791573489.3871925,
+          "end": 1791573492.092049,
+          "relative_begin_seconds": 23.263526439666748,
+          "relative_end_seconds": 25.968382835388184
+        },
+        {
+          "role": "guest",
+          "segment": "face-away-for-shot",
+          "key": "Right",
+          "begin": 1791573492.0920599,
+          "end": 1791573492.3532934,
+          "relative_begin_seconds": 25.968393802642822,
+          "relative_end_seconds": 26.22962737083435
+        },
+        {
+          "role": "guest",
+          "segment": "grounded-before-shot",
+          "begin": 1791573492.3533213,
+          "end": 1791573493.00389,
+          "relative_begin_seconds": 26.229655265808105,
+          "relative_end_seconds": 26.880223989486694
+        },
+        {
+          "role": "guest",
+          "segment": "identify-before-shot",
+          "key": "Return",
+          "begin": 1791573493.0038993,
+          "end": 1791573493.2492757,
+          "relative_begin_seconds": 26.88023328781128,
+          "relative_end_seconds": 27.125609636306763
+        },
+        {
+          "role": "guest",
+          "segment": "actual-shoot",
+          "key": "Control_R",
+          "begin": 1791573493.2492824,
+          "end": 1791573493.5207732,
+          "relative_begin_seconds": 27.125616312026978,
+          "relative_end_seconds": 27.397107124328613
+        },
+        {
+          "role": "guest",
+          "segment": "grounded-after-shot",
+          "begin": 1791573493.5207767,
+          "end": 1791573494.7208514,
+          "relative_begin_seconds": 27.3971107006073,
+          "relative_end_seconds": 28.597185373306274
+        },
+        {
+          "role": "both",
+          "segment": "final-grounded-context",
+          "begin": 1791573494.7208614,
+          "end": 1791573495.727484,
+          "relative_begin_seconds": 28.597195386886597,
+          "relative_end_seconds": 29.6038179397583
+        }
+      ]
+    }
+  ],
+  "generated_utc": "2026-10-09T19:36:04.417898+00:00"
+}

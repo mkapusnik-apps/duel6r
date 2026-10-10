@@ -56,8 +56,8 @@ public:
     void quad(const Vector &p0, const Vector &p1, const Vector &p2, const Vector &p3, const Color &color) override {
         recordQuad({p0, p1, p2, p3}, {}, Material(Texture{}, color));
     }
-    void quad(const Vector &p0, const Vector &p1, const Vector &p2, const Vector &p3, const Vector &t0,
-              const Vector &t1, const Vector &t2, const Vector &t3, const Material &material) override {
+    void quad(const Vector &p0, const Vector &t0, const Vector &p1, const Vector &t1, const Vector &p2,
+              const Vector &t2, const Vector &p3, const Vector &t3, const Material &material) override {
         draws.push_back({material, blend, p2.x});
         recordQuad({p0, p1, p2, p3}, {t0, t1, t2, t3}, material);
     }
