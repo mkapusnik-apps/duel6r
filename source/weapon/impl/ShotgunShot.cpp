@@ -26,6 +26,7 @@
 */
 
 #include "ShotgunShot.h"
+#include "Shotgun.h"
 
 namespace Duel6 {
     namespace {
@@ -36,5 +37,8 @@ namespace Duel6 {
 
     ShotgunShot::ShotgunShot(Player &player, World &world, const LegacyWeapon &weapon, Orientation orientation)
             : LegacyShot(player, world, weapon, shotAnimation, boomAnimation, orientation, collistionRectangle) {
+    }
+    WeaponImpl::ProjectileVisual Shotgun::getNetworkProjectileVisual() const {
+        return {collistionRectangle, shotAnimation};
     }
 }

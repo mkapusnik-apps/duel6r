@@ -2424,6 +2424,111 @@ D6R_TEST_CASE("NET-PASS key lifetime exhaustion restores reserved protected play
     D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
 }
 
+D6R_TEST_CASE("network restoration production host and guest jump double jump and land without pose teleport") {
+    using namespace std::chrono_literals;
+    char name[] = "duel6r-restoration-jump-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    const auto root = std::filesystem::temp_directory_path()
+            / ("duel6r-restoration-" + std::to_string(::getpid()));
+    D6R_REQUIRE(std::filesystem::create_directory(root));
+    struct Cleanup {
+        std::filesystem::path root;
+        ~Cleanup() { std::error_code ignored; std::filesystem::remove_all(root, ignored); }
+    } cleanup{root};
+    std::filesystem::create_directory(root / "data");
+    std::filesystem::create_directory(root / "levels");
+    for (const auto *file : {"blocks.json", "config.script"})
+        std::filesystem::copy_file(std::filesystem::path(D6R_TEST_RESOURCE_DIR) / "data" / file, root / "data" / file);
+    {
+        // Hazard-free content fixture, not injected poses or outcomes. A high
+        // ceiling permits the real first and second jump to complete normally.
+        std::ofstream level(root / "levels/restoration.json");
+        level << "{\"width\":20,\"height\":16,\"blocks\":[";
+        for (unsigned y = 0; y < 16; ++y) for (unsigned x = 0; x < 20; ++x) {
+            if (y || x) level << ',';
+            level << ((x == 0 || x == 19 || y == 0 || y == 15) ? 1 : 0);
+        }
+        level << "],\"elevators\":[]}";
+        D6R_REQUIRE(level.good());
+    }
+    Input input(application.console);
+    auto hostControls = PlayerControls::keyboardControls("Host QA", input,
+            SDLK_LEFT, SDLK_RIGHT, SDLK_UP, SDLK_DOWN, SDLK_RCTRL, SDLK_RSHIFT, SDLK_RETURN);
+    auto guestControls = PlayerControls::keyboardControls("Guest QA", input,
+            SDLK_a, SDLK_d, SDLK_w, SDLK_s, SDLK_f, SDLK_g, SDLK_h);
+    Client::NetworkSessionRuntime host, guest, unused;
+    Network::HostComposition::Setup setup;
+    setup.localPlayerNames = {"Jump host"}; setup.mode = "Deathmatch";
+    setup.fixedLevel = "levels/restoration.json"; setup.quickLiquid = false;
+    const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
+    D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, root.string(), setup,
+                              {{"Jump host", hostControls.get(), "QA"}}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Lobby;
+    }));
+    D6R_REQUIRE(guest.join(endpoint, root.string(), {{"Jump guest", guestControls.get(), "QA"}}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] {
+        return guest.snapshot().journey == Client::NetworkJourney::Lobby;
+    }));
+    host.setReady(true); guest.setReady(true);
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
+    host.startMatch();
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Match
+               && guest.snapshot().journey == Client::NetworkJourney::Match;
+    }));
+    std::size_t movingPoseSamples = 0;
+    const auto checkedActor = [&](const Client::NetworkRuntimeSnapshot &snapshot) {
+        D6R_REQUIRE(snapshot.canonical && snapshot.journey == Client::NetworkJourney::Match);
+        const auto actor = std::find_if(snapshot.canonical->players.begin(), snapshot.canonical->players.end(),
+                [&](const auto &value) { return value.ownerParticipantId == snapshot.localParticipantId; });
+        D6R_REQUIRE(actor != snapshot.canonical->players.end());
+        D6R_REQUIRE(actor->lifeState == Network::Replication::LifeState::Alive);
+        const auto pose = std::find_if(snapshot.presentedPlayers.begin(), snapshot.presentedPlayers.end(),
+                [&](const auto &value) { return value.playerId == actor->playerId; });
+        if (pose != snapshot.presentedPlayers.end()) {
+            // A 20 Hz canonical interval can span several physical ticks, but
+            // never an entire velocity's worth of map units. This catches both
+            // former production call sites, including the guest worker path.
+            D6R_REQUIRE(std::llabs(pose->positionY - actor->positionY) < 65536);
+            if (actor->velocityY > 4 * 65536) ++movingPoseSamples;
+        }
+        return *actor;
+    };
+    const auto waitBoth = [&](auto predicate, std::chrono::milliseconds duration = 3s) {
+        return pumpRuntimes(host, guest, unused, duration, [&] {
+            const auto h = checkedActor(host.snapshot());
+            const auto g = checkedActor(guest.snapshot());
+            return predicate(h) && predicate(g);
+        });
+    };
+    D6R_REQUIRE(waitBoth([](const auto &actor) { return actor.velocityY == 0; }));
+    input.setPressed(SDLK_UP, true); input.setPressed(SDLK_w, true);
+    D6R_REQUIRE(waitBoth([](const auto &actor) {
+        return actor.actionMask == Network::Input::Jump && actor.velocityY > 4 * 65536;
+    }));
+    const auto firstHost = checkedActor(host.snapshot());
+    const auto firstGuest = checkedActor(guest.snapshot());
+    input.setPressed(SDLK_UP, false); input.setPressed(SDLK_w, false);
+    D6R_REQUIRE(waitBoth([](const auto &actor) { return actor.actionMask == 0 && actor.velocityY > 0; }));
+    input.setPressed(SDLK_UP, true); input.setPressed(SDLK_w, true);
+    D6R_REQUIRE(waitBoth([](const auto &actor) {
+        return actor.actionMask == Network::Input::Jump && actor.velocityY > 7 * 65536;
+    }));
+    D6R_REQUIRE(checkedActor(host.snapshot()).positionY > firstHost.positionY);
+    D6R_REQUIRE(checkedActor(guest.snapshot()).positionY > firstGuest.positionY);
+    input.setPressed(SDLK_UP, false); input.setPressed(SDLK_w, false);
+    D6R_REQUIRE(waitBoth([](const auto &actor) { return actor.actionMask == 0 && actor.velocityY < 0; }));
+    D6R_REQUIRE(waitBoth([](const auto &actor) { return actor.velocityY == 0 && actor.positionY < 2 * 65536; }, 5s));
+    D6R_REQUIRE(movingPoseSamples >= 4);
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Inactive
+               && guest.snapshot().journey == Client::NetworkJourney::HostEnded;
+    }));
+}
+
 D6R_TEST_CASE("PR83 canonical held weapon draw alpha distinguishes invisibility from Predator") {
     char name[] = "duel6r-pr83-weapon-tests";
     char *arguments[] = {name};
@@ -2462,6 +2567,190 @@ D6R_TEST_CASE("PR83 canonical held weapon draw alpha distinguishes invisibility 
     draws.clear();
     presenter.renderHeldWeapon(player, 0, 0);
     D6R_REQUIRE(draws.empty());
+}
+
+D6R_TEST_CASE("network restoration all default weapons retain offline sprite attachment and projectile mapping") {
+    char name[] = "duel6r-restoration-visual-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot;
+        std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recorder = std::make_unique<Test::RecordingRenderer>();
+    auto &recording = *recorder;
+    video.renderer = std::move(recorder);
+    CanonicalWorldPresenter presenter(*application.service, application.gameResources);
+    const std::vector<Vector> anchors{{.46f,.83f}, {.33f,.85f}, {.39f,.815f}, {.46f,.83f},
+            {.47f,.815f}, {.385f,.815f}, {.505f,.81f}, {.325f,.805f}, {.46f,.83f},
+            {.24f,.93f}, {.42f,.815f}, {.315f,.82f}, {.435f,.85f}, {.375f,.865f},
+            {.445f,.82f}, {.445f,.81f}, {.47f,.81f}};
+    const auto sameDraw = [](const Test::RecordingRenderer::Quad &actual,
+                             const Test::RecordingRenderer::Quad &expected) {
+        D6R_REQUIRE(actual.material.getTexture() == expected.material.getTexture());
+        for (unsigned i = 0; i < 4; ++i) {
+            D6R_REQUIRE_NEAR(expected.vertices[i].x, actual.vertices[i].x, .00001f);
+            D6R_REQUIRE_NEAR(expected.vertices[i].y, actual.vertices[i].y, .00001f);
+            D6R_REQUIRE_NEAR(expected.uv[i].x, actual.uv[i].x, .00001f);
+            D6R_REQUIRE_NEAR(expected.uv[i].y, actual.uv[i].y, .00001f);
+            D6R_REQUIRE_EQ(expected.uv[i].z, actual.uv[i].z);
+        }
+    };
+    D6R_REQUIRE_EQ(anchors.size(), Weapon::values().size());
+    for (std::size_t index = 0; index < Weapon::values().size(); ++index) {
+        const auto &weapon = Weapon::values()[index];
+        auto key = weapon.getName();
+        std::replace(key.begin(), key.end(), ' ', '-');
+        Network::Replication::PlayerState actor;
+        actor.heldWeapon = key;
+        const auto visual = weapon.getNetworkProjectileVisual();
+        D6R_REQUIRE_NEAR(anchors[index].x, visual.collisionRect.getCentre().x, .00001f);
+        D6R_REQUIRE_NEAR(anchors[index].y, visual.collisionRect.getCentre().y, .00001f);
+        for (const bool left : {false, true}) {
+            for (const bool crouch : {false, true}) {
+                actor.facingLeft = left; actor.crouching = crouch;
+                recording.quads.clear();
+                SpriteList offline;
+                auto sprite = weapon.makeSprite(offline);
+                sprite->setFrame(12).setPosition(Vector(4.0f, 3.0f - (crouch ? .15f : 0.0f)), .5f)
+                        .setOrientation(left ? Orientation::Left : Orientation::Right);
+                sprite->render(recording);
+                const auto expected = recording.quads.back();
+                recording.quads.clear();
+                presenter.renderHeldWeapon(actor, 4, 3);
+                D6R_REQUIRE_EQ(1u, recording.quads.size());
+                sameDraw(recording.quads.front(), expected);
+            }
+            Network::Replication::WorldEntityState shot;
+            shot.entityId = 1; shot.kind = Network::Replication::EntityKind::Projectile;
+            shot.type = key; shot.active = true;
+            shot.positionX = 7 * 65536; shot.positionY = 4 * 65536;
+            shot.velocityX = left ? -65536 : 65536;
+            recording.quads.clear();
+            presenter.renderEntity(shot);
+            D6R_REQUIRE_EQ(1u, recording.quads.size());
+            const auto actual = recording.quads.front();
+            recording.quads.clear();
+            Sprite expected(visual.animation, weapon.getNetworkProjectileTexture());
+            expected.setPosition(Vector(7 + (left ? -anchors[index].x : anchors[index].x - 1),
+                                        4 - anchors[index].y), .6f)
+                    .setOrientation(left ? Orientation::Left : Orientation::Right);
+            expected.render(recording);
+            sameDraw(actual, recording.quads.front());
+            // Every authoritative frame selects its exact weapon-specific layer.
+            for (Size frame = 0; visual.animation[frame] != -1; frame += 2) {
+                D6R_REQUIRE(frame <= Network::Replication::MaxProjectileAnimationFrame);
+                shot.primaryValue = static_cast<std::int64_t>(frame);
+                recording.quads.clear();
+                presenter.renderEntity(shot);
+                D6R_REQUIRE_EQ(1u, recording.quads.size());
+                D6R_REQUIRE_EQ(static_cast<Float32>(visual.animation[frame]),
+                               recording.quads.front().uv.front().z);
+            }
+            // A short animation cannot be indexed through a valid generic bound.
+            Size end = 0;
+            while (visual.animation[end] != -1) end += 2;
+            shot.primaryValue = static_cast<std::int64_t>(end);
+            recording.quads.clear();
+            presenter.renderEntity(shot);
+            D6R_REQUIRE(recording.quads.empty());
+        }
+    }
+}
+
+D6R_TEST_CASE("network projectile frames render exact authoritative lifecycle through full incremental and fresh snapshots") {
+    using namespace std::chrono_literals;
+    const auto root = std::filesystem::temp_directory_path()
+            / ("duel6r-projectile-frame-presenter-" + std::to_string(::getpid()));
+    D6R_REQUIRE(std::filesystem::create_directory(root));
+    struct Cleanup {
+        std::filesystem::path root;
+        pid_t child = -1;
+        ~Cleanup() {
+            if (child > 0) {
+                ::kill(child, SIGKILL);
+                while (::waitpid(child, nullptr, 0) < 0 && errno == EINTR) {}
+            }
+            std::error_code ignored; std::filesystem::remove_all(root, ignored);
+        }
+    } cleanup{root};
+    const auto trace = (root / "frames.trace").string();
+    std::vector<std::string> command{"env", std::string("D6R_TEST_FILTER=") + Test::ProjectileFrameProducer,
+            "D6R_TEST_EXACT=1", "D6R_PROJECTILE_FRAME_TRACE=" + trace, D6R_CANONICAL_MOTION_TEST_PRODUCER};
+    std::vector<char *> argv;
+    for (auto &argument : command) argv.push_back(argument.data());
+    argv.push_back(nullptr);
+    D6R_REQUIRE_EQ(0, ::posix_spawnp(&cleanup.child, "env", nullptr, nullptr, argv.data(), environ));
+    bool exited = false;
+    const auto deadline = std::chrono::steady_clock::now() + 30s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        int status = 0;
+        const auto result = ::waitpid(cleanup.child, &status, WNOHANG);
+        if (result == cleanup.child) {
+            cleanup.child = -1;
+            D6R_REQUIRE(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+            exited = true; break;
+        }
+        D6R_REQUIRE(result == 0 || (result < 0 && errno == EINTR));
+        std::this_thread::sleep_for(10ms);
+    }
+    D6R_REQUIRE(exited);
+    const auto samples = Test::readCanonicalMotionTrace(trace);
+    char name[] = "duel6r-projectile-frame-presenter-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &video = application.service->getVideo();
+    struct RestoreRenderer {
+        std::unique_ptr<Renderer> &slot;
+        std::unique_ptr<Renderer> original;
+        ~RestoreRenderer() { slot = std::move(original); }
+    } restore{video.renderer, std::move(video.renderer)};
+    auto recorder = std::make_unique<Test::RecordingRenderer>();
+    auto &recording = *recorder;
+    video.renderer = std::move(recorder);
+    CanonicalWorldPresenter presenter(*application.service, application.gameResources);
+    const auto visual = presenter.weaponFor("triton")->getNetworkProjectileVisual();
+    const auto projectile = [](const auto &state) {
+        const auto found = std::find_if(state.entities.begin(), state.entities.end(), [](const auto &entity) {
+            return entity.kind == Network::Replication::EntityKind::Projectile;
+        });
+        D6R_REQUIRE(found != state.entities.end());
+        return *found;
+    };
+    for (unsigned batch : {0u, 4u}) {
+        Network::Replication::AuthoritativeStateReplicator publisher;
+        D6R_REQUIRE(publisher.initialize(samples[batch].snapshot.state));
+        Network::Replication::ReplicatedState incremental;
+        D6R_REQUIRE(incremental.apply(*publisher.fullSnapshot()) == Network::Replication::ApplyResult::Applied);
+        for (unsigned offset = 0; offset < 4; ++offset) {
+            const auto &state = samples[batch + offset].snapshot.state;
+            if (offset) {
+                const auto update = publisher.publish(state);
+                D6R_REQUIRE(update);
+                const auto wire = Network::Replication::deserializeReplicationFrame(
+                        Network::Replication::serializeReplicationUpdate(*update));
+                D6R_REQUIRE(wire && wire->update);
+                D6R_REQUIRE(incremental.apply(*wire->update) == Network::Replication::ApplyResult::Applied);
+            }
+            Network::Replication::ReplicatedState fresh;
+            const auto wire = Network::Replication::deserializeReplicationFrame(
+                    Network::Replication::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+            D6R_REQUIRE(wire && wire->snapshot);
+            D6R_REQUIRE(fresh.apply(*wire->snapshot) == Network::Replication::ApplyResult::Applied);
+            const auto canonicalShot = projectile(state);
+            for (const auto *view : {incremental.state(), fresh.state()}) {
+                const auto shot = projectile(*view);
+                D6R_REQUIRE_EQ(canonicalShot.primaryValue, shot.primaryValue);
+                recording.quads.clear();
+                presenter.renderEntity(shot);
+                D6R_REQUIRE_EQ(1u, recording.quads.size());
+                D6R_REQUIRE_EQ(static_cast<Float32>(visual.animation[shot.primaryValue]),
+                               recording.quads.front().uv.front().z);
+            }
+        }
+    }
 }
 
 D6R_TEST_CASE("PR83 capture complete presenter draws translucent body and weapon including combined bonus and expiry") {

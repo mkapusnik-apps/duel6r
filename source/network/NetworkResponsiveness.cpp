@@ -87,6 +87,14 @@ namespace Duel6::Network::Responsiveness {
         }
     }
 
+    PresentedPlayerPose localInputPose(const Replication::PlayerState &player,
+                                      bool left, bool right, bool crouching) noexcept {
+        auto result = pose(player);
+        if (left != right) result.facingLeft = left;
+        result.crouching = crouching;
+        return result;
+    }
+
     ConditionBudget budget(Environment environment) noexcept {
         if (environment == Environment::SameMachine)
             return {std::chrono::milliseconds(20), std::chrono::milliseconds(5), 0.0,

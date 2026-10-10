@@ -100,12 +100,53 @@ jobs:
       - name: Verify lint-equivalent build output
         run: test -x build/duel6r
 
+  native-windows-transport:
+    name: MSVC x64 transport CTests
+    runs-on: windows-2025
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Start Docker service
+        shell: powershell
+        run: Start-Service docker
+
+      - name: Build native Windows tool image
+        shell: powershell
+        run: |
+          docker build `
+            --file Dockerfile.windows-native-transport `
+            --tag duel6r-windows-transport:ci `
+            .
+
+      - name: Build and test inside native Windows container
+        shell: powershell
+        run: .\docker\run-windows-native-transport.ps1
+
+  macos:
+    name: macOS Apple Silicon
+    permissions:
+      contents: read
+    uses: ./.github/workflows/macos-build.yml
+    with:
+      source_sha: ${{ github.sha }}
+
+  arm64:
+    name: Linux ARM64
+    permissions:
+      contents: read
+    uses: ./.github/workflows/arm64.yml
+
   tag:
     name: Tag - sanity
     permissions:
       contents: 'write'
     runs-on: ubuntu-latest
-    needs: [sanity, lint]
+    needs: [sanity, lint, native-windows-transport, macos, arm64]
     steps:
       - uses: mkapusnik-apps/commons/tag@v1
         with:

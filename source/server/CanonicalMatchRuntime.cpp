@@ -634,6 +634,7 @@ namespace Duel6::Server::Authoritative {
             entity.type = weaponKey(shot.getWeapon().getName());
             entity.positionX = centreX; entity.positionY = centreY;
             entity.velocityX = velocityX; entity.velocityY = velocityY;
+            entity.primaryValue = static_cast<std::int64_t>(shot.getAnimationFrame());
             const auto owner = std::find_if(players.begin(), players.end(), [&](const Player &player) {
                 return &player == &shot.getPlayer();
             });

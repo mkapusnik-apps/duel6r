@@ -66,6 +66,9 @@ namespace Duel6 {
 
         virtual Vector getVelocity() const = 0;
 
+        // Read-only presentation state from the sprite already advanced by World.
+        virtual Size getAnimationFrame() const = 0;
+
         virtual bool isPowerful() const = 0;
 
         virtual const Weapon &getWeapon() const = 0;

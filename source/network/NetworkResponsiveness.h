@@ -118,6 +118,11 @@ namespace Duel6::Network::Responsiveness {
         bool crouching = false;
     };
 
+    // Input can anticipate facing/crouch, but translation remains canonical.
+    // Replicated velocity is not displacement and cannot bypass world collision.
+    PresentedPlayerPose localInputPose(const Replication::PlayerState &player,
+                                      bool left, bool right, bool crouching) noexcept;
+
     // Produces presentation-only movement. It never mutates or synthesizes canonical outcomes.
     class CanonicalMovementPresentation final {
     public:

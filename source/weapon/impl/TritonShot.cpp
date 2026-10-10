@@ -26,6 +26,7 @@
 */
 
 #include "TritonShot.h"
+#include "Triton.h"
 
 namespace Duel6 {
     namespace {
@@ -66,5 +67,8 @@ namespace Duel6 {
         sprite->setAlpha(1.0f).setBlendFunc(BlendFunc::SrcColor).setNoDepth(true);
         sprite->setGrow(4.27f * getPowerFactor());
         return sprite;
+    }
+    WeaponImpl::ProjectileVisual Triton::getNetworkProjectileVisual() const {
+        return {collistionRectangle, shotAnimation};
     }
 }

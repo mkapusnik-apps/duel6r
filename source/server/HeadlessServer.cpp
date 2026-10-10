@@ -80,13 +80,6 @@ namespace {
 
     constexpr auto AdmissionAttemptDeadline = std::chrono::seconds(10);
 
-    std::int64_t saturatedAdd(std::int64_t left, std::int64_t right) noexcept {
-        if (right > 0 && left > std::numeric_limits<std::int64_t>::max() - right)
-            return std::numeric_limits<std::int64_t>::max();
-        if (right < 0 && left < std::numeric_limits<std::int64_t>::min() - right)
-            return std::numeric_limits<std::int64_t>::min();
-        return left + right;
-    }
 
     bool secureSeed(std::uint64_t &seed) {
         for (int attempt = 0; attempt < 4; ++attempt) {
@@ -1006,15 +999,10 @@ namespace {
                         const auto player = std::find_if(canonical->players.begin(), canonical->players.end(),
                                 [playerId](const auto &value) { return value.playerId == playerId; });
                         if (player != canonical->players.end()) {
-                            Duel6::Network::Responsiveness::PresentedPlayerPose predicted{
-                                    player->playerId,
-                                    saturatedAdd(player->positionX, player->velocityX),
-                                    saturatedAdd(player->positionY, player->velocityY),
-                                    player->facingLeft, player->crouching};
                             const bool left = (actions & Duel6::Network::Input::MoveLeft) != 0;
                             const bool right = (actions & Duel6::Network::Input::MoveRight) != 0;
-                            if (left != right) predicted.facingLeft = left;
-                            predicted.crouching = (actions & Duel6::Network::Input::Crouch) != 0;
+                            const auto predicted = Duel6::Network::Responsiveness::localInputPose(
+                                    *player, left, right, (actions & Duel6::Network::Input::Crouch) != 0);
                             (void) replicatedConnection.predictLocalMovement(predicted, sampledAt);
                         }
                     }

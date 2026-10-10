@@ -2170,6 +2170,67 @@ namespace {
     }
 }
 
+D6R_TEST_CASE("network projectile frames converge through full incremental and fresh current snapshots") {
+    auto state = activeState();
+    state.entities.front().type = "triton";
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(state));
+    R::ReplicatedState incremental;
+    const auto initial = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+    D6R_REQUIRE(initial && initial->snapshot);
+    D6R_REQUIRE(incremental.apply(*initial->snapshot) == R::ApplyResult::Applied);
+    for (const std::int64_t frame : {2, 4, 14, 0}) {
+        state.phaseTime += 8;
+        state.entities.front().primaryValue = frame;
+        const auto update = publisher.publish(state);
+        D6R_REQUIRE(update);
+        const auto decodedUpdate = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+        D6R_REQUIRE(decodedUpdate && decodedUpdate->update);
+        D6R_REQUIRE(incremental.apply(*decodedUpdate->update) == R::ApplyResult::Applied);
+        R::ReplicatedState fresh;
+        const auto decodedFull = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+        D6R_REQUIRE(decodedFull && decodedFull->snapshot);
+        D6R_REQUIRE(fresh.apply(*decodedFull->snapshot) == R::ApplyResult::Applied);
+        D6R_REQUIRE_EQ(frame, fresh.state()->entities.front().primaryValue);
+        D6R_REQUIRE(R::serializeReplicationSnapshot({publisher.version(), *fresh.state()})
+                    == R::serializeReplicationSnapshot({publisher.version(), *incremental.state()}));
+    }
+}
+
+D6R_TEST_CASE("network projectile frames reject malformed offsets without committing state and recover normally") {
+    for (const auto kind : {R::EntityKind::Shot, R::EntityKind::Projectile}) {
+        auto state = activeState();
+        state.entities.front().kind = kind; state.entities.front().type = "triton";
+        R::AuthoritativeStateReplicator publisher;
+        D6R_REQUIRE(publisher.initialize(state));
+        auto next = state; next.phaseTime += 1; next.entities.front().primaryValue = 2;
+        const auto valid = publisher.publish(next);
+        D6R_REQUIRE(valid);
+        for (const std::int64_t frame : {std::int64_t{-2}, std::int64_t{1}, std::int64_t{3},
+                std::int64_t{16}, (std::numeric_limits<std::int64_t>::max)(),
+                (std::numeric_limits<std::int64_t>::min)()}) {
+            auto malformed = next; malformed.entities.front().primaryValue = frame;
+            D6R_REQUIRE(!R::validateCanonicalState(malformed));
+            D6R_REQUIRE_THROW(R::serializeReplicationSnapshot({2, malformed}), std::invalid_argument);
+            R::ReplicatedState full;
+            D6R_REQUIRE(full.apply({2, malformed}) == R::ApplyResult::Invalid);
+            D6R_REQUIRE_EQ(0u, full.version());
+            R::ReplicatedState client;
+            D6R_REQUIRE(client.apply({1, state}) == R::ApplyResult::Applied);
+            auto invalid = *valid;
+            D6R_REQUIRE_EQ(1u, invalid.entities.size());
+            invalid.entities.front().value->primaryValue = frame;
+            const auto decoded = R::deserializeReplicationFrame(R::serializeReplicationUpdate(invalid));
+            D6R_REQUIRE(decoded && decoded->update);
+            D6R_REQUIRE(client.apply(*decoded->update) == R::ApplyResult::ResynchronizationRequired);
+            D6R_REQUIRE_EQ(1u, client.version());
+            D6R_REQUIRE_EQ(0, client.retainedState()->entities.front().primaryValue);
+            D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+            D6R_REQUIRE_EQ(2, client.state()->entities.front().primaryValue);
+        }
+    }
+}
+
 D6R_TEST_CASE("REP stable identity source issues nonzero unique non-reused category identities") {
     R::StableIdentitySource source;
     const auto first = source.issue(R::IdentityCategory::WorldEntity);
@@ -4573,7 +4634,7 @@ D6R_TEST_CASE("REP binary codec round trips complete snapshot and delta schemas 
     state.entities[0].positionY = 60;
     state.entities[0].velocityX = 7;
     state.entities[0].velocityY = -8;
-    state.entities[0].primaryValue = 9;
+    state.entities[0].primaryValue = 8; // Valid projectile animation pair offset.
     state.entities[0].secondaryValue = 10;
     state.score.players[0].roundPoints = 11;
     state.score.players[0].cumulativePoints = 12;

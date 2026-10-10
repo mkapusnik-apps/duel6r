@@ -12,6 +12,8 @@ namespace Duel6::Test {
 // from the GL4 presenter ABI. Payloads use the real replication wire codec.
 inline constexpr const char *CanonicalMotionProducer =
         "PR87 real canonical inputs and water timer produce orientation trace";
+inline constexpr const char *ProjectileFrameProducer =
+        "network projectile frames follow authoritative sprites at different creation ticks";
 struct CanonicalMotionSample {
     std::string name;
     Network::Replication::FullSnapshot snapshot;

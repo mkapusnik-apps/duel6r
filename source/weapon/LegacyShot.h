@@ -85,6 +85,10 @@ namespace Duel6 {
             return velocity * bulletSpeed;
         }
 
+        Size getAnimationFrame() const override {
+            return sprite->getFrame();
+        }
+
         virtual bool isColliding() const;
 
         bool isPowerful() const override;

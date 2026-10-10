@@ -69,6 +69,7 @@ namespace Duel6 {
 
             Texture getNetworkWeaponTexture() const override { return Texture(); }
             Texture getNetworkProjectileTexture() const override { return Texture(); }
+            ProjectileVisual getNetworkProjectileVisual() const override { return {Rectangle::empty(), nullptr}; }
             Texture getNetworkExplosionTexture() const override { return Texture(); }
             void playNetworkShotSound() const override {}
             void playNetworkExplosionSound() const override {}
@@ -135,6 +136,7 @@ namespace Duel6 {
 
     Texture Weapon::getNetworkWeaponTexture() const { return impl->getNetworkWeaponTexture(); }
     Texture Weapon::getNetworkProjectileTexture() const { return impl->getNetworkProjectileTexture(); }
+    WeaponImpl::ProjectileVisual Weapon::getNetworkProjectileVisual() const { return impl->getNetworkProjectileVisual(); }
     Texture Weapon::getNetworkExplosionTexture() const { return impl->getNetworkExplosionTexture(); }
     void Weapon::playNetworkShotSound() const { impl->playNetworkShotSound(); }
     void Weapon::playNetworkExplosionSound() const { impl->playNetworkExplosionSound(); }

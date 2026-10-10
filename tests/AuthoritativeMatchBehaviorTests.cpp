@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <limits>
 #include <map>
@@ -1239,6 +1240,112 @@ D6R_TEST_CASE("AHM round-end boundaries update exactly one second then freeze fi
     D6R_REQUIRE_EQ(ActionResult::RejectedAuthority, match.submit(action(match, sequence++, 2, 0, ActionKind::AdvanceRound)));
     D6R_REQUIRE_EQ(ActionResult::Accepted, match.submit(action(match, sequence++, 1, 0, ActionKind::AdvanceRound)));
     D6R_REQUIRE_EQ(MatchPhase::ActiveRound, match.phase());
+}
+
+D6R_TEST_CASE(Duel6::Test::ProjectileFrameProducer) {
+    // Temporary frozen content gives a long unobstructed shot path. No pose,
+    // projectile, animation frame or outcome is injected into production.
+    const auto root = std::filesystem::temp_directory_path() / ("duel6r-projectile-frames-"
+            + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    D6R_REQUIRE(std::filesystem::create_directory(root));
+    struct Cleanup {
+        std::filesystem::path root;
+        ~Cleanup() { std::error_code ignored; std::filesystem::remove_all(root, ignored); }
+    } cleanup{root};
+    std::filesystem::create_directory(root / "data");
+    std::filesystem::create_directory(root / "levels");
+    std::filesystem::copy_file("data/blocks.json", root / "data/blocks.json");
+    {
+        std::ofstream configFile(root / "data/config.script");
+        for (unsigned index = 0; index < 17; ++index)
+            configFile << "gun " << index << ' ' << (index == 7 ? "true" : "false") << '\n';
+        configFile << "start_ammo_range 30 30\n";
+        std::ofstream level(root / "levels/projectile-frames.json");
+        level << "{\"width\":120,\"height\":16,\"blocks\":[";
+        for (unsigned y = 0; y < 16; ++y) for (unsigned x = 0; x < 120; ++x) {
+            if (x || y) level << ',';
+            level << ((x == 0 || x == 119 || y == 0 || y == 15) ? 1 : 0);
+        }
+        level << "],\"elevators\":[]}";
+        D6R_REQUIRE(configFile.good() && level.good());
+    }
+    const auto content = Duel6::Network::CompatibilityManifestBuilder(root.string(), {}).build();
+    D6R_REQUIRE(content.valid());
+    std::vector<Duel6::Test::CanonicalMotionSample> samples;
+    for (const Tick creationDelay : {Tick{17}, Tick{137}}) {
+        MatchConfig requested;
+        requested.seed = 424242; requested.hostParticipantId = 1; requested.roundLimit = 1;
+        requested.levelPlan = LevelPlan::Fixed;
+        requested.fixedLevel = "levels/projectile-frames.json";
+        requested.playableLevels = {requested.fixedLevel};
+        requested.enabledWeapons = {"triton"}; requested.fixedStartingWeapon = "triton";
+        requested.startingAmmoMinimum = 30; requested.startingAmmoMaximum = 30;
+        requested.compactSpawnLayout = true; requested.quickLiquid = false;
+        const auto players = roster(2);
+        AuthoritativeHostedMatchController controller(1,
+                CanonicalMatchRuntime::createDependencies(requested, players, content));
+        D6R_REQUIRE(controller.initializeReplication({{1, true, R::ConnectionState::Connected, true, {101}},
+                {2, false, R::ConnectionState::Connected, true, {102}}}, players, requested));
+        D6R_REQUIRE(controller.markServiceReady());
+        D6R_REQUIRE(controller.setParticipantReady(1, true));
+        D6R_REQUIRE(controller.setParticipantReady(2, true));
+        D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, content.manifest).code);
+        for (Tick tick = 0; tick < creationDelay; ++tick) D6R_REQUIRE(controller.advanceOneTick());
+        auto &match = *controller.match();
+        const auto &poses = match.canonicalWorldSnapshot()->players;
+        const auto shooter = *std::max_element(poses.begin(), poses.end(),
+                [](const auto &left, const auto &right) { return left.positionX < right.positionX; });
+        const auto owner = std::find_if(players.begin(), players.end(), [&](const auto &player) {
+            return player.playerId == shooter.playerId;
+        });
+        D6R_REQUIRE(owner != players.end());
+        std::uint64_t sequence = 1;
+        const auto input = [&](std::uint32_t mask) {
+            D6R_REQUIRE_EQ(ActionResult::Accepted, match.submit({match.currentTick(), sequence++,
+                    owner->participantId, shooter.playerId, ActionKind::PlayerInput, 0, mask, 0}));
+        };
+        input(MoveRight); D6R_REQUIRE(controller.advanceOneTick());
+        input(Shoot); D6R_REQUIRE(controller.advanceOneTick());
+        const auto selectedWeapon = std::find_if(Duel6::Weapon::values().begin(), Duel6::Weapon::values().end(),
+                [](const auto &value) { return value.getName() == "triton"; });
+        D6R_REQUIRE(selectedWeapon != Duel6::Weapon::values().end());
+        const auto &weapon = *selectedWeapon;
+        Duel6::Sprite reference(weapon.getNetworkProjectileVisual().animation, Duel6::Texture{});
+        reference.update(1.0f / 60.0f); // World updates a new shot's sprite on its creation tick.
+        unsigned elapsed = 1;
+        input(0);
+        for (const unsigned age : {1u, 8u, 16u, 64u}) {
+            while (elapsed < age) {
+                D6R_REQUIRE(controller.advanceOneTick());
+                reference.update(1.0f / 60.0f);
+                ++elapsed;
+            }
+            const auto &projectiles = match.canonicalWorldSnapshot()->projectiles;
+            D6R_REQUIRE_EQ(1u, projectiles.size());
+            D6R_REQUIRE_EQ(static_cast<std::int64_t>(reference.getFrame()), projectiles.front().primaryValue);
+            D6R_REQUIRE(controller.captureReplication());
+            const auto full = controller.currentSnapshot();
+            D6R_REQUIRE(full);
+            const auto shot = std::find_if(full->state.entities.begin(), full->state.entities.end(),
+                    [](const auto &entity) { return entity.kind == R::EntityKind::Projectile; });
+            D6R_REQUIRE(shot != full->state.entities.end());
+            D6R_REQUIRE_EQ(projectiles.front().primaryValue, shot->primaryValue);
+            D6R_REQUIRE_EQ(age == 8 ? 2 : age == 16 ? 4 : 0, shot->primaryValue);
+            samples.push_back({std::to_string(creationDelay) + "-" + std::to_string(age), *full});
+        }
+    }
+    for (unsigned index = 0; index < 4; ++index) {
+        D6R_REQUIRE(samples[index].snapshot.state.phaseTime != samples[index + 4].snapshot.state.phaseTime);
+        const auto frame = [](const auto &sample) {
+            const auto found = std::find_if(sample.snapshot.state.entities.begin(), sample.snapshot.state.entities.end(),
+                    [](const auto &entity) { return entity.kind == R::EntityKind::Projectile; });
+            D6R_REQUIRE(found != sample.snapshot.state.entities.end());
+            return found->primaryValue;
+        };
+        D6R_REQUIRE_EQ(frame(samples[index]), frame(samples[index + 4]));
+    }
+    if (const char *path = std::getenv("D6R_PROJECTILE_FRAME_TRACE"))
+        Duel6::Test::writeCanonicalMotionTrace(path, samples);
 }
 
 D6R_TEST_CASE(Duel6::Test::CanonicalMotionProducer) {

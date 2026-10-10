@@ -26,6 +26,7 @@
 */
 
 #include "BazookaShot.h"
+#include "Bazooka.h"
 
 namespace Duel6 {
     namespace {
@@ -66,5 +67,8 @@ namespace Duel6 {
         sprite->setAlpha(1.0f).setBlendFunc(BlendFunc::SrcColor).setNoDepth(true);
         sprite->setGrow(1.83f * getPowerFactor());
         return sprite;
+    }
+    WeaponImpl::ProjectileVisual Bazooka::getNetworkProjectileVisual() const {
+        return {collistionRectangle, shotAnimation};
     }
 }
