@@ -432,7 +432,7 @@ namespace Duel6 {
             if (menuBackgroundInitialFrameRendered) publishPreparedMenuBackground();
             else menuBackgroundInitialFrameRendered = true;
             renderMenuBackground();
-        });
+        }, [this] { render(); });
     }
 
     void Menu::openNetworkMenu() {

@@ -21,7 +21,7 @@ Product reserves **NET-10** in the [browser contract](../screens/network-browser
 
 ## Screen specifications
 
-Network-capable experimental macOS uses the existing NET-01 through NET-10 journeys. The former `MENU-01-MAC-LOCAL` / `MENU-02-MAC-LOCAL` notice and UX-MAC-MSG-001–011 are [historical-only](screens/MENU-02.md). [UX-NET-01-006–008](screens/NET-01.md#presentation-requirements) own the replacement scope line and unchanged placement/text size. Only that line changes in the NET-01 SVG; all other wireframes remain unchanged. Preserve the corrected Mac drawable/pointer baseline throughout network transitions. Actual native Mac visual assessment remains [deferred](screenshots/README.md#macos-deferred-coverage), separate from mandatory native automated acceptance.
+Network-capable experimental macOS uses the existing NET-01 through NET-10 journeys. The former `MENU-01-MAC-LOCAL` / `MENU-02-MAC-LOCAL` notice and UX-MAC-MSG-001–011 are [historical-only](screens/MENU-02.md). The [NET-01 owner](screens/NET-01.md#presentation-requirements) now defines a compact modal over the actual main menu with Host, browser-entry Join, and Back. UX-NET-01-006–008 are retired; entry scope copy is removed. Only the NET-01 structural SVG changes for this bounded refinement; all other wireframes remain unchanged. Preserve the corrected Mac drawable/pointer baseline throughout network transitions. Actual native Mac visual assessment remains [deferred](screenshots/README.md#macos-deferred-coverage), separate from mandatory native automated acceptance.
 
 | Screen | Authoritative presentation | Structural wireframes |
 |---|---|---|

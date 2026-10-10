@@ -21,7 +21,7 @@ The SVG uses approximate allocation. UX-NET-10-005 through UX-NET-10-008 fix the
 
 ## Task and structure
 
-Entry workflow: MENU-01 → Network → Browse sessions. This is a native workflow, not a URL. Join selected continues to NET-03 for local-player setup and password entry. Direct connect continues to NET-03 without a directory selection. Back returns to NET-01.
+Entry workflow: MENU-01 → Network → Join in the NET-01 popup. Join invokes the existing Browse sessions action. This is a native workflow, not a URL. Join selected continues to NET-03 for local-player setup and password entry. Direct connect continues to NET-03 without a directory selection. Back returns to the NET-01 popup. This entry-label change does not change browser layout, controls, or behavior.
 
 - The screen must use the existing centered 850 × 700 logical desktop canvas.
 - The content must keep a 24 logical px inner margin.

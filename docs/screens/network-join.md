@@ -11,7 +11,7 @@ It implements `NET-OWN-001` through `NET-OWN-003` and `NET-OWN-AC-001` through `
 Issue #30 defines the compatibility and admission outcomes for this flow in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 Issue #30 must not implement this graphical screen.
 
-Entry is `NET-01` → Join. Complete validated production admission enters `NET-04`; failure enters `NET-08`; Cancel during connection restores editable setup; Back returns to `NET-01`.
+Entry is `NET-01` → Join → `NET-10` → Direct connect or eligible listing selection. Direct connect opens independent direct setup without a browser-selected session. Complete validated production admission enters `NET-04`; failure enters `NET-08`; Cancel during connection restores editable setup; Back from direct setup retains its `NET-01` destination. Existing browser-origin recovery remains unchanged.
 
 ## Representative layout
 
