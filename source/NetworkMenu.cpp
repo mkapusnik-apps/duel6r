@@ -640,7 +640,9 @@ namespace Duel6 {
     }
 
     int NetworkMenu::setupVisibleRows() const {
-        if (boundDedicated()) return std::max(1, (setupFirstRow() - 206) / 22 + 1);
+        // Control/pointer bottom is baseline - 2; its outer focus extends another
+        // two pixels. Count only rows whose complete extent stays in the inset.
+        if (boundDedicated()) return std::max(1, (setupFirstRow() - 206 - 4) / 22 + 1);
         return setupScreen == SetupScreen::Join && publicConnection ? 4 : 8;
     }
 

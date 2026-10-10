@@ -144,6 +144,27 @@ namespace Duel6::Client {
     std::string directorySessionId(std::uint64_t id) {
         std::ostringstream out; out << std::hex << std::setfill('0') << std::setw(32) << id; return out.str();
     }
+    bool directoryOriginMatchesFrontend(const std::string &origin, const Network::Endpoint &frontend) {
+        // Use the same maintained URL parser as HTTP, not a second URL grammar or
+        // textual port comparison. No transfer, resolution or trust lookup occurs.
+        std::unique_ptr<CURLU, decltype(&curl_url_cleanup)> url(curl_url(), curl_url_cleanup);
+        if (!url || curl_url_set(url.get(), CURLUPART_URL, origin.c_str(), 0) != CURLUE_OK) return false;
+        char *rawHost = nullptr, *rawPort = nullptr;
+        const auto hostStatus = curl_url_get(url.get(), CURLUPART_HOST, &rawHost, 0);
+        const auto portStatus = curl_url_get(url.get(), CURLUPART_PORT, &rawPort, CURLU_DEFAULT_PORT);
+        std::unique_ptr<char, decltype(&curl_free)> host(rawHost, curl_free), port(rawPort, curl_free);
+        if (hostStatus != CURLUE_OK || portStatus != CURLUE_OK || !host || !port) return false;
+        std::string originHost(host.get()), frontendHost(frontend.host);
+        const auto lower = [](unsigned char c) { return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c; };
+        std::transform(originHost.begin(), originHost.end(), originHost.begin(), lower);
+        std::transform(frontendHost.begin(), frontendHost.end(), frontendHost.begin(), lower);
+        try {
+            std::size_t consumed = 0;
+            const std::string numericPort(port.get());
+            const auto effectivePort = std::stoul(numericPort, &consumed, 10);
+            return consumed == numericPort.size() && effectivePort == frontend.port && originHost == frontendHost;
+        } catch (...) { return false; }
+    }
     DirectoryResponse directoryRequest(const std::string &method, const std::string &path,
                                        const std::string &body, const std::string &owner, unsigned revision,
                                        const std::atomic<bool> *cancelled) {

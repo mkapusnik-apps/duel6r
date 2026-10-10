@@ -49,6 +49,8 @@ namespace Duel6::Client {
     DirectoryPage directoryPage(const std::string &cursor);
     DirectoryPage decodeDirectoryPage(const std::string &body, const std::string &cursor = {}, bool mixed = false);
     std::string directorySessionId(std::uint64_t id);
+    // Compare the URL parser's validated host and effective numeric port, without DNS.
+    bool directoryOriginMatchesFrontend(const std::string &origin, const Network::Endpoint &frontend);
 
     class DirectoryBrowser final {
     public:

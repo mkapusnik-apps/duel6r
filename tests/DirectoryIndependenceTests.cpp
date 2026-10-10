@@ -203,3 +203,13 @@ D6R_TEST_CASE("NET-DIR publication request failure remains isolated and recovera
     D6R_REQUIRE(await([&] { return publisher.available() && !publisher.busy(); }));
     publisher.stop();
 }
+
+D6R_TEST_CASE("R2 directory collision uses validated URL host and effective numeric port without aliases") {
+    const Network::Endpoint frontend{"ArEnA.ExAmPlE.TeSt", 443};
+    for (const auto *origin: {"https://arena.example.test", "https://arena.example.test:443",
+            "https://arena.example.test:0443", "https://ARENA.EXAMPLE.TEST:00443/", "https://arena.example.test:443/directory"})
+        D6R_REQUIRE(Client::directoryOriginMatchesFrontend(origin, frontend));
+    for (const auto *origin: {"", "not-a-url", "https://arena.example.test:444", "https://other.example.test:443",
+            "http://arena.example.test", "https://127.0.0.1:443"})
+        D6R_REQUIRE(!Client::directoryOriginMatchesFrontend(origin, frontend));
+}

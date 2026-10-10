@@ -273,7 +273,7 @@ namespace Duel6::Server {
                                                         AdmissionContext context) {
         AdmissionOffer pending = offer(request, context);
         if (!pending.pending()) return pending.result;
-        if (!commit(pending.transactionId, pending.result.participantId)) {
+        if (!commit(pending.transactionId, pending.result.participantId, context)) {
             rollback(pending.transactionId);
             return rejection(Network::AdmissionResultCode::HostPolicyRejected);
         }
@@ -286,12 +286,19 @@ namespace Duel6::Server {
         catch (...) { return rejection(Network::AdmissionResultCode::MalformedRequest); }
     }
 
-    bool AdmissionPolicy::commit(std::uint64_t transactionId, Network::Trust::ConnectionId connection) {
+    bool AdmissionPolicy::commit(std::uint64_t transactionId, Network::Trust::ConnectionId connection, AdmissionContext context) {
         std::lock_guard<std::mutex> lock(policyMutex);
-        if (connection == 0) return false;
+        if (connection == 0 || !context.authorized || !context.hostPolicyAllows || matchStarted) return false;
         const std::optional<AdmittedParticipant> participant = sessionAllocation.pendingParticipant(transactionId);
         if (!participant) return false;
-        if (dedicated && sessionAllocation.participantCount() == 0)
+        const bool firstController = dedicated && sessionAllocation.participantCount() == 0;
+        if (sessionAllocation.playerCount() + participant->playerIds.size() > context.maximumPlayers
+            || (dedicated && !firstController
+                && !authorization.authorize(dedicatedControllerConnection, Network::Trust::AuthorityAction::HostOnly)))
+            return false;
+        // Offers are provisional. Recheck policy/retained capacity and the actual
+        // controller binding under this mutex before binding any new authority.
+        if (firstController)
             authorization.createLocalHost(connection, participant->participantId);
         else if (!authorization.bindGuest(connection, participant->participantId)) return false;
         if (!authorization.setOwnedSlots(participant->participantId, participant->playerIds)
@@ -300,6 +307,7 @@ namespace Duel6::Server {
             authorization.removeParticipant(participant->participantId);
             return false;
         }
+        if (firstController) dedicatedControllerConnection = connection;
         return true;
     }
 
@@ -319,7 +327,9 @@ namespace Duel6::Server {
         });
         if (found != participants.end() && dedicated && found->localHost) {
             authorization.createLocalHost(connection, participantId);
-            return authorization.authorize(connection, Network::Trust::AuthorityAction::HostOnly);
+            if (!authorization.authorize(connection, Network::Trust::AuthorityAction::HostOnly)) return false;
+            dedicatedControllerConnection = connection;
+            return true;
         }
         return found != participants.end() && authorization.bindGuest(connection, participantId);
     }

@@ -1838,14 +1838,7 @@ namespace Duel6::Server {
             if (!Network::PublicSession::validDirectoryFrontend(config.advertisedFrontend.host)
                 || config.advertisedFrontend.port == 0) return cleanupListener() ? 2 : 4;
             const auto origin = Client::directoryOrigin(std::getenv("D6R_DIRECTORY_URL"), std::getenv("D6R_DIRECTORY_ALLOW_HTTP"));
-            const auto scheme = origin.find("://");
-            auto authority = scheme == std::string::npos ? std::string() : origin.substr(scheme + 3, origin.find('/', scheme + 3) - scheme - 3);
-            auto hostname = config.advertisedFrontend.host;
-            const auto lower = [](unsigned char c) { return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c; };
-            std::transform(authority.begin(), authority.end(), authority.begin(), lower);
-            std::transform(hostname.begin(), hostname.end(), hostname.begin(), lower);
-            const auto frontend = hostname + ":" + std::to_string(config.advertisedFrontend.port);
-            if (authority == frontend || (authority == hostname && config.advertisedFrontend.port == 443))
+            if (Client::directoryOriginMatchesFrontend(origin, config.advertisedFrontend))
                 return cleanupListener() ? 2 : 4;
             dedicatedPublisher = std::make_unique<Client::DirectoryPublisher>();
         }
@@ -2187,6 +2180,16 @@ namespace Duel6::Server {
                         std::move(readiness));
             } catch (...) { return Authoritative::LobbyCommitOutcome::InternalFailure; }
         };
+        const auto currentAdmissionContext = [&] {
+            AdmissionContext context;
+            context.sessionId = lifecycleSessionId;
+            if (config.dedicated && (lifecycleSessionId == 0 || (sessionLifecycle
+                && (sessionLifecycle->ended() || !connectedParticipants.count(admissionPolicy->allocation().hostParticipant().participantId)))))
+                context.hostPolicyAllows = false;
+            if (hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive && hostedMatch->match())
+                context.maximumPlayers = hostedMatch->match()->admissionCapacity();
+            return context;
+        };
         while (!stopRequested && !cancelled()) {
             if (readiness) readiness->poll(!runtimeFailed && listener->state() == Network::ListenerState::Ready
                                            && lifecycleSessionId != 0 && (!sessionLifecycle || !sessionLifecycle->ended()));
@@ -2524,13 +2527,7 @@ namespace Duel6::Server {
                                 runtime.requestedPlayerNames =
                                         Network::deserializeAdmissionRequest(frame.payload).localPlayerNames;
                             } catch (...) { runtime.requestedPlayerNames.clear(); }
-                            AdmissionContext context;
-                            context.sessionId = lifecycleSessionId;
-                            if (config.dedicated && sessionLifecycle
-                                && !connectedParticipants.count(admissionPolicy->allocation().hostParticipant().participantId))
-                                context.hostPolicyAllows = false;
-                            if (hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive && hostedMatch->match())
-                                context.maximumPlayers = hostedMatch->match()->admissionCapacity();
+                            const auto context = currentAdmissionContext();
                             AdmissionOffer offer = admissionPolicy->offerPayload(frame.payload, context);
                             if (offer.pending()) {
                                 runtime.transactionId = offer.transactionId;
@@ -2563,16 +2560,20 @@ namespace Duel6::Server {
                     if (!deferAdmissionCommit && connection->receive(frame)) {
                         LifecycleCredentialPayloadGuard credentialPayload(frame.payload);
                         bool accepted = false;
+                        bool policyCommitAttempted = false;
                         try {
                             const Network::AdmissionAcceptance acceptance =
                                     Network::deserializeAdmissionAcceptance(frame.payload);
                             accepted = frame.receivedAt < runtime.attemptDeadline
                                        && Network::sameAdmissionIdentitySet(acceptance, runtime.offer)
-                                        && observe(AdmissionLifecycleStage::AcceptanceReceived,
-                                                   runtime.connectionId, runtime.transactionId)
-                                        && (!hostedMatch || hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby
-                                            || (hostedMatch->match() && hostedMatch->match()->admissionOpen()))
-                                        && admissionPolicy->commit(runtime.transactionId, runtime.connectionId);
+                                         && observe(AdmissionLifecycleStage::AcceptanceReceived,
+                                                    runtime.connectionId, runtime.transactionId)
+                                         && (!hostedMatch || hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby
+                                             || (hostedMatch->match() && hostedMatch->match()->admissionOpen()));
+                            if (accepted) {
+                                policyCommitAttempted = true;
+                                accepted = admissionPolicy->commit(runtime.transactionId, runtime.connectionId, currentAdmissionContext());
+                            }
                         } catch (...) {}
                         if (accepted) {
                             runtime.admitted = true;
@@ -2677,6 +2678,11 @@ namespace Duel6::Server {
                                 connection->requestClose();
                             }
                         } else {
+                            if (policyCommitAttempted) {
+                                Network::AdmissionResult rejected;
+                                rejected.code = Network::AdmissionResultCode::HostPolicyRejected;
+                                (void) write(*connection, Network::serializeAdmissionResult(rejected));
+                            }
                             rollback();
                             connection->requestClose();
                         }

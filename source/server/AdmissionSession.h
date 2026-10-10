@@ -88,7 +88,7 @@ namespace Duel6::Server {
                                                   AdmissionContext context = {});
         AdmissionOffer offer(const Network::AdmissionRequest &request, AdmissionContext context = {});
         AdmissionOffer offerPayload(const std::vector<std::uint8_t> &payload, AdmissionContext context = {});
-        bool commit(std::uint64_t transactionId, Network::Trust::ConnectionId connection);
+        bool commit(std::uint64_t transactionId, Network::Trust::ConnectionId connection, AdmissionContext context = {});
         bool rollback(std::uint64_t transactionId);
         void disconnect(Network::Trust::ConnectionId connection);
         bool reconnect(Network::Trust::ConnectionId connection, std::uint64_t participantId);
@@ -114,6 +114,7 @@ namespace Duel6::Server {
         Network::Trust::AuthorizationPolicy authorization;
         bool matchStarted = false;
         bool dedicated = false;
+        Network::Trust::ConnectionId dedicatedControllerConnection = 0;
         mutable std::mutex policyMutex;
     };
 }

@@ -1179,6 +1179,86 @@ D6R_TEST_CASE("NET-DIR bound metadata overflow reduces body rows and changed sel
     menu.activate(); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
 }
 
+D6R_TEST_CASE("DIRUX01 bound four five six context lines contain full row focus and pointer extents") {
+    if (!Network::PublicSession::supported()) return;
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    const auto &controls = f.service.getControlsManager().get(0);
+    const std::vector<std::string> hosts{
+        std::string(63, 'a') + "." + std::string(9, 'b'),
+        std::string(63, 'a') + "." + std::string(20, 'b'),
+        std::string(63, 'a') + "." + std::string(63, 'b') + "." + std::string(63, 'c') + "." + std::string(61, 'd')
+    };
+    const auto clickCanvas = [&](int x, int y) {
+        const auto &screen = f.video.getScreen();
+        const float scale = std::min(1.35f, std::min(float(screen.getClientWidth()) / 850, float(screen.getClientHeight()) / 700));
+        f.click((screen.getClientWidth() - int(850 * scale)) / 2 + int(x * scale),
+                (screen.getClientHeight() - int(700 * scale)) / 2 + int(y * scale));
+        menu.pointerHeld = false;
+    };
+    for (std::size_t context = 0; context < hosts.size(); ++context) {
+        Client::DirectoryListing row;
+        row.id = std::string(32, 'a'); row.sessionId = Client::directorySessionId(42);
+        row.hosting = "dedicated"; row.protection = "invite"; row.admission = "open"; row.phase = "idle";
+        row.endpoint = {hosts[context], 65535}; row.capacity = 15; row.expiresAt = 2000000000000;
+        menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+        menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
+        menu.browser.received = menu.browser.requested = std::chrono::steady_clock::now();
+        menu.joinSelected(); D6R_REQUIRE(menu.boundDedicated());
+        D6R_REQUIRE_EQ(context + 4, menu.boundContextLines().size());
+        for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}}) {
+            f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+            menu.localPlayers.clear(); menu.availablePersons.clear();
+            for (unsigned slot = 0; slot < 15; ++slot) {
+                const auto name = "Player " + std::to_string(slot + 1);
+                menu.localPlayers.push_back({name, &controls, controls.getDescription()}); menu.availablePersons.push_back(name);
+            }
+            const int base = menu.setupFields() + static_cast<int>(menu.availablePersons.size());
+            for (int slot = 0; slot < 15; ++slot) for (int action = 0; action < 2; ++action) {
+                menu.focus = base + slot * 2 + action; menu.syncSetupScroll(); f.draw();
+                const int baseline = menu.setupFirstRow() - (slot - menu.setupPlayersScroll) * 22;
+                D6R_REQUIRE(baseline - 4 >= 206); // Entire control, outer focus and pointer bounds, not only text baseline.
+                const int bodyTop = menu.setupFirstRow() + 18;
+                D6R_REQUIRE(baseline + 18 <= bodyTop);
+                D6R_REQUIRE(f.frame(action ? 722 : 428, baseline - 4, action ? 100 : 294, 22, 2));
+                D6R_REQUIRE(f.text("Back") && f.text("Invite required"));
+                for (const auto &frame: f.recorder.frames)
+                    if (frame.color == Color::BLACK && (frame.position.x == 428 || frame.position.x == 722)) {
+                        D6R_REQUIRE(frame.position.y >= 206);
+                        D6R_REQUIRE(frame.position.y + frame.size.y <= bodyTop);
+                    }
+            }
+            menu.focus = base; menu.syncSetupScroll();
+            std::set<int> reached;
+            menu.focus = 2;
+            for (int step = 0; step < base + 32; ++step) {
+                menu.moveFocus(1);
+                if (menu.focus >= base && menu.focus < base + 30) reached.insert((menu.focus - base) / 2);
+            }
+            D6R_REQUIRE_EQ(std::size_t(15), reached.size());
+            // Exercise actual scaled pointer access at the first and scrolled last slot.
+            for (int slot: {0, 14}) {
+                menu.focus = base + slot * 2; menu.syncSetupScroll();
+                const int baseline = menu.setupFirstRow() - (slot - menu.setupPlayersScroll) * 22;
+                const auto count = menu.localPlayers.size();
+                clickCanvas(450, baseline + 6);
+                D6R_REQUIRE_EQ(base + slot * 2, menu.focus);
+                D6R_REQUIRE_EQ(count, menu.localPlayers.size());
+                clickCanvas(750, 205);
+                D6R_REQUIRE_EQ(count, menu.localPlayers.size());
+            }
+            menu.focus = base; menu.syncSetupScroll();
+            const auto count = menu.localPlayers.size();
+            clickCanvas(750, 205); // No below-inset Remove target.
+            D6R_REQUIRE_EQ(count, menu.localPlayers.size());
+            const int lastBaseline = menu.setupFirstRow() - (menu.setupVisibleRows() - 1) * 22;
+            D6R_REQUIRE(lastBaseline - 4 >= 206);
+            clickCanvas(750, lastBaseline + 6);
+            D6R_REQUIRE_EQ(count - 1, menu.localPlayers.size());
+        }
+    }
+}
+
 D6R_TEST_CASE("public reviewed headers failure recovery and full setup slots stay bounded at minimum viewports") {
     ReviewMenuFixture f;
     auto &menu = f.menu;

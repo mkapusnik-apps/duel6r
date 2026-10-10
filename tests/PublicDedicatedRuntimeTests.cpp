@@ -24,6 +24,8 @@
 #include "source/client/NetworkSessionRuntime.h"
 #undef private
 #include "source/network/PublicSession.h"
+#include "source/network/SessionTransport.h"
+#include "source/network/CompatibilityManifest.h"
 
 // Driven by PublicDedicatedProcessTests.py: no credentials in argv or output.
 using namespace Duel6;
@@ -72,7 +74,7 @@ int main(int argc, char **argv) {
             return "controller " + describe(controller) + "; guest " + describe(guest);
         };
         const std::string scenario = argv[3];
-        if (scenario != "directory")
+        if (scenario != "directory" && scenario != "directory-reservation")
             require(first.join(endpoint, argv[2], {{"Controller", &controls}}, {}, {}, true, invitation()), "join start");
         if (scenario == "directory") {
             require(std::getenv("D6R_DIRECTORY_URL") != nullptr, "owned directory fixture required");
@@ -148,6 +150,71 @@ int main(int argc, char **argv) {
             require(observer.snapshot().host && Client::directorySessionId(observer.snapshot().canonical->sessionId) == fresh->sessionId, "fresh role/identity");
             observer.endSession();
             std::cout << "PASS real directory browse/TLS bound idle admission, concurrent roles, completed Return, End and old/fresh selection isolation\n";
+        } else if (scenario == "directory-reservation") {
+            Client::DirectoryPage page;
+            auto lastRead = std::chrono::steady_clock::time_point{};
+            auto refresh = [&] {
+                if (std::chrono::steady_clock::now() - lastRead >= 250ms) {
+                    page = Client::directoryPage({}); lastRead = std::chrono::steady_clock::now();
+                }
+            };
+            std::optional<Client::DirectoryListing> selected;
+            require(pump([&] { refresh(); for (const auto &row: page.listings)
+                if (row.dedicated() && row.endpoint.port == endpoint.port && row.phase == "idle") selected = row;
+                return selected.has_value(); }, 10s), "R1 real prepared browser selection");
+            endpoint = selected->endpoint;
+            require(first.join(endpoint, argv[2], {{"Controller", &controls}}, {}, selected->sessionId, true, invitation()), "R1 bound controller start");
+            require(pump([&] { return first.snapshot().journey == J::Lobby && first.snapshot().host; }, 12s), "R1 controller committed");
+            const auto original = *first.snapshot().canonical;
+            const auto content = Network::CompatibilityManifestBuilder(argv[2]).build();
+            require(content.valid(), "R1 guest content");
+            Network::SessionTransportDependencies transport;
+            transport.publicTls = true; transport.enforceNetworkSessionPolicy = true;
+            Network::TcpClient offeredGuest(transport);
+            require(offeredGuest.start(endpoint) && offeredGuest.waitForConnected(5s), "R1 actual guest TLS");
+            auto connection = offeredGuest.connection(); require(connection != nullptr, "R1 actual guest connection");
+            auto request = Network::makeLocalAdmissionRequest(1, content.manifest, {"Deferred guest"});
+            request.expectedSessionId = original.sessionId;
+            require(connection->sendSensitive(Network::PublicSession::wrapAdmission(
+                Network::serializeAdmissionRequest(request), secret ? secret : "")) == Network::SendResult::Accepted, "R1 request while controller connected");
+            std::optional<Network::AdmissionOfferPayload> offer;
+            require(pump([&] { Network::TransportFrame frame; if (connection->receive(frame))
+                offer = Network::deserializeAdmissionOffer(frame.payload); return offer.has_value(); }, 5s), "R1 genuine provisional offer");
+            require(offer->sessionId == original.sessionId, "R1 bound provisional identity");
+            const auto root = std::filesystem::path(argv[2]);
+            auto action = [&](const char *name) {
+                { std::ofstream out(root / "action.tmp"); out << 1 << ' ' << name << ' ' << original.sessionId; }
+                std::filesystem::rename(root / "action.tmp", root / "action");
+                require(pump([&] { return std::filesystem::exists(root / "acted"); }, 5s), "R1 fixture action acknowledged");
+                std::filesystem::remove(root / "acted");
+            };
+            action("eof"); // Existing real transport-loss path; no terminal notice is injected.
+            require(pump([&] { refresh(); return first.snapshot().journey == J::Reconnecting
+                && std::any_of(page.listings.begin(), page.listings.end(), [&](const auto &row) {
+                    return row.sessionId == selected->sessionId && row.phase == "reserved" && row.admissionState() == "closed" && row.players == 1;
+                }); }, 5s), "R1 authoritative Reserved/Closed before acceptance");
+            const auto countdown = first.snapshot().reconnectSeconds;
+            require(connection->send(Network::serializeAdmissionAcceptance(*offer)) == Network::SendResult::Accepted, "R1 acceptance after reservation");
+            std::optional<Network::AdmissionResult> rejection;
+            require(pump([&] { Network::TransportFrame frame; if (connection->receive(frame))
+                rejection = Network::deserializeAdmissionResult(frame.payload); return rejection.has_value(); }, 5s), "R1 late offer fixed rejection, not authority");
+            require(rejection->code == Network::AdmissionResultCode::HostPolicyRejected
+                && rejection->participantId == 0 && rejection->playerIds.empty(), "R1 no committed identity in rejection");
+            require(first.snapshot().reconnectSeconds && countdown && *first.snapshot().reconnectSeconds <= *countdown, "R1 no reservation countdown restart");
+            action("resume");
+            require(pump([&] { return first.snapshot().journey == J::Lobby && first.snapshot().host; }, 12s), "R1 original credential restores controller");
+            const auto restored = *first.snapshot().canonical;
+            require(restored.sessionId == original.sessionId && restored.hostParticipantId == original.hostParticipantId
+                && restored.participants.size() == 1 && restored.players.size() == 1
+                && restored.players.front().playerId == original.players.front().playerId, "R1 no ghost guest/player or controller migration");
+            require(pump([&] { refresh(); return std::any_of(page.listings.begin(), page.listings.end(), [&](const auto &row) {
+                return row.sessionId == selected->sessionId && row.phase == "lobby" && row.players == 1;
+            }); }, 5s), "R1 publication resumes same identity and retained count");
+            offeredGuest.close(); first.endSession();
+            require(pump([&] { refresh(); return std::any_of(page.listings.begin(), page.listings.end(), [&](const auto &row) {
+                return row.endpoint.port == endpoint.port && row.phase == "idle" && row.players == 0 && row.sessionId != selected->sessionId;
+            }); }, 10s), "R1 accepted End cleans before fresh empty identity");
+            std::cout << "PASS R1 actual TLS/directory offered->Reserved/Closed->late acceptance rejected; original controller/identity/credential retained\n";
         } else if (scenario.compare(0, 7, "attack-") == 0) {
             namespace H = Network::HostComposition;
             namespace R = Network::Replication;

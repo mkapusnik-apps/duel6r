@@ -605,7 +605,7 @@ def main():
                 # after a production failure without carrying stranded sessions.
                 for name in ("action", "acted", "action.tmp", "attack.bin", "attack-rejected", "summary-release"):
                     (root / name).unlink(missing_ok=True)
-                frontend = port() if scenario == "directory" else None
+                frontend = port() if scenario in ("directory", "directory-reservation") else None
                 with service(server, root, INVITE, frontend) as (backend, _):
                     peer = TlsPeer(root / "valid.pem", root / "valid.key", backend, root,
                                    scenario == "flow-race", scenario == "summary-return-ordered", frontend or 0)
