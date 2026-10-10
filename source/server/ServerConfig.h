@@ -29,6 +29,7 @@ namespace Duel6::Server {
         bool hostedServiceIpc = false;
         bool graphicalHostComposition = false;
         bool dedicated = false;
+        Network::Endpoint advertisedFrontend{"", 0};
         bool publicConnection = false;
         bool trustedProxyV2 = false;
         std::string inviteFile;

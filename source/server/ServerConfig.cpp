@@ -74,6 +74,10 @@ namespace Duel6::Server {
             std::string argument = argv[i];
             if (argument == "--dedicated") {
                 config.dedicated = true;
+            } else if (startsWith(argument, "--advertise-host=")) {
+                config.advertisedFrontend.host = valueAfter(argument, "--advertise-host=");
+            } else if (startsWith(argument, "--advertise-port=")) {
+                config.advertisedFrontend.port = parsePort(valueAfter(argument, "--advertise-port="));
             } else if (argument == "--trusted-proxy-protocol=v2") {
                 config.trustedProxyV2 = true;
             } else if (startsWith(argument, "--invite-file=")) {
@@ -154,7 +158,8 @@ namespace Duel6::Server {
                         "[--tick-rate=N] [--max-clients=N] [--local-only] [--transport] "
                         "[--transport-echo] [--admission-client] OR "
                         "duel6r-server --dedicated --transport --host=127.0.0.1 --port=26661 "
-                        "--resources=PATH --trusted-proxy-protocol=v2 --invite-file=PATH --readiness-socket=PATH OR "
+                         "--resources=PATH --trusted-proxy-protocol=v2 --invite-file=PATH --readiness-socket=PATH "
+                         "[--advertise-host=TLS-FRONTEND --advertise-port=TLS-PORT] OR "
                         "duel6r-server --check-ready=PATH");
             } else {
                 throw std::invalid_argument("Unknown server argument");
@@ -174,7 +179,12 @@ namespace Duel6::Server {
                 || !config.enabledGameplayScripts.empty())
                 throw std::invalid_argument("Dedicated mode requires isolated loopback proxy, invitation file and readiness socket");
             config.localPlayers = 0;
-        } else if (config.trustedProxyV2 || !config.inviteFile.empty() || !config.readinessSocket.empty()) {
+            if ((!config.advertisedFrontend.host.empty() || config.advertisedFrontend.port != 0)
+                && (!Network::PublicSession::validDirectoryFrontend(config.advertisedFrontend.host)
+                    || config.advertisedFrontend.port == 0))
+                throw std::invalid_argument("Publication requires a concrete non-loopback TLS frontend and port");
+        } else if (config.trustedProxyV2 || !config.inviteFile.empty() || !config.readinessSocket.empty()
+                   || !config.advertisedFrontend.host.empty() || config.advertisedFrontend.port != 0) {
             throw std::invalid_argument("Dedicated options require dedicated mode");
         }
         requireText("server name", config.serverName);

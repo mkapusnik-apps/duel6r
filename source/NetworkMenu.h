@@ -61,6 +61,7 @@ namespace Duel6 {
         std::string password;
         Client::DirectoryBrowser browser;
         std::string selectedListing;
+        std::string selectedSessionIdentity;
         std::optional<Client::DirectoryListing> browserSelection;
         bool joinFromBrowser = false;
         int browserScroll = 0;
@@ -117,8 +118,10 @@ namespace Duel6 {
             return setupScreen == SetupScreen::Join && !joinFromBrowser && Network::PublicSession::supported();
         }
         int setupFields() const { return serviceTypeAvailable() ? 4 : 3; }
-        int setupFirstRow() const { return setupScreen == SetupScreen::Join && publicConnection ? 292 : 364; }
-        int setupVisibleRows() const { return setupScreen == SetupScreen::Join && publicConnection ? 4 : 8; }
+        bool boundDedicated() const { return setupScreen == SetupScreen::Join && joinFromBrowser && publicConnection && browserSelection.has_value(); }
+        std::vector<std::string> boundContextLines() const;
+        int setupFirstRow() const;
+        int setupVisibleRows() const;
         void clearInvitation();
         void enterDirectSetup();
         void joinEndpoint(const Network::Endpoint &endpoint);

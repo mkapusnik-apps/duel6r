@@ -8,15 +8,17 @@
 
 These public states extend the LAN outcomes below. They apply to both the controller and guests and consume the owning security and lifecycle requirements without redefining their copy.
 
-Presentation authority: [NET-08 UX contract](../design/screens/NET-08.md). The fixed copies in TRU-PUB-009, TRU-PUB-016, HSL-PUB-006, and HSL-PUB-007 are authoritative. New protocol or code identifiers are developer-owned; these functional state IDs are the stable product references. Security and invitation failure offer Edit setup and Return to Network, not direct Retry. A network timeout or resolution failure may offer existing secure Retry only when retained setup remains valid. SIGTERM without an authenticated terminal notice does not select maintenance copy.
+Presentation authority: [NET-08 UX contract](../design/screens/NET-08.md). The fixed copies in TRU-PUB-009, TRU-PUB-016, HSL-PUB-006 and HSL-PUB-007 are authoritative. New protocol or code identifiers are developer-owned; these functional state IDs are the stable product references. Security and invitation failure offer Edit setup and Return to Network, not direct Retry; an initial browser-origin dedicated failure also permits return to NET-10 for refresh. A network timeout or resolution failure may offer existing secure Retry only when retained setup and selected binding remain valid. SIGTERM without an authenticated terminal notice does not select maintenance copy.
 
 | Functional state | Entry and outcome source | Permitted recovery |
 |---|---|---|
-| `NET-08-PUBLIC-SECURITY` | Server identity/encryption failure under TRU-PUB-016, or invitation denial under TRU-PUB-009 | Edit setup to NET-03; Return to Network to NET-01. Invitation denial requires replacement under NET-JOIN-PUB-007. No insecure bypass. |
+| `NET-08-PUBLIC-SECURITY` | Server identity/encryption failure under TRU-PUB-016, or invitation denial under TRU-PUB-009 | Edit setup to NET-03; Return to Network to NET-01; initial browser-origin return to NET-10 for refresh. Invitation denial requires replacement under NET-JOIN-PUB-007. No insecure bypass or direct Retry. |
 | `NET-08-PUBLIC-MAINTENANCE` | Confirmed service maintenance notice under HSL-PUB-007 | HSL-PUB-008; no restoration Retry. |
 | `NET-08-PUBLIC-CONTROLLER-EXPIRED` | Confirmed service expiry notice under HSL-PUB-006 | HSL-PUB-008; no restoration Retry. |
 
 Missing DNS, unreachable service, and timeouts retain existing initial-connection outcomes. They must not be presented as successful deployment, admission, or a known session end. An unconfirmed connection loss during a session remains NET-07 until an authoritative terminal result or the original deadline. Edit setup retains non-secret setup under NET-JOIN-PUB-006. No failure displays invitation or reconnect credentials.
+
+Initial browser-selected dedicated failures retain bound hosting/security mode, operator frontend endpoint and expected session identity for credential correction or eligible secure Retry. They permit contextual return to NET-10 and refresh. Missing/unknown/inconsistent metadata or stale/wrong/ended/restarted identity must not allocate authority, redirect a fresh session or offer an insecure admission mode. Existing fixed error copy and precedence remain unchanged; no new peer-derived error or speculative cause is introduced. Endpoint/selection changes require refreshed selection, or an explicit unbound Direct transition that clears binding and secrets. Directory publication failure is an operator condition and does not itself select a participant session-failure outcome or grant controller publication actions.
 
 Functional acceptance: `TRU-PUB-AC-001`–`TRU-PUB-AC-003`, `NET-JOIN-PUB-AC-001`, and `HSL-PUB-AC-002` cover rejection, recovery permissions, copy, and truthful failure states. UX owns presentation and feedback.
 

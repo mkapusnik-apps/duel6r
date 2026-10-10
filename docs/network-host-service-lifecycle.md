@@ -21,7 +21,7 @@ The ownership, supervision, and orphan-prevention rules in the player-hosted sec
 ### Dedicated service lifecycle
 
 - **HSL-PUB-001** While its environment is running, a dedicated service must remain available for a new session after an ended session completes cleanup.
-- **HSL-PUB-002** Public readiness must require secure admission availability, validated gameplay content, and the ability to create a session; it must not require an already admitted controller.
+- **HSL-PUB-002** Public readiness must require validated secure admission availability and gameplay content plus one prepared empty session with a nonzero identity, zero participants/players, no controller and no round. Readiness and directory publication must precede first admission without requiring a controller. Failed startup must not publish or admit participants.
 - **HSL-PUB-003** A controller's confirmed End session must end only the current session, not the environment's service.
 - **HSL-PUB-004** The service must reject admission while session cleanup or deployment shutdown is in progress.
 - **HSL-PUB-005** An accepted intentional controller End notice must use the existing `NET-09` outcome for other participants.
@@ -38,7 +38,9 @@ SIGTERM interruption is permitted. Delivery of a maintenance notice is not requi
 
 | Criterion | Required outcome | Requirements |
 |---|---|---|
-| **HSL-PUB-AC-001** | An empty secure service reports readiness only when it can create a valid session. Failed startup admits nobody. End session releases session state but permits a later fresh session without participant-owned process supervision. | HSL-PUB-001–004, HSL-PUB-011 |
+| **HSL-PUB-AC-001** | An empty secure service reports readiness and publishes only after its validated nonzero empty session is prepared, without a controller or round. Failed startup publishes nothing and admits nobody. First committed admission preserves that identity. End/expiry/restart immediately invalidates old identity; cleanup precedes a fresh distinct empty session/listing, independently of old listing removal. Existing confirmed terminal causes and the fixed 30-second controller reservation remain unchanged; participants never own process supervision or publication actions. | HSL-PUB-001–004, HSL-PUB-011; NET-PUB-002/014/024–025; NET-DIR-025–031 |
+
+The service owns its directory publisher and memory-only listing-owner credential independently of controller presence. An orderly session end/service shutdown attempts listing removal; failed removal uses directory lease expiry without keeping the ended identity admissible. Cleanup must complete before preparing/publishing the next distinct empty session. Publication failure is observable to the operator and uses bounded service retries without ending gameplay, blocking direct/Local Play or requiring session restart. It grants no controller Retry publication right. A selected old identity must reject before authority allocation even while its old unexpired row coexists with the fresh listing. Directory outcomes do not replace the confirmed-cause/ambiguous-loss rules below.
 | **HSL-PUB-AC-002** | Confirmed controller end, including a received normal-shutdown request, and controller expiry produce their distinct destinations and copy. An authenticated maintenance notice, when supplied, uses the maintenance outcome. SIGTERM or abrupt interruption without a terminal notice retains ambiguous reconnect until a terminal response or the original deadline. Fresh admission is not presented as restoration. | HSL-PUB-005–010, HSL-PUB-012–013 |
 
 - **Host application:** The game instance in which the host starts and controls a player-hosted session.

@@ -222,7 +222,6 @@ set(D6R_SOURCES
         source/client/LocalPlayerInputSession.h
         source/client/NetworkSessionRuntime.cpp
         source/client/NetworkSessionRuntime.h
-        source/client/HostDirectory.cpp
         source/client/HostDirectory.h
         source/ConsoleCommands.cpp
         source/ConsoleCommands.h
@@ -844,10 +843,21 @@ if (UNIX AND NOT APPLE)
 endif ()
 target_sources(duel6r-network-scaffold PRIVATE source/network/SecureSession.cpp)
 target_link_libraries(duel6r-network-scaffold PUBLIC MbedTLS::mbedtls MbedTLS::mbedx509 MbedTLS::mbedcrypto)
-if (NOT D6R_TRANSPORT_ONLY)
+if (NOT D6R_TRANSPORT_ONLY OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND D6R_PUBLIC_DEDICATED))
     find_package(CURL 7.85 REQUIRED)
-    target_include_directories(duel6r-game-engine PUBLIC ${CURL_INCLUDE_DIRS})
-    target_link_libraries(duel6r-game-engine PUBLIC ${CURL_LIBRARIES})
+    # The existing publisher/HTTP/origin code has no SDL or renderer dependency.
+    # Keep native transport-only Mac/Windows verification's dependency set unchanged.
+    add_library(duel6r-directory STATIC source/client/HostDirectory.cpp)
+    target_include_directories(duel6r-directory PUBLIC ${CMAKE_SOURCE_DIR}/source ${CURL_INCLUDE_DIRS})
+    target_link_libraries(duel6r-directory PUBLIC duel6r-directory-origin duel6r-canonical-gameplay-core ${CURL_LIBRARIES})
+    target_link_libraries(duel6r-network-scaffold PUBLIC duel6r-directory)
+    target_compile_definitions(duel6r-network-scaffold PRIVATE D6R_DIRECTORY_PUBLISHER)
+    if (D6R_PUBLIC_DEDICATED)
+        target_compile_definitions(duel6r-directory PUBLIC D6R_PUBLIC_DEDICATED)
+    endif ()
+    if (NOT D6R_TRANSPORT_ONLY)
+        target_link_libraries(duel6r-game-engine PUBLIC duel6r-directory)
+    endif ()
 endif ()
 add_dependencies(duel6r-network-scaffold ${D6R_RESOLVER_APP_NAME})
 target_include_directories(duel6r-network-scaffold PUBLIC ${CMAKE_SOURCE_DIR}/source)

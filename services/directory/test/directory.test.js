@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { Firestore, Timestamp } from '@google-cloud/firestore';
 import { configuration } from '../src/config.js';
-import { Directory, LEASE_MS, PAGE_SIZE } from '../src/directory.js';
+import { Directory, LEASE_MS, PAGE_SIZE, validateListing } from '../src/directory.js';
 import { createServer } from '../src/http.js';
 
 // Fail closed instead of silently replacing the real emulator with a fake or
@@ -19,6 +19,62 @@ const listing = (changes = {}) => ({
   phase: 'lobby', ...changes
 });
 const status = expected => error => error.status === expected;
+const dedicated = (changes = {}) => listing({ address: 'arena.example.test', players: 0,
+  phase: 'idle', hosting: 'dedicated', protection: 'invite', admission: 'open', ...changes });
+
+test('mixed contract validates frontend, idle and protection without relaxing private minimum', () => {
+  assert.equal(validateListing(dedicated()).players, 0);
+  for (const changes of [{ address: '127.0.0.1' }, { address: '0.0.0.0' }, { address: '224.1.2.3' },
+    { address: 'localhost' }, { address: 'https://arena.example.test' }, { address: 'bad_name' },
+    { address: '169.254.1.1' }, { phase: 'lobby' }, { sessionId: '0'.repeat(32) },
+    { protection: 'password' }, { hosting: 'unknown' }, { passwordRequired: true },
+    { admission: 'closed' }, { invitation: 'not-public' }])
+    assert.throws(() => validateListing(dedicated(changes)), status(400));
+  assert.throws(() => validateListing(listing({ players: 0 })), status(400));
+  assert.equal(validateListing(dedicated({ address: '198.51.100.4' })).hosting, 'dedicated');
+  assert.equal(validateListing(dedicated({ players: 2, phase: 'reserved', admission: 'closed' })).players, 2);
+  assert.throws(() => validateListing(dedicated({ players: 2, phase: 'reserved', admission: 'open' })), status(400));
+});
+
+test('mixed publication isolates legacy reads, immutable classification and owner authority', async () => {
+  await assert.rejects(directory.register(dedicated()), status(400));
+  const created = await directory.register(dedicated(), true);
+  const privateRow = await directory.register(listing({ passwordRequired: true }));
+  assert.deepEqual((await directory.list()).listings.map(row => row.id), [privateRow.id]);
+  const mixed = await directory.list(undefined, true);
+  assert.equal(mixed.contract, 'mixed-v2');
+  assert.equal(mixed.listings.length, 2);
+  assert.equal(mixed.listings.find(row => row.id === privateRow.id).protection, 'password');
+  assert.equal(mixed.listings.find(row => row.id === created.id).players, 0);
+  assert.ok(!JSON.stringify(mixed).includes(created.ownerToken));
+  await assert.rejects(directory.mutate(created.id, created.ownerToken, 1, null), status(400));
+  await assert.rejects(directory.mutate(created.id, created.ownerToken, 1,
+    listing({ sessionId: created.sessionId }), true), status(400));
+  const updated = await directory.mutate(created.id, created.ownerToken, 1,
+    dedicated({ players: 2, phase: 'lobby' }), true);
+  assert.equal(updated.sessionId, created.sessionId);
+  assert.equal(updated.revision, 2);
+  await assert.rejects(directory.mutate(created.id, created.ownerToken, 1, null, true), status(409));
+  await directory.mutate(created.id, created.ownerToken, 2, null, true);
+});
+
+test('mixed and legacy cursors cannot cross capability contexts and reach every bounded row', async () => {
+  for (let i = 1; i <= PAGE_SIZE + 2; ++i) {
+    const value = i % 2 ? dedicated() : listing();
+    const expiresAt = clock + LEASE_MS;
+    await db.collection(collection).doc(i.toString(16).padStart(32, '0')).set({
+      listing: value, expiresAt, revision: 1, leaseExpiry: Timestamp.fromMillis(expiresAt), ownerHash: 'c'.repeat(64) });
+  }
+  const mixed = await directory.list(undefined, true), old = await directory.list();
+  assert.equal(mixed.listings.length, PAGE_SIZE);
+  assert.match(mixed.nextCursor, /^m2_/);
+  assert.ok(old.listings.every(row => !('hosting' in row) && row.players > 0));
+  assert.ok(old.listings.length < PAGE_SIZE);
+  await assert.rejects(directory.list(mixed.nextCursor), status(400));
+  await assert.rejects(directory.list(old.nextCursor, true), status(400));
+  assert.equal((await directory.list(mixed.nextCursor, true)).listings.length, 2);
+  assert.ok((await directory.list(old.nextCursor)).listings.every(row => row.players > 0));
+});
 before(async () => { await db.listCollections(); });
 beforeEach(async () => {
   clock = 100_000;

@@ -68,6 +68,17 @@ namespace Duel6::Network::PublicSession {
         }
         return result;
     }
+    bool validDirectoryFrontend(std::string_view value) {
+        if (!validEndpoint(value)) return false;
+        std::string lower(value);
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
+            return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c;
+        });
+        if (lower == "localhost") return false;
+        if (value.find_first_not_of("0123456789.") != std::string_view::npos) return true;
+        const auto scope = Trust::classifyIpv4Literal(std::string(value));
+        return scope == Trust::EndpointScope::PrivateLan || scope == Trust::EndpointScope::PublicUnicast;
+    }
     std::vector<std::uint8_t> wrapAdmission(const std::vector<std::uint8_t> &request,
                                             std::string_view invitation) {
         if (!validInvite(invitation) || request.size() + invitation.size() + 6 > Trust::MaxAdmissionPayloadBytes)

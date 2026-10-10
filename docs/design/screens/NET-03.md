@@ -1,8 +1,8 @@
 # NET-03 — Direct setup and operator-configured dedicated admission
 
-Functional authority: [NET-03](../../screens/network-join.md), NET-DIR-013/014, NET-PASS-001–010, NET-ADM-011, NET-PUB-017–021, and retained NET-JOIN-PUB requirements. NET-JOIN-PUB-002 and NET-PUB-016/022 are retired. Structural sources: [NET-03-E](../wireframes/NET-03/NET-03-E.svg), [NET-03-P](../wireframes/NET-03/NET-03-P.svg), and unchanged [NET-03 connecting SVG](../wireframes/NET-03/NET-03.svg). Current develop's [locked-task reference](../../screens/wireframes/network-join.md) remains context for unchanged connecting structure.
+Functional authority: [NET-03](../../screens/network-join.md), NET-DIR-013/014, NET-PASS-001–010, NET-ADM-011, NET-PUB-017–021, and retained NET-JOIN-PUB requirements. NET-JOIN-PUB-002 and NET-PUB-016/022 are retired. Structural sources: [NET-03-E](../wireframes/NET-03/NET-03-E.svg), [NET-03-P](../wireframes/NET-03/NET-03-P.svg), selected dedicated [NET-03-B](../wireframes/NET-03/NET-03-B.svg), and unchanged [NET-03 connecting SVG](../wireframes/NET-03/NET-03.svg). Current develop's [locked-task reference](../../screens/wireframes/network-join.md) remains context for unchanged connecting structure.
 
-States: NET-03-password, NET-03-live-admission, NET-03-PUBLIC-EDIT, and NET-03-PUBLIC-CONNECTING. Visual impact: one direct-only service-type row and a dedicated credential/guidance variant within the current setup task. No deployment, environment, account, or nested connection screen is added.
+States: NET-03-password, NET-03-live-admission, NET-03-PUBLIC-EDIT, NET-03-PUBLIC-CONNECTING, and NET-03-dedicated-selected. Visual impact: the existing direct-only service-type row and dedicated credential/guidance variant, plus bound dedicated selection within the current setup task. No deployment, environment, account, or nested connection screen is added.
 
 ## Shared structure
 
@@ -24,7 +24,7 @@ States: NET-03-password, NET-03-live-admission, NET-03-PUBLIC-EDIT, and NET-03-P
 - **UX-NET-03-013** The cycle cue must not create a separate pointer or focus target.
 - **UX-NET-03-014** Confirm, Enter, Space, or a pointer press must change the approved service type once without held repetition or automatic connection.
 - **UX-NET-03-015** Changing service type must keep focus on that row.
-- **UX-NET-03-016** Browser-origin setup must retain selected-session context without an editable service-type row.
+- **UX-NET-03-016** Browser-origin setup must retain selected-session context and decoded hosting type without an editable service-type row.
 - **UX-NET-03-017** macOS and Raspberry Pi direct setup must retain current player-hosted layout and traversal without a dedicated option or placeholder target.
 
 The direct row replaces the current setup-context line; it does not require a new panel. Retain initial Address focus on ordinary direct entry. Forward traversal must follow Service type, Address, Port, applicable credential, local setup, Connect, and Back. Reverse traversal from Address must reach Service type on supported direct setup. Browser entry retains initial Password focus when protected and local-setup focus when unprotected. Browser traversal remains Address, Port, Password, local setup, Connect, and Back.
@@ -73,3 +73,29 @@ NET-JOIN-PUB-010–019 own syntax, validation, paste, retention, and clearing. R
 - Complete admission must show only the current confirmed NET-04 or NET-05 destination.
 
 Check 850 by 700 and 1280 by 720 containment, 1920 by 1080 pointer scaling, all fifteen selectable local slots, long valid endpoints/invites, explicit paste, clearing, both mode changes, and directory-origin preservation. The [scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) adds no browser or platform Cartesian campaign. NET-03-P remains the materially distinct editable dedicated variant; NET-03-E and locked connecting retain their existing identities.
+
+## Bound dedicated selection
+
+Functional authority: [network-join](../../screens/network-join.md) and [network-browser](../../screens/network-browser.md). NET-03-dedicated-selected binds decoded endpoint, hosting/protection, and nonzero session identity. The ready empty session exists before selection or admission; the service confirms controller or guest authority on actual admission. An idle-to-lobby or eligible first-round change with the same identity is not a replacement.
+
+- **UX-NET-03-032** Selected dedicated setup must use NET-03-B inside the current canvas and setup hierarchy.
+- **UX-NET-03-033** The context must identify `Dedicated service` and `Selected from browser` as read-only text without a cycle cue or mode target.
+- **UX-NET-03-034** Address and Port must show the bound TLS frontend in readable flat disabled fields without editing, caret, focus stop, or pointer activation.
+- **UX-NET-03-035** The selected session identity must remain separately labeled and fully accessible by wrapping within the fixed context region.
+- **UX-NET-03-036** Selected context must describe advertised phase and occupancy without claiming verified reachability or reserving controller authority.
+- **UX-NET-03-037** Supporting copy must say `The service confirms identity, availability, and your role when you connect.`
+- **UX-NET-03-038** Invite must be a separate inset masked field with `Invite required` help and initial focus.
+- **UX-NET-03-039** Bound setup must retain the current local-person/control task, count, validation, Connect, and Back.
+- **UX-NET-03-040** Traversal must follow Invite, local setup, Connect, and Back and must skip every bound read-only value.
+- **UX-NET-03-041** Back must return to NET-10 without connecting or silently selecting another listing.
+- **UX-NET-03-042** Missing or rejected invitation recovery must remain on the same bound task with local choices retained and Invite focused for correction.
+- **UX-NET-03-043** A confirmed endpoint/session replacement must require browser refresh and reselection rather than unlock fields or substitute a new target.
+- **UX-NET-03-044** Explicit independent Direct connect must clear selection binding and secrets and retain its existing unbound setup; it must not carry selected credentials to a different target.
+- **UX-NET-03-045** Connecting must retain the existing locked NET-03 structure and Cancel focus without revealing Invite or claiming a role before admission.
+- **UX-NET-03-046** Cancel and eligible correction must restore the same permitted bound endpoint/session/type and local setup under the functional contract.
+- **UX-NET-03-047** An unsupported client must not enter selected dedicated setup or offer Invite through any browser activation path.
+- **UX-NET-03-048** Bound metadata and help must remain outside the Invite field and above the independently scrolling setup bodies.
+- **UX-NET-03-049** Context overflow must reduce visible body rows before it covers validation/actions or reduces text size.
+- **UX-NET-03-050** The UI must not equate directory-owner authorization, listing identity, or the Dedicated label with verified X.509 identity.
+
+NET-03-B's endpoint and mode are not editable. Player-hosted NET-03-E and unbound direct NET-03-P remain unchanged. Existing masking, explicit paste, secret clearing, and no-fallback rules apply without a credential-binding dialog. Check both minimum viewports with empty and masked Invite, long valid endpoint/session context, retained local choices, and contextual Back and correction recovery.

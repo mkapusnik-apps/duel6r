@@ -224,7 +224,8 @@ namespace Duel6::Server {
                                                       AdmissionContext context) {
         if (!context.authorized) return rejectedOffer(Network::AdmissionResultCode::NotAuthorized);
         if (request.expectedSessionId != 0 && request.expectedSessionId != context.sessionId)
-            return rejectedOffer(Network::AdmissionResultCode::NotAuthorized);
+            return rejectedOffer(dedicated ? Network::AdmissionResultCode::SelectedSessionChanged
+                                          : Network::AdmissionResultCode::NotAuthorized);
         if (request.protocolVersion != Network::AdmissionProtocolVersion)
             return rejectedOffer(Network::AdmissionResultCode::ProtocolIncompatible);
         if (request.networkReleaseId != Network::NetworkReleaseId)

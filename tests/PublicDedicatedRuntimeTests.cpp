@@ -71,9 +71,84 @@ int main(int argc, char **argv) {
             };
             return "controller " + describe(controller) + "; guest " + describe(guest);
         };
-        require(first.join(endpoint, argv[2], {{"Controller", &controls}}, {}, {}, true, invitation()), "join start");
         const std::string scenario = argv[3];
-        if (scenario.compare(0, 7, "attack-") == 0) {
+        if (scenario != "directory")
+            require(first.join(endpoint, argv[2], {{"Controller", &controls}}, {}, {}, true, invitation()), "join start");
+        if (scenario == "directory") {
+            require(std::getenv("D6R_DIRECTORY_URL") != nullptr, "owned directory fixture required");
+            Client::DirectoryPage page;
+            auto lastRead = std::chrono::steady_clock::time_point{};
+            auto refresh = [&] {
+                if (std::chrono::steady_clock::now() - lastRead >= 250ms) {
+                    page = Client::directoryPage({}); lastRead = std::chrono::steady_clock::now();
+                }
+            };
+            std::optional<Client::DirectoryListing> selected;
+            require(pump([&] {
+                refresh();
+                for (const auto &row: page.listings)
+                    if (row.dedicated() && row.endpoint.port == endpoint.port && row.phase == "idle") selected = row;
+                return selected.has_value();
+            }, 10s), "prepared empty directory session before first admission");
+            require(selected->players == 0 && selected->sessionId != std::string(32, '0') && selected->joinable(), "idle listing metadata");
+            endpoint = selected->endpoint;
+            const auto original = selected->sessionId;
+            const auto legacy = Client::directoryRequest("GET", "/v1/listings");
+            require(legacy.status == 200 && Client::decodeDirectoryPage(legacy.body).available, "legacy read");
+            for (const auto &row: Client::decodeDirectoryPage(legacy.body).listings)
+                require(row.endpoint.port != endpoint.port, "legacy disclosed dedicated endpoint");
+            require(observer.join(endpoint, argv[2], {{"Wrong selection"}}, {}, Client::directorySessionId(1), true, invitation()), "wrong selected attempt starts securely");
+            require(pump([&] { return observer.snapshot().journey == J::Failure; }, 12s), "wrong selected outcome");
+            require(observer.snapshot().selectedSessionChanged && observer.snapshot().localParticipantId == 0
+                && !observer.snapshot().canonical, "wrong selection allocated authority");
+            observer.reset();
+            require(first.join(endpoint, argv[2], {{"Controller", &controls}}, {}, original, true, invitation()), "bound first join start");
+            require(second.join(endpoint, argv[2], {{"Guest"}}, {}, original, true, invitation()), "concurrent bound join start");
+            require(pump([&] { return first.snapshot().journey == J::Lobby && second.snapshot().journey == J::Lobby
+                && first.snapshot().canonical->participants.size() == 2; }, 12s), "concurrent bound commits");
+            require(first.snapshot().host != second.snapshot().host, "exactly one committed controller");
+            auto &controller = first.snapshot().host ? first : second;
+            auto &guest = first.snapshot().host ? second : first;
+            const auto session = controller.snapshot().canonical->sessionId;
+            require(Client::directorySessionId(session) == original && guest.snapshot().canonical->sessionId == session, "first commit changed advertised identity");
+            require(pump([&] { refresh(); return std::any_of(page.listings.begin(), page.listings.end(), [&](const auto &row) {
+                return row.sessionId == original && row.players == 2 && row.phase == "lobby"; }); }, 5s), "authoritative lobby publication");
+            Network::HostComposition::Setup setup;
+            setup.localPlayerNames = {controller.snapshot().host && &controller == &first ? "Controller" : "Guest"};
+            setup.fixedLevel = "levels/arena.json"; setup.roundLimit = 1; setup.quickLiquid = true;
+            setup.assistance = !controller.snapshot().canonical->settings.assistance;
+            require(controller.updateHostSetup(setup), "bound controller setup");
+            require(pump([&] { return first.snapshot().canonical->settings.quickLiquid && second.snapshot().canonical->settings.quickLiquid
+                && first.snapshot().canonical->settings.assistance == setup.assistance
+                && second.snapshot().canonical->settings.assistance == setup.assistance; }, 5s), "setup propagated");
+            first.setReady(true); second.setReady(true);
+            require(pump([&] { const auto state = controller.snapshot();
+                return std::all_of(state.canonical->participants.begin(), state.canonical->participants.end(),
+                    [](const auto &p) { return p.ready; }); }, 5s), "bound readiness");
+            controller.startMatch();
+            require(pump([&] { refresh(); return first.snapshot().journey == J::Summary && second.snapshot().journey == J::Summary; }, 90s), "bound real completed match");
+            require(controller.snapshot().canonical->sessionId == session, "results changed identity");
+            controller.returnToLobby();
+            require(pump([&] { refresh(); return first.snapshot().journey == J::Lobby && second.snapshot().journey == J::Lobby; }, 5s), "bound same-session return");
+            require(controller.snapshot().canonical->sessionId == session, "Return changed identity");
+            controller.endSession();
+            require(pump([&] { return guest.snapshot().journey == J::HostEnded; }, 5s), "bound accepted End");
+            first.reset(); second.reset();
+            std::optional<Client::DirectoryListing> fresh;
+            require(pump([&] { refresh(); for (const auto &row: page.listings)
+                if (row.dedicated() && row.endpoint.port == endpoint.port && row.phase == "idle" && row.sessionId != original) fresh = row;
+                return fresh.has_value(); }, 10s), "fresh distinct empty publication after cleanup");
+            require(fresh->players == 0, "fresh session manufactured players");
+            require(observer.join(endpoint, argv[2], {{"Old selection"}}, {}, original, true, invitation()), "old selection starts");
+            require(pump([&] { return observer.snapshot().journey == J::Failure; }, 12s), "old selection failure");
+            require(observer.snapshot().selectedSessionChanged && observer.snapshot().localParticipantId == 0, "old row redirected fresh authority");
+            observer.reset();
+            require(observer.join(endpoint, argv[2], {{"Fresh controller"}}, {}, fresh->sessionId, true, invitation()), "explicit refreshed selection");
+            require(pump([&] { return observer.snapshot().journey == J::Lobby; }, 12s), "fresh bound admission");
+            require(observer.snapshot().host && Client::directorySessionId(observer.snapshot().canonical->sessionId) == fresh->sessionId, "fresh role/identity");
+            observer.endSession();
+            std::cout << "PASS real directory browse/TLS bound idle admission, concurrent roles, completed Return, End and old/fresh selection isolation\n";
+        } else if (scenario.compare(0, 7, "attack-") == 0) {
             namespace H = Network::HostComposition;
             namespace R = Network::Replication;
             require(pump([&] { return first.snapshot().journey == J::Lobby; }, 12s), "attack controller admission");

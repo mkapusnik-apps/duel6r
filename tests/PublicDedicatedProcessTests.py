@@ -45,7 +45,7 @@ def proxy_header(source="198.51.100.7"):
 class TlsPeer:
     next_source = 100
 
-    def __init__(self, cert, key, backend, control_root=None, end_write_race=False, summary_order=False):
+    def __init__(self, cert, key, backend, control_root=None, end_write_race=False, summary_order=False, frontend_port=0):
         self.backend = backend
         self.source = f"198.51.100.{TlsPeer.next_source}"
         TlsPeer.next_source += 1
@@ -53,7 +53,7 @@ class TlsPeer:
         self.context.minimum_version = ssl.TLSVersion.TLSv1_2
         self.context.load_cert_chain(cert, key)
         self.listener = socket.socket()
-        self.listener.bind(("127.0.0.1", 0))
+        self.listener.bind(("127.0.0.1", frontend_port))
         self.port = self.listener.getsockname()[1]
         self.listener.listen()
         self.listener.settimeout(.1)
@@ -452,7 +452,7 @@ def certificates(root):
         subprocess.run(["openssl", *args], cwd=root, capture_output=True, check=True, timeout=15)
     openssl("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
             "-subj", "/CN=Duel6 test CA", "-keyout", "ca.key", "-out", "ca.pem")
-    for name, san in (("valid", "IP:127.0.0.1"), ("wrong", "DNS:wrong.example"),
+    for name, san in (("valid", "IP:127.0.0.1,DNS:arena.example.test"), ("wrong", "DNS:wrong.example"),
                       ("expired", "IP:127.0.0.1")):
         openssl("req", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=fixture",
                 "-keyout", name + ".key", "-out", name + ".csr")
@@ -463,16 +463,20 @@ def certificates(root):
 
 
 @contextlib.contextmanager
-def service(server, root, invitation):
+def service(server, root, invitation, frontend_port=None):
     backend = port()
     invite = root / "invite"
     invite.write_text(invitation)
     invite.chmod(0o600)
     ready = root / "ready.sock"
     with (root / "server.log").open("w+") as log:
-        process = subprocess.Popen([str(server), "--dedicated", "--transport", "--host=127.0.0.1",
+        arguments = [str(server), "--dedicated", "--transport", "--host=127.0.0.1",
             f"--port={backend}", f"--resources={root}", "--trusted-proxy-protocol=v2",
-            f"--invite-file={invite}", f"--readiness-socket={ready}"], stdout=log, stderr=log)
+            f"--invite-file={invite}", f"--readiness-socket={ready}"]
+        if frontend_port is not None:
+            assert os.environ.get("D6R_DIRECTORY_URL", "").startswith("http://127.0.0.1:"), "requires owned local directory fixture"
+            arguments += ["--advertise-host=arena.example.test", f"--advertise-port={frontend_port}"]
+        process = subprocess.Popen(arguments, stdout=log, stderr=log)
         try:
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
@@ -601,9 +605,10 @@ def main():
                 # after a production failure without carrying stranded sessions.
                 for name in ("action", "acted", "action.tmp", "attack.bin", "attack-rejected", "summary-release"):
                     (root / name).unlink(missing_ok=True)
-                with service(server, root, INVITE) as (backend, _):
+                frontend = port() if scenario == "directory" else None
+                with service(server, root, INVITE, frontend) as (backend, _):
                     peer = TlsPeer(root / "valid.pem", root / "valid.key", backend, root,
-                                   scenario == "flow-race", scenario == "summary-return-ordered")
+                                   scenario == "flow-race", scenario == "summary-return-ordered", frontend or 0)
                     try:
                         run(peer, INVITE, scenario)
                     except (AssertionError, subprocess.TimeoutExpired) as error:

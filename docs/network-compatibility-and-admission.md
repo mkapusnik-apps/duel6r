@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-The public dedicated pilot in [network-play-first-release.md](network-play-first-release.md) retains this document's current compatibility checks, stable rejection outcomes, selected-session binding, and atomic admission contract. Its security prerequisite is [TRU-PUB-001 through TRU-PUB-019](network-trust-and-abuse-limits.md). The pre-listener local-host admission sequence below applies only to player-hosted mode. Dedicated readiness follows HSL-PUB-002; the first authorized compatible participant creates and controls the session under NET-PUB-002 through NET-PUB-004. No provisional offer grants controller authority. A failed public security check cannot reach compatibility admission or grant session identity. These public-mode differences do not weaken the player-host password path or exact release/content checks.
+The public dedicated pilot in [network-play-first-release.md](network-play-first-release.md) retains this document's current compatibility checks, stable rejection outcomes, selected-session binding and atomic admission contract. Its security prerequisite is [TRU-PUB-001 through TRU-PUB-019](network-trust-and-abuse-limits.md), for direct and browser-selected dedicated admission. The pre-listener local-host admission sequence below applies only to player-hosted mode. Dedicated readiness follows HSL-PUB-002: a ready empty nonzero session is prepared before listing/first admission, without participants, controller or round. Exactly the first authorized compatible committed admission becomes controller in that same advertised session under NET-PUB-002 through NET-PUB-004/024–025; concurrent later commits are guests. No listing, client selection or provisional offer grants controller authority. A failed public security check cannot reach compatibility admission or allocate authority. These differences do not weaken player-host password protection or exact release/content checks.
 
 This document is the authoritative product target for GitHub issue #30. It defines first-release network compatibility and admission behavior.
 
@@ -73,10 +73,12 @@ The executable owns the protocol version and supported capability set. The suppo
 Issue #98 advances the admission wire version to `2` for selected-session binding.
 The `D6RA` request ends with an unsigned big-endian 64-bit expected session identity,
 after the manifest entries. Explicit direct joining uses zero; browser-selected
-joining uses the advertised nonzero identity. This field travels inside the secure
-channel. A mismatch is an authorization rejection before any reservation or
-commit. The confirmed snapshot and reconnect grant must identify the same session.
+joining, including dedicated selection, uses the advertised nonzero identity. This field travels inside the secure
+channel. Hosting/security mode and frontend endpoint are also bound to selected setup. A mismatch, ended identity or restarted/fresh replacement is an authorization rejection before any reservation,
+authority allocation or commit. The offer must remain associated with the selected session; final confirmation, initial snapshot and reconnect grant must identify that same session.
 Session-ID equality is not cryptographic host authentication for unlocked first contact.
+
+The prepared dedicated identity is unchanged by first admission, idle-to-lobby/first-round transitions, results, reservations or same-session Return to lobby. End/expiry/restart invalidates it immediately before listing removal, and a fresh distinct identity follows cleanup. An old selection must never be redirected to the fresh session. During open setup, phase may change while the bound identity remains the same; actual authority decides current capacity, role and lobby/live-round destination. Credential correction and eligible Retry retain selected mode/endpoint/identity. An endpoint/selection change requires browser refresh; explicit unbound Direct transition clears binding and secrets. No new admission protocol constant or directory capability spelling is selected by this specification integration.
 
 The host owns the required capability set and authoritative gameplay-content baseline. Each guest owns its compatibility claim.
 
@@ -182,7 +184,7 @@ Return to Network must enter `NET-01`. A confirmed invalid-manifest result befor
 3. A pending connection may send exactly one admission request.
 4. The host must receive that request within three seconds of transport connection.
 5. The host must validate bounds before allocation, comparison, logging, or authority changes.
-6. The host must apply the trust and authorization decision from the trust policy.
+6. The host/service must apply the trust and authorization decision from the trust policy. A browser-selected attempt must validate its bound hosting/security mode, frontend endpoint and expected nonzero session identity before provisional reservation or authority allocation, including a first-controller dedicated attempt. Direct admission remains explicitly unbound.
 7. The host must check protocol, release, required capabilities, manifest validity, and manifest equality.
 8. The host must then check admission state and capacity.
 9. On success, the host must atomically reserve provisional participant and player identities and return one complete `admission-offer` containing the nonzero participant identity, the requested player count, and the exact ordered player identities.

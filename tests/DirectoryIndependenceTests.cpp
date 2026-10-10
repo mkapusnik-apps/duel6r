@@ -142,3 +142,64 @@ D6R_TEST_CASE("Directory outage does not block actual protected Host direct Join
     awaitStage("directory outage intentional End", [&] { pump(); return host.snapshot().journey == Client::NetworkJourney::Inactive
         && guest.snapshot().journey == Client::NetworkJourney::HostEnded; });
 }
+
+D6R_TEST_CASE("NET-DIR dedicated publisher uses frontend without interface discovery and rotates owner after lost removal") {
+    std::mutex mutex;
+    std::vector<std::string> methods;
+    unsigned registrations = 0;
+    Client::DirectoryPublisherDependencies dependencies;
+    dependencies.listeningAddresses = []() -> std::optional<std::vector<std::string>> {
+        Test::fail("dedicated must not enumerate backend interfaces", __FILE__, __LINE__); return {};
+    };
+    dependencies.request = [&](const auto &method, const auto &path, const auto &body, const auto &owner, auto, const auto *) {
+        std::lock_guard<std::mutex> lock(mutex);
+        methods.push_back(method);
+        D6R_REQUIRE(path.rfind("/v2/listings", 0) == 0);
+        if (method == "DELETE") return Client::DirectoryResponse{503, {}};
+        D6R_REQUIRE_EQ(std::string("POST"), method);
+        D6R_REQUIRE(owner.empty());
+        ++registrations;
+        D6R_REQUIRE(body.find("arena.example.test") != std::string::npos);
+        D6R_REQUIRE(body.find("127.0.0.1") == std::string::npos);
+        return Client::DirectoryResponse{201, body.substr(0, body.size() - 1)
+            + ",\"id\":\"" + std::string(32, registrations == 1 ? 'a' : 'b') + "\",\"ownerToken\":\""
+            + std::string(64, registrations == 1 ? 'c' : 'd')
+            + "\",\"revision\":1,\"expiresAt\":2000000000000}"};
+    };
+    Client::DirectoryPublisher publisher({}, dependencies);
+    Client::DirectoryListing listing;
+    listing.hosting = "dedicated"; listing.protection = "invite"; listing.admission = "open";
+    listing.endpoint = {"arena.example.test", 26660}; listing.phase = "idle"; listing.mode = "deathmatch";
+    listing.capacity = 15; listing.sessionId = Client::directorySessionId(42);
+    publisher.update(listing);
+    D6R_REQUIRE(await([&] { return publisher.available() && !publisher.busy(); }));
+    listing.sessionId = Client::directorySessionId(43);
+    publisher.update(listing);
+    D6R_REQUIRE(await([&] { std::lock_guard<std::mutex> lock(mutex); return registrations == 2; }));
+    publisher.stop();
+    std::lock_guard<std::mutex> lock(mutex);
+    D6R_REQUIRE(methods == std::vector<std::string>({"POST", "DELETE", "POST", "DELETE"}));
+}
+
+D6R_TEST_CASE("NET-DIR publication request failure remains isolated and recoverable") {
+    std::atomic<unsigned> attempts{0};
+    Client::DirectoryPublisherDependencies dependencies;
+    dependencies.request = [&](const auto &method, const auto &, const auto &body, const auto &, auto, const auto *) {
+        if (method == "DELETE") return Client::DirectoryResponse{204, {}};
+        if (++attempts == 1) throw std::runtime_error("disclosed request failure fixture");
+        return Client::DirectoryResponse{201, body.substr(0, body.size() - 1)
+            + ",\"id\":\"" + std::string(32, 'a') + "\",\"ownerToken\":\"" + std::string(64, 'b')
+            + "\",\"revision\":1,\"expiresAt\":2000000000000}"};
+    };
+    Client::DirectoryPublisher publisher({}, dependencies);
+    Client::DirectoryListing listing;
+    listing.hosting = "dedicated"; listing.protection = "invite"; listing.admission = "open";
+    listing.endpoint = {"arena.example.test", 26660}; listing.phase = "idle"; listing.mode = "deathmatch";
+    listing.capacity = 15; listing.sessionId = Client::directorySessionId(42);
+    publisher.update(listing);
+    D6R_REQUIRE(await([&] { return attempts == 1 && !publisher.busy(); }));
+    D6R_REQUIRE(!publisher.available());
+    publisher.retry();
+    D6R_REQUIRE(await([&] { return publisher.available() && !publisher.busy(); }));
+    publisher.stop();
+}

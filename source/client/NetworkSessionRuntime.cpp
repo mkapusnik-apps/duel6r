@@ -92,7 +92,7 @@ namespace Duel6::Client {
                                      std::string expectedSessionId, bool publicSession,
                                      std::shared_ptr<Network::PublicSession::Secret> invitation) {
         if (publicSession && (!Network::PublicSession::supported() || !invitation || !Network::PublicSession::validInvite(invitation->value)
-                              || password || !expectedSessionId.empty())) return false;
+                               || password)) return false;
         if (!publicSession && invitation) return false;
         if (localPlayers.empty() || localPlayers.size() > Network::MaxNetworkPlayers
             || !std::all_of(localPlayers.begin(), localPlayers.end(), [](const auto &player) {
@@ -121,11 +121,15 @@ namespace Duel6::Client {
                 try {
                     if (expectedSessionId.size() != 32 || expectedSessionId.substr(0, 16) != std::string(16, '0'))
                         throw std::invalid_argument("Invalid selected session.");
+                    if (expectedSessionId.find_first_not_of("0123456789abcdef") != std::string::npos)
+                        throw std::invalid_argument("Invalid selected session.");
                     dependencies.expectedSessionId = std::stoull(expectedSessionId.substr(16), nullptr, 16);
                     if (dependencies.expectedSessionId == 0) throw std::invalid_argument("Invalid selected session.");
                 } catch (...) {
                     std::lock_guard<std::mutex> lock(mutex);
                     current.journey = NetworkJourney::Failure;
+                    current.selectedSessionChanged = true;
+                    current.retryAllowed = false;
                     current.failure = "Selected session changed. Return to the browser and refresh.";
                     return;
                 }
@@ -157,6 +161,11 @@ namespace Duel6::Client {
             };
             dependencies.guestAdmissionOutcome = [this](auto outcome, bool local) {
                 std::lock_guard<std::mutex> lock(mutex);
+                if (outcome == Network::AdmissionResultCode::SelectedSessionChanged) {
+                    current.selectedSessionChanged = true;
+                    current.retryAllowed = false;
+                    current.retryBlockReason = NetworkRetryBlockReason::InvalidSetup;
+                }
                 if (current.publicSession && outcome == Network::AdmissionResultCode::NotAuthorized) {
                     current.authorizationRejected = true;
                     current.retryAllowed = false;

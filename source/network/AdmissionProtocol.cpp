@@ -95,6 +95,7 @@ namespace Duel6::Network {
             void expectFinished() const {
                 if (offset != bytes.size()) throw std::invalid_argument("Admission payload has trailing data");
             }
+            bool finished() const { return offset == bytes.size(); }
         private:
             void require(std::size_t size) const {
                 if (size > bytes.size() - offset) throw std::invalid_argument("Admission payload is truncated");
@@ -113,8 +114,9 @@ namespace Duel6::Network {
         }
 
         bool validResultCode(std::uint16_t code) {
-            return code >= static_cast<std::uint16_t>(AdmissionResultCode::MalformedRequest)
-                   && code <= static_cast<std::uint16_t>(AdmissionResultCode::HostPolicyRejected);
+            return (code >= static_cast<std::uint16_t>(AdmissionResultCode::MalformedRequest)
+                   && code <= static_cast<std::uint16_t>(AdmissionResultCode::HostPolicyRejected))
+                   || code == static_cast<std::uint16_t>(AdmissionResultCode::SelectedSessionChanged);
         }
 
         std::vector<std::uint8_t> serializeIdentitySet(const AdmissionIdentitySet &identities,
@@ -126,6 +128,7 @@ namespace Duel6::Network {
             writer.uint64(identities.participantId);
             writer.byte(static_cast<std::uint8_t>(identities.playerIds.size()));
             for (std::uint64_t playerId: identities.playerIds) writer.uint64(playerId);
+            if (identities.sessionId != 0) writer.uint64(identities.sessionId);
             return writer.finish();
         }
 
@@ -141,6 +144,10 @@ namespace Duel6::Network {
             identities.playerIds.reserve(playerCount);
             for (std::size_t index = 0; index < playerCount; ++index)
                 identities.playerIds.push_back(reader.uint64());
+            if (!reader.finished()) {
+                identities.sessionId = reader.uint64();
+                if (identities.sessionId == 0) throw std::invalid_argument("Invalid bound admission identity");
+            }
             reader.expectFinished();
             if (!validAdmissionIdentitySet(identities))
                 throw std::invalid_argument("Admission identity set is invalid");
@@ -162,7 +169,8 @@ namespace Duel6::Network {
     }
 
     bool sameAdmissionIdentitySet(const AdmissionIdentitySet &left, const AdmissionIdentitySet &right) {
-        return left.participantId == right.participantId && left.playerIds == right.playerIds;
+        return left.participantId == right.participantId && left.playerIds == right.playerIds
+               && left.sessionId == right.sessionId;
     }
 
     std::vector<std::uint8_t> serializeAdmissionRequest(const AdmissionRequest &request) {
@@ -305,6 +313,7 @@ namespace Duel6::Network {
         switch (code) {
             case AdmissionResultCode::MalformedRequest: return "malformed-request";
             case AdmissionResultCode::NotAuthorized: return "not-authorized";
+            case AdmissionResultCode::SelectedSessionChanged: return "selected-session-changed";
             case AdmissionResultCode::ProtocolIncompatible: return "protocol-incompatible";
             case AdmissionResultCode::NetworkReleaseMismatch: return "network-release-mismatch";
             case AdmissionResultCode::RequiredCapabilityUnsupported: return "required-capability-unsupported";
@@ -322,6 +331,8 @@ namespace Duel6::Network {
         switch (code) {
             case AdmissionResultCode::MalformedRequest: return "Connection request rejected.";
             case AdmissionResultCode::NotAuthorized: return "Connection not authorized.";
+            case AdmissionResultCode::SelectedSessionChanged:
+                return "Selected session changed. Return to the browser and refresh.";
             case AdmissionResultCode::ProtocolIncompatible:
             case AdmissionResultCode::NetworkReleaseMismatch:
             case AdmissionResultCode::RequiredCapabilityUnsupported:

@@ -715,6 +715,61 @@ D6R_TEST_CASE("AC-017 admission outcomes retain approved precedence identifiers 
     D6R_REQUIRE(policy.evaluate(request, {true, false}).code == Code::SessionFull);
 }
 
+D6R_TEST_CASE("NET-DIR prepared dedicated identity rejects wrong selection before allocation and first commit alone controls") {
+    const auto content = manifest({{"levels/a.json", 1}});
+    Server::AdmissionPolicy policy(content, 0, {}, {}, {}, true);
+    Server::AdmissionContext context; context.sessionId = 42;
+    auto request = requestFor(content); request.expectedSessionId = 43;
+    D6R_REQUIRE(policy.offer(request, context).result.code == Network::AdmissionResultCode::SelectedSessionChanged);
+    D6R_REQUIRE_EQ(std::size_t(0), policy.allocation().participantCount());
+    D6R_REQUIRE_EQ(std::size_t(0), policy.allocation().pendingParticipantCount());
+    request.expectedSessionId = 42;
+    const auto cancelled = policy.offer(request, context);
+    D6R_REQUIRE(cancelled.pending());
+    D6R_REQUIRE_EQ(std::size_t(0), policy.allocation().participantCount());
+    D6R_REQUIRE(policy.rollback(cancelled.transactionId));
+    const auto first = policy.offer(request, context), second = policy.offer(request, context);
+    D6R_REQUIRE(first.pending() && second.pending());
+    bool committedFirst = false, committedSecond = false;
+    std::thread a([&] { committedFirst = policy.commit(first.transactionId, 1); });
+    std::thread b([&] { committedSecond = policy.commit(second.transactionId, 2); });
+    a.join(); b.join();
+    D6R_REQUIRE(committedFirst && committedSecond);
+    const auto participants = policy.allocation().admittedParticipants();
+    D6R_REQUIRE_EQ(1, std::count_if(participants.begin(), participants.end(), [](const auto &p) { return p.localHost; }));
+    D6R_REQUIRE_EQ(std::size_t(2), policy.allocation().playerCount());
+    D6R_REQUIRE(policy.authorize(1, Network::Trust::AuthorityAction::HostOnly)
+        != policy.authorize(2, Network::Trust::AuthorityAction::HostOnly));
+}
+
+D6R_TEST_CASE("NET-DIR bound offer acceptance and confirmation carry identity without changing private wire bytes") {
+    Network::AdmissionIdentitySet privateSet{1, {2}};
+    const auto old = Network::serializeAdmissionOffer(privateSet);
+    D6R_REQUIRE_EQ(std::size_t(21), old.size());
+    auto bound = privateSet; bound.sessionId = 42;
+    const auto bytes = Network::serializeAdmissionOffer(bound);
+    D6R_REQUIRE_EQ(old.size() + 8, bytes.size());
+    D6R_REQUIRE(std::equal(old.begin(), old.end(), bytes.begin()));
+    const auto offer = Network::deserializeAdmissionOffer(bytes);
+    D6R_REQUIRE_EQ(UINT64_C(42), offer.sessionId);
+    const auto acceptance = Network::deserializeAdmissionAcceptance(Network::serializeAdmissionAcceptance(offer));
+    const auto confirmation = Network::deserializeAdmissionConfirmation(Network::serializeAdmissionConfirmation(offer));
+    D6R_REQUIRE(Network::sameAdmissionIdentitySet(offer, acceptance));
+    D6R_REQUIRE(Network::sameAdmissionIdentitySet(offer, confirmation));
+    D6R_REQUIRE(!Network::sameAdmissionIdentitySet(privateSet, offer));
+    auto wrong = confirmation; wrong.sessionId = 43;
+    D6R_REQUIRE(!Network::sameAdmissionIdentitySet(offer, wrong));
+}
+
+D6R_TEST_CASE("NET-DIR advertised frontend validation is separate from direct endpoint and backend listening") {
+    for (const auto *valid: {"arena.example.test", "198.51.100.4", "10.0.0.5"})
+        D6R_REQUIRE(Network::PublicSession::validDirectoryFrontend(valid));
+    for (const auto *invalid: {"", "localhost", "LOCALHOST", "127.0.0.1", "0.0.0.0", "169.254.1.2", "224.1.2.3",
+            "https://arena.example.test", "arena.example.test:26660", "bad_name", "bad..name", "bad-.test", "0127.0.0.1"})
+        D6R_REQUIRE(!Network::PublicSession::validDirectoryFrontend(invalid));
+    D6R_REQUIRE(Network::PublicSession::validEndpoint("127.0.0.1")); // Existing direct setup stays independent.
+}
+
 D6R_TEST_CASE("AC-008 AC-011 canonical builder hashes exact gameplay bytes independent of creation order") {
     TemporaryResources first, second;
     first.write("levels/z.meta", "metadata"); first.write("data/config.script", "config");

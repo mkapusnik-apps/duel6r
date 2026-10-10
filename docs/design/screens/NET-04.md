@@ -68,11 +68,13 @@ These current develop requirements apply equally to the service-confirmed contro
 - The guidance must wrap within at most two reserved header lines.
 - A pilot Host must not be described as running the server process on this computer.
 - Host controls must appear only after authoritative role confirmation.
-- Dedicated sessions must not show a directory listing claim or Retry publication target.
+- Dedicated participants must not receive Retry publication, listing-owner, or operator controls.
 - Invitation values must remain absent.
 - End session must retain its everyone consequence confirmation.
 - Guest Leave must retain its participant-only consequence confirmation.
 - The UI must not add host transfer or migration.
+
+Dedicated publication is service-owned. This screen requires no new passive publication-status region. Directory origin may be identified as origin context, but it must not become a continuing Listed claim inferred from selection. Ready idle directory sessions have no participant/controller lobby in the client; NET-04 appears only after actual admission. Existing Host/Guest authority, settings, consequences, and both wireframes remain unchanged.
 
 ## Acceptance
 

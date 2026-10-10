@@ -41,7 +41,8 @@ namespace Duel6::Network {
         MatchAlreadyStarted = 8,
         SessionFull = 9,
         HostPolicyRejected = 10,
-        Admitted = 11
+        Admitted = 11,
+        SelectedSessionChanged = 12
     };
 
     struct AdmissionResult {
@@ -55,6 +56,7 @@ namespace Duel6::Network {
     struct AdmissionIdentitySet {
         std::uint64_t participantId = 0;
         std::vector<std::uint64_t> playerIds;
+        std::uint64_t sessionId = 0; // Optional bound offer/acceptance/confirmation; legacy private bytes unchanged.
     };
 
     using AdmissionOfferPayload = AdmissionIdentitySet;

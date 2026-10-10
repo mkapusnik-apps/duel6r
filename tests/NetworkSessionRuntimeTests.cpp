@@ -420,6 +420,30 @@ D6R_TEST_CASE("NET-DIR response decoder bounds nesting pages cursors and numeric
     D6R_REQUIRE(!Client::decodeDirectoryPage("{\"listings\":[],\"nextCursor\":\"../bad\"}").available);
 }
 
+D6R_TEST_CASE("NET-DIR mixed decoder requires classification and capability-scoped cursors") {
+    const std::string row = "{\"id\":\"" + std::string(32, 'a') + "\",\"sessionId\":\"" + Client::directorySessionId(42)
+        + "\",\"address\":\"arena.example.test\",\"port\":26660,\"mode\":\"deathmatch\",\"phase\":\"idle\","
+          "\"players\":0,\"capacity\":15,\"passwordRequired\":false,\"hosting\":\"dedicated\","
+          "\"protection\":\"invite\",\"admission\":\"open\",\"revision\":1,\"expiresAt\":2000000000000}";
+    const std::string page = "{\"contract\":\"mixed-v2\",\"listings\":[" + row + "],\"nextCursor\":null}";
+    const auto decoded = Client::decodeDirectoryPage(page, {}, true);
+    D6R_REQUIRE(decoded.available && decoded.listings.front().dedicated());
+    D6R_REQUIRE_EQ(Network::PublicSession::supported(), decoded.listings.front().joinable());
+    D6R_REQUIRE(!Client::decodeDirectoryPage(page).available);
+    for (const auto &change: {std::pair{std::string("dedicated"), std::string("unknown")},
+            std::pair{std::string("invite"), std::string("password")},
+            std::pair{std::string("arena.example.test"), std::string("127.0.0.1")},
+            std::pair{std::string("\"players\":0"), std::string("\"players\":1")},
+            std::pair{std::string("\"admission\":\"open\""), std::string("\"admission\":\"closed\"")}}) {
+        auto invalid = page; invalid.replace(invalid.find(change.first), change.first.size(), change.second);
+        D6R_REQUIRE(!Client::decodeDirectoryPage(invalid, {}, true).available);
+    }
+    D6R_REQUIRE(!Client::decodeDirectoryPage(page, "123-" + std::string(32, 'a'), true).available);
+    D6R_REQUIRE(Client::decodeDirectoryPage(page, "m2_123-" + std::string(32, 'a'), true).available);
+    auto missing = page; missing.erase(missing.find("\"contract\""), std::string("\"contract\":\"mixed-v2\",").size());
+    D6R_REQUIRE(!Client::decodeDirectoryPage(missing, {}, true).available);
+}
+
 #ifndef _WIN32
 D6R_TEST_CASE("NET-DIR reviewed menu dispatch renders browser states and preserves navigation focus") {
     char name[] = "duel6r-browser-render-tests"; char *arguments[] = {name};
@@ -1082,6 +1106,79 @@ D6R_TEST_CASE("recording renderer retains interleaved UV and position geometry")
     D6R_REQUIRE_EQ(180.0f, renderer.draws.front().right);
 }
 
+D6R_TEST_CASE("NET-DIR mixed selected dedicated setup locks endpoint skips targets masks Invite and clears independent Direct") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    Client::DirectoryListing row;
+    row.id = std::string(32, 'a'); row.sessionId = Client::directorySessionId(42);
+    row.endpoint = {"arena.example.test", 26660}; row.mode = "deathmatch"; row.phase = "idle";
+    row.hosting = "dedicated"; row.protection = "invite"; row.admission = "open"; row.capacity = 15;
+    row.expiresAt = 2000000000000;
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
+    menu.browser.received = menu.browser.requested = std::chrono::steady_clock::now();
+    f.draw();
+    for (const auto *heading: {"Hosting", "Players", "Phase", "Access", "Admission", "Dedicated", "Invite", "Idle", "0 / 15"})
+        D6R_REQUIRE(f.text(heading));
+    D6R_REQUIRE(f.text("Ready empty session. Your role is confirmed only after admission."));
+    menu.joinSelected();
+    if (!Network::PublicSession::supported()) {
+        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+        D6R_REQUIRE(!menu.browserFocusEnabled(1));
+        f.draw(); D6R_REQUIRE(f.text("Dedicated joining requires Linux x86-64 or Windows x86-64."));
+        return;
+    }
+    D6R_REQUIRE(menu.boundDedicated() && menu.focus == 2);
+    D6R_REQUIRE(!menu.serviceTypeAvailable());
+    const auto endpoint = menu.address, port = menu.port;
+    menu.focus = 0; menu.enterText("tamper"); f.key(SDLK_BACKSPACE);
+    D6R_REQUIRE_EQ(endpoint, menu.address); D6R_REQUIRE_EQ(port, menu.port);
+    menu.focus = 2; menu.enterText("disposable-test-only");
+    f.draw(); D6R_REQUIRE(!f.text("disposable-test-only") && !f.text("↻"));
+    D6R_REQUIRE(f.text("Dedicated service • Selected from browser") && f.text("Address (locked):"));
+    for (int i = 0; i < 30; ++i) { menu.moveFocus(1); D6R_REQUIRE(menu.focus >= 2); }
+    for (int i = 0; i < 30; ++i) { menu.moveFocus(-1); D6R_REQUIRE(menu.focus >= 2); }
+    menu.focus = 2; menu.back();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser && menu.invitation.value.empty());
+    D6R_REQUIRE_EQ(row.id, menu.selectedListing);
+    menu.joinSelected(); menu.enterText("disposable-test-only");
+    menu.enterDirectSetup();
+    D6R_REQUIRE(!menu.browserSelection && !menu.joinFromBrowser && menu.invitation.value.empty() && menu.password.empty());
+}
+
+D6R_TEST_CASE("NET-DIR bound metadata overflow reduces body rows and changed selection permits only browser recovery") {
+    if (!Network::PublicSession::supported()) return;
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    Client::DirectoryListing row;
+    row.id = std::string(32, 'a'); row.sessionId = Client::directorySessionId(42);
+    row.endpoint = {std::string(63, 'a') + "." + std::string(63, 'b') + "." + std::string(63, 'c') + "." + std::string(61, 'd'), 65535};
+    row.hosting = "dedicated"; row.protection = "invite"; row.admission = "open"; row.phase = "idle";
+    row.capacity = 15; row.expiresAt = 2000000000000;
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
+    menu.browser.received = menu.browser.requested = std::chrono::steady_clock::now();
+    menu.joinSelected();
+    D6R_REQUIRE(menu.setupVisibleRows() < 4 && menu.setupVisibleRows() > 0);
+    D6R_REQUIRE_EQ(std::size_t(6), menu.boundContextLines().size());
+    for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        f.draw(); D6R_REQUIRE(f.text("Back") && f.text("Invite required"));
+        D6R_REQUIRE(f.text("The service confirms identity, availability, and your role when you connect."));
+    }
+    auto &state = menu.runtime.current;
+    state.journey = Client::NetworkJourney::Failure; state.publicSession = true;
+    state.authorizationRejected = true; state.failure = "Connection not authorized.";
+    menu.focus = 0; menu.activate();
+    D6R_REQUIRE(menu.boundDedicated() && menu.focus == 2);
+    D6R_REQUIRE_EQ(row.endpoint.host, menu.address);
+    state.journey = Client::NetworkJourney::Failure; state.publicSession = true;
+    state.selectedSessionChanged = true; state.failure = "Selected session changed. Return to the browser and refresh.";
+    menu.focus = 0; menu.moveFocus(1); D6R_REQUIRE_EQ(0, menu.focus);
+    f.draw(); D6R_REQUIRE(f.text("Return to browser") && !f.text("Retry"));
+    menu.activate(); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+}
+
 D6R_TEST_CASE("public reviewed headers failure recovery and full setup slots stay bounded at minimum viewports") {
     ReviewMenuFixture f;
     auto &menu = f.menu;
@@ -1165,7 +1262,7 @@ D6R_TEST_CASE("public reviewed headers failure recovery and full setup slots sta
             menu.focus = 0; f.draw();
             D6R_REQUIRE(f.text(terminal ? "SESSION ENDED" : "CONNECTION FAILED"));
             menu.joinFromBrowser = true; f.draw();
-            D6R_REQUIRE(f.text("Return to Network") && !f.text("Return to browser"));
+            D6R_REQUIRE(f.text("Return to browser") && !f.text("Return to Network"));
             D6R_REQUIRE_EQ(!terminal, !textQuads("Endpoint:").empty());
             D6R_REQUIRE_EQ(terminal, f.text("Retry unavailable"));
             D6R_REQUIRE(!f.text("Retry"));
@@ -1181,7 +1278,7 @@ D6R_TEST_CASE("public reviewed headers failure recovery and full setup slots sta
             menu.runtime.current = retainedFailure;
             menu.invitation.value = "synthetic-review-only";
             menu.focus = 1; menu.activate();
-            D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry && menu.invitation.value.empty());
+            D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser && menu.invitation.value.empty());
         }
 
         menu.runtime.current = {};
@@ -1561,7 +1658,8 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
                 D6R_REQUIRE(texts().find("Session is no longer listed.") != std::string::npos);
             }
             D6R_REQUIRE(texts().find("127.0.0.1:" + std::to_string(survivor.endpoint.port)
-                + " deathmatch " + survivor.sessionId.substr(28)) != std::string::npos);
+                ) != std::string::npos);
+            if (retainSelected) D6R_REQUIRE(texts().find("Session: " + survivor.sessionId + " • Mode: deathmatch") != std::string::npos);
             menu.focus = 0; menu.keyEvent(KeyPressEvent(SDLK_DOWN, SysEvent::ButtonState::PRESSED, 0));
             D6R_REQUIRE_EQ(survivor.id, menu.selectedListing);
             D6R_REQUIRE(menu.browserFocusEnabled(1));
@@ -1570,7 +1668,7 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
         D6R_REQUIRE_EQ(0, menu.browserScroll); D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
         D6R_REQUIRE(texts().find("No active sessions listed") != std::string::npos);
         requestRefresh(automatic); deliver({true, {rows.front()}, {}});
-        D6R_REQUIRE(texts().find("127.0.0.1:25000 deathmatch aa10") != std::string::npos);
+        D6R_REQUIRE(texts().find("127.0.0.1:25000") != std::string::npos);
     }
     scrollToLast();
     auto reordered = rows;
@@ -1578,7 +1676,8 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     deliver({true, reordered, {}});
     D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
     D6R_REQUIRE_EQ(0, menu.browserScroll);
-    D6R_REQUIRE(texts().find("127.0.0.1:25024 deathmatch aa34") != std::string::npos);
+    D6R_REQUIRE(texts().find("127.0.0.1:25024") != std::string::npos);
+    D6R_REQUIRE(texts().find("Session: " + rows.back().sessionId + " • Mode: deathmatch") != std::string::npos);
     scrollToLast(); deliver({}); // Failed refresh retains data but disables joining.
     D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
     D6R_REQUIRE(!menu.browserFocusEnabled(1));
@@ -1653,7 +1752,7 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     };
     D6R_REQUIRE(textBounds("Join selected").second < textBounds("Previous page").first);
     D6R_REQUIRE(textBounds("Join selected").second < textBounds("Next page").first);
-    D6R_REQUIRE(textBounds("Page 1").second < textBounds("LAN-first.").first);
+    D6R_REQUIRE(textBounds("Page 1").second < textBounds("A listing does not guarantee reachability.").first);
     D6R_REQUIRE(textBounds("Back").second < textBounds("Join selected").first);
 }
 

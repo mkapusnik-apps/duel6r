@@ -58,6 +58,7 @@ namespace Duel6::Client {
         std::string failure;
         bool retryAllowed = false;
         bool directoryAvailable = false;
+        bool selectedSessionChanged = false;
         bool directoryRegistering = false;
         NetworkRetryBlockReason retryBlockReason = NetworkRetryBlockReason::None;
     };

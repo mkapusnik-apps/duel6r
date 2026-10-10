@@ -39,6 +39,11 @@
 #include "../network/PlayerInputProtocol.h"
 #include "../network/SessionLifecycle.h"
 #include "../network/HostCompositionProtocol.h"
+#ifdef D6R_DIRECTORY_PUBLISHER
+#include "../client/HostDirectory.h"
+#include "../client/DirectoryOrigin.h"
+#include <cstdlib>
+#endif
 
 namespace {
     using Duel6::Server::RuntimeObservations;
@@ -569,6 +574,9 @@ namespace {
                                 Duel6::Network::deserializeAdmissionOffer(frame.payload);
                         if (!Duel6::Network::validAdmissionIdentitySet(offer, request.localPlayerCount))
                             throw std::invalid_argument("Admission offer does not match the request");
+                        if (config.publicConnection && runtimeDependencies.expectedSessionId != 0
+                            && offer.sessionId != runtimeDependencies.expectedSessionId)
+                            throw std::invalid_argument("Bound offer does not match selected session");
                         if (!allowOutboundExchange) return GuestFrameDecision();
                         Duel6::Network::AdmissionAcceptanceEnqueueResult queued =
                                 Duel6::Network::AdmissionAcceptanceEnqueueResult::NotQueued;
@@ -607,7 +615,8 @@ namespace {
                     } catch (...) {}
                 }
                 if (const auto grant = Duel6::Network::Lifecycle::deserializeReconnectGrant(frame.payload)) {
-                    if (reconnectGrant || grant->participantId != acceptedOffer->participantId)
+                    if (reconnectGrant || grant->participantId != acceptedOffer->participantId
+                        || (runtimeDependencies.expectedSessionId != 0 && grant->sessionId != runtimeDependencies.expectedSessionId))
                         throw std::invalid_argument("Invalid reconnect grant");
                     reconnectGrant = *grant;
                     if (runtimeDependencies.observations) ++runtimeDependencies.observations->grants;
@@ -1595,6 +1604,15 @@ namespace Duel6::Server {
         std::unique_ptr<AdmissionPolicy> admissionPolicy;
         std::unique_ptr<Authoritative::AuthoritativeHostedMatchController> hostedMatch;
         std::uint64_t lifecycleSessionId = 0;
+        const auto prepareDedicatedSession = [&]() {
+            const auto previous = lifecycleSessionId;
+            for (unsigned attempt = 0; attempt < 4; ++attempt) {
+                std::uint64_t fresh = 0;
+                if (!secureSeed(fresh)) return false;
+                if (fresh != previous) { lifecycleSessionId = fresh; return true; }
+            }
+            return false;
+        };
         std::unique_ptr<Network::Input::ClientCommandSession> hostPlayerInput;
         Network::ManifestBuildResult hostedContent;
         std::optional<Authoritative::MatchConfig> hostedSettings;
@@ -1639,7 +1657,7 @@ namespace Duel6::Server {
         }
         const auto initializeHostedMatch = [&]() -> bool {
             if (runtimeDependencies.productionReplicationProtocol) {
-                if (!secureSeed(lifecycleSessionId)) {
+                if ((!config.dedicated && !secureSeed(lifecycleSessionId)) || lifecycleSessionId == 0) {
                     reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
                     return false;
                 }
@@ -1717,7 +1735,7 @@ namespace Duel6::Server {
         };
         if (!config.transportEcho && !config.dedicated && !initializeHostedMatch()) return 2;
         if (config.dedicated && (!runtimeDependencies.productionReplicationProtocol
-            || !productionMatchConfig(hostedContent, 1))) return 2;
+            || !productionMatchConfig(hostedContent, 1) || !prepareDedicatedSession())) return 2;
 
         std::unique_ptr<AdmissionRuntimeListener> listener;
         try { listener = runtimeDependencies.listenerFactory(config.maxClients, !config.transportEcho); }
@@ -1813,6 +1831,26 @@ namespace Duel6::Server {
                    << "but no lobby UI or playable network session is implemented.\n";
         }
         output.flush();
+
+#ifdef D6R_DIRECTORY_PUBLISHER
+        std::unique_ptr<Client::DirectoryPublisher> dedicatedPublisher;
+        if (config.dedicated && !config.advertisedFrontend.host.empty()) {
+            if (!Network::PublicSession::validDirectoryFrontend(config.advertisedFrontend.host)
+                || config.advertisedFrontend.port == 0) return cleanupListener() ? 2 : 4;
+            const auto origin = Client::directoryOrigin(std::getenv("D6R_DIRECTORY_URL"), std::getenv("D6R_DIRECTORY_ALLOW_HTTP"));
+            const auto scheme = origin.find("://");
+            auto authority = scheme == std::string::npos ? std::string() : origin.substr(scheme + 3, origin.find('/', scheme + 3) - scheme - 3);
+            auto hostname = config.advertisedFrontend.host;
+            const auto lower = [](unsigned char c) { return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c; };
+            std::transform(authority.begin(), authority.end(), authority.begin(), lower);
+            std::transform(hostname.begin(), hostname.end(), hostname.begin(), lower);
+            const auto frontend = hostname + ":" + std::to_string(config.advertisedFrontend.port);
+            if (authority == frontend || (authority == hostname && config.advertisedFrontend.port == 443))
+                return cleanupListener() ? 2 : 4;
+            dedicatedPublisher = std::make_unique<Client::DirectoryPublisher>();
+        }
+        int publicationStatus = -1;
+#endif
 
         struct RuntimeConnection {
             std::shared_ptr<AdmissionRuntimeConnection> transport;
@@ -2151,7 +2189,43 @@ namespace Duel6::Server {
         };
         while (!stopRequested && !cancelled()) {
             if (readiness) readiness->poll(!runtimeFailed && listener->state() == Network::ListenerState::Ready
-                                           && (!sessionLifecycle || !sessionLifecycle->ended()));
+                                           && lifecycleSessionId != 0 && (!sessionLifecycle || !sessionLifecycle->ended()));
+#ifdef D6R_DIRECTORY_PUBLISHER
+            if (dedicatedPublisher) {
+                Client::DirectoryListing listing;
+                if (!runtimeFailed && lifecycleSessionId != 0 && (!sessionLifecycle || !sessionLifecycle->ended())) {
+                    listing.sessionId = Client::directorySessionId(lifecycleSessionId);
+                    listing.endpoint = config.advertisedFrontend;
+                    listing.hosting = "dedicated"; listing.protection = "invite";
+                    listing.mode = "deathmatch"; listing.capacity = Network::MaxNetworkPlayers;
+                    listing.phase = "idle"; listing.admission = "open";
+                    if (hostedMatch) {
+                        const auto snapshot = hostedMatch->currentSnapshot();
+                        if (snapshot) {
+                            const auto &state = snapshot->state;
+                            listing.mode = state.settings.mode == "Predator" ? "predator" : state.settings.mode == "Team deathmatch" ? "teams" : "deathmatch";
+                            for (const auto &player: state.players)
+                                if (player.lifeState != Network::Replication::LifeState::Departed) ++listing.players;
+                            listing.phase = state.phase == Network::Replication::Phase::Lobby ? "lobby"
+                                : state.phase == Network::Replication::Phase::ActiveRound && state.currentRoundNumber == 1 ? "first-round" : "closed";
+                            if (state.phase != Network::Replication::Phase::Lobby)
+                                listing.capacity = static_cast<unsigned>(std::min<std::size_t>(15,
+                                    listing.players + Network::Replication::MaxReplicatedPlayers - state.players.size()));
+                            listing.admission = listing.phase == "closed" ? "closed" : listing.players >= listing.capacity ? "full" : "open";
+                            const auto controller = admissionPolicy->allocation().hostParticipant().participantId;
+                            if (!connectedParticipants.count(controller)) { listing.phase = "reserved"; listing.admission = "closed"; }
+                        }
+                    }
+                }
+                dedicatedPublisher->update(std::move(listing));
+                const int status = dedicatedPublisher->available() ? 1 : dedicatedPublisher->busy() ? 0 : 2;
+                if (status != publicationStatus) {
+                    output << (status == 1 ? "Directory: Listed\n" : status == 0 ? "Directory: Registering\n"
+                        : "Directory: Unavailable; service remains running; bounded renewal will retry.\n");
+                    output.flush(); publicationStatus = status;
+                }
+            }
+#endif
             const auto observedLoopStart = runtimeDependencies.observations
                 ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
             if (runtimeDependencies.observations) ++runtimeDependencies.observations->hostLoops;
@@ -2452,12 +2526,16 @@ namespace Duel6::Server {
                             } catch (...) { runtime.requestedPlayerNames.clear(); }
                             AdmissionContext context;
                             context.sessionId = lifecycleSessionId;
+                            if (config.dedicated && sessionLifecycle
+                                && !connectedParticipants.count(admissionPolicy->allocation().hostParticipant().participantId))
+                                context.hostPolicyAllows = false;
                             if (hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive && hostedMatch->match())
                                 context.maximumPlayers = hostedMatch->match()->admissionCapacity();
                             AdmissionOffer offer = admissionPolicy->offerPayload(frame.payload, context);
                             if (offer.pending()) {
                                 runtime.transactionId = offer.transactionId;
                                 runtime.offer = {offer.result.participantId, offer.result.playerIds};
+                                if (config.dedicated) runtime.offer.sessionId = lifecycleSessionId;
                                 if (!observe(AdmissionLifecycleStage::OfferPrepared, runtime.connectionId,
                                              runtime.transactionId)
                                     || !connection->permitAdmissionAcceptance()) {
@@ -2900,6 +2978,11 @@ namespace Duel6::Server {
             }
             if (config.dedicated && sessionLifecycle && sessionLifecycle->ended()) {
                 if (readiness) readiness->poll(false);
+                const auto invalidatedSession = lifecycleSessionId;
+                lifecycleSessionId = 0; // Invalidate before any asynchronous directory operation or new intake.
+#ifdef D6R_DIRECTORY_PUBLISHER
+                if (dedicatedPublisher) dedicatedPublisher->update({});
+#endif
                 for (auto &runtime: connections) runtime.transport->requestClose();
                 while (auto pending = listener->acceptConnection()) pending->requestClose();
                 sessionLifecycle.reset();
@@ -2910,6 +2993,8 @@ namespace Duel6::Server {
                 admissionPolicy = std::make_unique<AdmissionPolicy>(hostedContent.manifest, 0,
                         runtimeDependencies.identitySource, runtimeDependencies.validationWorkLimiter,
                         runtimeDependencies.validationWorkGate, true);
+                lifecycleSessionId = invalidatedSession;
+                if (!prepareDedicatedSession()) { lifecycleSessionId = 0; runtimeFailed = true; break; }
                 continue;
             }
             if (runtimeDependencies.hostSessionPresentation && hostedMatch) {
@@ -3017,6 +3102,11 @@ namespace Duel6::Server {
         }
         if (readiness) readiness->poll(false);
         readiness.reset();
+        lifecycleSessionId = 0;
+#ifdef D6R_DIRECTORY_PUBLISHER
+        // Shutdown removes publication independently of participant authority.
+        dedicatedPublisher.reset();
+#endif
         if (admissionPolicy) {
             for (auto &runtime: connections) {
                 if (runtime.transactionId != 0) {
