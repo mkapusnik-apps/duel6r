@@ -548,7 +548,7 @@ D6R_TEST_CASE("UX-NET native frames preserve scaled press activation fields sele
     };
     // Recording geometry checks cover the floor, modern minimum and scale cap;
     // these are not raster screenshots or physical-display claims.
-    for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
         video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
         menu.runtime.current = {}; menu.setupScreen = NetworkMenu::SetupScreen::Entry; menu.focus = 0;
         menu.pointerHeld = false;
@@ -769,14 +769,18 @@ D6R_TEST_CASE("NET-ENTRY modal geometry navigation controller and runtime-unavai
     auto &menu = f.menu;
     int backdropCalls = 0;
     menu.renderMainMenu = [&] { ++backdropCalls; };
-    for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
         f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
         const float scale = std::min(1.35f, std::min(float(size.first) / 850, float(size.second) / 700));
         const int tx = (size.first - int(850 * scale)) / 2, ty = (size.second - int(700 * scale)) / 2;
         const auto click = [&](int x, int y) { f.click(tx + int(x * scale), ty + int(y * scale)); };
         menu.setupScreen = NetworkMenu::SetupScreen::Entry; menu.focus = 0; menu.pointerHeld = false;
         f.draw();
-        D6R_REQUIRE(f.frame(235, 245, 380, 210, 1));
+        D6R_REQUIRE(std::any_of(f.recorder.quads.begin(), f.recorder.quads.end(), [](const auto &quad) {
+            return quad.material.getTexture() == Texture{} && quad.material.getColor() == Color(192)
+                && quad.vertices[0].x == 235 && quad.vertices[0].y == 245
+                && quad.vertices[2].x == 615 && quad.vertices[2].y == 455;
+        }));
         D6R_REQUIRE(f.frame(273, 379, 304, 36, 2));
         D6R_REQUIRE(f.text("Host") && f.text("Join") && f.text("Back"));
         D6R_REQUIRE(!f.text("Directory or direct address"));
