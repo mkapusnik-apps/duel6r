@@ -34,5 +34,6 @@
   <g font-family="sans-serif" font-size="14">
     <text x="25" y="755">Annotation: Direct path uses optional-password help and initial Address focus.</text>
     <text x="25" y="777">Connecting uses existing NET-03 locked-roster layout; no additional password dialog.</text>
+    <text x="25" y="799">Browser origin has no editable mode. Supported direct mode row is shown in NET-03-P.</text>
   </g>
 </svg>

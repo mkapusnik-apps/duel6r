@@ -56,6 +56,9 @@ public:
     void quad(const Vector &p0, const Vector &p1, const Vector &p2, const Vector &p3, const Color &color) override {
         recordQuad({p0, p1, p2, p3}, {}, Material(Texture{}, color));
     }
+    // Renderer::quad interleaves each position with its texture coordinate.
+    // Grouping the first four arguments as positions invents geometry spanning
+    // from UV (0..1) coordinates to the text position and creates false overlap.
     void quad(const Vector &p0, const Vector &t0, const Vector &p1, const Vector &t1, const Vector &p2,
               const Vector &t2, const Vector &p3, const Vector &t3, const Material &material) override {
         draws.push_back({material, blend, p2.x});

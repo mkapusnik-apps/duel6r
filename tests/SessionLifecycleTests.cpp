@@ -10,6 +10,7 @@
 
 #include "tests/TestHarness.h"
 #include "source/network/SessionLifecycle.h"
+#include "source/network/PublicSession.h"
 
 namespace {
     using namespace Duel6::Network;
@@ -66,6 +67,381 @@ namespace {
         T *instance = nullptr;
     };
 
+}
+
+D6R_TEST_CASE("public remote controller restores before 30 seconds without transferring authority") {
+    ManualClock time;
+    CredentialSource source;
+    HostHooks hooks;
+    hooks.disconnect = [](ParticipantId) { return true; };
+    hooks.restoreCurrent = [](ParticipantId, ConnectionId) { return true; };
+    HostSessionLifecycle host(91, 1, 10, {1}, time.clock(), source.random(), hooks, true);
+    const auto controller = host.admitGuest(1, 10, {1}, false);
+    D6R_REQUIRE(controller.has_value());
+    D6R_REQUIRE(host.admitGuest(2, 20, {2}, false).has_value());
+    D6R_REQUIRE(host.setReady(1, 10, true));
+    D6R_REQUIRE(host.setReady(2, 20, true));
+    D6R_REQUIRE(host.transportClosed(1, 10));
+    D6R_REQUIRE(!host.allConnectedAndReady());
+    D6R_REQUIRE(!host.endSession(2, 20).accepted);
+    auto stolen = requestFor(*controller);
+    stolen.participantId = 2;
+    D6R_REQUIRE(host.reconnect(stolen, 30).outcome == ReconnectOutcome::AuthorizationFailed);
+    time.advance(29999ms);
+    const auto restored = host.reconnect(requestFor(*controller), 11);
+    D6R_REQUIRE(restored.outcome == ReconnectOutcome::Accepted);
+    D6R_REQUIRE(host.reconnectDeliverySucceeded(1, 11));
+    D6R_REQUIRE(!host.endSession(1, 10).accepted);
+    D6R_REQUIRE(!host.endSession(2, 20).accepted);
+    D6R_REQUIRE(host.endSession(1, 11).accepted);
+    D6R_REQUIRE(host.ended());
+}
+
+D6R_TEST_CASE("public controller reservation expiry ends everyone at exactly 30 seconds") {
+    ManualClock time;
+    CredentialSource source;
+    HostHooks hooks;
+    std::vector<std::vector<std::uint8_t>> notices;
+    unsigned discarded = 0;
+    hooks.disconnect = [](ParticipantId) { return true; };
+    hooks.sendIntentionalHostEnd = [&](ConnectionId, const auto &payload) {
+        notices.push_back(payload); return true;
+    };
+    hooks.discardSession = [&] { ++discarded; };
+    HostSessionLifecycle host(92, 1, 10, {1}, time.clock(), source.random(), hooks, true);
+    const auto controller = host.admitGuest(1, 10, {1}, false);
+    D6R_REQUIRE(controller.has_value());
+    D6R_REQUIRE(host.admitGuest(2, 20, {2}, false).has_value());
+    D6R_REQUIRE(host.transportClosed(1, 10));
+    time.advance(29999ms);
+    host.processLifecycleBatch(Phase::Lobby);
+    D6R_REQUIRE(!host.ended());
+    D6R_REQUIRE(notices.empty());
+    time.advance(1ms);
+    host.processLifecycleBatch(Phase::Lobby);
+    D6R_REQUIRE(host.ended());
+    D6R_REQUIRE_EQ(1u, discarded);
+    D6R_REQUIRE_EQ(1u, notices.size());
+    D6R_REQUIRE(PublicSession::terminalReason(notices.front(), 92) == PublicSession::ControllerExpired);
+    D6R_REQUIRE(PublicSession::terminalReason(notices.front(), 93).empty());
+    D6R_REQUIRE(!host.endSession(2, 20).accepted);
+    D6R_REQUIRE(host.reconnect(requestFor(*controller), 11).outcome != ReconnectOutcome::Accepted);
+}
+
+D6R_TEST_CASE("public predeadline false or throwing restore has no cause notice even after delayed cleanup") {
+    for (bool throws : {false, true}) for (auto delay : {0ms, 1ms, 2ms}) {
+        ManualClock time;
+        CredentialSource source;
+        HostHooks hooks;
+        std::vector<std::vector<std::uint8_t>> notices;
+        unsigned discarded = 0;
+        hooks.disconnect = [](ParticipantId) { return true; };
+        hooks.restoreCurrent = [&](ParticipantId, ConnectionId) {
+            if (throws) throw std::runtime_error("restore hook failure");
+            return false;
+        };
+        hooks.sendIntentionalHostEnd = [&](ConnectionId, const auto &payload) {
+            notices.push_back(payload); return true;
+        };
+        hooks.discardSession = [&] { ++discarded; };
+        HostSessionLifecycle host(96, 1, 10, {1}, time.clock(), source.random(), hooks, true);
+        const auto controller = host.admitGuest(1, 10, {1}, false);
+        const auto guest = host.admitGuest(2, 20, {2}, false);
+        D6R_REQUIRE(controller && guest && host.transportClosed(1, 10));
+        time.advance(29999ms);
+        const auto result = host.reconnect(requestFor(*controller), 11);
+        D6R_REQUIRE(result.outcome == ReconnectOutcome::RestoreFailed);
+        D6R_REQUIRE(reconnectCopy(result.outcome) == ReservationUnavailableCopy);
+        D6R_REQUIRE(!result.nextGrant);
+        time.advance(delay);
+        host.processLifecycleBatch(Phase::ActiveRound);
+        D6R_REQUIRE(host.ended());
+        D6R_REQUIRE_EQ(1u, discarded);
+        D6R_REQUIRE_EQ(0u, host.retainedPlayerCount());
+        D6R_REQUIRE(notices.empty());
+        D6R_REQUIRE(host.reconnect(requestFor(*controller), 12).outcome != ReconnectOutcome::Accepted);
+        D6R_REQUIRE(host.reconnect(requestFor(*guest), 21).outcome != ReconnectOutcome::Accepted);
+        D6R_REQUIRE(!host.endSession(1, 10).accepted && !host.endSession(2, 20).accepted);
+        HostSessionLifecycle fresh(97, 3, 30, {3}, time.clock(), source.random(), {}, true);
+        D6R_REQUIRE(fresh.admitGuest(3, 30, {3}, false));
+        D6R_REQUIRE(!fresh.ready(3) && !fresh.ended());
+        D6R_REQUIRE(fresh.reconnect(requestFor(*controller), 31).outcome != ReconnectOutcome::Accepted);
+        D6R_REQUIRE(fresh.endSession(3, 30).accepted);
+    }
+}
+
+D6R_TEST_CASE("public restore completing exactly at or after deadline has proven expiry cause") {
+    for (bool restored : {false, true}) for (auto crossing : {1ms, 2ms}) {
+        ManualClock time;
+        CredentialSource source;
+        HostHooks hooks;
+        std::vector<std::vector<std::uint8_t>> notices;
+        unsigned discarded = 0;
+        hooks.disconnect = [](ParticipantId) { return true; };
+        hooks.restoreCurrent = [&](ParticipantId, ConnectionId) { time.advance(crossing); return restored; };
+        hooks.sendIntentionalHostEnd = [&](ConnectionId, const auto &payload) { notices.push_back(payload); return true; };
+        hooks.discardSession = [&] { ++discarded; };
+        HostSessionLifecycle host(96, 1, 10, {1}, time.clock(), source.random(), hooks, true);
+        const auto controller = host.admitGuest(1, 10, {1}, false);
+        const auto guest = host.admitGuest(2, 20, {2}, false);
+        D6R_REQUIRE(controller && guest && host.transportClosed(1, 10));
+        time.advance(29999ms);
+        const auto result = host.reconnect(requestFor(*controller), 11);
+        D6R_REQUIRE(result.outcome == ReconnectOutcome::Expired && !result.nextGrant);
+        host.processLifecycleBatch(Phase::ActiveRound);
+        D6R_REQUIRE(host.ended());
+        D6R_REQUIRE_EQ(1u, discarded);
+        D6R_REQUIRE_EQ(0u, host.retainedPlayerCount());
+        D6R_REQUIRE_EQ(1u, notices.size());
+        D6R_REQUIRE(!deserializeIntentionalHostEnd(notices.front()));
+        D6R_REQUIRE(PublicSession::terminalReason(notices.front(), 96) == PublicSession::ControllerExpired);
+        D6R_REQUIRE(host.reconnect(requestFor(*controller), 12).outcome != ReconnectOutcome::Accepted);
+        D6R_REQUIRE(host.reconnect(requestFor(*guest), 21).outcome != ReconnectOutcome::Accepted);
+    }
+}
+
+D6R_TEST_CASE("public unknown restore completion clock is not expiry proof or a later expiry cause") {
+    ManualClock time;
+    CredentialSource source;
+    bool clockUnavailable = false;
+    Clock clock = [&] {
+        if (clockUnavailable) throw std::runtime_error("clock unavailable");
+        return time.value;
+    };
+    HostHooks hooks;
+    std::vector<std::vector<std::uint8_t>> notices;
+    unsigned discarded = 0;
+    hooks.disconnect = [](ParticipantId) { return true; };
+    hooks.restoreCurrent = [&](ParticipantId, ConnectionId) { clockUnavailable = true; return true; };
+    hooks.sendIntentionalHostEnd = [&](ConnectionId, const auto &payload) { notices.push_back(payload); return true; };
+    hooks.discardSession = [&] { ++discarded; };
+    HostSessionLifecycle host(99, 1, 10, {1}, clock, source.random(), hooks, true);
+    const auto controller = host.admitGuest(1, 10, {1}, false);
+    const auto guest = host.admitGuest(2, 20, {2}, false);
+    D6R_REQUIRE(controller && guest && host.transportClosed(1, 10));
+    time.advance(29999ms);
+    const auto result = host.reconnect(requestFor(*controller), 11);
+    D6R_REQUIRE(result.outcome == ReconnectOutcome::RestoreFailed && !result.nextGrant);
+    clockUnavailable = false;
+    time.advance(2ms);
+    host.processLifecycleBatch(Phase::Lobby);
+    D6R_REQUIRE(host.ended() && notices.empty());
+    D6R_REQUIRE_EQ(1u, discarded);
+    D6R_REQUIRE(host.reconnect(requestFor(*controller), 12).outcome != ReconnectOutcome::Accepted);
+    D6R_REQUIRE(host.reconnect(requestFor(*guest), 21).outcome != ReconnectOutcome::Accepted);
+}
+
+D6R_TEST_CASE("public confirmation rollback preserves original deadline and renewed disconnect has a fresh window") {
+    ManualClock time;
+    CredentialSource source;
+    HostHooks hooks;
+    std::vector<std::vector<std::uint8_t>> notices;
+    hooks.disconnect = [](ParticipantId) { return true; };
+    hooks.restoreCurrent = [](ParticipantId, ConnectionId) { return true; };
+    hooks.sendIntentionalHostEnd = [&](ConnectionId, const auto &payload) { notices.push_back(payload); return true; };
+    HostSessionLifecycle host(100, 1, 10, {1}, time.clock(), source.random(), hooks, true);
+    const auto original = host.admitGuest(1, 10, {1}, false);
+    D6R_REQUIRE(original && host.admitGuest(2, 20, {2}, false) && host.transportClosed(1, 10));
+    time.advance(29998ms);
+    const auto provisional = host.reconnect(requestFor(*original), 11);
+    D6R_REQUIRE(provisional.outcome == ReconnectOutcome::Accepted && provisional.nextGrant);
+    time.advance(1ms);
+    D6R_REQUIRE(host.reconnectDeliveryFailed(1, 11));
+    D6R_REQUIRE(host.reserved(1) && !host.connected(1));
+    host.processLifecycleBatch(Phase::Lobby);
+    D6R_REQUIRE(!host.ended() && notices.empty());
+    const auto retried = host.reconnect(requestFor(*original), 12);
+    D6R_REQUIRE(retried.outcome == ReconnectOutcome::Accepted && retried.nextGrant);
+    D6R_REQUIRE(host.reconnectDeliverySucceeded(1, 12));
+    D6R_REQUIRE(host.transportClosed(1, 12));
+    time.advance(1ms); // The old deadline cannot expire this newly armed window.
+    host.processLifecycleBatch(Phase::Lobby);
+    D6R_REQUIRE(!host.ended());
+    time.advance(29998ms);
+    host.processLifecycleBatch(Phase::Lobby);
+    D6R_REQUIRE(!host.ended());
+    time.advance(1ms);
+    host.processLifecycleBatch(Phase::Lobby);
+    D6R_REQUIRE(host.ended());
+    D6R_REQUIRE_EQ(1u, notices.size());
+    D6R_REQUIRE(PublicSession::terminalReason(notices.front(), 100) == PublicSession::ControllerExpired);
+}
+
+D6R_TEST_CASE("public failed confirmation rollback distinguishes actual expiry from unknown clock failure") {
+    for (bool unknown : {false, true}) {
+        ManualClock time;
+        CredentialSource source;
+        bool clockUnavailable = false;
+        Clock clock = [&] {
+            if (clockUnavailable) throw std::runtime_error("rollback clock unavailable");
+            return time.value;
+        };
+        HostHooks hooks;
+        std::vector<std::vector<std::uint8_t>> notices;
+        unsigned discarded = 0;
+        hooks.disconnect = [](ParticipantId) { return true; };
+        hooks.restoreCurrent = [](ParticipantId, ConnectionId) { return true; };
+        hooks.sendIntentionalHostEnd = [&](ConnectionId, const auto &payload) { notices.push_back(payload); return true; };
+        hooks.discardSession = [&] { ++discarded; };
+        HostSessionLifecycle host(101, 1, 10, {1}, clock, source.random(), hooks, true);
+        const auto controller = host.admitGuest(1, 10, {1}, false);
+        const auto guest = host.admitGuest(2, 20, {2}, false);
+        D6R_REQUIRE(controller && guest && host.transportClosed(1, 10));
+        time.advance(29999ms);
+        const auto provisional = host.reconnect(requestFor(*controller), 11);
+        D6R_REQUIRE(provisional.outcome == ReconnectOutcome::Accepted && provisional.nextGrant);
+        if (unknown) clockUnavailable = true;
+        else time.advance(1ms);
+        D6R_REQUIRE(!host.reconnectDeliveryFailed(1, 11));
+        clockUnavailable = false;
+        if (unknown) time.advance(2ms);
+        host.processLifecycleBatch(Phase::Lobby);
+        D6R_REQUIRE(host.ended());
+        D6R_REQUIRE_EQ(1u, discarded);
+        D6R_REQUIRE_EQ(unknown ? 0u : 1u, notices.size());
+        if (!unknown) {
+            D6R_REQUIRE(!deserializeIntentionalHostEnd(notices.front()));
+            D6R_REQUIRE(PublicSession::terminalReason(notices.front(), 101) == PublicSession::ControllerExpired);
+        }
+        D6R_REQUIRE(host.reconnect(requestFor(*controller), 12).outcome != ReconnectOutcome::Accepted);
+        D6R_REQUIRE(host.reconnect(requestFor(*provisional.nextGrant), 13).outcome != ReconnectOutcome::Accepted);
+        D6R_REQUIRE(host.reconnect(requestFor(*guest), 21).outcome != ReconnectOutcome::Accepted);
+        HostSessionLifecycle fresh(102, 3, 30, {3}, clock, source.random(), {}, true);
+        D6R_REQUIRE(fresh.admitGuest(3, 30, {3}, false));
+        D6R_REQUIRE(!fresh.ended() && !fresh.ready(3));
+        D6R_REQUIRE(fresh.reconnect(requestFor(*controller), 31).outcome != ReconnectOutcome::Accepted);
+    }
+}
+
+D6R_TEST_CASE("public connected and authenticated reserved Leave retain intentional cause") {
+    for (bool reserved : {false, true}) {
+        ManualClock time;
+        CredentialSource source;
+        HostHooks hooks;
+        std::vector<std::vector<std::uint8_t>> notices;
+        hooks.disconnect = [](ParticipantId) { return true; };
+        hooks.sendIntentionalHostEnd = [&](ConnectionId, const auto &payload) { notices.push_back(payload); return true; };
+        HostSessionLifecycle host(98, 1, 10, {1}, time.clock(), source.random(), hooks, true);
+        const auto controller = host.admitGuest(1, 10, {1}, false);
+        D6R_REQUIRE(controller && host.admitGuest(2, 20, {2}, false));
+        if (reserved) {
+            D6R_REQUIRE(host.transportClosed(1, 10));
+            time.advance(29999ms);
+            D6R_REQUIRE(host.queueReservedLeave(requestFor(*controller), 11));
+        } else D6R_REQUIRE(host.queueIntentionalLeave(1, 10));
+        host.processLifecycleBatch(Phase::Lobby);
+        D6R_REQUIRE(host.ended() && !notices.empty());
+        for (const auto &notice : notices) {
+            const auto parsed = deserializeIntentionalHostEnd(notice);
+            D6R_REQUIRE(parsed && parsed->sessionId == 98);
+            D6R_REQUIRE(PublicSession::terminalReason(notice, 98).empty());
+        }
+    }
+}
+
+namespace {
+    void expiryObservedBeforeBatch(bool viaReconnect, std::chrono::milliseconds observationTime) {
+        ManualClock time;
+        CredentialSource source;
+        HostHooks hooks;
+        unsigned discarded = 0;
+        std::vector<std::vector<std::uint8_t>> notices;
+        hooks.disconnect = [](ParticipantId) { return true; };
+        hooks.restoreCurrent = [](ParticipantId, ConnectionId) { return true; };
+        hooks.discardSession = [&] { ++discarded; };
+        hooks.sendIntentionalHostEnd = [&](ConnectionId, const auto &payload) {
+            notices.push_back(payload); return true;
+        };
+        HostSessionLifecycle host(93, 1, 10, {1}, time.clock(), source.random(), hooks, true);
+        auto grant = host.admitGuest(1, 10, {1}, false);
+        const auto guest = host.admitGuest(2, 20, {2}, false);
+        D6R_REQUIRE(grant && guest);
+        const auto oldRequest = requestFor(*grant);
+        D6R_REQUIRE(host.transportClosed(1, 10));
+        time.advance(observationTime);
+        if (viaReconnect) {
+            const auto result = host.reconnect(oldRequest, 11);
+            D6R_REQUIRE((result.outcome == ReconnectOutcome::Accepted) == (observationTime < 30s));
+            if (observationTime < 30s) {
+                D6R_REQUIRE(host.reconnectDeliverySucceeded(1, 11));
+                D6R_REQUIRE(result.nextGrant.has_value());
+                grant = result.nextGrant;
+                D6R_REQUIRE(host.transportClosed(1, 11));
+                time.advance(30s);
+                // Expiry is first observed by reconnect, not by the lifecycle tick.
+                D6R_REQUIRE(host.reconnect(requestFor(*grant), 12).outcome != ReconnectOutcome::Accepted);
+            }
+        } else {
+            D6R_REQUIRE(host.reserved(1) == (observationTime < 30s));
+            if (observationTime < 30s) {
+                host.processLifecycleBatch(Phase::Lobby);
+                D6R_REQUIRE(!host.ended());
+                time.advance(30s - observationTime);
+                D6R_REQUIRE(!host.reserved(1));
+            }
+        }
+        host.processLifecycleBatch(Phase::Lobby);
+        D6R_REQUIRE(host.ended());
+        D6R_REQUIRE_EQ(0u, host.retainedPlayerCount());
+        D6R_REQUIRE_EQ(1u, discarded);
+        D6R_REQUIRE_EQ(1u, notices.size());
+        D6R_REQUIRE(PublicSession::terminalReason(notices.front(), 93) == PublicSession::ControllerExpired);
+        D6R_REQUIRE(host.reconnect(oldRequest, 13).outcome != ReconnectOutcome::Accepted);
+        D6R_REQUIRE(host.reconnect(requestFor(*guest), 21).outcome != ReconnectOutcome::Accepted);
+        // A fresh session is a new lifecycle, never restoration or migration.
+        HostSessionLifecycle fresh(94, 3, 30, {3}, time.clock(), source.random(), {}, true);
+        D6R_REQUIRE(fresh.admitGuest(3, 30, {3}, false).has_value());
+        D6R_REQUIRE(!fresh.ready(3));
+        D6R_REQUIRE(fresh.reconnect(oldRequest, 31).outcome != ReconnectOutcome::Accepted);
+        D6R_REQUIRE(!fresh.ended());
+        D6R_REQUIRE(fresh.endSession(3, 30).accepted);
+    }
+}
+D6R_TEST_CASE("public expiry observed by reconnect before deadline then at renewed deadline") {
+    expiryObservedBeforeBatch(true, 29999ms);
+}
+D6R_TEST_CASE("public expiry observed by reconnect exactly at deadline before lifecycle batch") {
+    expiryObservedBeforeBatch(true, 30000ms);
+}
+D6R_TEST_CASE("public expiry observed by reconnect after deadline before lifecycle batch") {
+    expiryObservedBeforeBatch(true, 30001ms);
+}
+D6R_TEST_CASE("public expiry observed by accessor before deadline then at deadline") {
+    expiryObservedBeforeBatch(false, 29999ms);
+}
+D6R_TEST_CASE("public expiry observed by accessor exactly at deadline before lifecycle batch") {
+    expiryObservedBeforeBatch(false, 30000ms);
+}
+D6R_TEST_CASE("public expiry observed by accessor after deadline before lifecycle batch") {
+    expiryObservedBeforeBatch(false, 30001ms);
+}
+
+D6R_TEST_CASE("player-hosted expiry remains removable after another observer erased its credential") {
+    for (bool accessor : {false, true}) {
+        for (auto phase : {Phase::Lobby, Phase::ActiveRound, Phase::NonFinalRoundSummary, Phase::FinalSummary}) {
+            ManualClock time;
+            CredentialSource source;
+            HostHooks hooks;
+            unsigned batches = 0;
+            hooks.disconnect = [](ParticipantId) { return true; };
+            hooks.removeBatch = [&](const auto &ids, Phase observed) {
+                D6R_REQUIRE(ids == std::vector<ParticipantId>{2});
+                D6R_REQUIRE(observed == phase); ++batches; return true;
+            };
+            HostSessionLifecycle host(95, 1, 10, {1, 3}, time.clock(), source.random(), hooks);
+            const auto grant = host.admitGuest(2, 20, {2}, false);
+            D6R_REQUIRE(grant && host.transportClosed(2, 20));
+            time.advance(30000ms);
+            if (accessor) D6R_REQUIRE(!host.reserved(2));
+            else D6R_REQUIRE(host.reconnect(requestFor(*grant), 21).outcome != ReconnectOutcome::Accepted);
+            const auto result = host.processLifecycleBatch(phase);
+            D6R_REQUIRE(result != RemovalOutcome::NothingChanged && result != RemovalOutcome::Failed);
+            D6R_REQUIRE_EQ(1u, batches);
+            D6R_REQUIRE_EQ(2u, host.retainedPlayerCount());
+            D6R_REQUIRE(!host.ended());
+            D6R_REQUIRE(host.processLifecycleBatch(phase) == RemovalOutcome::NothingChanged);
+        }
+    }
 }
 
 D6R_TEST_CASE("NET-ADM live admission preserves existing readiness and gives no new identity authority to old players") {

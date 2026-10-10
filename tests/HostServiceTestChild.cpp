@@ -16,6 +16,10 @@
 #include <cerrno>
 #include <csignal>
 #include <fcntl.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
+#include <sys/wait.h>
 #include <unistd.h>
 extern char **environ;
 #else
@@ -27,6 +31,10 @@ extern char **environ;
 #endif
 
 namespace {
+#ifdef __linux__
+volatile std::sig_atomic_t applicationStop = 0;
+void requestApplicationStop(int) { applicationStop = 1; }
+#endif
 std::string modeFromArguments(int count, char **arguments) {
     constexpr const char *prefix = "--resources=";
     for (int index = 1; index < count; ++index) {
@@ -123,9 +131,23 @@ int main(int count, char **arguments) {
         }
     }
 #endif
-    const auto channel = Duel6::Server::HostedServiceChannel::fromCommandLine(count, arguments);
-    if (!channel || !channel->active()) return 70;
     const std::string mode = modeFromArguments(count, arguments);
+#ifdef __linux__
+    if (mode == "tree-teardown-inherited-mask") {
+        sigset_t mask; sigemptyset(&mask); sigaddset(&mask, SIGUSR2);
+        if (sigprocmask(SIG_BLOCK, &mask, nullptr) != 0) return 92;
+    } else if (mode == "guard-signal-conflict") {
+        std::signal(SIGUSR2, requestApplicationStop);
+    }
+#endif
+    auto channel = Duel6::Server::HostedServiceChannel::fromCommandLine(count, arguments);
+#ifdef __linux__
+    if (mode == "guard-signal-conflict") {
+        if (!publishMarker(gameplayScriptFromArguments(count, arguments), channel ? "accepted\n" : "rejected\n")) return 83;
+        return channel ? 83 : 0;
+    }
+#endif
+    if (!channel || !channel->active()) return 70;
     if (mode == "listener-environment") {
         if (std::getenv("D6R_TEST_PARENT_SECRET")) return 86;
 #ifdef _WIN32
@@ -214,15 +236,74 @@ int main(int count, char **arguments) {
         }
         if (!channel->send(Duel6::Network::HostServiceStatusCode::Ready)) return 80;
     }
-    if (mode == "tree") {
+    if (mode == "tree"
+#ifdef __linux__
+        || mode == "tree-eof-before-signal" || mode == "tree-application-stop"
+        || mode == "tree-teardown" || mode == "tree-teardown-inherited-mask"
+#endif
+        ) {
         const std::string pidFile = gameplayScriptFromArguments(count, arguments);
         const pid_t descendant = fork();
         if (descendant < 0) return 81;
         if (descendant == 0) {
             for (;;) pause();
         }
+#ifdef __linux__
+        if (mode == "tree-eof-before-signal") {
+            // Select control EOF before parent-death signal dispatch without
+            // extending the original process-identity/termination deadline.
+            int deathSignal = 0;
+            if (prctl(PR_GET_PDEATHSIG, &deathSignal) != 0 || deathSignal == 0) return 92;
+            sigset_t mask; sigemptyset(&mask); sigaddset(&mask, deathSignal);
+            if (sigprocmask(SIG_BLOCK, &mask, nullptr) != 0) return 92;
+        } else if (mode == "tree-application-stop") {
+            // The real HeadlessServer installs its application SIGTERM stop
+            // handler after channel setup and may exit before polling EOF.
+            std::signal(SIGTERM, requestApplicationStop);
+        }
+        if (mode == "tree-teardown" || mode == "tree-teardown-inherited-mask") {
+            int deathSignal = 0;
+            if (prctl(PR_GET_PDEATHSIG, &deathSignal) != 0 || deathSignal == 0) return 92;
+            std::signal(SIGTERM, requestApplicationStop);
+            channel.reset(); // Barrier is after descriptors and last channel are gone.
+            sigset_t currentMask;
+            if (sigprocmask(SIG_BLOCK, nullptr, &currentMask) != 0
+                || !publishMarker(pidFile + ".guard", sigismember(&currentMask, deathSignal) == 1 ? "blocked\n" : "unblocked\n")) return 92;
+            if (!publishMarker(pidFile, std::to_string(descendant) + "\n")) return 82;
+            while (!applicationStop) pause();
+            return 0;
+        }
+#endif
         if (!publishMarker(pidFile, std::to_string(descendant) + "\n")) return 82;
     }
+#ifdef __linux__
+    if (mode == "unowned-group" || mode == "unowned-control") {
+        const std::string marker = gameplayScriptFromArguments(count, arguments);
+        if (mode == "unowned-group") {
+            if (setpgid(0, getpgid(getppid())) != 0) return 93;
+        } else {
+            if (close(4) != 0 || open("/dev/null", O_RDONLY) != 4) return 94;
+        }
+        const auto rejected = Duel6::Server::HostedServiceChannel::fromCommandLine(count, arguments);
+        if (!publishMarker(marker, rejected ? "accepted\n" : "rejected\n")) return 83;
+        return rejected ? 83 : 0;
+    }
+    if (mode == "fork-signal-guard") {
+        int deathSignal = 0;
+        if (prctl(PR_GET_PDEATHSIG, &deathSignal) != 0 || deathSignal == 0) return 92;
+        const pid_t descendant = fork();
+        if (descendant < 0) return 81;
+        if (descendant == 0) {
+            sigset_t mask; sigemptyset(&mask); sigaddset(&mask, deathSignal);
+            if (sigprocmask(SIG_UNBLOCK, &mask, nullptr) != 0) _exit(92);
+            raise(deathSignal); _exit(95);
+        }
+        int status = 0;
+        pid_t reaped;
+        do { reaped = waitpid(descendant, &status, 0); } while (reaped < 0 && errno == EINTR);
+        if (reaped != descendant || !publishMarker(gameplayScriptFromArguments(count, arguments), "guarded\n")) return 83;
+    }
+#endif
 #else
     if (mode == "tree") {
         const std::string pidFile = gameplayScriptFromArguments(count, arguments);
@@ -262,6 +343,9 @@ int main(int count, char **arguments) {
 
     // "timeout" deliberately never reports status. All long-lived modes cooperate with Stop.
     for (;;) {
+#ifdef __linux__
+        if (applicationStop) return 0;
+#endif
         if (channel->stopRequested()) return 0;
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }

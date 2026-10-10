@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="850" viewBox="0 0 900 850">
-  <title>NET-04 — Host lobby game-settings structure</title>
-  <desc>Fixed 850 by 700 logical desktop canvas. Existing participant and roster regions remain left of the vertical host-settings stack. Each setting has one whole-row target. Cycle values have no directional buttons or text-entry caret. Checkbox squares are state indicators within existing toggle rows. Diagram values are examples, not capture data.</desc>
+  <title>NET-04 — Current host settings with dedicated header variant</title>
+  <desc>Fixed 850 by 700 logical desktop canvas. Current develop participant, roster and vertical settings regions remain unchanged. Dedicated role, bounded endpoint and consequence use the header allocation. Each setting retains one whole-row target, inset current value, cycle cue or square state. Lists scroll under fixed headings and footer. Guest values remain read-only.</desc>
   <rect width="900" height="850" fill="white"/>
   <g fill="none" stroke="black" stroke-width="1">
     <rect x="25" y="20" width="850" height="700"/>
@@ -42,8 +42,9 @@
   <g font-family="sans-serif" font-size="13" fill="black">
     <text x="390" y="85">Existing banner</text>
     <text x="395" y="153">Runtime version</text>
-    <text x="65" y="188">Host • Network session • endpoint • 2 participants • 2 players</text>
-    <text x="65" y="211">Directory status / existing publication recovery</text>
+    <text x="65" y="188">Host • Dedicated session • 2 participants • 2 players</text>
+    <text x="65" y="211">Endpoint: actual operator hostname or IPv4 and port</text>
+    <text x="65" y="232">You control this session. Leaving ends it for everyone.</text>
     <text x="73" y="258">PARTICIPANTS</text>
     <text x="73" y="282">Role       Connection       Readiness       Owned</text>
     <text x="73" y="307">Host       Connected        Not ready       1</text>
@@ -67,9 +68,9 @@
     <text x="65" y="583">Waiting for Guest to be ready</text>
     <text x="65" y="611">Optional scripts are disabled for network play.</text>
     <text x="92" y="672">Ready / Not ready</text><text x="447" y="672">Start match — disabled</text><text x="716" y="672">End session</text>
-    <text x="25" y="764">ANNOTATIONS — not interface copy; structure only, not production appearance</text>
-    <text x="25" y="789">↻ identifies one forward-cycle row. Square + On/Off identifies one toggle row. Whole row activates.</text>
-    <text x="25" y="814">Guest: read-only values, no cycle markers or enabled squares. Hidden Team rows collapse without targets.</text>
-    <text x="25" y="839">UX-NET-04-006/019–031. Preserve focus traversal, pointer press timing, host permissions and readiness.</text>
+    <text x="25" y="764">ANNOTATIONS — structure only. Retain current develop's settings layout and whole-row input.</text>
+    <text x="25" y="789">Player-hosted header retains directory feedback. Dedicated header has no publication target.</text>
+    <text x="25" y="814">Guest: its consequence note, owned-slot editing, plain read-only settings and Leave.</text>
+    <text x="25" y="839">UX-NET-04-006/019–031 remain fixed. Long endpoints stay in the separate bounded header row.</text>
   </g>
 </svg>

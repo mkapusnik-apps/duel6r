@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="860" viewBox="0 0 900 860">
+  <title>NET-03-P — Editable operator-configured dedicated setup</title>
+  <desc>NET-03-PUBLIC-EDIT on the existing 850 by 700 logical desktop canvas. Fixed banner, one service-type cycle row, empty operator Address and Port, separate Invite, two independently scrolling local setup panels, persistent validation and centered Connect/Back. Focus remains on Service type after mode change. No hard-coded endpoint, environment picker, or connection claim.</desc>
+  <rect width="900" height="860" fill="white"/>
+  <g fill="none" stroke="black">
+    <rect x="25" y="20" width="850" height="700"/>
+    <rect x="350" y="40" width="200" height="95"/>
+    <rect x="245" y="199" width="580" height="24" stroke-width="2"/>
+    <rect x="245" y="231" width="580" height="24"/>
+    <rect x="245" y="263" width="580" height="24"/>
+    <rect x="245" y="295" width="580" height="24"/>
+    <rect x="75" y="404" width="350" height="152"/>
+    <rect x="455" y="404" width="370" height="152"/>
+    <path d="M75 430H425 M455 430H825"/>
+    <rect x="295" y="621" width="310" height="32"/>
+    <rect x="295" y="665" width="310" height="32"/>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="16">
+    <text x="363" y="92">Existing banner / version</text>
+    <text x="330" y="180">JOIN NETWORK SESSION</text>
+    <text x="75" y="217">Service type</text><text x="255" y="217">↻ Dedicated service</text>
+    <text x="75" y="249">Address</text>
+    <text x="75" y="281">Port</text>
+    <text x="75" y="313">Invite</text>
+    <text x="245" y="341">Invite required</text>
+    <text x="75" y="368">The first admitted participant controls the session.</text>
+    <text x="75" y="390">Leaving as host ends the session.</text>
+    <text x="87" y="423">PERSONS</text><text x="467" y="423">LOCAL PLAYERS AND CONTROLS</text>
+    <text x="87" y="457">Ada • Selected</text><text x="467" y="457">Ada • Keyboard 1       Remove</text>
+    <text x="87" y="484">Bruno • Add</text>
+    <text x="87" y="538">Other persons scroll</text><text x="467" y="538">Other local slots scroll</text>
+    <text x="75" y="580">Local players: 1 • Session-only scores • Optional scripts disabled</text>
+    <text x="75" y="604">Enter a valid address and port (1–65535).</text>
+    <text x="375" y="643">Connect (disabled)</text><text x="432" y="687">Back</text>
+  </g>
+  <g font-family="sans-serif" font-size="14">
+    <text x="25" y="752">ANNOTATIONS: Top-to-bottom reading; left list before right. Mode change keeps row-level focus.</text>
+    <text x="25" y="778">Focused fields scroll text; body lists scroll independently. Keep header, validation and footer fixed.</text>
+    <text x="25" y="804">Operator input only. Invite becomes ******** when entered; focused masks scroll inside the field.</text>
+    <text x="25" y="830">Browser origin retains NET-03-E with no mode target. Dedicated type is absent on macOS/Pi.</text>
+  </g>
+</svg>

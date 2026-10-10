@@ -52,6 +52,12 @@ namespace Duel6 {
         bool preferredFriendlyFire = false;
         SetupScreen setupScreen = SetupScreen::Entry;
         std::string address = "127.0.0.1";
+        bool publicConnection = false;
+        std::string playerHostedAddress = "127.0.0.1";
+        std::string playerHostedPort = std::to_string(Network::DefaultServerPort);
+        std::string dedicatedAddress, dedicatedPort;
+        Network::PublicSession::Secret invitation;
+        bool invalidInvitationInput = false;
         std::string password;
         Client::DirectoryBrowser browser;
         std::string selectedListing;
@@ -107,6 +113,16 @@ namespace Duel6 {
         bool localReadyEligible(std::string &reason) const;
         bool endpoint(Network::Endpoint &result) const;
         bool editingEndpoint(const Client::NetworkRuntimeSnapshot &snapshot) const;
+        bool serviceTypeAvailable() const {
+            return setupScreen == SetupScreen::Join && !joinFromBrowser && Network::PublicSession::supported();
+        }
+        int setupFields() const { return serviceTypeAvailable() ? 4 : 3; }
+        int setupFirstRow() const { return setupScreen == SetupScreen::Join && publicConnection ? 292 : 364; }
+        int setupVisibleRows() const { return setupScreen == SetupScreen::Join && publicConnection ? 4 : 8; }
+        void clearInvitation();
+        void enterDirectSetup();
+        void joinEndpoint(const Network::Endpoint &endpoint);
+        void enterText(std::string_view text);
         bool refreshHostAddresses(bool initialSelection);
         void moveListeningFocus(int direction);
         void activateListeningChoice();

@@ -179,6 +179,11 @@ set_property (CACHE D6R_RENDERER PROPERTY STRINGS ${D6R_RENDERERS})
 set(D6R_WITH_LUA ON)     # Enable/disable lua scripting
 option(D6R_TRANSPORT_ONLY "Build only the native session transport and its tests" OFF)
 set(D6R_DIRECTORY_DEFAULT_URL "" CACHE STRING "Compiled directory origin selected by the distribution channel, not build type")
+# Dedicated participation is scoped to the approved Linux/Windows x86-64 targets.
+set(D6R_PUBLIC_DEDICATED OFF)
+if ((WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux") AND D6R_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
+    set(D6R_PUBLIC_DEDICATED ON)
+endif ()
 
 if (D6R_TRANSPORT_ONLY)
     set(CMAKE_CXX_STANDARD 17)
@@ -759,6 +764,10 @@ set(D6R_NETWORK_SCAFFOLD_SOURCES
         source/network/SessionLifecycle.h
         source/network/SessionTransport.cpp
         source/network/SessionTransport.h
+        source/network/PublicSession.cpp
+        source/network/PublicSession.h
+        source/server/DedicatedService.cpp
+        source/server/DedicatedService.h
         source/network/StateReplication.cpp
         source/network/StateReplication.h
         source/network/StateReplicationProtocol.cpp
@@ -815,7 +824,19 @@ if (MINGW)
     set_property(TARGET ${D6R_RESOLVER_APP_NAME} APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
 endif ()
 
+if (D6R_PUBLIC_DEDICATED)
+    list(APPEND D6R_NETWORK_SCAFFOLD_SOURCES source/network/TlsStream.cpp source/network/TlsStream.h)
+endif ()
 add_library(duel6r-network-scaffold STATIC ${D6R_NETWORK_SCAFFOLD_SOURCES})
+# Operator-configured dedicated participation is not a Mac/Pi transport path.
+if (D6R_PUBLIC_DEDICATED)
+    find_package(OpenSSL 1.1.1 REQUIRED)
+    target_link_libraries(duel6r-network-scaffold PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+    target_compile_definitions(duel6r-network-scaffold PUBLIC D6R_PUBLIC_DEDICATED)
+    if (NOT D6R_TRANSPORT_ONLY)
+        target_compile_definitions(duel6r-game-engine PUBLIC D6R_PUBLIC_DEDICATED)
+    endif ()
+endif ()
 find_package(MbedTLS 3.6.7 EXACT CONFIG REQUIRED)
 if (UNIX AND NOT APPLE)
     set(CMAKE_BUILD_RPATH "$ORIGIN/lib")
@@ -839,6 +860,9 @@ else ()
 endif ()
 if (WIN32)
     target_link_libraries(duel6r-network-scaffold PUBLIC ws2_32 bcrypt iphlpapi)
+    if (D6R_PUBLIC_DEDICATED)
+        target_link_libraries(duel6r-network-scaffold PUBLIC crypt32)
+    endif ()
 else ()
     find_package(Threads REQUIRED)
     target_link_libraries(duel6r-network-scaffold PUBLIC Threads::Threads)

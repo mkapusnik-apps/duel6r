@@ -2,11 +2,48 @@
 
 This inventory is authoritative for product screens and materially distinct full-screen visual states.
 
-`NET-02` owns IPv4 wildcard and explicit multiple-address host setup. Its functional states are `NET-02-listen-all`, `NET-02-listen-explicit`, `NET-02-listen-empty`, `NET-02-listen-invalid`, and `NET-02-listening-popup`, defined in [network-host-setup](network-host-setup.md). They add no full-screen identity. [NET-HOST-IF-001 through NET-HOST-IF-024](../network-play-first-release.md#host-listening-address), [HSL-IF-001 through HSL-IF-005](../network-host-service-lifecycle.md), and [NET-DIR-017 through NET-DIR-020](../network-host-directory.md) govern selection, startup, and concrete endpoint publication. UX owns their presentation in [NET-02](../design/screens/NET-02.md). `NET-04` consumes existing publication-unavailable feedback; `NET-08` consumes existing startup errors. Neither requires a new screen identity.
+`NET-02` owns IPv4 wildcard and explicit multiple-address host setup. Its functional states are `NET-02-listen-all`, `NET-02-listen-explicit`, `NET-02-listen-empty`, `NET-02-listen-invalid`, and `NET-02-listening-popup`, defined in [network-host-setup](network-host-setup.md). They add no full-screen identity. [NET-HOST-IF-001 through NET-HOST-IF-024](../network-play-first-release.md#host-listening-address), [HSL-IF-001 through HSL-IF-005](../network-host-service-lifecycle.md), and [NET-DIR-017 through NET-DIR-020](../network-host-directory.md) govern selection, startup, and concrete endpoint publication. UX owns current unified host-settings presentation in [NET-02](../design/screens/NET-02.md). `NET-04` consumes existing publication-unavailable feedback; `NET-08` consumes existing startup errors. Neither requires a new screen identity.
 
-The experimental macOS target enters `NET-01` from `Network (F2)` by pointer or F2 under [the macOS network contract](../macos.md#network-entry). `MENU-01-MAC-LOCAL` and `MENU-02-MAC-LOCAL` are retired historical-only states. No screen is added; the main-menu wireframes and unrelated message variants remain unchanged. Native automated network acceptance is mandatory after integration in `Develop - Sanity` and gates `sanity` and nightly publication, not pre-review or merge. Actual Mac GUI, live cross-OS gameplay, and visual verification follow the deferred boundary in [macos.md](../macos.md#acceptance-boundaries). [UX-NET-01-006](../design/screens/NET-01.md#presentation-requirements) solely owns network-entry platform-scope copy.
+The experimental macOS target enters `NET-01` from `Network (F2)` by pointer or F2 under [the macOS network contract](../macos.md#network-entry). `MENU-01-MAC-LOCAL` and `MENU-02-MAC-LOCAL` are retired historical-only states. No screen is added; the main-menu wireframes and unrelated message variants remain unchanged. Native automated network acceptance is mandatory after integration in `Develop - Sanity` and gates `sanity` and nightly publication, not pre-review or merge. Actual Mac GUI, live cross-OS gameplay, and visual verification follow the deferred boundary in [macos.md](../macos.md#acceptance-boundaries). [UX-NET-01-006](../design/screens/NET-01.md#presentation-requirements) solely owns network-entry platform-scope copy. This does not extend the dedicated target to macOS.
 
-The current directory/password and round-one admission target affects `NET-01`, `NET-02`, `NET-03`, `NET-04`, `NET-05`, and `NET-08`; their earlier acceptance does not cover these changed states. `NET-10` is the [host browser](network-browser.md), governed by [NET-DIR-001 through NET-DIR-016 and their acceptance criteria](../network-host-directory.md). Its states are `NET-10-loading`, `NET-10-results`, `NET-10-empty`, `NET-10-stale`, and `NET-10-unavailable`. Existing screen contracts identify password, live-arrival, and admission-closed variants. UX owns their visual specifications; no legacy screen migration is required.
+The current directory/password and round-one admission target affects `NET-01`, `NET-02`, `NET-03`, `NET-04`, `NET-05`, and `NET-08`. `NET-10` is the [host browser](network-browser.md), governed by [NET-DIR-001 through NET-DIR-016 and their acceptance criteria](../network-host-directory.md). Its states are `NET-10-loading`, `NET-10-results`, `NET-10-empty`, `NET-10-stale`, and `NET-10-unavailable`. Existing screen contracts identify password, live-arrival, and admission-closed variants. UX owns their visual specifications; no legacy screen migration is required.
+
+Historical acceptance and artifacts retain their original checkpoint and scenario. They do not establish acceptance of the reconciled candidate's changed entry, setup, admission, security, role, or recovery paths. Team must supply affected-criterion evidence for the frozen candidate. Unchanged behavior may reuse evidence with its original provenance and an impact assessment. The directory feature's distinct-endpoint nightly deferral does not waive the dedicated Windows journey in NET-PUB-AC-006.
+
+## Public dedicated pilot functional states
+
+The public pilot uses the existing screen IDs. Its canonical behavior is in [network-play-first-release.md](../network-play-first-release.md), [network-trust-and-abuse-limits.md](../network-trust-and-abuse-limits.md), and [network-host-service-lifecycle.md](../network-host-service-lifecycle.md). The functional public-mode sections in the screen documents govern these variants. Earlier LAN-only copy and representative screenshots do not establish acceptance of public variants. Existing layout notes remain read-only UX context for this extension; UX owns revised presentation in `docs/design`.
+
+| Screen | Functional state IDs | Functional coverage |
+|---|---|---|
+| `NET-01` | `NET-01-PUBLIC-ENTRY` | Public Join and preserved player-hosted Host and browser entry |
+| `NET-03` | `NET-03-PUBLIC-EDIT`, `NET-03-PUBLIC-CONNECTING` | Endpoint, invitation, explicit security mode, cancellation |
+| `NET-04` | `NET-04-PUBLIC-CONTROLLER`, `NET-04-PUBLIC-GUEST` | Authoritative controller assignment and permissions |
+| `NET-05`, `NET-06` | `NET-05-PUBLIC`, `NET-06-PUBLIC` | Dedicated match and summary actions |
+| `NET-07` | `NET-07-PUBLIC-RECONNECT` | Guest or controller reservation without migration |
+| `NET-08` | `NET-08-PUBLIC-SECURITY`, `NET-08-PUBLIC-MAINTENANCE`, `NET-08-PUBLIC-CONTROLLER-EXPIRED` | Secure admission failure and confirmed terminal service outcomes |
+| `NET-09` | `NET-09-PUBLIC-CONTROLLER-END` | Confirmed controller End session |
+
+`NET-02` remains the player-hosted setup contract, including its current optional password and eligible public-address behavior. No public administrator screen or new Local Play screen is introduced.
+
+NET-01 retains Host, Browse sessions, Direct connect, and Back. NET-03 owns NET-JOIN-PUB-001 and NET-JOIN-PUB-003 through NET-JOIN-PUB-019, with NET-JOIN-PUB-AC-001 through NET-JOIN-PUB-AC-003. NET-JOIN-PUB-002 and the production gameplay prefill are retired. Dedicated and player-hosted joins use the current lobby or round-one destination. The controller's unexpected loss uses the existing 30-second reconnect contract; explicit departure ends the session. The linked UX contracts own current develop presentation, including the grey/bevel menu treatment. No legacy pilot design replaces it.
+
+The materially distinct editable dedicated variant retains [NET-03-P](../design/wireframes/NET-03/NET-03-P.svg), governed by the [NET-03 UX contract](../design/screens/NET-03.md). It supplements the existing editable NET-03-E and locked connecting references without adding a screen ID.
+
+### Public pilot visual evidence scope
+
+This section owns the screenshot acceptance scope for the public-hosting extension. It does not change gameplay, recovery, result, maximum-name, maximum-player, or accessibility requirements. It does not replace the full network-release evidence gate.
+
+- **NET-PUB-VIS-AC-001 — Public representatives:** Public-mode visual evidence may use an ordinary real active match for `NET-05-PUBLIC`, an ordinary real completed summary for `NET-06-PUBLIC`, and the resulting real retained lobby for `NET-04-R`. Each representative must show the applicable public-session context and its actual state without fabricated results. UX must assess the changed public copy, role/action presentation, readability, and containment at the existing representative and minimum evaluation viewports.
+- **NET-PUB-VIS-AC-002 — Separate legacy coverage:** The public representatives must not be recorded as evidence for the combined degraded-network, Invisibility, and held-weapon scenario in `SS-019`; the 14 Predator winners with maximum-length names in `SS-020`; or the five winning departed players and continuation scenario in `SS-025`. Those legacy scenarios, their functional requirements, and their existing evidence or pending status must remain separately identified. Repeating those extreme screenshots is not required solely to demonstrate public-session copy on otherwise unchanged presentation.
+- **NET-PUB-VIS-AC-003 — No defect waiver:** This limited scope must not waive a defect observed in a public representative, minimum-viewport coverage, or a required public recovery state. Public `NET-03` must satisfy its approved input-affordance presentation. During active-round recovery, `NET-07` must retain `Match continues while you reconnect` and `Reserved players receive no input and remain in play` under its existing contract. Corrections require new affected-state evidence and UX reassessment at the corrected checkpoint.
+- **NET-PUB-VIS-AC-004 — Evidence boundaries:** Each public artifact and assessment must identify its immutable checkpoint, observation context, screen/state, and viewport. Earlier legacy artifacts must retain their original checkpoint and assessment status. Neither an ordinary public screenshot nor an older legacy artifact establishes current functional regression acceptance. If a change affects legacy presentation or behavior beyond public-session copy, team must obtain an impact assessment and replacement evidence for the affected criteria before relying on that coverage.
+
+The UX-owned capture matrix must distinguish retained dedicated-extension states from unchanged develop coverage and identify unresolved defects and unverified scenarios. It must use current design, not the retired production-prefilled pilot representation. The former fixed seventeen-row campaign is not the current acceptance scope. UX owns the current wireframe references and proportionate affected-state matrix. No new screen ID or fixed screenshot count is introduced. Unchanged valid artifacts retain original provenance; changed setup, role, security, and recovery states require applicable current evidence. Legacy extreme gameplay/result coverage remains separately identified rather than repeated solely for dedicated-session context.
+
+`NET-PUB-AC-006`, `NET-VIS-AC-003`, `NET-RES-AC-001`, responsiveness/recovery criteria, and the owning screen contracts remain unchanged. Security, Windows public TLS, functional regression, and live-deployment evidence remain separate obligations. Visual-scope completion alone establishes none of those outcomes and must not support a complete network-release claim.
+
+## Existing inventory and context
 The target baseline uses the shared arena view requirements in `docs/features.md`.
 The product has no implemented URL routes.
 Each route value below therefore names a reproducible local workflow.
@@ -109,11 +146,14 @@ The update does not change Predator, unlimited or non-final summaries, `OVER-01`
 | `NET-08` | Implemented connection, session, or authoritative-match failure | [Specification](network-failure.md) | [Wireframe](wireframes/network-failure.md) | `NET-AC-002`, `NET-AC-007`–`NET-AC-009`, `NET-AC-011`, `NET-AC-013`, `NET-AC-016`, `NET-AC-017`, `NET-AC-019`; issue #30 `AC-005`–`AC-010`, `AC-017`–`AC-023`, `AC-025`; issue #31 `HSL-AC-003`, `HSL-AC-006`, `HSL-AC-008`–`HSL-AC-011`, `HSL-AC-013`–`HSL-AC-016`, `HSL-AC-018`; issue #32 `AHM-AC-025`–`AHM-AC-031` | Current: `docs/network-play-first-release.md`; `docs/network-compatibility-and-admission.md`; `docs/network-host-service-lifecycle.md`; `docs/network-authoritative-headless-match.md` |
 | `NET-09` | Implemented host-ended session outcome | [Specification](network-host-ended.md) | [Wireframe](wireframes/network-host-ended.md) | `NET-AC-003`, `NET-AC-009`, `NET-AC-014`, `NET-AC-016`–`NET-AC-019`; `NET-VIS-003`–`NET-VIS-010`; `NET-VIS-AC-002`–`NET-VIS-AC-004`; `REP-PRES-001`–`REP-PRES-006`; `REP-PRES-AC-001`–`REP-PRES-AC-003`; issue #31 `HSL-AC-012`–`HSL-AC-013` | Current: `docs/network-play-first-release.md`; `docs/network-state-replication.md`; `docs/network-host-service-lifecycle.md` |
 
-## Implemented network navigation
+| `NET-10` | Host browser | [Specification](network-browser.md) | [UX contract](../design/screens/NET-10.md) | `NET-DIR-001`–`NET-DIR-016`; `NET-DIR-AC-001`–`NET-DIR-AC-005` | Current: `docs/network-host-directory.md` |
+
+## Functional network navigation
 
 ```text
 MENU-01 → NET-01 → Host → NET-02 → NET-04
-                   Join → NET-03 → NET-04
+                   Direct connect → NET-03 → NET-04 or eligible round-one NET-05
+                   Browse sessions → NET-10 → selected-session NET-03
 NET-02 startup Cancel → editable NET-02 with setup retained and no listener
 NET-02 Starting → Cancel only; no setup edits, second Start, lobby, listening, or ready claim
 NET-02 startup failure after cleanup → NET-08 → eligible Retry, retained NET-02, or NET-01
@@ -131,10 +171,13 @@ NET-07 retryable resolution/refusal/unreachable/reset/timeout/host-crash/machine
 NET-07 terminal rejection or deadline expiry → NET-08 with reconnect Retry disabled
 host End session confirm from NET-04/NET-05/NET-06 → host NET-01; guests host-ended NET-09
 host-local supervised hosted-service failure → host NET-08; guests remain NET-07 until terminal rejection/expiry
-normal application shutdown, crash, or forced termination → no guest NET-09 claim
+player-host application shutdown, crash, or forced termination → no guest NET-09 claim
+dedicated controller received normal-shutdown request → intentional controller-end outcome
+dedicated confirmed controller-expiry or maintenance notice → NET-08, reconnect Retry disabled
+dedicated unconfirmed contact loss → NET-07 against the unchanged deadline
 ```
 
-Back from `NET-01` returns to `MENU-01`. `Play (F1)` remains local-only and does not enter this graph. Match admission closes at `NET-04` → `NET-05`; the target has no join-in-progress or host-migration path.
+Back from `NET-01` returns to `MENU-01`. `Play (F1)` remains local-only and does not enter this graph. New admission closes at the first-round outcome and reopens only in the lobby. Neither hosting mode permits host or controller migration. Browser failure can return to `NET-10` for refresh without blocking direct Join.
 
 ## Optional Stitch mapping
 
@@ -183,12 +226,12 @@ The classification describes only the value of the Stitch artifact for the curre
 This review used read-only project, inventory, and screen read-back operations.
 No mass regeneration was useful because the available Stitch artifacts remain supplementary references and the implemented network UI has separate accepted evidence.
 No Stitch mutation was made.
-The mapping is current for the complete active inventory and documents every known limitation.
+The mapping describes its historical checkpoint. It does not cover NET-10 or establish current conformance for changed network states.
 This Stitch mapping does not establish runtime implementation, network implementation, product acceptance, or screenshot completion by itself.
 
 ## Coverage rules
 
-The current authoritative inventory contains 20 stable screen IDs and 21 wireframes.
+The current authoritative inventory contains 21 stable screen IDs, including NET-10. UX owns the current wireframe and screenshot matrix; the historical 20-screen mapping above does not define its coverage.
 Issue #16's 14-screen checklist is historical: it includes retired `PLAY-02`–`PLAY-04` and omits `NET-01`–`NET-09`.
 It must not define the authoritative inventory or implementation screenshot coverage.
 

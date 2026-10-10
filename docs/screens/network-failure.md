@@ -2,7 +2,23 @@
 
 ## Status, purpose, and requirements
 
-Current functional target: `NET-08-password-rejected` uses `Connection not authorized.` and permits Edit setup to correct the password while retaining non-secret join setup. `NET-08-admission-closed` retains identifier `match-already-started` but replaces its old copy with `Round-one admission has closed. Join when the host returns to the lobby.` Browser-origin failures must also permit return to `NET-10` for refresh. Directory read failures remain in `NET-10`; they must not imply that an active game has ended. Functional acceptance uses [NET-DIR-AC-003 and NET-PASS-AC-001](../network-host-directory.md) and NET-ADM-AC-003. These rules supersede conflicting legacy copy below.
+`NET-08-password-rejected` uses `Connection not authorized.` and permits Edit setup to correct the player-host password while retaining non-secret join setup. `NET-08-admission-closed` retains identifier `match-already-started` with `Round-one admission has closed. Join when the host returns to the lobby.` Browser-origin failures must also permit return to `NET-10` for refresh. Directory read failures remain in `NET-10` and must not imply that an active game has ended. Functional acceptance uses [NET-DIR-AC-003 and NET-PASS-AC-001](../network-host-directory.md) and NET-ADM-AC-003.
+
+### Public pilot functional contract
+
+These public states extend the LAN outcomes below. They apply to both the controller and guests and consume the owning security and lifecycle requirements without redefining their copy.
+
+Presentation authority: [NET-08 UX contract](../design/screens/NET-08.md). The fixed copies in TRU-PUB-009, TRU-PUB-016, HSL-PUB-006, and HSL-PUB-007 are authoritative. New protocol or code identifiers are developer-owned; these functional state IDs are the stable product references. Security and invitation failure offer Edit setup and Return to Network, not direct Retry. A network timeout or resolution failure may offer existing secure Retry only when retained setup remains valid. SIGTERM without an authenticated terminal notice does not select maintenance copy.
+
+| Functional state | Entry and outcome source | Permitted recovery |
+|---|---|---|
+| `NET-08-PUBLIC-SECURITY` | Server identity/encryption failure under TRU-PUB-016, or invitation denial under TRU-PUB-009 | Edit setup to NET-03; Return to Network to NET-01. Invitation denial requires replacement under NET-JOIN-PUB-007. No insecure bypass. |
+| `NET-08-PUBLIC-MAINTENANCE` | Confirmed service maintenance notice under HSL-PUB-007 | HSL-PUB-008; no restoration Retry. |
+| `NET-08-PUBLIC-CONTROLLER-EXPIRED` | Confirmed service expiry notice under HSL-PUB-006 | HSL-PUB-008; no restoration Retry. |
+
+Missing DNS, unreachable service, and timeouts retain existing initial-connection outcomes. They must not be presented as successful deployment, admission, or a known session end. An unconfirmed connection loss during a session remains NET-07 until an authoritative terminal result or the original deadline. Edit setup retains non-secret setup under NET-JOIN-PUB-006. No failure displays invitation or reconnect credentials.
+
+Functional acceptance: `TRU-PUB-AC-001`–`TRU-PUB-AC-003`, `NET-JOIN-PUB-AC-001`, and `HSL-PUB-AC-002` cover rejection, recovery permissions, copy, and truthful failure states. UX owns presentation and feedback.
 
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It gives an actionable and truthful outcome for startup/initial-connection failures and terminal reconnect outcomes. It implements `NET-AC-002`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-011`, `NET-AC-013`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 Issue #30 defines the compatibility and admission outcomes for this screen in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
@@ -79,7 +95,7 @@ The runtime must stop at the first applicable complete host result in the table 
 | 5 | `required-capability-unsupported` | `Network release mismatch. Use the same supported game release as the host.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 6 | `gameplay-content-manifest-invalid` | `Gameplay content manifest is invalid. Use the host's exact supported gameplay content.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 7 | `gameplay-content-mismatch` | `Gameplay content mismatch. Use the host's exact supported gameplay content.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
-| 8 | `match-already-started` | `Match already started. Join-in-progress is not supported.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
+| 8 | `match-already-started` | `Round-one admission has closed. Join when the host returns to the lobby.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`; browser-origin recovery → `NET-10` for refresh. |
 | 9 | `session-full` | `Session is full.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 10 | `host-policy-rejected` | `Host rejected the connection.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 11 | `admitted` | No rejection copy. | Enter `NET-04` only after exact final-confirmation validation; do not show `NET-08`. |

@@ -10,6 +10,7 @@ RUN apt-get update \
         ca-certificates \
         cmake \
         libcurl4-openssl-dev \
+        libssl-dev \
         libgl1-mesa-dev \
         libglew-dev \
         liblua5.3-dev \

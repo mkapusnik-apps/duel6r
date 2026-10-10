@@ -30,4 +30,4 @@ The screen must disclose that listings do not guarantee reachability. It must no
 
 NET-DIR-AC-001 through NET-DIR-AC-004 apply. Evidence must cover full and closed listings remaining visible, locked selection, all freshness states, bounded browsing, and recovery without blocking direct Join.
 
-UX owns layout, navigation presentation, feedback, focus, accessibility, and responsive behavior. This contract does not select controls or geometry.
+UX owns layout, navigation presentation, feedback, focus, accessibility, and responsive behavior in [NET-10](../design/screens/NET-10.md). This contract does not select controls or geometry.

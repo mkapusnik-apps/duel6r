@@ -34,6 +34,7 @@ RUN /opt/vcpkg/vcpkg install --triplet x64-mingw-dynamic \
         sdl2-ttf \
         glew \
         'curl[core,ssl,c-ares]' \
+        openssl \
         lua
 
 COPY docker/mbedtls /opt/duel6r-mbedtls

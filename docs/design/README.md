@@ -2,48 +2,55 @@
 
 ## Scope and authority
 
-This index owns new UX specifications. The existing [visual design system](../design.md#unified-network-presentation) owns the approved network presentation requirements `UX-NET-001`–`UX-NET-024` and `UX-NET-AC-01`–`UX-NET-AC-08`. The native MENU-01 is the visual reference. This work does not migrate legacy documentation or alter product behavior. The [product inventory](../screens/README.md) owns screen identities and functional contracts.
+The [product inventory](../screens/README.md) owns screen identities, functional states, and behavior. The existing [visual design system](../design.md#unified-network-presentation) owns reusable appearance. Current develop at `412abfaae857ab65ba21746819de54c3ac4446be` is the visual integration baseline. Its unified network controls, host-settings refinement, listening multiselect, release/content line, and platform context take precedence over older PR90 presentation. Do not migrate legacy sources or create another design system.
 
-The host-directory work is a localized extension of the graphical network flow, not a redesign. The [host-directory contract](../network-host-directory.md) owns NET-DIR-001–016 and NET-PASS-001–007. The [network-play contract](../network-play-first-release.md) owns NET-ADM-001–012. These canonical requirements and the current functional screen targets supersede conflicting legacy exclusions. UX does not define service protocols, heartbeat intervals, expiry durations, or password policy.
-
-Product reserves **NET-10** in the [browser contract](../screens/network-browser.md). Its stable states are `NET-10-loading`, `NET-10-results`, `NET-10-empty`, `NET-10-stale`, and `NET-10-unavailable`. Related states are `NET-02-password`, `NET-03-password`, `NET-03-live-admission`, `NET-08-password-rejected`, and `NET-08-admission-closed`.
+The [network-play contract](../network-play-first-release.md) owns NET-PUB and NET-ADM. The [join contract](../screens/network-join.md) owns NET-JOIN-PUB. The [trust policy](../network-trust-and-abuse-limits.md) and [lifecycle contract](../network-host-service-lifecycle.md) own TRU-PUB and HSL-PUB. The [directory contract](../network-host-directory.md) owns player-hosted listings and passwords. The dedicated extension adds no listing, account, environment picker, provisioning task, or published gameplay endpoint.
 
 ## Principles
 
-- The UI must keep local play and direct connection discoverable during directory failure.
-- The UI must distinguish a listing from a reachable host.
-- The UI must distinguish password protection, match phase, and admission availability.
-- The UI must preserve the existing desktop canvas, controls, and arena presentation.
-- The UI must keep feedback visible without requiring color recognition.
-- The UI must make actionable and editable regions identifiable before focus moves to them.
-- Visual reuse must preserve network-specific input, ownership, and disabled-state semantics.
-- Contextual panels must preserve the underlying task rather than replace live gameplay with a menu.
+- The UI must keep Local Play and the existing player-hosted journeys unchanged.
+- The UI must distinguish service type, confirmed participant role, and connection state.
+- The UI must preserve a browser-selected endpoint, session identity, and directory origin.
+- The UI must not classify all player-hosted connections as insecure private LAN.
+- The UI must not show unsupported dedicated entry on macOS or Raspberry Pi.
+- The UI must explain departure and reconnect consequences without implying receipt of an undelivered request.
+- The UI must not infer a terminal cause from silence or an endpoint name.
+- Each added control must use current develop's appearance and supported input methods.
 
 ## Screen specifications
 
-Network-capable experimental macOS uses the existing NET-01 through NET-10 journeys. The former `MENU-01-MAC-LOCAL` / `MENU-02-MAC-LOCAL` notice and UX-MAC-MSG-001–011 are [historical-only](screens/MENU-02.md). [UX-NET-01-006–008](screens/NET-01.md#presentation-requirements) own the replacement scope line and unchanged placement/text size. Only that line changes in the NET-01 SVG; all other wireframes remain unchanged. Preserve the corrected Mac drawable/pointer baseline throughout network transitions. Actual native Mac visual assessment remains [deferred](screenshots/README.md#macos-deferred-coverage), separate from mandatory native automated acceptance.
-
-| Screen | Authoritative presentation | Structural wireframes |
+| Screen | Owning presentation | Structural sources |
 |---|---|---|
-| [NET-01](screens/NET-01.md) | Entry and navigation | [NET-01](wireframes/NET-01/NET-01.svg) |
-| [NET-02](screens/NET-02.md) | Editable host setup, wildcard/explicit listening popup, and pending startup | [NET-02](wireframes/NET-02/NET-02.svg), [NET-02-LA](wireframes/NET-02/NET-02-LA.svg), [NET-02-LE](wireframes/NET-02/NET-02-LE.svg), [NET-02-P](wireframes/NET-02/NET-02-P.svg) |
-| [NET-03](screens/NET-03.md) | Shared direct/directory join and connecting | [NET-03-E](wireframes/NET-03/NET-03-E.svg), [NET-03](../screens/wireframes/network-join.md) |
-| [NET-04](screens/NET-04.md) | Lobby, listing feedback, host game-settings appearance, retained results | [NET-04](wireframes/NET-04/NET-04.svg), [NET-04-R](wireframes/NET-04/NET-04-R.svg); [legacy relationship context](../screens/wireframes/network-lobby.md) |
-| [NET-05](screens/NET-05.md) | Network controls and contextual panels; no arena/HUD redesign | [NET-05](../screens/wireframes/network-match.md), [NET-05-C](wireframes/NET-05/NET-05-C.svg), [NET-05-S](wireframes/NET-05/NET-05-S.svg), [NET-05-R](wireframes/NET-05/NET-05-R.svg) |
-| NET-06 | [Existing design-system owning section](../design.md#net-06--completed-summary-presentation) and [functional contract](../screens/network-summary.md) | [NET-06](../screens/wireframes/network-summary.md) |
-| NET-07 | [Existing design-system owning section](../design.md#net-07--reconnect-presentation) and [functional contract](../screens/network-reconnect.md) | [NET-07](../screens/wireframes/network-reconnect.md) |
-| [NET-08](screens/NET-08.md) | Failure and recovery presentation | [NET-08](../screens/wireframes/network-failure.md) |
-| NET-09 | [Existing design-system owning section](../design.md#net-09--intentional-host-end-presentation) and [functional contract](../screens/network-host-ended.md) | [NET-09](../screens/wireframes/network-host-ended.md) |
-| [NET-10](screens/NET-10.md) | Session browser | [NET-10](wireframes/NET-10/NET-10.svg) |
+| NET-01 | [Current entry](screens/NET-01.md), unchanged appearance | [NET-01](wireframes/NET-01/NET-01.svg) |
+| NET-02 | Current develop's [host setup](screens/NET-02.md), unchanged by this extension | NET-02, NET-02-LA, NET-02-LE, NET-02-P from the fixed develop baseline |
+| NET-03 | [Direct setup and dedicated variant](screens/NET-03.md) | [NET-03-E](wireframes/NET-03/NET-03-E.svg); [NET-03-P](wireframes/NET-03/NET-03-P.svg); unchanged [NET-03 connecting SVG](wireframes/NET-03/NET-03.svg), with current develop's [locked-task context](../screens/wireframes/network-join.md) |
+| NET-04 | [Current settings and dedicated role context](screens/NET-04.md) | [NET-04](wireframes/NET-04/NET-04.svg); [NET-04-R](wireframes/NET-04/NET-04-R.svg) |
+| NET-05 | [Dedicated status within current match presentation](screens/NET-05.md) | Existing NET-05; unchanged NET-05-C, NET-05-S, NET-05-R |
+| NET-06 | [Dedicated summary boundary](screens/NET-06.md) over the current design-system owning section | Existing NET-06 |
+| NET-07 | [Dedicated reconnect](screens/NET-07.md) over the current design-system owning section | Existing NET-07; NET-05-C for confirmation |
+| NET-08 | [Failure and recovery](screens/NET-08.md) | Existing NET-08 |
+| NET-09 | [Confirmed intentional end](screens/NET-09.md) over the current design-system owning section | Existing NET-09 |
+| NET-10 | Current develop's [browser](screens/NET-10.md), unchanged by this extension | NET-10 from the fixed develop baseline |
 
-The [current capture matrix](screenshots/README.md#network-presentation-current-capture-matrix) owns 18 network representatives, including NET-02-LA and NET-02-LE for the listening popup. NET-02-P, NET-05-S, and NET-05-R make existing materially different tasks explicit; they do not add product screens or behavior. Existing legacy diagrams remain at their current locations. Shared token values remain unchanged; network presentation adopts the native panel and control treatments. Changed NET-02 listening presentation requires new evidence; unaffected representatives retain their original scope.
+NET-03-P remains the dedicated editable variant because it includes the service-type row, invitation help, and controller guidance with reduced visible setup rows. It is not a new product screen. Browser setup remains NET-03-E. Connecting retains the existing locked NET-03 task. NET-03-P does not require a nested menu or a second secret dialog.
 
-Read each screen's functional contract before its visual requirements. Changed presentation in the owning sections above supersedes conflicting older appearance examples only. Product owns legacy inventory counts and functional state IDs; UX must not invent replacement states or copy the functional requirements into this index.
+Accept all unaffected incoming develop sources byte-for-byte. In particular, preserve NET-02, NET-02-LA, NET-02-LE, NET-02-P, NET-10, and unchanged NET-05 contextual diagrams. These files are supplied by the develop merge; this specification does not reconstruct them from PR90's older versions. NET-04 and NET-04-R retain the current develop settings structure, with only dedicated header context added.
 
-The bounded host game-settings refinement uses UX-NET-04-006 and UX-NET-04-019–031 in the existing NET-04 owner. It preserves network interaction and the network-only level plan. Its [current coverage](screenshots/README.md#host-game-settings-current-coverage) replaces only NET-04 and NET-04-R representatives and requires one constrained guest supplement. Other screen and wireframe baselines remain unchanged.
+## Shared visual and input requirements
 
-## Resolved contract alignment
+- Menu-context screens must retain the centered 850 by 700 logical canvas, background, banner, runtime version, scale cap, and keyline.
+- Controls must use the existing grey bevel, inset white value/list, blue heading, readable flat disabled, and black non-color focus treatments.
+- A service-type choice must use one whole-row cycle target with a plain `↻` cue.
+- Host settings must retain whole-row cycles, inset current values, and square toggle states with On/Off text.
+- Appearance reuse must not add spinner arrows, dropdown targets, text-entry rounds, held repeat, or new host-setting focus stops.
+- Existing press timing, reverse traversal, disabled-focus retention, modal input protection, and scaled pointer bounds must remain unchanged.
+- Hidden and unsupported controls must have no interaction target.
+- New content must stay inside the current 24-logical-pixel menu margin.
+- Adjacent control bounds must keep the current clearance rules.
+- Long values and focus outlines must remain inside their owning regions.
+- Constrained bodies must lose visible rows before text size is reduced or fixed feedback/actions are covered.
+- Contextual panels must keep their existing client-relative bounds and retained context.
 
-The new UX documents own changed presentation only. Unchanged legacy sections remain authoritative. The canonical functional targets resolve the earlier navigation, admission, and password questions; no additional product decision is requested here.
+No new tokens, mobile layout, or accessibility mode is introduced. Existing macOS drawable/pointer corrections and deferred native Mac evidence remain applicable only to their approved player-hosted scope. Dedicated clients are Linux x86-64 and Windows x86-64 under NET-PUB-AC-006.
 
-Registration is automatic after host readiness under NET-DIR-001. All active registrations remain visible under NET-DIR-002; UX adds no loopback or private-address filter. Endpoint presentation follows NET-DIR-016 and must not imply verified reachability or silently change the listening interface. Assigned public unicast IPv4 options follow NET-HOST-IF-002–003 without an Internet guarantee. Password rejection uses `Connection not authorized.` under NET-PASS-004. Input validation must follow supported implementation limits without inventing a new UX password policy. Browser-origin failure permits return to NET-10 for refresh. Full, closed, and stale listings cannot start browser joins under NET-DIR-012. Publication recovery follows NET-DIR-015 without a match restart.
+The [scoped dedicated matrix](screenshots/README.md#dedicated-extension-scoped-capture-matrix) owns changed evidence. It does not invalidate every develop representative or revive PR90's retired seventeen-row plan. Developer owns capture after team declares functional closure. Native Windows dedicated verification remains required and unwaived. Historical cloud and draft packets are not current acceptance evidence.

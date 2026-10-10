@@ -22,8 +22,9 @@
     <path d="M25 740H875" stroke-dasharray="5 5"/>
   </g>
   <g font-family="sans-serif" font-size="14" fill="black">
-    <text x="49" y="52">NETWORK LOBBY • Host • session endpoint</text>
-    <text x="49" y="80">Current membership: 2 participants • 10 players</text>
+    <text x="49" y="52">NETWORK LOBBY • Host • Dedicated session • 2 participants • 10 players</text>
+    <text x="49" y="70">Endpoint: actual operator hostname or IPv4 and port</text>
+    <text x="49" y="88">You control this session. Leaving ends it for everyone.</text>
     <text x="62" y="125">PARTICIPANTS / AUTHORITATIVE ROSTER</text>
     <text x="62" y="155">Role    Connection    Readiness    Owned players</text>
     <text x="62" y="180">Host    Connected     Not ready    5</text>
