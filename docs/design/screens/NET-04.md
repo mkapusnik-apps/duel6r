@@ -2,14 +2,14 @@
 
 Functional authority: [NET-04](../../screens/network-lobby.md), `NET-OWN-002`–`NET-OWN-009`, `NET-DIR-001`–`NET-DIR-007/015`, and `NET-PUB-001`–`NET-PUB-015`. Pilot states: `NET-04-PUBLIC-CONTROLLER` and `NET-04-PUBLIC-GUEST`. Structural sources: [NET-04](../wireframes/NET-04/NET-04.svg) and develop's [NET-04-R](../wireframes/NET-04/NET-04-R.svg).
 
-Visual impact: use develop `412abfaae857ab65ba21746819de54c3ac4446be` as the base. Preserve its unified groups, current host-settings appearance, retained results, and reorder indication. Add dedicated role and consequence copy only in the header.
+Visual impact: adopt the ordinary aligned-panel refinement from develop `675c405a921fae235f1ac1ca37eb7e84ed988065` over the headless baseline `a5d3e441beff05242449a616a3af1559fbaef663`. Preserve existing unified appearance, whole-row settings, retained results, role consequences, and reorder indication. The geometry requirements below compose the wider ordinary Participants region with the dedicated header clearance; they do not change permissions or add controls.
 
 ## Presentation and allocation
 
 The [unified visual baseline](../../design.md#unified-network-presentation) applies to both wireframes.
 
 - **UX-NET-04-001** The fixed header must keep endpoint, role, totals, and applicable status above the body.
-- **UX-NET-04-002** The body must retain approximately two-thirds membership/roster and one-third host settings with an 8-logical-pixel gap.
+- **UX-NET-04-002** The body must retain approximately two-thirds membership/roster and one-third host settings with at least 8 logical pixels of clearance under the owning geometry below.
 - **UX-NET-04-003** Participant and roster sections must use fixed headings above inset list bodies.
 - **UX-NET-04-004** Role, Connection, Readiness, and Owned must remain separate participant columns.
 - **UX-NET-04-005** Owned editable values must retain a field boundary distinct from remote read-only values.
@@ -43,9 +43,39 @@ Reading order remains header, current membership/settings, retained results when
 - **UX-NET-04-028** Guest settings must show current values and On or Off text without host cycle markers or enabled checkbox treatment.
 - **UX-NET-04-029** Full supported mode and level-plan values must remain readable at the standard text size in both layouts.
 - **UX-NET-04-030** Long fixed-level names must remain contained within the existing value bounds without splitting UTF-8 characters.
-- **UX-NET-04-031** Settings appearance must not add a help row, move the panel bounds, or cover adjacent membership, results, status, or actions.
+- **UX-NET-04-031** Settings appearance must not add a help row, move the owning geometry defined below, or cover adjacent membership, results, status, or actions.
 
 These current develop requirements apply equally to the service-confirmed controller. Preserve forward cycling, whole-row pointer press, no held repeat, existing Tab/directional traversal, Enter/Space/controller Confirm, host-only authority, readiness clearing, content-blocked availability, and hidden Team rows. Do not import local Spinner or Textbox interaction. Keep Fixed level available under the existing level-plan behavior. Existing Team preferences and retained-result/reorder access remain unchanged.
+
+### Ordinary and retained lobby geometry
+
+These values use the existing 850 by 700 logical canvas and bottom-left origin. The SVG uses top-left diagram coordinates. Its low-fidelity text and example content do not prescribe production typography or a fixed capture dataset.
+
+| Region | X | Width | Bottom | Top |
+|---|---:|---:|---:|---:|
+| OrdinaryParticipants playerhostHostGuest | 40 | 526 | 392 | 482 |
+| OrdinaryParticipants dedicatedHostGuest | 40 | 526 | 392 | 476 |
+| OrdinaryPlayersAndControls | 40 | 526 | 196 | 384 |
+| OrdinaryHostMatchSettings | 578 | 238 | 196 | 482 |
+| RetainedParticipants playerhostHost | 40 | 358 | 410 | 476 |
+| RetainedParticipants playerhostGuest | 40 | 358 | 410 | 500 |
+| RetainedParticipants dedicatedHostGuest | 40 | 358 | 410 | 476 |
+| RetainedHostMatchSettings | 406 | 410 | 350 | 482 |
+| Retainedresult | 32 | 786 | 135 | 350 |
+
+- **UX-NET-04-032** Ordinary Participants must match the 526-logical-pixel Players And Controls width for both roles and hosting variants.
+- **UX-NET-04-033** Ordinary player-hosted Participants must align its top with Host Match Settings at 482 for both Host and Guest.
+- **UX-NET-04-034** Dedicated Participants must retain top 476 for both roles to preserve its separate endpoint and consequence header.
+- **UX-NET-04-035** Ordinary Host Match Settings must align its bottom with Players And Controls at 196 without moving setting rows or adding targets.
+- **UX-NET-04-036** Ordinary Participants must show two visible fixed-height rows under its fixed headings and expose all supported membership through scrolling.
+- **UX-NET-04-037** Ordinary participant and roster scrolling must account for two visible participant rows and six visible roster rows for either local role.
+- **UX-NET-04-038** Participant headings, inset body, clipping, and interaction regions must use the same current owning bounds without narrowing the displayed columns.
+- **UX-NET-04-039** Retained lobby must keep its existing role-dependent participant allocation, compact settings grid, result span, navigation, and footer.
+- **UX-NET-04-040** Dedicated retained Guest must use the dedicated header clearance and one visible participant row, not the ordinary player-hosted Guest's taller header allocation.
+- **UX-NET-04-041** Layout row counts and header variants must not grant Host controls or publication rights to a Guest.
+- **UX-NET-04-042** Fixed feedback, script policy, Ready, Start, Leave or End, and result-navigation targets must remain unobscured at both minimum viewports.
+
+Ordinary participant baselines remain 416 and 398 with the existing 18-logical-pixel pitch. Retained baselines remain 416 for Host and dedicated Guest, and 440/422 for player-hosted Guest. Keep retained-result scrolling independent from current membership. Preserve full access to fifteen participants/players, owned-slot focus, reserved/reconnecting labels, readiness reasons, and all existing current-versus-historical identity rules. A layout flag must not substitute for the service-confirmed permission role.
 
 ## Player-hosted listing feedback
 

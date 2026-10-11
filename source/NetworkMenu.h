@@ -149,7 +149,7 @@ namespace Duel6 {
         void drawAction(Int32 y, const std::string &text, bool selected, bool enabled = true) const;
         void drawFocusKeyline(Int32 x, Int32 y, Int32 width, Int32 height, bool selected) const;
         void drawMenuCanvas(Int32 width, Int32 height) const;
-        void drawPlayers(const Network::Replication::CanonicalState &state, bool host = false) const;
+        void drawPlayers(const Network::Replication::CanonicalState &state, bool host, bool dedicated) const;
         void drawMatch(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height,
                        bool interactive = true, const std::string &connectionState = "Connected",
                        bool showLiveNetworkState = true) const;

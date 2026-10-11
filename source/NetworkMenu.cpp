@@ -516,10 +516,11 @@ namespace Duel6 {
             return count > visible ? count - visible : 0;
         }
 
-        std::size_t lobbyMaximumScroll(const Network::Replication::CanonicalState &state, bool host) {
-            const std::size_t visible = host ? 2 : 3;
-            const std::size_t participantMaximum = state.participants.size() > visible
-                    ? state.participants.size() - visible : 0;
+        constexpr std::size_t OrdinaryLobbyParticipantRows = 2;
+
+        std::size_t lobbyMaximumScroll(const Network::Replication::CanonicalState &state) {
+            const std::size_t participantMaximum = state.participants.size() > OrdinaryLobbyParticipantRows
+                    ? state.participants.size() - OrdinaryLobbyParticipantRows : 0;
             const std::size_t rosterMaximum = state.players.size() > 6 ? state.players.size() - 6 : 0;
             return std::max(participantMaximum, rosterMaximum);
         }
@@ -613,6 +614,9 @@ namespace Duel6 {
 
     void NetworkMenu::beforeStart(Context *) { SDL_ShowCursor(SDL_ENABLE); SDL_StartTextInput(); }
     void NetworkMenu::beforeClose(Context *) {
+        // A close-on-press transfers the queued release to the parent context.
+        // Do not retain that press as presentation state when this menu reopens.
+        pointerHeld = false; pointerX = pointerY = 0;
         SDL_StopTextInput(); runtime.reset();
         clearInvitation();
         Network::Trust::secureEraseMemory(password.data(), password.size()); password.clear();
@@ -1186,7 +1190,7 @@ namespace Duel6 {
                 || focus != resultFocusIndex(snap, localPlayers.size()))) {
             const auto maximum = snap.canonical && snap.canonical->result.available
                     ? std::max(snap.canonical->players.size(), snap.canonical->participants.size()) - 1
-                    : snap.canonical ? lobbyMaximumScroll(*snap.canonical, snap.host || snap.publicSession) : 0;
+                    : snap.canonical ? lobbyMaximumScroll(*snap.canonical) : 0;
             setupScroll = std::clamp(setupScroll - event.getAmountY(), 0, static_cast<int>(maximum));
             focus = static_cast<int>(localPlayers.size()) * 2;
             return;
@@ -1294,7 +1298,7 @@ namespace Duel6 {
             if (focus >= rosterBase && focus < rosterBase + static_cast<int>(roster.size()))
                 selected = static_cast<std::size_t>(focus - rosterBase);
         }
-        const int maximum = static_cast<int>(lobbyMaximumScroll(*snap.canonical, snap.host || snap.publicSession));
+        const int maximum = static_cast<int>(lobbyMaximumScroll(*snap.canonical));
         setupScroll = std::clamp(setupScroll, 0, maximum);
         if (!selected) return;
         if (*selected < static_cast<std::size_t>(setupScroll)) setupScroll = static_cast<int>(*selected);
@@ -2168,9 +2172,9 @@ namespace Duel6 {
         drawPanel(24, 24, 802, 544, "");
     }
 
-    void NetworkMenu::drawPlayers(const Network::Replication::CanonicalState &state, bool host) const {
-        Int32 y = host ? 416 : 440;
-        const std::size_t visible = state.result.available ? (host ? 1 : 2) : (host ? 2 : 3);
+    void NetworkMenu::drawPlayers(const Network::Replication::CanonicalState &state, bool host, bool dedicated) const {
+        Int32 y = state.result.available && !host && !dedicated ? 440 : 416;
+        const std::size_t visible = state.result.available ? (host || dedicated ? 1 : 2) : OrdinaryLobbyParticipantRows;
         const std::size_t first = std::min<std::size_t>(setupScroll,
                 state.participants.size() > visible ? state.participants.size() - visible : 0);
         for (std::size_t participantIndex = first;
@@ -2369,15 +2373,16 @@ namespace Duel6 {
             if (!snap.directoryAvailable && !snap.directoryRegistering)
                 drawText(42, 484, "Session is still running. Share the endpoint for direct connection.");
         }
-        const Int32 participantTop = snap.host || snap.publicSession ? 476 : 500;
+        const Int32 participantTop = snap.publicSession ? 476 : state.result.available ? (snap.host ? 476 : 500) : 482;
         const Int32 participantBottom = state.result.available ? 410 : 392;
-        drawPanel(40, participantBottom, 358, participantTop - participantBottom, "PARTICIPANTS");
-        renderer.quadXY(Vector(42, participantTop - 40), Vector(354, 20), Color(170));
+        const Int32 participantWidth = state.result.available ? 358 : 526;
+        drawPanel(40, participantBottom, participantWidth, participantTop - participantBottom, "PARTICIPANTS");
+        renderer.quadXY(Vector(42, participantTop - 40), Vector(participantWidth - 4, 20), Color(170));
         drawText(44, participantTop - 36, "Role"); drawText(142, participantTop - 36, "Connection");
         drawText(254, participantTop - 36, "Readiness"); drawText(350, participantTop - 36, "Owned");
-        drawField(42, participantBottom + 2, 354, participantTop - 42 - participantBottom);
-        drawPlayers(state, snap.host || snap.publicSession);
-        const Int32 settingsBottom = state.result.available ? 350 : 232;
+        drawField(42, participantBottom + 2, participantWidth - 4, participantTop - 42 - participantBottom);
+        drawPlayers(state, snap.host, snap.publicSession);
+        const Int32 settingsBottom = state.result.available ? 350 : 196;
         const Int32 settingsLeft = state.result.available ? 406 : LobbySettingLeft - 6;
         const Int32 settingsWidth = 816 - settingsLeft;
         drawPanel(settingsLeft, settingsBottom, settingsWidth, 482 - settingsBottom, "HOST MATCH SETTINGS");

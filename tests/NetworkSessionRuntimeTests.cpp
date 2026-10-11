@@ -902,13 +902,20 @@ D6R_TEST_CASE("NET-ENTRY production SDL queue hands off entry release shortcuts 
         D6R_REQUIRE_EQ(1, SDL_PushEvent(&event));
     };
     const auto queuePointer = [&](int x, int y, bool down) {
+        const auto &screen = application.video->getScreen();
+        float scale = main.menuScale;
+        int tx = main.menuTranslationX, ty = main.menuTranslationY;
+        if (Context::getCurrent().is(*main.networkMenu)) {
+            scale = std::min(1.35f, std::min(float(screen.getClientWidth()) / 850, float(screen.getClientHeight()) / 700));
+            tx = (screen.getClientWidth() - int(850 * scale)) / 2;
+            ty = (screen.getClientHeight() - int(700 * scale)) / 2;
+        }
         SDL_Event event{};
         event.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
         event.button.button = SDL_BUTTON_LEFT;
         event.button.state = down ? SDL_PRESSED : SDL_RELEASED;
-        event.button.x = main.menuTranslationX + int(x * main.menuScale);
-        event.button.y = application.video->getScreen().getClientHeight()
-                         - main.menuTranslationY - int(y * main.menuScale);
+        event.button.x = tx + int(x * scale);
+        event.button.y = screen.getClientHeight() - ty - int(y * scale);
         D6R_REQUIRE_EQ(1, SDL_PushEvent(&event));
     };
     const auto queued = [&] { return SDL_HasEvents(SDL_KEYDOWN, SDL_MOUSEBUTTONUP) == SDL_TRUE; };
@@ -943,6 +950,19 @@ D6R_TEST_CASE("NET-ENTRY production SDL queue hands off entry release shortcuts 
     frameEvents(); retained(); D6R_REQUIRE(!queued());
     D6R_REQUIRE(!application.input.isPressed(SDLK_F1) && !application.input.isPressed(SDLK_F2));
 
+    // Actual GL readback of the unpressed Back control, not a saved screenshot
+    // or manufactured menu. Compare this same control after ownership changes.
+    auto &renderer = application.video->getRenderer();
+    renderer.clearBuffers(); menu.render();
+    const auto initialEntry = renderer.makeScreenshot();
+    const auto &screen = application.video->getScreen();
+    const float scale = std::min(1.35f, std::min(float(screen.getClientWidth()) / 850, float(screen.getClientHeight()) / 700));
+    const int tx = (screen.getClientWidth() - int(850 * scale)) / 2;
+    const int ty = (screen.getClientHeight() - int(700 * scale)) / 2;
+    const int backLeft = tx + int(276 * scale), backRight = tx + int(573 * scale);
+    const int backTop = screen.getClientHeight() - ty - int(321 * scale);
+    const int backBottom = screen.getClientHeight() - ty - int(292 * scale);
+
     queueKey(SDLK_ESCAPE); queueKey(SDLK_ESCAPE, false);
     frameEvents(); D6R_REQUIRE(Context::getCurrent().is(main)); D6R_REQUIRE(queued());
     frameEvents(); D6R_REQUIRE_EQ(initialDepth, Context::contextStack.size());
@@ -961,6 +981,12 @@ D6R_TEST_CASE("NET-ENTRY production SDL queue hands off entry release shortcuts 
     frameEvents(); D6R_REQUIRE_EQ(initialDepth, Context::contextStack.size()); D6R_REQUIRE(!main.isClosed());
     queueKey(SDLK_F2); queueKey(SDLK_F2, false);
     frameEvents(); frameEvents(); retained();
+    renderer.clearBuffers(); menu.render();
+    const auto reopenedEntry = renderer.makeScreenshot();
+    for (int y = backTop; y < backBottom; ++y) for (int x = backLeft; x < backRight; ++x)
+        D6R_REQUIRE(initialEntry.at(y * initialEntry.getWidth() + x)
+                    == reopenedEntry.at(y * reopenedEntry.getWidth() + x));
+    D6R_REQUIRE(!menu.pointerHeld); // The release was correctly consumed by the parent, not this context.
     queueKey(SDLK_ESCAPE); queueKey(SDLK_ESCAPE, false); frameEvents(); frameEvents();
     D6R_REQUIRE_EQ(initialDepth, Context::contextStack.size());
     D6R_REQUIRE_EQ(std::string("7"), main.roundsTextbox->getText());
@@ -1181,6 +1207,193 @@ D6R_TEST_CASE("UX-NET geometry keeps endpoint gaps external password help and Re
         const auto ready = Network::Lifecycle::deserializeParticipantAction(menu.runtime.pendingGuestCommands.front());
         D6R_REQUIRE(ready && ready->kind == Network::Lifecycle::ParticipantActionKind::Ready);
         f.lobby(false,true); f.draw(); D6R_REQUIRE(fill(40,54,220,24,Color(192))); // Accepted retained layout unchanged.
+    }
+}
+
+D6R_TEST_CASE("UX-NET-04 participant width top and settings bottom align without changing retained layout") {
+    ReviewMenuFixture f;
+    const auto fill = [&](int x, int y, int width, int height, Color color) {
+        return std::any_of(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &quad) {
+            return quad.material.getTexture() == Texture{} && quad.material.getColor() == color
+                && quad.vertices[0].x == x && quad.vertices[0].y == y
+                && quad.vertices[2].x == x + width && quad.vertices[2].y == y + height;
+        });
+    };
+    for (const auto &size: {std::pair{850,700}, std::pair{1280,720},
+                            std::pair{1280,900}, std::pair{1920,1080}}) {
+        f.video.screen = ScreenParameters(size.first,size.second,24,24,0,false);
+        for (bool dedicated: {false, true}) for (bool host: {true, false}) for (bool retained: {false, true})
+            for (const auto &mode: {"Deathmatch", "Team deathmatch"}) {
+                f.lobby(host, retained);
+                f.menu.runtime.current.publicSession = dedicated;
+                f.menu.runtime.current.endpoint = {"operator.example.test", 26660};
+                f.menu.runtime.current.canonical->settings.mode = mode;
+                const auto before = lobbyConfigurationFingerprint(f.menu.runtime.snapshot());
+                f.draw();
+                const int top = dedicated ? 476 : retained ? (host ? 476 : 500) : 482;
+                const int bottom = retained ? 410 : 392;
+                const int width = retained ? 358 : 526;
+                D6R_REQUIRE(fill(40, bottom, width, top - bottom, Color(192)));
+                D6R_REQUIRE(fill(42, top - 40, width - 4, 20, Color(170)));
+                D6R_REQUIRE(fill(42, bottom + 2, width - 4, top - 42 - bottom, Color::WHITE));
+                if (!retained) {
+                    D6R_REQUIRE_EQ(dedicated ? 476 : 482, top); // Dedicated consequence keeps its header clearance.
+                    D6R_REQUIRE(fill(40, 196, width, 188, Color(192))); // Same left and right edges.
+                    D6R_REQUIRE(fill(578, 196, 238, 286, Color(192))); // Same bottom, no moved setting rows.
+                    D6R_REQUIRE(fill(42, 198, 522, 144, Color::WHITE)); // Roster allocation unchanged.
+                    D6R_REQUIRE_EQ(8, bottom - (196 + 188)); // Separate participant/roster panels.
+                    D6R_REQUIRE(fill(40, 164, 220, 24, Color(192))); // Ready stays below both panels.
+                } else {
+                    D6R_REQUIRE(fill(406, 350, 410, 132, Color(192))); // Compact result layout unchanged.
+                    D6R_REQUIRE(fill(40, 54, 220, 24, Color(192)));
+                }
+                D6R_REQUIRE_EQ(before, lobbyConfigurationFingerprint(f.menu.runtime.snapshot()));
+                D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty());
+                D6R_REQUIRE(f.menu.runtime.pendingGuestCommands.empty());
+                if (dedicated) {
+                    D6R_REQUIRE(f.text(host ? "You control this session. Leaving ends it for everyone."
+                                           : "The host controls this session. It ends when the host leaves."));
+                    D6R_REQUIRE(!f.text("Directory: Unavailable • Retry publication (F5)"));
+                }
+                if (!host) {
+                    D6R_REQUIRE(f.text("Host settings and authoritative roster order are read-only."));
+                    D6R_REQUIRE(f.text("Leave session") && !f.text("End session"));
+                    D6R_REQUIRE(!f.text("↻ Mode: ") && !f.text("Start match (disabled)"));
+                }
+            }
+    }
+}
+
+D6R_TEST_CASE("UX-NET-04 composed lobby keeps fifteen owned slots pointer targets and Guest permissions independent of layout") {
+    ReviewMenuFixture f;
+    const auto &controls = f.service.getControlsManager().get(0);
+    // Deterministic draw/input extremes, not live admission or native capture evidence.
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}})
+        for (bool dedicated: {false, true}) for (bool host: {true, false}) for (bool retained: {false, true}) {
+            f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+            f.lobby(host, retained); f.menu.runtime.current.publicSession = dedicated;
+            auto &state = *f.menu.runtime.current.canonical;
+            state.players.clear(); f.menu.localPlayers.clear();
+            for (auto &participant: state.participants) participant.ownedPlayerIds.clear();
+            const auto local = host ? 1u : 2u;
+            for (unsigned slot = 0; slot < 15; ++slot) {
+                Network::Replication::PlayerState player;
+                player.playerId = 101 + slot; player.ownerParticipantId = local;
+                player.rosterPosition = slot; player.displayName = "Slot " + std::to_string(slot + 1);
+                state.players.push_back(player); state.participants[host ? 0 : 1].ownedPlayerIds.push_back(player.playerId);
+                f.menu.localPlayers.push_back({player.displayName, &controls, controls.getDescription()});
+            }
+            f.menu.runtime.players = f.menu.localPlayers;
+            f.menu.runtime.sampledActions.resize(15);
+            const auto fingerprint = lobbyConfigurationFingerprint(f.menu.runtime.snapshot());
+            const auto click = [&](int x, int y) {
+                const float scale = std::min(1.35f, std::min(float(size.first) / 850, float(size.second) / 700));
+                const int tx = (size.first - int(850 * scale)) / 2, ty = (size.second - int(700 * scale)) / 2;
+                f.menu.pointerHeld = false;
+                f.click(tx + int(x * scale), ty + int(y * scale));
+                f.click(tx + int(x * scale), ty + int(y * scale), false);
+            };
+            for (unsigned slot = 0; slot < 15; ++slot) {
+                f.menu.focus = slot * 2; f.menu.syncLobbyScroll(f.menu.runtime.snapshot()); f.draw();
+                if (retained) {
+                    D6R_REQUIRE(f.text("Person: Slot " + std::to_string(slot + 1)));
+                    D6R_REQUIRE(f.frame(46, 362, 180, 22, 2));
+                    D6R_REQUIRE(f.text("State: Completed") && f.text("PgUp/PgDn • ←/→"));
+                    click(230, 370);
+                } else {
+                    const int first = std::min(f.menu.setupScroll, 9);
+                    const int row = 322 - (static_cast<int>(slot) - first) * 24;
+                    D6R_REQUIRE(row >= 202 && row <= 322);
+                    D6R_REQUIRE(f.text("Slot " + std::to_string(slot + 1)));
+                    D6R_REQUIRE(f.frame(164, row - 5, 184, 24, 2));
+                    click(360, row + 3);
+                }
+                D6R_REQUIRE_EQ(static_cast<int>(slot * 2 + 1), f.menu.focus);
+                D6R_REQUIRE_EQ(fingerprint, lobbyConfigurationFingerprint(f.menu.runtime.snapshot()));
+            }
+            if (!host) {
+                f.menu.runtime.pendingHostCommands.clear(); f.menu.runtime.pendingGuestCommands.clear();
+                click(retained ? 420 : 600, retained ? 448 : 438); // A host-only Mode row is inert for Guest.
+                D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty() && f.menu.runtime.pendingGuestCommands.empty());
+                D6R_REQUIRE_EQ(fingerprint, lobbyConfigurationFingerprint(f.menu.runtime.snapshot()));
+                f.draw(); D6R_REQUIRE(f.text("Leave session") && !f.text("End session"));
+                D6R_REQUIRE(!f.text("↻ Mode: ") && !f.text("Directory: Unavailable • Retry publication (F5)"));
+            }
+        }
+}
+
+D6R_TEST_CASE("UX-NET-04 aligned participant body contains maximum membership at both scroll extremes") {
+    ReviewMenuFixture f;
+    for (bool dedicated: {false, true}) for (bool host: {true, false}) for (bool retained: {false, true}) {
+        f.lobby(host, retained);
+        f.menu.runtime.current.publicSession = dedicated;
+        auto &state = *f.menu.runtime.current.canonical;
+        state.participants.clear();
+        for (unsigned index = 0; index < 15; ++index)
+            state.participants.push_back({index + 1, index == 0,
+                Network::Replication::ConnectionState::Connected, false, {101 + index}});
+        for (unsigned scroll: {0, 7, 14}) {
+            f.menu.setupScroll = scroll;
+            f.recorder.quads.clear(); f.recorder.draws.clear();
+            f.menu.drawPlayers(state, host, dedicated);
+            const unsigned visible = retained && (host || dedicated) ? 1 : 2;
+            std::size_t columns = 0;
+            for (const auto &quad: f.recorder.quads) {
+                if (quad.material.getTexture() == Texture{}) continue;
+                ++columns;
+                // All four textual columns fit the white body, not its fixed heading.
+                D6R_REQUIRE(quad.vertices[0].y >= (retained ? 412 : 394));
+                D6R_REQUIRE(quad.vertices[2].y <= (retained ? (host || dedicated ? 434 : 458) : dedicated ? 434 : 440));
+            }
+            D6R_REQUIRE_EQ(std::size_t(visible * 4), columns);
+            if (scroll == 14) D6R_REQUIRE(f.text("Guest 15"));
+        }
+    }
+}
+
+D6R_TEST_CASE("UX-NET-04 wheel handler reaches every participant in three and fifteen person lobbies") {
+    ReviewMenuFixture f;
+    for (unsigned count: {3, 15}) for (bool dedicated: {false, true}) for (bool host: {true, false}) for (bool retained: {false, true}) {
+        f.lobby(host, retained);
+        f.menu.runtime.current.publicSession = dedicated;
+        auto &state = *f.menu.runtime.current.canonical;
+        const auto examplePlayer = state.players.front();
+        state.participants.clear(); state.players.clear();
+        for (unsigned index = 0; index < count; ++index) {
+            state.participants.push_back({index + 1, index == 0,
+                index % 2 ? Network::Replication::ConnectionState::Reconnecting
+                          : Network::Replication::ConnectionState::Connected, false, {101 + index}});
+            auto player = examplePlayer;
+            player.playerId = 101 + index; player.ownerParticipantId = index + 1;
+            player.rosterPosition = index; player.displayName = "Person " + std::to_string(index + 1);
+            state.players.push_back(player);
+        }
+        const auto wheel = [&](int amount) {
+            f.menu.mouseWheelEvent(MouseWheelEvent(200, 420, 0, amount));
+            f.menu.syncLobbyScroll(f.menu.runtime.snapshot()); // Same production clamp after traversal/update.
+        };
+        const auto drawParticipants = [&] {
+            f.recorder.quads.clear(); f.recorder.draws.clear();
+            f.menu.drawPlayers(state, host, dedicated); // Do not mistake a roster owner label for a participant row.
+        };
+        wheel(100); // Reset through input, not setupScroll injection.
+        D6R_REQUIRE_EQ(0, f.menu.setupScroll);
+        std::set<unsigned> seen;
+        for (unsigned step = 0; step < count; ++step) {
+            drawParticipants();
+            for (unsigned index = 0; index < count; ++index)
+                if (f.text(index == 0 ? "Host" : "Guest " + std::to_string(index + 1))) seen.insert(index);
+            wheel(-1);
+        }
+        D6R_REQUIRE_EQ(std::size_t(count), seen.size());
+        const int maximum = static_cast<int>(count) - (retained ? 1 : 2);
+        D6R_REQUIRE_EQ(maximum, f.menu.setupScroll);
+        wheel(-100); D6R_REQUIRE_EQ(maximum, f.menu.setupScroll);
+        drawParticipants(); D6R_REQUIRE(f.text("Guest " + std::to_string(count)));
+        wheel(100); D6R_REQUIRE_EQ(0, f.menu.setupScroll);
+        drawParticipants(); D6R_REQUIRE(f.text("Host"));
+        D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty());
+        D6R_REQUIRE(f.menu.runtime.pendingGuestCommands.empty());
     }
 }
 
