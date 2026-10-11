@@ -333,6 +333,10 @@ Only prior criteria or evidence that require enabled NET-05-S scroll arrows, a p
 - Legacy filenames remain unchanged even when their historical player count, round count, degraded state, or countdown differs from the replacement's actual state.
 - The manifest and evidence packet must describe the actual captured state rather than infer it from a filename or an older diagram example.
 
+### NET-04 top-edge refinement status
+
+The user approved a further ordinary NET-04 refinement: align the Participants top edge with Host Match Settings while preserving the approved equal participant/roster widths and settings/roster bottom alignment. The previous production candidate `9ddb55be343d071cb6e4b436e1f6fdefb7fba4dc` and its SS-018 evidence are retired for the changed presentation; the accepted assessment below remains historical provenance only for ordinary NET-04. Replacement source review, capture release and visual assessment are pending. No new image is captured or accepted by this status note. Specifications and wireframes remain unchanged at `37e0cde8bd307d0772700a91c499c0401071b22f`. SS-025 and the constrained guest NET-04-R supplement remain reusable within their original checkpoint, hash, scope and limitations because retained presentation is unchanged.
+
 ### NET-04 localized layout current assessment
 
 **Visual gate: satisfied for the complete approved matrix.** UX assessed the replacement SS-018 and confirmed reuse of the unchanged SS-025 and constrained guest supplement. Frozen production source is `9ddb55be343d071cb6e4b436e1f6fdefb7fba4dc` on `feature/network-lobby-layout`; fixed specifications and wireframes remain at `37e0cde8bd307d0772700a91c499c0401071b22f`. Assessment uses the user's two approved geometry departures: ordinary NET-04 Participants width equals Players And Controls width, and Host Match Settings minimum height aligns its bottom edge with Players And Controls. No normative source or wireframe was changed to accept the image.

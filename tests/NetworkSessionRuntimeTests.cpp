@@ -1119,7 +1119,7 @@ D6R_TEST_CASE("UX-NET geometry keeps endpoint gaps external password help and Re
     }
 }
 
-D6R_TEST_CASE("UX-NET-04 participant width and settings bottom align with the ordinary roster without changing retained layout") {
+D6R_TEST_CASE("UX-NET-04 participant width top and settings bottom align without changing retained layout") {
     ReviewMenuFixture f;
     const auto fill = [&](int x, int y, int width, int height, Color color) {
         return std::any_of(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &quad) {
@@ -1137,13 +1137,14 @@ D6R_TEST_CASE("UX-NET-04 participant width and settings bottom align with the or
                 f.menu.runtime.current.canonical->settings.mode = mode;
                 const auto before = lobbyConfigurationFingerprint(f.menu.runtime.snapshot());
                 f.draw();
-                const int top = host ? 476 : 500;
+                const int top = retained ? (host ? 476 : 500) : 482;
                 const int bottom = retained ? 410 : 392;
                 const int width = retained ? 358 : 526;
                 D6R_REQUIRE(fill(40, bottom, width, top - bottom, Color(192)));
                 D6R_REQUIRE(fill(42, top - 40, width - 4, 20, Color(170)));
                 D6R_REQUIRE(fill(42, bottom + 2, width - 4, top - 42 - bottom, Color::WHITE));
                 if (!retained) {
+                    D6R_REQUIRE_EQ(482, top); // Participants and settings share the top edge.
                     D6R_REQUIRE(fill(40, 196, width, 188, Color(192))); // Same left and right edges.
                     D6R_REQUIRE(fill(578, 196, 238, 286, Color(192))); // Same bottom, no moved setting rows.
                     D6R_REQUIRE(fill(42, 198, 522, 144, Color::WHITE)); // Roster allocation unchanged.
@@ -1157,6 +1158,34 @@ D6R_TEST_CASE("UX-NET-04 participant width and settings bottom align with the or
                 D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty());
                 D6R_REQUIRE(f.menu.runtime.pendingGuestCommands.empty());
             }
+    }
+}
+
+D6R_TEST_CASE("UX-NET-04 aligned participant body contains maximum membership at both scroll extremes") {
+    ReviewMenuFixture f;
+    for (bool host: {true, false}) for (bool retained: {false, true}) {
+        f.lobby(host, retained);
+        auto &state = *f.menu.runtime.current.canonical;
+        state.participants.clear();
+        for (unsigned index = 0; index < 15; ++index)
+            state.participants.push_back({index + 1, index == 0,
+                Network::Replication::ConnectionState::Connected, false, {101 + index}});
+        for (unsigned scroll: {0, 7, 14}) {
+            f.menu.setupScroll = scroll;
+            f.recorder.quads.clear(); f.recorder.draws.clear();
+            f.menu.drawPlayers(state, host);
+            const unsigned visible = retained && host ? 1 : 2;
+            std::size_t columns = 0;
+            for (const auto &quad: f.recorder.quads) {
+                if (quad.material.getTexture() == Texture{}) continue;
+                ++columns;
+                // All four textual columns fit the white body, not its fixed heading.
+                D6R_REQUIRE(quad.vertices[0].y >= (retained ? 412 : 394));
+                D6R_REQUIRE(quad.vertices[2].y <= (retained ? (host ? 434 : 458) : 440));
+            }
+            D6R_REQUIRE_EQ(std::size_t(visible * 4), columns);
+            if (scroll == 14) D6R_REQUIRE(f.text("Guest 15"));
+        }
     }
 }
 

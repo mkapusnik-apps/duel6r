@@ -1978,8 +1978,8 @@ namespace Duel6 {
     }
 
     void NetworkMenu::drawPlayers(const Network::Replication::CanonicalState &state, bool host) const {
-        Int32 y = host ? 416 : 440;
-        const std::size_t visible = state.result.available ? (host ? 1 : 2) : (host ? 2 : 3);
+        Int32 y = state.result.available && !host ? 440 : 416;
+        const std::size_t visible = state.result.available ? (host ? 1 : 2) : 2;
         const std::size_t first = std::min<std::size_t>(setupScroll,
                 state.participants.size() > visible ? state.participants.size() - visible : 0);
         for (std::size_t participantIndex = first;
@@ -2167,7 +2167,7 @@ namespace Duel6 {
             if (!snap.directoryAvailable && !snap.directoryRegistering)
                 drawText(42, 484, "Session is still running. Share the endpoint for direct connection.");
         }
-        const Int32 participantTop = snap.host ? 476 : 500;
+        const Int32 participantTop = state.result.available ? (snap.host ? 476 : 500) : 482;
         const Int32 participantBottom = state.result.available ? 410 : 392;
         const Int32 participantWidth = state.result.available ? 358 : 526;
         drawPanel(40, participantBottom, participantWidth, participantTop - participantBottom, "PARTICIPANTS");
