@@ -1,5 +1,71 @@
 # Screenshot coverage and assessment
 
+## Linked legacy network destinations — maintenance assessment
+
+**Visual gate: satisfied for all five supplied images at evidence checkpoint `9c3fcc9904774f23075f06a3aa330053b3099d6e`, branch `docs/network-screenshot-refresh`.** UX assessed the released five-row campaign with no blocking findings. This section mechanically integrates the approved UX assessment under explicit team delegation; UX could not write the isolated worktree directly. It adds no requirements and changes no normative specification or wireframe.
+
+Team froze production source `37e0cde8bd307d0772700a91c499c0401071b22f` and declared functional closure before capture. The task refreshes actively linked legacy destinations only. Current canonical PNGs under `docs/design/screenshots/` remain unchanged. Four destinations receive exact copies of accepted current images, not new captures; NET-08 alone receives a fresh actual Host-unreachable capture. Original source lineage is retained rather than relabeled as the maintenance checkpoint.
+
+### Compatibility destination table
+
+Paths are repository-relative. Developer verified each of the four copy pairs with `cmp` and reported exact byte equality. Dimensions and hashes are developer-supplied, not independently recomputed by UX. Historical `1920x1080` filenames remain compatibility paths; the first four images actually contain 1280 × 900 clients and were not resized.
+
+| Entry / screen | Compatibility destination | Actual dimensions | SHA-256 | True capture source / operation |
+|---|---|---|---|---|
+| SS-018 / NET-04 | `docs/screenshots/NET-04/host-waiting-one-unready-1920x1080.png` | 1280 × 900 | `26fca6d7c2d395be5326c787fcf3fcc03d811376ca7fa580defa8b60d936cf17` | `23d9d72f36cc57735c88e0570124e03df6447169`; exact copy of `docs/design/screenshots/NET-04/NET-04.png`; `cmp` passed. |
+| SS-015 / NET-01 | `docs/screenshots/NET-01/default-1920x1080.png` | 1280 × 900 | `e993d11a08c227fbece4165d7e15f5653d5b1e25b4296d0f636bba8d7449e5a0` | `00e5ca677a11ad2255e04e317bbd9f2b34dedb07`; exact copy of `docs/design/screenshots/NET-01/NET-01.png`; `cmp` passed. |
+| SS-016 / NET-02 | `docs/screenshots/NET-02/host-setup-1920x1080.png` | 1280 × 900 | `94d5419723da0c0be3e15a4a3eaf91aa25134da4f2957c933bc88386505100ce` | `7b9301fad6f269d4e5a0cc8618990bddc9c7a42d`; exact copy of `docs/design/screenshots/NET-02/NET-02.png`; `cmp` passed. |
+| SS-017 / NET-03 | `docs/screenshots/NET-03/connecting-two-local-players-1920x1080.png` | 1280 × 900 | `26e92e082eef97d94a79dfbec8e9033212137b5fabc64db65c7e470173d949cb` | `e5f5517a56c426104f4cfb73c19058844db0d874`; exact copy of `docs/design/screenshots/NET-03/NET-03.png`; `cmp` passed. |
+| SS-022 / NET-08 | `docs/screenshots/NET-08/host-unreachable-1920x1080.png` | 1920 × 1080 | `bafe62f34a380c3e1e278228decf0cba9a01d84190a5d7b27402c963985e06b6` | `37e0cde8bd307d0772700a91c499c0401071b22f`; new original full-client capture of actual direct-connection failure. |
+
+**Historical note:** This table supersedes earlier hash, dimensions, setup, and acceptance claims for these five legacy destination bytes, including claims in the unchanged legacy screenshot manifest. Those earlier claims describe historical evidence, not the current compatibility files. No legacy manifest, specification, or wireframe is rewritten. The canonical `docs/design/screenshots/NET-08/NET-08.png` remains the separately accepted browser-origin password-rejection representative; it was neither copied nor replaced by the new Host-unreachable image.
+
+### Approved five-row visual assessment
+
+All five images conform for their supplied states and viewports. Framed controls, focus, text and adjacent regions are readable and contained, without clipping or overlap:
+
+- **NET-04:** Current Team settings, host/guest ownership and readiness, disabled Start reason, directory feedback and footer remain distinct. The copied image retains Maple host Ready / Oak guest Not ready, one K1: Arrows slot per participant, Team deathmatch with four teams, Friendly fire/Assistance/Burnable Trees On, Quick Liquid Off, Shuffle all levels, Rounds 99 and Mode focus. Its original [host game-settings assessment](#host-game-settings-current-coverage) remains authoritative.
+- **NET-01:** The three-action NETWORK PLAY modal retains Host initial focus over the actual main menu. Cedar/K1: Arrows, Dogwood/K2: WSAD, Deathmatch and Rounds 3 remain original setup. The [modal assessment](#net-01-modal-current-coverage) retains its original source and scope.
+- **NET-02:** Wildcard listening summary and focused masked optional password remain readable with separate setup regions. Cedar/K1 and Dogwood/K2, Port 26660, and real eligible addresses `127.0.0.1` and `172.17.0.3` are original capture inputs, not current enumeration claims. The [listening assessment](#current-net-02-listening-coverage-status) retains its original scope.
+- **NET-03:** Locked Slot/Person/Control columns, Connecting state, endpoint, deadline and focused Cancel are contained. Original Fir/Hazel local rows with K1: Arrows were genuinely awaiting admission from an owned withholding listener at `127.0.0.1:26660`; this is not admitted-session evidence.
+- **NET-08:** Exact `Host unreachable.` reason, `127.0.0.1:26661` endpoint, recovery instruction, initial Retry focus, Edit setup and Return to Network are visible in separate bounded regions. No password-rejection image or synthetic failure substituted for the actual attempt.
+
+Other network representatives, NET-04-R and its constrained guest supplement are reused at their original accepted scope and lineage; no recapture or broader acceptance is claimed. NET-10 copy mismatch remains a separate nonblocking follow-up, outside this campaign. Native Mac GUI/cross-OS verification remains deferred, not passed. Stills do not independently prove recovery activation, physical controllers, timing, physical-GPU rendering or other viewports.
+
+### Retained original copy provenance
+
+Copies preserve the existing scoped records below; they are not captures of `9c3fcc9` or the new runtime:
+
+- NET-04 original task namespace `d6r-host-settings-23d9d72`, direct endpoint `127.0.0.1:26660`, backend identity `server-pid-302-startticks-120158352-loopback-26660`; Linux Docker Release GL4/Lua, software GL, Xvfb, dummy audio, canvas scale 1.285714. Original approved UX source is `165b64372a506814eabaff47918f39b9aa651910`. Exact capture time/background absent from the durable scoped record are not reconstructed.
+- NET-01 original application label `NET-01-00e5ca6-SS015-2026-10-11T00:21:40.221494+00:00`, actual F2 entry, inactive network/no backend, background `alpine-flood.png`, resource Git tree `399c8a8bdddd86e526e8811ae2da2461d9229866`; Ubuntu 24.04 AMD64 Docker Release GL4/Lua, SDL 2.30.0, software GL, Xvfb :117, dummy audio, scale 1.285714, origin (93,0). Original receipt hash is `36704397ee2d3de4e5026ed73e10cdec62de6925dbafe4e678c97770a56226b1`.
+- NET-02 original application `pid-41-startticks-117224019`, capture start 2026-10-09T00:47:52.761238 UTC, background `alpine-flood.png`, no backend/transport. Original archive/client/asset-manifest hashes remain `87b2b98f891809c8ec3edaf2f2337624f377974693d5478af0138e9704f8653b`, `fd26aa12ca052666218e34522802bf74187982590c04a091261628f673bd10f3` and `76b8ac391b15e07bdb905f20c5d37b8369bbf31115b4b191f1aa5d7a04d833ad`. Original environment is Linux Docker Release GL4/Lua, Xvfb :99, dummy audio, Mesa 25.2.8 llvmpipe LLVM 20.1.2/OpenGL 4.5.
+- NET-03 original application E-PJ `83974d48-40d4-4e88-8dd1-d92ae79bebd5`, start 2026-09-26T13:02:20.509289 UTC, capture 13:02:27.633117–13:02:28.061142 UTC, background `alpine-flood.png`; Ubuntu 24.04 Docker Release GL4/Lua, SDL 2.30.0, Mesa software GL/Xvfb/dummy audio. Original source/runtime provenance in [exact representative lineage](#exact-representative-lineage) is not replaced by maintenance-runtime identities.
+
+### Fresh NET-08 provenance and local verification
+
+The developer packet `/tmp/opencode/network-screenshot-refresh-campaign.md`, SHA-256 `184bdcaece788aaad73145a003182bda6f595191ba2d0f90188f63e5580c4eef`, supplied the following reproduction record. This durable section preserves useful provenance after temporary-packet cleanup; temporary paths are historical, not future dependencies.
+
+- Frozen production source `37e0cde8bd307d0772700a91c499c0401071b22f`, branch `docs/network-screenshot-refresh`. Before capture, only the four intended compatibility PNG copies were dirty; there were no uncommitted presentation-source differences.
+- Verified Release GL4/Lua Linux x86-64 runtime; client SHA-256 `86d841f5d579a9900009f639f4498420e950737ec9566a6a690c6b772a4d4e52`, complete runtime manifest `5611d29f7c3fd10af48fdf7a59afeac6f75e4b7441730fc362a527e1ffa5eb4e`, resource Git tree `399c8a8bdddd86e526e8811ae2da2461d9229866`. Developer verified the full manifest before transfer and reconfirmed client/manifest identities inside capture.
+- Docker image `sha256:604c41dbb788156bb580ae4eee88c7a00d6e06e9facf9cadccc1ba705e00d57e`; namespace/container `d6r-network-evidence-37e0cde`, container ID `2c7145f181e1e1314e4ddf16297f9e7c1974f871db19850f546d7b4da701d29e`. No published host port, backend, listener, directory service, active admitted session or transport forwarder was required or started.
+- Ubuntu 24.04 x86-64 Docker; SDL 2.30.0, Lua 5.3.6, Mesa package 25.2.8, Xvfb 21.1.12, xdotool 3.20160805.1, ImageMagick 6.9.12.98. `LIBGL_ALWAYS_SOFTWARE=1`, SDL dummy audio, isolated HOME `/tmp/capture-home`. The actual GL renderer string was not recorded; package versions are not substituted for that observation.
+- Standard desktop keyboard/pointer input; native full 1920 × 1080 client at (0,0), window 2097158, Xvfb :99 root matching the complete client, 24-bit display, no external chrome. Existing 850 × 700 canvas scale 1.35, centered mathematical origin (386.25,67.5), integer translation as implemented. No crop, resize, retouch or composition.
+- Unchanged `data/config.script`, SHA-256 `ad86aa4fd1e994c05a8915e74ade42c0130976d2046fd817e66ea216cfb6a2c3`; empty compiled directory default and no override. From the shipped empty persons file, developer created Cedar through real menu Add and moved Cedar to Players through the visible row action. Setup was Cedar/K1: Arrows, Deathmatch, Rounds 0; person persistence is scenario data, not source/config editing.
+- Actual route: MENU-01 → F2 → Tab to Join → Enter → NET-10 with directory unavailable → Enter on focused Direct connect → NET-03. Retain Address `127.0.0.1`; Tab to Port, remove the five default digits and type `26661`; empty password, one valid Cedar/K1 local row; pointer-click actual Connect.
+- At 2026-10-11T07:50:03.625327 UTC, developer successfully bound both TCP and UDP sockets to owned container-loopback `127.0.0.1:26661` to verify the unused port. Neither socket called listen; both closed before Connect. After the ordinary deadline, the actual client displayed `Host unreachable.`. No protocol, runtime state or UI was injected.
+- Capture command `import -window root /tmp/host-unreachable.png` ran from 2026-10-11T07:50:15Z to 07:50:17Z. `docker cp` transferred the original bytes directly to the compatibility destination. Application identity was PID 20/start ticks 137031812, observed at 07:50:44.060479 UTC. No admitted network session/match/round identity exists for this failed attempt.
+- Background `textures/menu-backgrounds/forest-foundry.png` was read from the actual application's console after capture, without background override. Diagnostic-only menu/browser/join/console images were outside the repository and are not additional matrix rows.
+
+Local runtime preparation used the existing Docker workspace-transfer helper from the isolated checkpoint:
+
+```sh
+bash docker/run-with-daemon-workspace.sh --name d6r-network-screenshot-preflight-37e0cde --entrypoint bash -e BUILD_TYPE=Release -e BUILD_TESTING=OFF -e D6R_RENDERER=gl4 -e D6R_WITH_LUA=ON -e RUN_TESTS=OFF duel6r-build:local -lc 'bash /workspace/docker/build.sh && bash /workspace/docker/main-menu-smoke.sh'
+```
+
+Compilation and existing 1280 × 900 menu smoke passed, including nonblank rendering, pointer toggle, console toggle and clean exit; full runtime manifest verification passed afterward. The successful actual failure capture reuses the unchanged production/runtime. These are developer local results, not independent QA or hosted CI. Team marked static source review and independent QA not applicable for evidence-only maintenance and supplied Ready authorization subject to exact integration. Hosted merge gates are not established as passed by this assessment.
+
+Developer returned through Return to Network, closed the popup and exited via Escape; PID 20 was confirmed absent. Capture container/display were removed after active use. Developer owns released temporary runtime, diagnostics and packet cleanup after provenance integration. Exact integration of these assessed bytes without presentation-source changes needs no recapture, rebuild or second UX assessment.
+
 ## NET-01 modal current coverage
 
 **Current conformance: satisfied for the supplied SS-015 Linux state and viewport. Capture release: completed after team-declared functional closure of the frozen candidate.** The SS-015 modal target and assessment below supersede earlier four-action/scope-copy SS-015 targets and conformance claims for this change. The canonical PNG now contains the accepted modal representative. Earlier SS-015 hashes identify historical evidence only. All other representatives retain their existing scope and assessment.
