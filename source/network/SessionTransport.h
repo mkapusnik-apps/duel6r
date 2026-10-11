@@ -174,6 +174,15 @@ namespace Duel6::Network {
         std::shared_ptr<NativeWriteObservations> observations;
     };
 
+    // Deterministic ingress scheduling seams, empty in production. Callbacks
+    // must not re-enter transport or crypto; publication runs under the ordered
+    // ingress/inner/input boundary. They neither supply nor authenticate bytes.
+    struct InboundTransportDependencies {
+        std::function<void()> beforeApplicationRead;
+        std::function<void(TransportTimePoint)> beforeApplicationPublish;
+        std::function<void()> beforeInputSeal;
+    };
+
     // Optional dependency seams for deterministic lifecycle tests. Empty functions select
     // the real platform resolver, monotonic clock, non-blocking TCP connector, and socket writer.
     // Injected operations must observe cancelled and return without retaining workers.
@@ -184,6 +193,7 @@ namespace Duel6::Network {
         std::function<ConnectOutcome(const std::vector<ResolvedIpv4Endpoint> &, TransportTimePoint,
                                      const std::function<bool()> &)> connect;
         OutboundTransportDependencies outbound;
+        InboundTransportDependencies inbound;
         // Opts an explicit session endpoint into trust-boundary and pre-admission transport enforcement.
         bool enforceNetworkSessionPolicy = false;
         // Applies pending/source admission accounting. Transport-only diagnostics leave this disabled.

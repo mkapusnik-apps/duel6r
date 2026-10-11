@@ -314,7 +314,8 @@ class TlsPeer:
             action_path = self.control_root / "action" if self.control_root else None
             if action_path and not incoming[backend]:
                 fields = self.action()
-                if len(fields) == 3 and int(fields[0]) == connection_id and fields[1] != "resume":
+                if (len(fields) == 3 and int(fields[0]) == connection_id and fields[1] != "resume"
+                        and (not getattr(self, "application_peer", False) or fields[1] in ("eof", "expiry", "recovery"))):
                     _, action, session = fields
                     action_path.unlink()
                     if action in ("eof", "expiry", "recovery"):
@@ -554,6 +555,37 @@ def source_accounting(backend):
             pass
 
 
+@contextlib.contextmanager
+def authenticated_peer(executable, backend, root, scenario):
+    """A genuine maintained-inner application endpoint, not an opaque relay hack.
+
+    Only protocol observation/injection cases use this extra authenticated peer.
+    Ordinary production flow, certificate negatives, recovery and expiry still
+    use the unmodified opaque PKI/inner route directly to the actual service.
+    """
+    endpoint = port()
+    with (root / "peer.log").open("w+") as log:
+        process = subprocess.Popen([str(executable), str(endpoint), str(backend), str(root), scenario],
+                                   stdin=subprocess.PIPE, stdout=log, stderr=log, text=True)
+        try:
+            process.stdin.write(INVITE + "\n")
+            process.stdin.close()
+            deadline = time.monotonic() + 5
+            while not (root / "peer-ready").exists():
+                assert process.poll() is None and time.monotonic() < deadline, "authenticated peer startup"
+                time.sleep(.01)
+            yield endpoint
+        finally:
+            process.terminate()
+            try:
+                process.wait(5)
+            except subprocess.TimeoutExpired:
+                process.kill(); process.wait(5)
+            log.seek(0)
+            output = log.read()
+            assert all(value not in output for value in (INVITE, ROTATED, OTHER)), "peer logged Password"
+
+
 def main():
     client, server, resources = map(lambda value: Path(value).resolve(), sys.argv[1:4])
     review = len(sys.argv) > 4
@@ -592,12 +624,12 @@ def main():
             assert all(value not in result.stdout + result.stderr for value in (INVITE, ROTATED, OTHER)), "client logged invitation"
             assert result.returncode == 0, result.stdout + result.stderr + peer.evidence()
             if scenario == "summary-return-ordered":
-                assert peer.controller_summary_held.is_set() and peer.guest_summary_seen.is_set(), "ordered summary did not hold real records"
+                assert (root / "summary-controller-held").exists() and (root / "summary-guest-seen").exists(), "authenticated peer did not hold real summary records"
             if scenario in ("flow", "flow-race") and not peer.opaque_inner:
                 assert peer.forwarded_ends >= forwarded_before + 2, "End was observed but not forwarded; " + peer.evidence()
             if scenario == "flow-race":
-                assert peer.race_write_failed.is_set(), "End forwarding regression missed closed-write failure"
-                print("PASS real End forwarded after synchronized opposite write failure", flush=True)
+                assert (root / "race-write-failed").exists() and (root / "end-forwarded-3").exists(), "authenticated peer missed fatal opposite-write and retained End"
+                print("PASS authenticated application peer forwarded actual End after fatal opposite inner write", flush=True)
             if scenario == "notice-eof-match":
                 observation = peer.eof_observation
                 assert observation and observation["complete"] and observation["connection"] == 2, "EOF observation did not finish before unwind"
@@ -611,18 +643,27 @@ def main():
                 # after a production failure without carrying stranded sessions.
                 for name in ("action", "acted", "action.tmp", "attack.bin", "attack-rejected", "summary-release"):
                     (root / name).unlink(missing_ok=True)
+                for pattern in ("peer-*", "end-forwarded-*", "summary-controller-held", "summary-guest-seen", "race-write-failed"):
+                    for evidence in root.glob(pattern):
+                        evidence.unlink()
                 frontend = port() if scenario in ("directory", "directory-reservation") else None
                 with service(server, root, INVITE, frontend) as (backend, _):
-                    peer = TlsPeer(root / "valid.pem", root / "valid.key", backend, root,
-                                   scenario == "flow-race", scenario == "summary-return-ordered", frontend or 0)
-                    try:
-                        run(peer, INVITE, scenario)
-                    except (AssertionError, subprocess.TimeoutExpired) as error:
-                        failures.append(scenario)
-                        print(f"FAIL iteration {iteration} {scenario}: {str(error)[:1000]}", flush=True)
-                        print(peer.evidence(), flush=True)  # Bounded decisive tail is never source-truncated.
-                    finally:
-                        peer.close()
+                    observe_application = (scenario.startswith("attack-") or scenario == "flow-race"
+                        or scenario == "summary-return-ordered" or (scenario.startswith("notice-") and "eof" not in scenario))
+                    helper = (authenticated_peer(server.with_name("duel6r-public-authenticated-peer"), backend, root, scenario)
+                              if observe_application else contextlib.nullcontext(backend))
+                    with helper as relay_backend:
+                        peer = TlsPeer(root / "valid.pem", root / "valid.key", relay_backend, root,
+                                       False, False, frontend or 0)
+                        peer.application_peer = observe_application
+                        try:
+                            run(peer, INVITE, scenario)
+                        except (AssertionError, subprocess.TimeoutExpired) as error:
+                            failures.append(scenario)
+                            print(f"FAIL iteration {iteration} {scenario}: {str(error)[:1000]}", flush=True)
+                            print(peer.evidence(), flush=True)  # Fixed aliases/codes, never application payloads.
+                        finally:
+                            peer.close()
             assert not failures, "Public review regressions failed: " + ", ".join(failures)
             return
         with service(server, root, INVITE) as (backend, ready):

@@ -120,7 +120,8 @@ namespace Duel6 {
             return setupScreen == SetupScreen::Join && !joinFromBrowser && Network::PublicSession::supported();
         }
         int setupFields() const { return serviceTypeAvailable() ? 4 : 3; }
-        bool boundDedicated() const { return setupScreen == SetupScreen::Join && joinFromBrowser && publicConnection && browserSelection.has_value(); }
+        bool boundSelection() const { return setupScreen == SetupScreen::Join && joinFromBrowser && browserSelection.has_value(); }
+        bool boundDedicated() const { return boundSelection() && publicConnection; }
         std::vector<std::string> boundContextLines() const;
         int setupFirstRow() const;
         int setupVisibleRows() const;

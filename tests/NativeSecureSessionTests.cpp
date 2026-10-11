@@ -11,6 +11,24 @@
 #include <thread>
 #include <unistd.h>
 
+#ifdef D6R_TEST_WRAP_SECURE_SDK
+#include <mbedtls/ssl.h>
+// Observe actual SDK entries, not only BIO callbacks (pending may not use BIO).
+static std::atomic<unsigned> sdkReads{0}, sdkWrites{0}, sdkPending{0};
+extern "C" int __real_mbedtls_ssl_read(mbedtls_ssl_context *, unsigned char *, std::size_t);
+extern "C" int __real_mbedtls_ssl_write(mbedtls_ssl_context *, const unsigned char *, std::size_t);
+extern "C" int __real_mbedtls_ssl_check_pending(const mbedtls_ssl_context *);
+extern "C" int __wrap_mbedtls_ssl_read(mbedtls_ssl_context *ctx, unsigned char *data, std::size_t size) {
+    ++sdkReads; return __real_mbedtls_ssl_read(ctx, data, size);
+}
+extern "C" int __wrap_mbedtls_ssl_write(mbedtls_ssl_context *ctx, const unsigned char *data, std::size_t size) {
+    ++sdkWrites; return __real_mbedtls_ssl_write(ctx, data, size);
+}
+extern "C" int __wrap_mbedtls_ssl_check_pending(const mbedtls_ssl_context *ctx) {
+    ++sdkPending; return __real_mbedtls_ssl_check_pending(ctx);
+}
+#endif
+
 namespace {
     using namespace Duel6::Network;
     using namespace std::chrono_literals;
@@ -72,13 +90,17 @@ namespace {
         int socket;
         std::atomic<bool> failWrites{false};
         std::atomic<unsigned> reads{0}, writes{0}, pendingQueries{0};
+        std::function<void()> beforeWriteFailure;
         explicit ByteSocket(int socket) : socket(socket) {}
         std::ptrdiff_t read(unsigned char *data, std::size_t size) override {
             ++reads; const auto count = ::recv(socket, data, std::min<std::size_t>(size, 3), 0);
             return count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) ? -2 : count;
         }
         std::ptrdiff_t write(const unsigned char *data, std::size_t size) override {
-            ++writes; if (failWrites) return -1;
+            ++writes; if (failWrites) {
+                if (beforeWriteFailure) beforeWriteFailure();
+                return -1;
+            }
             const auto count = ::send(socket, data, std::min<std::size_t>(size, 7), MSG_NOSIGNAL);
             return count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) ? -3 : count;
         }
@@ -124,6 +146,46 @@ D6R_TEST_CASE("Common PAKE byte BIO shorts authenticate and fatal write preserve
     D6R_REQUIRE(!guest.pending() && !guest.usable() && guest.expired());
     D6R_REQUIRE_EQ(reads, stream->reads.load()); D6R_REQUIRE_EQ(writes, stream->writes.load());
     D6R_REQUIRE_EQ(pending, stream->pendingQueries.load());
+}
+
+D6R_TEST_CASE("Common PAKE reader waiting behind fatal writer makes zero subsequent SDK operations") {
+    Sockets sockets;
+    auto stream = std::make_shared<ByteSocket>(sockets.fd[1]);
+    SecureSession host(sockets.fd[0], true, secret("fatal-test"));
+    SecureSession guest(sockets.fd[1], false, secret("fatal-test"), {}, stream);
+    D6R_REQUIRE(handshake(host, guest));
+    std::promise<void> inWrite, release;
+    auto released = release.get_future().share();
+    stream->beforeWriteFailure = [&] { inWrite.set_value(); released.wait_for(3s); };
+    stream->failWrites = true;
+    auto writing = std::async(std::launch::async, [&] { const unsigned char value = 1; return guest.send(&value, 1); });
+    const bool entered = inWrite.get_future().wait_for(2s) == std::future_status::ready;
+    if (!entered) release.set_value();
+    D6R_REQUIRE(entered);
+    const auto reads = stream->reads.load(), writes = stream->writes.load(), pending = stream->pendingQueries.load();
+#ifdef D6R_TEST_WRAP_SECURE_SDK
+    const auto directReads = sdkReads.load(), directWrites = sdkWrites.load(), directPending = sdkPending.load();
+#endif
+    std::promise<void> readerStarted;
+    auto reading = std::async(std::launch::async, [&] {
+        std::array<unsigned char, 32> buffer{};
+        readerStarted.set_value();
+        return guest.receive(buffer.data(), buffer.size());
+    });
+    readerStarted.get_future().wait();
+    const bool blocked = reading.wait_for(20ms) == std::future_status::timeout;
+    release.set_value();
+    D6R_REQUIRE(blocked);
+    D6R_REQUIRE_EQ(-1, writing.get()); D6R_REQUIRE_EQ(-1, reading.get());
+    const unsigned char byte = 0;
+    D6R_REQUIRE_EQ(-1, guest.send(&byte, 1));
+    D6R_REQUIRE(!guest.pending() && !guest.usable() && guest.expired());
+    D6R_REQUIRE_EQ(reads, stream->reads.load()); D6R_REQUIRE_EQ(writes, stream->writes.load());
+    D6R_REQUIRE_EQ(pending, stream->pendingQueries.load());
+#ifdef D6R_TEST_WRAP_SECURE_SDK
+    D6R_REQUIRE_EQ(directReads, sdkReads.load()); D6R_REQUIRE_EQ(directWrites, sdkWrites.load());
+    D6R_REQUIRE_EQ(directPending, sdkPending.load());
+#endif
 }
 
 D6R_TEST_CASE("Native private TLS exchanges protected application data for password and unlocked sessions") {

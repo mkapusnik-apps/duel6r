@@ -42,6 +42,11 @@ if (UNIX)
             ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp ${CMAKE_SOURCE_DIR}/tests/NativeSecureSessionTests.cpp)
     target_include_directories(duel6r-native-secure-session-tests PRIVATE ${CMAKE_SOURCE_DIR})
     target_link_libraries(duel6r-native-secure-session-tests PRIVATE duel6r-network-scaffold)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_compile_definitions(duel6r-native-secure-session-tests PRIVATE D6R_TEST_WRAP_SECURE_SDK)
+        target_link_libraries(duel6r-native-secure-session-tests PRIVATE
+                "-Wl,--wrap=mbedtls_ssl_read,--wrap=mbedtls_ssl_write,--wrap=mbedtls_ssl_check_pending")
+    endif ()
     add_test(NAME native-secure-session COMMAND duel6r-native-secure-session-tests)
     set_tests_properties(native-secure-session PROPERTIES TIMEOUT 30 LABELS "application;network;security")
 endif ()
@@ -292,6 +297,11 @@ if (NOT D6R_TRANSPORT_ONLY)
         target_include_directories(duel6r-public-dedicated-runtime-tests PRIVATE ${CMAKE_SOURCE_DIR})
         get_target_property(D6R_PUBLIC_TEST_LIBRARIES duel6r-network-session-runtime-tests LINK_LIBRARIES)
         target_link_libraries(duel6r-public-dedicated-runtime-tests ${D6R_PUBLIC_TEST_LIBRARIES})
+        # A legitimate inner-authenticated application peer for observation and
+        # protocol-peer notice tests. The ordinary process/PKI path stays opaque.
+        add_executable(duel6r-public-authenticated-peer ${CMAKE_SOURCE_DIR}/tests/PublicAuthenticatedPeer.cpp)
+        target_include_directories(duel6r-public-authenticated-peer PRIVATE ${CMAKE_SOURCE_DIR})
+        target_link_libraries(duel6r-public-authenticated-peer PRIVATE duel6r-network-scaffold)
         add_test(NAME duel6r-public-dedicated-process-tests
                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
                         $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>

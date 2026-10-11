@@ -135,6 +135,7 @@ namespace Duel6::Client {
             dependencies.guestAdmission = [this](auto participant, const auto &playerIds) {
                 std::lock_guard<std::mutex> lock(mutex);
                 current.localParticipantId = participant;
+                confirmedAdmissionPending = true;
                 ownedPlayerBindings.clear();
                 for (std::size_t index = 0; index < playerIds.size() && index < players.size(); ++index)
                     ownedPlayerBindings[playerIds[index]] = index;
@@ -244,6 +245,7 @@ namespace Duel6::Client {
         if (current.publicSession)
             current.host = current.localParticipantId != 0 && current.localParticipantId == state.hostParticipantId;
         else if (current.host) current.localParticipantId = state.hostParticipantId;
+        if (current.localParticipantId != 0) confirmedAdmissionPending = true;
         if (!cancelling) {
             current.journey = journeyFor(state); current.status = "Connected";
             current.reconnectSeconds.reset();
@@ -569,6 +571,13 @@ namespace Duel6::Client {
         guestCancelled = true;
         if (guestWorker.joinable()) guestWorker.join();
     }
+    bool NetworkSessionRuntime::takeConfirmedAdmission() {
+        std::lock_guard<std::mutex> lock(mutex);
+        const bool confirmed = confirmedAdmissionPending;
+        confirmedAdmissionPending = false;
+        return confirmed;
+    }
+
     void NetworkSessionRuntime::reset() {
         // Request controller departure on normal application teardown. An unreachable
         // service still ends it at the unchanged reservation deadline.

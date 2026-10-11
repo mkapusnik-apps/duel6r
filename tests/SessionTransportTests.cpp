@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <functional>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -16,6 +17,7 @@
 #include <vector>
 
 #include "source/network/SessionTransport.h"
+#include "source/network/SessionLifecycle.h"
 
 #ifdef D6R_TRANSPORT_WINDOWS
 #define WIN32_LEAN_AND_MEAN
@@ -2038,6 +2040,122 @@ void secureWireRejectsReplay() {
     listener.shutdown();
 }
 
+class IngressPause {
+public:
+    std::atomic<bool> entered{false};
+    void pause() {
+        std::unique_lock<std::mutex> lock(mutex);
+        entered = true; changed.notify_all();
+        changed.wait_for(lock, 5s, [&] { return released; });
+    }
+    void release() { std::lock_guard<std::mutex> lock(mutex); released = true; changed.notify_all(); }
+    ~IngressPause() { release(); }
+private:
+    std::mutex mutex;
+    std::condition_variable changed;
+    bool released = false;
+};
+
+void sealWinsStalePredecryptCheckWithoutLateInput() {
+    for (bool encrypted: {false, true}) {
+        const auto baseline = Trust::processQueueBudget().used();
+        IngressPause pause;
+        SessionTransportDependencies receiving, sending;
+        receiving.secureSession = sending.secureSession = encrypted;
+        receiving.inbound.beforeApplicationRead = [&] { pause.pause(); };
+        const auto port = unusedPort(); TcpListener listener(1, receiving); startListener(listener, port);
+        TcpClient client(sending); CHECK(client.start({"127.0.0.1", port})); requireConnected(client, "predecrypt peer");
+        auto connection = awaitAccept(listener);
+        CHECK(client.connection()->send({1,2,3}) == SendResult::Accepted);
+        CHECK(waitUntil([&] { return pause.entered.load(); }, 2s));
+        const auto sealed = connection->sealAndDrainInput();
+        CHECK(sealed.frames.empty()); // Reader already passed the old capacity/seal check.
+        pause.release();
+        connection->close(); // Cancel/close releases the parked reader without unsealing.
+        TransportFrame late; CHECK(!connection->receive(late));
+        CHECK(connection->sealAndDrainInput().frames.empty());
+        client.close(); listener.shutdown();
+        CHECK(Trust::processQueueBudget().used() == baseline);
+    }
+}
+
+void authenticatedCompletionSealAndFatalWriterShareStableTail() {
+    const auto baseline = Trust::processQueueBudget().used();
+    IngressPause pause;
+    std::atomic<bool> sealing{false};
+    std::atomic<TransportTimePoint> originalReceipt{};
+    std::atomic<RawSocket> socket{InvalidRawSocket};
+    SessionTransportDependencies receiving, sending;
+    receiving.secureSession = sending.secureSession = true;
+    receiving.password = sending.password = std::make_shared<SessionPassword>("ordered-ingress");
+    const auto port = unusedPort(); TcpListener listener(1, sending); startListener(listener, port);
+    receiving.connect = [&](const auto &, auto, const auto &) {
+        socket = connectRaw(port);
+        return ConnectOutcome{ConnectStatus::Connected, static_cast<std::intptr_t>(socket.load())};
+    };
+    receiving.inbound.beforeApplicationPublish = [&](auto receipt) { originalReceipt = receipt; pause.pause(); };
+    receiving.inbound.beforeInputSeal = [&] { sealing = true; };
+    TcpClient client(receiving); CHECK(client.start({"127.0.0.1", port})); requireConnected(client, "completion peer");
+    auto peer = awaitAccept(listener); auto connection = client.connection();
+    const auto notice = Lifecycle::serializeIntentionalHostEnd({91});
+    CHECK(peer->send(notice) == SendResult::Accepted);
+    CHECK(waitUntil([&] { return pause.entered.load(); }, 2s));
+    auto sealed = std::async(std::launch::async, [&] { return connection->sealAndDrainInput(); });
+    CHECK(waitUntil([&] { return sealing.load(); }, 1s));
+    const bool sealBlocked = sealed.wait_for(20ms) == std::future_status::timeout;
+    // Real OS send failure; the maintained inner engine is not replaced. Its
+    // writer must wait for the authenticated completion callback's inner lock.
+#ifdef D6R_TRANSPORT_WINDOWS
+    CHECK(::shutdown(socket.load(), SD_SEND) == 0);
+#else
+    CHECK(::shutdown(socket.load(), SHUT_WR) == 0);
+#endif
+    CHECK(connection->send({7}) == SendResult::Accepted);
+    pause.release();
+    CHECK(sealBlocked);
+    auto tail = sealed.get();
+    CHECK(tail.frames.size() == 1 && tail.frames.front().payload == notice);
+    CHECK(tail.frames.front().receivedAt == originalReceipt.load());
+    CHECK(waitUntil([&] { return connection->state() == ClientState::Failed; }, 2s));
+    CHECK(tail.frames.front().receivedAt < connection->terminalAt());
+    auto parsed = Lifecycle::deserializeIntentionalHostEnd(tail.frames.front().payload);
+    CHECK(parsed && parsed->sessionId == 91);
+    Lifecycle::GuestSessionRecovery recovery(91, 2, 8, true);
+    CHECK(recovery.acceptIntentionalHostEnd(*parsed, 8, tail.frames.front().receivedAt));
+    recovery.transportClosed(connection->terminalAt(), true);
+    CHECK(recovery.journey() == Lifecycle::GuestJourney::HostEnded); // Prefatal authenticated proof wins.
+    TransportFrame late;
+    CHECK(!connection->receive(late)); CHECK(connection->sealAndDrainInput().frames.empty());
+    connection->close(); client.close(); peer->close(); listener.shutdown();
+    CHECK(Trust::processQueueBudget().used() == baseline);
+}
+
+void securePartialStagingCannotBecomeSealedTerminalProof() {
+    const auto baseline = Trust::processQueueBudget().used();
+    SessionTransportDependencies encrypted; encrypted.secureSession = true;
+    const auto port = unusedPort(); TcpListener listener(1, encrypted); startListener(listener, port);
+    RawSocketOwner socket(connectRaw(port));
+#ifdef D6R_TRANSPORT_WINDOWS
+    u_long nonblocking = 1; CHECK(ioctlsocket(socket.get(), FIONBIO, &nonblocking) == 0);
+#else
+    CHECK(fcntl(socket.get(), F_SETFL, O_NONBLOCK) == 0);
+#endif
+    SecureSession peer(static_cast<std::intptr_t>(socket.get()), false, {});
+    CHECK(peer.handshake(std::chrono::steady_clock::now() + 3s, [] { return false; }));
+    auto connection = awaitAccept(listener);
+    auto notice = Lifecycle::serializeIntentionalHostEnd({91});
+    auto header = envelope(TransportFramingIdentifier, TransportFramingVersion, 0, notice.size());
+    CHECK(peer.send(header.data(), header.size()) == static_cast<std::ptrdiff_t>(header.size()));
+    CHECK(peer.send(notice.data(), notice.size() - 1) == static_cast<std::ptrdiff_t>(notice.size() - 1));
+    CHECK(waitUntil([&] { return Trust::processQueueBudget().used() == baseline + notice.size(); }, 2s));
+    CHECK(connection->sealAndDrainInput().frames.empty());
+    connection->requestClose(); connection->close(); // Original cancellation/close, no unseal or extra interval.
+    CHECK(connection->sealAndDrainInput().frames.empty());
+    TransportFrame frame; CHECK(!connection->receive(frame));
+    listener.shutdown();
+    CHECK(Trust::processQueueBudget().used() == baseline);
+}
+
 void secureSessionPasswordAdmission() {
     for (const auto &passwords: std::vector<std::pair<std::string, std::string>>{
             {"", ""}, {"session-test", "session-test"}, {"session-test", "wrong"}, {"session-test", ""}}) {
@@ -2214,6 +2332,9 @@ int main() {
         {"native raw and production refusal controls", rawNativeRefusalControls},
         {"conditional admission acceptance accounting", conditionalAdmissionAcceptanceAccounting},
         {"concrete seal and drain race", concreteSealAndDrainRacesReceiveWithoutLossOrDuplication},
+        {"seal wins paused stale predecrypt check without late input", sealWinsStalePredecryptCheckWithoutLateInput},
+        {"authenticated completion seal and fatal writer preserve timestamped terminal tail", authenticatedCompletionSealAndFatalWriterShareStableTail},
+        {"secure partial staging cannot become sealed terminal proof", securePartialStagingCannotBecomeSealedTerminalProof},
         {"bounded sealed terminal tail accounting and no new input", boundedSealedTailRetainsQueueAccountingAndRejectsNewInput},
         {"queue reservation is not accepted input receipt", queueReservationIsNotAnAcceptedInputReceipt},
         {"malformed isolation", malformedPeersAreIsolated},

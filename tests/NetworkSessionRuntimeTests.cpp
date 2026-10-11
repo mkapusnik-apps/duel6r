@@ -1174,7 +1174,8 @@ D6R_TEST_CASE("UX-NET geometry keeps endpoint gaps external password help and Re
             D6R_REQUIRE_EQ(setup == NetworkMenu::SetupScreen::Join, f.text("Password required"));
             if (setup == NetworkMenu::SetupScreen::Join) {
                 const auto cue = textPosition("Password required");
-                D6R_REQUIRE_EQ(600.0f,cue.x); D6R_REQUIRE(cue.y+16 <= 430);
+                D6R_REQUIRE_EQ(50.0f,cue.x); D6R_REQUIRE_EQ(410.0f,cue.y);
+                D6R_REQUIRE(cue.y+16 <= 430); // Common required/optional help remains outside the inset.
                 D6R_REQUIRE(cue.x+f.font.getTextWidth("Password required",16) < 810);
                 menu.browserSelection->passwordRequired = false; f.draw();
                 D6R_REQUIRE(!f.text("Password required")); // Direct/optional setup is unchanged.
@@ -1592,7 +1593,141 @@ D6R_TEST_CASE("NET-DIR mixed selected dedicated setup locks endpoint and common 
     menu.runtime.current.publicSession = true; menu.runtime.current.localParticipantId = 2;
     menu.runtime.current.canonical = canonical(42, Network::Replication::Phase::Lobby);
     menu.runtime.current.journey = Client::NetworkJourney::Lobby;
+    menu.runtime.applyCanonical(*menu.runtime.current.canonical);
     menu.update(0); D6R_REQUIRE(menu.password.empty()); // Editable buffer only; worker owns channel state.
+}
+
+D6R_TEST_CASE("NET-PASS confirmed admission wipes editable state even when first GUI observation is recovery or terminal") {
+    using J = Client::NetworkJourney;
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    for (bool dedicated: {false, true}) for (auto firstSeen: {J::Reconnecting, J::HostEnded, J::Failure, J::Inactive}) {
+        menu.runtime.reset(); menu.clearPassword();
+        menu.setupScreen = NetworkMenu::SetupScreen::Join;
+        menu.focus = 2; menu.enterText("editable before admission");
+        menu.hostSetup.password = std::make_shared<Network::SessionPassword>(menu.password);
+        menu.runtime.current.publicSession = dedicated;
+        menu.runtime.current.localParticipantId = 2;
+        menu.runtime.applyCanonical(canonical(91, Network::Replication::Phase::Lobby));
+        if (firstSeen == J::Inactive) menu.runtime.reset(); // Worker teardown may reset the snapshot before UI polls.
+        else { menu.runtime.current.journey = firstSeen; menu.runtime.current.canonical.reset(); }
+        menu.update(0);
+        D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password);
+        D6R_REQUIRE(!menu.runtime.takeConfirmedAdmission()); // Only a secret-free event was retained, now consumed.
+    }
+    for (auto neverAdmitted: {J::Inactive, J::Starting, J::Cancelling, J::Failure}) {
+        menu.runtime.reset(); menu.setupScreen = NetworkMenu::SetupScreen::Join;
+        menu.focus = 2; menu.enterText("same context correction");
+        menu.runtime.current.journey = neverAdmitted;
+        menu.runtime.current.failure = "Connection not authorized.";
+        menu.update(0);
+        D6R_REQUIRE_EQ(std::string("same context correction"), menu.password);
+        menu.clearPassword();
+    }
+}
+
+D6R_TEST_CASE("NET-PASS actual Host and Direct endpoint edits erase password state but no-op or rejected events retain it") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    for (auto screen: {NetworkMenu::SetupScreen::Host, NetworkMenu::SetupScreen::Join}) {
+        menu.runtime.reset(); menu.setupScreen = screen; menu.joinFromBrowser = false; menu.browserSelection.reset();
+        menu.port = "26660"; menu.address = "127.0.0.1";
+        const auto count = menu.localPlayers.size();
+        const auto setPassword = [&] {
+            menu.focus = 2; menu.enterText(" retained é ");
+            menu.hostSetup.password = std::make_shared<Network::SessionPassword>(menu.password);
+        };
+        setPassword();
+        menu.enterText("\n"); // Rejected whole Password event leaves previous valid correction intact.
+        D6R_REQUIRE_EQ(std::string(" retained é "), menu.password); D6R_REQUIRE(menu.hostSetup.password);
+        menu.focus = screen == NetworkMenu::SetupScreen::Host ? 0 : 1;
+        menu.enterText(""); D6R_REQUIRE(!menu.password.empty());
+        f.key(SDLK_BACKSPACE);
+        D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password && menu.localPlayers.size() == count);
+        D6R_REQUIRE_EQ(std::string("2666"), menu.port);
+        setPassword(); menu.focus = screen == NetworkMenu::SetupScreen::Host ? 0 : 1;
+        menu.enterText("0"); D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password);
+        setPassword(); menu.port = "123456"; menu.focus = screen == NetworkMenu::SetupScreen::Host ? 0 : 1;
+        menu.enterText("7"); D6R_REQUIRE(!menu.password.empty() && menu.hostSetup.password); // No actual append at limit.
+        menu.port.clear(); f.key(SDLK_BACKSPACE); D6R_REQUIRE(!menu.password.empty()); // No actual removal.
+        menu.clearPassword();
+        if (screen == NetworkMenu::SetupScreen::Join) {
+            setPassword(); menu.focus = 0; menu.enterText("x");
+            D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password && menu.localPlayers.size() == count);
+        } else {
+            setPassword(); menu.hostAddressHighlight = 0; menu.activateListeningChoice();
+            D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password && menu.localPlayers.size() == count);
+        }
+    }
+}
+
+D6R_TEST_CASE("NET-DIR selected targets in both hosting modes stay read-only through correction and explicit Direct clears binding") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    for (bool dedicated: {false, true}) for (bool protectedSelection: {false, true}) {
+        if (dedicated && !Network::PublicSession::supported()) continue;
+        menu.runtime.reset(); menu.clearPassword();
+        Client::DirectoryListing row;
+        row.id = std::string(32, 'a'); row.sessionId = Client::directorySessionId(42);
+        row.endpoint = {"arena.example.test", 26660}; row.hosting = dedicated ? "dedicated" : "player-hosted";
+        row.protection = protectedSelection ? "password" : "none"; row.passwordRequired = protectedSelection;
+        row.phase = "lobby"; row.players = dedicated ? 0 : 1; row.capacity = 15; row.admission = "open";
+        row.expiresAt = 2000000000000;
+        menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+        menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
+        menu.browser.received = menu.browser.requested = std::chrono::steady_clock::now();
+        menu.joinSelected();
+        D6R_REQUIRE(menu.boundSelection() && !menu.serviceTypeAvailable());
+        D6R_REQUIRE_EQ(protectedSelection ? 2 : menu.setupFields(), menu.focus);
+        std::string reason;
+        D6R_REQUIRE_EQ(!protectedSelection, menu.setupValid(reason));
+        const auto localCount = menu.localPlayers.size();
+        menu.focus = 2; menu.enterText(" explicit correction ");
+        for (int field: {0, 1}) {
+            menu.focus = field; menu.enterText("tamper"); f.key(SDLK_BACKSPACE);
+            D6R_REQUIRE_EQ(row.endpoint.host, menu.address); D6R_REQUIRE_EQ(std::string("26660"), menu.port);
+            D6R_REQUIRE_EQ(std::string(" explicit correction "), menu.password);
+            D6R_REQUIRE(menu.browserSelection && menu.browserSelection->sessionId == row.sessionId);
+        }
+        menu.focus = 2;
+        for (int direction: {1, -1}) for (int step = 0; step < 30; ++step) {
+            menu.moveFocus(direction); D6R_REQUIRE(menu.focus >= 2);
+        }
+        for (const auto size: {std::pair{850,700}, std::pair{1280,720}, std::pair{1920,1080}}) {
+            f.video.screen = ScreenParameters(size.first,size.second,24,24,0,false);
+            menu.focus = 2; f.draw();
+            D6R_REQUIRE(f.frame(224,494,586,24,1) && f.frame(224,462,586,24,1));
+            D6R_REQUIRE(f.text("Address (locked):") && f.text("Port (locked):"));
+            D6R_REQUIRE(f.text(dedicated ? "Dedicated service • Selected from browser" : "Player-hosted session • Selected from browser"));
+            D6R_REQUIRE(!f.text("↻") && !f.text("The first admitted participant controls the session."));
+            if (!dedicated) {
+                D6R_REQUIRE(f.text("Session: " + row.sessionId));
+                D6R_REQUIRE(!f.text("The service confirms identity, availability, and your role when you connect."));
+                const float scale = std::min(1.35f, std::min(float(size.first)/850, float(size.second)/700));
+                const int tx = (size.first-int(850*scale))/2, ty = (size.second-int(700*scale))/2;
+                for (int y: {506,474}) {
+                    f.click(tx+int(300*scale), ty+int(y*scale)); menu.pointerHeld = false;
+                    D6R_REQUIRE_EQ(2, menu.focus);
+                }
+            }
+        }
+        menu.runtime.current.journey = Client::NetworkJourney::Starting;
+        menu.back(); D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Cancelling);
+        menu.runtime.reset(); // Completed never-admitted cancellation; binding is UI-owned and unchanged.
+        D6R_REQUIRE(menu.boundSelection() && menu.password == " explicit correction ");
+        menu.runtime.current.journey = Client::NetworkJourney::Failure;
+        menu.runtime.current.publicSession = dedicated;
+        menu.runtime.current.failure = "Connection not authorized.";
+        menu.focus = 0; menu.activate();
+        D6R_REQUIRE(menu.boundSelection() && menu.focus == 2 && menu.password == " explicit correction ");
+        D6R_REQUIRE_EQ(localCount, menu.localPlayers.size());
+        menu.back(); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser && menu.password.empty());
+        D6R_REQUIRE_EQ(row.id, menu.selectedListing);
+        menu.enterDirectSetup();
+        D6R_REQUIRE(!menu.browserSelection && !menu.joinFromBrowser && !menu.boundSelection());
+        D6R_REQUIRE_EQ(0, menu.focus); menu.enterText("x"); // Only independent Direct regains target editing.
+        D6R_REQUIRE(menu.password.empty());
+    }
 }
 
 D6R_TEST_CASE("NET-DIR bound metadata overflow reduces body rows and changed selection permits only browser recovery") {
@@ -1935,20 +2070,31 @@ D6R_TEST_CASE("UX-NET review disabled focused setup start and missing-controller
         controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
         D6R_REQUIRE_EQ(startFocus, menu.focus); // Traversal still reaches disabled Start/Connect.
         f.draw(); D6R_REQUIRE(f.frame(275, 82, 300, 32, 1)); D6R_REQUIRE(f.frame(273, 80, 304, 36, 2));
+        const std::string caption = screen == NetworkMenu::SetupScreen::Host ? "Start session" : "Connect";
+        D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.text(caption + " (disabled)"));
         f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(425, 98);
         controller.pulse(SDL_CONTROLLER_BUTTON_A);
         D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
         D6R_REQUIRE_EQ(startFocus, menu.focus); D6R_REQUIRE(!menu.runtime.supervisor);
         f.key(SDLK_UP); D6R_REQUIRE_EQ(startFocus - 1, menu.focus);
         f.key(SDLK_TAB); D6R_REQUIRE_EQ(startFocus, menu.focus);
+        menu.port = "26660"; f.draw();
+        D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.frame(275, 82, 300, 32, 1));
     }
     f.lobby(); menu.runtime.supervisor = std::make_unique<Client::HostServiceSupervisor>();
-    menu.focus = 13; f.key(SDLK_TAB); D6R_REQUIRE_EQ(14, menu.focus);
-    f.draw(); D6R_REQUIRE(f.frame(408, 54, 210, 24, 1)); D6R_REQUIRE(f.frame(406, 52, 214, 28, 2));
-    D6R_REQUIRE(f.text("Waiting for Guest 2 to be ready."));
-    f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(500, 66); controller.pulse(SDL_CONTROLLER_BUTTON_A);
-    D6R_REQUIRE(menu.runtime.pendingHostCommands.empty());
-    D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Lobby);
+    for (bool retained: {false, true}) {
+        menu.runtime.current.canonical->result.available = retained;
+        menu.focus = 13; f.key(SDLK_TAB); D6R_REQUIRE_EQ(14, menu.focus);
+        f.draw(); D6R_REQUIRE(f.frame(408, 54, 210, 24, 1)); D6R_REQUIRE(f.frame(406, 52, 214, 28, 2));
+        D6R_REQUIRE(f.text("Start match")); D6R_REQUIRE(!f.text("Start match (disabled)"));
+        D6R_REQUIRE(f.text("Waiting for Guest 2 to be ready."));
+        f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(500, 66); controller.pulse(SDL_CONTROLLER_BUTTON_A);
+        D6R_REQUIRE(menu.runtime.pendingHostCommands.empty());
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Lobby);
+        menu.runtime.current.canonical->participants[1].ready = true; f.draw();
+        D6R_REQUIRE(f.text("Start match")); D6R_REQUIRE(!f.frame(408, 54, 210, 24, 1));
+        menu.runtime.current.canonical->participants[1].ready = false;
+    }
 
     // Model a removed binding absent from the current control registry, through
     // the existing removal/rescan hook. This is not physical hotplug evidence.
@@ -1960,6 +2106,45 @@ D6R_TEST_CASE("UX-NET review disabled focused setup start and missing-controller
     f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(150, 180); controller.pulse(SDL_CONTROLLER_BUTTON_A);
     D6R_REQUIRE_EQ(2, menu.focus); D6R_REQUIRE(menu.runtime.pendingGuestCommands.empty());
     D6R_REQUIRE(!menu.runtime.current.canonical->participants[1].ready);
+}
+
+D6R_TEST_CASE("UX-NET browser captions stay unchanged when join refresh and paging are disabled") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    const auto captions = [&] {
+        f.draw();
+        for (const auto &caption: {"Join selected", "Refresh", "Previous page", "Next page", "Direct connect", "Back"}) {
+            D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.text(std::string(caption) + " (disabled)"));
+        }
+    };
+    captions(); // Empty/unavailable: joining and paging are disabled.
+    D6R_REQUIRE(!menu.browserFocusEnabled(1));
+    D6R_REQUIRE(f.frame(28, 68, 252, 32, 1));
+    D6R_REQUIRE(f.frame(28, 108, 252, 24, 1));
+    D6R_REQUIRE(f.frame(560, 108, 256, 24, 1));
+    menu.focus = 1; f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(100, 76);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    D6R_REQUIRE(!menu.browserSelection);
+
+    Client::DirectoryListing row;
+    row.id = row.sessionId = std::string(32, 'a'); row.endpoint = {"127.0.0.1", 26660};
+    row.phase = "lobby"; row.mode = "deathmatch"; row.players = 1; row.capacity = 15;
+    row.expiresAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
+    menu.browser.page = {true, {row}, "next-page"};
+    menu.browser.received = std::chrono::steady_clock::now(); menu.selectedListing = row.id;
+    captions(); D6R_REQUIRE(menu.browserFocusEnabled(1)); D6R_REQUIRE(menu.browserFocusEnabled(5));
+    D6R_REQUIRE(!f.frame(28, 68, 252, 32, 1));
+    D6R_REQUIRE(!f.frame(560, 108, 256, 24, 1));
+
+    std::promise<Client::DirectoryPage> pending;
+    menu.browser.pending = pending.get_future();
+    captions(); // Loading also disables Refresh, even with retained rows.
+    D6R_REQUIRE(!menu.browserFocusEnabled(1)); D6R_REQUIRE(!menu.browserFocusEnabled(2));
+    D6R_REQUIRE(!menu.browserFocusEnabled(5)); D6R_REQUIRE(f.frame(292, 68, 256, 32, 1));
+    menu.focus = 2; f.key(SDLK_RETURN); f.click(400, 76);
+    D6R_REQUIRE(menu.browser.loading()); D6R_REQUIRE(!menu.browserSelection);
 }
 
 D6R_TEST_CASE("UX-NET-04 settings retain bounded cycle values checkbox states and guest read-only presentation") {
@@ -3098,6 +3283,32 @@ D6R_TEST_CASE("NET-PASS real wrong selected session never allocates or admits a 
     D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Lobby; }));
     host.endSession();
     D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
+}
+
+D6R_TEST_CASE("NET-DIR selected player-hosted identity rejects ended and restarted targets before authority for either protection") {
+    using namespace std::chrono_literals;
+    for (bool protectedSession: {false, true}) {
+        Client::NetworkSessionRuntime host, guest, unused;
+        const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
+        Network::HostComposition::Setup setup;
+        setup.localPlayerNames = {"Host"}; setup.fixedLevel = "levels/duel_01.json";
+        setup.password = std::make_shared<Network::SessionPassword>(protectedSession ? "bound-private" : "");
+        D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}));
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+        const auto selected = Client::directorySessionId(host.snapshot().canonical->sessionId);
+        host.endSession();
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
+        host.reset();
+        D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}));
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+        D6R_REQUIRE(Client::directorySessionId(host.snapshot().canonical->sessionId) != selected);
+        D6R_REQUIRE(guest.join(endpoint, D6R_TEST_RESOURCE_DIR, {player("Stale guest")}, setup.password, selected));
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Failure; }));
+        D6R_REQUIRE(guest.snapshot().localParticipantId == 0 && !guest.snapshot().canonical);
+        D6R_REQUIRE(host.snapshot().canonical->players.size() == 1 && host.snapshot().canonical->participants.size() == 1);
+        host.endSession();
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
+    }
 }
 
 D6R_TEST_CASE("NET-PASS key lifetime exhaustion restores reserved protected players without respawn") {

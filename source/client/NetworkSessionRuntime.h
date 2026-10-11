@@ -90,12 +90,16 @@ namespace Duel6::Client {
         void update();
         void suppressGameplayInput(bool suppressed);
         NetworkRuntimeSnapshot snapshot() const;
+        // Durable, secret-free admission event. Survives recovery/terminal/reset
+        // snapshots until the UI consumes it and erases editable Password state.
+        bool takeConfirmedAdmission();
         void reset();
         void retryPublication();
 
     private:
         mutable std::mutex mutex;
         NetworkRuntimeSnapshot current;
+        bool confirmedAdmissionPending = false;
         std::vector<NetworkLocalPlayer> players;
         std::vector<std::uint32_t> sampledActions;
         std::map<Network::Replication::Identity, std::size_t> ownedPlayerBindings;

@@ -168,7 +168,7 @@ D6R_TEST_CASE("NET-DIR dedicated publisher uses frontend without interface disco
     };
     Client::DirectoryPublisher publisher({}, dependencies);
     Client::DirectoryListing listing;
-    listing.hosting = "dedicated"; listing.protection = "invite"; listing.admission = "open";
+    listing.hosting = "dedicated"; listing.protection = "password"; listing.passwordRequired = true; listing.admission = "open";
     listing.endpoint = {"arena.example.test", 26660}; listing.phase = "idle"; listing.mode = "deathmatch";
     listing.capacity = 15; listing.sessionId = Client::directorySessionId(42);
     publisher.update(listing);
@@ -193,7 +193,7 @@ D6R_TEST_CASE("NET-DIR publication request failure remains isolated and recovera
     };
     Client::DirectoryPublisher publisher({}, dependencies);
     Client::DirectoryListing listing;
-    listing.hosting = "dedicated"; listing.protection = "invite"; listing.admission = "open";
+    listing.hosting = "dedicated"; listing.protection = "none"; listing.passwordRequired = false; listing.admission = "open";
     listing.endpoint = {"arena.example.test", 26660}; listing.phase = "idle"; listing.mode = "deathmatch";
     listing.capacity = 15; listing.sessionId = Client::directorySessionId(42);
     publisher.update(listing);
