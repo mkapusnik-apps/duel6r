@@ -848,7 +848,7 @@ namespace Duel6 {
                 }
         } else if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Browser) {
             const auto &rows = browser.result().listings;
-            for (int row = 0; row < 12 && browserScroll + row < static_cast<int>(rows.size()); ++row)
+            for (int row = 0; browser.available() && row < 12 && browserScroll + row < static_cast<int>(rows.size()); ++row)
                 if (pointerInside(x, y, 30, 466 - row * 22, 790, 22)) {
                     selectedListing = rows[browserScroll + row].id; focus = 0; return;
                 }
@@ -1066,6 +1066,7 @@ namespace Duel6 {
             return;
         }
         if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Browser) {
+            if (!browser.available()) return;
             browserScroll = std::clamp(browserScroll - event.getAmountY(), 0,
                 std::max(0, static_cast<int>(browser.result().listings.size()) - 12));
             return;
@@ -1606,8 +1607,8 @@ namespace Duel6 {
                 }
             }
             // A missing identity stays as a tombstone for "Session is no longer listed";
-            // never silently select another host. Failed refresh retains inspection-only rows.
-            if (!browserFocusEnabled(focus)) focus = rows.empty() ? 3 : 0;
+            // never silently select another host. Failed refresh hides retained data until recovery.
+            if (!browserFocusEnabled(focus)) focus = browserFocusEnabled(0) ? 0 : browser.loading() ? 3 : 2;
         }
         runtime.suppressGameplayInput(confirmation != Confirmation::None);
         runtime.update();
@@ -1872,6 +1873,7 @@ namespace Duel6 {
     }
 
     void NetworkMenu::selectBrowserRow(int direction) {
+        if (!browser.available()) return;
         const auto &rows = browser.result().listings;
         if (rows.empty()) return;
         const auto current = std::find_if(rows.begin(), rows.end(), [&](const auto &row) { return row.id == selectedListing; });
@@ -1882,7 +1884,7 @@ namespace Duel6 {
     }
 
     void NetworkMenu::joinSelected() {
-        if (browser.loading() || browser.stale()) return;
+        if (!browser.available() || browser.loading() || browser.stale()) return;
         const auto &rows = browser.result().listings;
         const auto selected = std::find_if(rows.begin(), rows.end(), [&](const auto &row) { return row.id == selectedListing; });
         if (selected == rows.end() || !selected->joinable()) return;
@@ -1894,11 +1896,11 @@ namespace Duel6 {
     }
 
     bool NetworkMenu::browserFocusEnabled(int index) const {
-        if (index == 0) return !browser.result().listings.empty();
+        if (index == 0) return browser.available() && !browser.result().listings.empty();
         if (index == 1) {
             const auto &rows = browser.result().listings;
             const auto selected = std::find_if(rows.begin(), rows.end(), [&](const auto &row) { return row.id == selectedListing; });
-            return selected != rows.end() && selected->joinable() && !browser.stale() && !browser.loading();
+            return browser.available() && selected != rows.end() && selected->joinable() && !browser.stale() && !browser.loading();
         }
         if (index == 2) return !browser.loading();
         if (index == 4) return browser.hasPrevious() && !browser.loading();
@@ -1909,16 +1911,28 @@ namespace Duel6 {
     void NetworkMenu::drawBrowser() const {
         drawPanel(24, 24, 802, 544, "BROWSE SESSIONS");
         const auto &rows = browser.result().listings;
-        const std::string status = browser.loading() ? (rows.empty() ? "Loading sessions..." : "Refreshing... Previous results may be out of date.")
-            : browser.stale() ? "Directory unavailable. Previous results may be out of date." : "Sessions listed";
-        drawClippedText(30, 516, status, 98);
-        renderer.quadXY(Vector(28, 490), Vector(794, 20), Color(170));
-        drawText(30, 494, "Session / endpoint"); drawText(382, 494, "Players");
-        drawText(480, 494, "Phase"); drawText(590, 494, "Password"); drawText(704, 494, "Admission");
-        drawField(28, 200, 794, 290);
+        const bool visibleRows = browser.available();
+        const bool replacement = !browser.loading() && (!visibleRows || rows.empty());
+        if (browser.loading()) drawClippedText(30, 516,
+            visibleRows && !rows.empty() ? "Refreshing... Previous results may be out of date." : "Loading sessions...", 98);
+        else if (visibleRows && browser.stale()) drawClippedText(30, 516,
+            "Directory unavailable. Previous results may be out of date.", 98);
+        if (replacement) {
+            renderer.quadXY(Vector(28, 200), Vector(794, 310), Color(192));
+            drawText(36, 470, !visibleRows
+                ? "Directory unavailable. Direct connection and local play are still available."
+                : browser.result().nextCursor.empty()
+                    ? "No active sessions listed. You can host a session or connect directly."
+                    : "No active sessions on this page. Continue with Next page.");
+        } else {
+            renderer.quadXY(Vector(28, 490), Vector(794, 20), Color(170));
+            drawText(30, 494, "Session / endpoint"); drawText(382, 494, "Players");
+            drawText(480, 494, "Phase"); drawText(590, 494, "Password"); drawText(704, 494, "Admission");
+            drawField(28, 200, 794, 290);
+        }
         const Client::DirectoryListing *selected = nullptr;
-        for (const auto &row: rows) if (row.id == selectedListing) selected = &row;
-        for (int index = browserScroll; index < static_cast<int>(rows.size()) && index < browserScroll + 12; ++index) {
+        if (visibleRows) for (const auto &row: rows) if (row.id == selectedListing) selected = &row;
+        for (int index = browserScroll; visibleRows && index < static_cast<int>(rows.size()) && index < browserScroll + 12; ++index) {
             const auto &row = rows[index]; const Int32 y = 470 - (index - browserScroll) * 22;
             const bool selection = row.id == selectedListing;
             if (selection) renderer.quadXY(Vector(30, y - 4), Vector(790, 22), Color(0, 0, 200));
@@ -1931,11 +1945,6 @@ namespace Duel6 {
             drawText(704, y, browser.stale() || browser.loading() ? "Unknown" : row.phase == "closed" ? "Closed" : row.players >= row.capacity ? "Full" : row.joinable() ? "Open" : "Expired", rowColor);
             drawFocusKeyline(30, y - 4, 790, 22, selection && focus == 0);
         }
-        if (rows.empty() && !browser.loading()) drawWrappedText(36, 436,
-            browser.available() ? (browser.result().nextCursor.empty()
-                ? "No active sessions listed. You can host a session or connect directly."
-                : "No active sessions on this page. Continue with Next page.")
-                                : "Directory unavailable. Direct connection and local play are still available.", 92, 3);
         std::string reason = selected ? "Host validates capacity, compatibility and admission again." : selectedListing.empty() ? "Select a session." : "Session is no longer listed.";
         if (selected && !selected->joinable()) reason = (selected->players >= selected->capacity ? "Session is full. " : "")
             + std::string(selected->phase == "closed" ? "Admission is closed." : "");
@@ -1949,9 +1958,13 @@ namespace Duel6 {
                 == Network::Trust::EndpointScope::Loopback
                 ? "Same-machine endpoint. Only clients on the host machine can connect."
                 : "LAN-first. A listing does not guarantee reachability.");
-        const std::string page = "Page " + std::to_string(browser.pageNumber());
-        drawText(425 - static_cast<Int32>(utf8Length(page)) * 4, 112, page);
+        const bool pagination = browser.hasPrevious() || !browser.result().nextCursor.empty();
+        if (pagination) {
+            const std::string page = "Page " + std::to_string(browser.pageNumber());
+            drawText(425 - static_cast<Int32>(utf8Length(page)) * 4, 112, page);
+        }
         for (const auto &action: BrowserActions) {
+            if (!pagination && (action.focus == 4 || action.focus == 5)) continue;
             const bool enabled = browserFocusEnabled(action.focus);
             drawButton(action.x, action.y, action.width, action.height,
                 action.caption, focus == action.focus, enabled);

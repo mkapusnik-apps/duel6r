@@ -1,5 +1,19 @@
 # Screenshot coverage and assessment
 
+## NET-10 localized browser refinement
+
+This bounded matrix supersedes earlier NET-10 presentation acceptance for the changed results, empty, and failed-refresh representatives only. Existing images do not establish the refined presentation. Capture is not released until static blockers close and team declares functional closure. All other wireframes and capture requirements remain unchanged.
+
+Common profile: original full-client lossless PNG at 1280 × 900; GL4, Lua enabled, Xvfb, dummy audio, software OpenGL; existing 850 × 700 logical canvas. Native rendering only, no crop, retouching, synthetic listing substitution, or composed pixels. Product authority: [browser contract](../../screens/network-browser.md). UX authority: [NET-10](../screens/NET-10.md).
+
+| Wireframe | Setup and focus | Expected presentation | Canonical destination |
+|---|---|---|---|
+| [NET-10](../wireframes/NET-10/NET-10.svg) | Real owned protected/Open and Started/Closed sessions, single-page successful results; protected row selected and focused | Existing table/details/footer allocation; no successful-load status and no pagination group | `docs/design/screenshots/NET-10/NET-10.png` |
+| [NET-10-E](../wireframes/NET-10/NET-10-E.svg) | Successful zero-row read; Refresh focused | Grey noninteractive list replacement with the complete single-line empty description once; no table headings/rows/dividers/scrollbar | `docs/design/screenshots/NET-10/NET-10-E.png` |
+| [NET-10-U](../wireframes/NET-10/NET-10-U.svg) | Actual failed refresh after populated selected results; Refresh focused | Grey noninteractive list replacement with the complete single-line error description once; previous rows and selected identity/endpoint/mode hidden; browser joins disabled | `docs/design/screenshots/NET-10/NET-10-U.png` |
+
+Focused routine checks cover first/middle/last multi-page navigation and single-page hiding, refresh-driven pagination changes, hidden input exclusion, initial failure, failed populated refresh, recovery identity present/absent, age-stale readability, every browser join disabled on failure, independent Direct connect, single-line containment at 850 × 700 and 1280 × 720, and 1920 × 1080 alignment. These checks do not substitute for the three released capture rows or prove live admission behavior.
+
 ## Linked legacy network destinations — maintenance assessment
 
 **Visual gate: satisfied for all five supplied images at evidence checkpoint `9c3fcc9904774f23075f06a3aa330053b3099d6e`, branch `docs/network-screenshot-refresh`.** UX assessed the released five-row campaign with no blocking findings. This section mechanically integrates the approved UX assessment under explicit team delegation; UX could not write the isolated worktree directly. It adds no requirements and changes no normative specification or wireframe.
