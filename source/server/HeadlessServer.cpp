@@ -2438,7 +2438,7 @@ namespace Duel6::Server {
                     if (connection->receive(frame)) {
                         LifecycleCredentialPayloadGuard credentialPayload(frame.payload);
                         runtime.requestReceived = true;
-                        const auto reconnectAttempt = sessionLifecycle
+                        const auto reconnectAttempt = !config.transportEcho
                                 ? Network::Lifecycle::deserializeReconnectAttempt(frame.payload) : std::nullopt;
                         const auto reservedLeave = sessionLifecycle
                                 ? Network::Lifecycle::deserializeReconnectRequest(frame.payload) : std::nullopt;
@@ -2468,8 +2468,13 @@ namespace Duel6::Server {
                             deferLifecycleClose = true;
                             Network::Lifecycle::HostReconnectResult reconnect;
                             try {
-                                reconnect = sessionLifecycle->reconnect(
-                                        reconnectAttempt->request, runtime.connectionId, compatibility);
+                                // A restarted ready-empty service still recognizes
+                                // the scoped reconnect category, but has no old
+                                // authority to restore. Return its existing terminal
+                                // authorization denial, never initial Invite admission.
+                                if (sessionLifecycle)
+                                    reconnect = sessionLifecycle->reconnect(
+                                            reconnectAttempt->request, runtime.connectionId, compatibility);
                             } catch (...) {
                                 deferredLifecycleCloses.insert(runtime.connectionId);
                             }
@@ -2485,7 +2490,7 @@ namespace Duel6::Server {
                                 if (!responsePayload.empty()) responseSent = connection->sendSensitive(responsePayload);
                             } catch (...) {}
                             Network::Lifecycle::eraseLifecycleCredentialPayload(responsePayload);
-                            if (reconnect.outcome == Network::Lifecycle::ReconnectOutcome::Accepted
+                            if (sessionLifecycle && reconnect.outcome == Network::Lifecycle::ReconnectOutcome::Accepted
                                 && responseSent == Network::SendResult::Accepted
                                 && participant != admitted.end()) {
                                 if (!sessionLifecycle->reconnectDeliverySucceeded(
@@ -2498,7 +2503,7 @@ namespace Duel6::Server {
                                     connection->markAdmissionSucceeded();
                                 }
                             } else {
-                                if (reconnect.outcome == Network::Lifecycle::ReconnectOutcome::Accepted)
+                                if (sessionLifecycle && reconnect.outcome == Network::Lifecycle::ReconnectOutcome::Accepted)
                                     (void) sessionLifecycle->reconnectDeliveryFailed(
                                             reconnectAttempt->request.participantId, runtime.connectionId);
                                 deferredLifecycleCloses.insert(runtime.connectionId);

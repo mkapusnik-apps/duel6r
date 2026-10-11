@@ -1692,14 +1692,17 @@ namespace Duel6 {
                     : setupScreen == SetupScreen::Join && focus == 0 ? &address : &port;
             if (((setupScreen == SetupScreen::Join && !boundDedicated() && (focus == 0 || focus == 1))
                  || (setupScreen == SetupScreen::Host && focus == 0) || focus == 2)
-                && event.getCode() == SDLK_BACKSPACE && !field->empty()) {
+                && event.getCode() == SDLK_BACKSPACE && (!field->empty()
+                    || (focus == 2 && setupScreen == SetupScreen::Join && publicConnection && invalidInvitationInput))) {
                 consumeKey();
                 if (focus == 2) {
+                    if (field->empty()) { invalidInvitationInput = false; return; }
                     std::size_t begin = field->size() - 1;
                     while (begin > 0 && (static_cast<unsigned char>((*field)[begin]) & 0xc0) == 0x80) --begin;
                     Network::Trust::secureEraseMemory(field->data() + begin, field->size() - begin);
                     field->resize(begin);
-                    invalidInvitationInput = false;
+                    invalidInvitationInput = setupScreen == SetupScreen::Join && publicConnection
+                        && !field->empty() && !Network::PublicSession::validInvite(*field);
                 } else { field->pop_back(); if (setupScreen == SetupScreen::Join) { clearInvitation(); browserSelection.reset(); } }
             }
         }
@@ -1715,10 +1718,13 @@ namespace Duel6 {
         if (focus == 2) {
             if (setupScreen == SetupScreen::Join && publicConnection) {
                 if (text.empty()) return;
-                if (text.size() > 256 - invitation.value.size()
-                    || !Network::PublicSession::validInvite(text)) { invalidInvitationInput = true; return; }
+                // Reject an over-limit event as a whole. Keep that rejection
+                // sticky until explicit correction, never accept a truncated paste.
+                if (text.size() > 256 - invitation.value.size()) { invalidInvitationInput = true; return; }
+                // Keep bounded invalid spans masked and editable. Valid suffixes
+                // cannot erase whitespace/non-ASCII or revive a rejected event.
                 invitation.value.append(text);
-                invalidInvitationInput = false;
+                invalidInvitationInput = invalidInvitationInput || !Network::PublicSession::validInvite(invitation.value);
                 return;
             }
             if (text.size() <= 128 - password.size() && std::all_of(text.begin(), text.end(), [](unsigned char c) {

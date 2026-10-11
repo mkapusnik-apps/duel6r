@@ -1030,7 +1030,7 @@ D6R_TEST_CASE("NET-JOIN-PUB direct-only platform selection uses empty operator f
     menu.moveFocus(1); menu.moveFocus(1); menu.moveFocus(1);
     D6R_REQUIRE_EQ(2, menu.focus);
     menu.enterText("synthetic-pilot-only");
-    D6R_REQUIRE_EQ(std::string("synthetic-pilot-only"), menu.invitation.value);
+    D6R_REQUIRE(menu.invitation.value == "synthetic-pilot-only");
     f.draw(); D6R_REQUIRE(f.text("Invite:"));
     D6R_REQUIRE(!f.text("synthetic-pilot-only"));
     menu.enterText(" rejected whitespace");
@@ -1038,7 +1038,7 @@ D6R_TEST_CASE("NET-JOIN-PUB direct-only platform selection uses empty operator f
     std::string reason;
     D6R_REQUIRE(!menu.setupValid(reason));
     D6R_REQUIRE_EQ(std::string("Use 1–256 printable ASCII characters without spaces."), reason);
-    D6R_REQUIRE_EQ(std::string("synthetic-pilot-only"), menu.invitation.value);
+    D6R_REQUIRE(menu.invitation.value == "synthetic-pilot-only rejected whitespace");
     menu.clearInvitation(); menu.enterText(std::string(256, 'x'));
     menu.enterText("x");
     D6R_REQUIRE(menu.invalidInvitationInput && menu.invitation.value.size() == 256);
@@ -1257,6 +1257,85 @@ D6R_TEST_CASE("DIRUX01 bound four five six context lines contain full row focus 
             D6R_REQUIRE_EQ(count - 1, menu.localPlayers.size());
         }
     }
+}
+
+D6R_TEST_CASE("F01 opaque invitation per-event invalid spans cannot become connectable and correction preserves binding") {
+    if (!Network::PublicSession::supported()) return;
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    for (bool bound: {false, true}) {
+        menu.runtime.current = {};
+        menu.setupScreen = NetworkMenu::SetupScreen::Join; menu.publicConnection = true;
+        menu.joinFromBrowser = bound; menu.browserSelection.reset();
+        menu.address = "arena.example.test"; menu.port = "26660";
+        if (bound) {
+            menu.browserSelection = Client::DirectoryListing{};
+            menu.browserSelection->endpoint = {menu.address, 26660};
+            menu.browserSelection->sessionId = Client::directorySessionId(42);
+            menu.browserSelection->hosting = "dedicated";
+        }
+        menu.focus = 2; menu.clearInvitation();
+        std::string reason;
+        menu.textInputEvent(TextInputEvent("AA"));
+        menu.textInputEvent(TextInputEvent(" "));
+        menu.textInputEvent(TextInputEvent("BB"));
+        D6R_REQUIRE(!menu.setupValid(reason));
+        D6R_REQUIRE(menu.invitation.value == "AA BB"); // Masked invalid span retained, never silently discarded.
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(!menu.setupValid(reason));
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(!menu.setupValid(reason));
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        D6R_REQUIRE(menu.invitation.value == "AA");
+        menu.clearInvitation();
+        menu.enterText("A"); menu.enterText("\xC3\xA9"); menu.enterText("B");
+        D6R_REQUIRE(!menu.setupValid(reason));
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(!menu.setupValid(reason));
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        D6R_REQUIRE(menu.invitation.value == "A");
+        for (const std::string &invalid: {std::string("\t"), std::string("\n"), std::string(1, '\x7f')}) {
+            menu.clearInvitation(); menu.enterText("A"); menu.enterText(invalid); menu.enterText("B");
+            D6R_REQUIRE(!menu.setupValid(reason));
+            f.key(SDLK_BACKSPACE); D6R_REQUIRE(!menu.setupValid(reason));
+            f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        }
+        menu.clearInvitation(); menu.enterText(std::string(256, 'x'));
+        D6R_REQUIRE(menu.setupValid(reason));
+        menu.enterText("y"); menu.enterText("z"); D6R_REQUIRE(!menu.setupValid(reason));
+        D6R_REQUIRE(menu.invitation.value == std::string(256, 'x')); // Whole over-limit events rejected, no partial append.
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        menu.clearInvitation(); menu.enterText(std::string(257, 'x')); menu.enterText("A");
+        D6R_REQUIRE(!menu.setupValid(reason));
+        menu.clearInvitation(); menu.enterText("Case-Sensitive!_09");
+        D6R_REQUIRE(menu.setupValid(reason) && menu.invitation.value == "Case-Sensitive!_09");
+        D6R_REQUIRE(menu.localPlayers.size() == 1 && menu.address == "arena.example.test" && menu.port == "26660");
+        D6R_REQUIRE_EQ(bound, menu.browserSelection.has_value());
+    }
+}
+
+D6R_TEST_CASE("F01 SDL explicit clipboard paste rejects invalid whole values without shortening or later flag clearing") {
+    if (!Network::PublicSession::supported()) return;
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    menu.setupScreen = NetworkMenu::SetupScreen::Join; menu.publicConnection = true;
+    menu.address = "arena.example.test"; menu.port = "26660"; menu.focus = 2;
+    const auto paste = [&](const std::string &value) {
+        D6R_REQUIRE(SDL_SetClipboardText(value.c_str()) == 0);
+        menu.keyEvent(KeyPressEvent(SDLK_v, SysEvent::ButtonState::PRESSED, KMOD_CTRL));
+        D6R_REQUIRE(SDL_SetClipboardText("") == 0);
+    };
+    std::string reason;
+    for (const std::string &invalid: {std::string("A B"), std::string("A\xC3\xA9"), std::string("A\tB")}) {
+        menu.clearInvitation(); paste(invalid); menu.enterText("Z");
+        D6R_REQUIRE(!menu.setupValid(reason));
+        D6R_REQUIRE(menu.invitation.value == invalid + "Z");
+    }
+    menu.clearInvitation(); paste(std::string(257, 'x')); menu.enterText("Z");
+    D6R_REQUIRE(!menu.setupValid(reason));
+    D6R_REQUIRE(menu.invitation.value != std::string(256, 'x'));
+    menu.clearInvitation(); paste("Exact-Case!_09");
+    D6R_REQUIRE(menu.setupValid(reason) && menu.invitation.value == "Exact-Case!_09");
+    menu.clearInvitation(); D6R_REQUIRE(menu.invitation.value.empty() && !menu.setupValid(reason));
+    menu.publicConnection = false; menu.password.clear(); menu.enterText("private password with spaces");
+    D6R_REQUIRE(menu.password == "private password with spaces");
 }
 
 D6R_TEST_CASE("public reviewed headers failure recovery and full setup slots stay bounded at minimum viewports") {

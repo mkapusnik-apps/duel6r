@@ -3163,6 +3163,72 @@ D6R_TEST_CASE("NET-09 production Headless sends one intentional End notice and n
 }
 
 #if defined(__linux__) && defined(D6R_PUBLIC_DEDICATED)
+D6R_TEST_CASE("F02 fresh idle or occupied dedicated service dispatches stale wellformed reconnect as scoped terminal denial") {
+    for (bool occupied: {false, true}) for (bool malformed: {false, true}) {
+        TemporaryResources files;
+        const std::string invite = "disposable-reconnect-dispatch-fixture";
+        D6R_REQUIRE(files.write("invite", invite));
+        D6R_REQUIRE(chmod((files.root / "invite").c_str(), 0600) == 0);
+        const auto resources = fs::path(__FILE__).parent_path().parent_path() / "resources";
+        const auto built = Network::CompatibilityManifestBuilder(resources.string()).build();
+        D6R_REQUIRE(built.valid());
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto stale = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        auto controller = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        stale->closeOnRequest = true;
+        Network::Lifecycle::ReconnectAttempt old;
+        old.request.sessionId = 42; old.request.participantId = 99; old.request.reservationId = 7;
+        old.request.credential.bytes.fill(17);
+        old.compatibility = requestFor(built.manifest);
+        auto payload = Network::Lifecycle::serializeReconnectAttempt(old);
+        if (malformed) payload.push_back(0xff);
+        stale->queue(payload, fixture->now);
+        controller->queue(Network::PublicSession::wrapAdmission(Network::serializeAdmissionRequest(requestFor(built.manifest)), invite), fixture->now);
+        fixture->connection = occupied ? controller : stale;
+        std::optional<Network::Lifecycle::ReconnectResponse> response;
+        bool initialCategory = false, queued = !occupied;
+        unsigned commits = 0, grants = 0;
+        controller->onSend = [&](const auto &bytes) {
+            if (bytes.size() >= 4 && bytes[3] == 'O')
+                controller->queue(Network::serializeAdmissionAcceptance(Network::deserializeAdmissionOffer(bytes)), fixture->now);
+        };
+        stale->onSend = [&](const auto &bytes) {
+            if (auto value = Network::Lifecycle::deserializeReconnectResponse(bytes)) response = *value;
+            if (Network::Lifecycle::deserializeReconnectGrant(bytes)) ++grants;
+            initialCategory = initialCategory || (bytes.size() >= 4 && bytes[0] == 'D' && bytes[1] == '6' && bytes[2] == 'R' && bytes[3] == 'S');
+        };
+        auto dependencies = runtimeDependencies(fixture, built.manifest);
+        dependencies.hostedServiceStatus = [](auto) { return true; };
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+        dependencies.lifecycleObserver = [&](const auto &event) {
+            if (event.stage == Server::AdmissionLifecycleStage::TransactionCommitted) ++commits;
+            return true;
+        };
+        dependencies.wait = [&](auto amount) {
+            fixture->now += amount;
+            if (occupied && controller->succeeded && !queued) {
+                stale->accepted = fixture->now;
+                fixture->pendingConnections.push_back(stale); queued = true;
+            }
+            if (stale->closeRequested || fixture->now > Network::Trust::TimePoint{} + 1s) fixture->cancelled = true;
+        };
+        auto config = runtimeServerConfig();
+        config.dedicated = true; config.trustedProxyV2 = true; config.localPlayers = 0;
+        config.inviteFile = (files.root / "invite").string(); config.readinessSocket = (files.root / "ready.sock").string();
+        std::ostringstream output;
+        Server::HeadlessServer server(config, dependencies); server.runtimeDependencies.productionReplicationProtocol = true;
+        D6R_REQUIRE_EQ(0, server.run(output));
+        controller->onSend = {}; stale->onSend = {};
+        D6R_REQUIRE(grants == 0 && !stale->succeeded && commits == (occupied ? 1u : 0u));
+        if (malformed) D6R_REQUIRE(!response);
+        else {
+            D6R_REQUIRE(response.has_value() && !initialCategory);
+            D6R_REQUIRE(response->sessionId == old.request.sessionId && response->participantId == old.request.participantId);
+            D6R_REQUIRE(response->outcome == Network::Lifecycle::ReconnectOutcome::AuthorizationFailed && !response->nextGrant);
+        }
+    }
+}
+
 D6R_TEST_CASE("R2 dedicated startup compares directory numeric effective port without network requests") {
     TemporaryResources files;
     D6R_REQUIRE(files.write("invite", "disposable-origin-fixture"));
