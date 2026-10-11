@@ -1289,20 +1289,31 @@ D6R_TEST_CASE("UX-NET review disabled focused setup start and missing-controller
         controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
         D6R_REQUIRE_EQ(5, menu.focus); // Baseline traversal still reaches disabled Start/Connect.
         f.draw(); D6R_REQUIRE(f.frame(275, 82, 300, 32, 1)); D6R_REQUIRE(f.frame(273, 80, 304, 36, 2));
+        const std::string caption = screen == NetworkMenu::SetupScreen::Host ? "Start session" : "Connect";
+        D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.text(caption + " (disabled)"));
         f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(425, 98);
         controller.pulse(SDL_CONTROLLER_BUTTON_A);
         D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
         D6R_REQUIRE_EQ(5, menu.focus); D6R_REQUIRE(!menu.runtime.supervisor);
         f.key(SDLK_UP); D6R_REQUIRE_EQ(4, menu.focus);
         f.key(SDLK_TAB); D6R_REQUIRE_EQ(5, menu.focus);
+        menu.port = "26660"; f.draw();
+        D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.frame(275, 82, 300, 32, 1));
     }
     f.lobby(); menu.runtime.supervisor = std::make_unique<Client::HostServiceSupervisor>();
-    menu.focus = 13; f.key(SDLK_TAB); D6R_REQUIRE_EQ(14, menu.focus);
-    f.draw(); D6R_REQUIRE(f.frame(408, 54, 210, 24, 1)); D6R_REQUIRE(f.frame(406, 52, 214, 28, 2));
-    D6R_REQUIRE(f.text("Waiting for Guest 2 to be ready."));
-    f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(500, 66); controller.pulse(SDL_CONTROLLER_BUTTON_A);
-    D6R_REQUIRE(menu.runtime.pendingHostCommands.empty());
-    D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Lobby);
+    for (bool retained: {false, true}) {
+        menu.runtime.current.canonical->result.available = retained;
+        menu.focus = 13; f.key(SDLK_TAB); D6R_REQUIRE_EQ(14, menu.focus);
+        f.draw(); D6R_REQUIRE(f.frame(408, 54, 210, 24, 1)); D6R_REQUIRE(f.frame(406, 52, 214, 28, 2));
+        D6R_REQUIRE(f.text("Start match")); D6R_REQUIRE(!f.text("Start match (disabled)"));
+        D6R_REQUIRE(f.text("Waiting for Guest 2 to be ready."));
+        f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(500, 66); controller.pulse(SDL_CONTROLLER_BUTTON_A);
+        D6R_REQUIRE(menu.runtime.pendingHostCommands.empty());
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Lobby);
+        menu.runtime.current.canonical->participants[1].ready = true; f.draw();
+        D6R_REQUIRE(f.text("Start match")); D6R_REQUIRE(!f.frame(408, 54, 210, 24, 1));
+        menu.runtime.current.canonical->participants[1].ready = false;
+    }
 
     // Model a removed binding absent from the current control registry, through
     // the existing removal/rescan hook. This is not physical hotplug evidence.
@@ -1314,6 +1325,45 @@ D6R_TEST_CASE("UX-NET review disabled focused setup start and missing-controller
     f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(150, 180); controller.pulse(SDL_CONTROLLER_BUTTON_A);
     D6R_REQUIRE_EQ(2, menu.focus); D6R_REQUIRE(menu.runtime.pendingGuestCommands.empty());
     D6R_REQUIRE(!menu.runtime.current.canonical->participants[1].ready);
+}
+
+D6R_TEST_CASE("UX-NET browser captions stay unchanged when join refresh and paging are disabled") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    const auto captions = [&] {
+        f.draw();
+        for (const auto &caption: {"Join selected", "Refresh", "Previous page", "Next page", "Direct connect", "Back"}) {
+            D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.text(std::string(caption) + " (disabled)"));
+        }
+    };
+    captions(); // Empty/unavailable: joining and paging are disabled.
+    D6R_REQUIRE(!menu.browserFocusEnabled(1));
+    D6R_REQUIRE(f.frame(28, 68, 252, 32, 1));
+    D6R_REQUIRE(f.frame(28, 108, 252, 24, 1));
+    D6R_REQUIRE(f.frame(560, 108, 256, 24, 1));
+    menu.focus = 1; f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(100, 76);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    D6R_REQUIRE(!menu.browserSelection);
+
+    Client::DirectoryListing row;
+    row.id = row.sessionId = std::string(32, 'a'); row.endpoint = {"127.0.0.1", 26660};
+    row.phase = "lobby"; row.mode = "deathmatch"; row.players = 1; row.capacity = 15;
+    row.expiresAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
+    menu.browser.page = {true, {row}, "next-page"};
+    menu.browser.received = std::chrono::steady_clock::now(); menu.selectedListing = row.id;
+    captions(); D6R_REQUIRE(menu.browserFocusEnabled(1)); D6R_REQUIRE(menu.browserFocusEnabled(5));
+    D6R_REQUIRE(!f.frame(28, 68, 252, 32, 1));
+    D6R_REQUIRE(!f.frame(560, 108, 256, 24, 1));
+
+    std::promise<Client::DirectoryPage> pending;
+    menu.browser.pending = pending.get_future();
+    captions(); // Loading also disables Refresh, even with retained rows.
+    D6R_REQUIRE(!menu.browserFocusEnabled(1)); D6R_REQUIRE(!menu.browserFocusEnabled(2));
+    D6R_REQUIRE(!menu.browserFocusEnabled(5)); D6R_REQUIRE(f.frame(292, 68, 256, 32, 1));
+    menu.focus = 2; f.key(SDLK_RETURN); f.click(400, 76);
+    D6R_REQUIRE(menu.browser.loading()); D6R_REQUIRE(!menu.browserSelection);
 }
 
 D6R_TEST_CASE("UX-NET-04 settings retain bounded cycle values checkbox states and guest read-only presentation") {
