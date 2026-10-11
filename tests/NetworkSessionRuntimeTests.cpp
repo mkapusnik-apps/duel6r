@@ -1189,6 +1189,50 @@ D6R_TEST_CASE("UX-NET-04 aligned participant body contains maximum membership at
     }
 }
 
+D6R_TEST_CASE("UX-NET-04 wheel handler reaches every participant in three and fifteen person lobbies") {
+    ReviewMenuFixture f;
+    for (unsigned count: {3, 15}) for (bool host: {true, false}) for (bool retained: {false, true}) {
+        f.lobby(host, retained);
+        auto &state = *f.menu.runtime.current.canonical;
+        const auto examplePlayer = state.players.front();
+        state.participants.clear(); state.players.clear();
+        for (unsigned index = 0; index < count; ++index) {
+            state.participants.push_back({index + 1, index == 0,
+                Network::Replication::ConnectionState::Connected, false, {101 + index}});
+            auto player = examplePlayer;
+            player.playerId = 101 + index; player.ownerParticipantId = index + 1;
+            player.rosterPosition = index; player.displayName = "Person " + std::to_string(index + 1);
+            state.players.push_back(player);
+        }
+        const auto wheel = [&](int amount) {
+            f.menu.mouseWheelEvent(MouseWheelEvent(200, 420, 0, amount));
+            f.menu.syncLobbyScroll(f.menu.runtime.snapshot()); // Same production clamp after traversal/update.
+        };
+        const auto drawParticipants = [&] {
+            f.recorder.quads.clear(); f.recorder.draws.clear();
+            f.menu.drawPlayers(state, host); // Do not mistake a roster owner label for a participant row.
+        };
+        wheel(100); // Reset through input, not setupScroll injection.
+        D6R_REQUIRE_EQ(0, f.menu.setupScroll);
+        std::set<unsigned> seen;
+        for (unsigned step = 0; step < count; ++step) {
+            drawParticipants();
+            for (unsigned index = 0; index < count; ++index)
+                if (f.text(index == 0 ? "Host" : "Guest " + std::to_string(index + 1))) seen.insert(index);
+            wheel(-1);
+        }
+        D6R_REQUIRE_EQ(std::size_t(count), seen.size());
+        const int maximum = static_cast<int>(count) - (retained ? 1 : 2);
+        D6R_REQUIRE_EQ(maximum, f.menu.setupScroll);
+        wheel(-100); D6R_REQUIRE_EQ(maximum, f.menu.setupScroll);
+        drawParticipants(); D6R_REQUIRE(f.text("Guest " + std::to_string(count)));
+        wheel(100); D6R_REQUIRE_EQ(0, f.menu.setupScroll);
+        drawParticipants(); D6R_REQUIRE(f.text("Host"));
+        D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty());
+        D6R_REQUIRE(f.menu.runtime.pendingGuestCommands.empty());
+    }
+}
+
 D6R_TEST_CASE("UX-NET round progress uses current authoritative round during active and frozen end delay") {
     ReviewMenuFixture f;
     auto &menu = f.menu;

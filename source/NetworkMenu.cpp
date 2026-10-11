@@ -491,10 +491,11 @@ namespace Duel6 {
             return count > visible ? count - visible : 0;
         }
 
-        std::size_t lobbyMaximumScroll(const Network::Replication::CanonicalState &state, bool host) {
-            const std::size_t visible = host ? 2 : 3;
-            const std::size_t participantMaximum = state.participants.size() > visible
-                    ? state.participants.size() - visible : 0;
+        constexpr std::size_t OrdinaryLobbyParticipantRows = 2;
+
+        std::size_t lobbyMaximumScroll(const Network::Replication::CanonicalState &state) {
+            const std::size_t participantMaximum = state.participants.size() > OrdinaryLobbyParticipantRows
+                    ? state.participants.size() - OrdinaryLobbyParticipantRows : 0;
             const std::size_t rosterMaximum = state.players.size() > 6 ? state.players.size() - 6 : 0;
             return std::max(participantMaximum, rosterMaximum);
         }
@@ -1082,7 +1083,7 @@ namespace Duel6 {
                 || focus != resultFocusIndex(snap, localPlayers.size()))) {
             const auto maximum = snap.canonical && snap.canonical->result.available
                     ? std::max(snap.canonical->players.size(), snap.canonical->participants.size()) - 1
-                    : snap.canonical ? lobbyMaximumScroll(*snap.canonical, snap.host) : 0;
+                    : snap.canonical ? lobbyMaximumScroll(*snap.canonical) : 0;
             setupScroll = std::clamp(setupScroll - event.getAmountY(), 0, static_cast<int>(maximum));
             focus = static_cast<int>(localPlayers.size()) * 2;
             return;
@@ -1184,7 +1185,7 @@ namespace Duel6 {
             if (focus >= rosterBase && focus < rosterBase + static_cast<int>(roster.size()))
                 selected = static_cast<std::size_t>(focus - rosterBase);
         }
-        const int maximum = static_cast<int>(lobbyMaximumScroll(*snap.canonical, snap.host));
+        const int maximum = static_cast<int>(lobbyMaximumScroll(*snap.canonical));
         setupScroll = std::clamp(setupScroll, 0, maximum);
         if (!selected) return;
         if (*selected < static_cast<std::size_t>(setupScroll)) setupScroll = static_cast<int>(*selected);
@@ -1979,7 +1980,7 @@ namespace Duel6 {
 
     void NetworkMenu::drawPlayers(const Network::Replication::CanonicalState &state, bool host) const {
         Int32 y = state.result.available && !host ? 440 : 416;
-        const std::size_t visible = state.result.available ? (host ? 1 : 2) : 2;
+        const std::size_t visible = state.result.available ? (host ? 1 : 2) : OrdinaryLobbyParticipantRows;
         const std::size_t first = std::min<std::size_t>(setupScroll,
                 state.participants.size() > visible ? state.participants.size() - visible : 0);
         for (std::size_t participantIndex = first;
