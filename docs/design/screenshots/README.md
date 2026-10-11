@@ -2,7 +2,7 @@
 
 ## NET-10 localized browser refinement
 
-The revised fixed NET-10-E and NET-10-U specifications require inline descriptions inside the white table body below the retained five-column heading strip. **Visual gate: replacement NET-10-E and NET-10-U supplied, pending UX assessment.** Only these two representatives were replaced at 1280 × 900 after functional closure. The populated NET-10 representative is reused unchanged. All other wireframes and capture requirements remain unchanged.
+The revised fixed NET-10-E and NET-10-U specifications require inline descriptions inside the white table body below the retained five-column heading strip. **Visual gate: satisfied for both replacement 1280 × 900 representatives at evidence checkpoint `b9dafaa2c2ad5cf4621a52fe58a796fae452e76e`, with no findings.** UX assessed the exact supplied bytes against the fixed specifications/wireframes integrated at `5fcbe836fd5229547bac4c83a77349424e86d6ba`, retaining frozen production identity `88f465bbfb0aeb2f70cded8a73c4bc991be1c2c3`. Only these two representatives were replaced after functional closure. The populated NET-10 representative is reused unchanged. All other wireframes and capture requirements remain unchanged.
 
 Common profile: original full-client lossless PNG at 1280 × 900; GL4, Lua enabled, Xvfb, dummy audio, software OpenGL; existing 850 × 700 logical canvas. Native rendering only, no crop, retouching, synthetic listing substitution, or composed pixels. Product authority: [browser contract](../../screens/network-browser.md). UX authority: [NET-10](../screens/NET-10.md).
 
@@ -16,13 +16,13 @@ Focused routine checks cover first/middle/last multi-page navigation and single-
 
 ### Current NET-10 conformance
 
-**Current conformance: populated NET-10 satisfied; replacement NET-10-E and NET-10-U pending UX assessment.** The unchanged populated representative retains frozen production identity `1cbcf01864481118f948e0999b8235f875bea290`. Replacement empty/error byte provenance is recorded separately below. The artifact and image hashes below are developer-supplied; UX assessment does not independently recompute them.
+**Current conformance: replacement NET-10-E and NET-10-U satisfied; populated NET-10 retains its existing acceptance.** The unchanged populated representative retains frozen production identity `1cbcf01864481118f948e0999b8235f875bea290`. Replacement empty/error byte provenance is recorded separately below. The artifact and image hashes below are developer-supplied; UX assessment does not independently recompute them. This section integrates the exact approved assessment of the supplied bytes without any additional assessment or changes to specifications, wireframes, images, or provenance.
 
 | Representative | Approved UX assessment |
 |---|---|
 | `NET-10` | Conforms: distinct endpoint, Players, Phase, Password, and Admission columns; protected/Open and Started/Closed listings remain distinguishable; protected selection and focus are visible; no successful-load status or unnecessary single-page pagination is shown. |
-| `NET-10-E` | Replacement supplied; pending UX assessment against the revised retained-heading, white-body specification. |
-| `NET-10-U` | Replacement supplied; pending UX assessment against the revised retained-heading, white-body specification. |
+| `NET-10-E` | Conforms: all five complete headers, inset white body, and single subdued line are visible; no rows, body dividers, scrollbar, selection, or body focus; Refresh focus is clear. |
+| `NET-10-U` | Conforms: the same retained-heading, white-body frame and complete subdued error line are visible; cached rows and selected details are hidden; Refresh focus and Join-disabled state are clear. The generic `Selected session` label is allowed. No row affordances are present. |
 
 Acceptance is limited to the supplied still-image states and Linux profile. Stills do not prove input behavior, multi-page navigation, recovery identity handling, age-stale behavior, controller operation, native macOS presentation, or other uncaptured states/platforms. Their existing owning functional, routine-test, and platform scopes remain unchanged.
 
