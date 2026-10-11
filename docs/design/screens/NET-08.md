@@ -50,16 +50,16 @@ Visual impact: preserve current develop's unified failure panel and browser reco
 
 Do not offer an insecure fallback for any connection type. Service type does not prove a failure cause. The scoped matrix keeps one certificate-security representative and focused real-path common Password rejection and confirmed expiry/maintenance coverage, without new rows. Password rejection is separate from certificate failure; it preserves correction under NET-PASS-013, not the retired invitation-clearing rule. No screenshot may substitute silence/SIGTERM for an authenticated terminal cause or imply deployment evidence.
 
-## Selected dedicated recovery
+## Selected recovery in both hosting modes
 
-- **UX-NET-08-008** Browser-selected dedicated failure must identify the selected origin without displaying credentials or unvalidated diagnostics.
-- **UX-NET-08-009** Security or password correction must offer Edit setup first and focused and return to NET-03-dedicated-selected with endpoint/session/type still locked.
-- **UX-NET-08-011** Selected dedicated recovery must show `Return to browser` after Edit setup in reading/focus order and return to NET-10 for refresh.
-- **UX-NET-08-012** Escape or controller Back from a selected dedicated failure must use that browser recovery rather than bypass selection binding through direct setup.
+- **UX-NET-08-008** Browser-selected failure in either hosting mode must identify the selected origin without displaying credentials or unvalidated diagnostics.
+- **UX-NET-08-009** Eligible correction must offer Edit setup first and focused and return to bound NET-03-E or NET-03-B with endpoint/session/type/protection still read-only.
+- **UX-NET-08-011** Selected recovery in either hosting mode must show `Return to browser` after Edit setup in reading/focus order and return to NET-10 for refresh.
+- **UX-NET-08-012** Escape or controller Back from a selected failure in either hosting mode must use that browser recovery rather than bypass selection binding through direct setup.
 - **UX-NET-08-013** A confirmed changed endpoint/session must focus Return to browser and must not offer Retry or Edit setup as a way to adopt the replacement.
 - **UX-NET-08-014** The fixed failure reason must follow the product contract and keep capacity, closed admission, certificate failure and common password rejection distinct.
-- **UX-NET-08-015** A new independent Direct connect from the browser must clear binding/secrets without transferring a stale selection or silently downgrading security.
-- **UX-NET-08-016** Edit setup after dedicated password rejection must focus masked Password with permitted local choices and selected binding retained under NET-PASS correction and clearing rules.
+- **UX-NET-08-015** A new independent Direct connect from the browser must clear binding/secrets in either hosting mode without transferring a stale selection or silently downgrading security.
+- **UX-NET-08-016** Edit setup after password rejection in either hosting mode must focus masked Password with permitted local choices and selected binding retained under NET-PASS correction and clearing rules.
 
 UX-NET-08-010 is a retired invitation-only identifier and must never be reused. Current correction authority is common NET-PASS-003/004/011–018; historical invitation assessments do not establish new Password conformance.
 

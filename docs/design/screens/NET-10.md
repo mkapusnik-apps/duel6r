@@ -49,14 +49,14 @@ Retired Invite protection must never be relabeled Password or No password. Safe 
 
 - **UX-NET-10-026** Join selected must open the applicable bound NET-03 task without immediately connecting or reserving controller authority.
 - **UX-NET-10-027** Selected dedicated rows must enter NET-03-dedicated-selected with locked hosting/protection, endpoint and session identity. Protected selection initially focuses Password under UX-NET-03-063; No password selection initially focuses local setup under UX-NET-03-064 while Password remains optional and reachable.
-- **UX-NET-10-028** Selected player-hosted rows must retain NET-03-E and their existing Password/local-setup focus behavior.
+- **UX-NET-10-028** Selected player-hosted rows must enter bound NET-03-E with read-only hosting, protection, Address, Port, and session identity. Protected selection initially focuses Password under UX-NET-03-063; No password selection initially focuses local setup under UX-NET-03-064 while Password remains optional and reachable.
 - **UX-NET-10-029** Updated Mac/Pi clients must keep dedicated rows visible and readable without enabling Join selected, row Confirm, or dedicated credential entry.
 - **UX-NET-10-030** Unsupported selected details must say `Dedicated joining requires Linux x86-64 or Windows x86-64.` and show a flat disabled Join action.
 - **UX-NET-10-031** Stale or expired selection must require successful refresh before joining and must not transfer its binding to Direct connect.
 - **UX-NET-10-032** Refresh must retain selection by the approved immutable listing/session identity rather than row position.
 - **UX-NET-10-033** Idle-to-lobby or eligible first-round changes with the same session identity must update details without claiming replacement or controller assignment.
 - **UX-NET-10-034** A disappeared or replaced selection must not select or join a replacement automatically and must show the product's refresh/reselection outcome.
-- **UX-NET-10-035** Back from selected dedicated setup or failure must restore the browser without changing to another row; failure recovery must permit refresh.
+- **UX-NET-10-035** Back from selected setup or failure in either hosting mode must restore the browser without changing to another selected row; failure recovery must permit refresh.
 - **UX-NET-10-036** Independent Direct connect must clear selection binding and secrets before entering the existing unbound task.
 
 Full, closed, stale, busy, and unsupported listings remain inspectable. The primary disabled reason is stale Refresh first, then fresh unsupported-client feedback, otherwise busy/full/closed. Details may explain multiple conditions. Unknown or stale metadata must not claim Open. A credential requirement alone must not disable otherwise eligible joining.

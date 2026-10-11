@@ -1,8 +1,8 @@
 # NET-03 — Direct setup and operator-configured dedicated admission
 
-Functional authority: [NET-03](../../screens/network-join.md), NET-DIR-013/014, common NET-PASS-001–018, NET-ADM-011, NET-PUB-017–021 and retained NET-JOIN-PUB-001/006/008–011. Invitation-only functional and UX identifiers are retired, never reused. Structural sources retain [NET-03-E](../wireframes/NET-03/NET-03-E.svg), text-only updated [NET-03-P](../wireframes/NET-03/NET-03-P.svg) and [NET-03-B](../wireframes/NET-03/NET-03-B.svg), and unchanged [NET-03 connecting SVG](../wireframes/NET-03/NET-03.svg). Geometry is byte-exact to baseline07b2402; the current locked-task reference remains context for connecting.
+Functional authority: [NET-03](../../screens/network-join.md), NET-DIR-013/014/027, common NET-PASS-001–018, NET-ADM-011, NET-PUB-017–021 and retained NET-JOIN-PUB-001/006/008–011. Invitation-only functional and UX identifiers are retired, never reused. Structural sources retain text-only updated [NET-03-E](../wireframes/NET-03/NET-03-E.svg), [NET-03-P](../wireframes/NET-03/NET-03-P.svg) and [NET-03-B](../wireframes/NET-03/NET-03-B.svg), and unchanged [NET-03 connecting SVG](../wireframes/NET-03/NET-03.svg). Geometry is byte-exact to baseline07b2402; the current locked-task reference remains context for connecting.
 
-States: NET-03-password, NET-03-live-admission, NET-03-PUBLIC-EDIT, NET-03-PUBLIC-CONNECTING, and NET-03-dedicated-selected. Visual impact: the existing direct-only service-type row and dedicated credential/guidance variant, plus bound dedicated selection within the current setup task. No deployment, environment, account, or nested connection screen is added.
+States: NET-03-password, NET-03-live-admission, NET-03-PUBLIC-EDIT, NET-03-PUBLIC-CONNECTING, and NET-03-dedicated-selected. Visual impact: the existing direct-only service-type row and dedicated credential/guidance variant, plus bound selection in both hosting modes within the current setup task. No deployment, environment, account, or nested connection screen is added.
 
 ## Shared structure
 
@@ -27,7 +27,7 @@ States: NET-03-password, NET-03-live-admission, NET-03-PUBLIC-EDIT, NET-03-PUBLI
 - **UX-NET-03-016** Browser-origin setup must retain selected-session context and decoded hosting type without an editable service-type row.
 - **UX-NET-03-017** macOS and Raspberry Pi direct setup must retain current player-hosted layout and traversal without a dedicated option or placeholder target.
 
-The direct row replaces the current setup-context line; it does not require a new panel. Retain initial Address focus on ordinary direct entry. Forward traversal must follow Service type, Address, Port, applicable credential, local setup, Connect, and Back. Reverse traversal from Address must reach Service type on supported direct setup. Browser entry retains initial Password focus when protected and local-setup focus when unprotected. Browser traversal remains Address, Port, Password, local setup, Connect, and Back.
+The direct row replaces the current setup-context line; it does not require a new panel. Retain initial Address focus on ordinary direct entry. Forward traversal must follow Service type when supported, Address, Port, Password, local setup, Connect, and Back. Reverse traversal from Address must reach Service type on supported direct setup. Browser entry in either hosting mode retains initial Password focus when protected and local-setup focus when unprotected. Browser traversal follows Password, local setup, Connect, and Back, skipping all bound read-only values in both directions.
 
 ## Operator endpoint and common Password
 
@@ -55,8 +55,8 @@ UX-NET-03-021–027/038/042 are retired invitation-only identifiers and must nev
 - **UX-NET-03-060** Input rejection must show secret-free feedback in the existing validation region while Password remains editable.
 - **UX-NET-03-061** Empty protected-selection submission must remain on setup with Password focused and visible required feedback.
 - **UX-NET-03-062** Password rejection correction must focus Password with permitted endpoint, binding, and local choices retained.
-- **UX-NET-03-063** Protected dedicated selection must initially focus Password.
-- **UX-NET-03-064** No password dedicated selection must initially focus local setup while Password remains visible, optional, and reachable in traversal.
+- **UX-NET-03-063** Protected browser selection in either hosting mode must initially focus Password.
+- **UX-NET-03-064** No password browser selection in either hosting mode must initially focus local setup while Password remains visible, optional, and reachable in traversal.
 - **UX-NET-03-065** Eligible correction must return to the same bound task without unlocking endpoint/session/type or changing local choices.
 
 ## Player-hosted and browser preservation
@@ -64,10 +64,10 @@ UX-NET-03-021–027/038/042 are retired invitation-only identifiers and must nev
 - Player-hosted setup must retain its masked Password and current optional/required help.
 - Browser setup must retain its selected endpoint, session identity, directory origin, and contextual Back.
 - A dedicated default or mode change must not rewrite browser-selected setup.
-- Endpoint edits must remove obsolete listing claims under NET-DIR-014.
+- Browser-selected targets are read-only in both hosting modes. Explicit Back or Return to browser followed by independent Direct connect is the only target-unbinding route and clears Password under NET-PASS-013; no endpoint edit may silently switch a bound task to Direct.
 - First-round context must retain `Round 1 in progress. You will play immediately if admitted.`
 - Listing context must retain `The host confirms availability when you connect.`
-- Unlocked player-hosted endpoint-only direct setup must retain truthful first-contact identity guidance under NET-PASS-010.
+- Unlocked player-hosted first contact must retain truthful identity guidance under NET-PASS-010, including browser selection: a listing label is not authenticated endpoint identity.
 - That limitation must not appear as a dedicated certificate waiver or a claim about password-protected admission.
 
 ## Allocation, feedback, and acceptance
@@ -108,3 +108,15 @@ Functional authority: [network-join](../../screens/network-join.md) and [network
 - **UX-NET-03-050** The UI must not equate directory-owner authorization, listing identity, or the Dedicated label with verified X.509 identity.
 
 NET-03-B's endpoint, session, hosting and protection are not editable. All existing geometry stays unchanged; the B diagram is the protected example with Password focus. No password uses the same visible optional field with initial local-setup focus, not a new diagram or task. NET-03-P remains direct and unknown-protection Password optional. Check both minimum viewports with required/optional empty and masked Password, long bound context, retained local choices and contextual Back/correction. No credential-binding dialog, reveal action or fallback is added.
+
+## Bound selection in both hosting modes
+
+- **UX-NET-03-066** Browser-selected hosting, protection, and session identity must remain read-only in both hosting modes.
+- **UX-NET-03-067** Browser-selected Address and Port must use readable flat disabled fields without editing, caret, focus stop, or pointer activation in both hosting modes.
+- **UX-NET-03-068** Selected player-hosted context must show `Player-hosted session` and `Selected from browser` without a service-type cycle target.
+- **UX-NET-03-069** Selected player-hosted session identity must remain separately labeled and readable in the existing context allocation.
+- **UX-NET-03-070** Forward and reverse traversal must skip every bound read-only value while keeping Password reachable in both hosting modes.
+- **UX-NET-03-071** Cancel, Edit setup, and eligible Retry must retain the selected presentation without exposing target-editing controls.
+- **UX-NET-03-072** Player-hosted context must not use dedicated certificate, verified-identity, or controller-assignment copy.
+
+NET-03-E is now the protected selected player-hosted representative: locked Address/Port, labeled hosting/origin/session context, masked Password with initial focus, and the same local setup allocation. No password selection uses the same allocation with optional Password and initial local focus. Only independent Direct setup exposes endpoint editing and initial Address focus. The approved E update changes text only; rectangles, keylines, coordinates, fixed actions and all other SVGs remain unchanged from96aa8d4. Existing images showing editable selected targets are historical, not evidence for this read-only contract. No new screen, state, control or failure diagram is added.
