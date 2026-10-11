@@ -2,7 +2,7 @@
 
 ## NET-10 localized browser refinement
 
-This bounded matrix supersedes earlier NET-10 presentation acceptance for the changed results, empty, and failed-refresh representatives only. Existing images do not establish the refined presentation. Capture is not released until static blockers close and team declares functional closure. All other wireframes and capture requirements remain unchanged.
+Capture is complete, and UX assessed all three supplied representatives at evidence checkpoint `dbae4e51cd51fc095a346958206b4d5a998a35ea` against the fixed specifications/wireframes integrated at `e90b991`. **Visual gate: satisfied, with no findings.** This bounded matrix supersedes earlier NET-10 presentation acceptance for the changed results, empty, and failed-refresh representatives only. All other wireframes and capture requirements remain unchanged.
 
 Common profile: original full-client lossless PNG at 1280 × 900; GL4, Lua enabled, Xvfb, dummy audio, software OpenGL; existing 850 × 700 logical canvas. Native rendering only, no crop, retouching, synthetic listing substitution, or composed pixels. Product authority: [browser contract](../../screens/network-browser.md). UX authority: [NET-10](../screens/NET-10.md).
 
@@ -13,6 +13,18 @@ Common profile: original full-client lossless PNG at 1280 × 900; GL4, Lua enabl
 | [NET-10-U](../wireframes/NET-10/NET-10-U.svg) | Actual failed refresh after populated selected results; Refresh focused | Grey noninteractive list replacement with the complete single-line error description once; previous rows and selected identity/endpoint/mode hidden; browser joins disabled | `docs/design/screenshots/NET-10/NET-10-U.png` |
 
 Focused routine checks cover first/middle/last multi-page navigation and single-page hiding, refresh-driven pagination changes, hidden input exclusion, initial failure, failed populated refresh, recovery identity present/absent, age-stale readability, every browser join disabled on failure, independent Direct connect, single-line containment at 850 × 700 and 1280 × 720, and 1920 × 1080 alignment. These checks do not substitute for the three released capture rows or prove live admission behavior.
+
+### Current NET-10 conformance
+
+**Current conformance: satisfied for all three supplied Linux 1280 × 900 representatives.** They retain frozen production identity `1cbcf01864481118f948e0999b8235f875bea290`. The artifact and image hashes below are developer-supplied; UX assessment does not independently recompute them. This section mechanically integrates the approved UX assessment without changing normative specifications, wireframes, images, or reproduction provenance.
+
+| Representative | Approved UX assessment |
+|---|---|
+| `NET-10` | Conforms: distinct endpoint, Players, Phase, Password, and Admission columns; protected/Open and Started/Closed listings remain distinguishable; protected selection and focus are visible; no successful-load status or unnecessary single-page pagination is shown. |
+| `NET-10-E` | Conforms: complete single-line empty description inside the grey list replacement, with no table headings, rows, dividers, or scrollbar; Refresh focus and available recovery actions are clear. |
+| `NET-10-U` | Conforms: complete single-line error description inside the grey list replacement; previous rows and selected identity, endpoint, and mode details are hidden; Refresh focus and recovery actions remain clear. The generic `Selected session` label is permitted and does not disclose retained session details. |
+
+Acceptance is limited to the supplied still-image states and Linux profile. Stills do not prove input behavior, multi-page navigation, recovery identity handling, age-stale behavior, controller operation, native macOS presentation, or other uncaptured states/platforms. Their existing owning functional, routine-test, and platform scopes remain unchanged.
 
 ### Current NET-10 capture provenance
 
