@@ -23,7 +23,7 @@
       "name": "sdl2_image", "version": "2.8.12", "root": "SDL2_image-2.8.12",
       "url": "https://github.com/libsdl-org/SDL_image/releases/download/release-2.8.12/SDL2_image-2.8.12.tar.gz",
       "sha256": "393f5efb50536ec13ca4f4affb69cc9966d3c3f969e6c5e701faddf9f9785381",
-      "required_notices": ["LICENSE.txt"],
+      "required_notices": ["LICENSE.txt", "src/miniz.h", "src/nanosvg.h", "src/nanosvgrast.h", "src/qoi.h", "src/stb_image.h", "src/tiny_jpeg.h"],
       "options": ["SDL2IMAGE_VENDORED=ON", "SDL2IMAGE_DEPS_SHARED=OFF", "SDL2IMAGE_STRICT=ON", "SDL2IMAGE_SAMPLES=OFF", "SDL2IMAGE_TESTS=OFF", "DAV1D_ASM=OFF"],
       "vendored": [
         {"name": "dav1d", "root": "dav1d-527d4cb4442b6fafdbd92b60b0dc09647c4f4dfe", "url": "https://codeload.github.com/libsdl-org/dav1d/tar.gz/527d4cb4442b6fafdbd92b60b0dc09647c4f4dfe", "sha256": "58d0ac345c6759fdf07a6d0ddfa6f491a8c8cd70cb7e4fb0a176a6506ee371bf", "required_notices": ["COPYING"]},
