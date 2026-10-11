@@ -1119,6 +1119,120 @@ D6R_TEST_CASE("UX-NET geometry keeps endpoint gaps external password help and Re
     }
 }
 
+D6R_TEST_CASE("UX-NET-04 participant width top and settings bottom align without changing retained layout") {
+    ReviewMenuFixture f;
+    const auto fill = [&](int x, int y, int width, int height, Color color) {
+        return std::any_of(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &quad) {
+            return quad.material.getTexture() == Texture{} && quad.material.getColor() == color
+                && quad.vertices[0].x == x && quad.vertices[0].y == y
+                && quad.vertices[2].x == x + width && quad.vertices[2].y == y + height;
+        });
+    };
+    for (const auto &size: {std::pair{850,700}, std::pair{1280,720},
+                            std::pair{1280,900}, std::pair{1920,1080}}) {
+        f.video.screen = ScreenParameters(size.first,size.second,24,24,0,false);
+        for (bool host: {true, false}) for (bool retained: {false, true})
+            for (const auto &mode: {"Deathmatch", "Team deathmatch"}) {
+                f.lobby(host, retained);
+                f.menu.runtime.current.canonical->settings.mode = mode;
+                const auto before = lobbyConfigurationFingerprint(f.menu.runtime.snapshot());
+                f.draw();
+                const int top = retained ? (host ? 476 : 500) : 482;
+                const int bottom = retained ? 410 : 392;
+                const int width = retained ? 358 : 526;
+                D6R_REQUIRE(fill(40, bottom, width, top - bottom, Color(192)));
+                D6R_REQUIRE(fill(42, top - 40, width - 4, 20, Color(170)));
+                D6R_REQUIRE(fill(42, bottom + 2, width - 4, top - 42 - bottom, Color::WHITE));
+                if (!retained) {
+                    D6R_REQUIRE_EQ(482, top); // Participants and settings share the top edge.
+                    D6R_REQUIRE(fill(40, 196, width, 188, Color(192))); // Same left and right edges.
+                    D6R_REQUIRE(fill(578, 196, 238, 286, Color(192))); // Same bottom, no moved setting rows.
+                    D6R_REQUIRE(fill(42, 198, 522, 144, Color::WHITE)); // Roster allocation unchanged.
+                    D6R_REQUIRE_EQ(8, bottom - (196 + 188)); // Separate participant/roster panels.
+                    D6R_REQUIRE(fill(40, 164, 220, 24, Color(192))); // Ready stays below both panels.
+                } else {
+                    D6R_REQUIRE(fill(406, 350, 410, 132, Color(192))); // Compact result layout unchanged.
+                    D6R_REQUIRE(fill(40, 54, 220, 24, Color(192)));
+                }
+                D6R_REQUIRE_EQ(before, lobbyConfigurationFingerprint(f.menu.runtime.snapshot()));
+                D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty());
+                D6R_REQUIRE(f.menu.runtime.pendingGuestCommands.empty());
+            }
+    }
+}
+
+D6R_TEST_CASE("UX-NET-04 aligned participant body contains maximum membership at both scroll extremes") {
+    ReviewMenuFixture f;
+    for (bool host: {true, false}) for (bool retained: {false, true}) {
+        f.lobby(host, retained);
+        auto &state = *f.menu.runtime.current.canonical;
+        state.participants.clear();
+        for (unsigned index = 0; index < 15; ++index)
+            state.participants.push_back({index + 1, index == 0,
+                Network::Replication::ConnectionState::Connected, false, {101 + index}});
+        for (unsigned scroll: {0, 7, 14}) {
+            f.menu.setupScroll = scroll;
+            f.recorder.quads.clear(); f.recorder.draws.clear();
+            f.menu.drawPlayers(state, host);
+            const unsigned visible = retained && host ? 1 : 2;
+            std::size_t columns = 0;
+            for (const auto &quad: f.recorder.quads) {
+                if (quad.material.getTexture() == Texture{}) continue;
+                ++columns;
+                // All four textual columns fit the white body, not its fixed heading.
+                D6R_REQUIRE(quad.vertices[0].y >= (retained ? 412 : 394));
+                D6R_REQUIRE(quad.vertices[2].y <= (retained ? (host ? 434 : 458) : 440));
+            }
+            D6R_REQUIRE_EQ(std::size_t(visible * 4), columns);
+            if (scroll == 14) D6R_REQUIRE(f.text("Guest 15"));
+        }
+    }
+}
+
+D6R_TEST_CASE("UX-NET-04 wheel handler reaches every participant in three and fifteen person lobbies") {
+    ReviewMenuFixture f;
+    for (unsigned count: {3, 15}) for (bool host: {true, false}) for (bool retained: {false, true}) {
+        f.lobby(host, retained);
+        auto &state = *f.menu.runtime.current.canonical;
+        const auto examplePlayer = state.players.front();
+        state.participants.clear(); state.players.clear();
+        for (unsigned index = 0; index < count; ++index) {
+            state.participants.push_back({index + 1, index == 0,
+                Network::Replication::ConnectionState::Connected, false, {101 + index}});
+            auto player = examplePlayer;
+            player.playerId = 101 + index; player.ownerParticipantId = index + 1;
+            player.rosterPosition = index; player.displayName = "Person " + std::to_string(index + 1);
+            state.players.push_back(player);
+        }
+        const auto wheel = [&](int amount) {
+            f.menu.mouseWheelEvent(MouseWheelEvent(200, 420, 0, amount));
+            f.menu.syncLobbyScroll(f.menu.runtime.snapshot()); // Same production clamp after traversal/update.
+        };
+        const auto drawParticipants = [&] {
+            f.recorder.quads.clear(); f.recorder.draws.clear();
+            f.menu.drawPlayers(state, host); // Do not mistake a roster owner label for a participant row.
+        };
+        wheel(100); // Reset through input, not setupScroll injection.
+        D6R_REQUIRE_EQ(0, f.menu.setupScroll);
+        std::set<unsigned> seen;
+        for (unsigned step = 0; step < count; ++step) {
+            drawParticipants();
+            for (unsigned index = 0; index < count; ++index)
+                if (f.text(index == 0 ? "Host" : "Guest " + std::to_string(index + 1))) seen.insert(index);
+            wheel(-1);
+        }
+        D6R_REQUIRE_EQ(std::size_t(count), seen.size());
+        const int maximum = static_cast<int>(count) - (retained ? 1 : 2);
+        D6R_REQUIRE_EQ(maximum, f.menu.setupScroll);
+        wheel(-100); D6R_REQUIRE_EQ(maximum, f.menu.setupScroll);
+        drawParticipants(); D6R_REQUIRE(f.text("Guest " + std::to_string(count)));
+        wheel(100); D6R_REQUIRE_EQ(0, f.menu.setupScroll);
+        drawParticipants(); D6R_REQUIRE(f.text("Host"));
+        D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty());
+        D6R_REQUIRE(f.menu.runtime.pendingGuestCommands.empty());
+    }
+}
+
 D6R_TEST_CASE("UX-NET round progress uses current authoritative round during active and frozen end delay") {
     ReviewMenuFixture f;
     auto &menu = f.menu;
