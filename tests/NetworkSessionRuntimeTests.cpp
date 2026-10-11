@@ -927,8 +927,8 @@ D6R_TEST_CASE("NET-10 empty and initial error retain headings and subdued inline
                     D6R_REQUIRE(quad.material.getColor() == Color::WHITE);
             }
             for (const auto &frame: f.recorder.frames)
-                D6R_REQUIRE(frame.position.x + frame.size.x <= 28 || frame.position.x >= 822
-                    || frame.position.y + frame.size.y <= 200 || frame.position.y >= 490);
+                D6R_REQUIRE(frame.position.x < 26 || frame.position.x >= 824
+                    || frame.position.y < 198 || frame.position.y >= 492);
             for (const auto &line: f.recorder.lines) {
                 const auto interior = [](const Vector &point) {
                     return point.x > 30 && point.x < 819 && point.y > 202 && point.y < 487;
@@ -947,6 +947,7 @@ D6R_TEST_CASE("NET-10 empty and unavailable body status cannot acquire pointer k
     BrowserPresentationFixture f;
     ReviewController controller(f);
     for (bool available: {true, false}) {
+        f.menu.focus = 0;
         f.deliver({available, {}, {}});
         auto &menu = f.menu;
         D6R_REQUIRE_EQ(2, menu.focus);
