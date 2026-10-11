@@ -99,7 +99,7 @@ Ordinary participant baselines remain 416 and 398 with the existing 18-logical-p
 - A pilot Host must not be described as running the server process on this computer.
 - Host controls must appear only after authoritative role confirmation.
 - Dedicated participants must not receive Retry publication, listing-owner, or operator controls.
-- Invitation values must remain absent.
+- Password and reconnect values must remain absent.
 - End session must retain its everyone consequence confirmation.
 - Guest Leave must retain its participant-only consequence confirmation.
 - The UI must not add host transfer or migration.

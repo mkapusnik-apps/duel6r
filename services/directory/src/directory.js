@@ -46,8 +46,7 @@ export function validateListing(value) {
   requireValue(typeof value.passwordRequired === 'boolean');
   const protection = old ? (value.passwordRequired ? 'password' : 'none') : value.protection;
   const admission = old ? (value.phase === 'closed' ? 'closed' : value.players === value.capacity ? 'full' : 'open') : value.admission;
-  requireValue(dedicated ? protection === 'invite' && !value.passwordRequired
-    : protection === (value.passwordRequired ? 'password' : 'none'));
+  requireValue(protection === (value.passwordRequired ? 'password' : 'none'));
   requireValue((dedicated ? ['idle', 'lobby', 'first-round', 'closed', 'reserved', 'cleanup'] : ['lobby', 'first-round', 'closed']).includes(value.phase));
   requireValue(['open', 'full', 'closed', 'busy'].includes(admission));
   requireValue(admission !== 'open' || value.players < value.capacity);
@@ -167,6 +166,7 @@ export class Directory {
       // Filter within each bounded page, preserving the cursor over all records.
       // Legacy readers can continue empty pages but never receive dedicated rows.
       listings: page.filter(doc => doc.data().expiresAt > readTime
+        && doc.data().listing.protection !== 'invite' // Retired records expire; never reinterpret them.
         && (mixed || validateListing(doc.data().listing).hosting === 'player-hosted'))
         .map(doc => publicListing(doc.id, doc.data(), mixed)),
       nextCursor: snapshot.size > PAGE_SIZE ? `${mixed ? 'm2_' : ''}${page.at(-1).data().expiresAt}-${page.at(-1).id}` : null

@@ -81,7 +81,11 @@ namespace Duel6::Server {
             } else if (argument == "--trusted-proxy-protocol=v2") {
                 config.trustedProxyV2 = true;
             } else if (startsWith(argument, "--invite-file=")) {
-                config.inviteFile = valueAfter(argument, "--invite-file=");
+                throw std::invalid_argument("Invitation configuration is retired");
+            } else if (startsWith(argument, "--password-file=")) {
+                config.passwordFileProvided = true;
+                config.passwordFile = valueAfter(argument, "--password-file=");
+                if (config.passwordFile.empty()) throw std::invalid_argument("Dedicated password configuration invalid");
             } else if (startsWith(argument, "--readiness-socket=")) {
                 config.readinessSocket = valueAfter(argument, "--readiness-socket=");
             } else if (startsWith(argument, "--host=")) {
@@ -158,7 +162,7 @@ namespace Duel6::Server {
                         "[--tick-rate=N] [--max-clients=N] [--local-only] [--transport] "
                         "[--transport-echo] [--admission-client] OR "
                         "duel6r-server --dedicated --transport --host=127.0.0.1 --port=26661 "
-                         "--resources=PATH --trusted-proxy-protocol=v2 --invite-file=PATH --readiness-socket=PATH "
+                         "--resources=PATH --trusted-proxy-protocol=v2 [--password-file=PATH] --readiness-socket=PATH "
                          "[--advertise-host=TLS-FRONTEND --advertise-port=TLS-PORT] OR "
                         "duel6r-server --check-ready=PATH");
             } else {
@@ -175,15 +179,15 @@ namespace Duel6::Server {
                 || config.hostedServiceIpc || config.graphicalHostComposition || config.hostedServiceParent
                 || !config.trustedProxyV2 || config.listenEndpoint.host != "127.0.0.1"
                 || !config.additionalListenHosts.empty()
-                || config.inviteFile.empty() || config.readinessSocket.empty()
+                || config.readinessSocket.empty() || (config.passwordFileProvided && config.passwordFile.empty())
                 || !config.enabledGameplayScripts.empty())
-                throw std::invalid_argument("Dedicated mode requires isolated loopback proxy, invitation file and readiness socket");
+                throw std::invalid_argument("Dedicated mode requires isolated loopback proxy and readiness socket");
             config.localPlayers = 0;
             if ((!config.advertisedFrontend.host.empty() || config.advertisedFrontend.port != 0)
                 && (!Network::PublicSession::validDirectoryFrontend(config.advertisedFrontend.host)
                     || config.advertisedFrontend.port == 0))
                 throw std::invalid_argument("Publication requires a concrete non-loopback TLS frontend and port");
-        } else if (config.trustedProxyV2 || !config.inviteFile.empty() || !config.readinessSocket.empty()
+        } else if (config.trustedProxyV2 || config.passwordFileProvided || !config.passwordFile.empty() || !config.readinessSocket.empty()
                    || !config.advertisedFrontend.host.empty() || config.advertisedFrontend.port != 0) {
             throw std::invalid_argument("Dedicated options require dedicated mode");
         }

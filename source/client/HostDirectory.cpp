@@ -52,8 +52,7 @@ namespace Duel6::Client {
                 row.protection = value.get("protection").asString();
                 row.admission = value.get("admission").asString();
                 if ((row.hosting != "player-hosted" && row.hosting != "dedicated")
-                    || (row.dedicated() ? row.protection != "invite" || row.passwordRequired
-                        : row.protection != (row.passwordRequired ? "password" : "none"))
+                    || row.protection != (row.passwordRequired ? "password" : "none")
                     || (row.admission != "open" && row.admission != "closed" && row.admission != "full" && row.admission != "busy"))
                     throw std::invalid_argument("Invalid directory classification.");
             } else row.protection = row.passwordRequired ? "password" : "none";
@@ -120,8 +119,8 @@ namespace Duel6::Client {
                 || (row.hosting != "player-hosted" && row.hosting != "dedicated")
                 || row.endpoint.port == 0 || row.capacity < 1 || row.capacity > 15 || row.players > row.capacity
                 || row.players < (row.dedicated() && row.phase == "idle" ? 0u : 1u)
-                || (row.dedicated() && (row.protection != "invite" || row.passwordRequired
-                    || (row.admissionState() != "open" && row.admissionState() != "full"
+                || row.protection != (row.passwordRequired ? "password" : "none")
+                || (row.dedicated() && ((row.admissionState() != "open" && row.admissionState() != "full"
                         && row.admissionState() != "closed" && row.admissionState() != "busy")
                     || (row.phase == "idle" && (row.players != 0 || row.admissionState() != "open"))
                     || ((row.phase == "reserved" || row.phase == "closed") && row.admissionState() != "closed")
@@ -138,7 +137,8 @@ namespace Duel6::Client {
                 + "\",\"players\":" + std::to_string(row.players) + ",\"capacity\":" + std::to_string(row.capacity)
                 + ",\"passwordRequired\":" + (row.passwordRequired ? "true" : "false")
                 + ",\"phase\":\"" + row.phase + "\""
-                + (row.dedicated() ? ",\"hosting\":\"dedicated\",\"protection\":\"invite\",\"admission\":\"" + row.admissionState() + "\"" : "") + "}";
+                + (row.dedicated() ? ",\"hosting\":\"dedicated\",\"protection\":\"" + row.protection
+                    + "\",\"admission\":\"" + row.admissionState() + "\"" : "") + "}";
         }
     }
     std::string directorySessionId(std::uint64_t id) {

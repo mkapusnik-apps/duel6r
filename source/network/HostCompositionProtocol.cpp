@@ -100,12 +100,12 @@ namespace Duel6::Network::HostComposition {
         }
     }
 
-    std::vector<std::uint8_t> serializeSetup(const Setup &setup) {
+    static std::vector<std::uint8_t> serializeSetupFields(const Setup &setup, Kind kind) {
         if (setup.localPlayerNames.empty() || setup.localPlayerNames.size() > Trust::MaxParticipants
             || !validMode(setup.mode) || !validLevelPlan(setup.levelPlan)
             || setup.roundLimit == 0 || setup.roundLimit > 99 || !validTeamSettings(setup))
             throw std::invalid_argument("Invalid host composition setup");
-        Writer writer; envelope(writer, Kind::Setup);
+        Writer writer; envelope(writer, kind);
         writer.u8(static_cast<std::uint8_t>(setup.localPlayerNames.size()));
         for (const auto &name: setup.localPlayerNames) {
             if (!Trust::validParticipantName(name) || name.size() > MaximumDisplayNameBytes)
@@ -121,17 +121,17 @@ namespace Duel6::Network::HostComposition {
         writer.boolean(setup.assistance);
         writer.boolean(setup.quickLiquid);
         writer.boolean(setup.burnableTrees);
-        std::string password = setup.password ? setup.password->value() : "";
+        // Only initial owned-child startup IPC may carry the password.
+        // UpdateSetup is also a remote controller application frame.
+        std::string password = kind == Kind::Setup && setup.password ? setup.password->value() : "";
+        struct Erase { std::string &value; ~Erase() { Trust::secureEraseMemory(value.data(), value.size()); } } erase{password};
         writer.text(password, 128);
         Trust::secureEraseMemory(password.data(), password.size());
         return writer.take();
     }
 
-    std::vector<std::uint8_t> serializeSetupUpdate(const Setup &setup) {
-        auto message = serializeSetup(setup);
-        message[6] = 0; message[7] = static_cast<std::uint8_t>(Kind::UpdateSetup);
-        return message;
-    }
+    std::vector<std::uint8_t> serializeSetup(const Setup &setup) { return serializeSetupFields(setup, Kind::Setup); }
+    std::vector<std::uint8_t> serializeSetupUpdate(const Setup &setup) { return serializeSetupFields(setup, Kind::UpdateSetup); }
 
     std::vector<std::uint8_t> serializeAction(Kind kind) {
         if (kind != Kind::StartMatch && kind != Kind::ReturnToLobby && kind != Kind::AdvanceRound
@@ -197,9 +197,11 @@ namespace Duel6::Network::HostComposition {
                 setup.quickLiquid = reader.boolean();
                 setup.burnableTrees = reader.boolean();
                 auto password = reader.text(128);
-                setup.password = std::make_shared<SessionPassword>(password);
+                struct Erase { std::string &value; ~Erase() { Trust::secureEraseMemory(value.data(), value.size()); } } erase{password};
+                const bool remotePassword = message.kind == Kind::UpdateSetup && !password.empty();
+                if (message.kind == Kind::Setup) setup.password = std::make_shared<SessionPassword>(password);
                 Trust::secureEraseMemory(password.data(), password.size());
-                if (!reader.done() || !validMode(setup.mode) || !validLevelPlan(setup.levelPlan)
+                if (remotePassword || !reader.done() || !validMode(setup.mode) || !validLevelPlan(setup.levelPlan)
                     || setup.roundLimit == 0 || setup.roundLimit > 99 || !validTeamSettings(setup))
                     return std::nullopt;
                 message.setup = std::move(setup);

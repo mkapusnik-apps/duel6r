@@ -1,6 +1,6 @@
 # NET-08 — Failure and recovery
 
-Functional authority: [NET-08](../../screens/network-failure.md), `NET-PASS-003/004`, `NET-DIR-014`, `NET-ADM-002`–`NET-ADM-005`, the [trust policy](../../network-trust-and-abuse-limits.md), and the [lifecycle contract](../../network-host-service-lifecycle.md). Structural source: existing [NET-08](../../screens/wireframes/network-failure.md).
+Functional authority: [NET-08](../../screens/network-failure.md), NET-PASS-003/004/011–018, NET-DIR-014, NET-ADM-002–005, current trust and lifecycle contracts. Structural source: existing NET-08. No geometry, screen/state ID or failure wireframe changes.
 
 Visual impact: preserve current develop's unified failure panel and browser recovery. Add dedicated outcomes without new controls, styles, or disclosure.
 
@@ -14,10 +14,10 @@ Visual impact: preserve current develop's unified failure panel and browser reco
 - **UX-NET-08-006** Severity must remain explicit in text without replacing fixed outcome copy.
 - **UX-NET-08-007** Title and recovery actions must remain visible during body overflow.
 
-## Player-hosted and browser recovery
+## Common Password and browser recovery
 
 - Authoritative rejection must take precedence over an older open-admission listing.
-- `NET-08-password-rejected` must show `Connection not authorized.`
+- `NET-08-password-rejected` must show `Connection not authorized.` for both hosting types.
 - Edit setup after password rejection must retain endpoint and local players and focus Password.
 - Submitted or expected passwords must remain absent.
 - Capacity failure must not appear as a password error.
@@ -38,27 +38,29 @@ Visual impact: preserve current develop's unified failure panel and browser reco
 - Security and authorization must use product's exact non-disclosing copy.
 - Pilot admission failure must not show generic player-hosted startup advice.
 - Attempted endpoint may appear only in the bounded initial-connection context row.
-- Invitation and reconnect credentials must remain absent.
+- Password and reconnect credentials must remain absent.
 - Confirmed ended-session recovery must not imply restoration.
 - Maintenance wording must require the authenticated product-owned outcome.
 - Resolution failure must not be relabeled as maintenance or authorization failure.
 - Fixed outcome copy must retain `controller` where product uses that term.
 - Any baseline-focused disabled Retry must keep its focus outline without activation.
 - Maintenance and controller-expiry outcomes must use SESSION ENDED for either participant role.
-- Security and invitation outcomes must have no Retry frame, focus stop, pointer target, or bypass.
+- Certificate/identity/encryption outcomes must have no Retry frame, focus stop, pointer target or bypass. Common Password correction follows NET-PASS in the same permitted context without unlocked fallback.
 - Endpoint context must remain absent from confirmed session-end and terminal reconnect outcomes.
 
-Do not offer an insecure fallback for any connection type. Service type does not prove a failure cause. The [scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) keeps one security representative and focused real-path coverage for invitation rejection and confirmed expiry/maintenance. These service notices do not require a cloud-operation screen, deployment evidence, or rollback task. No screenshot may substitute silence or SIGTERM for an authenticated terminal cause. Browser/password failures remain a separate unchanged journey.
+Do not offer an insecure fallback for any connection type. Service type does not prove a failure cause. The scoped matrix keeps one certificate-security representative and focused real-path common Password rejection and confirmed expiry/maintenance coverage, without new rows. Password rejection is separate from certificate failure; it preserves correction under NET-PASS-013, not the retired invitation-clearing rule. No screenshot may substitute silence/SIGTERM for an authenticated terminal cause or imply deployment evidence.
 
 ## Selected dedicated recovery
 
 - **UX-NET-08-008** Browser-selected dedicated failure must identify the selected origin without displaying credentials or unvalidated diagnostics.
-- **UX-NET-08-009** Security or invitation correction must offer Edit setup first and focused and return to NET-03-dedicated-selected with endpoint/session/type still locked.
-- **UX-NET-08-010** Invitation rejection must require replacement in the masked Invite field with local-player choices retained.
+- **UX-NET-08-009** Security or password correction must offer Edit setup first and focused and return to NET-03-dedicated-selected with endpoint/session/type still locked.
 - **UX-NET-08-011** Selected dedicated recovery must show `Return to browser` after Edit setup in reading/focus order and return to NET-10 for refresh.
 - **UX-NET-08-012** Escape or controller Back from a selected dedicated failure must use that browser recovery rather than bypass selection binding through direct setup.
 - **UX-NET-08-013** A confirmed changed endpoint/session must focus Return to browser and must not offer Retry or Edit setup as a way to adopt the replacement.
-- **UX-NET-08-014** The fixed failure reason must follow the product contract and remain distinct from capacity, closed admission, certificate failure, and invitation denial.
+- **UX-NET-08-014** The fixed failure reason must follow the product contract and keep capacity, closed admission, certificate failure and common password rejection distinct.
 - **UX-NET-08-015** A new independent Direct connect from the browser must clear binding/secrets without transferring a stale selection or silently downgrading security.
+- **UX-NET-08-016** Edit setup after dedicated password rejection must focus masked Password with permitted local choices and selected binding retained under NET-PASS correction and clearing rules.
+
+UX-NET-08-010 is a retired invitation-only identifier and must never be reused. Current correction authority is common NET-PASS-003/004/011–018; historical invitation assessments do not establish new Password conformance.
 
 Retain the current complete, wrapped failure layout and action order. Ineligible correction must use the existing flat disabled treatment without a focus stop or activation target; product owns outcome eligibility. No new failure wireframe is added. Direct dedicated and player-hosted recovery destinations remain unchanged.

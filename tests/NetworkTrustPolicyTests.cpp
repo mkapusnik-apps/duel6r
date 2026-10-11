@@ -16,34 +16,72 @@
 #include "source/network/SessionTransport.h"
 #include "source/network/PublicSession.h"
 #include "source/network/ListeningSelection.h"
+#include "source/server/DedicatedService.h"
+#include "source/server/ServerConfig.h"
+#include "source/network/HostCompositionProtocol.h"
+#include <filesystem>
+#include <fstream>
+#if defined(__linux__)
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
-D6R_TEST_CASE("public invitations are bounded exact environment credentials and erased on denial") {
-    namespace P = Duel6::Network::PublicSession;
-    const std::vector<std::uint8_t> application{'D', '6', 'R', 'A', 1};
-    const std::string staging = "staging-test-only-0123456789abcdef";
-    const std::string production = "production-test-only-0123456789abcdef";
-    for (const auto &expected : {staging, production, std::string("rotated"), std::string()}) {
-        auto payload = P::wrapAdmission(application, staging);
-        const bool allowed = P::unwrapAdmission(payload, expected);
-        D6R_REQUIRE(allowed == (expected == staging));
-        D6R_REQUIRE(payload == (allowed ? application : std::vector<std::uint8_t>{}));
+D6R_TEST_CASE("common Password replaces retired Invite input with exact UTF8 space and byte bounds") {
+    using Duel6::Network::SessionPassword;
+    D6R_REQUIRE(SessionPassword::valid(""));
+    D6R_REQUIRE(SessionPassword::valid(" leading and trailing "));
+    D6R_REQUIRE(SessionPassword::valid(u8"é雪"));
+    D6R_REQUIRE(SessionPassword::valid(std::string(128, 'x')));
+    for (const auto &invalid : {std::string(129, 'x'), std::string("a\nb"), std::string("a\0b", 3),
+                               std::string("\xc2\x85"), std::string("\xed\xa0\x80")})
+        D6R_REQUIRE(!SessionPassword::valid(invalid));
+}
+
+D6R_TEST_CASE("common Password settings updates contain no password while initial owned startup IPC retains it") {
+    namespace H = Duel6::Network::HostComposition;
+    H::Setup setup; setup.localPlayerNames = {"Host"};
+    const std::string value = u8" private-é-only ";
+    const std::vector<std::uint8_t> needle(value.begin(), value.end());
+    setup.password = std::make_shared<Duel6::Network::SessionPassword>(value);
+    const auto startup = H::serializeSetup(setup), update = H::serializeSetupUpdate(setup);
+    D6R_REQUIRE(std::search(startup.begin(), startup.end(), needle.begin(), needle.end()) != startup.end());
+    D6R_REQUIRE(std::search(update.begin(), update.end(), needle.begin(), needle.end()) == update.end());
+    const auto decoded = H::deserialize(update);
+    D6R_REQUIRE(decoded && decoded->setup && !decoded->setup->password);
+    auto illegal = startup; illegal[6] = 0; illegal[7] = static_cast<std::uint8_t>(H::Kind::UpdateSetup);
+    D6R_REQUIRE(!H::deserialize(illegal));
+}
+
+D6R_TEST_CASE("dedicated Password protected file validates empty exact data and rejects unsafe malformed retired configuration") {
+#if defined(__linux__) && defined(D6R_PUBLIC_DEDICATED)
+    using namespace Duel6;
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() / ("d6r-password-" + std::to_string(getpid()));
+    fs::create_directories(root);
+    struct Cleanup { fs::path root; ~Cleanup() { fs::remove_all(root); } } cleanup{root};
+    D6R_REQUIRE(!Server::loadPassword("")->required());
+    const auto path = root / "password";
+    const auto write = [&](const std::string &value) {
+        { std::ofstream file(path, std::ios::binary); file.write(value.data(), value.size()); }
+        D6R_REQUIRE(chmod(path.c_str(), 0600) == 0);
+    };
+    for (const std::string &value : {std::string(), std::string(u8" leading-é trailing "), std::string(128, 'x')}) {
+        write(value); auto stored = Server::loadPassword(path.string());
+        D6R_REQUIRE(std::string(stored->value()) == value);
     }
-    for (const auto &invalid : {std::string(), std::string(257, 'x'), std::string("a b"),
-                               std::string("a\nb"), std::string("a\0b", 3), std::string("\xc3\xa9")}) {
-        D6R_REQUIRE(!P::validInvite(invalid));
-        D6R_REQUIRE(P::wrapAdmission(application, invalid).empty());
+    for (const std::string &value : {std::string(129, 'x'), std::string("\n"), std::string("a\0b", 3),
+                                    std::string("\xc3"), std::string("\xc2\x85")}) {
+        write(value); D6R_REQUIRE_THROW(Server::loadPassword(path.string()), std::runtime_error);
     }
-    D6R_REQUIRE(P::validInvite(std::string(256, '~')));
-    const auto envelope = P::wrapAdmission(application, staging);
-    for (std::size_t length = 0; length <= staging.size() + 6; ++length) {
-        auto partial = std::vector<std::uint8_t>(envelope.begin(), envelope.begin() + length);
-        D6R_REQUIRE(!P::unwrapAdmission(partial, staging));
-        D6R_REQUIRE(partial.empty());
-    }
-    auto malformed = envelope;
-    malformed[4] = 255; malformed[5] = 255;
-    D6R_REQUIRE(!P::unwrapAdmission(malformed, staging));
-    D6R_REQUIRE(malformed.empty());
+    write("valid"); D6R_REQUIRE(chmod(path.c_str(), 0644) == 0);
+    D6R_REQUIRE_THROW(Server::loadPassword(path.string()), std::runtime_error);
+    D6R_REQUIRE_THROW(Server::loadPassword((root / "missing").string()), std::runtime_error);
+    fs::create_symlink(path, root / "link");
+    D6R_REQUIRE_THROW(Server::loadPassword((root / "link").string()), std::runtime_error);
+    std::string program = "server", retired = "--invite-file=retired";
+    char *args[]{program.data(), retired.data()};
+    D6R_REQUIRE_THROW(Server::parseServerConfig(2, args), std::invalid_argument);
+#endif
 }
 
 namespace {

@@ -91,7 +91,7 @@ namespace Duel6::Network {
         if (!bio) return {};
         BIO_set_data(bio, reinterpret_cast<void *>(socket));
         SSL_set_bio(result->stream, bio, bio);
-        SSL_set_mode(result->stream, SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+        SSL_set_mode(result->stream, SSL_MODE_ENABLE_PARTIAL_WRITE);
         while (!cancelled() && std::chrono::steady_clock::now() < deadline) {
             ERR_clear_error();
             const int count = SSL_connect(result->stream);
@@ -105,15 +105,28 @@ namespace Duel6::Network {
     int TlsStream::outcome(int count) {
         if (count > 0) return count;
         const int error = SSL_get_error(stream, count);
-        if (error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE) return -2;
+        if (error == SSL_ERROR_WANT_READ) return -2;
+        if (error == SSL_ERROR_WANT_WRITE) return -3;
+        failed = true;
         return error == SSL_ERROR_ZERO_RETURN ? 0 : -1;
     }
-    int TlsStream::read(std::uint8_t *data, std::size_t size) {
+    std::ptrdiff_t TlsStream::read(std::uint8_t *data, std::size_t size) {
         std::lock_guard<std::mutex> lock(mutex); ERR_clear_error();
+        if (failed) return -1;
         return outcome(SSL_read(stream, data, static_cast<int>(size)));
     }
-    int TlsStream::write(const std::uint8_t *data, std::size_t size) {
+    std::ptrdiff_t TlsStream::write(const std::uint8_t *data, std::size_t size) {
         std::lock_guard<std::mutex> lock(mutex); ERR_clear_error();
-        return outcome(SSL_write(stream, data, static_cast<int>(size)));
+        if (failed) return -1;
+        if (size > static_cast<std::size_t>(std::numeric_limits<int>::max())
+            || (retryWrite && (retryWrite != data || retryWriteSize != size))) { failed = true; return -1; }
+        const auto result = outcome(SSL_write(stream, data, static_cast<int>(size)));
+        if (result == -2 || result == -3) { retryWrite = data; retryWriteSize = size; }
+        else { retryWrite = nullptr; retryWriteSize = 0; }
+        return result;
+    }
+    bool TlsStream::pending() const {
+        std::lock_guard<std::mutex> lock(mutex);
+        return !failed && SSL_pending(stream) != 0;
     }
 }

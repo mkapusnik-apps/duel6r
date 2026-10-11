@@ -40,7 +40,7 @@ removal with a one-second deadline; lease expiry handles missed removal.
 
 ## Directory contract
 
-The service uses `/v1/listings`. Registration returns a random listing identifier
+Legacy player-hosted-only reads use `/v1/listings`; the unreleased mixed contract uses `/v2/listings`, `mixed-v2` and `m2_` cursors. Its atomic common-password update keeps hosting explicit and permits only `none`/`password` consistent with `passwordRequired`. Retired Invite records are excluded safely or fail closed, not reinterpreted; existing lease expiry handles them without a running database migration or v3 compatibility adapter. Registration returns a random listing identifier
 and a distinct 256-bit owner bearer credential. Firestore stores a SHA-256 digest
 of that high-entropy credential, not a player password. Owner mutation requires
 the credential and the current `If-Match` revision. Transactions prevent concurrent
@@ -65,6 +65,10 @@ instance scaling, billing controls, and abuse monitoring remain operational
 requirements, not guarantees supplied by these application quotas.
 
 ## Password and credential protection
+
+Team selected the maintained common EC-JPAKE procedure for dedicated Password and No-password operation over a byte-stream adapter carried by the verified public TLS connection. The dedicated outer certificate/endpoint validation completes before the inner password exchange. Empty password uses the existing public unlocked PAKE input; dedicated endpoint verification remains mandatory. The raw-socket player-hosted path is unchanged. No raw password or reusable password proof is serialized in gameplay application frames, and no password-bearing application admission protocol, custom proof, insecure fallback or retired invitation envelope is introduced. Outer and inner exchanges share the existing absolute connection deadline; completing one stage does not restart it. This paragraph records the approved technical direction, not an implementation, execution or deployment claim.
+
+The dedicated backend validates protected PROXYv2 before the same maintained raw-socket Mbed TLS profile. Application framing always traverses the inner channel; no outer-stream application bypass is permitted. Current bounds, cancellation, source accounting, key budgets and serialized record operations remain required. NET-PASS-011–018 own exact UTF-8/C0/C1/128-byte validation, optional protected startup file, context erasure and reserved reconnect storage. The protected player-host initial setup IPC is a startup-configuration exception, not a remote controller settings frame. Controllers cannot manage the dedicated operator password.
 
 The native channel uses Mbed TLS 3.6.7 LTS's built-in TLS EC-JPAKE implementation:
 TLS 1.2, P-256/SHA-256 PAKE and `TLS_ECJPAKE_WITH_AES_128_CCM_8`. Upstream labels
@@ -109,6 +113,8 @@ Exhaustion closes the transport and an admitted guest must use the existing
 reserved reconnect flow with a fresh PAKE/key exchange. It cannot silently reuse
 keys, allocate new players, reset a world, or declare intentional host end.
 
+Receive draining is conditional on the maintained SDK permitting further operations on the secure context. A fatal inner secure-context error that prohibits reads and writes must stop both operations and close that context; the existing bounded drain must not continue on it. Complete authenticated frames already delivered to application-owned storage retain their original receipt timestamps and remain subject to existing protocol, session and outcome-precedence checks before disconnected publication. Partial or unverified data and notices not received before fatal closure provide no terminal proof. Graceful or transient draining is permitted only while the context remains legally usable and within existing bounds. End-notice delivery is best effort; closure alone does not establish intentional End, expiry or maintenance. Unknown loss retains the original reconnect deadline. No context reset, insecure fallback, authentication bypass or additional drain interval is authorized.
+
 A configured session password is domain-prefixed and SHA-256 mapped to 32 bytes
 using Mbed TLS before being handed to the library's PAKE API. This preserves the
 128-byte input limit with the Thread profile's 32-byte MPI bound. The digest is
@@ -116,7 +122,7 @@ only an in-memory PAKE input, never a transmitted challenge response, stored
 verifier, or TLS PSK. No player account or username is created.
 The no-password path instead uses a distinct, public protocol value. Knowledge
 of that public value does not remove ephemeral key exchange or record encryption,
-but it does not authenticate an unlocked host against an active intermediary.
+but it does not authenticate an unlocked player-hosted host against an active intermediary. This limitation never waives the dedicated outer certificate/endpoint verification.
 Fresh library-generated ephemeral scalars and zero-knowledge-proof randomness are
 created for every connection from the operating-system-seeded DRBG. Knowing the
 public unlocked PAKE input does not reveal those scalars or the derived ephemeral

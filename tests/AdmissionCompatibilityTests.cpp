@@ -3183,7 +3183,7 @@ D6R_TEST_CASE("F02 fresh idle or occupied dedicated service dispatches stale wel
         auto payload = Network::Lifecycle::serializeReconnectAttempt(old);
         if (malformed) payload.push_back(0xff);
         stale->queue(payload, fixture->now);
-        controller->queue(Network::PublicSession::wrapAdmission(Network::serializeAdmissionRequest(requestFor(built.manifest)), invite), fixture->now);
+        controller->queue(Network::serializeAdmissionRequest(requestFor(built.manifest)), fixture->now);
         fixture->connection = occupied ? controller : stale;
         std::optional<Network::Lifecycle::ReconnectResponse> response;
         bool initialCategory = false, queued = !occupied;
@@ -3214,7 +3214,7 @@ D6R_TEST_CASE("F02 fresh idle or occupied dedicated service dispatches stale wel
         };
         auto config = runtimeServerConfig();
         config.dedicated = true; config.trustedProxyV2 = true; config.localPlayers = 0;
-        config.inviteFile = (files.root / "invite").string(); config.readinessSocket = (files.root / "ready.sock").string();
+        config.passwordFile = (files.root / "invite").string(); config.readinessSocket = (files.root / "ready.sock").string();
         std::ostringstream output;
         Server::HeadlessServer server(config, dependencies); server.runtimeDependencies.productionReplicationProtocol = true;
         D6R_REQUIRE_EQ(0, server.run(output));
@@ -3259,7 +3259,7 @@ D6R_TEST_CASE("R2 dedicated startup compares directory numeric effective port wi
         };
         auto config = runtimeServerConfig();
         config.dedicated = true; config.trustedProxyV2 = true; config.localPlayers = 0;
-        config.inviteFile = (files.root / "invite").string();
+        config.passwordFile = (files.root / "invite").string();
         config.readinessSocket = (files.root / "ready.sock").string();
         config.advertisedFrontend = {"arena.example.test", 443};
         std::ostringstream output;
@@ -3285,7 +3285,7 @@ D6R_TEST_CASE("R1 offered guest acceptance after controller reservation rolls ba
         auto restore = std::make_shared<FakeAdmissionConnection>(fixture->now);
         guest->closeOnRequest = true; restore->closeOnRequest = true;
         fixture->connection = controller;
-        controller->queue(Network::PublicSession::wrapAdmission(Network::serializeAdmissionRequest(requestFor(built.manifest)), invite), fixture->now);
+        controller->queue(Network::serializeAdmissionRequest(requestFor(built.manifest)), fixture->now);
         auto dependencies = runtimeDependencies(fixture, built.manifest);
         dependencies.productionReplicationProtocol = true;
         dependencies.hostedServiceStatus = [](auto) { return true; };
@@ -3327,7 +3327,7 @@ D6R_TEST_CASE("R1 offered guest acceptance after controller reservation rolls ba
             if (controller->succeeded && grant && !guestQueued) {
                 guest->accepted = fixture->now;
                 auto request = requestFor(built.manifest); request.expectedSessionId = grant->sessionId;
-                guest->queue(Network::PublicSession::wrapAdmission(Network::serializeAdmissionRequest(request), invite), fixture->now);
+                guest->queue(Network::serializeAdmissionRequest(request), fixture->now);
                 fixture->pendingConnections.push_back(guest); guestQueued = true;
             } else if (guestOffer && !disconnectQueued) {
                 controller->terminal = fixture->now; controller->currentState = Network::ClientState::Failed;
@@ -3347,7 +3347,7 @@ D6R_TEST_CASE("R1 offered guest acceptance after controller reservation rolls ba
         };
         auto config = runtimeServerConfig();
         config.dedicated = true; config.trustedProxyV2 = true; config.localPlayers = 0;
-        config.inviteFile = (files.root / "invite").string(); config.readinessSocket = (files.root / "ready.sock").string();
+        config.passwordFile = (files.root / "invite").string(); config.readinessSocket = (files.root / "ready.sock").string();
         std::ostringstream output;
         Server::HeadlessServer server(config, dependencies);
         server.runtimeDependencies.productionReplicationProtocol = true;
@@ -3388,8 +3388,7 @@ namespace {
         auto guest = std::make_shared<FakeAdmissionConnection>(fixture->now);
         fixture->connection = controller;
         for (const auto &connection: {controller, guest})
-            connection->queue(Network::PublicSession::wrapAdmission(
-                    Network::serializeAdmissionRequest(requestFor(built.manifest)), invitation), fixture->now);
+            connection->queue(Network::serializeAdmissionRequest(requestFor(built.manifest)), fixture->now);
         auto dependencies = runtimeDependencies(fixture, built.manifest);
         // Dedicated readiness precedes the first controller/session; the local
         // player-host fixture's HostInitialized-before-Ready guard does not apply.
@@ -3473,7 +3472,7 @@ namespace {
         };
         auto config = runtimeServerConfig();
         config.dedicated = true; config.trustedProxyV2 = true; config.localPlayers = 0;
-        config.inviteFile = (files.root / "invite").string();
+        config.passwordFile = (files.root / "invite").string();
         config.readinessSocket = (files.root / "ready.sock").string();
         std::ostringstream output;
         Server::HeadlessServer server(config, std::move(dependencies));

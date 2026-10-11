@@ -2,10 +2,10 @@
 #define DUEL6_SERVER_DEDICATEDSERVICE_H
 #include <memory>
 #include <string>
-#include "../network/PublicSession.h"
+#include "../network/SecureSession.h"
 
 namespace Duel6::Server {
-    std::shared_ptr<Network::PublicSession::Secret> loadInvitation(const std::string &path);
+    std::shared_ptr<const Network::SessionPassword> loadPassword(const std::string &path);
     class DedicatedReadiness final {
     public:
         explicit DedicatedReadiness(const std::string &path);

@@ -24,13 +24,13 @@ The [current unified presentation](../../design.md#unified-network-presentation)
 
 Approximate column widths are 256, 112, 72, 104, 96, and 144 logical pixels. Preserve standard metrics, current clearance, scrollbar allocation, fixed-height rows, and full-row pointer targets. Mode and identity text must not cross table columns; selected details own their full values.
 
-Entry workflow: MENU-01 → Network → Join in the NET-01 popup → mixed NET-10. Join selected continues to the applicable NET-03 local-player and Password/Invite setup. Direct connect continues to independent NET-03 without a directory selection. Back returns to the NET-01 popup with Host focused. The entry-label change does not alter this browser's layout, controls, validated mode/protection or eligibility rules.
+Entry workflow: MENU-01 → Network → Join in the NET-01 popup → mixed NET-10. Join selected continues to common Password/local setup under NET-PASS-001–018 with hosting/security mode retained. Direct connect remains independent. Back returns to NET-01 with Host focused. Layout, controls and eligibility stay fixed to07b2402; only approved Access text and protection-aware focus annotations change.
 
 ## Mixed row content
 
 - **UX-NET-10-014** Hosting must show `Player-hosted` or `Dedicated` from validated decoded classification rather than infer it from an address or credential flag.
-- **UX-NET-10-015** Access must show `No password`, `Password`, or `Invite` according to approved protection semantics.
-- **UX-NET-10-016** Access must not disclose any password, invitation, owner token, or reconnect credential.
+- **UX-NET-10-015** Access must show `No password` or `Password` from validated `none`/`password` metadata consistent with `passwordRequired` for either hosting mode.
+- **UX-NET-10-016** Access must not disclose any password, owner token or reconnect credential.
 - **UX-NET-10-017** Hosting and Access must not imply verified operator identity, certificate validation, or universal reachability.
 - **UX-NET-10-018** Players must show the authoritative advertised count and effective capacity as `count / limit`, including reserved slots under the product contract.
 - **UX-NET-10-019** A published ready empty dedicated session must show `Idle` and `0 / limit` without inventing participants, a controller, a round, or a different identity.
@@ -43,10 +43,12 @@ Entry workflow: MENU-01 → Network → Join in the NET-01 popup → mixed NET-1
 
 If invalid metadata is retained for inspection under the decoder contract, show Unknown/Unconfirmed and disable every joining path. If the page is rejected, use existing unavailable/stale feedback. This does not alter product's fail-closed or legacy-consumer policy. Directory-owner authorization is not verified X.509 game endpoint identity.
 
+Retired Invite protection must never be relabeled Password or No password. Safe exclusion or fail-closed unavailable feedback follows the atomic unreleased-v2 contract; hosting remains explicit. No v3 adapter, new control or geometry change is introduced.
+
 ## Selection, unsupported clients, and recovery
 
 - **UX-NET-10-026** Join selected must open the applicable bound NET-03 task without immediately connecting or reserving controller authority.
-- **UX-NET-10-027** Selected dedicated rows must enter NET-03-dedicated-selected with locked hosting/protection, endpoint, and session identity and initial Invite focus.
+- **UX-NET-10-027** Selected dedicated rows must enter NET-03-dedicated-selected with locked hosting/protection, endpoint and session identity. Protected selection initially focuses Password under UX-NET-03-063; No password selection initially focuses local setup under UX-NET-03-064 while Password remains optional and reachable.
 - **UX-NET-10-028** Selected player-hosted rows must retain NET-03-E and their existing Password/local-setup focus behavior.
 - **UX-NET-10-029** Updated Mac/Pi clients must keep dedicated rows visible and readable without enabling Join selected, row Confirm, or dedicated credential entry.
 - **UX-NET-10-030** Unsupported selected details must say `Dedicated joining requires Linux x86-64 or Windows x86-64.` and show a flat disabled Join action.
@@ -65,4 +67,4 @@ Preserve existing allocation, actions, and scrolling. Each full row is one point
 
 Keep current text scale, inverse pointer mapping, and non-color cues for loading, stale, unavailable, no-selection, and removed-selection feedback. Selected details must say `A listing does not guarantee reachability.` No public-address prohibition or NAT-traversal claim is added.
 
-Check mixed Password player-hosted and Invite dedicated listings; ready idle, current, reserved, freshness, busy, full, closed, and unsupported states; long valid DNS endpoints and identities; paging; refresh retention; disappearance and replacement; and independent Direct connect. The [scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) covers changed presentation only. A still image does not prove protocol binding, leases, admission, or lifecycle authority.
+Check mixed player-hosted Password, dedicated Password and dedicated No password listings; ready idle, current, reserved, freshness, busy, full, closed and unsupported states; long endpoints/identities; paging, refresh retention, replacement and independent Direct. Protected/optional focus and unsupported No password nonactivation remain required. The scoped matrix changes only existing row inputs/expectations. Stills do not prove certificate validation, common PAKE, protocol binding, leases, admission or lifecycle authority.

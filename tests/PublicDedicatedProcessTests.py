@@ -45,7 +45,8 @@ def proxy_header(source="198.51.100.7"):
 class TlsPeer:
     next_source = 100
 
-    def __init__(self, cert, key, backend, control_root=None, end_write_race=False, summary_order=False, frontend_port=0):
+    def __init__(self, cert, key, backend, control_root=None, end_write_race=False, summary_order=False, frontend_port=0, opaque_inner=True):
+        self.opaque_inner = opaque_inner
         self.backend = backend
         self.source = f"198.51.100.{TlsPeer.next_source}"
         TlsPeer.next_source += 1
@@ -367,6 +368,11 @@ class TlsPeer:
                     continue
                 if source is client:
                     self.application_bytes += len(data)
+                if getattr(self, "opaque_inner", False):
+                    # Verified outer TLS carries inner TLS records, not readable
+                    # gameplay frames. Never decode credentials or bypass PAKE.
+                    enqueue(destination, data)
+                    continue
                 buffer = incoming[source]
                 buffer.extend(data)
                 end_markers = 0
@@ -472,7 +478,7 @@ def service(server, root, invitation, frontend_port=None):
     with (root / "server.log").open("w+") as log:
         arguments = [str(server), "--dedicated", "--transport", "--host=127.0.0.1",
             f"--port={backend}", f"--resources={root}", "--trusted-proxy-protocol=v2",
-            f"--invite-file={invite}", f"--readiness-socket={ready}"]
+            f"--password-file={invite}", f"--readiness-socket={ready}"]
         if frontend_port is not None:
             assert os.environ.get("D6R_DIRECTORY_URL", "").startswith("http://127.0.0.1:"), "requires owned local directory fixture"
             arguments += ["--advertise-host=arena.example.test", f"--advertise-port={frontend_port}"]
@@ -577,17 +583,17 @@ def main():
         shutil.copy2(client, executable)
         shutil.copy2(server.with_name("duel6r-resolver"), root / "duel6r-resolver")
         def run(peer, invitation, scenario, trusted=True):
-            env = dict(os.environ, D6R_TEST_INVITE=invitation,
+            env = dict(os.environ,
                        SSL_CERT_FILE=str(root / "ca.pem") if trusted else str(root / "missing.pem"),
                        SSL_CERT_DIR=str(root / "no-ca-directory"))
             forwarded_before = peer.forwarded_ends
             result = subprocess.run([str(executable), str(peer.port), str(root), scenario],
-                                    cwd=root, env=env, capture_output=True, text=True, timeout=140)
+                                    cwd=root, env=env, input=invitation + "\n", capture_output=True, text=True, timeout=140)
             assert all(value not in result.stdout + result.stderr for value in (INVITE, ROTATED, OTHER)), "client logged invitation"
             assert result.returncode == 0, result.stdout + result.stderr + peer.evidence()
             if scenario == "summary-return-ordered":
                 assert peer.controller_summary_held.is_set() and peer.guest_summary_seen.is_set(), "ordered summary did not hold real records"
-            if scenario in ("flow", "flow-race"):
+            if scenario in ("flow", "flow-race") and not peer.opaque_inner:
                 assert peer.forwarded_ends >= forwarded_before + 2, "End was observed but not forwarded; " + peer.evidence()
             if scenario == "flow-race":
                 assert peer.race_write_failed.is_set(), "End forwarding regression missed closed-write failure"

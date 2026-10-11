@@ -16,12 +16,12 @@ Local Play remains subject to [`features.md`](features.md). This document does n
 
 ## Terms
 
-The ownership, supervision, and orphan-prevention rules in the player-hosted sections below apply only to player-hosted operation. For the public pilot, the operator owns the service and the first admitted participant controls the session under `NET-PUB-001`–`NET-PUB-023`. A dedicated participant must not launch, adopt, stop, or supervise the remote service process. Both modes retain the current round-one admission, service-authoritative clock, and recovery contracts unless HSL-PUB states a difference. The current player-host password and protected-secret contract is in [network-host-directory.md](network-host-directory.md).
+The ownership, supervision, and orphan-prevention rules in the player-hosted sections below apply only to player-hosted operation. For the public pilot, the operator owns the service and the first admitted participant controls the session under NET-PUB. A dedicated participant must not launch, adopt, stop, or supervise the remote service process. Both modes retain the current round-one admission, service-authoritative clock and recovery contracts unless HSL-PUB states a difference. The common optional Password and protected-secret contract is NET-PASS-001–018 in [network-host-directory.md](network-host-directory.md).
 
 ### Dedicated service lifecycle
 
 - **HSL-PUB-001** While its environment is running, a dedicated service must remain available for a new session after an ended session completes cleanup.
-- **HSL-PUB-002** Public readiness must require validated secure admission availability and gameplay content plus one prepared empty session with a nonzero identity, zero participants/players, no controller and no round. Readiness and directory publication must precede first admission without requiring a controller. Failed startup must not publish or admit participants.
+- **HSL-PUB-002** Public readiness must require validated secure admission availability, operator password configuration under NET-PASS-014–016 and gameplay content plus one prepared empty session with a nonzero identity, zero participants/players, no controller and no round. No file or a valid empty file permits No password; a supplied invalid file must fail before readiness/publication without fallback. Readiness and directory publication must precede first admission without requiring a controller. Failed startup must not publish or admit participants.
 - **HSL-PUB-003** A controller's confirmed End session must end only the current session, not the environment's service.
 - **HSL-PUB-004** The service must reject admission while session cleanup or deployment shutdown is in progress.
 - **HSL-PUB-005** An accepted intentional controller End notice must use the existing `NET-09` outcome for other participants.
@@ -268,7 +268,7 @@ These requirements assume the operating system honors termination. The existing 
 
 ## Secret and configuration handling
 
-Player-host password handling must follow NET-PASS. The earlier no-startup-password exclusion does not apply to that approved path. Dedicated invitation handling must follow TRU-PUB. Neither path permits secrets in process arguments or diagnostics.
+Both hosting modes must follow NET-PASS-001–018 for common Password handling; dedicated operation additionally retains TRU-PUB certificate verification and protected handoff. The earlier no-startup-password exclusion does not apply to this approved procedure. Dedicated configuration is loaded once before readiness/publication, remains static across fresh service sessions and changes only through operator restart; controllers cannot manage it. Restart invalidates old identities and reconnect credentials. Password values never enter process arguments, environment variables or diagnostics; only the protected operator file is the limited configuration persistence exception. Channel state retained for reserved reconnect is erased at final disposal and never substitutes for the scoped reconnect credential.
 
 The host application may provide only validated, non-secret startup configuration to the hosted service. It must not place a secret in startup arguments.
 

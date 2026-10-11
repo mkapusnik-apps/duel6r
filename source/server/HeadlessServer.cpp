@@ -201,7 +201,7 @@ namespace {
             dependencies.enforceNetworkSessionPolicy = true;
             dependencies.enforcePreAdmissionPolicy = preAdmission;
             dependencies.trustedProxyV2 = trustedProxyV2;
-            dependencies.secureSession = preAdmission && !trustedProxyV2;
+            dependencies.secureSession = preAdmission;
             dependencies.password = std::move(password);
             listener = std::make_unique<Duel6::Network::TcpListener>(maxConnections, std::move(dependencies));
         }
@@ -474,13 +474,7 @@ namespace {
         Duel6::Network::SendResult requestSent = Duel6::Network::SendResult::NotConnected;
         try {
             auto payload = Duel6::Network::serializeAdmissionRequest(request);
-            if (config.publicConnection) {
-                if (!config.invitation) throw std::invalid_argument("Invitation unavailable");
-                payload = Duel6::Network::PublicSession::wrapAdmission(payload, config.invitation->value);
-                requestSent = payload.empty() ? Duel6::Network::SendResult::NotConnected
-                                             : connection->sendSensitive(std::move(payload));
-                Duel6::Network::PublicSession::erase(config.invitation->value);
-            } else requestSent = connection->send(std::move(payload));
+            requestSent = connection->send(std::move(payload));
         }
         catch (...) {}
         if (requestSent != Duel6::Network::SendResult::Accepted) {
@@ -1382,7 +1376,7 @@ namespace Duel6::Server {
                 dependencies.now = safeClock;
                 dependencies.enforceNetworkSessionPolicy = true;
                 dependencies.publicTls = this->config.publicConnection;
-                dependencies.secureSession = !this->config.publicConnection;
+                dependencies.secureSession = true;
                 dependencies.password = this->runtimeDependencies.sessionPassword;
                 dependencies.secureLimits = this->runtimeDependencies.secureLimits;
                 return std::make_unique<ProductionAdmissionClient>(std::move(dependencies));
@@ -1481,7 +1475,6 @@ namespace Duel6::Server {
     }
 
     int HeadlessServer::run(std::ostream &output) {
-        std::shared_ptr<Network::PublicSession::Secret> dedicatedInvitation;
         std::unique_ptr<DedicatedReadiness> readiness;
         if (config.dedicated) {
             if (!Network::PublicSession::supported() || !config.trustedProxyV2 || config.listenEndpoint.host != "127.0.0.1"
@@ -1489,7 +1482,9 @@ namespace Duel6::Server {
                 || !config.transportEnabled || config.transportEcho || config.admissionClient
                 || config.hostedServiceIpc || config.graphicalHostComposition || config.localPlayers != 0)
                 throw std::invalid_argument("Invalid dedicated service configuration");
-            dedicatedInvitation = loadInvitation(config.inviteFile);
+            if (config.passwordFileProvided && config.passwordFile.empty())
+                throw std::invalid_argument("Dedicated password configuration invalid");
+            runtimeDependencies.sessionPassword = loadPassword(config.passwordFile);
             readiness = std::make_unique<DedicatedReadiness>(config.readinessSocket);
         }
         const auto observe = [this](AdmissionLifecycleStage stage, Network::Trust::ConnectionId connection = 0,
@@ -2199,7 +2194,9 @@ namespace Duel6::Server {
                 if (!runtimeFailed && lifecycleSessionId != 0 && (!sessionLifecycle || !sessionLifecycle->ended())) {
                     listing.sessionId = Client::directorySessionId(lifecycleSessionId);
                     listing.endpoint = config.advertisedFrontend;
-                    listing.hosting = "dedicated"; listing.protection = "invite";
+                    listing.hosting = "dedicated";
+                    listing.passwordRequired = runtimeDependencies.sessionPassword && runtimeDependencies.sessionPassword->required();
+                    listing.protection = listing.passwordRequired ? "password" : "none";
                     listing.mode = "deathmatch"; listing.capacity = Network::MaxNetworkPlayers;
                     listing.phase = "idle"; listing.admission = "open";
                     if (hostedMatch) {
@@ -2520,14 +2517,6 @@ namespace Duel6::Server {
                             if (write(*connection, std::move(frame.payload)) != Network::SendResult::Accepted)
                                 connection->requestClose();
                         } else {
-                            if (config.dedicated && !Network::PublicSession::unwrapAdmission(
-                                    frame.payload, dedicatedInvitation->value)) {
-                                Network::AdmissionResult denied;
-                                denied.code = Network::AdmissionResultCode::NotAuthorized;
-                                write(*connection, Network::serializeAdmissionResult(denied));
-                                connection->requestClose();
-                                continue;
-                            }
                             try {
                                 runtime.requestedPlayerNames =
                                         Network::deserializeAdmissionRequest(frame.payload).localPlayerNames;

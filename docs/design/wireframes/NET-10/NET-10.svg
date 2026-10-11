@@ -27,18 +27,18 @@
     <text x="55" y="273">192.168.1.20:26660</text><text x="311" y="273">Player-hosted</text>
     <text x="423" y="273">2 / 15</text><text x="495" y="273">Lobby</text><text x="599" y="273">Password</text><text x="695" y="273">Open</text>
     <text x="55" y="302">&gt; arena.example.test:26660</text><text x="311" y="302">Dedicated</text>
-    <text x="423" y="302">0 / 15</text><text x="495" y="302">Idle</text><text x="599" y="302">Invite</text><text x="695" y="302">Open</text>
+    <text x="423" y="302">0 / 15</text><text x="495" y="302">Idle</text><text x="599" y="302">Password</text><text x="695" y="302">Open</text>
     <text x="55" y="333">other.example.test:26660</text><text x="311" y="333">Dedicated</text>
-    <text x="423" y="333">2 / 15</text><text x="495" y="333">Reserved</text><text x="599" y="333">Invite</text><text x="695" y="333">Closed</text>
+    <text x="423" y="333">2 / 15</text><text x="495" y="333">Reserved</text><text x="599" y="333">No password</text><text x="695" y="333">Closed</text>
     <text x="55" y="363">192.168.1.24:26660</text><text x="311" y="363">Player-hosted</text>
     <text x="423" y="363">15 / 15</text><text x="495" y="363">Round 1</text><text x="599" y="363">No password</text><text x="695" y="363">Full</text>
     <text x="55" y="393">busy.example.test:26660</text><text x="311" y="393">Dedicated</text>
-    <text x="423" y="393">0 / 15</text><text x="495" y="393">Cleanup</text><text x="599" y="393">Invite</text><text x="695" y="393">Busy</text>
+    <text x="423" y="393">0 / 15</text><text x="495" y="393">Cleanup</text><text x="599" y="393">Password</text><text x="695" y="393">Busy</text>
     <text x="333" y="473">Rows scroll; headings stay visible</text>
     <text x="61" y="524">Selected dedicated session: full identity • Mode: Deathmatch</text>
     <text x="61" y="545">Endpoint: arena.example.test:26660</text>
     <text x="61" y="566">Ready empty session. Your role is confirmed only after admission.</text>
-    <text x="61" y="589">Invite required. A listing does not guarantee reachability.</text>
+    <text x="61" y="589">Password required. A listing does not guarantee reachability.</text>
     <text x="67" y="623">Previous page</text><text x="425" y="623">Page 1</text><text x="675" y="623">Next page</text>
     <text x="127" y="653">Join selected</text><text x="417" y="653">Refresh</text>
     <text x="660" y="653">Direct connect</text><text x="695" y="687">Back</text>
@@ -46,7 +46,7 @@
   <g font-family="sans-serif" font-size="14" fill="black">
     <text x="25" y="753">ANNOTATIONS: Examples show structure, not configured endpoints or required simultaneous fixtures.</text>
     <text x="25" y="778">Keep current font/spacing. Clip row endpoints; full selected metadata wraps or scrolls in details.</text>
-    <text x="25" y="803">Unsupported Mac/Pi: readable dedicated row; flat disabled Join with platform reason. No Invite entry.</text>
+    <text x="25" y="803">Unsupported Mac/Pi: readable dedicated row; flat disabled Join with platform reason. No dedicated Password entry.</text>
     <text x="25" y="828">Stale: Unconfirmed admission and Refresh reason. Busy/Full/Closed remain separate from capacity.</text>
     <text x="25" y="853">Selection/focus differ without color. No action bypasses eligibility. UX-NET-10-004/011–036.</text>
   </g>

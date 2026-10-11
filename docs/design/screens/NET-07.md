@@ -17,7 +17,7 @@ State `NET-07-PUBLIC-RECONNECT` covers Host and Guest under NET-PUB-010–012 an
 - An unavailable connection must not be labeled `Host ended session` or `Server update` without authoritative evidence.
 - The panel must not promise that an ended dedicated session can resume.
 - Endpoint text must wrap inside the existing 640-pixel maximum panel width.
-- The panel must not display an invite or reconnect credential.
+- The panel must not display a password or reconnect credential.
 - Existing modal focus, confirmation, and 16-pixel client-edge clearance must remain unchanged.
 
 Acceptance requires a genuine Host connection-loss capture and QA evidence for guest recovery, Host restoration, expiry, and End during isolation. SS-021 remains the representative wireframe entry with a Host reservation and a positive countdown. The Host action occupies the existing guest action slot; no new layout is needed. Focus must start on the role-appropriate action. Do not substitute a simulated static overlay for an unreachable state.

@@ -3,15 +3,6 @@
 #include <algorithm>
 
 namespace Duel6::Network::PublicSession {
-    bool validInvite(std::string_view value) {
-        return !value.empty() && value.size() <= 256
-               && std::all_of(value.begin(), value.end(), [](unsigned char c) { return c >= 33 && c <= 126; });
-    }
-    void erase(std::string &value) noexcept {
-        Trust::secureEraseMemory(value.data(), value.size());
-        value.clear();
-    }
-    Secret::~Secret() { erase(value); }
     std::vector<std::uint8_t> terminalNotice(std::uint64_t sessionId, bool maintenance) {
         std::vector<std::uint8_t> result{'D', '6', 'P', 'E', static_cast<std::uint8_t>(maintenance ? 1 : 0)};
         for (unsigned i = 0; i < 8; ++i) result.push_back(static_cast<std::uint8_t>(sessionId >> (i * 8)));
@@ -78,34 +69,5 @@ namespace Duel6::Network::PublicSession {
         if (value.find_first_not_of("0123456789.") != std::string_view::npos) return true;
         const auto scope = Trust::classifyIpv4Literal(std::string(value));
         return scope == Trust::EndpointScope::PrivateLan || scope == Trust::EndpointScope::PublicUnicast;
-    }
-    std::vector<std::uint8_t> wrapAdmission(const std::vector<std::uint8_t> &request,
-                                            std::string_view invitation) {
-        if (!validInvite(invitation) || request.size() + invitation.size() + 6 > Trust::MaxAdmissionPayloadBytes)
-            return {};
-        std::vector<std::uint8_t> result{'D', '6', 'P', 'I',
-                static_cast<std::uint8_t>(invitation.size() >> 8), static_cast<std::uint8_t>(invitation.size())};
-        result.insert(result.end(), invitation.begin(), invitation.end());
-        result.insert(result.end(), request.begin(), request.end());
-        return result;
-    }
-    bool unwrapAdmission(std::vector<std::uint8_t> &request, std::string_view expected) {
-        bool authorized = false;
-        std::vector<std::uint8_t> payload;
-        if (request.size() >= 6 && request[0] == 'D' && request[1] == '6'
-            && request[2] == 'P' && request[3] == 'I') {
-            const std::size_t size = (static_cast<std::size_t>(request[4]) << 8) | request[5];
-            if (size <= 256 && request.size() > size + 6) {
-                unsigned difference = static_cast<unsigned>(size ^ expected.size());
-                for (std::size_t i = 0; i < expected.size(); ++i)
-                    difference |= static_cast<unsigned>(static_cast<unsigned char>(expected[i])
-                                  ^ (i < size ? request[6 + i] : 0));
-                authorized = validInvite(expected) && difference == 0;
-                if (authorized) payload.assign(request.begin() + 6 + size, request.end());
-            }
-        }
-        Trust::secureEraseMemory(request.data(), request.size());
-        request = std::move(payload);
-        return authorized;
     }
 }

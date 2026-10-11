@@ -59,9 +59,8 @@ namespace Duel6 {
         std::string playerHostedAddress = "127.0.0.1";
         std::string playerHostedPort = std::to_string(Network::DefaultServerPort);
         std::string dedicatedAddress, dedicatedPort;
-        Network::PublicSession::Secret invitation;
-        bool invalidInvitationInput = false;
         std::string password;
+        std::string passwordFeedback;
         Client::DirectoryBrowser browser;
         std::string selectedListing;
         std::string selectedSessionIdentity;
@@ -125,7 +124,7 @@ namespace Duel6 {
         std::vector<std::string> boundContextLines() const;
         int setupFirstRow() const;
         int setupVisibleRows() const;
-        void clearInvitation();
+        void clearPassword();
         void enterDirectSetup();
         void joinEndpoint(const Network::Endpoint &endpoint);
         void enterText(std::string_view text);

@@ -331,6 +331,29 @@ class TlsPeer {
     }
 public:
     enum class Stage { Starting, Accept, Handshake, Read, Write };
+    struct InnerBytes final : SecureByteStream {
+        SSL *ssl;
+        explicit InnerBytes(SSL *ssl) : ssl(ssl) {}
+        static int result(SSL *ssl, int count) {
+            if (count > 0) return count;
+            const int error = SSL_get_error(ssl, count);
+            return error == SSL_ERROR_WANT_READ ? -2 : error == SSL_ERROR_WANT_WRITE ? -3
+                 : error == SSL_ERROR_ZERO_RETURN ? 0 : -1;
+        }
+        std::ptrdiff_t read(unsigned char *data, std::size_t size) override { return result(ssl, SSL_read(ssl, data, static_cast<int>(size))); }
+        std::ptrdiff_t write(const unsigned char *data, std::size_t size) override { return result(ssl, SSL_write(ssl, data, static_cast<int>(size))); }
+        bool pending() const override { return SSL_pending(ssl) != 0; }
+    };
+    template<typename Operation>
+    int innerIO(Operation operation) {
+        while (active()) {
+            const int count = static_cast<int>(operation());
+            if (count > 0) return count;
+            if (count != -2) { outcome = Outcome::TlsFailure; return -1; }
+            std::this_thread::sleep_for(5ms);
+        }
+        return -1;
+    }
     enum class Outcome { Pending, Complete, Cancelled, Deadline, SocketFailure, TlsFailure, InternalFailure };
     std::uint16_t port = 0;
     std::atomic<unsigned> applicationBytes{0};
@@ -347,7 +370,7 @@ public:
                   << " application-bytes=" << applicationBytes.load() << std::endl;
     }
     TlsPeer(X509 *cert, EVP_PKEY *key, const std::vector<std::uint8_t> &secret,
-            std::chrono::milliseconds budget = 5s) {
+            std::chrono::milliseconds budget = 5s, std::string password = "portable-password") {
         check(ctx && SSL_CTX_set_min_proto_version(ctx.get(), TLS1_2_VERSION) == 1, "TLS peer context");
         check(SSL_CTX_use_certificate(ctx.get(), cert) == 1 && SSL_CTX_use_PrivateKey(ctx.get(), key) == 1, "TLS peer identity");
         listener.value = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP); check(listener.value != BadSocket, "TLS listener socket");
@@ -362,7 +385,7 @@ public:
         check(getsockname(listener.value, reinterpret_cast<sockaddr *>(&address), &length) == 0, "TLS listener port");
         port = ntohs(address.sin_port);
         deadline = Time::now() + budget;
-        worker = std::thread([this, secret] {
+        worker = std::thread([this, secret, password = std::move(password)] {
             try {
                 SocketOwner peer;
                 stage = Stage::Accept;
@@ -381,11 +404,17 @@ public:
                 BIO_set_data(bio, &peer); SSL_set_bio(ssl.get(), bio, bio);
                 stage = Stage::Handshake;
                 if (io(ssl.get(), [&] { return SSL_accept(ssl.get()); }) == 1) {
+                    auto carrier = std::make_shared<InnerBytes>(ssl.get());
+                    SecureSession inner(static_cast<std::intptr_t>(peer.value), true,
+                        std::make_shared<SessionPassword>(password), {}, carrier);
+                    if (!inner.handshake(deadline, [this] { return !active(); })) {
+                        outcome = Outcome::TlsFailure; finished = true; return;
+                    }
                     stage = Stage::Read;
                     std::vector<std::uint8_t> bytes(12 + secret.size());
                     std::size_t offset = 0;
                     while (offset < bytes.size()) {
-                        const int count = io(ssl.get(), [&] { return SSL_read(ssl.get(), bytes.data() + offset, static_cast<int>(bytes.size() - offset)); });
+                        const int count = innerIO([&] { return inner.receive(bytes.data() + offset, bytes.size() - offset); });
                         if (count <= 0) break;
                         offset += count; applicationBytes += count;
                     }
@@ -395,7 +424,7 @@ public:
                         stage = Stage::Write;
                         offset = 0;
                         while (offset < bytes.size()) {
-                            const int count = io(ssl.get(), [&] { return SSL_write(ssl.get(), bytes.data() + offset, static_cast<int>(bytes.size() - offset)); });
+                            const int count = innerIO([&] { return inner.send(bytes.data() + offset, bytes.size() - offset); });
                             if (count <= 0) break;
                             offset += count;
                         }
@@ -497,13 +526,16 @@ int main(int argc, char **argv) {
         std::cout << "BEGIN " << stage << std::endl;
         TrustFixture trust(ca.get());
         std::cout << "TRUST setup complete" << std::endl;
-        const char *cases[]{"trusted hostname", "trusted IP", "untrusted chain: zero application bytes", "wrong hostname: zero application bytes"};
-        for (unsigned scenario = 0; scenario < 4; ++scenario) {
+        const char *cases[]{"trusted hostname", "trusted IP unlocked", "untrusted chain: zero application bytes", "wrong hostname: zero application bytes",
+                            "wrong password: zero application bytes", "explicit password on unlocked: no fallback"};
+        for (unsigned scenario = 0; scenario < 6; ++scenario) {
             stage = cases[scenario];
             std::cout << "CASE " << stage << " begin" << std::endl;
-            const bool trusted = scenario < 2;
-            TlsPeer peer(scenario == 2 ? untrusted.get() : scenario == 3 ? wrong.get() : valid.get(), leafKey.get(), secret);
-            SessionTransportDependencies dependencies; dependencies.publicTls = true;
+            const bool trusted = scenario < 2 || scenario >= 4;
+            TlsPeer peer(scenario == 2 ? untrusted.get() : scenario == 3 ? wrong.get() : valid.get(), leafKey.get(), secret,
+                         5s, scenario == 1 || scenario == 5 ? "" : "portable-password");
+            SessionTransportDependencies dependencies; dependencies.publicTls = true; dependencies.secureSession = true;
+            dependencies.password = std::make_shared<SessionPassword>(scenario >= 4 ? "incorrect" : scenario == 1 ? "" : "portable-password");
             TcpClient client(dependencies);
             try {
                 std::cout << "CONNECT begin" << std::endl;
@@ -511,7 +543,13 @@ int main(int argc, char **argv) {
                 const bool connected = client.waitForConnected(10s);
                 std::cout << "CONNECT connected=" << connected << " state=" << static_cast<int>(client.state())
                           << " failure=" << static_cast<int>(client.failure()) << std::endl;
-                if (trusted) {
+                if (scenario >= 4) {
+                    check(connected, "outer certificate verification failed before password scenario");
+                    auto connection = client.connection();
+                    check(waitUntil([&] { return connection->state() == ClientState::Failed; }, 6s)
+                          && connection->failure() == TransportFailure::NotAuthorized, "mismatched PAKE did not reject");
+                    check(!peer.validRequest && peer.applicationBytes == 0, "application admission preceded password enforcement");
+                } else if (trusted) {
                     check(connected, "trusted native TLS failed");
                     std::cout << "APPLICATION round trip begin (payload withheld)" << std::endl;
                     check(client.connection()->sendSensitive(secret) == SendResult::Accepted, "sensitive TLS frame not queued");
@@ -526,7 +564,7 @@ int main(int argc, char **argv) {
                 std::cout << "CLIENT close complete" << std::endl;
                 check(waitUntil([&] { return peer.finished.load(); }, 6s), "TLS peer did not finish");
                 peer.describe();
-                check(peer.outcome == (trusted ? TlsPeer::Outcome::Complete : TlsPeer::Outcome::TlsFailure), "unexpected TLS peer terminal outcome");
+                check(peer.outcome == (trusted && scenario < 2 ? TlsPeer::Outcome::Complete : TlsPeer::Outcome::TlsFailure), "unexpected TLS peer terminal outcome");
                 if (!trusted) check(peer.applicationBytes == 0, "application secret disclosed before certificate validation");
             } catch (...) {
                 std::cout << "CASE failure; peer cancellation begin" << std::endl;

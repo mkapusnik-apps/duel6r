@@ -32,9 +32,9 @@ namespace Duel6::Server {
         Network::Endpoint advertisedFrontend{"", 0};
         bool publicConnection = false;
         bool trustedProxyV2 = false;
-        std::string inviteFile;
+        std::string passwordFile;
+        bool passwordFileProvided = false;
         std::string readinessSocket;
-        std::shared_ptr<Network::PublicSession::Secret> invitation;
         std::uint64_t hostedServiceParent = 0;
 #ifdef D6R_TRANSPORT_WINDOWS
         std::uint64_t hostedServiceStatusHandle = 0;

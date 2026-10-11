@@ -425,14 +425,15 @@ D6R_TEST_CASE("NET-DIR mixed decoder requires classification and capability-scop
     const std::string row = "{\"id\":\"" + std::string(32, 'a') + "\",\"sessionId\":\"" + Client::directorySessionId(42)
         + "\",\"address\":\"arena.example.test\",\"port\":26660,\"mode\":\"deathmatch\",\"phase\":\"idle\","
           "\"players\":0,\"capacity\":15,\"passwordRequired\":false,\"hosting\":\"dedicated\","
-          "\"protection\":\"invite\",\"admission\":\"open\",\"revision\":1,\"expiresAt\":2000000000000}";
+          "\"protection\":\"none\",\"admission\":\"open\",\"revision\":1,\"expiresAt\":2000000000000}";
     const std::string page = "{\"contract\":\"mixed-v2\",\"listings\":[" + row + "],\"nextCursor\":null}";
     const auto decoded = Client::decodeDirectoryPage(page, {}, true);
     D6R_REQUIRE(decoded.available && decoded.listings.front().dedicated());
     D6R_REQUIRE_EQ(Network::PublicSession::supported(), decoded.listings.front().joinable());
     D6R_REQUIRE(!Client::decodeDirectoryPage(page).available);
     for (const auto &change: {std::pair{std::string("dedicated"), std::string("unknown")},
-            std::pair{std::string("invite"), std::string("password")},
+            std::pair{std::string("none"), std::string("invite")},
+            std::pair{std::string("none"), std::string("password")},
             std::pair{std::string("arena.example.test"), std::string("127.0.0.1")},
             std::pair{std::string("\"players\":0"), std::string("\"players\":1")},
             std::pair{std::string("\"admission\":\"open\""), std::string("\"admission\":\"closed\"")}}) {
@@ -1006,12 +1007,11 @@ D6R_TEST_CASE("NET-ENTRY mixed dedicated Direct return restores private Host and
     D6R_REQUIRE(menu.publicConnection);
     menu.address = "operator.example.test"; menu.port = "45678";
     menu.focus = 2; menu.enterText("A B");
-    D6R_REQUIRE(menu.invalidInvitationInput);
+    D6R_REQUIRE(menu.password == "A B");
     f.key(SDLK_ESCAPE);
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry && menu.focus == 0);
-    D6R_REQUIRE(menu.invitation.value.empty());
+    D6R_REQUIRE(menu.password.empty());
     // Even stale state must not cross entry into a different hosting authority.
-    menu.invitation.value = "synthetic-only"; menu.invalidInvitationInput = true;
     menu.password = "synthetic-private-only"; menu.hostSetup.password = std::make_shared<Network::SessionPassword>(menu.password);
     menu.browserSelection = Client::DirectoryListing{}; menu.joinFromBrowser = true;
     menu.entryRuntimeAvailable = false; f.key(SDLK_RETURN);
@@ -1020,7 +1020,7 @@ D6R_TEST_CASE("NET-ENTRY mixed dedicated Direct return restores private Host and
     menu.entryRuntimeAvailable = true; f.key(SDLK_RETURN);
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host && menu.focus == 0);
     D6R_REQUIRE(!menu.publicConnection && !menu.browserSelection && !menu.joinFromBrowser);
-    D6R_REQUIRE(menu.invitation.value.empty() && !menu.invalidInvitationInput);
+    D6R_REQUIRE(menu.passwordFeedback.empty());
     D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password);
     D6R_REQUIRE_EQ(std::string("192.168.1.23"), menu.address);
     D6R_REQUIRE_EQ(std::string("34567"), menu.port);
@@ -1030,7 +1030,7 @@ D6R_TEST_CASE("NET-ENTRY mixed dedicated Direct return restores private Host and
     f.key(SDLK_ESCAPE); menu.focus = 1; f.key(SDLK_RETURN);
     menu.focus = 3; f.key(SDLK_RETURN); menu.focus = 3; f.key(SDLK_RETURN);
     D6R_REQUIRE(menu.publicConnection && menu.address == "operator.example.test" && menu.port == "45678");
-    D6R_REQUIRE(menu.invitation.value.empty() && menu.password.empty());
+    D6R_REQUIRE(menu.password.empty());
 }
 
 D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choices and exposes recovery") {
@@ -1469,24 +1469,22 @@ D6R_TEST_CASE("NET-JOIN-PUB direct-only platform selection uses empty operator f
     menu.moveFocus(1); menu.moveFocus(1); menu.moveFocus(1);
     D6R_REQUIRE_EQ(2, menu.focus);
     menu.enterText("synthetic-pilot-only");
-    D6R_REQUIRE(menu.invitation.value == "synthetic-pilot-only");
-    f.draw(); D6R_REQUIRE(f.text("Invite:"));
+    D6R_REQUIRE(menu.password == "synthetic-pilot-only");
+    f.draw(); D6R_REQUIRE(f.text("Password:"));
     D6R_REQUIRE(!f.text("synthetic-pilot-only"));
     menu.enterText(" rejected whitespace");
-    D6R_REQUIRE(menu.invalidInvitationInput);
     std::string reason;
-    D6R_REQUIRE(!menu.setupValid(reason));
-    D6R_REQUIRE_EQ(std::string("Use 1–256 printable ASCII characters without spaces."), reason);
-    D6R_REQUIRE(menu.invitation.value == "synthetic-pilot-only rejected whitespace");
-    menu.clearInvitation(); menu.enterText(std::string(256, 'x'));
+    D6R_REQUIRE(menu.setupValid(reason));
+    D6R_REQUIRE(menu.password == "synthetic-pilot-only rejected whitespace");
+    menu.clearPassword(); menu.enterText(std::string(128, 'x'));
     menu.enterText("x");
-    D6R_REQUIRE(menu.invalidInvitationInput && menu.invitation.value.size() == 256);
+    D6R_REQUIRE(!menu.passwordFeedback.empty() && menu.password.size() == 128);
     menu.focus = 0; menu.address = "operator.example";
     menu.textInputEvent(TextInputEvent("x"));
-    D6R_REQUIRE(menu.invitation.value.empty());
+    D6R_REQUIRE(menu.password.empty());
     menu.focus = 2; menu.enterText("another-synthetic-value");
     menu.focus = 3; menu.activate();
-    D6R_REQUIRE(!menu.publicConnection && menu.invitation.value.empty());
+    D6R_REQUIRE(!menu.publicConnection && menu.password.empty());
     D6R_REQUIRE_EQ(std::string("127.0.0.1"), menu.address);
     D6R_REQUIRE_EQ(std::string("26660"), menu.port);
     menu.password = "player-host-password";
@@ -1545,19 +1543,19 @@ D6R_TEST_CASE("recording renderer retains interleaved UV and position geometry")
     D6R_REQUIRE_EQ(180.0f, renderer.draws.front().right);
 }
 
-D6R_TEST_CASE("NET-DIR mixed selected dedicated setup locks endpoint skips targets masks Invite and clears independent Direct") {
+D6R_TEST_CASE("NET-DIR mixed selected dedicated setup locks endpoint and common Password focus follows protection") {
     ReviewMenuFixture f;
     auto &menu = f.menu;
     Client::DirectoryListing row;
     row.id = std::string(32, 'a'); row.sessionId = Client::directorySessionId(42);
     row.endpoint = {"arena.example.test", 26660}; row.mode = "deathmatch"; row.phase = "idle";
-    row.hosting = "dedicated"; row.protection = "invite"; row.admission = "open"; row.capacity = 15;
+    row.hosting = "dedicated"; row.protection = "password"; row.passwordRequired = true; row.admission = "open"; row.capacity = 15;
     row.expiresAt = 2000000000000;
     menu.setupScreen = NetworkMenu::SetupScreen::Browser;
     menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
     menu.browser.received = menu.browser.requested = std::chrono::steady_clock::now();
     f.draw();
-    for (const auto *heading: {"Hosting", "Players", "Phase", "Access", "Admission", "Dedicated", "Invite", "Idle", "0 / 15"})
+    for (const auto *heading: {"Hosting", "Players", "Phase", "Access", "Admission", "Dedicated", "Password", "Idle", "0 / 15"})
         D6R_REQUIRE(f.text(heading));
     D6R_REQUIRE(f.text("Ready empty session. Your role is confirmed only after admission."));
     menu.joinSelected();
@@ -1568,6 +1566,7 @@ D6R_TEST_CASE("NET-DIR mixed selected dedicated setup locks endpoint skips targe
         return;
     }
     D6R_REQUIRE(menu.boundDedicated() && menu.focus == 2);
+    std::string reason; D6R_REQUIRE(!menu.setupValid(reason));
     D6R_REQUIRE(!menu.serviceTypeAvailable());
     const auto endpoint = menu.address, port = menu.port;
     menu.focus = 0; menu.enterText("tamper"); f.key(SDLK_BACKSPACE);
@@ -1578,11 +1577,22 @@ D6R_TEST_CASE("NET-DIR mixed selected dedicated setup locks endpoint skips targe
     for (int i = 0; i < 30; ++i) { menu.moveFocus(1); D6R_REQUIRE(menu.focus >= 2); }
     for (int i = 0; i < 30; ++i) { menu.moveFocus(-1); D6R_REQUIRE(menu.focus >= 2); }
     menu.focus = 2; menu.back();
-    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser && menu.invitation.value.empty());
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser && menu.password.empty());
     D6R_REQUIRE_EQ(row.id, menu.selectedListing);
     menu.joinSelected(); menu.enterText("disposable-test-only");
     menu.enterDirectSetup();
-    D6R_REQUIRE(!menu.browserSelection && !menu.joinFromBrowser && menu.invitation.value.empty() && menu.password.empty());
+    D6R_REQUIRE(!menu.browserSelection && !menu.joinFromBrowser && menu.password.empty());
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    row.protection = "none"; row.passwordRequired = false;
+    menu.browser.page = {true, {row}, {}}; menu.joinSelected();
+    D6R_REQUIRE(menu.boundDedicated() && menu.focus == menu.setupFields());
+    D6R_REQUIRE(menu.setupValid(reason));
+    menu.focus = 2; menu.enterText(u8" unexpected é ");
+    D6R_REQUIRE(menu.password == u8" unexpected é "); // Never substitute the unlocked PAKE input.
+    menu.runtime.current.publicSession = true; menu.runtime.current.localParticipantId = 2;
+    menu.runtime.current.canonical = canonical(42, Network::Replication::Phase::Lobby);
+    menu.runtime.current.journey = Client::NetworkJourney::Lobby;
+    menu.update(0); D6R_REQUIRE(menu.password.empty()); // Editable buffer only; worker owns channel state.
 }
 
 D6R_TEST_CASE("NET-DIR bound metadata overflow reduces body rows and changed selection permits only browser recovery") {
@@ -1592,7 +1602,7 @@ D6R_TEST_CASE("NET-DIR bound metadata overflow reduces body rows and changed sel
     Client::DirectoryListing row;
     row.id = std::string(32, 'a'); row.sessionId = Client::directorySessionId(42);
     row.endpoint = {std::string(63, 'a') + "." + std::string(63, 'b') + "." + std::string(63, 'c') + "." + std::string(61, 'd'), 65535};
-    row.hosting = "dedicated"; row.protection = "invite"; row.admission = "open"; row.phase = "idle";
+    row.hosting = "dedicated"; row.protection = "password"; row.passwordRequired = true; row.admission = "open"; row.phase = "idle";
     row.capacity = 15; row.expiresAt = 2000000000000;
     menu.setupScreen = NetworkMenu::SetupScreen::Browser;
     menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
@@ -1602,12 +1612,12 @@ D6R_TEST_CASE("NET-DIR bound metadata overflow reduces body rows and changed sel
     D6R_REQUIRE_EQ(std::size_t(6), menu.boundContextLines().size());
     for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}}) {
         f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
-        f.draw(); D6R_REQUIRE(f.text("Back") && f.text("Invite required"));
+        f.draw(); D6R_REQUIRE(f.text("Back") && f.text("Password required"));
         D6R_REQUIRE(f.text("The service confirms identity, availability, and your role when you connect."));
     }
     auto &state = menu.runtime.current;
     state.journey = Client::NetworkJourney::Failure; state.publicSession = true;
-    state.authorizationRejected = true; state.failure = "Connection not authorized.";
+    state.failure = "Connection not authorized.";
     menu.focus = 0; menu.activate();
     D6R_REQUIRE(menu.boundDedicated() && menu.focus == 2);
     D6R_REQUIRE_EQ(row.endpoint.host, menu.address);
@@ -1638,7 +1648,7 @@ D6R_TEST_CASE("DIRUX01 bound four five six context lines contain full row focus 
     for (std::size_t context = 0; context < hosts.size(); ++context) {
         Client::DirectoryListing row;
         row.id = std::string(32, 'a'); row.sessionId = Client::directorySessionId(42);
-        row.hosting = "dedicated"; row.protection = "invite"; row.admission = "open"; row.phase = "idle";
+        row.hosting = "dedicated"; row.protection = "password"; row.passwordRequired = true; row.admission = "open"; row.phase = "idle";
         row.endpoint = {hosts[context], 65535}; row.capacity = 15; row.expiresAt = 2000000000000;
         menu.setupScreen = NetworkMenu::SetupScreen::Browser;
         menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
@@ -1660,7 +1670,7 @@ D6R_TEST_CASE("DIRUX01 bound four five six context lines contain full row focus 
                 const int bodyTop = menu.setupFirstRow() + 18;
                 D6R_REQUIRE(baseline + 18 <= bodyTop);
                 D6R_REQUIRE(f.frame(action ? 722 : 428, baseline - 4, action ? 100 : 294, 22, 2));
-                D6R_REQUIRE(f.text("Back") && f.text("Invite required"));
+                D6R_REQUIRE(f.text("Back") && f.text("Password required"));
                 for (const auto &frame: f.recorder.frames)
                     if (frame.color == Color::BLACK && (frame.position.x == 428 || frame.position.x == 722)) {
                         D6R_REQUIRE(frame.position.y >= 206);
@@ -1705,7 +1715,7 @@ D6R_TEST_CASE("DIRUX01 bound four five six context lines contain full row focus 
     }
 }
 
-D6R_TEST_CASE("F01 opaque invitation per-event invalid spans cannot become connectable and correction preserves binding") {
+D6R_TEST_CASE("NET-PASS common password events preserve exact spaces Unicode and reject whole invalid insertion without sticky state") {
     if (!Network::PublicSession::supported()) return;
     ReviewMenuFixture f;
     auto &menu = f.menu;
@@ -1720,44 +1730,44 @@ D6R_TEST_CASE("F01 opaque invitation per-event invalid spans cannot become conne
             menu.browserSelection->sessionId = Client::directorySessionId(42);
             menu.browserSelection->hosting = "dedicated";
         }
-        menu.focus = 2; menu.clearInvitation();
+        menu.focus = 2; menu.clearPassword();
         std::string reason;
         menu.textInputEvent(TextInputEvent("AA"));
         menu.textInputEvent(TextInputEvent(" "));
         menu.textInputEvent(TextInputEvent("BB"));
-        D6R_REQUIRE(!menu.setupValid(reason));
-        D6R_REQUIRE(menu.invitation.value == "AA BB"); // Masked invalid span retained, never silently discarded.
-        f.key(SDLK_BACKSPACE); D6R_REQUIRE(!menu.setupValid(reason));
-        f.key(SDLK_BACKSPACE); D6R_REQUIRE(!menu.setupValid(reason));
-        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
-        D6R_REQUIRE(menu.invitation.value == "AA");
-        menu.clearInvitation();
-        menu.enterText("A"); menu.enterText("\xC3\xA9"); menu.enterText("B");
-        D6R_REQUIRE(!menu.setupValid(reason));
-        f.key(SDLK_BACKSPACE); D6R_REQUIRE(!menu.setupValid(reason));
-        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
-        D6R_REQUIRE(menu.invitation.value == "A");
-        for (const std::string &invalid: {std::string("\t"), std::string("\n"), std::string(1, '\x7f')}) {
-            menu.clearInvitation(); menu.enterText("A"); menu.enterText(invalid); menu.enterText("B");
-            D6R_REQUIRE(!menu.setupValid(reason));
-            f.key(SDLK_BACKSPACE); D6R_REQUIRE(!menu.setupValid(reason));
-            f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
-        }
-        menu.clearInvitation(); menu.enterText(std::string(256, 'x'));
         D6R_REQUIRE(menu.setupValid(reason));
-        menu.enterText("y"); menu.enterText("z"); D6R_REQUIRE(!menu.setupValid(reason));
-        D6R_REQUIRE(menu.invitation.value == std::string(256, 'x')); // Whole over-limit events rejected, no partial append.
+        D6R_REQUIRE(menu.password == "AA BB");
         f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
-        menu.clearInvitation(); menu.enterText(std::string(257, 'x')); menu.enterText("A");
-        D6R_REQUIRE(!menu.setupValid(reason));
-        menu.clearInvitation(); menu.enterText("Case-Sensitive!_09");
-        D6R_REQUIRE(menu.setupValid(reason) && menu.invitation.value == "Case-Sensitive!_09");
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        D6R_REQUIRE(menu.password == "AA");
+        menu.clearPassword();
+        menu.enterText("A"); menu.enterText("\xC3\xA9"); menu.enterText("B");
+        D6R_REQUIRE(menu.setupValid(reason));
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        D6R_REQUIRE(menu.password == "A");
+        for (const std::string &invalid: {std::string("\t"), std::string("\n"), std::string(1, '\x7f'), std::string("\xc2\x85"), std::string("\xc3")}) {
+            menu.clearPassword(); menu.enterText("A"); menu.enterText(invalid);
+            D6R_REQUIRE(menu.password == "A" && !menu.passwordFeedback.empty());
+            D6R_REQUIRE(menu.setupValid(reason));
+            menu.enterText("B"); D6R_REQUIRE(menu.password == "AB" && menu.passwordFeedback.empty());
+        }
+        menu.clearPassword(); menu.enterText(std::string(128, 'x'));
+        D6R_REQUIRE(menu.setupValid(reason));
+        menu.enterText("y"); menu.enterText("z"); D6R_REQUIRE(menu.setupValid(reason));
+        D6R_REQUIRE(menu.password == std::string(128, 'x') && !menu.passwordFeedback.empty());
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        menu.clearPassword(); menu.enterText(std::string(129, 'x')); menu.enterText("A");
+        D6R_REQUIRE(menu.setupValid(reason) && menu.password == "A");
+        menu.clearPassword(); menu.enterText("Case-Sensitive!_09");
+        D6R_REQUIRE(menu.setupValid(reason) && menu.password == "Case-Sensitive!_09");
         D6R_REQUIRE(menu.localPlayers.size() == 1 && menu.address == "arena.example.test" && menu.port == "26660");
         D6R_REQUIRE_EQ(bound, menu.browserSelection.has_value());
     }
 }
 
-D6R_TEST_CASE("F01 SDL explicit clipboard paste rejects invalid whole values without shortening or later flag clearing") {
+D6R_TEST_CASE("NET-PASS common explicit clipboard paste preserves UTF8 spaces and rejects controls or overflow atomically") {
     if (!Network::PublicSession::supported()) return;
     ReviewMenuFixture f;
     auto &menu = f.menu;
@@ -1769,17 +1779,16 @@ D6R_TEST_CASE("F01 SDL explicit clipboard paste rejects invalid whole values wit
         D6R_REQUIRE(SDL_SetClipboardText("") == 0);
     };
     std::string reason;
-    for (const std::string &invalid: {std::string("A B"), std::string("A\xC3\xA9"), std::string("A\tB")}) {
-        menu.clearInvitation(); paste(invalid); menu.enterText("Z");
-        D6R_REQUIRE(!menu.setupValid(reason));
-        D6R_REQUIRE(menu.invitation.value == invalid + "Z");
+    for (const std::string &invalid: {std::string("A\tB"), std::string("\xc2\x85"), std::string("\xed\xa0\x80")}) {
+        menu.clearPassword(); menu.enterText("prefix"); paste(invalid); menu.enterText("Z");
+        D6R_REQUIRE(menu.setupValid(reason));
+        D6R_REQUIRE(menu.password == "prefixZ");
     }
-    menu.clearInvitation(); paste(std::string(257, 'x')); menu.enterText("Z");
-    D6R_REQUIRE(!menu.setupValid(reason));
-    D6R_REQUIRE(menu.invitation.value != std::string(256, 'x'));
-    menu.clearInvitation(); paste("Exact-Case!_09");
-    D6R_REQUIRE(menu.setupValid(reason) && menu.invitation.value == "Exact-Case!_09");
-    menu.clearInvitation(); D6R_REQUIRE(menu.invitation.value.empty() && !menu.setupValid(reason));
+    menu.clearPassword(); paste(std::string(129, 'x')); menu.enterText("Z");
+    D6R_REQUIRE(menu.setupValid(reason) && menu.password == "Z");
+    menu.clearPassword(); paste(u8" Exact-Case é ");
+    D6R_REQUIRE(menu.setupValid(reason) && menu.password == u8" Exact-Case é ");
+    menu.clearPassword(); D6R_REQUIRE(menu.password.empty() && menu.setupValid(reason));
     menu.publicConnection = false; menu.password.clear(); menu.enterText("private password with spaces");
     D6R_REQUIRE(menu.password == "private password with spaces");
 }
@@ -1826,7 +1835,7 @@ D6R_TEST_CASE("public reviewed headers failure recovery and full setup slots sta
         menu.runtime.current = {};
         menu.setupScreen = NetworkMenu::SetupScreen::Join;
         menu.publicConnection = true; menu.address = longestEndpoint; menu.port = "65535";
-        menu.invitation.value = "synthetic-review-only";
+        menu.password = "synthetic-review-only";
         menu.availablePersons.clear(); menu.localPlayers.clear();
         const auto &controls = f.service.getControlsManager().get(0);
         for (int slot = 0; slot < 15; ++slot) {
@@ -1881,9 +1890,9 @@ D6R_TEST_CASE("public reviewed headers failure recovery and full setup slots sta
             D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
             D6R_REQUIRE_EQ(reason == "Connection not authorized." ? 2 : 0, menu.focus);
             menu.runtime.current = retainedFailure;
-            menu.invitation.value = "synthetic-review-only";
+            menu.password = "synthetic-review-only";
             menu.focus = 1; menu.activate();
-            D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser && menu.invitation.value.empty());
+            D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser && menu.password.empty());
         }
 
         menu.runtime.current = {};
@@ -2053,7 +2062,7 @@ D6R_TEST_CASE("NET-03 invalid endpoint paste stays invalid rather than normalizi
     for (const bool dedicated: {false, true}) {
         if (dedicated && !Network::PublicSession::supported()) continue;
         menu.publicConnection = dedicated;
-        menu.invitation.value = "synthetic-input-test";
+        menu.password = "synthetic-input-test";
         for (const std::string &invalid: {std::string("https://operator.example"), std::string("operator.example/path"),
                                          std::string("operator.example:26660"), std::string("operator example"),
                                          std::string("::1"), std::string(254, 'a')}) {

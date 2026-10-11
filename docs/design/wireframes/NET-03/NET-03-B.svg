@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="900" viewBox="0 0 900 900">
   <title>NET-03-B — Browser-bound dedicated setup</title>
-  <desc>NET-03-dedicated-selected on the existing 850 by 700 logical canvas. Read-only dedicated/browser context. Bound Address and Port have no input targets. Separate masked Invite receives initial focus. Full selected session identity and advertised idle state remain above two independently scrolling local setup panels. Validation and Connect/Back stay fixed. No service cycle or controller promise.</desc>
+  <desc>NET-03-dedicated-selected on the existing 850 by 700 logical canvas. Read-only dedicated/browser context. Bound Address and Port have no input targets. This protected example shows masked Password with initial focus. No password uses the same optional field with initial local-setup focus. Full selected session identity and advertised idle state remain above two independently scrolling local setup panels. Validation and Connect/Back stay fixed. No service cycle or controller promise.</desc>
   <rect width="900" height="900" fill="white"/>
   <g fill="none" stroke="black">
     <rect x="25" y="20" width="850" height="700"/>
@@ -21,8 +21,8 @@
     <text x="75" y="208">Dedicated service • Selected from browser</text>
     <text x="75" y="249">Address (locked)</text><text x="255" y="249">arena.example.test</text>
     <text x="75" y="281">Port (locked)</text><text x="255" y="281">26660</text>
-    <text x="75" y="313">Invite</text><text x="255" y="313">********_</text>
-    <text x="245" y="341">Invite required</text>
+    <text x="75" y="313">Password</text><text x="255" y="313">********_</text>
+    <text x="245" y="341">Password required</text>
     <text x="75" y="363">Session: 0123456789abcdef0123456789abcdef</text>
     <text x="75" y="385">Listed idle session • 0 / 15 players</text>
     <text x="75" y="407">The service confirms identity, availability, and your role when you connect.</text>
@@ -36,10 +36,10 @@
   </g>
   <g fill="black" font-family="sans-serif" font-size="14">
     <text x="25" y="755">ANNOTATIONS: Endpoint/identity are examples from a selected listing, never defaults or trust badges.</text>
-    <text x="25" y="781">Address/Port use readable flat disabled treatment, not editing/caret/focus targets. Invite is inset.</text>
-    <text x="25" y="807">Read context → locked endpoint → Invite → identity/availability → local setup → feedback/actions.</text>
-    <text x="25" y="833">Traverse Invite → local setup → Connect → Back. Back restores NET-10; correction keeps the binding.</text>
+    <text x="25" y="781">Address/Port stay flat read-only without editing/caret/focus targets. Password is inset and masked.</text>
+    <text x="25" y="807">Protected: Password required/focused. No password: optional field with initial local-setup focus.</text>
+    <text x="25" y="833">Traverse Password → local setup → Connect → Back. Back restores NET-10; correction keeps the binding.</text>
     <text x="25" y="859">Long metadata wraps within context and reduces body rows, never text size or fixed footer visibility.</text>
-    <text x="25" y="885">NET-03-P remains unbound direct setup. Connecting reuses NET-03. UX-NET-03-032–050.</text>
+    <text x="25" y="885">NET-03-P remains unbound direct setup. Connecting reuses NET-03. UX-NET-03-063–065 own focus/correction.</text>
   </g>
 </svg>

@@ -89,11 +89,8 @@ namespace Duel6::Client {
     bool NetworkSessionRuntime::join(const Network::Endpoint &endpoint, const std::string &resourcePath,
                                      std::vector<NetworkLocalPlayer> localPlayers,
                                      std::shared_ptr<const Network::SessionPassword> password,
-                                     std::string expectedSessionId, bool publicSession,
-                                     std::shared_ptr<Network::PublicSession::Secret> invitation) {
-        if (publicSession && (!Network::PublicSession::supported() || !invitation || !Network::PublicSession::validInvite(invitation->value)
-                               || password)) return false;
-        if (!publicSession && invitation) return false;
+                                      std::string expectedSessionId, bool publicSession) {
+        if (publicSession && !Network::PublicSession::supported()) return false;
         if (localPlayers.empty() || localPlayers.size() > Network::MaxNetworkPlayers
             || !std::all_of(localPlayers.begin(), localPlayers.end(), [](const auto &player) {
                 return Network::Trust::validParticipantName(player.name);
@@ -108,10 +105,10 @@ namespace Duel6::Client {
             current.journey = NetworkJourney::Starting;
         }
         guestCancelled = false;
-        guestWorker = std::thread([this, endpoint, resourcePath, publicSession, invitation = std::move(invitation),
+        guestWorker = std::thread([this, endpoint, resourcePath, publicSession,
                                   password = std::move(password), expectedSessionId = std::move(expectedSessionId)] {
             Server::ServerConfig config; config.admissionClient = true; config.listenEndpoint = endpoint;
-            config.publicConnection = publicSession; config.invitation = invitation;
+            config.publicConnection = publicSession;
             config.resourcePath = resourcePath; config.localPlayers = static_cast<std::uint8_t>(players.size());
             for (const auto &player: players) config.localPlayerNames.push_back(player.name);
             Server::AdmissionRuntimeDependencies dependencies;
@@ -166,11 +163,6 @@ namespace Duel6::Client {
                     current.retryAllowed = false;
                     current.retryBlockReason = NetworkRetryBlockReason::InvalidSetup;
                 }
-                if (current.publicSession && outcome == Network::AdmissionResultCode::NotAuthorized) {
-                    current.authorizationRejected = true;
-                    current.retryAllowed = false;
-                    current.retryBlockReason = NetworkRetryBlockReason::InvalidSetup;
-                }
                 if (local && outcome == Network::AdmissionResultCode::GameplayContentManifestInvalid) {
                     current.retryAllowed = false;
                     current.retryBlockReason = NetworkRetryBlockReason::RestartRequired;
@@ -212,7 +204,7 @@ namespace Duel6::Client {
                 if (current.failure.empty()) current.failure = finalLine(output.str());
                 if (current.failure.empty()) current.failure = result == 0 ? "Connection ended." : "Connection timed out.";
                 current.securityFailure = current.publicSession && current.failure == Network::PublicSession::SecurityFailure;
-                if (current.securityFailure || current.authorizationRejected) {
+                if (current.securityFailure) {
                     current.retryAllowed = false;
                     current.retryBlockReason = NetworkRetryBlockReason::InvalidSetup;
                 } else if (current.retryBlockReason == NetworkRetryBlockReason::TerminalReconnect
@@ -372,6 +364,7 @@ namespace Duel6::Client {
                 for (const auto &player: state.players)
                     if (player.lifeState != Network::Replication::LifeState::Departed) ++listing.players;
                 listing.passwordRequired = passwordRequired;
+                listing.protection = passwordRequired ? "password" : "none";
                 listing.mode = state.settings.mode == "Predator" ? "predator" : state.settings.mode == "Team deathmatch" ? "teams" : "deathmatch";
                 listing.phase = state.phase == Network::Replication::Phase::Lobby ? "lobby"
                     : state.phase == Network::Replication::Phase::ActiveRound && state.currentRoundNumber == 1 ? "first-round" : "closed";

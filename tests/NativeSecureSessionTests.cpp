@@ -4,6 +4,9 @@
 #include <array>
 #include <fcntl.h>
 #include <future>
+#include <atomic>
+#include <cerrno>
+#include "source/network/SessionLifecycle.h"
 #include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
@@ -47,6 +50,80 @@ namespace {
         }
         D6R_REQUIRE(size == 0);
     }
+}
+
+D6R_TEST_CASE("Common Password validates exact UTF8 bytes spaces C0 C1 and scalar boundaries") {
+    for (const std::string &value : {std::string(), std::string(" leading trailing "), std::string(u8"é雪😀"),
+                                     std::string(128, 'x'), std::string(126, 'x') + u8"é"}) {
+        D6R_REQUIRE(SessionPassword::valid(value));
+        SessionPassword stored(value); D6R_REQUIRE(std::string(stored.value()) == value);
+    }
+    for (const std::string &value : {std::string(129, 'x'), std::string("a\0b", 3), std::string("\n"),
+        std::string("\x7f"), std::string("\xc2\x80"), std::string("\xc2\x9f"), std::string("\xc0\xaf"),
+        std::string("\xed\xa0\x80"), std::string("\xf4\x90\x80\x80"), std::string("\xc3"), std::string("\x80")}) {
+        D6R_REQUIRE(!SessionPassword::valid(value));
+        D6R_REQUIRE_THROW((void) SessionPassword{value}, std::invalid_argument);
+    }
+}
+
+namespace {
+    class ByteSocket final : public SecureByteStream {
+    public:
+        int socket;
+        std::atomic<bool> failWrites{false};
+        std::atomic<unsigned> reads{0}, writes{0}, pendingQueries{0};
+        explicit ByteSocket(int socket) : socket(socket) {}
+        std::ptrdiff_t read(unsigned char *data, std::size_t size) override {
+            ++reads; const auto count = ::recv(socket, data, std::min<std::size_t>(size, 3), 0);
+            return count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) ? -2 : count;
+        }
+        std::ptrdiff_t write(const unsigned char *data, std::size_t size) override {
+            ++writes; if (failWrites) return -1;
+            const auto count = ::send(socket, data, std::min<std::size_t>(size, 7), MSG_NOSIGNAL);
+            return count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) ? -3 : count;
+        }
+        bool pending() const override { ++const_cast<ByteSocket *>(this)->pendingQueries; return false; }
+    };
+}
+
+D6R_TEST_CASE("Common PAKE byte BIO shorts authenticate and fatal write preserves accepted End with zero later context operations") {
+    Sockets sockets;
+    auto stream = std::make_shared<ByteSocket>(sockets.fd[1]);
+    SecureSession host(sockets.fd[0], true, secret(" Unicode-é "));
+    SecureSession guest(sockets.fd[1], false, secret(" Unicode-é "), {}, stream);
+    D6R_REQUIRE(handshake(host, guest));
+    const auto notice = Lifecycle::serializeIntentionalHostEnd({91});
+    D6R_REQUIRE_EQ(static_cast<std::ptrdiff_t>(notice.size()), host.send(notice.data(), notice.size()));
+    std::array<unsigned char, 32> buffer{};
+    std::vector<unsigned char> accepted;
+    std::promise<void> staged, release;
+    auto released = release.get_future().share();
+    auto reading = std::async(std::launch::async, [&] {
+        std::ptrdiff_t count = -2;
+        const auto deadline = std::chrono::steady_clock::now() + 2s;
+        while (count == -2 && std::chrono::steady_clock::now() < deadline) count = guest.receive(buffer.data(), buffer.size(), [&](std::size_t bytes) {
+            accepted.assign(buffer.begin(), buffer.begin() + bytes);
+            staged.set_value(); released.wait();
+        });
+        return count;
+    });
+    const bool received = staged.get_future().wait_for(2s) == std::future_status::ready;
+    if (!received) release.set_value();
+    D6R_REQUIRE(received);
+    stream->failWrites = true;
+    auto writing = std::async(std::launch::async, [&] { const unsigned char value = 1; return guest.send(&value, 1); });
+    const bool blocked = writing.wait_for(20ms) == std::future_status::timeout;
+    release.set_value();
+    D6R_REQUIRE(blocked); // Fatal cannot outrun authenticated staging.
+    D6R_REQUIRE_EQ(static_cast<std::ptrdiff_t>(notice.size()), reading.get());
+    D6R_REQUIRE_EQ(-1, writing.get());
+    D6R_REQUIRE(Lifecycle::deserializeIntentionalHostEnd(accepted).has_value());
+    const auto reads = stream->reads.load(), writes = stream->writes.load(), pending = stream->pendingQueries.load();
+    D6R_REQUIRE_EQ(-1, guest.receive(buffer.data(), buffer.size()));
+    D6R_REQUIRE_EQ(-1, guest.send(buffer.data(), 1));
+    D6R_REQUIRE(!guest.pending() && !guest.usable() && guest.expired());
+    D6R_REQUIRE_EQ(reads, stream->reads.load()); D6R_REQUIRE_EQ(writes, stream->writes.load());
+    D6R_REQUIRE_EQ(pending, stream->pendingQueries.load());
 }
 
 D6R_TEST_CASE("Native private TLS exchanges protected application data for password and unlocked sessions") {

@@ -20,18 +20,19 @@ const listing = (changes = {}) => ({
 });
 const status = expected => error => error.status === expected;
 const dedicated = (changes = {}) => listing({ address: 'arena.example.test', players: 0,
-  phase: 'idle', hosting: 'dedicated', protection: 'invite', admission: 'open', ...changes });
+  phase: 'idle', hosting: 'dedicated', protection: 'none', admission: 'open', ...changes });
 
 test('mixed contract validates frontend, idle and protection without relaxing private minimum', () => {
   assert.equal(validateListing(dedicated()).players, 0);
   for (const changes of [{ address: '127.0.0.1' }, { address: '0.0.0.0' }, { address: '224.1.2.3' },
     { address: 'localhost' }, { address: 'https://arena.example.test' }, { address: 'bad_name' },
     { address: '169.254.1.1' }, { phase: 'lobby' }, { sessionId: '0'.repeat(32) },
-    { protection: 'password' }, { hosting: 'unknown' }, { passwordRequired: true },
+    { protection: 'password' }, { protection: 'invite' }, { hosting: 'unknown' }, { passwordRequired: true },
     { admission: 'closed' }, { invitation: 'not-public' }])
     assert.throws(() => validateListing(dedicated(changes)), status(400));
   assert.throws(() => validateListing(listing({ players: 0 })), status(400));
   assert.equal(validateListing(dedicated({ address: '198.51.100.4' })).hosting, 'dedicated');
+  assert.equal(validateListing(dedicated({ protection: 'password', passwordRequired: true })).protection, 'password');
   assert.equal(validateListing(dedicated({ players: 2, phase: 'reserved', admission: 'closed' })).players, 2);
   assert.throws(() => validateListing(dedicated({ players: 2, phase: 'reserved', admission: 'open' })), status(400));
 });
@@ -56,6 +57,19 @@ test('mixed publication isolates legacy reads, immutable classification and owne
   assert.equal(updated.revision, 2);
   await assert.rejects(directory.mutate(created.id, created.ownerToken, 1, null, true), status(409));
   await directory.mutate(created.id, created.ownerToken, 2, null, true);
+});
+
+test('retired invite lease rows are excluded without reinterpretation or database mutation', async () => {
+  const id = 'f'.repeat(32);
+  await db.collection(collection).doc(id).set({ listing: dedicated({ protection: 'invite' }),
+    expiresAt: clock + LEASE_MS, revision: 1, leaseExpiry: Timestamp.fromMillis(clock + LEASE_MS) });
+  const current = await directory.register(dedicated({ protection: 'password', passwordRequired: true }), true);
+  const plain = await directory.register(listing());
+  const mixed = await directory.list(undefined, true);
+  assert.equal(mixed.listings.length, 2);
+  assert.equal(mixed.listings.find(row => row.id === current.id).protection, 'password');
+  assert.deepEqual((await directory.list()).listings.map(row => row.id), [plain.id]);
+  assert.equal((await db.collection(collection).doc(id).get()).data().listing.protection, 'invite');
 });
 
 test('mixed and legacy cursors cannot cross capability contexts and reach every bounded row', async () => {

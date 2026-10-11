@@ -13,22 +13,24 @@
 #endif
 
 namespace Duel6::Server {
-    std::shared_ptr<Network::PublicSession::Secret> loadInvitation(const std::string &path) {
+    std::shared_ptr<const Network::SessionPassword> loadPassword(const std::string &path) {
 #if defined(__linux__) && defined(D6R_PUBLIC_DEDICATED)
+        if (path.empty()) return std::make_shared<Network::SessionPassword>("");
         const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
-        if (fd < 0) throw std::runtime_error("Dedicated invitation configuration invalid");
+        if (fd < 0) throw std::runtime_error("Dedicated password configuration invalid");
         struct stat status{};
-        auto result = std::make_shared<Network::PublicSession::Secret>();
-        std::array<char, 257> bytes{};
+        std::array<char, 129> bytes{};
+        struct Erase { std::array<char, 129> &value; ~Erase() { Network::Trust::secureEraseMemory(value.data(), value.size()); } } erase{bytes};
         const bool safe = fstat(fd, &status) == 0 && S_ISREG(status.st_mode)
                           && status.st_uid == geteuid() && (status.st_mode & 0077) == 0
-                          && status.st_size >= 1 && status.st_size <= 256;
+                          && status.st_size >= 0 && status.st_size <= 128;
         const auto count = safe ? read(fd, bytes.data(), bytes.size()) : -1;
         close(fd);
-        if (count > 0) result->value.assign(bytes.data(), static_cast<std::size_t>(count));
+        const std::string_view value(bytes.data(), count >= 0 ? static_cast<std::size_t>(count) : 0);
+        const bool valid = safe && count == status.st_size && Network::SessionPassword::valid(value);
+        auto result = valid ? std::make_shared<Network::SessionPassword>(value) : nullptr;
         Network::Trust::secureEraseMemory(bytes.data(), bytes.size());
-        if (!safe || count != status.st_size || !Network::PublicSession::validInvite(result->value))
-            throw std::runtime_error("Dedicated invitation configuration invalid");
+        if (!valid) throw std::runtime_error("Dedicated password configuration invalid");
         return result;
 #else
         throw std::runtime_error("Dedicated service requires Linux");

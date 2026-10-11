@@ -45,7 +45,6 @@ namespace Duel6::Client {
         NetworkJourney journey = NetworkJourney::Inactive;
         bool host = false;
         bool publicSession = false;
-        bool authorizationRejected = false;
         bool securityFailure = false;
         Network::Replication::Identity localParticipantId = 0;
         Network::Endpoint endpoint;
@@ -75,8 +74,7 @@ namespace Duel6::Client {
         bool join(const Network::Endpoint &endpoint, const std::string &resourcePath,
                   std::vector<NetworkLocalPlayer> players,
                   std::shared_ptr<const Network::SessionPassword> password = {},
-                  std::string expectedSessionId = {}, bool publicSession = false,
-                  std::shared_ptr<Network::PublicSession::Secret> invitation = {});
+                  std::string expectedSessionId = {}, bool publicSession = false);
         void cancel();
         void leave();
         void endSession();
