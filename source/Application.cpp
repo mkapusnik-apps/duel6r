@@ -265,6 +265,10 @@ namespace Duel6 {
                 default:
                     break;
             }
+            // A handler may push a modal or close this context. Leave the rest
+            // of the queue for the next owner instead of dispatching it through
+            // the frame's stale context (including pointer release events).
+            if (requestClose || (Context::exists() && (!context.isCurrent() || context.isClosed()))) return;
         }
     }
 
@@ -290,11 +294,12 @@ namespace Duel6 {
         Context::push(*menu);
 
         while (Context::exists() && !requestClose) {
+            processEvents(Context::getCurrent());
+            if (!Context::exists() || requestClose) break;
             Context &context = Context::getCurrent();
-            processEvents(context);
-            syncUpdateAndRender(context);
+            if (!context.isClosed()) syncUpdateAndRender(context);
 
-            if (context.isClosed()) {
+            if (context.isCurrent() && context.isClosed()) {
                 Context::pop();
             }
         }

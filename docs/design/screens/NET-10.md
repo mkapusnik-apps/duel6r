@@ -24,6 +24,8 @@ The [current unified presentation](../../design.md#unified-network-presentation)
 
 Approximate column widths are 256, 112, 72, 104, 96, and 144 logical pixels. Preserve standard metrics, current clearance, scrollbar allocation, fixed-height rows, and full-row pointer targets. Mode and identity text must not cross table columns; selected details own their full values.
 
+Entry workflow: MENU-01 → Network → Join in the NET-01 popup → mixed NET-10. Join selected continues to the applicable NET-03 local-player and Password/Invite setup. Direct connect continues to independent NET-03 without a directory selection. Back returns to the NET-01 popup with Host focused. The entry-label change does not alter this browser's layout, controls, validated mode/protection or eligibility rules.
+
 ## Mixed row content
 
 - **UX-NET-10-014** Hosting must show `Player-hosted` or `Dedicated` from validated decoded classification rather than infer it from an address or credential flag.

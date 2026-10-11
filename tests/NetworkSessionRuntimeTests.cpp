@@ -51,6 +51,7 @@
 #include "source/Application.h"
 #include "source/CanonicalWorldPresenter.h"
 #include "source/NetworkMenu.h"
+#include "source/Menu.h"
 #undef private
 #include "tests/RecordingRenderer.h"
 #include "tests/CanonicalMotionTrace.h"
@@ -474,8 +475,10 @@ D6R_TEST_CASE("NET-DIR reviewed menu dispatch renders browser states and preserv
         return result;
     };
     auto entry = texts();
-    D6R_REQUIRE(entry.find("Host") < entry.find("Browse sessions"));
-    D6R_REQUIRE(entry.find("Browse sessions") < entry.find("Direct connect"));
+    D6R_REQUIRE(entry.find("Host") < entry.find("Join"));
+    D6R_REQUIRE(entry.find("Join") < entry.find("Back"));
+    D6R_REQUIRE(entry.find("Browse sessions") == std::string::npos);
+    D6R_REQUIRE(entry.find("Direct connect") == std::string::npos);
     menu.focus = 1; menu.activate();
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
     D6R_REQUIRE_EQ(3, menu.focus);
@@ -569,20 +572,20 @@ D6R_TEST_CASE("UX-NET native frames preserve scaled press activation fields sele
     };
     // Recording geometry checks cover the floor, modern minimum and scale cap;
     // these are not raster screenshots or physical-display claims.
-    for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
         video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
         menu.runtime.current = {}; menu.setupScreen = NetworkMenu::SetupScreen::Entry; menu.focus = 0;
         menu.pointerHeld = false;
         clear(); menu.render();
-        D6R_REQUIRE(fill(26, 548, 798, 18, Color(0, 0, 200)));
-        for (int i = 0; i < 4; ++i) D6R_REQUIRE(fill(275, 325 - i * 45, 300, 32, Color(192)));
+        D6R_REQUIRE(fill(237, 435, 376, 18, Color(0, 0, 200)));
+        for (int i = 0; i < 3; ++i) D6R_REQUIRE(fill(275, 381 - i * 45, 300, 32, Color(192)));
         D6R_REQUIRE(!recorder.lines.empty());
         D6R_REQUIRE(recorder.lines.front().color == Color(235));
-        click(274, 336, true); // Immediately outside the displayed control.
+        click(274, 392, true); // Immediately outside the displayed control.
         D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
-        click(425, 336, false); // Release alone never activates.
+        click(425, 392, false); // Release alone never activates.
         D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
-        click(425, 336, true);
+        click(425, 392, true);
         D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host); // On press, not release.
         clear(); menu.render();
         D6R_REQUIRE(fill(224, 494, 586, 24, Color::WHITE));
@@ -783,6 +786,225 @@ namespace {
             }
         }
     };
+}
+
+D6R_TEST_CASE("NET-ENTRY modal geometry navigation controller and runtime-unavailable recovery") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    int backdropCalls = 0;
+    menu.renderMainMenu = [&] { ++backdropCalls; };
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        const float scale = std::min(1.35f, std::min(float(size.first) / 850, float(size.second) / 700));
+        const int tx = (size.first - int(850 * scale)) / 2, ty = (size.second - int(700 * scale)) / 2;
+        const auto click = [&](int x, int y) { f.click(tx + int(x * scale), ty + int(y * scale)); };
+        menu.setupScreen = NetworkMenu::SetupScreen::Entry; menu.focus = 0; menu.pointerHeld = false;
+        f.draw();
+        D6R_REQUIRE(std::any_of(f.recorder.quads.begin(), f.recorder.quads.end(), [](const auto &quad) {
+            return quad.material.getTexture() == Texture{} && quad.material.getColor() == Color(192)
+                && quad.vertices[0].x == 235 && quad.vertices[0].y == 245
+                && quad.vertices[2].x == 615 && quad.vertices[2].y == 455;
+        }));
+        D6R_REQUIRE(f.frame(273, 379, 304, 36, 2));
+        D6R_REQUIRE(f.text("Host") && f.text("Join") && f.text("Back"));
+        D6R_REQUIRE(!f.text("Directory or direct address"));
+        D6R_REQUIRE(!f.text("Use the same supported release and gameplay content"));
+        D6R_REQUIRE(!f.text("Browse sessions") && !f.text("Direct connect"));
+        click(100, 45); f.key(SDLK_F1); f.key(SDLK_F2); f.key(SDLK_F3);
+        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+        D6R_REQUIRE_EQ(0, menu.focus);
+        menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+        D6R_REQUIRE_EQ(2, menu.focus);
+        f.key(SDLK_TAB); D6R_REQUIRE_EQ(0, menu.focus);
+        click(425, 395); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host);
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+        menu.back(); D6R_REQUIRE_EQ(0, menu.focus);
+        click(425, 350); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+        D6R_REQUIRE(menu.browser.pending.valid()); // Original current-listings request.
+        menu.browser.pending.wait(); menu.browser.update(); // Unchannelled fixture: directory unavailable.
+        D6R_REQUIRE(!menu.browser.result().available);
+        menu.focus = 3; menu.activate();
+        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
+        D6R_REQUIRE(!menu.browserSelection && !menu.joinFromBrowser);
+        menu.back(); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+        D6R_REQUIRE_EQ(0, menu.focus);
+        menu.entryRuntimeAvailable = false; menu.pointerHeld = false;
+        f.draw(); D6R_REQUIRE(f.text("Network runtime unavailable"));
+        click(425, 395); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+        click(425, 350); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+        click(425, 305); D6R_REQUIRE(menu.isClosed());
+        menu.entryRuntimeAvailable = true;
+    }
+    D6R_REQUIRE_EQ(6, backdropCalls);
+    menu.setupScreen = NetworkMenu::SetupScreen::Entry; menu.focus = 0;
+    ReviewController controller(f);
+    controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_UP); D6R_REQUIRE_EQ(2, menu.focus);
+    controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN); D6R_REQUIRE_EQ(0, menu.focus);
+    controller.pulse(SDL_CONTROLLER_BUTTON_A); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host);
+    controller.pulse(SDL_CONTROLLER_BUTTON_B); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+    D6R_REQUIRE_EQ(0, menu.focus);
+    controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN); D6R_REQUIRE_EQ(1, menu.focus);
+    controller.pulse(SDL_CONTROLLER_BUTTON_A); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    controller.pulse(SDL_CONTROLLER_BUTTON_B); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+    controller.pulse(SDL_CONTROLLER_BUTTON_B); D6R_REQUIRE(menu.isClosed());
+}
+
+D6R_TEST_CASE("NET-ENTRY actual main menu backdrop and context dispatch isolate local actions and retain return state") {
+    char name[] = "network-modal-context-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &main = *application.menu;
+    Context::push(main);
+    struct PopContexts { ~PopContexts() { while (Context::exists()) Context::pop(); } } pop;
+    const auto key = [&](SDL_Keycode value) {
+        application.keyEvent(Context::getCurrent(), KeyPressEvent(value, SysEvent::ButtonState::PRESSED, 0));
+        application.keyEvent(Context::getCurrent(), KeyPressEvent(value, SysEvent::ButtonState::RELEASED, 0));
+    };
+    const auto click = [&](int x, int y) {
+        const int px = main.menuTranslationX + int(x * main.menuScale);
+        const int py = main.menuTranslationY + int(y * main.menuScale);
+        for (bool down: {true, false}) application.mouseButtonEvent(Context::getCurrent(),
+            MouseButtonEvent(px, py, SysEvent::MouseButton::LEFT,
+                down ? SysEvent::ButtonState::PRESSED : SysEvent::ButtonState::RELEASED, false));
+    };
+    main.roundsTextbox->setText("7"); main.applyRoundsTextbox();
+    const auto players = main.playerListBox->size(), persons = main.personListBox->size();
+    const auto mode = main.gameModeSwitch->currentValue();
+    const auto checkRetained = [&] {
+        D6R_REQUIRE_EQ(players, main.playerListBox->size()); D6R_REQUIRE_EQ(persons, main.personListBox->size());
+        D6R_REQUIRE_EQ(std::string("7"), main.roundsTextbox->getText());
+        D6R_REQUIRE(main.gameModeSwitch->currentValue() == mode);
+    };
+    key(SDLK_F2);
+    auto &menu = *main.networkMenu;
+    D6R_REQUIRE(Context::getCurrent().is(menu)); D6R_REQUIRE_EQ(0, menu.focus);
+    menu.render(); // Actual Menu::render callback, not a replica or captured screenshot.
+    key(SDLK_F1); key(SDLK_F2); key(SDLK_F3);
+    for (int x: {100, 300, 500, 700}) click(x, 45);
+    application.textInputEvent(Context::getCurrent(), TextInputEvent("blocked"));
+    D6R_REQUIRE(Context::getCurrent().is(menu)); D6R_REQUIRE(!menu.isClosed()); checkRetained();
+    key(SDLK_ESCAPE); D6R_REQUIRE(menu.isClosed()); Context::pop(); checkRetained();
+    click(300, 45); D6R_REQUIRE(Context::getCurrent().is(menu)); D6R_REQUIRE_EQ(0, menu.focus);
+    menu.focus = 2; key(SDLK_SPACE); D6R_REQUIRE(menu.isClosed()); Context::pop(); checkRetained();
+}
+
+D6R_TEST_CASE("NET-ENTRY production SDL queue hands off entry release shortcuts pointers and return to the current context") {
+    char name[] = "network-modal-queue-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &main = *application.menu;
+    Context::push(main);
+    struct PopContexts { ~PopContexts() { while (Context::exists()) Context::pop(); } } pop;
+    SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
+    const auto queueKey = [&](SDL_Keycode code, bool down = true) {
+        SDL_Event event{};
+        event.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+        event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+        event.key.keysym.sym = code;
+        D6R_REQUIRE_EQ(1, SDL_PushEvent(&event));
+    };
+    const auto queuePointer = [&](int x, int y, bool down) {
+        SDL_Event event{};
+        event.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+        event.button.button = SDL_BUTTON_LEFT;
+        event.button.state = down ? SDL_PRESSED : SDL_RELEASED;
+        event.button.x = main.menuTranslationX + int(x * main.menuScale);
+        event.button.y = application.video->getScreen().getClientHeight()
+                         - main.menuTranslationY - int(y * main.menuScale);
+        D6R_REQUIRE_EQ(1, SDL_PushEvent(&event));
+    };
+    const auto queued = [&] { return SDL_HasEvents(SDL_KEYDOWN, SDL_MOUSEBUTTONUP) == SDL_TRUE; };
+    const auto frameEvents = [&] {
+        // Select once, exactly as run() does; production processEvents must
+        // stop at ownership transitions, not rely on a test re-fetch per event.
+        application.processEvents(Context::getCurrent());
+        auto &current = Context::getCurrent();
+        if (current.isClosed()) Context::pop();
+    };
+    const auto initialDepth = Context::contextStack.size();
+    main.roundsTextbox->setText("7"); main.applyRoundsTextbox();
+    const auto players = main.playerListBox->size(), persons = main.personListBox->size();
+    const auto mode = main.gameModeSwitch->currentValue();
+    auto &menu = *main.networkMenu;
+    const auto retained = [&] {
+        D6R_REQUIRE_EQ(initialDepth + 1, Context::contextStack.size());
+        D6R_REQUIRE(Context::getCurrent().is(menu)); D6R_REQUIRE(!menu.isClosed());
+        D6R_REQUIRE_EQ(0, menu.focus);
+        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+        D6R_REQUIRE_EQ(players, main.playerListBox->size()); D6R_REQUIRE_EQ(persons, main.personListBox->size());
+        D6R_REQUIRE_EQ(std::string("7"), main.roundsTextbox->getText());
+        D6R_REQUIRE(main.gameModeSwitch->currentValue() == mode);
+    };
+
+    queueKey(SDLK_F2); queueKey(SDLK_F2, false);
+    for (int x: {100, 300, 500, 700}) { queuePointer(x, 45, true); queuePointer(x, 45, false); }
+    queueKey(SDLK_F1); queueKey(SDLK_F1, false);
+    queueKey(SDLK_F2); queueKey(SDLK_F2, false);
+    frameEvents(); retained(); D6R_REQUIRE(queued()); // Entry must leave its release and remaining batch queued.
+    frameEvents(); retained(); D6R_REQUIRE(!queued());
+    D6R_REQUIRE(!application.input.isPressed(SDLK_F1) && !application.input.isPressed(SDLK_F2));
+
+    queueKey(SDLK_ESCAPE); queueKey(SDLK_ESCAPE, false);
+    frameEvents(); D6R_REQUIRE(Context::getCurrent().is(main)); D6R_REQUIRE(queued());
+    frameEvents(); D6R_REQUIRE_EQ(initialDepth, Context::contextStack.size());
+    D6R_REQUIRE(!main.isClosed()); D6R_REQUIRE(!application.input.isPressed(SDLK_ESCAPE));
+
+    // Pointer entry activates on release in the native GUI. A second release
+    // in the same batch must go to the modal, not push it a second time.
+    queuePointer(300, 45, true); queuePointer(300, 45, false); queuePointer(300, 45, false);
+    queueKey(SDLK_F1); queueKey(SDLK_F1, false); queueKey(SDLK_F2); queueKey(SDLK_F2, false);
+    frameEvents(); retained(); D6R_REQUIRE(queued());
+    frameEvents(); retained(); D6R_REQUIRE(!queued()); D6R_REQUIRE(!menu.pointerHeld);
+
+    // A Back press closes the modal; its release is owned by the restored menu.
+    queuePointer(425, 305, true); queuePointer(425, 305, false);
+    frameEvents(); D6R_REQUIRE(Context::getCurrent().is(main)); D6R_REQUIRE(queued());
+    frameEvents(); D6R_REQUIRE_EQ(initialDepth, Context::contextStack.size()); D6R_REQUIRE(!main.isClosed());
+    queueKey(SDLK_F2); queueKey(SDLK_F2, false);
+    frameEvents(); frameEvents(); retained();
+    queueKey(SDLK_ESCAPE); queueKey(SDLK_ESCAPE, false); frameEvents(); frameEvents();
+    D6R_REQUIRE_EQ(initialDepth, Context::contextStack.size());
+    D6R_REQUIRE_EQ(std::string("7"), main.roundsTextbox->getText());
+}
+
+D6R_TEST_CASE("NET-ENTRY mixed dedicated Direct return restores private Host and clears scoped secrets") {
+    if (!Network::PublicSession::supported()) return;
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    menu.setupScreen = NetworkMenu::SetupScreen::Entry; menu.focus = 1;
+    f.key(SDLK_RETURN);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    menu.focus = 3; f.key(SDLK_RETURN);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join && !menu.browserSelection);
+    menu.address = "192.168.1.23"; menu.port = "34567";
+    menu.focus = 3; f.key(SDLK_RETURN);
+    D6R_REQUIRE(menu.publicConnection);
+    menu.address = "operator.example.test"; menu.port = "45678";
+    menu.focus = 2; menu.enterText("A B");
+    D6R_REQUIRE(menu.invalidInvitationInput);
+    f.key(SDLK_ESCAPE);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry && menu.focus == 0);
+    D6R_REQUIRE(menu.invitation.value.empty());
+    // Even stale state must not cross entry into a different hosting authority.
+    menu.invitation.value = "synthetic-only"; menu.invalidInvitationInput = true;
+    menu.password = "synthetic-private-only"; menu.hostSetup.password = std::make_shared<Network::SessionPassword>(menu.password);
+    menu.browserSelection = Client::DirectoryListing{}; menu.joinFromBrowser = true;
+    menu.entryRuntimeAvailable = false; f.key(SDLK_RETURN);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+    D6R_REQUIRE(menu.publicConnection && menu.browserSelection && menu.hostSetup.password);
+    menu.entryRuntimeAvailable = true; f.key(SDLK_RETURN);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host && menu.focus == 0);
+    D6R_REQUIRE(!menu.publicConnection && !menu.browserSelection && !menu.joinFromBrowser);
+    D6R_REQUIRE(menu.invitation.value.empty() && !menu.invalidInvitationInput);
+    D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password);
+    D6R_REQUIRE_EQ(std::string("192.168.1.23"), menu.address);
+    D6R_REQUIRE_EQ(std::string("34567"), menu.port);
+    D6R_REQUIRE_EQ(std::string("operator.example.test"), menu.dedicatedAddress);
+    D6R_REQUIRE_EQ(std::string("45678"), menu.dedicatedPort);
+    D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+    f.key(SDLK_ESCAPE); menu.focus = 1; f.key(SDLK_RETURN);
+    menu.focus = 3; f.key(SDLK_RETURN); menu.focus = 3; f.key(SDLK_RETURN);
+    D6R_REQUIRE(menu.publicConnection && menu.address == "operator.example.test" && menu.port == "45678");
+    D6R_REQUIRE(menu.invitation.value.empty() && menu.password.empty());
 }
 
 D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choices and exposes recovery") {
@@ -1012,8 +1234,12 @@ D6R_TEST_CASE("UX-NET round progress uses current authoritative round during act
 D6R_TEST_CASE("NET-JOIN-PUB direct-only platform selection uses empty operator fields and preserves browser setup") {
     ReviewMenuFixture f;
     auto &menu = f.menu;
-    menu.setupScreen = NetworkMenu::SetupScreen::Entry; menu.focus = 2;
+    menu.setupScreen = NetworkMenu::SetupScreen::Entry; menu.focus = 1;
     menu.activate();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    menu.browser.pending.wait(); menu.browser.update(); // Complete the new entry-route request before fixture listings.
+    menu.focus = 3; menu.activate();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
     D6R_REQUIRE(!menu.publicConnection);
     D6R_REQUIRE_EQ(std::string("127.0.0.1"), menu.address);
     D6R_REQUIRE_EQ(std::string("26660"), menu.port);
@@ -1232,7 +1458,14 @@ D6R_TEST_CASE("DIRUX01 bound four five six context lines contain full row focus 
             std::set<int> reached;
             menu.focus = 2;
             for (int step = 0; step < base + 32; ++step) {
-                menu.moveFocus(1);
+                f.key(SDLK_TAB);
+                if (menu.focus >= base && menu.focus < base + 30) reached.insert((menu.focus - base) / 2);
+            }
+            D6R_REQUIRE_EQ(std::size_t(15), reached.size());
+            reached.clear();
+            for (int step = 0; step < base + 32; ++step) {
+                menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+                D6R_REQUIRE(menu.focus >= 2); // Locked endpoint never becomes editable in reverse traversal.
                 if (menu.focus >= base && menu.focus < base + 30) reached.insert((menu.focus - base) / 2);
             }
             D6R_REQUIRE_EQ(std::size_t(15), reached.size());

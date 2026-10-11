@@ -50,7 +50,7 @@ It implements `NET-OWN-001` through `NET-OWN-003` and `NET-OWN-AC-001` through `
 Issue #30 defines the compatibility and admission outcomes for this flow in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 Issue #30 must not implement this graphical screen.
 
-Entry is `NET-01` → Direct connect or an eligible `NET-10` player-hosted selection. Complete validated admission enters `NET-04` or `NET-05` under NET-ADM-011. Failure enters `NET-08`. Cancel during connection restores editable setup. Back returns to `NET-01`; browser-origin recovery also permits return to `NET-10`.
+Entry is `NET-01` → Join → mixed `NET-10` → Direct connect or eligible player-hosted/dedicated selection. Direct connect opens independent direct setup without a browser-selected session and clears selected binding/secrets. Complete validated admission enters `NET-04` or eligible round-one `NET-05` under NET-ADM-011. Failure enters `NET-08`; Cancel restores permitted setup. Back from direct setup returns to the `NET-01` popup; browser-origin setup/recovery retains contextual return to `NET-10` without adopting another selection.
 
 ## Representative layout
 

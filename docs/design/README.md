@@ -2,7 +2,7 @@
 
 ## Scope and authority
 
-The [product inventory](../screens/README.md) owns screen identities, functional states, and behavior. The existing [visual design system](../design.md#unified-network-presentation) owns reusable appearance. Fixed branch baseline `17ea5f56fbc7c5cdc338fe5d8f629ef160567174`, based on develop `a2249091db4d22a4e89fcc24d9711901e56d0a83`, is the visual integration baseline. Its unified network controls, host-settings refinement, listening multiselect, release/content line, and platform context take precedence over older PR90 presentation. Do not migrate legacy sources or create another design system.
+The [product inventory](../screens/README.md) owns screen identities, functional states, and behavior. The existing [visual design system](../design.md#unified-network-presentation) owns reusable appearance. Incoming develop `0625f259da7e038a40327ee1e4e67fab0526fa73` owns the NET-01 modal and current shared event/presentation baseline. Corrected dedicated/mixed authority at `757f009be97a6b4a6fe88cef498a39ede4afe251` owns the six-column browser, bound NET-03-B, opaque Invite correction and scoped reconnect behavior. Preserve both approved baselines through their bounded composition; do not migrate legacy sources or create another design system.
 
 The [network-play contract](../network-play-first-release.md) owns NET-PUB and NET-ADM. The [join contract](../screens/network-join.md) owns NET-JOIN-PUB. The [trust policy](../network-trust-and-abuse-limits.md) and [lifecycle contract](../network-host-service-lifecycle.md) own TRU-PUB and HSL-PUB. The [directory contract](../network-host-directory.md) owns mixed player-hosted and dedicated listings and bound selection. The dedicated service is a headless variant of the existing hosted session. This integration adds no account, environment picker, provisioning task, compiled gameplay endpoint, menu, or product screen.
 
@@ -19,9 +19,11 @@ The [network-play contract](../network-play-first-release.md) owns NET-PUB and N
 
 ## Screen specifications
 
-| Screen | Owning presentation | Structural sources |
+Network-capable experimental macOS uses the existing NET-01 through NET-10 journeys. The former `MENU-01-MAC-LOCAL` / `MENU-02-MAC-LOCAL` notice and UX-MAC-MSG-001–011 are [historical-only](screens/MENU-02.md). The [NET-01 owner](screens/NET-01.md#presentation-requirements) now defines a compact modal over the actual main menu with Host, browser-entry Join, and Back. UX-NET-01-006–008 are retired; entry scope copy is removed. Only the NET-01 structural SVG changes for this bounded refinement; all other wireframes remain unchanged. Preserve the corrected Mac drawable/pointer baseline throughout network transitions. Actual native Mac visual assessment remains [deferred](screenshots/README.md#macos-deferred-coverage), separate from mandatory native automated acceptance.
+
+| Screen | Authoritative presentation | Structural wireframes |
 |---|---|---|
-| NET-01 | [Current entry](screens/NET-01.md), unchanged appearance | [NET-01](wireframes/NET-01/NET-01.svg) |
+| NET-01 | [Current compact entry modal](screens/NET-01.md) over actual retained MENU-01 | Exact incoming [NET-01](wireframes/NET-01/NET-01.svg) from develop0625f25 |
 | NET-02 | Current develop's [host setup](screens/NET-02.md), unchanged by this extension | NET-02, NET-02-LA, NET-02-LE, NET-02-P from the fixed develop baseline |
 | NET-03 | [Direct setup and bound dedicated selection](screens/NET-03.md) | Unchanged player-hosted [NET-03-E](wireframes/NET-03/NET-03-E.svg); unchanged unbound dedicated [NET-03-P](wireframes/NET-03/NET-03-P.svg); selected dedicated [NET-03-B](wireframes/NET-03/NET-03-B.svg); unchanged [NET-03 connecting SVG](wireframes/NET-03/NET-03.svg), with current develop's [locked-task context](../screens/wireframes/network-join.md) |
 | NET-04 | [Current settings and dedicated role context](screens/NET-04.md) | [NET-04](wireframes/NET-04/NET-04.svg); [NET-04-R](wireframes/NET-04/NET-04-R.svg) |
@@ -34,7 +36,7 @@ The [network-play contract](../network-play-first-release.md) owns NET-PUB and N
 
 NET-03-P remains the unbound direct dedicated editable variant because it includes the service-type row, invitation help, and controller guidance with reduced visible setup rows. Player-hosted browser setup remains NET-03-E. NET-03-B is the selected dedicated variant with locked endpoint, session identity, and hosting/protection context, initial Invite focus, and contextual Back. These are variants of NET-03, not new product screens. Connecting retains the existing locked NET-03 task. No nested menu or second secret dialog is added. NET-03-P's older browser annotation continues to refer to player-hosted NET-03-E; NET-03-B owns selected dedicated structure.
 
-Accept all unaffected incoming develop sources byte-for-byte. Only NET-10.svg changes and NET-03-B.svg is added for this integration. Preserve NET-01, NET-02, NET-02-LA, NET-02-LE, NET-02-P, NET-03-E, NET-03-P, NET-04-R, and unchanged NET-05 contextual diagrams. These files are supplied by the fixed baseline; this specification does not reconstruct them from PR90's older versions. NET-04 and NET-04-R retain the current develop settings structure and dedicated header context.
+Accept the approved incoming NET-01 SVG byte-for-byte. All other wireframes, including the existing mixed NET-10, bound NET-03-B, direct NET-03-P, player-hosted NET-03-E, NET-02 variants, NET-04-R and NET-05 confirmation/context diagrams, remain byte-exact to corrected757f009. This integration does not regenerate them or migrate legacy diagrams. NET-04 and NET-04-R retain current settings structure and dedicated header context.
 
 ## Shared visual and input requirements
 

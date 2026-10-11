@@ -1,46 +1,47 @@
 # NET-01 — Network entry
 
-## Status, purpose, and requirements
+## Purpose and authority
 
-This screen provides entry to `NET-10` for central browsing of player-hosted and ready dedicated sessions, including prepared empty dedicated sessions, under [NET-DIR-009 and NET-DIR-021 through NET-DIR-033](../network-host-directory.md). Host, unbound direct Join and Back remain available independently of directory availability. Applicable Password/Invite and capability/unsupported behavior follows the current directory contract. UX owns presentation; no new screen or action layout is selected here.
+This screen separates network play from local-only Play. It is a modal over `MENU-01` with Host, Join, and Back only. This contract owns the entry actions and destinations. It supersedes the earlier four-action entry and `NET-01` → Join → `NET-03` route in [network play](../network-play-first-release.md#join), without changing dedicated admission or gameplay scope.
 
-### Public pilot functional contract
+`NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-015`, `NET-AC-017`, and `NET-AC-019` remain applicable. [NET-DIR-009](../network-host-directory.md) owns browser requests and selection. [NET-DIR-015](../network-host-directory.md) retains directory independence and direct-connection recovery. No platform, compatibility, admission, or gameplay requirement changes.
 
-`NET-01-PUBLIC-ENTRY` consumes NET-PUB-017 through NET-PUB-021/024–025 through existing Direct connect or Browse sessions → selected dedicated setup. It does not replace Host, Browse sessions, Direct connect or Back, and adds no dedicated administrator or matchmaking action. NET-03 owns explicit unbound direct setup and browser-derived locked hosting/security mode, operator frontend endpoint and expected identity. Opening this screen creates no connection, controller or participant authority. Updated unsupported Mac/Pi clients may inspect dedicated listings but cannot join them; ordinary player-hosted entry remains unchanged.
+UX owns the compact modal layout, removal of explanatory text, focus, input presentation, and visual rules in [NET-01 presentation](../design/screens/NET-01.md). This screen does not show host settings or endpoint fields.
 
-Presentation authority: [NET-01 UX contract](../design/screens/NET-01.md). Its proposed action routing is approved by this functional contract.
+## Entry actions and outcomes
 
-Functional acceptance: `NET-PUB-AC-005` and `NET-PUB-AC-006` cover these entry destinations and offline independence. UX owns the presentation of the distinction between the invite-only public pilot and trusted private-LAN hosting.
+Entry remains `MENU-01` → `Network (F2)`, including pointer and F2 entry on experimental macOS. Entry grants no host or participant authority.
 
-This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It separates player-hosted network play from local-only Play and implements `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-015`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
-Issue #30 must not add this graphical entry or change the current Local Play menu.
+- **NET-ENTRY-001** `NET-01` must provide only the actions `Host`, `Join`, and `Back`.
+- **NET-ENTRY-002** Host must open editable host setup in `NET-02` without starting a hosted session.
+- **NET-ENTRY-003** Join must open `NET-10` through the existing browser-opening behavior previously labeled `Browse sessions`.
+- **NET-ENTRY-004** Back must return to `MENU-01` without changing local setup or starting a network service.
+- **NET-ENTRY-005** The application must prevent activation of underlying main-menu actions while the `NET-01` modal is open.
 
-Entry is `MENU-01` → `Network (F2)`, including pointer and F2 entry on experimental macOS. Host continues to `NET-02`, Browse sessions to `NET-10`, Direct connect to `NET-03`, and Back to `MENU-01` without starting a network service. Approved platform scope follows NET-AC-001 and the linked platform contracts, not a blanket verified-platform claim. Exact platform-scope copy is owned solely by [UX-NET-01-006](../design/screens/NET-01.md#presentation-requirements). The dedicated extension retains the narrower scope in NET-PUB-AC-006.
+Direct connect remains in the existing `NET-10` browser and opens independent direct setup in `NET-03`. A directory failure must not disable the `NET-01` Join route to that browser or block its Direct connect action. NET-DIR-015 remains authoritative for directory independence. Back from direct setup retains its existing `NET-01` destination.
 
-## Representative layout
+## Functional states and transitions
 
-- Use the centered, scaled 850 by 700 retro menu canvas and persistent menu background.
-- Keep the banner/version header and the `NETWORK PLAY` panel with the four actions and scope treatment defined by [NET-01 presentation](../design/screens/NET-01.md).
-- Preserve the existing player-hosted `Lobby 1–15 • Match 2–15 participants and players` constraints without treating them as a minimum for the prepared dedicated idle session. Dedicated idle has zero participants/players under NET-PUB-024 and cannot start a match under NET-PUB-025; UX owns affected scope-copy presentation.
-- Do not show endpoint fields until Join or host settings until Host.
-- Keep the `NETWORK PLAY` panel inside the shared 24-logical-pixel canvas margin.
-- Allocate the panel as a fixed title and scope region above one centered action column.
-- Give all four actions one common width and height.
-- Keep at least 8 logical px between adjacent actions.
-- Wrap the scope copy at word boundaries before it reaches an action or panel edge.
+| State ID | Meaning and outcome |
+| --- | --- |
+| `NET-01-default` | The modal offers Host, Join, and Back; no session has started. |
+| `NET-01-runtime-unavailable` | Host and Join are disabled with `Network runtime unavailable`; Back remains enabled. |
 
-## Navigation and state variants
+Directory unavailability is not network-runtime unavailability. Returning from setup or a recoverable failure restores this modal without an active-session claim. Escape or controller Back retains the Back outcome. Default focus remains Host; UX owns traversal and activation presentation for the three actions.
 
-- Default focus is Host; Host opens `NET-02`, Browse sessions opens `NET-10`, Direct connect opens `NET-03`, and Back returns to `MENU-01`.
-- Returning from setup or a recoverable failure restores this screen with no active session claim.
-- If network initialization is unavailable, Host and Join are disabled with `Network runtime unavailable`; Back remains enabled.
-- No automatic LAN discovery, matchmaking, account, or migration action may appear. NET-DIR, NET-PASS, NET-ADM, and NET-PUB govern approved browsing, admission, and public setup.
+Browsing, optional password admission, and round-one admission follow the existing directory and network-play contracts. This entry adds no matchmaking, accounts, dedicated-server, NAT traversal, or host-migration actions and makes no Internet-reachability promise. Local Play remains outside this flow under NET-AC-015.
 
-## Copy, focus, and input
+## Functional acceptance criteria
 
-- Labels must put actions before shortcuts where shortcuts are shown.
-- The focused action must use the standard visible pressed/focus treatment and text must remain readable without color.
-- Keyboard Tab/Shift+Tab or directional controller input follows the four-action order in the owning UX specification and reverses predictably; Enter, Space, or controller Confirm activates; Escape or controller Back returns to `MENU-01`.
-- Pointer activation is optional to the task but must use inverse scaled-canvas coordinates.
+- **NET-ENTRY-AC-001 — Modal actions:** Entry by the supported pointer and F2 paths opens the modal with exactly Host, Join, and Back. Underlying main-menu actions cannot activate while the modal is open. This criterion covers NET-ENTRY-001 and NET-ENTRY-005.
+- **NET-ENTRY-AC-002 — Destinations:** Host opens editable `NET-02` without session startup. Join opens `NET-10` and requests current listings under NET-DIR-009. Back, Escape, and controller Back return to unchanged `MENU-01` without starting a network service. This criterion covers NET-ENTRY-002 through NET-ENTRY-004.
+- **NET-ENTRY-AC-003 — Direct recovery:** With the directory unavailable, Join still opens `NET-10`, and its existing Direct connect action reaches editable `NET-03` without a browser-selected session. Back from direct setup returns to `NET-01`. This criterion applies existing NET-DIR-015 and NET-DIR-AC-004 to the changed entry route.
+- **NET-ENTRY-AC-004 — Unavailable runtime:** Network-runtime unavailability retains the disabled Host and Join actions and the exact reason above. Back remains usable and preserves local setup.
 
-Planned representative screenshot: [`SS-015`](../screenshots/README.md#ss-015).
+Final product acceptance requires behavioral evidence for these criteria at the frozen candidate and UX assessment with implementation evidence from the coordinated screenshot matrix for the compact modal and removed explanatory text. Earlier network-entry evidence does not establish the changed actions, route, or presentation. Representative screenshot reference: [`SS-015`](../screenshots/README.md#ss-015).
+
+### Preserved dedicated and mixed-session contract
+
+`NET-01-PUBLIC-ENTRY` consumes NET-PUB-017–021/024–025 through Join → mixed NET-10 → selected dedicated setup, or NET-10 → independent Direct connect. NET-03 owns the unbound choice and browser-derived locked hosting/security mode, operator TLS frontend endpoint and expected nonzero identity. This entry adds no dedicated administrator or matchmaking action and creates no controller/participant authority.
+
+Prepared ready dedicated idle has zero participants/players, a nonzero identity and no playable match under NET-PUB-024–025. Exactly the first committed admission becomes controller; current player-hosted minimums do not invent an idle participant or controller. NET-DIR-021–033 retain mode/protection validation, legacy capability isolation, authoritative admission and unsupported Mac/Pi inspectable listings with Join disabled/no Invite fallback. The dedicated Linux/Windows x86-64 scope and required Windows journey in NET-PUB-AC-006 remain unchanged; entry presentation makes no native verification claim.
