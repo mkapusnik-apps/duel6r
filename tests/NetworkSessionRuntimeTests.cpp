@@ -957,6 +957,7 @@ D6R_TEST_CASE("NET-10 empty and unavailable body status cannot acquire pointer k
             f.click(point.first, point.second); f.click(point.first, point.second, false);
             menu.mouseButtonEvent(MouseButtonEvent(point.first, point.second, SysEvent::MouseButton::LEFT,
                 SysEvent::ButtonState::PRESSED, true));
+            f.click(point.first, point.second, false);
             menu.mouseWheelEvent(MouseWheelEvent(point.first, point.second, 0, -1));
             D6R_REQUIRE_EQ(2, menu.focus); D6R_REQUIRE(menu.selectedListing.empty());
             D6R_REQUIRE_EQ(0, menu.browserScroll); D6R_REQUIRE(!menu.browser.loading());
@@ -969,7 +970,7 @@ D6R_TEST_CASE("NET-10 empty and unavailable body status cannot acquire pointer k
             D6R_REQUIRE_EQ(expected, menu.focus);
         }
         for (int expected: {3,6,2}) {
-            controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_RIGHT); D6R_REQUIRE_EQ(expected, menu.focus);
+            controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN); D6R_REQUIRE_EQ(expected, menu.focus);
         }
         menu.selectBrowserRow(1); menu.joinSelected();
         D6R_REQUIRE(menu.selectedListing.empty()); D6R_REQUIRE(!menu.browserSelection);
