@@ -2,7 +2,7 @@
 
 ## NET-10 localized browser refinement
 
-The revised fixed NET-10-E and NET-10-U specifications require inline descriptions inside the white table body below the retained five-column heading strip. **Visual gate: pending replacement of NET-10-E and NET-10-U.** Only these two representatives require replacement at 1280 × 900 after functional closure. The populated NET-10 representative is reused unchanged; the existing empty and failed-refresh images do not conform to the revised direction. All other wireframes and capture requirements remain unchanged.
+The revised fixed NET-10-E and NET-10-U specifications require inline descriptions inside the white table body below the retained five-column heading strip. **Visual gate: replacement NET-10-E and NET-10-U supplied, pending UX assessment.** Only these two representatives were replaced at 1280 × 900 after functional closure. The populated NET-10 representative is reused unchanged. All other wireframes and capture requirements remain unchanged.
 
 Common profile: original full-client lossless PNG at 1280 × 900; GL4, Lua enabled, Xvfb, dummy audio, software OpenGL; existing 850 × 700 logical canvas. Native rendering only, no crop, retouching, synthetic listing substitution, or composed pixels. Product authority: [browser contract](../../screens/network-browser.md). UX authority: [NET-10](../screens/NET-10.md).
 
@@ -16,19 +16,36 @@ Focused routine checks cover first/middle/last multi-page navigation and single-
 
 ### Current NET-10 conformance
 
-**Current conformance: populated NET-10 satisfied; NET-10-E and NET-10-U pending replacement and assessment.** The unchanged populated representative retains frozen production identity `1cbcf01864481118f948e0999b8235f875bea290`. Existing empty/error byte provenance is preserved below until replacement records are supplied. The artifact and image hashes below are developer-supplied; UX assessment does not independently recompute them.
+**Current conformance: populated NET-10 satisfied; replacement NET-10-E and NET-10-U pending UX assessment.** The unchanged populated representative retains frozen production identity `1cbcf01864481118f948e0999b8235f875bea290`. Replacement empty/error byte provenance is recorded separately below. The artifact and image hashes below are developer-supplied; UX assessment does not independently recompute them.
 
 | Representative | Approved UX assessment |
 |---|---|
 | `NET-10` | Conforms: distinct endpoint, Players, Phase, Password, and Admission columns; protected/Open and Started/Closed listings remain distinguishable; protected selection and focus are visible; no successful-load status or unnecessary single-page pagination is shown. |
-| `NET-10-E` | Pending replacement and assessment against the revised retained-heading, white-body specification. Existing image does not conform to the new direction. |
-| `NET-10-U` | Pending replacement and assessment against the revised retained-heading, white-body specification. Existing image does not conform to the new direction. |
+| `NET-10-E` | Replacement supplied; pending UX assessment against the revised retained-heading, white-body specification. |
+| `NET-10-U` | Replacement supplied; pending UX assessment against the revised retained-heading, white-body specification. |
 
 Acceptance is limited to the supplied still-image states and Linux profile. Stills do not prove input behavior, multi-page navigation, recovery identity handling, age-stale behavior, controller operation, native macOS presentation, or other uncaptured states/platforms. Their existing owning functional, routine-test, and platform scopes remain unchanged.
 
 ### Current NET-10 capture provenance
 
-The existing original full-client PNGs were rendered from frozen production checkpoint `1cbcf01864481118f948e0999b8235f875bea290`, using the specifications/wireframes integrated at `e90b991`. These records identify the unchanged populated capture and the old empty/error bytes pending replacement; they do not establish conformance to the revised empty/error specification. Replacement provenance must identify actual zero-row and failed-read states, real owned listings before failed refresh, the stable task-local backend, artifact identity, and image hashes without synthetic listing substitution. The source worktree was clean before the original campaign. The runtime archive SHA-256 is `0db09500d6732628302253c2793207a02ddd705d89f4a2e3e61a3b37195968bf`; the client SHA-256 is `82faaf12ae1162baefb21656aa7db645983aba5e149771889c258b86e5323ccf`. Evidence-only commits retain that production identity rather than relabeling the executable as their successor SHA.
+#### Replacement NET-10-E and NET-10-U
+
+These original full-client lossless PNGs were rendered from frozen checkpoint `88f465bbfb0aeb2f70cded8a73c4bc991be1c2c3`, using the fixed specifications/wireframes integrated at `5fcbe836fd5229547bac4c83a77349424e86d6ba`, after functional closure. The source worktree was clean before the campaign; no executable, specification, wireframe, or artifact-producing input changed after freeze. Runtime archive SHA-256: `b8a1225f245c87bf15b22fa10a81df72c984fffa41eab6b9b3c843153f145b29`; client SHA-256: `6cab8142a1fbb5170315fa6ee3b331a4f3b070f43e7655aa898afb21b8b3da8b`. Evidence-only successors retain this frozen production identity.
+
+Common replacement profile: Linux x86_64 Release, GL4, Lua ON, Xvfb 1280 × 900 × 24, `SDL_AUDIODRIVER=dummy`, `LIBGL_ALWAYS_SOFTWARE=1`, unchanged 850 × 700 logical canvas, build/capture image `sha256:d15bdaf9fb852ec1b5e353e63453064562d6c6c9bbd8390e2c2ef7641c6060c4`. Each browser window was verified at origin (0, 0), size 1280 × 900. ImageMagick `import -window root` captured the whole client without cropping, resizing, retouching, or composed pixels. Separate temporary native client copies supplied only scenario-local people and session setup; frozen resources and binaries were unchanged.
+
+The unchanged task directory used emulator project `demo-duel6r-directory`, backend source from the frozen checkpoint, image `sha256:c1bcdd51e01e46537d586eaba8bccc8d57dab1edaf7ce5501f91037c42e66910`, internal Docker network `d6r-inline-status` (ID `2cddfde855b84dbc0eb031793730765cadcf41e4137509027ba14854c5de9237`), and container `d6r-inline-status-directory`, started `2026-10-11T22:17:28.886534978Z`. Native clients shared its network namespace at `http://127.0.0.1:8081` with the existing explicit local-development HTTP override. The assigned host address remained `172.24.0.2`. No cloud credentials, published ports, synthetic listings, or replacement endpoint were used.
+
+| Canonical PNG | UTC capture start / Xvfb display | Actual state and focus | SHA-256 |
+|---|---|---|---|
+| `NET-10/NET-10-E.png` | `2026-10-11T22:29:34.592011Z` / `:122` | Successful zero-row read in a fresh native browser after the real host completed normal End confirmation; HTTP 200 with zero listings verified before and after the read; Refresh focused after read completion | `d88084adb28f4dd6b813f713e2d2dce9b5a97ae52151d5522e6e9a0c9af06e0f` |
+| `NET-10/NET-10-U.png` | `2026-10-11T22:24:46.470608Z` / `:122` | Genuine failed manual refresh after a real populated owned lobby listing was selected; the same directory container was reversibly paused through the read timeout; cached rows and selected identity/endpoint/mode hidden; Refresh focused | `1b4f919793d54c4b53be2f63fe34006431a1902a8076ee4a15a5a4f5e0c79d12` |
+
+Failed-refresh setup used owned listing `59186cdd70d05bc74fe2f4465ab3b693`, session `00000000000000000f040595ac63d642`, address `172.24.0.2:26660`, two host-local players, Deathmatch lobby, no password, Open admission. The real browser selected this listing before the failed refresh. The directory was resumed immediately after U capture and returned HTTP 200 with the hosted session still listed. The host then completed its normal native End confirmation, and the directory returned a stable zero-row response before the fresh-browser E capture. The task environment was cleaned up after the last capture consumer; developer retains the unchanged frozen runtime and canonical images through UX assessment. Stills establish rendered setup and focus, not independent input, live admission, timing, or cross-platform verification.
+
+#### Unchanged populated NET-10
+
+The unchanged populated full-client PNG was rendered from frozen production checkpoint `1cbcf01864481118f948e0999b8235f875bea290`, using the specifications/wireframes integrated at `e90b991`. The source worktree was clean before the original campaign. The runtime archive SHA-256 is `0db09500d6732628302253c2793207a02ddd705d89f4a2e3e61a3b37195968bf`; the client SHA-256 is `82faaf12ae1162baefb21656aa7db645983aba5e149771889c258b86e5323ccf`. Evidence-only commits retain that production identity rather than relabeling the executable as their successor SHA.
 
 Common environment: Linux x86_64 Release, GL4, Lua ON, Xvfb 1280 × 900 × 24, `SDL_AUDIODRIVER=dummy`, `LIBGL_ALWAYS_SOFTWARE=1`, and the unchanged 850 × 700 logical canvas. Build/capture image ID: `sha256:d15bdaf9fb852ec1b5e353e63453064562d6c6c9bbd8390e2c2ef7641c6060c4`. Each native window was verified at origin (0, 0), size 1280 × 900. ImageMagick `import -window root` captured the complete client without cropping, resizing, retouching, or composed pixels. Runtime resources were unchanged; separate scenario save/home directories supplied only local people and session setup.
 
@@ -37,8 +54,6 @@ The unchanged task-local directory used emulator project `demo-duel6r-directory`
 | Canonical PNG | UTC capture start / Xvfb display | Actual state and focus | SHA-256 |
 |---|---|---|---|
 | `NET-10/NET-10.png` | `2026-10-11T19:17:45.839117Z` / `:113` | Two real owned listings on one page; protected lobby at `172.24.0.2:29100` selected and focused, plus Started/Closed session at `172.24.0.2:29130` | `24230a589c160efb2e6f2b1df63fd599dbffb6e45aeeccf803a13d63d4b978f5` |
-| `NET-10/NET-10-E.png` | `2026-10-11T19:20:00.073475Z` / `:115` | Successful zero-row read in a fresh native browser after both hosts ended and their listings were removed; Refresh focused | `2b37ee05a726b4a3917e15e57aac3c829451720e5fa5bda68b3397a79f658eba` |
-| `NET-10/NET-10-U.png` | `2026-10-11T19:18:23.596164Z` / `:113` | Genuine failed manual refresh after populated protected selection; same directory container reversibly paused through the read timeout; cached rows and selected identity/endpoint/mode hidden, Refresh focused | `3cbd42ddebc42b1ad4ea157ceec69f606ec8a65cd32c2a60d0e947082d011d05` |
 
 Protected host provenance: listing `70883fae91581efe7a64323d8f9bcd3c`, session `000000000000000080aab10dfc65cf5a`, two local players, Deathmatch lobby, password required, Open admission. Closed host provenance: listing `b6e686be4366fb4de5badb0ae8b9d171`, session `0000000000000000e2b4cb72297cdd73`, two host-local players and one real admitted guest, Deathmatch, naturally completed one-round match, Started/Closed presentation. The disposable host password entered through native UI automation stdin, never process arguments or files. The directory was resumed immediately after the error capture and returned HTTP 200 with both real listings still present. Both hosts then ended through their normal native confirmation flow; the service returned HTTP 200 with zero listings before the empty capture. Developer owns temporary environment cleanup and preserves the frozen runtime through image assessment. Still images identify rendered state and focus, not independent admission, timing, or cross-platform verification.
 
