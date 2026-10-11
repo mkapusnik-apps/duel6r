@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
+import plistlib
 import re
 import shutil
 import subprocess
@@ -13,6 +14,13 @@ import tarfile
 HELPERS = ("duel6r-server", "duel6r-darwin-guardian", "duel6r-resolver")
 CURL_VERSION = "8.21.0"
 CURL_ARCHIVE_SHA256 = "ad6f2f94934b38e31e48272833c99b891d045b4565fe942a53fbd27bd3910e16"
+MACOS_MINIMUMS = {"arm64": "14.0", "x86_64": "13.0"}
+
+
+def minimum_macos(architecture):
+    if architecture not in MACOS_MINIMUMS:
+        raise RuntimeError(f"Unsupported macOS architecture: {architecture}")
+    return MACOS_MINIMUMS[architecture]
 
 
 def require_private_curl(origins, prefix):
@@ -31,13 +39,13 @@ def require_private_curl(origins, prefix):
     return library
 
 
-def collect_private_curl(prefix, archive, licenses):
+def collect_private_curl(prefix, archive, licenses, architecture):
     if hashlib.sha256(archive.read_bytes()).hexdigest() != CURL_ARCHIVE_SHA256:
         raise RuntimeError("Private curl source checksum mismatch")
     library = require_private_curl([(prefix / "lib/libcurl.4.dylib").resolve()], prefix)
     metadata = json.loads((prefix / "build-info.json").read_text())
     expected = dict(version=CURL_VERSION, archive_sha256=CURL_ARCHIVE_SHA256,
-                    architecture="arm64", minimum_macos="14.0",
+                    architecture=architecture, minimum_macos=minimum_macos(architecture),
                     native_trust="Apple SecTrust", ca_fallback=False,
                     library_sha256=hashlib.sha256(library.read_bytes()).hexdigest())
     if any(metadata.get(key) != value for key, value in expected.items()):
@@ -67,10 +75,89 @@ def load_commands(binary):
     return run("otool", "-l", binary)
 
 
+def require_macos_binary(binary, architecture):
+    minimum = minimum_macos(architecture)
+    if run("lipo", "-archs", binary).split() != [architecture]:
+        raise RuntimeError(f"Not a {architecture}-only binary: {binary}")
+    commands = load_commands(binary)
+    minimums = re.findall(r"\bminos (\d+(?:\.\d+)+)", commands)
+    minimums += re.findall(r"cmd LC_VERSION_MIN_MACOSX\s+cmdsize \d+\s+version (\d+(?:\.\d+)+)", commands)
+    ceiling = tuple(map(int, minimum.split('.'))) + (0,)
+    if not minimums or any(tuple(map(int, value.split('.'))) > ceiling
+                           for value in minimums):
+        raise RuntimeError(f"Dependency requires newer than macOS {minimum}: {binary}: {minimums}")
+    return commands
+
+
+def require_macos_plist(app, architecture):
+    with (app / "Contents/Info.plist").open("rb") as stream:
+        info = plistlib.load(stream)
+    if (info.get("LSMinimumSystemVersion") != minimum_macos(architecture)
+            or info.get("LSArchitecturePriority") != [architecture]):
+        raise RuntimeError("Bundle plist architecture/deployment floor mismatch")
+
+
 def is_notice(path):
     return bool(re.match(r"^(licen[cs]es?|copying|copyright|notice|authors)([.\-_ ]|$)",
                          path.name, re.IGNORECASE)) or any(
         part.lower() in {"licenses", "licences", "copying"} for part in path.parts[:-1])
+
+
+def source_notices(packet, archive):
+    """Read verbatim notices from pinned source, including static vendored code."""
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != packet["sha256"]:
+        raise RuntimeError("Source checksum mismatch: " + packet["name"])
+    notices = {}
+    with tarfile.open(archive) as contents:
+        for member in contents:
+            path = PurePosixPath(member.name)
+            if path.is_absolute() or ".." in path.parts or not path.parts or path.parts[0] != packet["root"]:
+                raise RuntimeError("Unsafe source archive path: " + member.name)
+            relative = str(path.relative_to(packet["root"]))
+            if member.isfile() and (is_notice(PurePosixPath(relative)) or relative in packet["required_notices"]):
+                notices[relative] = contents.extractfile(member).read()
+    if not set(packet["required_notices"]) <= notices.keys():
+        raise RuntimeError("Source packet lacks required notice: " + packet["name"])
+    return notices
+
+
+def collect_runtime(prefix, manifest, archives, licenses, architecture, origins):
+    prefix = prefix.resolve(strict=True)
+    metadata = json.loads((prefix / "build-info.json").read_text())
+    if (metadata.get("architecture") != architecture or metadata.get("minimum_macos") != minimum_macos(architecture)
+            or metadata.get("lock_sha256") != hashlib.sha256(manifest.read_bytes()).hexdigest()
+            or metadata.get("builder_sha256") != hashlib.sha256((manifest.parent / "build-runtime.py").read_bytes()).hexdigest()):
+        raise RuntimeError("Private runtime build provenance mismatch")
+    libraries = metadata.get("libraries", {})
+    if not libraries:
+        raise RuntimeError("Missing private runtime library inventory")
+    verified = set()
+    for relative, digest in libraries.items():
+        path = (prefix / relative).resolve(strict=True)
+        if not path.is_relative_to(prefix) or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            raise RuntimeError("Private runtime library identity mismatch: " + relative)
+        verified.add(path)
+    if not set(origins) <= verified:
+        raise RuntimeError("Unaccounted private runtime dependency origin")
+    target = licenses / "runtime"
+    target.mkdir(parents=True, exist_ok=True)
+    for project in json.loads(manifest.read_text())["projects"]:
+        for packet in [project, *project.get("vendored", [])]:
+            destination = target / project["name"] / packet["name"]
+            for relative, data in source_notices(packet, archives / packet["sha256"]).items():
+                notice = destination / relative
+                notice.parent.mkdir(parents=True, exist_ok=True)
+                notice.write_bytes(data)
+            (destination / "source-provenance.json").write_text(json.dumps(packet, indent=2) + "\n")
+        for patch in project.get("patches", []):
+            data = (archives / patch["sha256"]).read_bytes()
+            if hashlib.sha256(data).hexdigest() != patch["sha256"]:
+                raise RuntimeError("Source patch checksum mismatch")
+            (target / project["name"] / patch["name"]).write_bytes(data)
+    shutil.copy2(manifest, target / manifest.name)
+    shutil.copy2(manifest.parent / "build-runtime.py", target / "build-runtime.py")
+    (target / "build-info.json").write_text(json.dumps(metadata, indent=2) + "\n")
+    return metadata
 
 
 def supplement_notices(name, keg, target, cache, packet):
@@ -259,6 +346,7 @@ def stage_app(source, build, output):
 def package(args):
     output = args.output.resolve()
     app = stage_app(args.source, args.build, output)
+    require_macos_plist(app, args.architecture)
     stage_helpers(args.build, app)
     resources = app / "Contents/Resources"
     frameworks = app / "Contents/Frameworks"
@@ -271,18 +359,17 @@ def package(args):
     shutil.copy2(args.lua_archive, licenses / args.lua_archive.name)
     mbedtls_record = collect_mbedtls(args.mbedtls_prefix, args.mbedtls_source, licenses)
 
-    prefix = Path(run("brew", "--prefix"))
-    cellar = Path(run("brew", "--cellar")).resolve()
+    prefix = args.runtime_prefix.resolve(strict=True)
     extra = []
     origins = []
-    # Current Homebrew SDL2 may be sdl2-compat. Its SDL3 is dlopen'ed rather
-    # than linked, so otool alone cannot discover it. No renderer/API migration.
+    # The pinned SDL2 compatibility layer loads SDL3 rather than linking it;
+    # otool alone cannot discover it. No application renderer/API migration.
     sdl2 = (prefix / "lib/libSDL2.dylib").resolve(strict=True)
-    if "sdl2-compat" in sdl2.parts:
+    if sdl2.is_relative_to(prefix):
         # sdl2-compat's macOS loader explicitly tries @loader_path/libSDL3.dylib.
         sdl3 = prefix / "lib/libSDL3.dylib"
         if not sdl3.is_file():
-            raise RuntimeError("sdl2-compat requires the installed SDL3 runtime")
+            raise RuntimeError("sdl2-compat requires the private SDL3 runtime")
         bundled = frameworks / sdl3.name
         shutil.copy2(sdl3.resolve(), bundled)
         extra.append(bundled)
@@ -294,20 +381,18 @@ def package(args):
         "-P", args.source / "macos/Bundle.cmake")
     origins.extend(Path(line).resolve() for line in dependencies.read_text().splitlines() if line)
     private_curl = require_private_curl(origins, args.curl_prefix)
-    kegs = {}
+    runtime_origins = []
     for path in origins:
         if path == private_curl:
             continue
-        if not path.is_relative_to(cellar):
+        if not path.is_relative_to(prefix):
             if path.is_relative_to(app) or str(path).startswith(("/System/Library/", "/usr/lib/")):
                 continue
             raise RuntimeError(f"Unaccounted dependency source: {path}")
-        name, version, *_ = path.relative_to(cellar).parts
-        kegs[name] = cellar / name / version
-
-    packets = json.loads((args.source / "macos/license-sources.json").read_text())
-    records = collect_notices(kegs, licenses, args.build / "license-sources", packets)
-    curl_record = collect_private_curl(args.curl_prefix, args.curl_archive, licenses)
+        runtime_origins.append(path)
+    runtime_record = collect_runtime(prefix, args.source / "macos/runtime-sources.json",
+                                     args.runtime_archives, licenses, args.architecture, runtime_origins)
+    curl_record = collect_private_curl(args.curl_prefix, args.curl_archive, licenses, args.architecture)
     curl_record = {**curl_record, "bundled": private_curl is not None}
 
     binaries = [app / "Contents/MacOS/Duel 6 Reloaded"]
@@ -316,14 +401,7 @@ def package(args):
                     if path.is_file() and not path.is_symlink() and
                     "Mach-O" in run("file", "-b", path))
     for binary in binaries:
-        if run("lipo", "-archs", binary).split() != ["arm64"]:
-            raise RuntimeError(f"Not an arm64-only binary: {binary}")
-        commands = load_commands(binary)
-        minimums = re.findall(r"\bminos (\d+(?:\.\d+)+)", commands)
-        minimums += re.findall(r"cmd LC_VERSION_MIN_MACOSX\s+cmdsize \d+\s+version (\d+(?:\.\d+)+)", commands)
-        if not minimums or any(tuple(map(int, value.split('.'))) > (14, 0, 0)
-                               for value in minimums):
-            raise RuntimeError(f"Dependency requires newer than macOS 14.0: {binary}: {minimums}")
+        commands = require_macos_binary(binary, args.architecture)
         # Remove Homebrew/build-tree RPATHs. Any remaining runtime search must
         # be local to the bundle, including explicitly bundled loadable modules.
         for rpath in re.findall(r"cmd LC_RPATH\s+cmdsize \d+\s+path (.*?) \(offset", commands):
@@ -337,7 +415,8 @@ def package(args):
     # signing/notarization; no identity, entitlement or system trust is granted.
     run("cmake", f"-DAPP={app}", "-P", args.source / "macos/VerifyBundle.cmake")
     metadata = {
-        "source_revision": args.revision, "architecture": "arm64", "minimum_macos": "14.0",
+        "source_revision": args.revision, "architecture": args.architecture,
+        "minimum_macos": minimum_macos(args.architecture),
         "renderer": "gl1", "local_only": False, "configuration": "Release",
         "directory_default_url": args.directory_default_url,
         "build_host": {"macos": run("sw_vers", "-productVersion"), "architecture": run("uname", "-m"),
@@ -346,13 +425,15 @@ def package(args):
         "distribution": "unsigned (ad-hoc integrity seals only); not notarized",
         "status": "experimental; native launch, gameplay and visual QA deferred until after nightly",
         "lua": {"version": "5.3.6", "sha256": hashlib.sha256(args.lua_archive.read_bytes()).hexdigest()},
-        "homebrew_dependencies": records,
+        "source_built_runtime": runtime_record,
         "private_curl": curl_record,
         "static_mbedtls": mbedtls_record,
         "network_helpers": list(HELPERS),
     }
     text = json.dumps(metadata, indent=2) + "\n"
     (output / "build-info.json").write_text(text)
+    if args.architecture == "x86_64":
+        (output / "build-info-x86_64.json").write_text(text)
     (resources / "build-info.json").write_text(text)
     require_relocatable_links(app)
     require_regular_entrypoints(app)
@@ -364,7 +445,7 @@ def package(args):
     (output / "bundle.sha256sums").write_text("".join(
         f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(output)}\n"
         for path in sorted(app.rglob("*")) if path.is_file() and not path.is_symlink()))
-    archive = output / "duel6r-macos-arm64.zip"
+    archive = output / f"duel6r-macos-{args.architecture}.zip"
     archive.unlink(missing_ok=True)
     run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, archive)
     (output / (archive.name + ".sha256")).write_text(
@@ -375,8 +456,9 @@ def package(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for option in ("source", "build", "output", "lua", "lua-archive", "curl-prefix", "curl-archive",
-                   "mbedtls-prefix", "mbedtls-source"):
+                   "mbedtls-prefix", "mbedtls-source", "runtime-prefix", "runtime-archives"):
         parser.add_argument(f"--{option}", required=True, type=Path)
     parser.add_argument("--revision", required=True)
+    parser.add_argument("--architecture", required=True, choices=("arm64", "x86_64"))
     parser.add_argument("--directory-default-url", default="")
     package(parser.parse_args())

@@ -2,10 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-[[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || {
-  echo "This helper requires native Apple Silicon macOS 14+." >&2; exit 1;
-}
-[[ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]] || exit 1
+source "$root/macos/native-architecture.sh"
 revision="$(git -C "$root" rev-parse HEAD)"
 [[ "${D6R_SOURCE_REVISION:?Set D6R_SOURCE_REVISION to the immutable checkout SHA}" == "$revision" ]] || {
   echo "Source revision does not match HEAD." >&2; exit 1;
@@ -27,7 +24,7 @@ sdk="$(xcrun --sdk macosx --show-sdk-path)"
   echo "The selected macOS SDK is missing its system headers: $sdk" >&2; exit 1;
 }
 export SDKROOT="$sdk"
-target_flags="-isysroot \"$sdk\" -arch arm64 -mmacosx-version-min=14.0"
+target_flags="-isysroot \"$sdk\" -arch $D6R_MACOS_ARCH -mmacosx-version-min=$D6R_MACOS_MINIMUM"
 
 # lua@5.3 is no longer available in Homebrew. Build only the pinned static
 # library, not an unrelated interpreter or a newer, incompatible Lua API.
@@ -46,21 +43,31 @@ tar -xzf "$archive" -C "$deps"
 make -C "$lua/src" a CC="$(xcrun --sdk macosx --find clang)" \
   MYCFLAGS="-DLUA_USE_MACOSX $target_flags" MYLDFLAGS="$target_flags"
 
-prefix="$(brew --prefix)"
-openssl_prefix="$(brew --prefix openssl@3)"
+prefix="$deps/runtime"
+openssl_prefix="$prefix"
+[[ -f "$prefix/build-info.json" ]] || {
+  echo "Run macos/prepare-runtime-dependencies.sh first." >&2; exit 1;
+}
+export PKG_CONFIG_PATH="$prefix/lib/pkgconfig"
+export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig"
 bash "$root/macos/build-curl.sh" "$sdk" "$deps" "$openssl_prefix"
 curl_prefix="$deps/curl"
 cmake -S "$root/docker/mbedtls" -B "$deps/mbedtls-build" -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_SYSROOT="$sdk" \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$D6R_MACOS_ARCH" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET="$D6R_MACOS_MINIMUM" -DCMAKE_OSX_SYSROOT="$sdk" \
   -DCMAKE_INSTALL_PREFIX="$deps/mbedtls"
 cmake --build "$deps/mbedtls-build" --parallel "$(sysctl -n hw.ncpu)"
 cmake --install "$deps/mbedtls-build"
 cmake -S "$root" -B "$build" -G Ninja \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_SYSROOT="$sdk" \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$D6R_MACOS_ARCH" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET="$D6R_MACOS_MINIMUM" -DCMAKE_OSX_SYSROOT="$sdk" \
   -DCMAKE_PREFIX_PATH="$deps/mbedtls;$curl_prefix;$prefix" \
+  -DCMAKE_IGNORE_PREFIX_PATH="/opt/homebrew;/usr/local" \
+  -DHEADERS_SDL2="$prefix/include" -DHEADERS_GLEW="$prefix/include" \
+  -DLIB_SDL2="$prefix/lib/libSDL2.dylib" -DLIB_SDL2_IMAGE="$prefix/lib/libSDL2_image.dylib" \
+  -DLIB_SDL2_MIXER="$prefix/lib/libSDL2_mixer.dylib" -DLIB_SDL2_TTF="$prefix/lib/libSDL2_ttf.dylib" \
+  -DLIB_GLEW="$prefix/lib/libGLEW.dylib" \
   -DCURL_NO_CURL_CMAKE=ON -DCURL_ROOT="$curl_prefix" -DCURL_INCLUDE_DIR="$curl_prefix/include" \
   -DCURL_LIBRARY="$curl_prefix/lib/libcurl.dylib" \
   -DCURL_LIBRARY_RELEASE="$curl_prefix/lib/libcurl.dylib" -DCURL_LIBRARY_DEBUG="$curl_prefix/lib/libcurl.dylib" \
@@ -72,9 +79,10 @@ cmake --build "$build" --parallel "$(sysctl -n hw.ncpu)"
 ctest --test-dir "$build" --output-on-failure
 
 python3 "$root/macos/package.py" --source "$root" --build "$build" \
-  --output "$output" --revision "$revision" --lua "$lua" --lua-archive "$archive" \
+  --output "$output" --revision "$revision" --architecture "$D6R_MACOS_ARCH" --lua "$lua" --lua-archive "$archive" \
   --curl-prefix "$curl_prefix" --curl-archive "$deps/curl-8.21.0.tar.bz2" \
   --mbedtls-prefix "$deps/mbedtls" --mbedtls-source "$deps/mbedtls-build/_deps/mbedtls-src" \
+  --runtime-prefix "$prefix" --runtime-archives "$deps/runtime-archives" \
   --directory-default-url "${D6R_DIRECTORY_DEFAULT_URL:-}"
 python3 "$root/tests/MacPackagedTests.py" --app "$output/Duel 6 Reloaded.app" \
   --build "$build" --source "$root" --revision "$revision" \

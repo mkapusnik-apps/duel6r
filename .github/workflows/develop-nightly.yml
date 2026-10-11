@@ -115,10 +115,11 @@ jobs:
           name: nightly-release-asset
           path: release-assets
 
-      - name: Download macOS artifact
+      - name: Download macOS artifacts
         uses: actions/download-artifact@v8
         with:
-          name: macos-release-asset
+          pattern: macos-release-asset-*
+          merge-multiple: true
           path: release-assets/macos
 
       - name: Validate nightly artifact
@@ -159,6 +160,9 @@ jobs:
             release-assets/macos/duel6r-macos-arm64.zip
             release-assets/macos/duel6r-macos-arm64.zip.sha256
             release-assets/macos/build-info.json
+            release-assets/macos/duel6r-macos-x86_64.zip
+            release-assets/macos/duel6r-macos-x86_64.zip.sha256
+            release-assets/macos/build-info-x86_64.json
           fail_on_unmatched_files: true
 
   directory:

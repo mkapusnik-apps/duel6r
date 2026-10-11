@@ -4,6 +4,7 @@ import importlib.util
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import plistlib
 import subprocess
@@ -22,6 +23,27 @@ spec.loader.exec_module(package)
 
 
 class MacPackagingTests(unittest.TestCase):
+    def test_native_binary_architecture_and_deployment_floor(self):
+        for architecture, minimum in (("arm64", "14.0"), ("x86_64", "13.0")):
+            self.assertEqual(minimum, package.minimum_macos(architecture))
+            for commands in (f"cmd LC_BUILD_VERSION\n minos {minimum}", "cmd LC_VERSION_MIN_MACOSX\n cmdsize 16\n version 10.15"):
+                with self.subTest(architecture=architecture, commands=commands), patch.object(
+                        package, "run", return_value=architecture), patch.object(package, "load_commands", return_value=commands):
+                    self.assertEqual(commands, package.require_macos_binary(Path("fixture.dylib"), architecture))
+            for actual in ("arm64 x86_64", "i386", "x86_64" if architecture == "arm64" else "arm64"):
+                with self.subTest(expected=architecture, actual=actual), patch.object(package, "run", return_value=actual):
+                    with self.assertRaisesRegex(RuntimeError, "only binary"):
+                        package.require_macos_binary(Path("fixture.dylib"), architecture)
+            too_new = "14.1" if architecture == "arm64" else "13.1"
+            for commands in ("", f"minos {too_new}", "minos 15.0",
+                             f"cmd LC_VERSION_MIN_MACOSX\n cmdsize 16\n version {too_new}"):
+                with self.subTest(architecture=architecture, rejected=commands), patch.object(
+                        package, "run", return_value=architecture), patch.object(package, "load_commands", return_value=commands):
+                    with self.assertRaisesRegex(RuntimeError, "newer than macOS " + minimum):
+                        package.require_macos_binary(Path("fixture.dylib"), architecture)
+        with self.assertRaisesRegex(RuntimeError, "Unsupported macOS architecture"):
+            package.require_macos_binary(Path("fixture.dylib"), "i386")
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -40,6 +62,122 @@ class MacPackagingTests(unittest.TestCase):
 
     def stage(self):
         return package.stage_app(self.source, self.build, self.output)
+
+    def test_native_helper_selects_floors_and_rejects_ineligible_hosts(self):
+        helper = Path(__file__).resolve().parents[1] / "macos/native-architecture.sh"
+        script = '''set -euo pipefail
+uname() { if [[ "$1" == -s ]]; then printf '%s\\n' "$FIXTURE_OS"; else printf '%s\\n' "$FIXTURE_ARCH"; fi; }
+sw_vers() { printf '%s\\n' "$FIXTURE_VERSION"; }
+sysctl() { printf '%s\\n' "$FIXTURE_TRANSLATED"; }
+source "$1"
+printf '%s %s' "$D6R_MACOS_ARCH" "$D6R_MACOS_MINIMUM"
+'''
+        cases = (
+            ("arm64", "14.0", "", "0", "Darwin", "arm64 14.0"),
+            ("x86_64", "13.7.4", "", "0", "Darwin", "x86_64 13.0"),
+            ("x86_64", "15.0", "x86_64", "0", "Darwin", "x86_64 13.0"),
+            ("arm64", "13.7.4", "", "0", "Darwin", None),
+            ("x86_64", "12.7", "", "0", "Darwin", None),
+            ("arm64", "14.0", "x86_64", "0", "Darwin", None),
+            ("x86_64", "14.0", "x86_64", "1", "Darwin", None),
+            ("x86_64", "14.0", "i386", "0", "Darwin", None),
+            ("x86_64", "14.0", "", "0", "Linux", None),
+        )
+        for arch, version, requested, translated, system, expected in cases:
+            with self.subTest(arch=arch, version=version, requested=requested, translated=translated, system=system):
+                environment = {**os.environ, "FIXTURE_ARCH": arch, "FIXTURE_VERSION": version,
+                               "D6R_MACOS_ARCH": requested, "FIXTURE_TRANSLATED": translated, "FIXTURE_OS": system,
+                               "D6R_MACOS_MINIMUM": "99.0"}
+                result = subprocess.run(["bash", "-c", script, "fixture", str(helper)],
+                                        env=environment, capture_output=True, text=True)
+                if expected is None:
+                    self.assertNotEqual(0, result.returncode)
+                else:
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertEqual(expected, result.stdout)
+
+    def runtime_fixture(self, architecture):
+        prefix = self.build / "runtime"
+        (prefix / "lib").mkdir(parents=True)
+        library = prefix / "lib/libfixture.dylib"
+        library.write_bytes(b"native library fixture")
+        archives = self.build / "runtime-archives"
+        archives.mkdir()
+        archive = archives / "temporary.tar.gz"
+        with tarfile.open(archive, "w:gz") as contents:
+            for name, data in {"fixture-1.0/LICENSE.txt": b"verbatim upstream notice",
+                               "fixture-1.0/docs/CREDITS": b"third-party terms",
+                               "fixture-1.0/test/song.xm": b"do not redistribute"}.items():
+                entry = tarfile.TarInfo(name)
+                entry.size = len(data)
+                contents.addfile(entry, io.BytesIO(data))
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        archive.rename(archives / digest)
+        packet = {"name": "fixture", "root": "fixture-1.0", "sha256": digest,
+                  "required_notices": ["LICENSE.txt", "docs/CREDITS"]}
+        manifest = self.build / "runtime-sources.json"
+        manifest.write_text(json.dumps({"projects": [packet]}))
+        builder = self.build / "build-runtime.py"
+        builder.write_bytes(b"fixture pinned recipe")
+        metadata = {"architecture": architecture, "minimum_macos": package.minimum_macos(architecture),
+                    "lock_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+                    "builder_sha256": hashlib.sha256(builder.read_bytes()).hexdigest(),
+                    "libraries": {"lib/libfixture.dylib": hashlib.sha256(library.read_bytes()).hexdigest()}}
+        (prefix / "build-info.json").write_text(json.dumps(metadata))
+        return prefix, manifest, archives, library
+
+    def test_private_runtime_notices_and_origins_are_bound_to_pinned_sources_and_libraries(self):
+        prefix, manifest, archives, library = self.runtime_fixture("x86_64")
+        metadata = package.collect_runtime(prefix, manifest, archives, self.output, "x86_64", [library])
+        self.assertEqual("13.0", metadata["minimum_macos"])
+        notices = self.output / "runtime/fixture/fixture"
+        self.assertEqual(b"verbatim upstream notice", (notices / "LICENSE.txt").read_bytes())
+        self.assertEqual(b"third-party terms", (notices / "docs/CREDITS").read_bytes())
+        self.assertFalse((notices / "test").exists())
+        foreign = self.build / "foreign.dylib"
+        foreign.write_bytes(library.read_bytes())
+        with self.assertRaisesRegex(RuntimeError, "dependency origin"):
+            package.collect_runtime(prefix, manifest, archives, self.output, "x86_64", [foreign])
+        library.write_bytes(b"altered library")
+        with self.assertRaisesRegex(RuntimeError, "library identity mismatch"):
+            package.collect_runtime(prefix, manifest, archives, self.output, "x86_64", [library])
+
+    def test_private_runtime_rejects_stale_floor_recipe_source_and_missing_notice(self):
+        prefix, manifest, archives, library = self.runtime_fixture("arm64")
+        with self.assertRaisesRegex(RuntimeError, "provenance mismatch"):
+            package.collect_runtime(prefix, manifest, archives, self.output, "x86_64", [library])
+        metadata_file = prefix / "build-info.json"
+        original = metadata_file.read_bytes()
+        metadata = json.loads(original)
+        metadata["minimum_macos"] = "15.0"
+        metadata_file.write_text(json.dumps(metadata))
+        with self.assertRaisesRegex(RuntimeError, "provenance mismatch"):
+            package.collect_runtime(prefix, manifest, archives, self.output, "arm64", [library])
+        metadata_file.write_bytes(original)
+        builder = manifest.parent / "build-runtime.py"
+        original_builder = builder.read_bytes()
+        builder.write_bytes(b"changed recipe")
+        with self.assertRaisesRegex(RuntimeError, "provenance mismatch"):
+            package.collect_runtime(prefix, manifest, archives, self.output, "arm64", [library])
+        builder.write_bytes(original_builder)
+        packet = json.loads(manifest.read_text())["projects"][0]
+        archive = archives / packet["sha256"]
+        with self.assertRaisesRegex(RuntimeError, "required notice"):
+            package.source_notices({**packet, "required_notices": ["missing/LICENSE"]}, archive)
+        archive.write_bytes(b"corrupt source")
+        with self.assertRaisesRegex(RuntimeError, "checksum mismatch"):
+            package.collect_runtime(prefix, manifest, archives, self.output, "arm64", [library])
+
+    def test_private_runtime_source_rejects_traversal_before_notice_extraction(self):
+        archive = self.build / "unsafe.tar"
+        with tarfile.open(archive, "w") as contents:
+            entry = tarfile.TarInfo("../LICENSE")
+            entry.size = 1
+            contents.addfile(entry, io.BytesIO(b"x"))
+        packet = {"name": "unsafe", "root": "fixture", "required_notices": ["LICENSE"],
+                  "sha256": hashlib.sha256(archive.read_bytes()).hexdigest()}
+        with self.assertRaisesRegex(RuntimeError, "Unsafe source archive path"):
+            package.source_notices(packet, archive)
 
     def test_network_helpers_are_regular_current_binaries_and_missing_helpers_fail(self):
         app = self.stage()
@@ -125,13 +263,13 @@ class MacPackagingTests(unittest.TestCase):
 
     def test_private_curl_license_and_provenance_are_bound_to_archive_and_library(self):
         prefix, archive, library = self.private_curl_fixture()
-        result = package.collect_private_curl(prefix, archive, self.output)
+        result = package.collect_private_curl(prefix, archive, self.output, "arm64")
         self.assertEqual(hashlib.sha256(library.read_bytes()).hexdigest(), result["library_sha256"])
         self.assertEqual(b"verbatim curl license fixture\n", (self.output / "curl/COPYING").read_bytes())
         self.assertEqual(result, json.loads((self.output / "curl/source-provenance.json").read_text()))
         library.write_bytes(b"replaced library")
         with self.assertRaisesRegex(RuntimeError, "provenance mismatch"):
-            package.collect_private_curl(prefix, archive, self.output)
+            package.collect_private_curl(prefix, archive, self.output, "arm64")
 
     def test_private_curl_rejects_corrupt_source_and_ca_fallback(self):
         prefix, archive, _ = self.private_curl_fixture()
@@ -140,10 +278,28 @@ class MacPackagingTests(unittest.TestCase):
         metadata["ca_fallback"] = True
         metadata_path.write_text(json.dumps(metadata))
         with self.assertRaisesRegex(RuntimeError, "provenance mismatch"):
-            package.collect_private_curl(prefix, archive, self.output)
+            package.collect_private_curl(prefix, archive, self.output, "arm64")
         archive.write_bytes(b"corrupt")
         with self.assertRaisesRegex(RuntimeError, "checksum mismatch"):
-            package.collect_private_curl(prefix, archive, self.output)
+            package.collect_private_curl(prefix, archive, self.output, "arm64")
+
+    def test_private_curl_provenance_must_match_selected_native_architecture(self):
+        prefix, archive, _ = self.private_curl_fixture()
+        metadata_path = prefix / "build-info.json"
+        metadata = json.loads(metadata_path.read_text())
+        for architecture in ("arm64", "x86_64"):
+            metadata["architecture"] = architecture
+            metadata["minimum_macos"] = package.minimum_macos(architecture)
+            metadata_path.write_text(json.dumps(metadata))
+            self.assertEqual(architecture, package.collect_private_curl(
+                prefix, archive, self.output, architecture)["architecture"])
+            other = "x86_64" if architecture == "arm64" else "arm64"
+            with self.assertRaisesRegex(RuntimeError, "provenance mismatch"):
+                package.collect_private_curl(prefix, archive, self.output, other)
+            metadata["minimum_macos"] = "15.0"
+            metadata_path.write_text(json.dumps(metadata))
+            with self.assertRaisesRegex(RuntimeError, "provenance mismatch"):
+                package.collect_private_curl(prefix, archive, self.output, architecture)
 
     def test_dependency_closure_requires_private_curl_without_any_substitute(self):
         prefix, _, library = self.private_curl_fixture()
@@ -252,17 +408,30 @@ if(NOT valid)
     message(FATAL_ERROR "BundleUtilities rejected the generated bundle")
 endif()
 ''')
-        result = subprocess.run([
-            "cmake", f"-DAPP={self.built}",
-            f"-DTEMPLATE={Path(__file__).resolve().parents[1] / 'macos/Info.plist.in'}",
-            "-P", str(script)], capture_output=True, text=True)
-        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        app = self.stage()
-        with (app / "Contents/Info.plist").open("rb") as stream:
-            info = plistlib.load(stream)
-        self.assertEqual("Duel 6 Reloaded", info["CFBundleExecutable"])
-        self.assertTrue((app / "Contents/MacOS" / info["CFBundleExecutable"]).is_file())
-        self.assertEqual("14.0", info["LSMinimumSystemVersion"])
+        for architecture in ("arm64", "x86_64"):
+            with self.subTest(architecture=architecture):
+                minimum = "14.0" if architecture == "arm64" else "13.0"
+                result = subprocess.run([
+                    "cmake", f"-DAPP={self.built}", f"-DCMAKE_OSX_ARCHITECTURES={architecture}",
+                    f"-DCMAKE_OSX_DEPLOYMENT_TARGET={minimum}",
+                    f"-DTEMPLATE={Path(__file__).resolve().parents[1] / 'macos/Info.plist.in'}",
+                    "-P", str(script)], capture_output=True, text=True)
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                app = self.stage()
+                with (app / "Contents/Info.plist").open("rb") as stream:
+                    info = plistlib.load(stream)
+                self.assertEqual("Duel 6 Reloaded", info["CFBundleExecutable"])
+                self.assertTrue((app / "Contents/MacOS" / info["CFBundleExecutable"]).is_file())
+                self.assertEqual(minimum, info["LSMinimumSystemVersion"])
+                self.assertEqual([architecture], info["LSArchitecturePriority"])
+                package.require_macos_plist(app, architecture)
+                other = "x86_64" if architecture == "arm64" else "arm64"
+                with self.assertRaisesRegex(RuntimeError, "plist architecture/deployment floor mismatch"):
+                    package.require_macos_plist(app, other)
+                info["LSMinimumSystemVersion"] = "15.0"
+                (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
+                with self.assertRaisesRegex(RuntimeError, "plist architecture/deployment floor mismatch"):
+                    package.require_macos_plist(app, architecture)
 
     def test_final_bundle_verification_rejects_a_missing_main_executable(self):
         root = Path(__file__).resolve().parents[1]

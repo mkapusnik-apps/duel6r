@@ -1,18 +1,23 @@
 # Experimental macOS local and network play
 
-This package targets **Apple Silicon, macOS 14 or later**, using GL1. It is
+These architecture-specific packages target **Apple Silicon on macOS 14 or later,
+or Intel x86_64 on macOS 13 Ventura or later**, using GL1. Intel Core i5 Macs must support macOS 13;
+not every historical Core i5 Mac qualifies. Support is
 experimental, with Local Play and the existing IPv4 network flows. Build/package checks do not establish successful
 Finder launch, audio, controllers, graphics or gameplay. Manual Mac runtime and
 visual verification are deferred until after merge and the subsequent nightly.
 `Contents/Resources/build-info.json` identifies the exact source revision and
-bundled dependency versions. Intel Macs are outside this target. Native automated
-network acceptance is mandatory; manual GUI and live cross-OS verification remain
+target architecture and bundled dependency versions. Native automated
+network acceptance is mandatory on each architecture after integration in Develop - Sanity,
+not before review or merge; manual GUI and live cross-OS verification remain
 deferred, not passed, under `docs/macos.md` in the source repository.
 
 ## Install and launch
 
-1. Download `duel6r-macos-arm64.zip` and its `.sha256` file from the same nightly.
-   In the download directory, run `shasum -a 256 -c duel6r-macos-arm64.zip.sha256`.
+1. Download `duel6r-macos-arm64.zip` for Apple Silicon or
+   `duel6r-macos-x86_64.zip` for Intel, and its `.sha256` file from the same nightly.
+   In the download directory, run `shasum -a 256 -c duel6r-macos-arm64.zip.sha256`
+   or `shasum -a 256 -c duel6r-macos-x86_64.zip.sha256`, respectively.
 2. Extract the ZIP and drag **Duel 6 Reloaded.app** to Applications (or a folder
    you own). Keep the application bundle intact; no Homebrew installation is
    required to play. Launch it in Finder, without setting a working directory.
@@ -54,54 +59,50 @@ files remain inside `Contents/Resources`; saves never require bundle write acces
 ## Dependencies and licenses
 
 `Contents/Resources/licenses` contains the game's BSD license, pinned Lua source
-and its MIT notice, and installed dependency notices, Homebrew recipes and receipts.
+and its MIT notice, and verbatim notices and build provenance for the private runtime.
 It also includes pinned static Mbed TLS 3.6.7 notices/configuration/library hashes
 and private curl 8.21.0 license and source/build provenance. The private curl
 uses OpenSSL with Apple SecTrust and no CA-file/path fallback. The required
 server, guardian and resolver live in `Contents/MacOS`, not `Resources`; every
-helper is checked for arm64/macOS 14 compatibility and sealed after relocation.
+helper is checked for the selected native architecture and its minimum macOS version
+and sealed after relocation.
 Non-system dynamic libraries are in `Contents/Frameworks`; Apple system frameworks
-are supplied by macOS. The package includes the dynamic dependency closure and,
-when Homebrew supplies sdl2-compat, its dynamically loaded SDL3 runtime.
+are supplied by macOS. The package includes the dynamic dependency closure and
+the pinned sdl2-compat layer's dynamically loaded SDL3 runtime.
 
-The GLib 2.88.3 Sonoma bottle omits its upstream license files. The package
-therefore carries checksum-verified upstream source and verbatim notices for
-GLib, its gobject-introspection build resource, and its exact Homebrew patch.
-The Homebrew BSD license accompanies the retained recipes and patch in GLib's
-`sources/LICENSE.txt`.
-The audited gettext 1.0 runtime LGPL notice is also absent from its keg; its
-source archive and notices are included, together with libunistring 1.4.2 source.
-These narrowly versioned supplements are bound to reviewed installed-recipe
-hashes in `macos/license-sources.json`; a changed recipe/version fails closed.
-Find the complete archives and patch under each dependency's `licenses/*/sources`,
-extracted notices under `upstream`, and URLs/checksums in `source-provenance.json`.
-The original recipe and installation receipt describe Homebrew build choices;
-packaging changes library load paths and ad-hoc seals, not library source code.
-No upstream attribution or license terms are replaced by generated summaries.
-Gettext 1.0 source retrieval has one explicit HTTPS fallback on kernel.org's GNU
-mirror, using the same pinned archive digest. The primary and fallback are each
-attempted once, with a 10-second connection limit, 120-second transfer limit, five-redirect
-limit and 125-second process bound. Packets without a mirror retain three retries,
-bounded by 500 seconds per curl process. Only transport failures try another
-approved endpoint; a checksum mismatch fails closed and is never cached. Source
-provenance records requested/effective download URLs, or explicitly records a
-verified cache hit with unknown original retrieval URLs. Required source archives
-and notices are not omitted when retrieval fails.
-Notice discovery is not a blanket legal-compliance determination: the applicable
-LGPL/source, modification and redistribution obligations continue to apply to
-every bundled dependency. The collector audits the actual transitive closure
-and reports all unresolved notice dependencies before refusing publication.
+`macos/runtime-sources.json` pins the complete private runtime source inputs and
+the GLEW extension patch by SHA-256. It retains the audited SDL3 3.4.14,
+sdl2-compat 2.32.70, SDL2_image 2.8.12, SDL2_mixer 2.8.2, SDL2_ttf 2.24.0 and
+GLEW 2.3.1 versions. Directory HTTPS uses source-built OpenSSL 3.5.9 LTS;
+gameplay still uses the separate pinned hardware-only Mbed TLS profile.
 
-For libxmp 4.7.2, the complete main license in `README` and third-party notices
-in `docs/CREDITS` are extracted verbatim from the checksum-verified release.
-That notice-only archive is not shipped because it contains test music. The
-separate Homebrew `demo_mods` resource is neither fetched nor redistributed.
-See [the captured dependency audit](dependency-audit.md) for the reviewed hosted
-recipe identities and full-closure replay evidence; this is not Mac runtime QA.
+The SDL image/mixer projects use their upstream vendored codec defaults rather
+than Homebrew's optional codec graph. Missing submodule sources are pinned to
+the exact upstream release gitlinks and independently checksum-verified; no
+mutable submodule fetch runs during a build. Codec sources are compiled into
+the SDL libraries (any shared outputs are also inventoried). Image loading
+retains PNG/JPEG and the upstream AVIF/TIFF/WebP backends; audio retains
+WAVE, Vorbis, MP3, FLAC, MOD, Opus, WavPack and native/timidity MIDI.
+FreeType and HarfBuzz come from SDL2_ttf's verified release archive, preserving
+text shaping. No application SDL2 API or renderer migration is involved.
+
+`licenses/runtime` contains the source lock, build recipe, configure commands,
+source and library identities, required notices for all projects and vendored
+code, and the applied GLEW patch. FreeType is distributed under its FreeType
+License with its copyright notices; HarfBuzz and embedded codec notices are
+included verbatim. libxmp's `README`, `docs/CREDITS` and `docs/COPYING` are
+retained, but its test music and source archive are not shipped. Missing notices,
+changed recipe/source checksums, unexpected dependency origins or altered
+library bytes fail packaging. No notices are replaced by generated summaries.
+
+The previous [Homebrew dependency audit](dependency-audit.md) and
+`license-sources.json` remain historical inputs for the existing bottle-notice
+regressions, not evidence for this source-built closure or native Mac runtime QA.
 
 Bundled shared libraries may be replaced with compatible modified builds under
 their respective licenses. Rebuilding from this revision is supported by
-`bash macos/build.sh`; the recorded recipes identify dependency sources and build
+`bash macos/prepare-runtime-dependencies.sh` followed by `bash macos/build.sh`;
+the recorded recipes identify dependency sources and build
 options. After modifying Mach-O files, regenerate local ad-hoc integrity seals
 with Apple's `codesign` tool. This is not trusted publisher signing. Nothing in
 this package prohibits reverse engineering to debug modifications of libraries
@@ -110,12 +111,26 @@ where their licenses permit it.
 ## Native developer build
 
 Only the macOS target has a native-execution policy exception. Other platforms
-continue to use Docker. On an Apple Silicon Mac with Xcode command-line tools:
+continue to use Docker. On a matching native Mac with Xcode command-line tools:
 
 ```sh
-brew install cmake ninja pkg-config python@3.13 sdl2 sdl2_image sdl2_mixer sdl2_ttf glew openssl@3
+brew install cmake ninja pkg-config python@3.13
+# Build the private runtime from checksum-pinned sources for this architecture:
+bash macos/prepare-runtime-dependencies.sh
 D6R_SOURCE_REVISION="$(git rev-parse HEAD)" bash macos/build.sh
 ```
+
+Architecture is detected natively, or asserted with `D6R_MACOS_ARCH=arm64` or
+`D6R_MACOS_ARCH=x86_64`. Cross-architecture and Rosetta builds are rejected.
+The dependency preparation helper builds into `build/macos-deps/runtime`, with
+macOS 14.0 for ARM or macOS 13.0 for Intel. It does not depend on continued
+availability of Sonoma/Ventura bottles and never modifies installed Homebrew
+kegs. Source downloads, patches and required notices are checked before building;
+only task-owned runtime output is replaced. Build-only tools may use the host's
+bottles. Packaging independently checks every bundled Mach-O's deployment
+target, architecture, dependency closure and license provenance. A build on a
+newer host is not evidence of execution on the minimum OS; native automated and
+deferred user verification retain their separate acceptance boundaries.
 
 The helper requires a clean checkout, verifies and builds static Lua 5.3.6 from
 the upstream SHA-256-pinned archive, builds the application, runs non-graphical
@@ -125,6 +140,12 @@ with isolated test homes. They exercise secure service data, resolver/guardian
 lookup and cleanup, authoritative fixtures, and the actual bundled curl trust
 path. They do not launch the graphical app or perform manual QA.
 It writes the app, ZIP, checksum and metadata under `build/macos`, and CTest logs
-under `build/macos-build/Testing/Temporary`. Dependency binaries must be arm64
-and compatible with macOS 14.0; newer-only Homebrew bottles fail packaging rather
-than silently raising the deployment floor. Use a compatible native build runner.
+under `build/macos-build/Testing/Temporary`. Use separate clean build workspaces
+for each architecture. The archive is `duel6r-macos-<architecture>.zip`; ARM keeps
+the published `build-info.json`, and Intel additionally produces
+`build-info-x86_64.json` for collision-free publication. Each bundle retains its
+own `Contents/Resources/build-info.json`. Dependency binaries must match the
+selected architecture and support macOS 14.0 on ARM or macOS 13.0 on Intel; newer-only dependencies fail
+packaging rather than silently raising the deployment floor. Native Mac build,
+package and automatic network checks remain mandatory post-integration;
+Linux checks do not establish native Mac execution.

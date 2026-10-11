@@ -4,7 +4,7 @@
 
 **Experimental/prototype networking: packaging is not accepted end-to-end network support.** This guide describes the production-path procedures to validate against the [deployment requirements](network-deployments.md). It does not remove the prototype warning or approve release readiness. Issue #41 remains the final network release gate.
 
-The implementation provides player-hosted IPv4 sessions with secure transport, optional session passwords and directory or direct joining. Eligible assigned unicast listeners and valid IPv4 connections follow the existing trust contract; there is no automatic NAT, firewall or routing configuration and no public reachability guarantee. The experimental Apple Silicon macOS 14+ extension follows [its platform contract](macos.md), alongside existing Linux/Windows targets and separate Raspberry Pi validation. Package availability is not completed platform acceptance. Do not use a hostile shared machine.
+The implementation provides player-hosted IPv4 sessions with secure transport, optional session passwords and directory or direct joining. Eligible assigned unicast listeners and valid IPv4 connections follow the existing trust contract; there is no automatic NAT, firewall or routing configuration and no public reachability guarantee. The experimental Apple Silicon macOS 14+ and Intel x86_64 macOS 13 Ventura+ targets follow [the macOS platform contract](macos.md), alongside existing Linux/Windows targets and separate Raspberry Pi validation. Package availability is not completed platform acceptance. Do not use a hostile shared machine.
 
 ### Evidence boundary
 

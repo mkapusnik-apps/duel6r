@@ -1,4 +1,4 @@
-name: macOS - Apple Silicon build
+name: macOS - Native builds
 
 on:
   workflow_call:
@@ -19,9 +19,18 @@ permissions:
 
 jobs:
   build:
-    name: Build experimental macOS app
-    # macOS 14 enforces the initial minimum OS; this image retires on 2026-11-02.
-    runs-on: macos-14
+    name: Build experimental macOS app (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          # Existing ARM64 image retires on 2026-11-02.
+          - arch: arm64
+            runner: macos-14
+            metadata: build-info.json
+          - arch: x86_64
+            runner: macos-15-intel
+            metadata: build-info-x86_64.json
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
@@ -31,19 +40,23 @@ jobs:
       - name: Install native build dependencies
         run: brew install cmake ninja pkg-config python@3.13 sdl2 sdl2_image sdl2_mixer sdl2_ttf glew openssl@3
 
+      - name: Prepare runtime dependencies for the target minimum macOS
+        run: D6R_MACOS_ARCH=${{ matrix.arch }} bash macos/prepare-runtime-dependencies.sh
+
       - name: Build, test, and package macOS app
         env:
+          D6R_MACOS_ARCH: ${{ matrix.arch }}
           D6R_DIRECTORY_DEFAULT_URL: ${{ inputs.directory_default_url }}
         run: D6R_SOURCE_REVISION="$(git rev-parse HEAD)" bash macos/build.sh
 
       - name: Upload macOS package
         uses: actions/upload-artifact@v7
         with:
-          name: macos-release-asset
+          name: macos-release-asset-${{ matrix.arch }}
           path: |
-            build/macos/duel6r-macos-arm64.zip
-            build/macos/duel6r-macos-arm64.zip.sha256
-            build/macos/build-info.json
+            build/macos/duel6r-macos-${{ matrix.arch }}.zip
+            build/macos/duel6r-macos-${{ matrix.arch }}.zip.sha256
+            build/macos/${{ matrix.metadata }}
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
 
@@ -51,7 +64,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: macos-ctest-diagnostics
+          name: macos-ctest-diagnostics-${{ matrix.arch }}
           path: build/macos-build/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
           retention-days: 7

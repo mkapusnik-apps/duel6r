@@ -4,19 +4,19 @@
 
 This document owns the macOS platform contract. [features.md](features.md) remains authoritative for local-game behavior. The macOS target is experimental implementation support, not verified platform support.
 
-- **MAC-PLAT-001** The macOS application must target Apple Silicon on macOS 14 or later.
+- **MAC-PLAT-001** The macOS application must run natively on Apple Silicon Macs on macOS 14 or later and Intel x86_64 Macs, including Intel Core i5 models, on macOS 13 Ventura or later.
 - **MAC-PLAT-002** The macOS application must provide local play with the existing two-through-15-player roster and all existing local game modes.
 - **MAC-PLAT-003** The macOS application must use the existing `gl1` renderer.
 - **MAC-PLAT-004** The macOS extension must preserve the behavior, packaging, and renderer defaults of other platforms.
 
-Intel Macs, older macOS versions, IPv6 gameplay, dedicated hosting, new renderers, gameplay changes, visual redesign, Developer ID signed or notarized distribution, App Store distribution, and cross-platform save migration are outside this contract. The unsigned application retains ad-hoc integrity seals. Existing pointer mapping and full-drawable viewport behavior from PR #110 and PR #119 must be preserved.
+macOS versions earlier than 14 on Apple Silicon or earlier than 13 Ventura on Intel x86_64, IPv6 gameplay, dedicated hosting, new renderers, gameplay changes, visual redesign, Developer ID signed or notarized distribution, App Store distribution, and cross-platform save migration are outside this contract. The Intel target does not include every historical Core i5 Mac. The Mac must support the required macOS version for its architecture. The unsigned application retains ad-hoc integrity seals. Existing pointer mapping and full-drawable viewport behavior from PR #110 and PR #119 must be preserved.
 
 ## Application and distribution
 
 - **MAC-DIST-001** The macOS distribution must provide an unsigned `.app` with its required runtime resources and dependencies.
 - **MAC-DIST-002** The user must be able to launch the application from Finder without selecting a process working directory.
-- **MAC-DIST-003** The nightly release must provide a separate macOS Apple Silicon artifact without replacing the existing platform artifacts.
-- **MAC-DIST-004** The artifact documentation must identify the target, source revision, unsigned status, installation and launch procedure, and experimental verification status.
+- **MAC-DIST-003** The nightly release must provide macOS applications for Apple Silicon and Intel x86_64 without removing the existing Apple Silicon or other-platform artifacts. The release may provide separate architecture-specific packages.
+- **MAC-DIST-004** The artifact documentation must identify the target architecture, minimum macOS version, source revision, unsigned status, installation and launch procedure, and experimental verification status.
 - **MAC-DIST-005** The launch instructions must explain the applicable macOS approval procedure without requiring the user to disable system-wide security protections.
 
 ## Saved data
@@ -52,10 +52,10 @@ The existing [network-play](network-play-first-release.md), [directory/password]
 
 ### Experimental implementation acceptance
 
-- **MAC-AC-001** Build and package evidence identifies an Apple Silicon macOS 14-or-later target, `gl1`, and a complete unsigned `.app` at an immutable source revision.
+- **MAC-AC-001** Build and package evidence must identify each supported Mac architecture, its minimum macOS version (14 for Apple Silicon; 13 Ventura for Intel x86_64), `gl1`, and a complete unsigned `.app` at an immutable source revision. The application and its bundled dependencies must support the target architecture and its minimum macOS version.
 - **MAC-AC-002** Packaging and launch-path review establish that application resources do not depend on the caller's working directory and that person data uses MAC-SAVE-001 rather than the application bundle.
 - **MAC-AC-003** Automated behavioral results and source review establish pointer and F2 entry to NET-01, available Host/direct Join/Browse journeys, unchanged Local Play selection, and unaffected network entry on other platforms. These results do not substitute for deferred native GUI verification.
-- **MAC-AC-004** Nightly publication configuration provides the separate macOS artifact and preserves existing artifacts; the published artifact must subsequently identify its immutable source revision and experimental status.
+- **MAC-AC-004** Nightly publication configuration must provide macOS applications for both supported architectures and preserve existing artifacts. Each published macOS artifact must identify its architecture, minimum macOS version, immutable source revision, and experimental status.
 - **MAC-AC-005** Relevant regression results and review show that the extension preserves other platforms and unrelated functional requirements.
 
 Declarative package and publication behavior may use source/configuration review and relevant build checks. These checks do not establish successful Finder launch, macOS input, audio, rendering, or gameplay.
@@ -65,6 +65,8 @@ Declarative package and publication behavior may use source/configuration review
 Working-branch CI runs only Linux/Docker checks. The existing ARM, macOS, and Windows automatic checks run in `Develop - Sanity` after integration into `develop`. These checks must pass before the integrated revision qualifies for `sanity` and nightly publication.
 
 **MAC-NET-AC-001 through MAC-NET-AC-005 are mandatory post-integration automatic checks in `Develop - Sanity`, not prerequisites for pre-review, experimental implementation acceptance, or merge.** They are not covered by the manual Mac deferral. Evidence must identify the immutable integrated revision, native Mac architecture/OS/toolchain, artifact and dependency identities, command, fixtures, and actual outcomes. Compilation, echoed expectations, symbol presence, skipped tests, or Linux-only execution do not establish native behavioral parity.
+
+These criteria apply to both Apple Silicon and Intel x86_64. Architecture-dependent behavior must have native evidence for the applicable Mac architecture. Shared behavioral evidence may be reused when execution paths are invariant. Apple Silicon-only or Linux-only results do not establish Intel macOS platform behavior. Both architectures retain MAC-NET-013 through MAC-NET-015, including hardware-only AES and fail-closed startup without loss of Local Play.
 
 - **MAC-NET-AC-001 — Secure transport:** Native real secure handshakes and application-data exchange pass for matching-password and unlocked sessions. Wrong-password, tamper, and replay cases reject; entropy and capability failures fail closed. Source review and native proof establish hardware AES key expansion and block operations and capability gating before TLS/RNG initialization. Tests must never override a negative physical capability result.
 - **MAC-NET-AC-002 — Process lifecycle:** Native separate-process tests cover readiness, startup cancellation, port conflict, timeout, normal shutdown, abrupt parent termination, unexpected server termination, and owned descendants. Listener release and absence of orphans require positive process-identity/ownership evidence, not elapsed time alone. Resolver tests cover resolution, cancellation, deadline, retained cleanup ownership during delayed termination, and parent death. Spawn inheritance must be restricted, and arguments must contain no secrets.
@@ -84,6 +86,10 @@ Working-branch CI runs only Linux/Docker checks. The existing ARM, macOS, and Wi
 The user owns manual Mac verification after merge and the subsequent nightly publication. MAC-AC-006 through MAC-AC-009 remain **deferred, not passed**. MAC-NET-AC-006 is **partially user-observed, not passed**, as described below. Untested flows and platform combinations, complete Mac GUI and visual assessment, and post-fix live cross-OS verification remain deferred. The absence of these deferred checks does not block pre-review, experimental implementation acceptance, or merge readiness. Native automated MAC-NET-AC-001 through MAC-NET-AC-005 remain mandatory after integration and gate `sanity` and nightly publication; other merge gates remain separate. Actual nightly publication evidence for MAC-AC-004 follows publication; pre-merge review assesses its configuration only. No pre-merge claim may state that the unpublished artifact was verified.
 
 Runtime observations must identify the nightly artifact, immutable source revision, Mac architecture, macOS version, and relevant display and input context. Team coordinates any UX evidence within the existing UX-owned matrix. Existing wireframes remain specification inputs; this extension does not require a redesign or an independent duplicate screenshot campaign.
+
+The deferred criteria apply to both Apple Silicon and Intel x86_64. Evidence from one architecture does not establish native GUI or live interoperability on the other architecture. Adding Intel support does not mark these checks as passed or move them before merge and nightly publication.
+
+The user's 2017 13-inch MacBook Pro running macOS Ventura 13.7.4 is a planned Intel manual verification target, not a verified device or a passed acceptance result.
 
 ### Current reported runtime observations
 
