@@ -736,7 +736,9 @@ namespace Duel6 {
             reason = "Assign a valid control to every local player."; return false;
         }
         reason = pilot ? "Ready to connect. Server identity and password will be checked."
-                       : "Ready to start a player-hosted session.";
+                       : boundSelection() && !browserSelection->passwordRequired && password.empty()
+                       ? "The host confirms availability when you connect."
+                        : "Ready to start a player-hosted session.";
         return true;
     }
 
@@ -2810,7 +2812,7 @@ namespace Duel6 {
                 drawText(470, 182, "Session: " + browserSelection->sessionId);
             drawText(50, 160, browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "first-round"
                 ? "Round 1 in progress. You will play immediately if admitted."
-                : setupScreen == SetupScreen::Join && !pilot && password.empty()
+                : setupScreen == SetupScreen::Join && !pilot && !browserSelection && password.empty()
                     && (!browserSelection || !browserSelection->passwordRequired)
                 ? "Endpoint-only first contact does not authenticate host identity."
                  : pilot ? "Dedicated service • Session only • Optional scripts disabled"

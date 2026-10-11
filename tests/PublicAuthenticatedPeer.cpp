@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <algorithm>
@@ -99,13 +100,19 @@ static bool summary(const Frame &value) {
 static void bridge(int accepted, unsigned id, unsigned backendPort, const std::filesystem::path &root,
                    const std::string &scenario, const std::shared_ptr<const SessionPassword> &password) {
     Socket front{accepted}, back{::socket(AF_INET, SOCK_STREAM, 0)};
+    const char *stage = "proxy";
     try {
         require(back.fd >= 0);
+        const int noDelay = 1;
+        require(setsockopt(front.fd, IPPROTO_TCP, TCP_NODELAY, &noDelay, sizeof(noDelay)) == 0);
+        require(setsockopt(back.fd, IPPROTO_TCP, TCP_NODELAY, &noDelay, sizeof(noDelay)) == 0);
         require(fcntl(front.fd, F_SETFL, O_NONBLOCK) == 0);
         std::array<unsigned char, 28> proxy{};
         require(exactProxy(front.fd, proxy.data(), proxy.size(), false));
+        stage = "frontend-auth";
         SecureSession client(front.fd, true, password);
         require(client.handshake(Clock::now() + 3s, [] { return stopped.load(); }));
+        stage = "backend-auth";
         sockaddr_in endpoint{}; endpoint.sin_family = AF_INET;
         endpoint.sin_addr.s_addr = htonl(INADDR_LOOPBACK); endpoint.sin_port = htons(backendPort);
         require(::connect(back.fd, reinterpret_cast<sockaddr *>(&endpoint), sizeof(endpoint)) == 0);
@@ -115,7 +122,10 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
         require(service.handshake(Clock::now() + 3s, [] { return stopped.load(); }));
         Frame incoming, outgoing;
         bool attackReceived = false, raceCompleted = false;
+        unsigned clientFrames = 0, serviceFrames = 0;
+        std::vector<std::uint8_t> oppositeTraffic;
         while (!stopped) {
+            stage = "application-relay";
             if (id == 2) {
                 std::ifstream command(root / "action"); unsigned target = 0; std::string action; std::uint64_t session = 0;
                 if (command >> target >> action >> session && target == id
@@ -128,17 +138,33 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
             const int received = incoming.read(client);
             if (received < 0) return;
             if (received > 0) {
+                { std::ofstream out(root / ("peer-client-frame-" + std::to_string(id)));
+                  out << ++clientFrames << ':' << incoming.bytes.size() << ':' << unsigned(incoming.bytes[7]); }
                 if (std::filesystem::exists(root / "attack.bin")) {
                     std::ifstream attack(root / "attack.bin", std::ios::binary);
                     std::vector<std::uint8_t> expected{std::istreambuf_iterator<char>(attack), {}};
                     attackReceived |= incoming.bytes.size() == TransportEnvelopeBytes + expected.size()
                         && std::equal(expected.begin(), expected.end(), incoming.bytes.begin() + TransportEnvelopeBytes);
                 }
-                require(write(service, incoming.bytes)); incoming.reset();
+                // Schedule real client Ready traffic at the End boundary, not
+                // before it. Only these non-secret participant-action frames
+                // are retained; ordinary play and admission pass unchanged.
+                bool hold = false;
+                if (scenario == "flow-race" && id == 3 && incoming.bytes.size() == TransportEnvelopeBytes + 26) {
+                    const auto action = Lifecycle::deserializeParticipantAction(
+                        {incoming.bytes.begin() + TransportEnvelopeBytes, incoming.bytes.end()});
+                    hold = action && (action->kind == Lifecycle::ParticipantActionKind::Ready
+                                      || action->kind == Lifecycle::ParticipantActionKind::NotReady);
+                }
+                if (hold) oppositeTraffic = incoming.bytes;
+                else require(write(service, incoming.bytes));
+                incoming.reset();
             }
             const int sent = outgoing.read(service);
             if (sent < 0) { if (attackReceived) marker(root, "attack-rejected"); return; }
             if (sent > 0) {
+                { std::ofstream out(root / ("peer-service-frame-" + std::to_string(id)));
+                  out << ++serviceFrames << ':' << outgoing.bytes.size() << ':' << unsigned(outgoing.bytes[7]); }
                 if (scenario == "summary-return-ordered" && summary(outgoing)) {
                     marker(root, id == 1 ? "summary-controller-held" : "summary-guest-seen");
                     const auto deadline = Clock::now() + 2s;
@@ -158,12 +184,13 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                     // a write against a closed OS half, then stop the fatal SDK.
                     require(::shutdown(back.fd, SHUT_WR) == 0);
                     const auto deadline = Clock::now() + 2s;
-                    int traffic = 0;
+                    int traffic = oppositeTraffic.empty() ? 0 : 1;
                     while (!stopped && traffic == 0 && Clock::now() < deadline) {
                         traffic = incoming.read(client);
                         if (traffic == 0) std::this_thread::sleep_for(1ms);
                     }
-                    require(traffic == 1 && !write(service, incoming.bytes) && !service.usable());
+                    require(traffic == 1 && !write(service, oppositeTraffic.empty() ? incoming.bytes : oppositeTraffic)
+                        && !service.usable());
                     marker(root, "race-write-failed"); raceCompleted = true;
                 }
                 require(write(client, outgoing.bytes));
@@ -175,7 +202,9 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
             }
             std::this_thread::sleep_for(1ms);
         }
-    } catch (...) { if (!stopped) marker(root, ("peer-failed-" + std::to_string(id)).c_str()); }
+    } catch (...) {
+        if (!stopped) { std::ofstream out(root / ("peer-failed-" + std::to_string(id))); out << stage; }
+    }
 }
 int main(int argc, char **argv) {
     try {

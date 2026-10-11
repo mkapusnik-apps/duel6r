@@ -1681,6 +1681,11 @@ D6R_TEST_CASE("NET-DIR selected targets in both hosting modes stay read-only thr
         D6R_REQUIRE_EQ(protectedSelection ? 2 : menu.setupFields(), menu.focus);
         std::string reason;
         D6R_REQUIRE_EQ(!protectedSelection, menu.setupValid(reason));
+        f.draw();
+        if (!dedicated && !protectedSelection) {
+            D6R_REQUIRE(f.text("Endpoint-only first contact does not authenticate host identity."));
+            D6R_REQUIRE(f.text("The host confirms availability when you connect."));
+        }
         const auto localCount = menu.localPlayers.size();
         menu.focus = 2; menu.enterText(" explicit correction ");
         for (int field: {0, 1}) {
@@ -1702,6 +1707,8 @@ D6R_TEST_CASE("NET-DIR selected targets in both hosting modes stay read-only thr
             D6R_REQUIRE(!f.text("↻") && !f.text("The first admitted participant controls the session."));
             if (!dedicated) {
                 D6R_REQUIRE(f.text("Session: " + row.sessionId));
+                D6R_REQUIRE(50 + f.font.getTextWidth("Local players: 15 • Lobby 1–15 • Match 2–15", 16) <= 470 - 8);
+                D6R_REQUIRE(470 + f.font.getTextWidth("Session: " + row.sessionId, 16) <= 810);
                 D6R_REQUIRE(!f.text("The service confirms identity, availability, and your role when you connect."));
                 const float scale = std::min(1.35f, std::min(float(size.first)/850, float(size.second)/700));
                 const int tx = (size.first-int(850*scale))/2, ty = (size.second-int(700*scale))/2;
@@ -2640,7 +2647,8 @@ D6R_TEST_CASE("NET-DIR browser selection blocks stale full closed and removed se
     D6R_REQUIRE_EQ(2, menu.focus);
     D6R_REQUIRE(menu.browserSelection && menu.browserSelection->id == row.id);
     menu.focus = 0; menu.textInputEvent(TextInputEvent("1"));
-    D6R_REQUIRE(!menu.browserSelection && menu.joinFromBrowser);
+    D6R_REQUIRE(menu.browserSelection && menu.joinFromBrowser && menu.boundSelection());
+    D6R_REQUIRE_EQ(row.endpoint.host, menu.address); // Only explicit browser -> Direct can unbind.
     menu.back(); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
     menu.browser.page.listings.clear(); menu.joinSelected();
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
