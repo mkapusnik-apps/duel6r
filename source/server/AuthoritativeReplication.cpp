@@ -266,7 +266,7 @@ namespace Duel6::Server::Authoritative {
 
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::appendParticipants(
             const AuthoritativeMatch &match, const std::vector<R::ParticipantState> &participants) {
-        if (!match.admissionOpen() || state.phase != R::Phase::ActiveRound || !state.round) return std::nullopt;
+        if (!match.admissionOpen() || !state.round) return std::nullopt;
         const auto before = *this;
         for (const auto &participant: participants) {
             const auto existing = std::find_if(state.participants.begin(), state.participants.end(),
@@ -342,7 +342,7 @@ namespace Duel6::Server::Authoritative {
                 player.playerId = source.playerId; player.ownerParticipantId = owner->participantId;
                 player.rosterPosition = owner->rosterOrder; player.displayName = owner->displayName;
                 player.team = static_cast<std::uint8_t>(source.team);
-                player.lifeState = source.departed ? R::LifeState::Departed
+                player.lifeState = source.departed ? R::LifeState::Departed : source.waiting ? R::LifeState::Waiting
                                                    : (source.alive ? R::LifeState::Alive : R::LifeState::Dead);
                 player.positionX = source.positionX; player.positionY = source.positionY;
                 player.velocityX = source.velocityX; player.velocityY = source.velocityY;
@@ -422,6 +422,7 @@ namespace Duel6::Server::Authoritative {
             // Persist each authoritative arrival's age in snapshots as well as updates.
             // A late observer or reconnect must not restart existing players' effects.
             for (const auto &player: state.players) {
+                if (player.lifeState == R::LifeState::Waiting) continue;
                 const auto arrival = playerArrivalTicks.emplace(player.playerId, state.phaseTime).first->second;
                 const auto age = state.phaseTime - arrival;
                 if (player.lifeState != R::LifeState::Alive || age >= 120) continue;

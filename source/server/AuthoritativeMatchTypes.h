@@ -153,6 +153,7 @@ namespace Duel6::Server::Authoritative {
         std::uint32_t actionMask = 0;
         PlayerStatistics statistics;
         bool departed = false;
+        bool waiting = false;
     };
 
     struct CanonicalEntitySnapshot {

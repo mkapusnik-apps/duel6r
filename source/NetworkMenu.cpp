@@ -177,6 +177,7 @@ namespace Duel6 {
                                          const Network::Replication::PlayerState &player) {
             if (player.lifeState == Network::Replication::LifeState::Departed) return "Departed";
             if (player.lifeState == Network::Replication::LifeState::Dead) return "Dead";
+            if (player.lifeState == Network::Replication::LifeState::Waiting) return "Waiting";
             const auto owner = std::find_if(state.participants.begin(), state.participants.end(), [&](const auto &value) {
                 return value.participantId == player.ownerParticipantId;
             });
@@ -210,7 +211,8 @@ namespace Duel6 {
                         lines.push_back({"  " + utf8Clipped(player->displayName, lifecycle.empty() ? 18 : 12) + "  "
                                 + (score == state.score.players.end() ? "0" : std::to_string(score->cumulativePoints))
                                 + (lifecycle.empty() ? std::string() : " • " + lifecycle),
-                                player->lifeState == Network::Replication::LifeState::Alive ? Color::YELLOW : Color::RED});
+                                player->lifeState == Network::Replication::LifeState::Waiting ? Color::WHITE
+                                    : player->lifeState == Network::Replication::LifeState::Alive ? Color::YELLOW : Color::RED});
                     }
                 }
             } else {
@@ -226,7 +228,8 @@ namespace Duel6 {
                             + utf8Clipped(player->displayName, lifecycle.empty() ? 24 : 16) + "  "
                             + (score == state.score.players.end() ? "0" : std::to_string(score->cumulativePoints))
                             + (lifecycle.empty() ? std::string() : " • " + lifecycle),
-                            player->lifeState == Network::Replication::LifeState::Alive ? Color::YELLOW : Color::RED});
+                            player->lifeState == Network::Replication::LifeState::Waiting ? Color::WHITE
+                                : player->lifeState == Network::Replication::LifeState::Alive ? Color::YELLOW : Color::RED});
                 }
             }
             return lines;
@@ -692,8 +695,8 @@ namespace Duel6 {
         const auto connected = std::count_if(state.participants.begin(), state.participants.end(), [](const auto &p) {
             return p.connection == Network::Replication::ConnectionState::Connected;
         });
-        if (connected < 2 || state.players.size() < 2) {
-            reason = "Waiting for at least 2 connected participants and players."; return false;
+        if (connected < 1 || state.players.empty()) {
+            reason = "Waiting for a connected participant and player."; return false;
         }
         const auto emptyOwner = std::find_if(state.participants.begin(), state.participants.end(), [](const auto &p) {
             return p.ownedPlayerIds.empty();
@@ -1944,6 +1947,10 @@ namespace Duel6 {
             drawFocusKeyline(30, y - 4, 790, 22, selection && focus == 0);
         }
         std::string reason = selected ? "Host validates capacity, compatibility and admission again." : selectedListing.empty() ? "Select a session." : "Session is no longer listed.";
+        if (selected && selected->joinable() && selected->phase == "started")
+            reason = "Match in progress. Your players join next round if admitted.";
+        if (selected && selected->joinable() && selected->phase == "final-round")
+            reason = "Final round in progress. You may not play in this match if admitted.";
         if (selected && !selected->joinable()) reason = (selected->players >= selected->capacity ? "Session is full. " : "")
             + std::string(selected->phase == "closed" ? "Admission is closed." : "");
         if (browser.stale() || browser.loading()) reason = "Refresh successfully before joining. Availability unconfirmed.";
@@ -2066,6 +2073,20 @@ namespace Duel6 {
             drawText(20, 20 + static_cast<Int32>(row) * 16, statusRows[row], Color::YELLOW);
         if (rightFits)
             drawText(width - 20 - static_cast<Int32>(utf8Length(right)) * 8, 20, right, Color::YELLOW);
+        const bool waiting = state.phase == Network::Replication::Phase::ActiveRound
+            && std::any_of(state.players.begin(), state.players.end(), [&](const auto &player) {
+                return player.ownerParticipantId == snap.localParticipantId
+                    && player.lifeState == Network::Replication::LifeState::Waiting;
+            });
+        if (waiting) {
+            const Int32 feedbackWidth = width - 400;
+            renderer.setBlendFunc(BlendFunc::SrcAlpha);
+            renderer.quadXY(Vector(16, 24 + statusHeight), Vector(feedbackWidth, 24), Color(0, 0, 255, 179));
+            renderer.setBlendFunc(BlendFunc::None);
+            drawWrappedText(20, 28 + statusHeight, state.currentRoundNumber < state.settings.roundLimit
+                ? "Your players join next round." : "Waiting for the next match.",
+                static_cast<std::size_t>((feedbackWidth - 8) / 8), 2, Color::YELLOW);
+        }
         if (interactive) {
             const bool roundSummary = state.phase == Network::Replication::Phase::RoundSummary;
             if (snap.host && roundSummary) {
@@ -2597,9 +2618,13 @@ namespace Duel6 {
                 drawButton(724, y - 2, 96, 18, "Remove", focus == playerBase + static_cast<int>(index) * 2 + 1);
             }
             std::string reason; const bool valid = setupValid(reason);
-            drawText(50, 182, "Local players: " + std::to_string(localPlayers.size()) + " • Lobby 1–15 • Match 2–15");
+            drawText(50, 182, "Local players: " + std::to_string(localPlayers.size()) + " • Lobby 1–15 • Match 1–15");
             drawText(50, 160, browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "first-round"
                 ? "Round 1 in progress. You will play immediately if admitted."
+                : browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "started"
+                    ? "Match in progress. Your players join next round if admitted."
+                : browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "final-round"
+                    ? "Final round in progress. You may not play in this match if admitted."
                 : "Listing does not guarantee reachability. Direct play remains available.");
             drawText(50, 138, reason);
             if (browserSelection && setupScreen == SetupScreen::Join)

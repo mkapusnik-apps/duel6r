@@ -57,7 +57,8 @@ namespace Duel6::Client {
                 || Network::Trust::classifyIpv4Literal(row.endpoint.host) == Network::Trust::EndpointScope::Unsupported
                 || Network::Trust::classifyIpv4Literal(row.endpoint.host) == Network::Trust::EndpointScope::Invalid
                 || (row.mode != "deathmatch" && row.mode != "predator" && row.mode != "teams")
-                || (row.phase != "lobby" && row.phase != "first-round" && row.phase != "closed"))
+                || (row.phase != "lobby" && row.phase != "first-round" && row.phase != "started"
+                    && row.phase != "final-round" && row.phase != "closed"))
                 throw std::invalid_argument("Invalid directory response.");
             row.endpoint.port = static_cast<std::uint16_t>(port); row.players = players; row.capacity = capacity;
             row.passwordRequired = value.get("passwordRequired").asBoolean();
@@ -98,7 +99,8 @@ namespace Duel6::Client {
         std::string encode(const DirectoryListing &row) {
             // Only validated local fields and fixed enumerations enter this serializer.
             if (!hex(row.sessionId) || row.endpoint.host.find_first_not_of("0123456789.") != std::string::npos
-                || (row.phase != "lobby" && row.phase != "first-round" && row.phase != "closed")
+                || (row.phase != "lobby" && row.phase != "first-round" && row.phase != "started"
+                    && row.phase != "final-round" && row.phase != "closed")
                 || (row.mode != "deathmatch" && row.mode != "predator" && row.mode != "teams")) return {};
             return "{\"sessionId\":\"" + row.sessionId + "\",\"address\":\"" + row.endpoint.host
                 + "\",\"port\":" + std::to_string(row.endpoint.port) + ",\"mode\":\"" + row.mode

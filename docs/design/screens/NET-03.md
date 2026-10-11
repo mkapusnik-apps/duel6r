@@ -54,6 +54,6 @@ The editable representative must show required-password focus and real protected
 
 ## Ongoing admission context
 
-- **UX-NET-03-010** Known later context uses exact `Match in progress. Your players join next round if admitted.` within the existing context allocation, with no immediate-play promise for unknown context.
+- **UX-NET-03-010** Known later context uses `Match in progress. Your players join next round if admitted.` Known final-round context uses `Final round in progress. You may not play in this match if admitted.` Keep the existing allocation; unknown/direct context makes no immediate-spawn promise.
 - **UX-NET-03-011** Keep `The host confirms availability when you connect.`, endpoint identity, password masking/focus, and Connect/Back unchanged. Wrap context at word boundaries before it overlaps adjacent feedback/actions, including at 1280 × 720; do not shrink text or redesign setup.
 - **UX-NET-03-012** Complete authoritative admission enters the current lobby, immediate first-round arena, or Connected waiting arena without a false intermediate lobby or failure. NET-03-E represents a real protected ongoing later match; no new password dialog is introduced.

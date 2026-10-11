@@ -706,6 +706,95 @@ std::string followingLobbySettingsEvidence(bool interrupted) {
             + ";start-only-clear=" + (onlyStartClears ? "true" : "false");
 }
 
+D6R_TEST_CASE("NET-SOLO all modes stay playable alone and complete no-winner rounds normally") {
+    for (const auto mode: {Mode::Deathmatch, Mode::Predator, Mode::TeamDeathmatch}) {
+        auto requested = config(); requested.mode = mode; requested.roundLimit = 2;
+        requested.teamCount = mode == Mode::TeamDeathmatch ? 4 : 0;
+        AuthoritativeMatch match;
+        D6R_REQUIRE_EQ(OutcomeCode::None, match.start(requested, roster(1), manifest()).code);
+        for (int tick = 0; tick < 20; ++tick) D6R_REQUIRE(match.advanceOneTick());
+        D6R_REQUIRE_EQ(MatchPhase::ActiveRound, match.phase());
+        D6R_REQUIRE_EQ(ActionResult::Accepted, match.submit({match.currentTick(), 1, 1, 101,
+            ActionKind::EnvironmentalDamage, 101, 0, MaximumLife}));
+        D6R_REQUIRE(match.currentRoundResult().noWinner);
+        D6R_REQUIRE(match.currentRoundResult().winnerPlayerIds.empty());
+        D6R_REQUIRE(match.admissionOpen());
+        for (std::uint32_t tick = 0; tick < RoundEndTotalTicks; ++tick) D6R_REQUIRE(match.advanceOneTick());
+        D6R_REQUIRE_EQ(MatchPhase::ActiveRound, match.phase());
+        D6R_REQUIRE_EQ(std::uint8_t(2), match.roundDecision().roundNumber);
+        D6R_REQUIRE_EQ(std::uint64_t(0), match.playerStatistics().at(101).wins);
+    }
+}
+
+D6R_TEST_CASE("NET-ADM later admission waits and long-match results retain actual participation") {
+    auto requested = config(); requested.roundLimit = 99;
+    AuthoritativeMatch match;
+    D6R_REQUIRE_EQ(OutcomeCode::None, match.start(requested, roster(1), manifest()).code);
+    for (int round = 1; round <= 97; ++round) {
+        establishTestOutcome(match, {}, Team::None, true);
+        for (std::uint32_t tick = 0; tick < RoundEndTotalTicks; ++tick) D6R_REQUIRE(match.advanceOneTick());
+    }
+    D6R_REQUIRE_EQ(std::uint8_t(98), match.roundDecision().roundNumber);
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match.appendPlayers(1, {roster(2)[1]}));
+    D6R_REQUIRE(!match.canAcceptPlayerInput(2, 102));
+    D6R_REQUIRE_EQ(std::uint64_t(0), match.playerStatistics().at(102).roundsPlayed);
+    establishTestOutcome(match, {}, Team::None, true);
+    for (std::uint32_t tick = 0; tick < RoundEndTotalTicks; ++tick) D6R_REQUIRE(match.advanceOneTick());
+    D6R_REQUIRE(match.canAcceptPlayerInput(2, 102));
+    D6R_REQUIRE_EQ(std::uint64_t(1), match.playerStatistics().at(102).roundsPlayed);
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match.appendPlayers(1, {roster(3)[2]}));
+    D6R_REQUIRE(!match.canAcceptPlayerInput(3, 103));
+    establishTestOutcome(match, {}, Team::None, true);
+    D6R_REQUIRE(!match.admissionOpen());
+    for (std::uint32_t tick = 0; tick < RoundEndTotalTicks; ++tick) D6R_REQUIRE(match.advanceOneTick());
+    const auto &result = *match.publishedResult();
+    D6R_REQUIRE_EQ(std::size_t(2), result.players.size());
+    const auto arrival = std::find_if(result.players.begin(), result.players.end(), [](const auto &row) { return row.playerId == 102; });
+    D6R_REQUIRE(arrival != result.players.end());
+    D6R_REQUIRE_EQ(std::uint64_t(1), arrival->statistics.roundsPlayed);
+    D6R_REQUIRE_EQ(std::size_t(99), arrival->rounds.size());
+    for (std::size_t round = 0; round < 98; ++round) D6R_REQUIRE_EQ(std::uint64_t(0), arrival->rounds[round].roundsPlayed);
+    D6R_REQUIRE(serializeSessionResult(result).has_value());
+}
+
+D6R_TEST_CASE("NET-SOLO removals restore solo but death membership and established outcomes remain") {
+    auto requested = config(); requested.roundLimit = 2;
+    AuthoritativeMatch match;
+    D6R_REQUIRE_EQ(OutcomeCode::None, match.start(requested, roster(3), manifest()).code);
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match.removePlayersBatch(1, {102, 103}));
+    D6R_REQUIRE_EQ(MatchPhase::ActiveRound, match.phase());
+    D6R_REQUIRE_EQ(OutcomeCode::None, match.outcome().code);
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match.appendPlayers(1, {{4, 104, "Arrival", 3}}));
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match.submit({match.currentTick(), 1, 4, 104,
+        ActionKind::EnvironmentalDamage, 104, 0, MaximumLife}));
+    D6R_REQUIRE_EQ(std::vector<Identity>({101}), match.currentRoundResult().winnerPlayerIds);
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match.removePlayersBatch(1, {104}));
+    D6R_REQUIRE_EQ(std::vector<Identity>({101}), match.currentRoundResult().winnerPlayerIds);
+}
+
+D6R_TEST_CASE("NET-SOLO production canonical modes do not award automatic solo victories") {
+    for (const auto mode: {Mode::Deathmatch, Mode::Predator, Mode::TeamDeathmatch}) {
+        ProductionCanonicalResourceRoot resources;
+        auto requested = ProductionCanonicalFixture::canonicalConfig(2, resources.path(), true);
+        requested.mode = mode; requested.teamCount = mode == Mode::TeamDeathmatch ? 4 : 0;
+        auto players = roster(1);
+        const auto content = Duel6::Network::CompatibilityManifestBuilder(resources.path(), {}).build();
+        D6R_REQUIRE(content.valid());
+        AuthoritativeMatch match(CanonicalMatchRuntime::createDependencies(requested, players, content));
+        D6R_REQUIRE_EQ(OutcomeCode::None, match.start(requested, players, content.manifest).code);
+        for (int tick = 0; tick < 20; ++tick) D6R_REQUIRE(match.advanceOneTick());
+        D6R_REQUIRE_EQ(MatchPhase::ActiveRound, match.phase());
+        D6R_REQUIRE_EQ(std::uint64_t(0), match.playerStatistics().at(101).wins);
+        establishTestOutcome(match, {}, Team::None, true);
+        D6R_REQUIRE_EQ(ActionResult::Accepted, match.appendPlayers(1, {roster(2)[1]}));
+        D6R_REQUIRE(match.canonicalWorldSnapshot()->players.back().waiting);
+        D6R_REQUIRE(!match.canAcceptPlayerInput(2, 102));
+        for (std::uint32_t tick = 0; tick < RoundEndTotalTicks; ++tick) D6R_REQUIRE(match.advanceOneTick());
+        D6R_REQUIRE(!match.canonicalWorldSnapshot()->players.back().waiting);
+        D6R_REQUIRE_EQ(std::uint64_t(1), match.playerStatistics().at(102).roundsPlayed);
+    }
+}
+
 D6R_TEST_CASE("NET-ADM real first-round arrival preserves existing world and mode state") {
     const std::vector<std::tuple<Mode, std::uint8_t, bool>> cases{
         {Mode::Deathmatch, 0, false}, {Mode::Predator, 0, false},

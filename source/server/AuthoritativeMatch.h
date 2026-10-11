@@ -36,6 +36,7 @@ namespace Duel6::Server::Authoritative {
         // intentionally not used because a later callback failure could expose a partial batch.
         std::function<bool(const std::vector<Identity> &)> worldRemoveBatch;
         std::function<bool(const std::vector<PlayerDefinition> &, RandomSource &)> worldAppendPlayers;
+        std::function<bool(const std::vector<PlayerDefinition> &)> worldQueuePlayers;
         std::function<CanonicalWorldSnapshot()> worldSnapshot;
         std::function<void()> worldEnd;
         std::function<void(RandomSource &)> worldEndWithRandom;
@@ -104,6 +105,7 @@ namespace Duel6::Server::Authoritative {
             Team team = Team::None;
             bool alive = true;
             bool departed = false;
+            bool spawned = true;
             std::int32_t life = MaximumLife;
             PlayerStatistics total;
             PlayerStatistics roundStart;

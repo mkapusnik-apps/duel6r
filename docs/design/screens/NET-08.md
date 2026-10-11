@@ -25,7 +25,7 @@ The [shared visual baseline](../../design.md#unified-network-presentation) appli
 - The UI must not echo the submitted password or an expected password.
 - A capacity rejection must not be presented as a password error.
 - A closed-admission rejection must not use `Join-in-progress is not supported.`
-- NET-08-admission-closed must use the product-owned final-admission-closed reason from [compatibility and admission](../../network-compatibility-and-admission.md#initial-outcome-identifiers-and-copy), without a first-round cutoff claim.
+- NET-08-admission-closed must use exact `Match completed. Join when the host returns to the lobby.` from [compatibility and admission](../../network-compatibility-and-admission.md#initial-outcome-identifiers-and-copy), without a first-round cutoff claim.
 - An unreachable host must retain the existing `Host unreachable.` outcome.
 - Directory presence must not convert an unreachable outcome into a success claim.
 - Return to Network must retain its NET-01 destination, where Browse sessions remains available.

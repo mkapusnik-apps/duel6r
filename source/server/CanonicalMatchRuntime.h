@@ -36,6 +36,7 @@ namespace Duel6::Server::Authoritative {
         std::map<Identity, Player *> canonicalPlayersById;
         std::map<Identity, std::uint32_t> heldInputsByPlayerId;
         std::set<Identity> departedPlayerIds;
+        std::set<Identity> waitingPlayerIds;
         Network::GameplayManifest frozenManifest;
         std::shared_ptr<const Network::FrozenGameplayContent> frozenContent;
         std::unique_ptr<GameResources> resources;
@@ -72,6 +73,7 @@ namespace Duel6::Server::Authoritative {
         bool removePlayer(Identity playerId);
         bool removePlayers(const std::vector<Identity> &playerIds);
         bool appendPlayers(const std::vector<PlayerDefinition> &players, RandomSource &randomSource);
+        bool queuePlayers(const std::vector<PlayerDefinition> &players);
         CanonicalWorldSnapshot snapshot();
         void appendEvent(std::string kind, std::uint64_t entityId = 0, Identity playerId = 0,
                           Identity targetPlayerId = 0, std::string valueCategory = {}, std::int64_t value = 0);

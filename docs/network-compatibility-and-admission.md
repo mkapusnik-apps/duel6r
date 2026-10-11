@@ -241,7 +241,7 @@ The following identifiers are exact, case-sensitive protocol values. They must n
 | `required-capability-unsupported` | `Network release mismatch. Use the same supported game release as the host.` |
 | `gameplay-content-manifest-invalid` | `Gameplay content manifest is invalid. Use the host's exact supported gameplay content.` |
 | `gameplay-content-mismatch` | `Gameplay content mismatch. Use the host's exact supported gameplay content.` |
-| `match-already-started` | Product-owned final-admission-closed copy; it must not claim a first-round cutoff or that ongoing joining is unsupported. |
+| `match-already-started` | `Match completed. Join when the host returns to the lobby.` |
 | `session-full` | `Session is full.` |
 | `host-policy-rejected` | `Host rejected the connection.` |
 | `admitted` | No rejection copy |
