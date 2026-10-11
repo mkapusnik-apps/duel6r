@@ -87,7 +87,11 @@ namespace {
         event.type = SDL_MOUSEBUTTONUP;
         event.button.state = SDL_RELEASED;
         D6R_REQUIRE_EQ(1, SDL_PushEvent(&event));
-        app.processEvents(Context::getCurrent());
+        // A modal transition ends the current event batch. Like Application::run,
+        // resume with the current owner until this click's press/release is drained.
+        do {
+            app.processEvents(Context::getCurrent());
+        } while (SDL_HasEvents(SDL_MOUSEBUTTONDOWN, SDL_MOUSEBUTTONUP));
     }
 }
 
