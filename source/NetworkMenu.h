@@ -16,7 +16,8 @@ namespace Duel6 {
     class NetworkMenu final : public Context {
     public:
         NetworkMenu(AppService &service, GameResources &resources,
-                    Texture menuBannerTexture, std::function<void()> renderMenuBackground);
+                    Texture menuBannerTexture, std::function<void()> renderMenuBackground,
+                    std::function<void()> renderMainMenu = {});
         void open(std::vector<Client::NetworkLocalPlayer> players,
                   Network::HostComposition::Setup setup,
                   std::vector<std::string> persons,
@@ -44,6 +45,8 @@ namespace Duel6 {
         Client::NetworkSessionRuntime runtime;
         Texture menuBannerTexture;
         std::function<void()> renderMenuBackground;
+        std::function<void()> renderMainMenu;
+        bool entryRuntimeAvailable;
         std::vector<Client::NetworkLocalPlayer> localPlayers;
         std::vector<std::string> availablePersons;
         std::vector<std::string> availableLevels;

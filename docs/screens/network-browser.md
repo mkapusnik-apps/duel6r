@@ -6,7 +6,8 @@ This screen lets the user find active registered sessions and select one for adm
 
 ## Entry, actions, and transitions
 
-- Entry from `NET-01` must request current directory results.
+- Entry from `NET-01` → Join must request current directory results under NET-ENTRY-003 and NET-DIR-009.
+- The existing Direct connect action must open independent direct setup in `NET-03`, including when the directory is unavailable under NET-DIR-015.
 - Refresh must request current results without starting a game connection.
 - Selecting an eligible listing must enter `NET-03` with its endpoint and advertised session identity.
 - Locked listings must lead to password entry in `NET-03`.
