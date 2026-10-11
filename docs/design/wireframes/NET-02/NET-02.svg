@@ -25,7 +25,7 @@
     <text x="87" y="382">Ada • Selected</text><text x="467" y="382">Ada • Keyboard 1       Remove</text>
     <text x="87" y="408">Bruno • Add</text>
     <text x="87" y="496">Remaining persons scroll</text><text x="467" y="496">Remaining player rows scroll</text>
-    <text x="75" y="544">Local players: 1 • Lobby 1–15 • Match 2–15</text>
+    <text x="75" y="544">Local players: 1 • Lobby 1–15 • Match 1–15</text>
     <text x="75" y="566">Session-only scores • Optional scripts disabled</text>
     <text x="75" y="588">Listing does not guarantee reachability. Direct play remains available.</text>
     <text x="75" y="610">Validation / startup feedback</text>

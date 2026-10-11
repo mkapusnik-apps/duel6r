@@ -84,7 +84,7 @@ Transport, admission, and trust limits are in [`networking.md`](networking.md), 
 
 - **NIN-LIFE-001** The service may apply player input only during an active round or the first second of the round-end delay.
 - **NIN-LIFE-002** The service must reject player input during the frozen round-end delay, lobby, final summary, ended state, or failed state.
-- **NIN-LIFE-003** The service must reject input for a dead or removed player.
+- **NIN-LIFE-003** The service must reject input for a waiting, dead, or removed player. Waiting input must not be queued for later gameplay. At the eligible normal spawn, pending and retained input are cleared; reserved disconnected players remain under no-input rules. Reconnect must not make waiting input playable early or duplicate a spawn.
 - **NIN-LIFE-004** The service must set each player's retained input to no pressed actions at each round start.
 - **NIN-LIFE-005** When a participant disconnects, the service must immediately clear input for that participant's reserved players.
 - **NIN-LIFE-006** During a disconnect reservation, the service must not accept input for a reserved player.

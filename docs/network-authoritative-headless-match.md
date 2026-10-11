@@ -20,7 +20,7 @@ The player-hosted service lifecycle is in [`network-host-service-lifecycle.md`](
 - **Authoritative action sequence:** The ordered valid gameplay actions that the authoritative service accepts.
 - **Semantic determinism:** Equal gameplay decisions, state, progression, and results without a requirement for equal process memory or binary representation.
 - **Completed result:** A result from a match that finishes its configured final round.
-- **Interrupted result:** A valid no-winner result caused by an approved roster reduction below two players.
+- **Interrupted result:** A valid no-winner result caused by an approved interruption. A roster reduction to one player is not an interruption.
 - **Match outcome:** The authoritative winner, winning team, or `No winner` for the complete match result.
 - **Last completed-round outcome:** The winner, winning team, or `No winner` from the most recent completed round.
 - **Cumulative ranking:** The ordered player or team totals from all completed rounds in the result.
@@ -121,7 +121,7 @@ The service may start a match only when the first-release match-start invariants
 
 The service must receive one valid initial roster, one valid setting set, and one valid level plan before it creates the first round.
 
-The service must apply `NET-ADM-001` through `NET-ADM-012` in [network play](network-play-first-release.md) for round-one additions. These requirements own late spawn, mode assignment, statistics, and the admission cutoff. Settings remain frozen. Determinism comparisons must include the same authoritative admission decisions and times as well as the same initial roster and actions. `NET-ADM-AC-001` through `NET-ADM-AC-003` supplement AHM-AC-004, AHM-AC-012, AHM-AC-017, AHM-AC-018, and AHM-AC-020 through AHM-AC-022.
+The service must apply `NET-ADM-001` through `NET-ADM-016` in [network play](network-play-first-release.md) for ongoing admission, waiting, and eligible spawn, and `NET-SOLO-001` through `NET-SOLO-006` for hosted solo rounds. Hosted Start accepts 1–15 connected participants and roster players under existing validity, ownership, and readiness checks; Local Play remains unchanged. Settings remain frozen. Determinism comparisons must include equal authoritative admission, spawn, removal, and timing decisions as well as the same initial roster and actions. NET-ADM-AC-001 through NET-ADM-AC-003 and NET-SOLO-AC-001 through NET-SOLO-AC-003 supplement mode, timing, determinism, and result criteria.
 
 The service must clear a retained prior result before it starts the new match.
 
@@ -129,7 +129,7 @@ The service must not create a partial round or result when match-start validatio
 
 ## Round lifecycle and advancement
 
-The authoritative service must apply the local round-start, world, combat, scoring, and winner rules.
+The authoritative service must apply the local round-start, world, combat, and scoring rules with the hosted solo/opposition exception in NET-SOLO-002 through NET-SOLO-006. Opposition uses spawned nonremoved current-round membership, including dead and reserved players: Deathmatch requires two players; Predator requires Predator plus non-predator; teams require two represented teams. Waiting players are excluded. Without opposition there is no automatic victory; last living death completes a no-winner round using normal timing and limits. Each round reevaluates opposition. Before an outcome, removal can restore solo rules; an established outcome remains immutable.
 
 When a mode produces a winner or no-winner outcome, the service must start one six-second round-end delay.
 
@@ -282,7 +282,7 @@ The result must contain one entry for each completed round. Each round entry mus
 
 ### Player fields
 
-Each player row must contain:
+Only players that actually spawned in a match may have match-participation result rows. Each player row must contain:
 
 - stable player identity;
 - stable owner-participant identity;
@@ -306,7 +306,7 @@ Total points must equal kills plus wins plus assists minus penalties.
 
 The result must contain per-round player values and cumulative match values.
 
-Cumulative values must include only completed rounds in the result.
+Cumulative values must include only completed rounds in the result in which that player actually participated. Waiting creates no rounds played, survival time, or other statistics. Survival begins at spawn. A never-spawned waiting player's ownership remains admitted for the following lobby, without a match-participation result row.
 
 ### Player ranking
 
@@ -345,7 +345,7 @@ Issue #36 owns detection of leave, disconnect, reservation expiry, and roster re
 
 The authoritative service must consume an approved authoritative removal outcome without redefining that lifecycle.
 
-If fewer than two roster players remain, the service must end the match without a winner.
+One remaining roster player must continue under NET-SOLO-001 through NET-SOLO-006, not end the match or create an interrupted result. Removal during an active round must reevaluate opposition only before an outcome exists; removal during a non-final delay preserves the completed outcome and normal progression. The interrupted-result mapping below applies only when an approved interruption actually occurs, not to a reduction to one.
 
 It must preserve completed rounds. It must discard an incomplete active round.
 
@@ -514,6 +514,9 @@ Parity includes:
 
 First-release network play has these approved exceptions:
 
+- hosted Start accepts one or more valid, ready, connected participants and roster players;
+- no-opposition rounds use NET-SOLO-002 through NET-SOLO-006 instead of automatic last-survivor victory;
+- ongoing admission uses immediate first-round or next-eligible-round spawn under NET-ADM-001 through NET-ADM-016;
 - the round limit must be from 1 through 99;
 - an unlimited match is not supported;
 - only the host may advance a completed round early;
@@ -570,7 +573,7 @@ It must document the process exit meanings without claiming playable networking 
 - **AHM-AC-001 — Headless authority:** The authoritative service must complete a match without renderer, audio, or local input-device initialization.
 - **AHM-AC-002 — Canonical ownership:** Only the authoritative service must change canonical world, score, round, winner, random, and progression state.
 - **AHM-AC-003 — Mode matrix:** The service must support Deathmatch, Predator, and all six approved Team deathmatch variants.
-- **AHM-AC-004 — Mode parity:** Each mode must apply the applicable local team, friendly-fire, scoring, assistance, winner, and no-winner rules.
+- **AHM-AC-004 — Mode parity:** Each mode applies local team, friendly-fire, scoring, assistance, and initialization rules with the explicit hosted solo/opposition and ongoing-admission exceptions. No opposition yields no auto-win; last living death yields a completed no-winner round with normal delay and limit.
 - **AHM-AC-005 — Settings:** The host may configure only mode, level plan, round limit, Assistance, Quick Liquid, and Burnable Trees.
 - **AHM-AC-006 — Frozen settings:** The service must keep match settings unchanged from match start through the final result.
 - **AHM-AC-007 — Round limit:** A network match must accept only an integer round limit from 1 through 99 and must not support unlimited play.
@@ -590,7 +593,7 @@ It must document the process exit meanings without claiming playable networking 
 - **AHM-AC-021 — Player ranking:** Player rows must follow points, wins, damage, and roster-order precedence. The leading player must not become a match champion.
 - **AHM-AC-022 — Team ranking:** Team rows must follow team points and fixed team-order precedence. The leading team must not become a match champion.
 - **AHM-AC-023 — No persistence:** A network result must not change local statistics, Elo, people, profiles, saves, or history.
-- **AHM-AC-024 — Approved interruption:** A roster reduction below two players must preserve completed rounds and their last outcome. It must discard the incomplete round and produce the interrupted `No winner` match outcome.
+- **AHM-AC-024 — Removal and outcome integrity:** A roster reduction to one continues under solo rules. Pre-outcome removal reevaluates opposition; an established outcome is immutable, and non-final progression remains normal. A separately approved interruption preserves completed rounds and their last outcome, discards the incomplete round, and produces the interrupted `No winner` match outcome.
 - **AHM-AC-025 — Settings failure:** Invalid settings must use the exact identifier, copy, readiness behavior, and retry boundary in this specification.
 - **AHM-AC-026 — Content failure:** Unavailable gameplay prerequisites must use the exact identifier, copy, readiness behavior, and restart boundary in this specification.
 - **AHM-PRES-AC-001 — Background authority boundary:** The authoritative service does not select, seed, or replicate a fallback background as canonical state. Client fallback selection follows `NET-VIS-012` through `NET-VIS-017` and cannot affect gameplay or results.

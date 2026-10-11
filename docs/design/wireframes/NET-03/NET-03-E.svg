@@ -27,7 +27,7 @@
     <text x="87" y="482">Remaining persons scroll</text><text x="467" y="482">Remaining player rows scroll</text>
     <text x="75" y="530">Local players: 1 • Session-only scores • Optional scripts disabled</text>
     <text x="75" y="553">Selected session: 192.168.1.24:26660</text>
-    <text x="75" y="576">Round 1 in progress. You will play immediately if admitted.</text>
+    <text x="75" y="576">Match in progress. Your players join next round if admitted.</text>
     <text x="75" y="599">The host confirms availability when you connect.</text>
     <text x="420" y="643">Connect</text><text x="432" y="687">Back</text>
   </g>

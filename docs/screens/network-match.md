@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-Current functional target: `NET-05-live-arrival` accepts a newly admitted guest during round one under [NET-ADM-001 through NET-ADM-012](../network-play-first-release.md). It must show the complete current arena with the new owned players immediately playable, not waiting or spectating. Existing clients must receive the same authoritative additions without world reset. Later-round admission stays closed; reconnect remains available under existing rules. Functional acceptance uses NET-ADM-AC-001 through NET-ADM-AC-003. Earlier blanket join-in-progress exclusions are superseded.
+Current functional target: [NET-ADM-001 through NET-ADM-016 and NET-SOLO-001 through NET-SOLO-006](../network-play-first-release.md) permit hosted solo play and ongoing admission. `NET-05-live-arrival` spawns immediately only strictly before the first-round outcome, preserving world/mode/timers. Other ongoing admissions enter `NET-05-waiting-for-next-round`: Connected, undimmed current arena, persistent `Your players join next round.`, and textual Waiting roster markers without owned actors or living/winner treatment. Authoritative eligible spawn clears waiting feedback. Final active waiting adds no extra round; final outcome closes admission. Existing leave/score actions remain unchanged.
 
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It presents the authoritative network match in the existing undivided shared arena. It implements `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-009` through `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md) alongside unchanged local gameplay presentation requirements. Its degraded-network, visible-correction, and recovery variants implement `NRP-BUD-001` through `NRP-BUD-007`, `NRP-PRS-001` through `NRP-PRS-011`, `NRP-REC-001` through `NRP-REC-012`, `NRP-AUT-001` through `NRP-AUT-006`, and `NRP-AC-001` through `NRP-AC-014` in [`docs/network-responsiveness-and-recovery.md`](../network-responsiveness-and-recovery.md).
 It preserves `INP-011` through `INP-016` and implements `NIN-OWN-006`, `NIN-BOUND-003`, and `NIN-COMP-AC-001` through `NIN-COMP-AC-004` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
@@ -12,7 +12,7 @@ The host starts this screen from `NET-04` after all participants are ready and c
 
 ## Representative layout
 
-- Fill the client with one undivided arena that shows the complete level and all 2–15 players.
+- Fill the client with one undivided arena showing the complete level and all currently spawned players, including a one-player hosted round. Waiting roster entries have no actor.
 - Preserve existing world, ranking, round progress, event, and player-status presentation.
 - Add only compact textual session status that does not obscure required play: session role, LAN scope, connection state, result scope, and script policy.
 - The representative state is a six-player LAN Deathmatch at 1280 by 900 during a sustained degraded-network condition while complete canonical updates continue.
@@ -112,9 +112,9 @@ The explicit confirmation variant [NET-05-C](../design/wireframes/NET-05/NET-05-
 - Guest `Leave session` opens `Leave session? Your players will be removed immediately and the match will continue without reconnect.` Confirm sends that guest to `NET-01`; Cancel returns to active play. Leaving is immediate and is not a pause.
 - Host `End session` opens `End session for everyone?` Confirm sends the host to `NET-01` and guests to host-ended `NET-09`; Cancel returns to active play.
 - A guest transport loss replaces that guest's view with `NET-07`; other connected participants continue seeing the live arena and a textual reconnecting status for reserved players.
-- Reserved players receive no input, remain targets, count for winner conditions, and follow normal damage, death, scoring, and round progression.
-- During an active round, same-clock confirmed leaves and authoritative expiries are removed atomically without removal combat statistics, followed by exactly one winner evaluation. With at least two roster players play continues; with fewer than two, create `Session only • Interrupted • No winner`, retain it, and return connected participants to `NET-04`.
-- During a non-final round summary, preserve the completed round, then either continue to the next round with at least two roster players or retain `Session only • Interrupted • No winner` and return to `NET-04`.
+- Spawned reserved players receive no input, remain targets, and count in current-round opposition/winner membership. Waiting reserved players have no current body or winner role, and spawn only at their eligible start under existing no-input rules.
+- Active-round same-clock Leave/expiry is removed atomically without combat statistics. Before outcome, evaluate once under mode-specific opposition/solo rules; one remaining roster player continues without interruption. An established outcome is immutable.
+- Non-final-delay removal preserves the completed outcome and continues normal next-round progression with one or more roster players, reevaluating opposition at that start.
 - Contact loss, silence, refusal, unreachable, reset, timeout, host crash, host-machine/listener loss, temporary failure, or no response shows guest `NET-07` for the full original deadline. Only an accepted intentional host End notice shows `NET-09`; there is no migration.
 - A round outcome must start one six-second round-end phase.
 - The first second must show that arena updates continue.
@@ -137,6 +137,8 @@ The explicit confirmation variant [NET-05-C](../design/wireframes/NET-05/NET-05-
 - Phase and countdown text must remain visible without reliance on curtain motion or color.
 - Only the host may receive focus on `Advance round` or `End session`.
 - Local Play advancement, scripting, presentation, and persistence behavior must remain unchanged.
+- Solo feedback must derive only from authoritative opposition/outcome state. Solo play is not pause, victory, or failure. Last living death without opposition uses normal no-winner round presentation, delay, and round limit.
+- Waiting feedback stays above network status, wraps at 1280 × 720, and must not dim the arena, capture focus/input, or add a new action. Waiting excludes gameplay input, damage, pickups, winner/survival/statistics/result participation until normal eligible spawn.
 - Each established keyboard or controller action must affect only an owned player through the network session.
 - Move left, move right, jump, crouch, shoot, pick a weapon, and show status must keep their established meanings.
 - Double-jump, weapon-pick eligibility and drop-first behavior, five-second status display, and dead-player input behavior must remain unchanged.

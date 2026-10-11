@@ -28,7 +28,7 @@ The [shared visual baseline](../../design.md#unified-network-presentation) appli
 - A password must never appear in connection progress or failure copy.
 - The setup must retain person selection, local control assignment, count, Connect, and Back.
 - The editable layout must keep its header and actions fixed while the roster scrolls.
-- An advertised first-round session must show `Round 1 in progress. You will play immediately if admitted.`
+- Known later-match context must show `Match in progress. Your players join next round if admitted.` An unknown/direct context must not promise immediate participation; only confirmed first-round eligibility may support immediate-play context.
 - The same context region must say `The host confirms availability when you connect.`
 - A listing must not cause the screen to claim successful connection.
 
@@ -50,4 +50,10 @@ The [shared visual baseline](../../design.md#unified-network-presentation) appli
 
 NET-03-E is a distinct structural variant because editable setup contains endpoint, password, and roster actions absent from the existing connecting layout. No password overlay is needed. Contextual Back and NET-08 browser recovery provide the return-to-browser path required by NET-DIR-014. Password entry and correction remain outside the connection deadline under NET-PASS-003. The UI must use `Connection not authorized.` for NET-08-password-rejected rather than disclose which secret check failed.
 
-The editable representative must show the required-password focus and first-round context without obscuring Connect or Back. The connecting representative must use an actual pending attempt with retained endpoint and locked slots, not a replacement screen or injected runtime state. Focused QA must cover direct entry, invalid fields, optional password, Cancel retention, fifteen locked slots, and long valid input. Capture details are in the [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix).
+The editable representative must show required-password focus and real protected later-match context without obscuring Connect or Back. The connecting representative retains its actual pending-attempt scope and is not recaptured for this change. Focused QA covers direct/unknown context, invalid fields, optional password, Cancel retention, fifteen locked slots, and long valid input. The [hosted solo/ongoing matrix](../screenshots/README.md#hosted-solo-start-and-ongoing-joining) owns the changed NET-03-E capture.
+
+## Ongoing admission context
+
+- **UX-NET-03-010** Known later context uses exact `Match in progress. Your players join next round if admitted.` within the existing context allocation, with no immediate-play promise for unknown context.
+- **UX-NET-03-011** Keep `The host confirms availability when you connect.`, endpoint identity, password masking/focus, and Connect/Back unchanged. Wrap context at word boundaries before it overlaps adjacent feedback/actions, including at 1280 × 720; do not shrink text or redesign setup.
+- **UX-NET-03-012** Complete authoritative admission enters the current lobby, immediate first-round arena, or Connected waiting arena without a false intermediate lobby or failure. NET-03-E represents a real protected ongoing later match; no new password dialog is introduced.
