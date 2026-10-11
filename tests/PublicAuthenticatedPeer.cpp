@@ -182,17 +182,21 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                     // The service actually sent End. Preserve that authenticated
                     // staging while genuine opposite participant traffic attempts
                     // a write against a closed OS half, then stop the fatal SDK.
-                    require(::shutdown(back.fd, SHUT_WR) == 0);
+                    stage = "race-shutdown";
+                    require(::shutdown(back.fd, SHUT_WR) == 0 || errno == ENOTCONN);
                     const auto deadline = Clock::now() + 2s;
+                    stage = "race-opposite-read";
                     int traffic = oppositeTraffic.empty() ? 0 : 1;
                     while (!stopped && traffic == 0 && Clock::now() < deadline) {
                         traffic = incoming.read(client);
                         if (traffic == 0) std::this_thread::sleep_for(1ms);
                     }
+                    stage = "race-opposite-write";
                     require(traffic == 1 && !write(service, oppositeTraffic.empty() ? incoming.bytes : oppositeTraffic)
                         && !service.usable());
                     marker(root, "race-write-failed"); raceCompleted = true;
                 }
+                stage = "authenticated-forward";
                 require(write(client, outgoing.bytes));
                 if (end) {
                     marker(root, ("end-forwarded-" + std::to_string(id)).c_str());
