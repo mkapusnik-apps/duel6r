@@ -629,6 +629,16 @@ namespace Duel6 {
         hostSetup.password.reset(); passwordFeedback.clear();
     }
 
+    void NetworkMenu::clearConfirmedPassword() {
+        if (runtime.takeConfirmedAdmission()) clearPassword();
+    }
+
+    NetworkMenu::~NetworkMenu() {
+        // Disposal may bypass beforeClose and the last GUI update. Do not leave
+        // editable ordinary-string storage to an un-erased default destructor.
+        clearPassword();
+    }
+
     std::vector<std::string> NetworkMenu::boundContextLines() const {
         std::vector<std::string> lines;
         if (!boundDedicated()) return lines;
@@ -1315,6 +1325,7 @@ namespace Duel6 {
 
     void NetworkMenu::activate() {
         auto snap = runtime.snapshot();
+        clearConfirmedPassword();
         if (confirmation != Confirmation::None) {
             if (focus == 0) {
                 if (!confirmationInputArmed) return;
@@ -1545,6 +1556,7 @@ namespace Duel6 {
 
     void NetworkMenu::back() {
         const auto snap = runtime.snapshot();
+        clearConfirmedPassword();
         if (hostAddressSelectorOpen) { hostAddressSelectorOpen = false; focus = 1; return; }
         if (confirmation != Confirmation::None) { confirmation = Confirmation::None; focus = 0; return; }
         if (snap.journey == Client::NetworkJourney::Starting) runtime.cancel();
@@ -1581,6 +1593,7 @@ namespace Duel6 {
     void NetworkMenu::keyEvent(const KeyPressEvent &event) {
         if (!event.isPressed() || event.isRepeat()) return;
         const auto snap = runtime.snapshot();
+        clearConfirmedPassword();
         if (event.getCode() == SDLK_F5 && snap.host && !snap.publicSession) {
             if (!snap.directoryAvailable && !snap.directoryRegistering) runtime.retryPublication();
             return;
@@ -1718,6 +1731,7 @@ namespace Duel6 {
     }
 
     void NetworkMenu::enterText(std::string_view text) {
+        clearConfirmedPassword();
         if (runtime.snapshot().journey != Client::NetworkJourney::Inactive
             || (setupScreen != SetupScreen::Host && setupScreen != SetupScreen::Join)) return;
         if (focus == 2) {
@@ -1776,7 +1790,7 @@ namespace Duel6 {
         runtime.suppressGameplayInput(confirmation != Confirmation::None);
         runtime.update();
         const auto currentSnapshot = runtime.snapshot();
-        if (runtime.takeConfirmedAdmission()) clearPassword();
+        clearConfirmedPassword();
         if (confirmation == Confirmation::None && currentSnapshot.journey == Client::NetworkJourney::Lobby
             && currentSnapshot.host && currentSnapshot.canonical
             && currentSnapshot.canonical->settings.mode != "Team deathmatch") {

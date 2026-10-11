@@ -17,7 +17,8 @@ namespace Duel6 {
     public:
         NetworkMenu(AppService &service, GameResources &resources,
                     Texture menuBannerTexture, std::function<void()> renderMenuBackground,
-                    std::function<void()> renderMainMenu = {});
+                     std::function<void()> renderMainMenu = {});
+        ~NetworkMenu() override;
         void open(std::vector<Client::NetworkLocalPlayer> players,
                   Network::HostComposition::Setup setup,
                   std::vector<std::string> persons,
@@ -126,6 +127,7 @@ namespace Duel6 {
         int setupFirstRow() const;
         int setupVisibleRows() const;
         void clearPassword();
+        void clearConfirmedPassword();
         void enterDirectSetup();
         void joinEndpoint(const Network::Endpoint &endpoint);
         void enterText(std::string_view text);

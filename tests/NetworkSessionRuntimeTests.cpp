@@ -1601,7 +1601,8 @@ D6R_TEST_CASE("NET-PASS confirmed admission wipes editable state even when first
     using J = Client::NetworkJourney;
     ReviewMenuFixture f;
     auto &menu = f.menu;
-    for (bool dedicated: {false, true}) for (auto firstSeen: {J::Reconnecting, J::HostEnded, J::Failure, J::Inactive}) {
+    for (bool dedicated: {false, true}) for (bool updateFirst: {true, false})
+        for (auto firstSeen: {J::Reconnecting, J::HostEnded, J::Failure, J::Inactive}) {
         menu.runtime.reset(); menu.clearPassword();
         menu.setupScreen = NetworkMenu::SetupScreen::Join;
         menu.focus = 2; menu.enterText("editable before admission");
@@ -1611,7 +1612,9 @@ D6R_TEST_CASE("NET-PASS confirmed admission wipes editable state even when first
         menu.runtime.applyCanonical(canonical(91, Network::Replication::Phase::Lobby));
         if (firstSeen == J::Inactive) menu.runtime.reset(); // Worker teardown may reset the snapshot before UI polls.
         else { menu.runtime.current.journey = firstSeen; menu.runtime.current.canonical.reset(); }
-        menu.update(0);
+        if (updateFirst) menu.update(0);
+        else if (firstSeen == J::Inactive) menu.enterText("");
+        else { menu.focus = 0; menu.activate(); } // Event dispatch can precede update; no stale Retry/Edit secret.
         D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password);
         D6R_REQUIRE(!menu.runtime.takeConfirmedAdmission()); // Only a secret-free event was retained, now consumed.
     }
