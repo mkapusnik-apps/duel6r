@@ -1954,7 +1954,7 @@ namespace Duel6 {
         for (const auto &action: BrowserActions) {
             const bool enabled = browserFocusEnabled(action.focus);
             drawButton(action.x, action.y, action.width, action.height,
-                std::string(action.caption) + (enabled ? "" : " (disabled)"), focus == action.focus, enabled);
+                action.caption, focus == action.focus, enabled);
         }
     }
 
@@ -2324,7 +2324,7 @@ namespace Duel6 {
             drawClippedText(42, 116, reason.empty() ? "All participants are ready." : reason, 96);
             drawText(42, 94, "Optional scripts are disabled for network play.");
             const int startIndex = readyIndex + 10 + static_cast<int>(roster.size());
-            drawButton(408, 54, 210, 24, eligible ? "Start match" : "Start match (disabled)", focus == startIndex, eligible);
+            drawButton(408, 54, 210, 24, "Start match", focus == startIndex, eligible);
             drawButton(670, 54, 150, 24, "End session", focus == startIndex + 1);
         } else {
             drawText(42, 116, "Host settings and authoritative roster order are read-only.");
@@ -2594,8 +2594,7 @@ namespace Duel6 {
             if (browserSelection && setupScreen == SetupScreen::Join)
                 drawText(50, 118, "The host confirms availability when you connect.");
             const int footer = playerBase + static_cast<int>(localPlayers.size()) * 2;
-            drawAction(82, valid ? (setupScreen == SetupScreen::Host ? "Start session" : "Connect")
-                                 : (setupScreen == SetupScreen::Host ? "Start session (disabled)" : "Connect (disabled)"), focus == footer, valid);
+            drawAction(82, setupScreen == SetupScreen::Host ? "Start session" : "Connect", focus == footer, valid);
             drawAction(38, "Back", focus == footer + 1);
             if (setupScreen == SetupScreen::Host && hostAddressSelectorOpen) {
                 drawPanel(224, 202, 586, 252, "LISTENING INTERFACE");
