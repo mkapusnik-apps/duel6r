@@ -68,12 +68,21 @@ namespace {
         // coordinates. Dispatch uses the unchanged production pointer transform.
         const int screenWidth = app.video->getScreen().getClientWidth();
         const int screenHeight = app.video->getScreen().getClientHeight();
+        float scale = menu.menuScale;
+        int translationX = menu.menuTranslationX, translationY = menu.menuTranslationY;
+        if (menu.networkMenu && Context::getCurrent().is(*menu.networkMenu)) {
+            // Network setup uses its own centered 850x700 canvas, not the
+            // main menu layout. Still send SDL events through Mac mapping.
+            scale = std::min(1.35f, std::min(float(screenWidth) / 850, float(screenHeight) / 700));
+            translationX = (screenWidth - int(850 * scale)) / 2;
+            translationY = (screenHeight - int(700 * scale)) / 2;
+        }
         SDL_Event event{};
         event.type = SDL_MOUSEBUTTONDOWN;
         event.button.button = SDL_BUTTON_LEFT;
         event.button.state = SDL_PRESSED;
-        event.button.x = int((menu.menuTranslationX + x * menu.menuScale) * windowWidth / screenWidth);
-        event.button.y = int((screenHeight - menu.menuTranslationY - y * menu.menuScale) * windowHeight / screenHeight);
+        event.button.x = int((translationX + x * scale) * windowWidth / screenWidth);
+        event.button.y = int((screenHeight - translationY - y * scale) * windowHeight / screenHeight);
         D6R_REQUIRE_EQ(1, SDL_PushEvent(&event));
         event.type = SDL_MOUSEBUTTONUP;
         event.button.state = SDL_RELEASED;
