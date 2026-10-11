@@ -1,4 +1,4 @@
-# NET-03 — Direct setup and operator-configured dedicated admission
+# NET-03 — Direct setup and bound browser selection
 
 Functional authority: [NET-03](../../screens/network-join.md), NET-DIR-013/014/027, common NET-PASS-001–018, NET-ADM-011, NET-PUB-017–021 and retained NET-JOIN-PUB-001/006/008–011. Invitation-only functional and UX identifiers are retired, never reused. Structural sources retain text-only updated [NET-03-E](../wireframes/NET-03/NET-03-E.svg), [NET-03-P](../wireframes/NET-03/NET-03-P.svg) and [NET-03-B](../wireframes/NET-03/NET-03-B.svg), and unchanged [NET-03 connecting SVG](../wireframes/NET-03/NET-03.svg). Geometry is byte-exact to baseline07b2402; the current locked-task reference remains context for connecting.
 
