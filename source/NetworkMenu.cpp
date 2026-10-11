@@ -2169,13 +2169,14 @@ namespace Duel6 {
         }
         const Int32 participantTop = snap.host ? 476 : 500;
         const Int32 participantBottom = state.result.available ? 410 : 392;
-        drawPanel(40, participantBottom, 358, participantTop - participantBottom, "PARTICIPANTS");
-        renderer.quadXY(Vector(42, participantTop - 40), Vector(354, 20), Color(170));
+        const Int32 participantWidth = state.result.available ? 358 : 526;
+        drawPanel(40, participantBottom, participantWidth, participantTop - participantBottom, "PARTICIPANTS");
+        renderer.quadXY(Vector(42, participantTop - 40), Vector(participantWidth - 4, 20), Color(170));
         drawText(44, participantTop - 36, "Role"); drawText(142, participantTop - 36, "Connection");
         drawText(254, participantTop - 36, "Readiness"); drawText(350, participantTop - 36, "Owned");
-        drawField(42, participantBottom + 2, 354, participantTop - 42 - participantBottom);
+        drawField(42, participantBottom + 2, participantWidth - 4, participantTop - 42 - participantBottom);
         drawPlayers(state, snap.host);
-        const Int32 settingsBottom = state.result.available ? 350 : 232;
+        const Int32 settingsBottom = state.result.available ? 350 : 196;
         const Int32 settingsLeft = state.result.available ? 406 : LobbySettingLeft - 6;
         const Int32 settingsWidth = 816 - settingsLeft;
         drawPanel(settingsLeft, settingsBottom, settingsWidth, 482 - settingsBottom, "HOST MATCH SETTINGS");

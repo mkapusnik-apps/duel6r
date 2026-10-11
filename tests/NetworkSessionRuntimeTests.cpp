@@ -1119,6 +1119,47 @@ D6R_TEST_CASE("UX-NET geometry keeps endpoint gaps external password help and Re
     }
 }
 
+D6R_TEST_CASE("UX-NET-04 participant width and settings bottom align with the ordinary roster without changing retained layout") {
+    ReviewMenuFixture f;
+    const auto fill = [&](int x, int y, int width, int height, Color color) {
+        return std::any_of(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &quad) {
+            return quad.material.getTexture() == Texture{} && quad.material.getColor() == color
+                && quad.vertices[0].x == x && quad.vertices[0].y == y
+                && quad.vertices[2].x == x + width && quad.vertices[2].y == y + height;
+        });
+    };
+    for (const auto &size: {std::pair{850,700}, std::pair{1280,720},
+                            std::pair{1280,900}, std::pair{1920,1080}}) {
+        f.video.screen = ScreenParameters(size.first,size.second,24,24,0,false);
+        for (bool host: {true, false}) for (bool retained: {false, true})
+            for (const auto &mode: {"Deathmatch", "Team deathmatch"}) {
+                f.lobby(host, retained);
+                f.menu.runtime.current.canonical->settings.mode = mode;
+                const auto before = lobbyConfigurationFingerprint(f.menu.runtime.snapshot());
+                f.draw();
+                const int top = host ? 476 : 500;
+                const int bottom = retained ? 410 : 392;
+                const int width = retained ? 358 : 526;
+                D6R_REQUIRE(fill(40, bottom, width, top - bottom, Color(192)));
+                D6R_REQUIRE(fill(42, top - 40, width - 4, 20, Color(170)));
+                D6R_REQUIRE(fill(42, bottom + 2, width - 4, top - 42 - bottom, Color::WHITE));
+                if (!retained) {
+                    D6R_REQUIRE(fill(40, 196, width, 188, Color(192))); // Same left and right edges.
+                    D6R_REQUIRE(fill(578, 196, 238, 286, Color(192))); // Same bottom, no moved setting rows.
+                    D6R_REQUIRE(fill(42, 198, 522, 144, Color::WHITE)); // Roster allocation unchanged.
+                    D6R_REQUIRE_EQ(8, bottom - (196 + 188)); // Separate participant/roster panels.
+                    D6R_REQUIRE(fill(40, 164, 220, 24, Color(192))); // Ready stays below both panels.
+                } else {
+                    D6R_REQUIRE(fill(406, 350, 410, 132, Color(192))); // Compact result layout unchanged.
+                    D6R_REQUIRE(fill(40, 54, 220, 24, Color(192)));
+                }
+                D6R_REQUIRE_EQ(before, lobbyConfigurationFingerprint(f.menu.runtime.snapshot()));
+                D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty());
+                D6R_REQUIRE(f.menu.runtime.pendingGuestCommands.empty());
+            }
+    }
+}
+
 D6R_TEST_CASE("UX-NET round progress uses current authoritative round during active and frozen end delay") {
     ReviewMenuFixture f;
     auto &menu = f.menu;
