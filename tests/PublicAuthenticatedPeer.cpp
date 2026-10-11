@@ -178,16 +178,16 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                     && std::equal(outgoing.bytes.begin() + TransportEnvelopeBytes,
                                   outgoing.bytes.begin() + TransportEnvelopeBytes + 8, "D6LC\0\1\0\3"))
                     end = Lifecycle::deserializeIntentionalHostEnd({outgoing.bytes.begin() + TransportEnvelopeBytes, outgoing.bytes.end()});
+                const auto endDeadline = Clock::now() + 2s;
                 if (scenario == "flow-race" && id == 3 && end && !raceCompleted) {
                     // The service actually sent End. Preserve that authenticated
                     // staging while genuine opposite participant traffic attempts
                     // a write against a closed OS half, then stop the fatal SDK.
                     stage = "race-shutdown";
                     require(::shutdown(back.fd, SHUT_WR) == 0 || errno == ENOTCONN);
-                    const auto deadline = Clock::now() + 2s;
                     stage = "race-opposite-read";
                     int traffic = oppositeTraffic.empty() ? 0 : 1;
-                    while (!stopped && traffic == 0 && Clock::now() < deadline) {
+                    while (!stopped && traffic == 0 && Clock::now() < endDeadline) {
                         traffic = incoming.read(client);
                         if (traffic == 0) std::this_thread::sleep_for(1ms);
                     }
@@ -200,6 +200,17 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                 require(write(client, outgoing.bytes));
                 if (end) {
                     marker(root, ("end-forwarded-" + std::to_string(id)).c_str());
+                    // Do not create an unrelated frontend fatal-write race by
+                    // closing it as soon as End is sent. Consume its already
+                    // accepted ordinary output until it closes, within the same
+                    // original two-second boundary. Never touch fatal backend
+                    // SDK state or manufacture an application acknowledgement.
+                    while (!stopped && Clock::now() < endDeadline) {
+                        const int remaining = incoming.read(client);
+                        if (remaining < 0) break;
+                        if (remaining > 0) incoming.reset();
+                        else std::this_thread::sleep_for(1ms);
+                    }
                     return; // Never query the failed backend context after the race.
                 }
                 outgoing.reset();

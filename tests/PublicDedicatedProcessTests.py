@@ -663,6 +663,8 @@ def main():
                             print(f"FAIL iteration {iteration} {scenario}: {str(error)[:1000]}", flush=True)
                             print(peer.evidence(), flush=True)  # Fixed aliases/codes, never application payloads.
                             print("authenticated peer stages=" + repr([(p.name, p.read_text()) for p in sorted(root.glob("peer-*-*"))]), flush=True)
+                            print("authenticated End observations=" + repr([p.name for p in sorted(root.glob("end-forwarded-*"))]
+                                  + (["race-write-failed"] if (root / "race-write-failed").exists() else [])), flush=True)
                         finally:
                             peer.close()
             assert not failures, "Public review regressions failed: " + ", ".join(failures)
