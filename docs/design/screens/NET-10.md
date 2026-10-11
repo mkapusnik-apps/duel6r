@@ -1,21 +1,23 @@
 # NET-10 — Session browser
 
-Status: implemented task; unified presentation pending evidence. Functional contract: [network-browser](../../screens/network-browser.md), implementing [NET-DIR-001–016 and NET-DIR-AC-001–004](../../network-host-directory.md). Wireframe: [NET-10](../wireframes/NET-10/NET-10.svg).
+Functional contract: [network-browser](../../screens/network-browser.md), implementing [NET-DIR-001–016 and NET-DIR-AC-001–004](../../network-host-directory.md). Wireframes: [results NET-10](../wireframes/NET-10/NET-10.svg), [empty NET-10-E](../wireframes/NET-10/NET-10-E.svg), [failed refresh NET-10-U](../wireframes/NET-10/NET-10-U.svg).
 
 ## Presentation requirements
 
 The [shared visual baseline](../../design.md#unified-network-presentation) applies.
 
-- **UX-NET-10-001** BROWSE SESSIONS must occupy a blue title strip above the fixed directory-status row.
+- **UX-NET-10-001** BROWSE SESSIONS must occupy a blue title strip above the reserved directory-status allocation. Successful results must not show `Sessions listed`; removing that copy must not shift the table upward.
 - **UX-NET-10-002** The session table must use an inset white body with a separate fixed grey heading strip.
 - **UX-NET-10-003** The selected row must use the standard selection fill and text while retaining its textual marker and separate focused-row outline.
 - **UX-NET-10-004** The endpoint column must retain the largest width without reducing the complete Players, Phase, Password, or Admission headings.
 - **UX-NET-10-005** The selected-session region must remain below the list and above page navigation with enough height for endpoint, eligibility, and reachability text.
-- **UX-NET-10-006** Previous page and Next page must use visible button boundaries on either side of the current page label.
-- **UX-NET-10-007** The page label must show the available current page number without inventing a total page count.
+- **UX-NET-10-006** Previous page and Next page must use visible button boundaries on either side of the current page label when either page direction exists. Hide the entire pagination group when neither direction exists; retain an unavailable opposite direction as disabled when the group is visible.
+- **UX-NET-10-007** The visible page label must show the available current page number without inventing a total page count. Hide it with unnecessary pagination buttons.
 - **UX-NET-10-008** Join selected, Refresh, and Direct connect must retain the existing first footer row, with Back on the second row at the right.
 - **UX-NET-10-009** The list must give up visible rows before page controls, selected-session details, or footer captions overlap.
 - **UX-NET-10-010** Empty, loading, stale, and unavailable feedback must remain inside the same list/status allocation without changing footer placement.
+
+- **UX-NET-10-011** Empty and failed reads must replace table headings, dividers, white rows, and scrollbar with a noninteractive menu-surface grey region. Show the applicable description once in standard readable black text, as an entire single line with at least 4 logical px horizontal padding; do not truncate or shrink the font. Keep existing table and footer allocations.
 
 The SVG uses approximate allocation. UX-NET-10-005 through UX-NET-10-008 fix the existing selected-details, paging, and two-row footer relationship; their controls retain the current traversal. No new sorting, filtering, total-count query, or row-activation behavior is introduced.
 
@@ -25,7 +27,7 @@ Entry workflow: MENU-01 → Network → Join in the NET-01 popup. Join invokes t
 
 - The screen must use the existing centered 850 × 700 logical desktop canvas.
 - The content must keep a 24 logical px inner margin.
-- The fixed header must show `BROWSE SESSIONS` and directory status.
+- The fixed header must show `BROWSE SESSIONS`; directory status is reserved for loading and age-stale feedback, not successful-load copy.
 - The main body must contain one selectable table with fixed headings.
 - The columns must be `Session / endpoint`, `Players`, `Phase`, `Password`, and `Admission`.
 - The endpoint column must receive the largest share of table width.
@@ -52,10 +54,10 @@ Entry workflow: MENU-01 → Network → Join in the NET-01 popup. Join invokes t
 | Functional state ID | Persistent feedback | Actions |
 |---|---|---|
 | `NET-10-loading` | `Loading sessions…` in the status region; no false empty message; use `Refreshing…` when prior rows remain | Direct connect and Back remain available; duplicate Refresh and Join remain disabled |
-| `NET-10-results` | `Sessions listed` and the current table | Join selected follows the selected admission state; Refresh, Direct connect, and Back remain available |
-| `NET-10-empty` | `No active sessions listed. You can host a session or connect directly.` inside the table body | Refresh, Direct connect, and Back remain available |
-| `NET-10-stale` | `Results are out of date. Refresh before joining.`; add `Directory unavailable.` after a failed refresh | Rows remain readable and selectable for inspection only; Join selected remains disabled until a successful refresh; Refresh, Direct connect, and Back remain available |
-| `NET-10-unavailable` | `Directory unavailable. Direct connection and local play are still available.` | Refresh retries the directory request; Join selected remains disabled; Direct connect and Back remain available; retained rows use the stale treatment |
+| `NET-10-results` | Current table, without `Sessions listed` | Join selected follows the selected admission state; Refresh, Direct connect, and Back remain available |
+| `NET-10-empty` | `No active sessions listed. You can host a session or connect directly.` once inside the grey list replacement, on one complete line | Refresh, Direct connect, and Back remain available |
+| `NET-10-stale` | Age-stale feedback in the status allocation | Age-stale rows remain readable and selectable for inspection only; Join selected remains disabled until a successful refresh; Refresh, Direct connect, and Back remain available |
+| `NET-10-unavailable` | `Directory unavailable. Direct connection and local play are still available.` once inside the grey list replacement, on one complete line | Hide cached rows and selected identity, endpoint, and mode details, including after failed refresh; retain identity internally for recovery only if present. Every browser join path remains disabled. Refresh, Direct connect, and Back remain available |
 
 - A disabled Join selected must show `Select a session.`, `Session is full.`, or `Admission is closed.` as applicable.
 - A stale selected listing must show `Refresh before joining.` as its primary disabled reason.
@@ -78,6 +80,7 @@ Entry workflow: MENU-01 → Network → Join in the NET-01 popup. Join invokes t
 - Bounded result pages must provide Previous and Next controls below the rows when more pages exist.
 - Page controls must show current position and remain keyboard- and controller-operable.
 - Page controls must precede the footer in reading and focus order.
+- Hidden page controls must have no pointer target or input traversal. Empty and error list replacements must be noninteractive. Retain useful Join-disabled feedback without exposing hidden selected details after failure.
 - Paging must expose every active listing under NET-DIR-008 without an implicit first-page limit.
 - The table must keep one fixed-height row per session.
 - Long endpoint text must clip inside its column without covering Players.
@@ -101,3 +104,5 @@ Entry workflow: MENU-01 → Network → Join in the NET-01 popup. Join invokes t
 The representative must show at least two actual owned listings: a protected joinable session and an admission-closed session. The selected protected row must offer Join selected. A reviewer must be able to identify the endpoint, occupancy, phase, protection, and admission independently. Open-lobby, open-first-round, full, and closed variants remain focused checks; they need not coexist in the representative. A still image does not prove heartbeat expiry, host-side password enforcement, or exact admission closure timing.
 
 The selected and focused row must remain distinguishable without color, and every footer and page action must remain identifiable when unfocused. Focused QA must cover all five functional states, both page directions, no-selection and removed-selection states, disabled joining reasons, retained selection on refresh, long endpoints, and independent direct setup. The [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix) defines the representative and evidence limits.
+
+The localized browser refinement uses the [NET-10 refinement matrix](../screenshots/README.md#net-10-localized-browser-refinement). Focused checks cover single-page and multiple first/middle/last pages, pagination after refresh, hidden input exclusion, empty/initial failure/failed populated refresh, recovery with identity present or absent, age-stale readability, all browser join paths disabled after failure, and independent Direct connect. Verify single-line containment at 850 × 700 and 1280 × 720, plus alignment at 1920 × 1080.

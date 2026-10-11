@@ -762,6 +762,165 @@ namespace {
             }
         }
     };
+
+    struct BrowserPresentationFixture : ReviewMenuFixture {
+        Client::DirectoryListing row;
+        BrowserPresentationFixture() {
+            menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+            row.id = std::string(32, 'a'); row.sessionId = std::string(32, 'b');
+            row.endpoint = {"192.168.1.24", 26660}; row.mode = "Predator";
+            row.phase = "first-round"; row.passwordRequired = true; row.players = 2; row.capacity = 15;
+            row.expiresAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
+        }
+        void deliver(Client::DirectoryPage page) {
+            menu.browser.requested = std::chrono::steady_clock::now();
+            std::promise<Client::DirectoryPage> response;
+            menu.browser.pending = response.get_future(); response.set_value(std::move(page));
+            menu.update(0); draw();
+        }
+        void selected() { deliver({true, {row}, {}}); menu.selectedListing = row.id; menu.focus = 0; draw(); }
+        bool fill(int x, int y, int width, int height, Color color) const {
+            return std::any_of(recorder.quads.begin(), recorder.quads.end(), [&](const auto &quad) {
+                return quad.material.getTexture() == Texture{} && quad.material.getColor() == color
+                    && quad.vertices[0].x == x && quad.vertices[0].y == y
+                    && quad.vertices[2].x == x + width && quad.vertices[2].y == y + height;
+            });
+        }
+    };
+}
+
+D6R_TEST_CASE("NET-10 single-page pagination is absent from drawing pointer and traversal; multi-page group persists") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    f.selected();
+    const auto noPaging = [&] {
+        f.draw(); D6R_REQUIRE(!f.text("Sessions listed"));
+        D6R_REQUIRE(!f.text("Previous page") && !f.text("Next page") && !f.text("Page 1"));
+        D6R_REQUIRE(!menu.browserFocusEnabled(4) && !menu.browserFocusEnabled(5));
+    };
+    noPaging();
+    f.click(100, 120); f.click(600, 120); D6R_REQUIRE_EQ(0, menu.focus);
+    D6R_REQUIRE(!menu.browser.loading()); D6R_REQUIRE_EQ(f.row.id, menu.selectedListing);
+    for (int expected: {1, 2, 3, 6, 0}) { f.key(SDLK_TAB); D6R_REQUIRE_EQ(expected, menu.focus); }
+    for (int expected: {6, 3, 2, 1, 0}) {
+        menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+        D6R_REQUIRE_EQ(expected, menu.focus);
+    }
+    ReviewController controller(f);
+    controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_RIGHT); D6R_REQUIRE_EQ(1, menu.focus);
+    f.deliver({true, {f.row}, "next-page"}); menu.focus = 0; f.draw();
+    D6R_REQUIRE(f.text("Page 1") && f.text("Previous page") && f.text("Next page"));
+    D6R_REQUIRE(!menu.browserFocusEnabled(4) && menu.browserFocusEnabled(5));
+    f.key(SDLK_TAB); D6R_REQUIRE_EQ(5, menu.focus);
+    // Actual navigation updates the bounded cursor stack; promise responses avoid a live backend.
+    menu.activate(); f.deliver({true, {f.row}, "last-page"});
+    D6R_REQUIRE(f.text("Page 2") && menu.browserFocusEnabled(4) && menu.browserFocusEnabled(5));
+    menu.focus = 5; menu.activate(); f.deliver({true, {f.row}, {}});
+    D6R_REQUIRE(f.text("Page 3") && f.text("Previous page") && f.text("Next page"));
+    D6R_REQUIRE(menu.browserFocusEnabled(4) && !menu.browserFocusEnabled(5));
+    menu.focus = 4; menu.activate(); f.deliver({true, {f.row}, {}});
+    D6R_REQUIRE(f.text("Page 2") && f.text("Previous page") && f.text("Next page"));
+    menu.focus = 4; menu.activate(); f.deliver({true, {f.row}, {}}); noPaging();
+    // A refresh can remove the last forward direction and normalize hidden focus.
+    f.deliver({true, {f.row}, "next-page"}); menu.focus = 5;
+    f.deliver({true, {f.row}, {}}); noPaging(); D6R_REQUIRE_EQ(0, menu.focus);
+}
+
+D6R_TEST_CASE("NET-10 failure hides cached rows and details rejects every browser join and recovers identity only") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    ReviewController controller(f);
+    f.selected(); f.deliver({});
+    const std::string error = "Directory unavailable. Direct connection and local play are still available.";
+    D6R_REQUIRE(f.text(error)); D6R_REQUIRE_EQ(2, menu.focus);
+    D6R_REQUIRE_EQ(f.row.id, menu.selectedListing); // Retained internally, not rendered or interactive.
+    D6R_REQUIRE_EQ(std::size_t(1), menu.browser.result().listings.size());
+    D6R_REQUIRE(!menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
+    D6R_REQUIRE(!f.text("Session / endpoint") && !f.text("Required") && !f.text("Round 1"));
+    for (const auto &draw: f.recorder.draws) for (const auto &entry: f.font.fontCache.entryList) {
+        if (entry.texture != draw.material.getTexture()) continue;
+        D6R_REQUIRE(entry.text.find(f.row.sessionId) == std::string::npos);
+        D6R_REQUIRE(entry.text.find(f.row.endpoint.host) == std::string::npos);
+        D6R_REQUIRE(entry.text.find(f.row.mode) == std::string::npos);
+    }
+    f.click(100, 474); D6R_REQUIRE_EQ(2, menu.focus);
+    menu.selectBrowserRow(1); D6R_REQUIRE_EQ(f.row.id, menu.selectedListing);
+    menu.browserScroll = 1; menu.mouseWheelEvent(MouseWheelEvent(100, 474, 0, 1));
+    D6R_REQUIRE_EQ(1, menu.browserScroll); menu.browserScroll = 0;
+    for (int focus: {0, 1}) {
+        menu.focus = focus; f.key(SDLK_RETURN);
+        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+        controller.pulse(SDL_CONTROLLER_BUTTON_A);
+        // Update normalizes unreachable disabled focus to a valid footer action.
+        // Confirm may refresh or open independent direct setup, never a browser-selected join.
+        D6R_REQUIRE(!menu.browserSelection && !menu.joinFromBrowser);
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+        menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+        f.deliver({});
+    }
+    f.click(100, 80); menu.joinSelected();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    menu.focus = 2;
+    for (int expected: {3, 6, 2}) { f.key(SDLK_TAB); D6R_REQUIRE_EQ(expected, menu.focus); }
+    // Loading a retry must not expose cached identity or enable joining before success.
+    std::promise<Client::DirectoryPage> retry; menu.browser.pending = retry.get_future(); f.draw();
+    D6R_REQUIRE(!f.text("Required") && !menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
+    retry.set_value({true, {f.row}, {}}); menu.update(0); f.draw();
+    D6R_REQUIRE_EQ(f.row.id, menu.selectedListing); D6R_REQUIRE(menu.browserFocusEnabled(1));
+    D6R_REQUIRE(f.text("Required") && f.text("Round 1"));
+    f.deliver({}); auto other = f.row; other.id = std::string(32, 'c'); other.sessionId = other.id;
+    f.deliver({true, {other}, {}});
+    D6R_REQUIRE_EQ(f.row.id, menu.selectedListing); D6R_REQUIRE(!menu.browserFocusEnabled(1));
+    D6R_REQUIRE(f.text("Session is no longer listed."));
+    f.selected(); menu.browser.received -= std::chrono::seconds(31); f.draw();
+    D6R_REQUIRE(f.text("Required") && f.text("Round 1"));
+    D6R_REQUIRE(menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
+    menu.joinSelected(); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    f.deliver({}); menu.focus = 3; menu.activate();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
+    D6R_REQUIRE(!menu.browserSelection.has_value() && !menu.joinFromBrowser);
+}
+
+D6R_TEST_CASE("NET-10 empty and initial error are distinct single-line grey replacements contained at desktop scales") {
+    BrowserPresentationFixture f;
+    const std::string empty = "No active sessions listed. You can host a session or connect directly.";
+    const std::string error = "Directory unavailable. Direct connection and local play are still available.";
+    for (const auto &size: {std::pair{850,700}, std::pair{1280,720}, std::pair{1920,1080}}) {
+        f.video.screen = ScreenParameters(size.first,size.second,24,24,0,false);
+        for (bool available: {true, false}) {
+            f.menu.focus = 0; f.deliver({available, {}, {}});
+            const auto &message = available ? empty : error;
+            D6R_REQUIRE(f.text(message) && !f.text(available ? error : empty));
+            D6R_REQUIRE(f.fill(28,200,794,310,Color(192)));
+            D6R_REQUIRE(!f.fill(28,200,794,290,Color::WHITE));
+            D6R_REQUIRE(!f.text("Session / endpoint") && !f.text("Players") && !f.text("Admission"));
+            D6R_REQUIRE_EQ(2, f.menu.focus); D6R_REQUIRE(f.frame(290,66,260,36,2));
+            D6R_REQUIRE(!f.text("Page 1") && !f.text("Sessions listed"));
+            unsigned count = 0;
+            for (const auto &quad: f.recorder.quads) {
+                const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                    [&](const auto &entry) { return entry.texture == quad.material.getTexture() && entry.text == message; });
+                if (entry == f.font.fontCache.entryList.end()) continue;
+                ++count; D6R_REQUIRE(quad.material.getColor() == Color::BLACK);
+                D6R_REQUIRE(quad.vertices[0].x >= 32 && quad.vertices[2].x <= 818);
+                D6R_REQUIRE(std::abs(quad.vertices[2].y - quad.vertices[0].y) == 16);
+                // View transform places the same complete line inside the physical list at each scale.
+                const auto left = quad.view * Vector(28,200); const auto right = quad.view * Vector(822,510);
+                for (unsigned i: {0u,2u}) {
+                    const auto point = quad.view * quad.vertices[i];
+                    D6R_REQUIRE(point.x >= left.x && point.x <= right.x);
+                    D6R_REQUIRE(point.y >= left.y && point.y <= right.y);
+                    D6R_REQUIRE(point.x >= 0 && point.x <= size.first && point.y >= 0 && point.y <= size.second);
+                }
+            }
+            D6R_REQUIRE_EQ(1u, count);
+        }
+    }
+    // Initial loading keeps the existing status allocation and table geometry, without false empty/error.
+    std::promise<Client::DirectoryPage> pending; f.menu.browser.pending = pending.get_future(); f.draw();
+    D6R_REQUIRE(f.text("Loading sessions...") && f.text("Session / endpoint"));
+    D6R_REQUIRE(!f.text(empty) && !f.text(error)); pending.set_value({}); f.menu.update(0);
 }
 
 D6R_TEST_CASE("NET-ENTRY modal geometry navigation controller and runtime-unavailable recovery") {
@@ -1333,15 +1492,20 @@ D6R_TEST_CASE("UX-NET browser captions stay unchanged when join refresh and pagi
     menu.setupScreen = NetworkMenu::SetupScreen::Browser;
     const auto captions = [&] {
         f.draw();
-        for (const auto &caption: {"Join selected", "Refresh", "Previous page", "Next page", "Direct connect", "Back"}) {
+        for (const auto &caption: {"Join selected", "Refresh", "Direct connect", "Back"}) {
             D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.text(std::string(caption) + " (disabled)"));
+        }
+        const bool pagination = menu.browser.hasPrevious() || !menu.browser.result().nextCursor.empty();
+        for (const auto &caption: {"Previous page", "Next page"}) {
+            D6R_REQUIRE_EQ(pagination, f.text(caption));
+            D6R_REQUIRE(!f.text(std::string(caption) + " (disabled)"));
         }
     };
     captions(); // Empty/unavailable: joining and paging are disabled.
     D6R_REQUIRE(!menu.browserFocusEnabled(1));
     D6R_REQUIRE(f.frame(28, 68, 252, 32, 1));
-    D6R_REQUIRE(f.frame(28, 108, 252, 24, 1));
-    D6R_REQUIRE(f.frame(560, 108, 256, 24, 1));
+    D6R_REQUIRE(!f.frame(28, 108, 252, 24, 1));
+    D6R_REQUIRE(!f.frame(560, 108, 256, 24, 1));
     menu.focus = 1; f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(100, 76);
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
     D6R_REQUIRE(!menu.browserSelection);
@@ -1668,8 +1832,11 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     deliver({true, rows, {}});
     D6R_REQUIRE_EQ(0, menu.browserScroll);
     rendered = texts();
-    D6R_REQUIRE(rendered.find("Page 1\n") != std::string::npos);
+    D6R_REQUIRE(rendered.find("Page 1\n") == std::string::npos);
+    D6R_REQUIRE(rendered.find("Previous page") == std::string::npos);
+    D6R_REQUIRE(rendered.find("Next page") == std::string::npos);
     D6R_REQUIRE(rendered.find("127.0.0.1:25000") != std::string::npos);
+    deliver({true, rows, "next-page"}); rendered = texts(); // Paging bounds apply only to a visible group.
     const auto textBounds = [&](const std::string &prefix) {
         for (const auto &quad: recorder.quads) {
             const auto entry = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),

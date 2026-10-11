@@ -1,5 +1,47 @@
 # Screenshot coverage and assessment
 
+## NET-10 localized browser refinement
+
+Capture is complete, and UX assessed all three supplied representatives at evidence checkpoint `dbae4e51cd51fc095a346958206b4d5a998a35ea` against the fixed specifications/wireframes integrated at `e90b991`. **Visual gate: satisfied, with no findings.** This bounded matrix supersedes earlier NET-10 presentation acceptance for the changed results, empty, and failed-refresh representatives only. All other wireframes and capture requirements remain unchanged.
+
+Common profile: original full-client lossless PNG at 1280 × 900; GL4, Lua enabled, Xvfb, dummy audio, software OpenGL; existing 850 × 700 logical canvas. Native rendering only, no crop, retouching, synthetic listing substitution, or composed pixels. Product authority: [browser contract](../../screens/network-browser.md). UX authority: [NET-10](../screens/NET-10.md).
+
+| Wireframe | Setup and focus | Expected presentation | Canonical destination |
+|---|---|---|---|
+| [NET-10](../wireframes/NET-10/NET-10.svg) | Real owned protected/Open and Started/Closed sessions, single-page successful results; protected row selected and focused | Existing table/details/footer allocation; no successful-load status and no pagination group | `docs/design/screenshots/NET-10/NET-10.png` |
+| [NET-10-E](../wireframes/NET-10/NET-10-E.svg) | Successful zero-row read; Refresh focused | Grey noninteractive list replacement with the complete single-line empty description once; no table headings/rows/dividers/scrollbar | `docs/design/screenshots/NET-10/NET-10-E.png` |
+| [NET-10-U](../wireframes/NET-10/NET-10-U.svg) | Actual failed refresh after populated selected results; Refresh focused | Grey noninteractive list replacement with the complete single-line error description once; previous rows and selected identity/endpoint/mode hidden; browser joins disabled | `docs/design/screenshots/NET-10/NET-10-U.png` |
+
+Focused routine checks cover first/middle/last multi-page navigation and single-page hiding, refresh-driven pagination changes, hidden input exclusion, initial failure, failed populated refresh, recovery identity present/absent, age-stale readability, every browser join disabled on failure, independent Direct connect, single-line containment at 850 × 700 and 1280 × 720, and 1920 × 1080 alignment. These checks do not substitute for the three released capture rows or prove live admission behavior.
+
+### Current NET-10 conformance
+
+**Current conformance: satisfied for all three supplied Linux 1280 × 900 representatives.** They retain frozen production identity `1cbcf01864481118f948e0999b8235f875bea290`. The artifact and image hashes below are developer-supplied; UX assessment does not independently recompute them. This section mechanically integrates the approved UX assessment without changing normative specifications, wireframes, images, or reproduction provenance.
+
+| Representative | Approved UX assessment |
+|---|---|
+| `NET-10` | Conforms: distinct endpoint, Players, Phase, Password, and Admission columns; protected/Open and Started/Closed listings remain distinguishable; protected selection and focus are visible; no successful-load status or unnecessary single-page pagination is shown. |
+| `NET-10-E` | Conforms: complete single-line empty description inside the grey list replacement, with no table headings, rows, dividers, or scrollbar; Refresh focus and available recovery actions are clear. |
+| `NET-10-U` | Conforms: complete single-line error description inside the grey list replacement; previous rows and selected identity, endpoint, and mode details are hidden; Refresh focus and recovery actions remain clear. The generic `Selected session` label is permitted and does not disclose retained session details. |
+
+Acceptance is limited to the supplied still-image states and Linux profile. Stills do not prove input behavior, multi-page navigation, recovery identity handling, age-stale behavior, controller operation, native macOS presentation, or other uncaptured states/platforms. Their existing owning functional, routine-test, and platform scopes remain unchanged.
+
+### Current NET-10 capture provenance
+
+These original full-client PNGs were rendered from frozen production checkpoint `1cbcf01864481118f948e0999b8235f875bea290`, using the specifications/wireframes integrated at `e90b991`. The source worktree was clean before the campaign. The runtime archive SHA-256 is `0db09500d6732628302253c2793207a02ddd705d89f4a2e3e61a3b37195968bf`; the client SHA-256 is `82faaf12ae1162baefb21656aa7db645983aba5e149771889c258b86e5323ccf`. Evidence-only commits retain that production identity rather than relabeling the executable as their successor SHA.
+
+Common environment: Linux x86_64 Release, GL4, Lua ON, Xvfb 1280 × 900 × 24, `SDL_AUDIODRIVER=dummy`, `LIBGL_ALWAYS_SOFTWARE=1`, and the unchanged 850 × 700 logical canvas. Build/capture image ID: `sha256:d15bdaf9fb852ec1b5e353e63453064562d6c6c9bbd8390e2c2ef7641c6060c4`. Each native window was verified at origin (0, 0), size 1280 × 900. ImageMagick `import -window root` captured the complete client without cropping, resizing, retouching, or composed pixels. Runtime resources were unchanged; separate scenario save/home directories supplied only local people and session setup.
+
+The unchanged task-local directory used emulator project `demo-duel6r-directory`, image ID `sha256:47c8a9bdba660e228dfaade97b5a4fa512df34cd2cde1dfa5b2183b2aaa72813`, internal Docker network `d6r-browse-status`, and container `d6r-browse-status-directory`. Native clients shared its network namespace; the directory endpoint remained `http://127.0.0.1:8081` with the existing explicit local-development HTTP override. Real hosts advertised assigned address `172.24.0.2`. No cloud credentials, published ports, synthetic listings, or replacement endpoint were used.
+
+| Canonical PNG | UTC capture start / Xvfb display | Actual state and focus | SHA-256 |
+|---|---|---|---|
+| `NET-10/NET-10.png` | `2026-10-11T19:17:45.839117Z` / `:113` | Two real owned listings on one page; protected lobby at `172.24.0.2:29100` selected and focused, plus Started/Closed session at `172.24.0.2:29130` | `24230a589c160efb2e6f2b1df63fd599dbffb6e45aeeccf803a13d63d4b978f5` |
+| `NET-10/NET-10-E.png` | `2026-10-11T19:20:00.073475Z` / `:115` | Successful zero-row read in a fresh native browser after both hosts ended and their listings were removed; Refresh focused | `2b37ee05a726b4a3917e15e57aac3c829451720e5fa5bda68b3397a79f658eba` |
+| `NET-10/NET-10-U.png` | `2026-10-11T19:18:23.596164Z` / `:113` | Genuine failed manual refresh after populated protected selection; same directory container reversibly paused through the read timeout; cached rows and selected identity/endpoint/mode hidden, Refresh focused | `3cbd42ddebc42b1ad4ea157ceec69f606ec8a65cd32c2a60d0e947082d011d05` |
+
+Protected host provenance: listing `70883fae91581efe7a64323d8f9bcd3c`, session `000000000000000080aab10dfc65cf5a`, two local players, Deathmatch lobby, password required, Open admission. Closed host provenance: listing `b6e686be4366fb4de5badb0ae8b9d171`, session `0000000000000000e2b4cb72297cdd73`, two host-local players and one real admitted guest, Deathmatch, naturally completed one-round match, Started/Closed presentation. The disposable host password entered through native UI automation stdin, never process arguments or files. The directory was resumed immediately after the error capture and returned HTTP 200 with both real listings still present. Both hosts then ended through their normal native confirmation flow; the service returned HTTP 200 with zero listings before the empty capture. Developer owns temporary environment cleanup and preserves the frozen runtime through image assessment. Still images identify rendered state and focus, not independent admission, timing, or cross-platform verification.
+
 ## Linked legacy network destinations — maintenance assessment
 
 **Visual gate: satisfied for all five supplied images at evidence checkpoint `9c3fcc9904774f23075f06a3aa330053b3099d6e`, branch `docs/network-screenshot-refresh`.** UX assessed the released five-row campaign with no blocking findings. This section mechanically integrates the approved UX assessment under explicit team delegation; UX could not write the isolated worktree directly. It adds no requirements and changes no normative specification or wireframe.
