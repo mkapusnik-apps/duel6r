@@ -852,7 +852,12 @@ D6R_TEST_CASE("NET-10 failure hides cached rows and details rejects every browse
         menu.focus = focus; f.key(SDLK_RETURN);
         D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
         controller.pulse(SDL_CONTROLLER_BUTTON_A);
-        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+        // Update normalizes unreachable disabled focus to a valid footer action.
+        // Confirm may refresh or open independent direct setup, never a browser-selected join.
+        D6R_REQUIRE(!menu.browserSelection && !menu.joinFromBrowser);
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+        menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+        f.deliver({});
     }
     f.click(100, 80); menu.joinSelected();
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
@@ -1487,15 +1492,20 @@ D6R_TEST_CASE("UX-NET browser captions stay unchanged when join refresh and pagi
     menu.setupScreen = NetworkMenu::SetupScreen::Browser;
     const auto captions = [&] {
         f.draw();
-        for (const auto &caption: {"Join selected", "Refresh", "Previous page", "Next page", "Direct connect", "Back"}) {
+        for (const auto &caption: {"Join selected", "Refresh", "Direct connect", "Back"}) {
             D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.text(std::string(caption) + " (disabled)"));
+        }
+        const bool pagination = menu.browser.hasPrevious() || !menu.browser.result().nextCursor.empty();
+        for (const auto &caption: {"Previous page", "Next page"}) {
+            D6R_REQUIRE_EQ(pagination, f.text(caption));
+            D6R_REQUIRE(!f.text(std::string(caption) + " (disabled)"));
         }
     };
     captions(); // Empty/unavailable: joining and paging are disabled.
     D6R_REQUIRE(!menu.browserFocusEnabled(1));
     D6R_REQUIRE(f.frame(28, 68, 252, 32, 1));
-    D6R_REQUIRE(f.frame(28, 108, 252, 24, 1));
-    D6R_REQUIRE(f.frame(560, 108, 256, 24, 1));
+    D6R_REQUIRE(!f.frame(28, 108, 252, 24, 1));
+    D6R_REQUIRE(!f.frame(560, 108, 256, 24, 1));
     menu.focus = 1; f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(100, 76);
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
     D6R_REQUIRE(!menu.browserSelection);
