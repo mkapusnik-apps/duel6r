@@ -405,7 +405,8 @@ class TlsPeer {
         return -1;
     }
 public:
-    enum class Exchange { Echo, PartialClose, PartialHold, BufferedClose, CipherPartialClose, CipherPartialHold };
+    enum class Exchange { Echo, PartialClose, PartialHold, BufferedClose, CipherPartialClose, CipherPartialHold,
+                          BufferedPartialAppClose, BufferedPartialAppHold };
     enum class Stage { Starting, Accept, Handshake, Read, Write };
     struct InnerBytes final : SecureByteStream {
         SSL *ssl;
@@ -511,9 +512,12 @@ public:
                         stage = Stage::Write;
                         offset = 0;
                         const bool buffered = exchange == Exchange::BufferedClose || exchange == Exchange::CipherPartialClose
-                            || exchange == Exchange::CipherPartialHold;
+                            || exchange == Exchange::CipherPartialHold || exchange == Exchange::BufferedPartialAppClose
+                            || exchange == Exchange::BufferedPartialAppHold;
+                        const bool partialApp = exchange == Exchange::PartialClose || exchange == Exchange::PartialHold
+                            || exchange == Exchange::BufferedPartialAppClose || exchange == Exchange::BufferedPartialAppHold;
                         carrier->coalesce = buffered;
-                        const auto sendSize = buffered || exchange == Exchange::Echo ? bytes.size() : bytes.size() - 1;
+                        const auto sendSize = bytes.size() - partialApp;
                         while (offset < sendSize) {
                             const int count = innerIO([&] { return inner.send(bytes.data() + offset, sendSize - offset); });
                             if (count <= 0) break;
@@ -522,7 +526,8 @@ public:
                         if (offset == sendSize) outcome = Outcome::Complete;
                         if (buffered && offset == sendSize) {
                             const auto &wire = carrier->encryptedOutput;
-                            const auto flushSize = wire.size() - (exchange != Exchange::BufferedClose);
+                            const bool partialCipher = exchange == Exchange::CipherPartialClose || exchange == Exchange::CipherPartialHold;
+                            const auto flushSize = wire.size() - partialCipher;
                             check(flushSize > 5 && flushSize < 16384, "real inner ciphertext fits one outer record");
 #ifdef D6R_TEST_OBSERVE_STAGING
                             OuterObservation::armed = true;
@@ -530,14 +535,15 @@ public:
                             check(io(ssl.get(), [&] { return SSL_write(ssl.get(), wire.data(), static_cast<int>(flushSize)); })
                                   == static_cast<int>(flushSize), "real coalesced outer TLS record flush");
                             coalescedResponse = true;
-                            if (exchange != Exchange::CipherPartialHold)
+                            if (exchange != Exchange::CipherPartialHold && exchange != Exchange::BufferedPartialAppHold)
 #ifdef D6R_TRANSPORT_WINDOWS
                                 check(::shutdown(peer.value, SD_SEND) == 0, "real outer TCP EOF after flush");
 #else
                                 check(::shutdown(peer.value, SHUT_WR) == 0, "real outer TCP EOF after flush");
 #endif
                         }
-                        if (exchange == Exchange::PartialHold || exchange == Exchange::CipherPartialHold)
+                        if (exchange == Exchange::PartialHold || exchange == Exchange::CipherPartialHold
+                            || exchange == Exchange::BufferedPartialAppHold)
                             while (active()) std::this_thread::sleep_for(1ms);
                     }
                 }
@@ -627,8 +633,9 @@ static void checkStagingOwnership(X509 *cert, EVP_PKEY *key) {
         StagingObservation::reset(complete ? 48 : 47, credential);
         const auto budgetBaseline = Trust::processQueueBudget().used();
         const auto absolute = std::chrono::steady_clock::now() + 5s;
+        OuterObservation::reset(absolute, scenario == 0);
         TlsPeer peer(cert, key, credential, 5s, "portable-password", complete ? TlsPeer::Exchange::Echo
-                     : scenario == 0 ? TlsPeer::Exchange::PartialClose : TlsPeer::Exchange::PartialHold);
+                     : scenario == 0 ? TlsPeer::Exchange::BufferedPartialAppClose : TlsPeer::Exchange::BufferedPartialAppHold);
         SessionTransportDependencies dependencies;
         dependencies.publicTls = true; dependencies.secureSession = true;
         dependencies.password = std::make_shared<SessionPassword>("portable-password");
@@ -640,8 +647,16 @@ static void checkStagingOwnership(X509 *cert, EVP_PKEY *key) {
         check(client.start({"localhost", peer.port}) && client.waitForConnected(5s), "composed staging connection");
         auto connection = client.connection();
         check(connection->sendSensitive(credential) == SendResult::Accepted, "composed credential fixture queued");
-        while (!StagingObservation::staged && std::chrono::steady_clock::now() < absolute) std::this_thread::sleep_for(1ms);
+        while ((!StagingObservation::staged || (!complete && !peer.coalescedResponse))
+               && std::chrono::steady_clock::now() < absolute) std::this_thread::sleep_for(1ms);
         check(StagingObservation::staged && peer.validRequest, "staging observation must qualify");
+        if (!complete) {
+            check(OuterObservation::buffered && peer.coalescedResponse && OuterObservation::authenticatedPayloadReads > 0,
+                  "partial APP prefix must be real authenticated SDK data from actual buffered outer TLS");
+            if (scenario == 0) check(OuterObservation::nativeEof, "partial authenticated APP qualifies native EOF while outer buffers remain");
+            TransportFrame incomplete;
+            check(!connection->receive(incomplete), "buffered authenticated partial APP must not enter accepted input queue");
+        }
         TransportFrame frame;
         if (scenario == 1) { client.cancel(); client.close(); }
         else if (scenario == 3) {
@@ -668,6 +683,12 @@ static void checkStagingOwnership(X509 *cert, EVP_PKEY *key) {
         check(StagingObservation::released && StagingObservation::erased, "credential staging must be erased before release");
         check(StagingObservation::allocationBytes == 48, "observe the actual production staging allocation");
         check(Trust::processQueueBudget().used() == budgetBaseline, "staging ownership must release queue budget exactly once");
+        if (!complete) {
+            check(originalTimestamp.load() == TransportTimePoint{}, "authenticated partial APP cannot publish acceptance timestamp");
+            std::cout << "PASS buffered OUTER TLS authenticated partial APP " << names[scenario]
+                      << ": no accepted frame/timestamp; erased before free (bytes withheld)" << std::endl;
+        }
+        OuterObservation::armed = false;
         std::cout << "PASS composed staging erasure/ownership " << names[scenario] << " (bytes withheld)" << std::endl;
     }
     Trust::secureEraseMemory(credential.data(), credential.size());
