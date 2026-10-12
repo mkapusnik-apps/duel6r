@@ -2145,7 +2145,12 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     D6R_REQUIRE(textBounds("Join selected").second < textBounds("Previous page").first);
     D6R_REQUIRE(textBounds("Join selected").second < textBounds("Next page").first);
     D6R_REQUIRE(textBounds("Page 1").second < textBounds("LAN-first.").first);
-    D6R_REQUIRE(textBounds("Back").second < textBounds("Join selected").first);
+    // UX-NET-10-012 centers all three 16px captions in the same y=68, h=32 footer row.
+    for (const auto *caption: {"Join selected", "Direct connect", "Back"}) {
+        const auto bounds = textBounds(caption);
+        D6R_REQUIRE_EQ(76.0f, bounds.first);
+        D6R_REQUIRE_EQ(92.0f, bounds.second);
+    }
 }
 
 D6R_TEST_CASE("NET-ADM reviewed presenter uses authoritative per-player arrival age for every observer") {
