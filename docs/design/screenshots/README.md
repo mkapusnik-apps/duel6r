@@ -2,7 +2,7 @@
 
 ## NET-10 localized browser refinement
 
-The fixed NET-10, NET-10-E, and NET-10-U specifications require a shared compact upper Refresh action and removal of the static no-selection instruction. All three 1280 × 900 representatives have replacement captures from frozen production checkpoint `1a527237fccb3bc81a06b789de090c0e0849b519`, with unchanged fixed specifications/wireframes at `899e506f095ae8616966e865b01a60c6df43900a`. **Current visual gate: pending UX assessment of all three supplied representatives.** Capture is not conformance acceptance. The matrix retains inline empty/error descriptions inside the white table body below the five-column heading strip, unchanged table and remaining footer geometry, and hidden unnecessary pagination. All other wireframes and capture requirements remain unchanged.
+The fixed NET-10, NET-10-E, and NET-10-U specifications require a shared compact upper Refresh action and removal of the static no-selection instruction. **Visual gate: satisfied for all three supplied 1280 × 900 representatives at evidence checkpoint `9bb5c9dfedc91d095ec3cd2752491fb6565f0df5`, with no findings.** UX assessed the exact supplied bytes against unchanged fixed specifications/wireframes at `899e506f095ae8616966e865b01a60c6df43900a`, retaining frozen production identity `1a527237fccb3bc81a06b789de090c0e0849b519`. The compact upper Refresh, removed static instruction, inline empty/error feedback, table/details and remaining footer geometry, and hidden unnecessary paging conform. All other wireframes and capture requirements remain unchanged.
 
 Common profile: original full-client lossless PNG at 1280 × 900; GL4, Lua enabled, Xvfb, dummy audio, software OpenGL; existing 850 × 700 logical canvas. Native rendering only, no crop, retouching, synthetic listing substitution, or composed pixels. Product authority: [browser contract](../../screens/network-browser.md). UX authority: [NET-10](../screens/NET-10.md).
 
@@ -16,13 +16,13 @@ Focused routine checks cover first/middle/last multi-page navigation and single-
 
 ### Current NET-10 conformance
 
-**Current conformance: NET-10, NET-10-E, and NET-10-U captured, pending UX assessment.** The current hashes and provenance below identify supplied replacement artifacts, not an approved conformance assessment.
+**Current conformance: NET-10, NET-10-E, and NET-10-U satisfied, with no findings.** The source identities and image hashes below are developer-supplied; UX assessment does not independently recompute them. This section integrates the approved assessment of the exact bytes at `9bb5c9dfedc91d095ec3cd2752491fb6565f0df5` without new capture or changes to images, provenance, specifications, or wireframes.
 
 | Representative | Approved UX assessment |
 |---|---|
-| `NET-10` | Replacement supplied; pending assessment against the fixed specification. |
-| `NET-10-E` | Replacement supplied; pending assessment against the fixed specification. |
-| `NET-10-U` | Replacement supplied; pending assessment against the fixed specification. |
+| `NET-10` | Conforms: compact upper Refresh caption and header clearance; protected/Open and Started/Closed listings remain distinct, with selected protected-row focus and details preserved. Table and remaining footer geometry are unchanged; the former Refresh slot is unused and unnecessary paging is hidden. |
+| `NET-10-E` | Conforms: focused compact upper Refresh; all five complete headers and the complete subdued single-line empty description; no rows or body focus; blank no-selection reason and disabled Join selected. Table/details and remaining footer geometry are preserved; unnecessary paging is hidden. |
+| `NET-10-U` | Conforms: focused compact upper Refresh; all five complete headers and the complete subdued single-line error description; cached rows and selected details hidden; necessary unavailable explanation retained and Join selected disabled. Table/details and remaining footer geometry are preserved; unnecessary paging is hidden. |
 
 Acceptance is limited to the supplied still-image states and Linux profile. Stills do not prove input behavior, multi-page navigation, recovery identity handling, age-stale behavior, controller operation, native macOS presentation, or other uncaptured states/platforms. Their existing owning functional, routine-test, and platform scopes remain unchanged.
 
