@@ -998,7 +998,9 @@ D6R_TEST_CASE("NET-10 successful no-selection reason is blank while necessary ex
     const auto reasonLine = [&] {
         std::string result;
         for (const auto &quad: f.recorder.quads) {
-            if (quad.vertices[0].y != 156) continue;
+            // Selected details reserve a separate host-confirmation line;
+            // unselected/removed states retain the original reason allocation.
+            if (quad.vertices[0].y != 156 && quad.vertices[0].y != 168) continue;
             const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
                 [&](const auto &item) { return item.texture == quad.material.getTexture(); });
             if (entry != f.font.fontCache.entryList.end()) result += entry->text;
