@@ -195,7 +195,7 @@ Return to Network must enter `NET-01`. A confirmed invalid-manifest result befor
 14. A production success result must include three inputs: the exact final confirmation, one valid host-clock calibration result, and one complete valid initial full snapshot.
 15. Each success input must have an authoritative receipt time strictly before the total deadline.
 16. The snapshot production time must be valid under the calibration result. Its participant identity and ordered owned-player identities must exactly match the final confirmation.
-17. The guest may report success and enter the downstream lobby only after it validates all three inputs.
+17. The guest may report success and enter the current authoritative lobby or match (including waiting-for-next-round) only after it validates all three inputs.
 
 A guest admission request must contain at least one local player. Before commit, a rejection, offer-send failure, invalid or missing acceptance, cancellation, timeout, or disconnect must roll back the reservation and allocate no participant, playable slot, ownership, or committed session identity. Provisional identities remain burned for the session so that a later entity never reuses them. Commit is the rollback boundary: failure or loss of the final confirmation does not undo host state, and the committed participant passes to the disconnect and reconnect lifecycle owned by issue #36 while the guest reports the applicable incomplete-admission close or timeout result.
 
@@ -218,7 +218,7 @@ No resolution or transport connection may start. The guest must enter `NET-08`; 
 
 ## Identity and capacity invariants
 
-Lobby admission must preserve this invariant:
+Lobby and ongoing admission must preserve this invariant:
 
 `1 <= admitted participants <= roster players <= 15`
 
@@ -245,7 +245,7 @@ The following identifiers are exact, case-sensitive protocol values. They must n
 | `required-capability-unsupported` | `Network release mismatch. Use the same supported game release as the host.` |
 | `gameplay-content-manifest-invalid` | `Gameplay content manifest is invalid. Use the host's exact supported gameplay content.` |
 | `gameplay-content-mismatch` | `Gameplay content mismatch. Use the host's exact supported gameplay content.` |
-| `match-already-started` | `Round-one admission has closed. Join when the host returns to the lobby.` |
+| `match-already-started` | `Match completed. Join when the host returns to the lobby.` |
 | `session-full` | `Session is full.` |
 | `host-policy-rejected` | `Host rejected the connection.` |
 | `admitted` | No rejection copy |
@@ -306,9 +306,9 @@ Missing the three-second request deadline must close the connection without admi
 
 ## Timing, cancellation, and incomplete admission
 
-The current admission window is defined by `NET-ADM-001` through `NET-ADM-012` in [network play](network-play-first-release.md). Initial snapshot references mean a current lobby snapshot for lobby admission or a current match snapshot for round-one admission. All ownership, calibration, compatibility and connection-deadline checks remain required. The `match-already-started` identifier remains stable and uses the admission-closed copy above. Both hosting modes use [NET-PASS-001 through NET-PASS-018](network-host-directory.md) before initial commitment; dedicated TRU-PUB verification additionally precedes the inner password exchange. Outer/inner/PROXYv2 stages retain the one absolute 10-second deadline. On reconnect, zeroizable password state may establish the channel, but only the existing reserved scoped credential restores authority within the original 30-second reservation; no password resubmission can become fresh admission or migration.
+The admission window is defined by `NET-ADM-001` through `NET-ADM-016` in [network play](network-play-first-release.md). Lobby, active rounds, and non-final round-end delays permit eligible admission. Commit strictly before the first-round outcome spawns immediately; other ongoing commits wait for the first round start strictly after admission. Outcome and round-start decisions take precedence at the same host-clock instant. Final outcome closes admission before final delay and summary. Initial snapshots mean current authoritative lobby or match state, including explicit waiting ownership without an actor. All ownership, calibration, compatibility, password, capacity, and connection-deadline checks remain required. The `match-already-started` identifier remains stable for final admission closure and must not imply a first-round cutoff. Both hosting modes use NET-PASS-001–018 before initial commitment; dedicated TRU-PUB verification additionally precedes inner EC-JPAKE. Outer/inner/PROXYv2 retain the one absolute 10-second deadline. Zeroizable channel Password cannot replace the scoped reconnect credential, its original 30-second reservation, or become fresh admission/migration.
 
-The guest's 10-second deadline includes resolution, connection, compatibility, capacity, host admission, clock calibration, and initial lobby snapshot validation.
+The guest's 10-second deadline includes resolution, connection, compatibility, capacity, host admission, clock calibration, and current initial snapshot validation. Waiting for an eligible spawn after complete admission is not an extension of that connection attempt or a connection failure.
 
 For production networking, a final `admitted` message alone is not a complete valid admission result. The result must include all three success inputs from the guest admission flow.
 
@@ -383,7 +383,7 @@ Local Play must keep the local profile and scripting behavior in [`features.md`]
 - Issue #40 owns supported artifact and deployment documentation.
 - Issue #41 owns complete release-candidate validation.
 
-This compatibility contract does not own lobby UX, simulation, replication, readiness, scoring, or persistence. NET-ADM owns round-one admission behavior. Spectators and host migration remain excluded.
+This compatibility contract does not own lobby UX, simulation, replication, readiness, scoring, or persistence. It consumes ongoing admission from the network-play contract without adding spectators or host migration.
 
 Completion of issue #30 alone must not justify a claim that network play is available. It must not remove the experimental scaffold warning.
 
@@ -427,7 +427,7 @@ These commands provide process-level protocol evidence only. Successful output r
 - **AC-020:** A complete valid rejection or production success received before the deadline must take precedence over a later transport symptom. An offer or final confirmation alone must not report success.
 - **AC-021:** Missing calibration or another required success input at the 10-second deadline must produce `Connection timed out.`. Frames received at or after the deadline must not replace that outcome.
 - **AC-022:** A transport close before complete admission must produce `Connection ended before admission completed.`.
-- **AC-023:** New admission must follow NET-AC-007 and NET-ADM-AC-003, including rejection of an uncommitted offer at the first-round outcome boundary.
+- **AC-023:** New admission follows NET-AC-007 and NET-ADM-AC-003: the first outcome changes spawn eligibility, not non-final admission availability; equal-time outcomes and starts precede admission; final outcome rejects uncommitted offers. Waiting ownership, exact-once eligible spawn, reconnect, removal, and lobby retention follow NET-ADM-013 through NET-ADM-016.
 - **AC-024:** Local Play must start and complete without starting or requiring a network service.
 - **AC-025:** Completion of issue #30 alone must not justify a claim that network play is available or ready for release.
 - **CMP-VIS-AC-001:** Admission ignores profile, skin, animation-resource, visual-resource, and cosmetic-asset differences. After admission, each supported client uses the built-in default network visual set without loading peer content as a fallback.

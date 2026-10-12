@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-Entry may also come from `NET-10` with the selected listing, endpoint, and session identity. `NET-03-password` permits common password entry and correction for both hosting modes under [NET-PASS-001 through NET-PASS-018](../network-host-directory.md). `NET-03-live-admission` enters `NET-05` after complete round-one admission under NET-ADM-011. Lobby admission enters `NET-04`. Initial snapshot references mean the current authoritative lobby or match state as applicable. Functional acceptance uses NET-DIR-AC-003, NET-PASS-AC-001–005, NET-ADM-AC-001, and NET-ADM-AC-003. A failed listing selection must permit return to `NET-10` for refresh.
+Entry may also come from `NET-10` with the selected listing, endpoint, and session identity. `NET-03-password` permits common password entry and correction for both hosting modes under [NET-PASS-001 through NET-PASS-018](../network-host-directory.md). Complete ongoing admission enters current `NET-05`, immediately participating only when committed strictly before the first-round outcome; otherwise it enters `NET-05-waiting-for-next-round` under NET-ADM-001–016. Lobby admission enters `NET-04`. Initial snapshots mean current authoritative lobby or match state, including waiting ownership. Functional acceptance uses NET-DIR-AC-003, NET-PASS-AC-001–005 and NET-ADM-AC-001–003. Failure permits return to `NET-10` and refresh.
 
 ### Public pilot functional contract
 
@@ -41,7 +41,7 @@ It implements `NET-OWN-001` through `NET-OWN-003` and `NET-OWN-AC-001` through `
 Issue #30 defines the compatibility and admission outcomes for this flow in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 Issue #30 must not implement this graphical screen.
 
-Entry is `NET-01` → Join → mixed `NET-10` → Direct connect or eligible player-hosted/dedicated selection. Direct connect opens independent direct setup without a browser-selected session and clears selected binding/secrets. Complete validated admission enters `NET-04` or eligible round-one `NET-05` under NET-ADM-011. Failure enters `NET-08`; Cancel restores permitted setup. Back from direct setup returns to the `NET-01` popup; browser-origin setup/recovery retains contextual return to `NET-10` without adopting another selection.
+Entry is `NET-01` → Join → mixed `NET-10` → Direct connect or eligible player-hosted/dedicated selection. Direct connect opens independent direct setup without a selected session and clears binding/secrets. Complete validated admission enters current `NET-04` or `NET-05`, including Waiting under NET-ADM-011. Failure enters `NET-08`; Cancel restores permitted setup. Direct Back returns to the `NET-01` popup; browser-origin recovery returns contextually to `NET-10` without adopting another selection. Known later-match context reads `Match in progress. Your players join next round if admitted.` Known final context reads `Final round in progress. You may not play in this match if admitted.` Unknown context makes no immediate-play promise; the host confirms availability.
 
 ## Representative layout
 
@@ -88,7 +88,7 @@ Entry is `NET-01` → Join → mixed `NET-10` → Direct connect or eligible pla
 - The snapshot production time must be valid under the host-clock calibration result.
 - A final confirmation without valid calibration and a valid initial snapshot must not report success.
 - A malformed, trailing, unexpected, or inconsistent complete host offer, rejection, or confirmation closes the attempt as `invalid-host-admission-message` with `Connection ended before admission completed.`.
-- Admission-closed rejection is explicit at the first-round outcome boundary under NET-ADM-002 and NET-ADM-003.
+- A started match alone is not rejection. Final-outcome admission closure uses `Match completed. Join when the host returns to the lobby.` without a first-round cutoff claim. Waiting after complete admission is not a timeout or reconnect failure.
 - `NET-08` Retry repeats the retained attempt, Edit setup returns here with all data retained, and Return to Network enters `NET-01`.
 
 ## Truthful copy, disabled reasons, and input

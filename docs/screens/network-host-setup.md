@@ -41,7 +41,7 @@ The current linked UX specification owns unified host settings, control grouping
 - Do not offer an ineligible concrete address as an individual choice.
 - Show the host's local Persons and Local Players panels with person and control assignment for each selected player.
 - Do not show a profile selector, profile column, profile value, or profile-editing action.
-- Show a capacity line such as `Local players: 2 • Lobby 1–15 • Match 2–15 participants and players`.
+- Show a capacity line such as `Local players: 1 • Lobby 1–15 • Match 1–15 participants and players`, including while the listening popup is open. This describes hosted play; Local Play's minimum remains unchanged.
 - Footer actions are `Start session` and `Back`, with a persistent reason line below or adjacent to Start session.
 - Keep the screen content inside the shared 24-logical-pixel canvas margin.
 - Use a fixed title, endpoint, selector, and support-note region, a flexible setup region, and a fixed status and action region.

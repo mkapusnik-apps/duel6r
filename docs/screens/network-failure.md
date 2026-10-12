@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-`NET-08-password-rejected` uses `Connection not authorized.` for either hosting mode and permits Edit setup to correct the common Password in the same context under NET-PASS-003/004/011–013. Permitted endpoint, protection, selected binding and local-player setup remain retained; the editable correction buffer is not cleared merely because initial password authorization failed. `NET-08-admission-closed` retains identifier `match-already-started` with `Round-one admission has closed. Join when the host returns to the lobby.` Browser-origin failures permit return to `NET-10` for refresh. Directory read failures remain in `NET-10` and do not imply an active game ended. Functional acceptance uses NET-DIR-AC-003, NET-PASS-AC-001–005 and NET-ADM-AC-003.
+`NET-08-password-rejected` uses `Connection not authorized.` for either hosting mode and permits Edit setup to correct the common Password in the same context under NET-PASS-003/004/011–013. Permitted endpoint, protection, selected binding and local-player setup remain retained; the editable correction buffer is not cleared merely because initial password authorization failed. `NET-08-admission-closed` retains identifier `match-already-started` with `Match completed. Join when the host returns to the lobby.` for final-outcome closure, not a first-round cutoff or blanket join-in-progress rejection. Successful Connected-waiting admission is not failure. Browser-origin failures permit return to `NET-10` for refresh. Directory read failures remain there and do not imply game end. Functional acceptance uses NET-DIR-AC-003, NET-PASS-AC-001–005 and NET-ADM-AC-003.
 
 ### Public pilot functional contract
 
@@ -98,10 +98,10 @@ The runtime must stop at the first applicable complete host result in the table 
 | 5 | `required-capability-unsupported` | `Network release mismatch. Use the same supported game release as the host.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 6 | `gameplay-content-manifest-invalid` | `Gameplay content manifest is invalid. Use the host's exact supported gameplay content.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 7 | `gameplay-content-mismatch` | `Gameplay content mismatch. Use the host's exact supported gameplay content.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
-| 8 | `match-already-started` | `Round-one admission has closed. Join when the host returns to the lobby.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`; browser-origin recovery → `NET-10` for refresh. |
+| 8 | `match-already-started` | `Match completed. Join when the host returns to the lobby.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`; browser-origin recovery → `NET-10` for refresh. |
 | 9 | `session-full` | `Session is full.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 10 | `host-policy-rejected` | `Host rejected the connection.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
-| 11 | `admitted` | No rejection copy. | Enter `NET-04` only after exact final-confirmation validation; do not show `NET-08`. |
+| 11 | `admitted` | No rejection copy. | Enter current `NET-04` or `NET-05`, including waiting, only after complete confirmation/calibration/snapshot validation; do not show `NET-08`. |
 
 Without a complete host response, the runtime must use the first applicable transport result in this order.
 

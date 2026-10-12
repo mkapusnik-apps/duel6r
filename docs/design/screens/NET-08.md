@@ -21,7 +21,7 @@ Visual impact: preserve current develop's unified failure panel and browser reco
 - Edit setup after password rejection must retain endpoint and local players and focus Password.
 - Submitted or expected passwords must remain absent.
 - Capacity failure must not appear as a password error.
-- `NET-08-admission-closed` must show `Round-one admission has closed. Join when the host returns to the lobby.`
+- `NET-08-admission-closed` must show the product-confirmed `Match completed. Join when the host returns to the lobby.` without an obsolete first-round-only or unsupported-joining claim.
 - Unreachable transport must retain `Host unreachable.` without a listing-based success claim.
 - Browser-origin failure must retain Return to browser after Edit setup in reading and focus order.
 - Return to Network must retain its NET-01 destination.
@@ -64,3 +64,7 @@ Do not offer an insecure fallback for any connection type. Service type does not
 UX-NET-08-010 is a retired invitation-only identifier and must never be reused. Current correction authority is common NET-PASS-003/004/011–018; historical invitation assessments do not establish new Password conformance.
 
 Retain the current complete, wrapped failure layout and action order. Ineligible correction must use the existing flat disabled treatment without a focus stop or activation target; product owns outcome eligibility. No new failure wireframe is added. Direct dedicated and player-hosted recovery destinations remain unchanged.
+
+- **UX-NET-08-017** Started phase alone or successful Connected-waiting admission must not show failure; actual final-closure rejection must retain the existing failure layout and recovery with product-confirmed fixed copy.
+
+Imported develop ongoing reference UX-NET-08-008 maps to UX-NET-08-017. Existing UX-NET-08-008 retains its selected-origin meaning. NET-08 wireframes and its security representative remain unchanged.

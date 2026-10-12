@@ -109,3 +109,14 @@ Dedicated publication is service-owned. This screen requires no new passive publ
 ## Acceptance
 
 Preserve complete headings, owned-slot editing, guest read-only settings, readiness reasons, result access, and footer at both minimum sizes. Long endpoints must stay inside the header. Maximum membership must scroll under fixed headings. Capture current Team settings with mixed toggle states and full cycle values on the controller, then constrained guest read-only context. Ordinary completed dedicated results do not replace maximum-name, fourteen-winner, departed-winner, or interrupted-result obligations. Preserve player-hosted publication recovery separately. Capture and state dependencies are in the [scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix).
+
+## Product-eligible solo Start presentation
+
+NET-SOLO and the hosting-specific functional contract own Start eligibility. UI state must follow that authority; participant count alone must not override it.
+
+- **UX-NET-04-043** A product-eligible one-ready-player lobby must show the existing enabled Start match action without an obsolete solo-disabled reason or extra confirmation.
+- **UX-NET-04-044** Solo Start must retain current action bounds, enabled/focused treatment, settings, and readiness feedback without a new control or policy setting.
+
+Connection, validity, content, and readiness reasons remain when applicable. The representative must focus Start match in the actual eligible one-player state. NET-04 and NET-04-R SVG geometry remains unchanged. Retained Team settings/results and guest read-only coverage remain in their existing rows.
+
+Imported develop solo references UX-NET-04-032/033 map to UX-NET-04-043/044. Existing UX-NET-04-032–042 retain their aligned-panel geometry meanings.

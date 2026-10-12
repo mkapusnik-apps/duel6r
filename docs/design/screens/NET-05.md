@@ -1,6 +1,6 @@
 # NET-05 — Current match presentation and dedicated context
 
-Functional authority: [NET-05](../../screens/network-match.md), existing NET-VIS and NRP requirements, `NET-ADM-001`–`NET-ADM-012`, `NET-PUB-008`, and `HSL-PUB-005`–`HSL-PUB-010`. Pilot state: `NET-05-PUBLIC`. Structural sources: existing [NET-05](../../screens/wireframes/network-match.md), [NET-05-C](../wireframes/NET-05/NET-05-C.svg), develop's [NET-05-S](../wireframes/NET-05/NET-05-S.svg), and develop's [NET-05-R](../wireframes/NET-05/NET-05-R.svg).
+Functional authority: [NET-05](../../screens/network-match.md), existing NET-VIS and NRP, product-owned NET-ADM-001–016 and NET-SOLO-001–006, NET-PUB-008, and HSL-PUB-005–010. States include NET-05-PUBLIC and product-confirmed NET-05-waiting-for-next-round. Structural sources: existing [NET-05](../../screens/wireframes/network-match.md), [NET-05-C](../wireframes/NET-05/NET-05-C.svg), [NET-05-S](../wireframes/NET-05/NET-05-S.svg), [NET-05-R](../wireframes/NET-05/NET-05-R.svg), and incoming [NET-05-W](../wireframes/NET-05/NET-05-W.svg).
 
 Visual impact: use current develop's framed controls and contextual panels. The dedicated extension adds status and role-specific consequence copy only. Do not redesign the arena, camera, world assets, gameplay HUD, or compact translucent network status.
 
@@ -34,7 +34,7 @@ NET-05-S position information is plain non-actionable text. Do not add enabled a
 - Directory refresh must not appear over play or take gameplay focus.
 - Arrival must not add a viewport, modal, or action.
 
-Dedicated round-one admission uses the same confirmed live-arena destination under NET-ADM-011. Do not restore the old blanket join-in-progress rejection or add a pilot waiting lobby.
+Immediate first-round arrival remains distinct from product-confirmed waiting admission. Neither route may add a false lobby, spectator mode, or blanket join-in-progress rejection. Product determines hosting-specific eligibility and the actual destination.
 
 ## Dedicated status
 
@@ -49,3 +49,20 @@ Dedicated round-one admission uses the same confirmed live-arena destination und
 ## Acceptance
 
 Use an ordinary real dedicated Connected match for changed status coverage. The scoped confirmation representative uses the dedicated controller's isolated-End consequence over NET-07; guest Leave and other contexts retain their current structure and focused QA. Unchanged NET-05-S and NET-05-R may retain develop evidence with source-impact confirmation rather than receive automatic replacements. A completed summary cannot substitute for a non-final result when that result presentation changes. Preserve degraded/resynchronizing containment, all modes, maximum ranking, and real first-round arrival. The [scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) owns changed capture; it does not claim new Invisibility, orientation, result-extreme, or gameplay-continuity acceptance.
+
+## Connected waiting and solo presentation
+
+Product owns admission, waiting eligibility, opposition, outcomes, and spawn timing. The UI presents only authoritative state. These requirements do not authorize a dedicated admission route absent its functional contract.
+
+- **UX-NET-05-017** A confirmed Connected-waiting participant must retain the current undimmed shared arena and truthful Connected status rather than lobby, reconnect, pause, or spectator presentation.
+- **UX-NET-05-018** Waiting feedback must show `Your players join next round.` when another round remains, otherwise `Waiting for the next match.`, without promising a new match start.
+- **UX-NET-05-019** Each Waiting roster entry must use a textual Waiting marker without an owned body, normal gear, living/winner styling, or fabricated score/result participation.
+- **UX-NET-05-020** Waiting must retain score access, role-appropriate Leave/End controls, confirmations, and pointer/focus behavior; feedback must remain noninteractive.
+- **UX-NET-05-021** Authoritative eligible spawn or final outcome must clear the corresponding waiting feedback/markers without an early or duplicate presentation from local input, timers, or stale state.
+- **UX-NET-05-022** At 1280 by 720, waiting feedback must wrap above network status without obscuring ranking, progress, events, player status, or actions or changing camera/world scale.
+- **UX-NET-05-023** Product-confirmed playable solo state must use normal active presentation without speculative pause, victory, winner, or solo-policy controls.
+- **UX-NET-05-024** A confirmed no-winner completion must use existing completion/countdown presentation; waiting must not create a separate result screen or false continuation claim.
+
+Network status must retain the actual confirmed role and hosting label. The private LAN example in NET-05-W is not permission to label a dedicated connection LAN-only. Dedicated scope uses the existing Dedicated session copy and role consequences.
+
+The live representative shows one living owned player in a genuinely eligible active state with no winner/pause treatment. NET-05-W shows actual admitted waiting with no owned actor. Specific bonus/degraded fixtures remain focused obligations, not mandatory additions to these representatives. NET-05-C/S/R and all unrelated SVGs remain unchanged.

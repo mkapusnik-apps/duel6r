@@ -65,7 +65,7 @@ UX-NET-03-021–027/038/042 are retired invitation-only identifiers and must nev
 - Browser setup must retain its selected endpoint, session identity, directory origin, and contextual Back.
 - A dedicated default or mode change must not rewrite browser-selected setup.
 - Browser-selected targets are read-only in both hosting modes. Explicit Back or Return to browser followed by independent Direct connect is the only target-unbinding route and clears Password under NET-PASS-013; no endpoint edit may silently switch a bound task to Direct.
-- First-round context must retain `Round 1 in progress. You will play immediately if admitted.`
+- Immediate-play context must be limited to product-confirmed first-round eligibility; later or unknown context must not reuse its immediate-play promise.
 - Listing context must retain `The host confirms availability when you connect.`
 - Unlocked player-hosted first contact must retain truthful identity guidance under NET-PASS-010, including browser selection: a listing label is not authenticated endpoint identity.
 - That limitation must not appear as a dedicated certificate waiver or a claim about password-protected admission.
@@ -120,3 +120,15 @@ NET-03-B's endpoint, session, hosting and protection are not editable. All exist
 - **UX-NET-03-072** Player-hosted context must not use dedicated certificate, verified-identity, or controller-assignment copy.
 
 NET-03-E is now the protected selected player-hosted representative: locked Address/Port, labeled hosting/origin/session context, masked Password with initial focus, and the same local setup allocation. No password selection uses the same allocation with optional Password and initial local focus. Only independent Direct setup exposes endpoint editing and initial Address focus. The approved E update changes text only; rectangles, keylines, coordinates, fixed actions and all other SVGs remain unchanged from96aa8d4. Existing images showing editable selected targets are historical, not evidence for this read-only contract. No new screen, state, control or failure diagram is added.
+
+## Ongoing admission context
+
+Product-owned NET-ADM-001–016 determine eligibility and confirmed participation. These presentation requirements do not unlock browser selection, change common Password, or select an admission/spawn policy.
+
+- **UX-NET-03-073** Known later-match context must show `Match in progress. Your players join next round if admitted.`; known final-round context must show `Final round in progress. You may not play in this match if admitted.`; unknown/direct context must not promise immediate participation.
+- **UX-NET-03-074** Admission context must wrap at word boundaries within its existing allocation before it covers validation, Password, local setup, or Connect/Back.
+- **UX-NET-03-075** Complete authoritative admission must show the confirmed lobby, immediate-play arena, or Connected-waiting arena without a false intermediate lobby or failure.
+
+Keep `The host confirms availability when you connect.`, masked Password, protection-aware focus, selected identity, and contextual Back. Dedicated context retains its identity-check/role guidance; player-hosted context must not inherit that copy. NET-03-E is the protected ongoing player-hosted representative. NET-03-P/B and locked connecting retain their existing structure.
+
+Imported develop ongoing references UX-NET-03-010/011/012 map to UX-NET-03-073/074/075, respectively. Existing UX-NET-03-010–012 keep their direct service-type meanings. No identifier has two definitions.

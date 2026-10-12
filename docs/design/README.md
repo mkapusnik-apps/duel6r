@@ -24,19 +24,19 @@ Network-capable experimental macOS uses existing NET-01 through NET-10 journeys.
 | Screen | Authoritative presentation | Structural wireframes |
 |---|---|---|
 | NET-01 | [Current compact entry modal](screens/NET-01.md) over actual retained MENU-01 | Exact incoming [NET-01](wireframes/NET-01/NET-01.svg) from develop0625f25 |
-| NET-02 | Current develop's [host setup](screens/NET-02.md), unchanged by this extension | NET-02, NET-02-LA, NET-02-LE, NET-02-P from the fixed develop baseline |
+| NET-02 | [Host setup, common Password and hosted capacity](screens/NET-02.md) | Text-only NET-02/LA/LE updates; unchanged NET-02-P |
 | NET-03 | [Common Password, direct and bound setup in both hosting modes](screens/NET-03.md) | Unchanged connecting; approved text/focus-annotation-only NET-03-E, NET-03-P and NET-03-B, with all geometry unchanged |
 | NET-04 | [Current settings and dedicated role context](screens/NET-04.md) | [NET-04](wireframes/NET-04/NET-04.svg); [NET-04-R](wireframes/NET-04/NET-04-R.svg) |
-| NET-05 | [Dedicated status within current match presentation](screens/NET-05.md) | Existing NET-05; unchanged NET-05-C, NET-05-S, NET-05-R |
+| NET-05 | [Hosting-aware active and Connected-waiting presentation](screens/NET-05.md) | Existing live NET-05; incoming NET-05-W; unchanged NET-05-C/S/R |
 | NET-06 | [Dedicated summary boundary](screens/NET-06.md) over the current design-system owning section | Existing NET-06 |
 | NET-07 | [Dedicated reconnect](screens/NET-07.md) over the current design-system owning section | Existing NET-07; NET-05-C for confirmation |
 | NET-08 | [Failure and recovery](screens/NET-08.md) | Existing NET-08 |
 | NET-09 | [Confirmed intentional end](screens/NET-09.md) over the current design-system owning section | Existing NET-09 |
-| NET-10 | [Mixed session browser](screens/NET-10.md) within the existing task | [NET-10](wireframes/NET-10/NET-10.svg), updated only for mixed classification, selected details, and eligibility |
+| NET-10 | [Latest unified mixed browser](screens/NET-10.md) | Mixed NET-10/E/U composed from developf21a9c1 with six headings, inline states, upper Refresh and single footer |
 
 NET-03-P remains unbound direct dedicated setup with its existing service-type row, optional Password and controller guidance. Browser-selected player-hosted NET-03-E and dedicated NET-03-B both retain read-only endpoint, identity, hosting/protection and selected origin. Protected selection requires Password with initial Password focus; No password keeps the optional field reachable with initial local-setup focus. Player-hosted context contains no dedicated PKI/controller copy; unlocked player-hosted first-contact guidance applies even to browser labels. Only independent Direct exposes endpoint editing. Connecting stays locked. These are existing variants, not new states/screens, nested menus or a second secret dialog. The transport composition creates no nested UI. Common whole-event input feedback and correction follow NET-PASS-011–018, not retired Invite bounds/history.
 
-Only NET-03-P, NET-03-B and NET-10 SVG text/focus annotations change for common Password. The approved bound player-hosted clarification changes NET-03-E text only from96aa8d4; no existing positions, rectangles, list allocation, keylines or geometry change. Every other SVG remains byte-exact to96aa8d4, including the current NET-01 modal, aligned NET-04, NET-04-R, NET-02 variants and confirmation diagrams. Do not regenerate or migrate wireframes. Historical screenshots, producer identities and assessments retain their original scope and are not common-password evidence. Older NET-03-E images with editable selected targets are historical and do not establish the current read-only contract.
+Current visual intent composes develop `f21a9c1889ff4382bd20e2654b758783be49d07d` with common Password and immutable browser selection in both hosting modes. NET-10/E/U adopt inline white-body states, upper Refresh, single-row footer and revised traversal while retaining six columns and mixed context. NET-02/LA/LE change only required capacity/Password text. NET-03-E changes only ongoing context while retaining bound targets and Password focus. NET-05-W adds the incoming waiting structure. NET-04/NET-04-R, NET-03-P/B, connecting, NET-02-P, NET-05-C/S/R, NET-08 and every unrelated SVG remain byte-for-byte unchanged from checkpoint72adb399. No regeneration or legacy migration is authorized. Older grey/five-heading/browser-editable images do not establish current conformance.
 
 ## Shared visual and input requirements
 
