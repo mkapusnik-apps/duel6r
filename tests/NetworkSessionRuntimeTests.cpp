@@ -3386,6 +3386,68 @@ D6R_TEST_CASE("PR87 real canonical motion and timed water project through submit
     D6R_REQUIRE_NEAR(waterBefore.waterBottom, waterAfter.waterBottom, 0.00001f);
 }
 
+D6R_TEST_CASE("NET-SOLO actual hosted Start works in all modes and host-only following lobby starts again") {
+    using namespace std::chrono_literals;
+    const auto root = std::filesystem::temp_directory_path()
+        / ("duel6r-solo-start-" + std::to_string(::getpid()));
+    D6R_REQUIRE(std::filesystem::create_directory(root));
+    struct Cleanup {
+        std::filesystem::path root;
+        ~Cleanup() { std::error_code ignored; std::filesystem::remove_all(root, ignored); }
+    } cleanup{root};
+    std::filesystem::create_directory(root / "data");
+    std::filesystem::create_directory(root / "levels");
+    for (const auto *file: {"blocks.json", "config.script"})
+        std::filesystem::copy_file(std::filesystem::path(D6R_TEST_RESOURCE_DIR) / "data" / file, root / "data" / file);
+    {
+        std::ofstream level(root / "levels/solo.json");
+        level << R"({"width":6,"height":4,"blocks":[1,1,1,1,1,1,1,0,0,0,0,1,1,0,0,0,0,1,1,1,1,1,1,1],"elevators":[]})";
+        D6R_REQUIRE(level.good());
+    }
+    for (const std::string mode: {"Deathmatch", "Predator", "Team deathmatch"}) {
+        Client::NetworkSessionRuntime host, unused, other;
+        Network::HostComposition::Setup setup;
+        setup.localPlayerNames = {"Solo host"}; setup.mode = mode;
+        setup.teamCount = mode == "Team deathmatch" ? 2 : 0;
+        setup.fixedLevel = "levels/solo.json"; setup.roundLimit = 1; setup.quickLiquid = true;
+        D6R_REQUIRE(host.startHost({"127.0.0.1", unusedLoopbackPort()}, D6R_RUNTIME_TEST_SERVER,
+            root.string(), setup, {player("Solo host")}));
+        D6R_REQUIRE(pumpRuntimes(host, unused, other, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+        D6R_REQUIRE(!everyParticipantReady(host.snapshot(), true));
+        host.setReady(true);
+        D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
+        host.startMatch();
+        D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] {
+            const auto snapshot = host.snapshot();
+            return snapshot.journey == Client::NetworkJourney::Match && snapshot.canonical
+                && snapshot.canonical->phase == Network::Replication::Phase::ActiveRound
+                && snapshot.canonical->participants.size() == 1 && snapshot.canonical->players.size() == 1
+                && snapshot.canonical->settings.mode == mode && !snapshot.canonical->result.available;
+        }));
+        const auto firstMatch = host.snapshot().canonical->matchId;
+        if (mode == "Deathmatch") {
+            D6R_REQUIRE(pumpRuntimes(host, unused, other, 90s, [&] { return host.snapshot().journey == Client::NetworkJourney::Summary; }));
+            D6R_REQUIRE(host.snapshot().canonical->result.available);
+            D6R_REQUIRE(host.snapshot().canonical->score.winner.noWinner);
+            host.returnToLobby();
+            D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+            D6R_REQUIRE(everyParticipantReady(host.snapshot(), false));
+            host.setReady(true);
+            D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
+            host.startMatch();
+            D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] {
+                const auto snapshot = host.snapshot();
+                return snapshot.journey == Client::NetworkJourney::Match && snapshot.canonical
+                    && snapshot.canonical->matchId != firstMatch && !snapshot.canonical->result.available
+                    && snapshot.canonical->participants.size() == 1 && snapshot.canonical->players.size() == 1;
+            }));
+        }
+        host.endSession();
+        D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
+        D6R_REQUIRE(host.supervisor->snapshot().cleanupComplete);
+    }
+}
+
 D6R_TEST_CASE("PR83 real runtime End from naturally completed final summary drains and discards result") {
     using namespace std::chrono_literals;
     // Independent temporary gameplay content, never changes a supplied bundle.

@@ -1048,7 +1048,11 @@ D6R_TEST_CASE("NET-ADM reviewed production admission loop rejects offers crossin
         std::optional<Network::AdmissionOfferPayload> pending;
         bool started = false, outcome = false, rejected = false, confirmed = false, queued = false;
         Network::TransportTimePoint due{};
-        dependencies.hostReadinessChange = [] { return std::optional<bool>(true); };
+        // This boundary fixture needs its original guest in the initial world;
+        // do not accidentally exercise the now-valid host-only auto-start first.
+        dependencies.hostReadinessChange = [&] {
+            return initial->succeeded ? std::optional<bool>(true) : std::optional<bool>{};
+        };
         dependencies.authoritativeRuntimeFactory = [&](const auto &, const auto &players, const auto &) {
             started = true;
             due = fixture->now + std::chrono::duration_cast<Network::TransportTimePoint::duration>(
@@ -1150,7 +1154,10 @@ D6R_TEST_CASE("NET-AC-013 AHM-024 AHM-028 production reserved Leave shares the p
         unsigned waits = 0;
         std::uint64_t ticksWhenQueued = 0;
         Network::TransportTimePoint jumpAt{};
-        dependencies.hostReadinessChange = [] { return std::optional<bool>(true); };
+        dependencies.hostReadinessChange = [&] {
+            return std::all_of(peers.begin(), peers.end(), [](const auto &peer) { return peer->succeeded; })
+                ? std::optional<bool>(true) : std::optional<bool>{};
+        };
         dependencies.authoritativeRuntimeFactory = [&](const auto &config, const auto &players, const auto &) {
             D6R_REQUIRE_EQ(1u, config.roundLimit);
             D6R_REQUIRE_EQ(grants.size() + 1, players.size());
