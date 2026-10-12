@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="850" viewBox="0 0 900 850">
   <title>NET-10-E — Empty session browser</title>
-  <desc>Successful zero-row read; no-selection reason line blank, Join selected disabled. Compact upper Refresh focused: production bottom-left (710, 518), 112 by 24 logical px, right edge 822, 8 px above header top 510; 2 px outer focus leaves 6 px clearance from header and title strip at 550. Status retains its left origin with at least 8 px clearance from Refresh focus. Forward focus: Refresh, table, Previous, Next, Join selected, Direct connect, Back, Refresh; reverse reverses this cycle, skipping hidden or disabled controls. Approximate top-left diagram; UX-NET-10-008 owns production geometry. List, selected-details, reserved paging and remaining two-row footer allocations unchanged; old Refresh footer slot unused. Retained five-column heading strip above an empty white body with one complete noninteractive status line. Production colors: UX-NET-10-011.</desc>
+  <desc>Successful zero-row read; no-selection reason line blank, Join selected disabled. Compact upper Refresh focused: production bottom-left (710, 518), 112 by 24 logical px, right edge 822, 8 px above header top 510; 2 px outer focus leaves 6 px clearance from header and title strip at 550. Status retains its left origin with at least 8 px clearance from Refresh focus. Forward focus: Refresh, table, Previous, Next, Join selected, Direct connect, Back, Refresh; reverse reverses this cycle, skipping hidden or disabled controls. Approximate top-left diagram outside the exact footer; UX-NET-10-008 owns Refresh geometry. UX-NET-10-012 owns one footer row: Join selected (28,68), Direct connect (296,68), Back (564,68), each 252 by 32 logical px in production bottom-left coordinates, with 16 px gaps. SVG footer translates these bounds to canvas origin (25,20). Former second row empty. Table, selected details, reserved paging, eligibility and feedback unchanged. Retained five-column heading strip above an empty white body with one complete noninteractive status line. Production colors: UX-NET-10-011.</desc>
   <rect width="900" height="850" fill="white"/>
   <g fill="none" stroke="black">
     <rect x="25" y="20" width="850" height="700"/>
@@ -8,11 +8,11 @@
     <rect x="49" y="222" width="802" height="266"/>
     <path d="M49 252H851 M301 222V252 M373 222V252 M503 222V252 M623 222V252"/>
     <rect x="49" y="504" width="802" height="96"/>
-    <rect x="49" y="636" width="256" height="24"/>
+    <rect x="53" y="620" width="252" height="32"/>
     <rect x="739" y="190" width="112" height="24"/>
     <rect x="737" y="188" width="116" height="28" stroke-width="2"/>
-    <rect x="585" y="636" width="256" height="24"/>
-    <rect x="585" y="670" width="256" height="24"/>
+    <rect x="321" y="620" width="252" height="32"/>
+    <rect x="589" y="620" width="252" height="32"/>
   </g>
   <g fill="black" font-family="sans-serif" font-size="14">
     <text x="365" y="92">Existing banner / version</text>
@@ -25,9 +25,9 @@
     <text x="57" y="273">No active sessions listed. You can host a session or connect directly.</text>
     <text x="61" y="528">Selected session</text>
     <text x="61" y="597">LAN-first. A listing does not guarantee reachability.</text>
-    <text x="127" y="653">Join selected</text>
+    <text x="179" y="641" text-anchor="middle">Join selected</text>
     <text x="770" y="207">Refresh</text>
-    <text x="660" y="653">Direct connect</text><text x="695" y="687">Back</text>
+    <text x="447" y="641" text-anchor="middle">Direct connect</text><text x="715" y="641" text-anchor="middle">Back</text>
     <text x="25" y="753">Retained five-column heading strip; empty white body with one full noninteractive status line.</text>
     <text x="25" y="775">Join selected disabled. Refresh focused. Direct connect remains independent.</text>
     <text x="25" y="797">No rows, body dividers, scrollbar, selection, hover, or focus. Colors: UX-NET-10-011.</text>
