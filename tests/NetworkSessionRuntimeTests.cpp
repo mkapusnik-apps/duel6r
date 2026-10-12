@@ -998,7 +998,9 @@ D6R_TEST_CASE("NET-10 successful no-selection reason is blank while necessary ex
     const auto reasonLine = [&] {
         std::string result;
         for (const auto &quad: f.recorder.quads) {
-            if (quad.vertices[0].y != 156) continue;
+            // Selected details reserve a separate host-confirmation line;
+            // unselected/removed states retain the original reason allocation.
+            if (quad.vertices[0].y != 156 && quad.vertices[0].y != 168) continue;
             const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
                 [&](const auto &item) { return item.texture == quad.material.getTexture(); });
             if (entry != f.font.fontCache.entryList.end()) result += entry->text;
@@ -1682,6 +1684,123 @@ D6R_TEST_CASE("UX-NET-04 wheel handler reaches every participant in three and fi
         D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty());
         D6R_REQUIRE(f.menu.runtime.pendingGuestCommands.empty());
     }
+}
+
+D6R_TEST_CASE("NET-SOLO setup capacity and ready one-player lobby retain existing Start controls") {
+    ReviewMenuFixture f;
+    f.menu.setupScreen = NetworkMenu::SetupScreen::Host;
+    f.draw();
+    D6R_REQUIRE(f.text("Local players: 1 • Lobby 1–15 • Match 1–15"));
+    f.lobby();
+    auto &state = *f.menu.runtime.current.canonical;
+    state.participants.pop_back(); state.players.pop_back();
+    std::string reason;
+    D6R_REQUIRE(f.menu.startEligible(f.menu.runtime.snapshot(), reason));
+    D6R_REQUIRE(f.menu.confirmation == NetworkMenu::Confirmation::None);
+    state.participants.front().ready = false;
+    D6R_REQUIRE(!f.menu.startEligible(f.menu.runtime.snapshot(), reason));
+    D6R_REQUIRE(reason.find("to be ready") != std::string::npos);
+}
+
+D6R_TEST_CASE("NET-ADM waiting and final-round feedback stay contained and clear on authoritative transitions") {
+    ReviewMenuFixture f;
+    f.lobby(false);
+    auto &state = *f.menu.runtime.current.canonical;
+    f.video.screen = ScreenParameters(1280, 720, 24, 24, 0, false);
+    f.menu.runtime.current.journey = Client::NetworkJourney::Match;
+    state.phase = Network::Replication::Phase::ActiveRound;
+    state.currentRoundNumber = 2; state.completedRounds = 1; state.settings.roundLimit = 3;
+    state.score.players = {{101}, {102}}; state.score.ranking = {101, 102};
+    state.players[1].lifeState = Network::Replication::LifeState::Waiting;
+    f.draw();
+    D6R_REQUIRE(f.text("Your players join next round."));
+    D6R_REQUIRE(f.text("2. Lin  0 • Waiting"));
+    D6R_REQUIRE(f.text("Guest • LAN session • Connected"));
+    D6R_REQUIRE(f.text("Leave session"));
+    state.phase = Network::Replication::Phase::RoundSummary;
+    state.score.winner.noWinner = true;
+    for (const unsigned countdown: {360u, 300u}) {
+        state.roundEndCountdown = countdown;
+        f.draw(); D6R_REQUIRE(f.text("Your players join next round."));
+    }
+    state.phase = Network::Replication::Phase::ActiveRound; state.currentRoundNumber = 3;
+    state.score.winner.noWinner = false;
+    f.draw();
+    D6R_REQUIRE(f.text("Waiting for the next match."));
+    D6R_REQUIRE(!f.text("Your players join next round."));
+    state.phase = Network::Replication::Phase::RoundSummary;
+    f.draw();
+    D6R_REQUIRE(!f.text("Waiting for the next match.") && !f.text("Your players join next round."));
+    state.phase = Network::Replication::Phase::ActiveRound;
+    state.players[1].lifeState = Network::Replication::LifeState::Alive;
+    f.draw(); D6R_REQUIRE(!f.text("Waiting for the next match."));
+    D6R_REQUIRE(!f.text("2. Lin  0 • Waiting"));
+}
+
+D6R_TEST_CASE("NET-ADM ongoing and final browser and join contexts do not promise immediate play") {
+    BrowserPresentationFixture f;
+    for (const auto &phase: {"started", "final-round"}) {
+        f.menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+        f.row.phase = phase; f.selected();
+        const std::string expected = std::string(phase) == "started"
+            ? "Match in progress. Your players join next round if admitted."
+            : "Final round in progress. You may not play in this match if admitted.";
+        D6R_REQUIRE(f.row.joinable() && f.text(expected));
+        f.menu.browserSelection = f.row;
+        f.menu.setupScreen = NetworkMenu::SetupScreen::Join;
+        f.draw(); D6R_REQUIRE(f.text(expected));
+        f.menu.browserSelection.reset();
+        f.draw(); D6R_REQUIRE(!f.text("Round 1 in progress. You will play immediately if admitted."));
+    }
+}
+
+D6R_TEST_CASE("VA-SOLO-01 NET-10 ongoing and final details coexist with upper Refresh and single footer") {
+    BrowserPresentationFixture f;
+    const std::string confirmation = "The host confirms availability when you connect.";
+    const std::string reachability = "LAN-first. A listing does not guarantee reachability.";
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1280, 900}, std::pair{1920, 1080}})
+    for (const auto &phase: {"started", "final-round"}) for (const bool pagination: {false, true}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        f.menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+        f.row.phase = phase;
+        const std::string context = std::string(phase) == "started"
+            ? "Match in progress. Your players join next round if admitted."
+            : "Final round in progress. You may not play in this match if admitted.";
+        f.deliver({true, {f.row}, pagination ? "cursor-next" : ""});
+        f.menu.selectedListing = f.row.id; f.menu.focus = pagination ? 5 : 0; f.draw();
+        D6R_REQUIRE(f.text(context));
+        D6R_REQUIRE(f.text(confirmation) && f.text(reachability));
+        std::vector<std::pair<float, float>> details;
+        for (const auto &draw: f.recorder.quads) {
+            const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                [&](const auto &entry) { return entry.texture == draw.material.getTexture(); });
+            if (entry == f.font.fontCache.entryList.end()) continue;
+            if (entry->text.find("Session " + f.row.sessionId) != 0
+                && entry->text != context
+                && entry->text != confirmation && entry->text != reachability) continue;
+            const auto &quad = draw;
+            D6R_REQUIRE(quad.vertices[0].x >= 24 && quad.vertices[2].x <= 826);
+            D6R_REQUIRE(quad.vertices[0].y >= 136 && quad.vertices[2].y <= 200);
+            for (const auto &vertex: quad.vertices) {
+                const auto point = quad.view * vertex;
+                D6R_REQUIRE(point.x >= 0 && point.x <= size.first && point.y >= 0 && point.y <= size.second);
+            }
+            details.emplace_back(quad.vertices[0].y, quad.vertices[2].y);
+        }
+        D6R_REQUIRE_EQ(std::size_t(4), details.size());
+        std::sort(details.begin(), details.end());
+        for (std::size_t index = 1; index < details.size(); ++index)
+            D6R_REQUIRE(details[index - 1].second <= details[index].first);
+        D6R_REQUIRE(f.fill(28, 68, 252, 32, Color(192)));
+        D6R_REQUIRE(f.fill(296, 68, 252, 32, Color(192)));
+        D6R_REQUIRE(f.fill(564, 68, 252, 32, Color(192)));
+        D6R_REQUIRE(f.fill(710, 518, 112, 24, Color(192)));
+        D6R_REQUIRE(!f.fill(560, 28, 256, 32, Color(192)));
+        D6R_REQUIRE(f.text("Refresh") && f.text("Direct connect") && f.text("Back"));
+        D6R_REQUIRE(f.menu.browserFocusEnabled(1));
+    }
+    f.menu.selectedListing.clear(); f.menu.focus = 0; f.draw();
+    D6R_REQUIRE(!f.text(confirmation));
 }
 
 D6R_TEST_CASE("UX-NET round progress uses current authoritative round during active and frozen end delay") {
@@ -3560,6 +3679,68 @@ D6R_TEST_CASE("PR87 real canonical motion and timed water project through submit
     D6R_REQUIRE_NEAR(waterBefore.waterBottom, waterAfter.waterBottom, 0.00001f);
 }
 
+D6R_TEST_CASE("NET-SOLO actual hosted Start works in all modes and host-only following lobby starts again") {
+    using namespace std::chrono_literals;
+    const auto root = std::filesystem::temp_directory_path()
+        / ("duel6r-solo-start-" + std::to_string(::getpid()));
+    D6R_REQUIRE(std::filesystem::create_directory(root));
+    struct Cleanup {
+        std::filesystem::path root;
+        ~Cleanup() { std::error_code ignored; std::filesystem::remove_all(root, ignored); }
+    } cleanup{root};
+    std::filesystem::create_directory(root / "data");
+    std::filesystem::create_directory(root / "levels");
+    for (const auto *file: {"blocks.json", "config.script"})
+        std::filesystem::copy_file(std::filesystem::path(D6R_TEST_RESOURCE_DIR) / "data" / file, root / "data" / file);
+    {
+        std::ofstream level(root / "levels/solo.json");
+        level << R"({"width":6,"height":4,"blocks":[1,1,1,1,1,1,1,0,0,0,0,1,1,0,0,0,0,1,1,1,1,1,1,1],"elevators":[]})";
+        D6R_REQUIRE(level.good());
+    }
+    for (const std::string mode: {"Deathmatch", "Predator", "Team deathmatch"}) {
+        Client::NetworkSessionRuntime host, unused, other;
+        Network::HostComposition::Setup setup;
+        setup.localPlayerNames = {"Solo host"}; setup.mode = mode;
+        setup.teamCount = mode == "Team deathmatch" ? 2 : 0;
+        setup.fixedLevel = "levels/solo.json"; setup.roundLimit = 1; setup.quickLiquid = true;
+        D6R_REQUIRE(host.startHost({"127.0.0.1", unusedLoopbackPort()}, D6R_RUNTIME_TEST_SERVER,
+            root.string(), setup, {player("Solo host")}));
+        D6R_REQUIRE(pumpRuntimes(host, unused, other, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+        D6R_REQUIRE(!everyParticipantReady(host.snapshot(), true));
+        host.setReady(true);
+        D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
+        host.startMatch();
+        D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] {
+            const auto snapshot = host.snapshot();
+            return snapshot.journey == Client::NetworkJourney::Match && snapshot.canonical
+                && snapshot.canonical->phase == Network::Replication::Phase::ActiveRound
+                && snapshot.canonical->participants.size() == 1 && snapshot.canonical->players.size() == 1
+                && snapshot.canonical->settings.mode == mode && !snapshot.canonical->result.available;
+        }));
+        const auto firstMatch = host.snapshot().canonical->matchId;
+        if (mode == "Deathmatch") {
+            D6R_REQUIRE(pumpRuntimes(host, unused, other, 90s, [&] { return host.snapshot().journey == Client::NetworkJourney::Summary; }));
+            D6R_REQUIRE(host.snapshot().canonical->result.available);
+            D6R_REQUIRE(host.snapshot().canonical->score.winner.noWinner);
+            host.returnToLobby();
+            D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+            D6R_REQUIRE(everyParticipantReady(host.snapshot(), false));
+            host.setReady(true);
+            D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
+            host.startMatch();
+            D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] {
+                const auto snapshot = host.snapshot();
+                return snapshot.journey == Client::NetworkJourney::Match && snapshot.canonical
+                    && snapshot.canonical->matchId != firstMatch && !snapshot.canonical->result.available
+                    && snapshot.canonical->participants.size() == 1 && snapshot.canonical->players.size() == 1;
+            }));
+        }
+        host.endSession();
+        D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
+        D6R_REQUIRE(host.supervisor->snapshot().cleanupComplete);
+    }
+}
+
 D6R_TEST_CASE("PR83 real runtime End from naturally completed final summary drains and discards result") {
     using namespace std::chrono_literals;
     // Independent temporary gameplay content, never changes a supplied bundle.
@@ -3760,7 +3941,7 @@ D6R_TEST_CASE("PR83 host emits movement and fire-release masks until exact round
     }
 }
 
-D6R_TEST_CASE("PR83 latest host and guest charged bow releases fire during active round-end second") {
+D6R_TEST_CASE("NET-SOLO host and guest charged bows release while solo team continues after departure") {
     using namespace std::chrono_literals;
     char name[] = "duel6r-pr83-charged-release-tests";
     char *arguments[] = {name};
@@ -3825,14 +4006,15 @@ D6R_TEST_CASE("PR83 latest host and guest charged bow releases fire during activ
     std::map<Network::Replication::Identity, int> ammo;
     for (const auto &slot : before.players) if (slot.team == 1) ammo.emplace(slot.playerId, slot.ammunition);
     D6R_REQUIRE_EQ(2u, ammo.size());
-    // Real intentional removal of the sole opposing team produces a normal
-    // round win while both the host and remote archer remain alive and charged.
+    // Removing the sole opposing team restores solo play, not a victory. Both
+    // archers must retain their charge and remain controllable without a reset.
     opponent.leave();
     D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 3s, [&] {
         for (const auto *runtime : {&host, &ally}) {
             const auto snapshot = runtime->snapshot();
-            if (!snapshot.canonical || snapshot.canonical->phase != Network::Replication::Phase::RoundSummary
-                || snapshot.canonical->roundEndCountdown <= 300 || !chargedArchers(snapshot)) return false;
+            if (!snapshot.canonical || snapshot.canonical->phase != Network::Replication::Phase::ActiveRound
+                || snapshot.canonical->roundEndCountdown != 0 || !chargedArchers(snapshot)
+                || !snapshot.canonical->score.winner.winnerPlayerIds.empty()) return false;
         }
         return true;
     }));
@@ -3840,7 +4022,8 @@ D6R_TEST_CASE("PR83 latest host and guest charged bow releases fire during activ
     const bool firedOnRelease = pumpRuntimes(host, opponent, ally, 500ms, [&] {
         for (const auto *runtime : {&host, &ally}) {
             const auto snapshot = runtime->snapshot();
-            if (!snapshot.canonical || snapshot.canonical->roundEndCountdown <= 300) return false;
+            if (!snapshot.canonical || snapshot.canonical->phase != Network::Replication::Phase::ActiveRound
+                || snapshot.canonical->roundEndCountdown != 0) return false;
             for (const auto &[id, previousAmmo] : ammo) {
                 const auto slot = std::find_if(snapshot.canonical->players.begin(), snapshot.canonical->players.end(),
                         [id](const auto &player) { return player.playerId == id; });
@@ -3871,7 +4054,7 @@ D6R_TEST_CASE("PR83 latest host and guest charged bow releases fire during activ
                 detail << ";event=" << event.type << ":player=" << event.playerId;
             detail << '\n';
         }
-        Test::fail("host and guest fire charged bows before freezing", __FILE__, __LINE__, detail.str());
+        Test::fail("host and guest fire charged bows during continued solo play", __FILE__, __LINE__, detail.str());
     }
     host.endSession();
     D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 5s, [&] {

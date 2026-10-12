@@ -68,6 +68,45 @@ namespace {
 
 }
 
+D6R_TEST_CASE("NET-SOLO hosted readiness accepts one player only after valid host Ready") {
+    ManualClock time;
+    CredentialSource source;
+    HostSessionLifecycle host(91, 1, 10, {101}, time.clock(), source.random());
+    D6R_REQUIRE_EQ(std::size_t(1), host.retainedPlayerCount());
+    D6R_REQUIRE(!host.allConnectedAndReady());
+    D6R_REQUIRE(host.setReady(1, 10, true));
+    D6R_REQUIRE(host.allConnectedAndReady());
+    D6R_REQUIRE(host.clearReadiness());
+    D6R_REQUIRE(!host.allConnectedAndReady());
+    D6R_REQUIRE(host.setReady(1, 10, true));
+    D6R_REQUIRE(host.allConnectedAndReady());
+    D6R_REQUIRE(host.admitGuest(2, 20, {102}, false).has_value());
+    D6R_REQUIRE(host.setReady(1, 10, true));
+    D6R_REQUIRE(!host.allConnectedAndReady());
+    D6R_REQUIRE(host.setReady(2, 20, true));
+    D6R_REQUIRE(host.allConnectedAndReady());
+    D6R_REQUIRE(host.transportClosed(2, 20));
+    D6R_REQUIRE(!host.allConnectedAndReady());
+}
+
+D6R_TEST_CASE("NET-SOLO host-only following lobby clears readiness then permits a new Start") {
+    ManualClock time;
+    CredentialSource source;
+    HostHooks hooks;
+    hooks.removeBatch = [](const auto &, auto) { return true; };
+    HostSessionLifecycle host(92, 1, 10, {101}, time.clock(), source.random(), hooks);
+    D6R_REQUIRE(host.admitGuest(2, 20, {102}, false).has_value());
+    D6R_REQUIRE(host.setReady(1, 10, true) && host.setReady(2, 20, true));
+    D6R_REQUIRE(host.allConnectedAndReady());
+    D6R_REQUIRE(host.applyParticipantAction({92, 2, ParticipantActionKind::Leave}, 20));
+    D6R_REQUIRE(host.processLifecycleBatch(Phase::FinalSummary) == RemovalOutcome::FinalSummaryRetained);
+    D6R_REQUIRE_EQ(std::size_t(1), host.retainedPlayerCount());
+    D6R_REQUIRE(host.clearReadiness());
+    D6R_REQUIRE(!host.allConnectedAndReady());
+    D6R_REQUIRE(host.setReady(1, 10, true));
+    D6R_REQUIRE(host.allConnectedAndReady());
+}
+
 D6R_TEST_CASE("NET-ADM live admission preserves existing readiness and gives no new identity authority to old players") {
     ManualClock time;
     CredentialSource source;

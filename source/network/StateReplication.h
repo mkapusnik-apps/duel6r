@@ -31,7 +31,7 @@ namespace Duel6::Network::Replication {
     enum class ConnectionState { Connected, Reconnecting };
     enum class Phase { Lobby, ActiveRound, RoundSummary, FinalSummary, Ended };
     enum class EntityKind { Shot, Projectile, WeaponPickup, BonusPickup, Elevator, Hazard, Water, Tree, Fire, Explosion };
-    enum class LifeState { Alive, Dead, Departed };
+    enum class LifeState { Alive, Dead, Departed, Waiting };
     enum class ChangeKind { Create, Update, Remove };
 
     class StableIdentitySource final {

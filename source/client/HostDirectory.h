@@ -21,7 +21,8 @@ namespace Duel6::Client {
         bool joinable() const {
             const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
-            return expiresAt > now && players < capacity && (phase == "lobby" || phase == "first-round");
+            return expiresAt > now && players < capacity && (phase == "lobby" || phase == "first-round"
+                || phase == "started" || phase == "final-round");
         }
     };
     struct DirectoryPage {

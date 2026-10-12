@@ -570,9 +570,14 @@ namespace Duel6::Server::Authoritative {
                     }
                 }
                 while (match.outcome().code == OutcomeCode::None) match.advanceOneTick();
-            } else if (options.scenario == "interrupted") {
+            } else if (options.scenario == "solo") {
                 submitChecked(match, {0, 1, options.config.hostParticipantId, 0,
                                       ActionKind::RemovePlayer, options.roster.back().playerId, 0, 0});
+                for (unsigned tick = 0; tick < FixedTickRate; ++tick)
+                    if (!match.advanceOneTick()) break;
+                if (match.phase() != MatchPhase::ActiveRound || match.outcome().code != OutcomeCode::None)
+                    throw std::runtime_error("Solo diagnostic did not continue active play");
+                match.submitHostControl(options.config.hostParticipantId, ActionKind::EndSession);
             } else if (options.scenario == "runtime-failure") {
                 submitChecked(match, {0, 1, options.config.hostParticipantId, 0,
                                       ActionKind::RuntimeFailure, 0, 0, 0});

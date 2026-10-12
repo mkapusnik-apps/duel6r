@@ -1898,8 +1898,8 @@ namespace Duel6::Server {
             if (!sessionLifecycle->allConnectedAndReady()) return true;
             auto current = replicationLobbyState(
                     admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
-            if (current.participants.size() < 2 || current.participants.size() > Network::MaxNetworkPlayers
-                || current.players.size() < 2 || current.players.size() > Network::MaxNetworkPlayers
+            if (current.participants.empty() || current.participants.size() > Network::MaxNetworkPlayers
+                || current.players.empty() || current.players.size() > Network::MaxNetworkPlayers
                 || !std::all_of(current.participants.begin(), current.participants.end(), [](const auto &participant) {
                     return participant.connection == Network::Replication::ConnectionState::Connected;
                 }) || !std::all_of(current.participants.begin(), current.participants.end(), [&](const auto &participant) {
@@ -1909,6 +1909,7 @@ namespace Duel6::Server {
             hostPlayerInput->reset();
             auto matchDependencies = runtimeDependencies.authoritativeRuntimeFactory(
                     *hostedSettings, current.players, hostedContent);
+            matchDependencies.sessionClock = runtimeDependencies.now;
             const auto started = hostedMatch->start(
                     *hostedSettings, current.players, hostedContent.manifest, std::move(matchDependencies));
             if (started.code == Authoritative::OutcomeCode::SettingsInvalid

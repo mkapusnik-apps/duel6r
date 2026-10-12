@@ -25,7 +25,7 @@ The [shared visual baseline](../../design.md#unified-network-presentation) appli
 - The UI must not echo the submitted password or an expected password.
 - A capacity rejection must not be presented as a password error.
 - A closed-admission rejection must not use `Join-in-progress is not supported.`
-- NET-08-admission-closed must show `Round-one admission has closed. Join when the host returns to the lobby.`
+- NET-08-admission-closed must use exact `Match completed. Join when the host returns to the lobby.` from [compatibility and admission](../../network-compatibility-and-admission.md#initial-outcome-identifiers-and-copy), without a first-round cutoff claim.
 - An unreachable host must retain the existing `Host unreachable.` outcome.
 - Directory presence must not convert an unreachable outcome into a success claim.
 - Return to Network must retain its NET-01 destination, where Browse sessions remains available.
@@ -39,3 +39,5 @@ No new modal or wireframe is needed for this localized recovery-action addition.
 ## Acceptance
 
 The representative must show separate reason, context, instructions, and framed recovery actions without password disclosure. Focused QA must check retry-enabled transport failure, disabled Retry during cleanup, restart-required failure, expired reconnect, port conflict, closed admission, longest canonical reason, and browser/direct return destinations. This visual change does not add a missing recovery action or resolve a functional copy/destination discrepancy without product review. Capture details are in the [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix).
+
+- **UX-NET-08-008** Match-started phase alone and successful waiting admission must not show failure. Actual final-outcome closure retains existing failure layout/recovery with product-confirmed fixed copy, never the obsolete first-round-only or unsupported-joining claim. NET-08 wireframes and representative are unchanged by this scope.

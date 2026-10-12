@@ -86,13 +86,13 @@ int main(int argc, char **argv) {
             require(found->passwordRequired && found->joinable(), "Locked lobby must be eligible.");
             id = found->id; return true;
         });
-        for (const auto &phase: {"first-round", "closed"}) {
+        for (const auto &phase: {"first-round", "started", "final-round", "closed"}) {
             listing.phase = phase; publisher.update(listing);
             eventually([&] {
                 const auto page = directoryPage({});
                 if (!page.available) return false;
                 for (const auto &row: page.listings) if (row.id == id && row.phase == phase) {
-                    require(row.joinable() == (row.phase == "first-round"), "Phase admission eligibility is incorrect.");
+                    require(row.joinable() == (row.phase != "closed"), "Phase admission eligibility is incorrect.");
                     return true;
                 }
                 return false;

@@ -139,27 +139,19 @@ consume-once reconnect credential; it does not allocate new players.
 ## Live admission and bounds
 
 The canonical network release identifier remains `duel6r-network-r1`; the encrypted
-session transport does not provide a legacy plaintext fallback. The host's serial event loop
-orders due simulation ticks before pending admission commits. The first outcome
-closes new admission before the end delay; later rounds do not reopen it. Returning
-to the lobby does. An offer alone reserves no participant authority.
+session transport does not provide a legacy plaintext fallback. The approved ongoing-admission target orders outcome and round-start decisions before admission at an equal host-clock instant. Active rounds and non-final delays remain open; only final outcome closes admission before final delay/summary. Lobby return reopens it. An offer alone reserves no participant authority. These target changes require implementation verification and do not inherit earlier acceptance below.
 
 Admission wire version 2 binds a browser-selected nonzero session ID inside the
 encrypted `D6RA` request before reservation or commitment. The guest additionally
 checks the confirmed snapshot and reconnect grant agree on session identity and
 checks the exact ordered offered/accepted/confirmed participant/player identities.
 
-Arrival initializes only the appended players, using the current world and normal
-initial loadout. Team spawning retains the round's starting-area rotation. Predator
-arrival adds a non-predator without replacing the current Predator. Existing
-players, projectile owner pointers, world state, timers, and input sequence state
-remain intact. The initial guest snapshot is the current calibrated authoritative
-state, rather than an artificial waiting lobby.
+Under NET-ADM-001 through NET-ADM-016, commit strictly before the first-round outcome initializes only appended players in the current world with normal loadout, retaining Team starting-area rotation and the existing Predator. Other ongoing commits retain waiting ownership without bodies until the first strictly later round start, then use normal initialization exactly once with cleared input. Leave/expiry cancels pending spawn; reconnect does not accelerate or duplicate it. Final active waiting creates no extra round. Existing players, world state, and timers remain intact. Initial snapshots carry current calibrated authoritative state, including Waiting where applicable, not an artificial lobby.
 
 At most 15 players remain admitted simultaneously. The in-round history has a
 separate bound of 32 identities, including departed players, so references and
 session-only result rows remain stable without unbounded allocation. Remaining
-history space can reduce the advertised first-round capacity after repeated
+history space can reduce advertised ongoing-admission capacity after repeated
 departures and arrivals; exhausted capacity rejects before commitment rather than
 resetting the match. This is a storage/work bound, not account tracking or a
 person-name-based respawn restriction. The lobby starts a fresh match history.

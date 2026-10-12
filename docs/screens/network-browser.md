@@ -11,6 +11,7 @@ This screen lets the user find active registered sessions and select one for adm
 - Refresh must request current results without starting a game connection.
 - Selecting an eligible listing must enter `NET-03` with its endpoint and advertised session identity.
 - Locked listings must lead to password entry in `NET-03`.
+- Match phase and admission are independent: later ongoing sessions may show Started/Open and offer joining. Completed sessions remain genuinely Closed. Later-match selected details explain next-round participation; they must not promise immediate spawn.
 - Full, admission-closed, and age-stale listings must remain readable without an enabled join action. Failed reads instead hide cached rows and selected identity, endpoint, and mode details, disable every browser join path, and preserve independent Direct connect.
 - Back must return to `NET-01` without starting or ending a hosted session.
 - Failed browser-origin admission must permit return here for refresh.

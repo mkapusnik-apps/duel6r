@@ -56,14 +56,14 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 
 ### Round and world state
 
-- **REP-018** Replicated round state must include the round identity, level logical identity, orientation, authoritative roster order, and that round's outcome. A round outcome must not become a cumulative-ranking champion.
+- **REP-018** Replicated round state must include round identity, level logical identity, orientation, authoritative current-round membership, roster order, and outcome, sufficient to present authoritative solo/opposition behavior. Waiting/removed players are excluded from spawned membership; dead/reserved spawned players remain members until removal. Established outcomes remain immutable and must not become cumulative-ranking champions. This does not prescribe a new wire field or encoding.
 - **REP-019** The replicated world must include each current player, shot, projectile, weapon pickup, bonus pickup, elevator, hazard, water state, applicable tree state, fire, and explosion.
-- **REP-020** A replicated player must include identity, owner, roster position, display name, team, life state, position, movement state, facing, life, air, held weapon, ammunition, and applicable action state.
+- **REP-020** A replicated player must include identity, owner, roster position, display name, team, and explicit participation state distinguishing waiting from spawned living, dead, or removed. Waiting preserves admitted ownership and eligible-round information but has no active body or gameplay state that implies living/winner participation. Spawned players include position, movement, facing, life, air, held weapon, ammunition, and applicable action state.
 - **REP-021** A replicated player must include active bonus state, applicable remaining durations, invulnerability, visibility, reload, charge, and temporary movement effects.
 - **REP-022** Each replicated shot or projectile must include its identity, owner, weapon type, position, movement, and current lifecycle state.
 - **REP-023** Each replicated pickup must include its identity, category, applicable type, position, availability, and authoritative contents.
 - **REP-024** Each replicated elevator, hazard, water state, tree, fire, and explosion must include the current state needed to present its authoritative gameplay effect.
-- **REP-025** Replicated score state must include current-round values, cumulative values, ranking order, and applicable team totals. It must replicate match outcome separately. A cumulative ranking leader must not become a match champion.
+- **REP-025** Replicated score state includes actual-participation current-round/cumulative values, ranking order, and applicable team totals, with match outcome separate. Waiting accrues no statistics; never-spawned players have no match-participation result rows. A waiting roster marker must not imply a living player or winner. A cumulative ranking leader must not become a match champion.
 - **REP-026** Replicated state must include current player indicators, live ranking state, round progress, score-summary state, status messages, and event messages.
 
 ### Presentation events
@@ -97,7 +97,7 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 
 ## Full snapshot behavior
 
-- **REP-038** After host commit, the authoritative service must provide the initial full snapshot before the guest admission deadline. The guest must validate it before it reports success or enters the lobby as connected.
+- **REP-038** After host commit, the authoritative service provides the initial full snapshot before the guest admission deadline. The guest validates it before reporting success or entering the current lobby or match as connected. A waiting snapshot confirms admitted ownership without inventing an actor; later authoritative spawn clears waiting feedback exactly once.
 - **REP-039** The authoritative service must provide a full snapshot after a successful reconnect and before restoration completes.
 - **REP-040** The authoritative service must provide a full snapshot when a connected client requires resynchronization.
 - **REP-041** A full snapshot must contain all applicable state in REP-013 through REP-030 and REP-PRES-001 through REP-PRES-003 at one state version. Its result values must follow the completed or interrupted semantics in REP-017.
@@ -155,7 +155,7 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 - Interpolation, prediction, reconciliation, or lag compensation.
 - Disconnect detection, reconnect credential exchange, reservation expiry, or host migration.
 - Graphical screen layout or visual design.
-- Join-in-progress or spectator state.
+- Admission/spawn policy (owned by NET-ADM-001 through NET-ADM-016), or spectator state.
 - Persistent network statistics or Elo.
 - A playable-network or release-readiness claim.
 
@@ -163,16 +163,16 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 
 - **REP-AC-001 — Stable identities:** Every replicated match, round, player, world entity, and event follows REP-005 through REP-012.
 - **REP-AC-002 — Complete state:** A full snapshot contains all applicable session, lobby, match, round, world, score, message, effect, result, and default-network-presentation input state. It keeps the result values in REP-017 distinct. It does not require a selected-profile appearance identity.
-- **REP-AC-003 — Initial construction:** Before admission success, a client validates one complete lobby snapshot against current clock calibration. The snapshot must contain the exact confirmed participant and ordered owned-player identities.
+- **REP-AC-003 — Initial construction:** Before admission success, a client validates one complete current lobby or match snapshot against clock calibration, with exact confirmed participant and ordered owned-player identities. Waiting admission exposes no owned active actor; eligible spawn produces one actor per player without early or duplicate creation.
 - **REP-AC-004 — Reconnect restoration:** A reconnected client receives the current complete lobby, match, round-summary, or final-summary state without rewind.
-- **REP-AC-005 — Lifecycle:** Entity creation, update, removal, round transition, and full-snapshot replacement follow REP-031 through REP-037.
+- **REP-AC-005 — Lifecycle:** Entity creation, update, removal, round transition, and full-snapshot replacement follow REP-031 through REP-037. Waiting identity/ownership remains separate from round-bound bodies; Leave/expiry cancels spawn, reconnect/resynchronization cannot spawn early or duplicate, and final active waiting cannot add a round.
 - **REP-AC-006 — Ordered updates:** Valid incremental updates apply atomically in baseline order. Each update equals the corresponding full snapshot, including all distinct result values.
 - **REP-AC-007 — Invalid updates:** Duplicate, stale, out-of-order, incomplete, malformed, or inconsistent updates do not change replicated state.
 - **REP-AC-008 — Recovery:** Baseline loss starts one bounded full resynchronization that converges without stale entities or repeated expired events.
 - **REP-AC-009 — Recovery failure:** A failed resynchronization affects only that client and follows the existing reconnect journey without pausing the match.
 - **REP-AC-010 — Read-only authority:** A client cannot change canonical score, hit, pickup, death, winner, random, or progression state through replication.
 - **REP-AC-011 — Transport truth:** Replication uses the approved reliable ordered transport and makes no unsupported loss, duplication, or reordering claim.
-- **REP-AC-012 — Presentation continuity:** Replicated state can present the shared arena with deterministic default network visuals, live status, score overlays, round transitions, final summary, and retained lobby result. Presentation uses no second gameplay simulation. It must not invent a cumulative-ranking champion.
+- **REP-AC-012 — Presentation continuity:** Replicated state presents the shared arena with deterministic default visuals, solo active play without a false victory, Connected waiting feedback and textual Waiting roster marker, score overlays, transitions, final summary, and retained lobby result. Waiting has no living/winner representation; authoritative spawn clears feedback. Presentation uses no second simulation and invents no champion.
 - **REP-AC-013 — Safety:** Replication respects existing payload, queue, bandwidth, progress, redaction, and connection-isolation limits.
 - **REP-AC-014 — Local independence:** Local Play remains unchanged and does not start or require replication.
 - **REP-AC-015 — Scope truth:** Completion of issue #34 alone must not support a playable-network or release-readiness claim.

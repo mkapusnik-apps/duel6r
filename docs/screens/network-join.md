@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-Current functional target: entry may also come from `NET-10` with the selected listing and endpoint. `NET-03-password` permits password entry and correction under [NET-PASS-001 through NET-PASS-007](../network-host-directory.md). `NET-03-live-admission` enters `NET-05` after complete round-one admission under NET-ADM-011. Lobby admission still enters `NET-04`. All initial snapshot references below mean the current authoritative lobby or match state as applicable. The former browser, password, public-address, and blanket join-in-progress exclusions are superseded. Functional acceptance uses NET-DIR-AC-003, NET-PASS-AC-001, NET-ADM-AC-001, and NET-ADM-AC-003. The user must be able to return to `NET-10` and refresh after a failed listing selection.
+Current functional target: entry may come from `NET-10` with selected listing/endpoint. Password entry and correction follow [NET-PASS-001 through NET-PASS-007](../network-host-directory.md). Complete ongoing admission enters current `NET-05`, immediately participating only when committed strictly before the first-round outcome; otherwise it enters `NET-05-waiting-for-next-round` under [NET-ADM-001 through NET-ADM-016](../network-play-first-release.md). Lobby admission enters `NET-04`. Initial snapshots mean current authoritative lobby or match state, including waiting ownership. The user can return to `NET-10` and refresh after failure. Functional acceptance uses NET-DIR-AC-003, NET-PASS-AC-001, and NET-ADM-AC-001 through NET-ADM-AC-003.
 
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It configures a guest's direct endpoint and local players, then truthfully reports connection progress. It implements `NET-AC-001`, `NET-AC-002`, `NET-AC-004`, `NET-AC-005`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 It preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
@@ -11,7 +11,7 @@ It implements `NET-OWN-001` through `NET-OWN-003` and `NET-OWN-AC-001` through `
 Issue #30 defines the compatibility and admission outcomes for this flow in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
 Issue #30 must not implement this graphical screen.
 
-Entry is `NET-01` → Join → `NET-10` → Direct connect or eligible listing selection. Direct connect opens independent direct setup without a browser-selected session. Complete validated production admission enters `NET-04`; failure enters `NET-08`; Cancel during connection restores editable setup; Back from direct setup retains its `NET-01` destination. Existing browser-origin recovery remains unchanged.
+Entry is `NET-01` → Join → `NET-10` → Direct connect or eligible listing selection. Direct connect opens independent direct setup without a selected session. Complete validated admission enters current `NET-04` or `NET-05`; failure enters `NET-08`; Cancel restores editable setup; Back from direct setup retains `NET-01`. Browser recovery remains unchanged. Known later-match context reads `Match in progress. Your players join next round if admitted.` Unknown context makes no immediate-play promise; the host confirms current availability.
 
 ## Representative layout
 
@@ -50,7 +50,7 @@ Entry is `NET-01` → Join → `NET-10` → Direct connect or eligible listing s
 - Without a complete valid rejection or complete valid production admission result, initial transport outcomes use name-resolution failure, unreachable/refusal, reset/close before complete admission, then generic timeout. A complete valid rejection or complete valid production admission result received strictly before the deadline must outrank later generic transport symptoms. An offer alone must not report success.
 - User copy must use the exact fixed messages in `NET-08`.
 - User copy must not include a peer-supplied name, release ID, capability, path, hash, count, credential, source address, threshold, payload, or raw filesystem value.
-- A guest must validate the exact final confirmation, one valid host-clock calibration result, and one complete valid initial full snapshot before it enters `NET-04`.
+- A guest must validate exact final confirmation, valid host-clock calibration, and a complete current initial snapshot before entering `NET-04` or `NET-05`, including its waiting state.
 - The guest must receive all three success inputs strictly before the single total deadline.
 - The final confirmation must contain the exact offered participant identity, original player count, and ordered player identities.
 - The initial snapshot must contain the same participant identity and ordered owned-player identities.
@@ -58,13 +58,13 @@ Entry is `NET-01` → Join → `NET-10` → Direct connect or eligible listing s
 - The snapshot production time must be valid under the host-clock calibration result.
 - A final confirmation without valid calibration and a valid initial snapshot must not report success.
 - A malformed, trailing, unexpected, or inconsistent complete host offer, rejection, or confirmation closes the attempt as `invalid-host-admission-message` with `Connection ended before admission completed.`.
-- Join-in-progress rejection is explicit when the host already started.
+- A started match alone is not rejection. Final-outcome admission closure uses the product-owned fixed reason without a first-round cutoff claim. Waiting after complete admission is not a timeout or reconnect failure.
 - `NET-08` Retry repeats the retained attempt, Edit setup returns here with all data retained, and Return to Network enters `NET-01`.
 
 ## Truthful copy, disabled reasons, and input
 
 - Example reasons are `Enter a hostname or address`, `Enter a valid port (1–65535)`, `Add at least one local player`, and `Assign a valid control to every local player`.
-- No server browser, discovery, Internet, account, password, or matchmaking affordance may appear.
+- Browser-origin context and password entry follow current contracts; no discovery, account, matchmaking, or guaranteed-Internet affordance is added.
 - Focus order is Hostname/address → Port → local-player controls → Connect → Back. During connection, focus is Cancel.
 - Keyboard Tab/Shift+Tab and controller directions traverse controls; Enter/Space/controller Confirm activates; Escape/controller Back cancels an attempt or returns to `NET-01` from editable setup.
 - A result must remain visible as text until the user selects a recovery action.

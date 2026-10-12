@@ -39,7 +39,7 @@ export function validateListing(value) {
   requireValue(Number.isInteger(value.capacity) && value.capacity >= 1 && value.capacity <= 15);
   requireValue(Number.isInteger(value.players) && value.players >= 1 && value.players <= value.capacity);
   requireValue(typeof value.passwordRequired === 'boolean');
-  requireValue(['lobby', 'first-round', 'closed'].includes(value.phase));
+  requireValue(['lobby', 'first-round', 'started', 'final-round', 'closed'].includes(value.phase));
   return { ...value };
 }
 

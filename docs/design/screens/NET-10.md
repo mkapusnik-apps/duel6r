@@ -39,7 +39,7 @@ Entry workflow: MENU-01 → Network → Join in the NET-01 popup. Join invokes t
 - Phase, password protection, and admission must occupy separate columns.
 - The Password column must use `Required` or `None` instead of a lock icon alone.
 - An unknown protection value must use `Unknown`, not `None`.
-- An active first round must use `Round 1` with `Open` when admission is advertised as open.
+- An active first round may use `Round 1` with `Open`; later ongoing match context uses `Started` with `Open` when admission is advertised open. Phase does not decide admission.
 - A phase after admission closes must show `Closed` in Admission even if its player count is below capacity.
 - A full session must show `Full` without hiding its phase or password value.
 - A locked listing must use `Required` in Password, not a closed-admission label.
@@ -104,8 +104,16 @@ Entry workflow: MENU-01 → Network → Join in the NET-01 popup. Join invokes t
 
 ## Visual acceptance
 
-The representative must show at least two actual owned listings: a protected joinable session and an admission-closed session. The selected protected row must offer Join selected. A reviewer must be able to identify the endpoint, occupancy, phase, protection, and admission independently. Open-lobby, open-first-round, full, and closed variants remain focused checks; they need not coexist in the representative. A still image does not prove heartbeat expiry, host-side password enforcement, or exact admission closure timing.
+The changed representative shows two actual owned listings: a protected ongoing later-match Started/Open session selected and focused, and a genuinely completed Closed session. The selected protected row offers Join selected and next-round details, not an immediate-play promise. Endpoint, occupancy, phase, protection, and admission remain independent columns. Open-lobby, open-first-round, full, and stale variants remain focused checks. A still does not prove heartbeat expiry, password enforcement, or exact final closure timing.
 
 The selected and focused row must remain distinguishable without color, and every footer and page action must remain identifiable when unfocused. Focused QA must cover all five functional states, both page directions, no-selection and removed-selection states, disabled joining reasons, retained selection on refresh, long endpoints, and independent direct setup. The [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix) defines the representative and evidence limits.
 
 The localized browser refinement uses the [NET-10 refinement matrix](../screenshots/README.md#net-10-localized-browser-refinement). Focused checks cover single-page and multiple first/middle/last pages, pagination after refresh, hidden input exclusion, empty/initial failure/failed populated refresh, recovery with identity present or absent, age-stale readability, all browser join paths disabled after failure, and independent Direct connect. Check blank reason lines for successful populated unselected and zero-row states while preserving necessary explanations. Verify both traversal directions with keyboard and controller, caption/status/focus clearance and single-line containment at 850 × 700 and 1280 × 720, plus pointer alignment at 1920 × 1080.
+
+## Ongoing-session availability
+
+Requirement reference compatibility: UX-NET-10-012 identifies the single-row footer. References to the ongoing-admission UX-NET-10-012 in the hosted-solo specification baseline identify UX-NET-10-015 below. UX-NET-10-013 and UX-NET-10-014 retain their ongoing-session meanings.
+
+- **UX-NET-10-015** Phase and Admission must remain separate. A protected later session may show `Started` / `Required` / `Open`. Protection and Started must not imply Closed or disable eligible joining.
+- **UX-NET-10-013** Later selected-session details must use `Match in progress. Your players join next round if admitted.` Known final-round context must use `Final round in progress. You may not play in this match if admitted.` Unknown context must not promise immediate spawn. The selected-session region must retain password, endpoint, identity/mode, `The host confirms availability when you connect.`, and reachability details. Content must wrap or scroll within its fixed bounds without covering paging or the footer.
+- **UX-NET-10-014** The NET-10 SVG and representative must pair ongoing protected Open with genuinely completed Closed. The representative must use the upper Refresh action in UX-NET-10-008 and the single footer row in UX-NET-10-012. Columns, selection, paging, and selected-details allocations must remain unchanged. NET-10-E and NET-10-U must retain their approved empty and failed-read presentations. The [NET-10 refinement matrix](../screenshots/README.md#net-10-localized-browser-refinement) owns the representative.

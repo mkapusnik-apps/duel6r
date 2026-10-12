@@ -1,6 +1,6 @@
 # NET-05 — Match controls and contextual panels
 
-Functional contract: [network-match](../../screens/network-match.md). Existing NET-VIS and NRP presentation requirements remain applicable. [NET-ADM-001–012 and NET-ADM-AC-001–003](../../network-play-first-release.md) own admission and arrival. Structural sources: [NET-05 live arena](../../screens/wireframes/network-match.md), [NET-05-C confirmation](../wireframes/NET-05/NET-05-C.svg), [NET-05-S pre-winner score overlay](../wireframes/NET-05/NET-05-S.svg), and [NET-05-R non-final round result](../wireframes/NET-05/NET-05-R.svg). The two new variants document existing tasks, not new functional states or actions.
+Functional contract: [network-match](../../screens/network-match.md). Existing NET-VIS and NRP presentation requirements remain applicable. [NET-ADM-001–016 and NET-SOLO-001–006](../../network-play-first-release.md) own ongoing admission, participation, and opposition. Structural sources: [NET-05 live arena](../../screens/wireframes/network-match.md), [NET-05-C confirmation](../wireframes/NET-05/NET-05-C.svg), [NET-05-S pre-winner score overlay](../wireframes/NET-05/NET-05-S.svg), [NET-05-R non-final result](../wireframes/NET-05/NET-05-R.svg), and [NET-05-W waiting](../wireframes/NET-05/NET-05-W.svg). Only NET-05-W is added; existing arena and panel sources remain unchanged.
 
 ## Presentation and allocation
 
@@ -31,7 +31,7 @@ NET-05-S has no supported scroll handlers in the baseline. It may retain truthfu
 
 Entry from `NET-03-live-admission` uses the existing arena layout without a new panel.
 
-- An admitted first-round arrival must enter the current confirmed shared arena directly.
+- An arrival admitted strictly before the first-round outcome enters the current confirmed arena with immediate normal spawn; other ongoing admissions use the waiting state below.
 - The screen must not show a new-round introduction for every existing player because one participant arrived.
 - The arriving player's name and normal gear indicators must remain readable using existing gameplay presentation.
 - The UI must not show a spectator or next-round-waiting message for an arrival admitted to play immediately.
@@ -41,8 +41,21 @@ Entry from `NET-03-live-admission` uses the existing arena layout without a new 
 
 ## Acceptance
 
-The live representative must retain the complete arena, truthful Connected status, and readable framed session action. Two players are sufficient for the default styling representative; a specific bonus, level, mirror, or degraded condition is not required in that image. NET-05-C must expose complete consequence copy and both actions at 1280 × 720. NET-05-S must show the real pre-winner score state without claiming completion or supported scrolling. NET-05-R must show a real non-final frozen phase with separate progress, outcome, positive countdown, ranking, and host actions. Capture routes are in the [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix).
+The changed live representative shows one living host-owned player, complete undimmed arena, Connected status, existing session action, and no winner treatment. NET-05-W shows a real later guest admitted and Connected while waiting, with no owned actor. NET-05-C/S/R retain their existing acceptance scopes and unchanged wireframes. The [hosted solo/ongoing matrix](../screenshots/README.md#hosted-solo-start-and-ongoing-joining) owns the two changed/new arena rows; specific bonuses, levels, mirrors, or degraded conditions are not required for those rows.
 
 Focused QA must cover the active first second, guest absence of Advance round, all ranking modes and maximum rows, long winner names, opening/held/repeated confirmation input, Tab toggling, all confirmation contexts, degraded/resynchronizing status, and first-round arrival. Arrival is a supplemental state, not another representative. A still cannot prove unchanged gameplay, recovery timing, Predator retention, input consumption, or admission boundaries.
 
 The simpler live representative does not replace degraded/resynchronizing containment checks or certify Invisibility, orientation, or maximum-player behavior. These checks follow the evidence-scope rules in the current matrix. The NET-05-S check must confirm that no unsupported arrow looks enabled and no new input is consumed for scrolling.
+
+## Connected waiting and solo play
+
+- **UX-NET-05-017** `NET-05-waiting-for-next-round` must keep the current shared arena undimmed and truthful `Connected` network status. Waiting is admitted ownership, not a lobby, reconnect, pause, or spectator mode.
+- **UX-NET-05-018** Above existing network status show persistent `Your players join next round.` when another round remains, otherwise `Waiting for the next match.` Use established info-surface/text vocabulary without a modal, new action, or promise that the next match will start.
+- **UX-NET-05-019** Waiting owned roster entries use a textual `Waiting` marker in existing ranking/roster presentation. Do not render an owned body, normal gear indicators, living-state treatment, or winner treatment for an unspawned player. Waiting rows are not fabricated score/result participation.
+- **UX-NET-05-020** Preserve score overlay access, Leave session/End session controls, confirmation behavior, focus, and pointer bounds. Waiting feedback is noninteractive and captures no gameplay or navigation input.
+- **UX-NET-05-021** Authoritative eligible spawn clears waiting feedback/markers and introduces normal player presentation exactly once. Final outcome clears waiting feedback and uses existing completion presentation, retaining ownership in the following lobby. A local timer, key press, reconnect, or stale snapshot must not claim early spawn.
+- **UX-NET-05-022** At 1280 × 720, feedback wraps at word boundaries above network status, keeping ranking, progress, events, player status, and session actions readable. It must not shift world scale/camera or divide the arena.
+- **UX-NET-05-023** Solo presentation derives only from authoritative opposition/outcome state. A playable no-opposition round must not display pause, victory, or winner effects. No speculative solo notice or new policy control is added.
+- **UX-NET-05-024** No living current-round players, including last-living death, Leave, or expiry, uses existing completed no-winner presentation and normal countdown/limit; waiting does not prevent it. Before outcome, removal returns to solo only when authoritative mode-appropriate opposition is absent. Established outcomes remain immutable.
+
+Focused behavioral checks cover immediate first-round arrival, later waiting, input exclusion, reserved eligible spawn, Leave/expiry cancellation, reconnect without early/duplicate spawn, final active waiting without an extra round, mode-specific opposition, and authoritative feedback clearance. Stills do not prove these lifecycle decisions.

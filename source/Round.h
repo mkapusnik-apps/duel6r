@@ -52,6 +52,7 @@ namespace Duel6 {
         Float32 gameOverWait;
         Uint32 startTime;
         bool winner;
+        bool headlessOpposition = true;
         std::vector<Player *> alivePlayers;
 #ifndef D6R_HEADLESS_CORE
         Script::RoundScriptContext scriptContext;
@@ -83,6 +84,7 @@ namespace Duel6 {
         bool hasWinner() const {
             return winner;
         }
+        void setHeadlessOpposition(bool present) noexcept { headlessOpposition = present; }
 
         bool isSuddenDeath() const noexcept { return suddenDeathMode; }
 

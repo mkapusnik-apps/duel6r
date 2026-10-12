@@ -343,8 +343,12 @@ namespace Duel6::Client {
                 listing.passwordRequired = passwordRequired;
                 listing.mode = state.settings.mode == "Predator" ? "predator" : state.settings.mode == "Team deathmatch" ? "teams" : "deathmatch";
                 listing.phase = state.phase == Network::Replication::Phase::Lobby ? "lobby"
-                    : state.phase == Network::Replication::Phase::ActiveRound && state.currentRoundNumber == 1 ? "first-round" : "closed";
-                if (listing.phase == "first-round") listing.capacity = static_cast<unsigned>(
+                    : state.phase == Network::Replication::Phase::ActiveRound
+                        ? state.currentRoundNumber == state.settings.roundLimit ? "final-round"
+                            : state.currentRoundNumber == 1 ? "first-round" : "started"
+                        : state.phase == Network::Replication::Phase::RoundSummary
+                            && state.currentRoundNumber < state.settings.roundLimit ? "started" : "closed";
+                if (listing.phase != "lobby" && listing.phase != "closed") listing.capacity = static_cast<unsigned>(
                     std::min<std::size_t>(15, listing.players + Network::Replication::MaxReplicatedPlayers - state.players.size()));
                 publisher->update(std::move(listing));
                 current.directoryAvailable = publisher->available();

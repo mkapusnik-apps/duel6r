@@ -39,7 +39,7 @@ All normative deadlines and precedence rules in this document are evaluated on t
 
 ## Directory and admission authority
 
-The [host directory contract](network-host-directory.md) owns listing, browsing, and optional password behavior. The round-one admission requirements below own new admission during gameplay. These requirements supersede earlier blanket exclusions of browsing, passwords, public IPv4 endpoints, and join-in-progress in downstream documents. All other exclusions remain in force. LAN is the supported network environment; other valid IPv4 connections are permitted without an Internet reachability or performance guarantee.
+The [host directory contract](network-host-directory.md) owns listing, browsing, and optional password behavior. The ongoing admission and hosted solo-round requirements below own admission and participation during gameplay. These requirements supersede earlier first-round-only admission and two-player hosted-start restrictions in downstream documents. All other exclusions remain in force. LAN is the supported network environment; other valid IPv4 connections are permitted without an Internet reachability or performance guarantee. Local Play remains unchanged.
 
 ## First-release scope matrix
 
@@ -52,14 +52,14 @@ The [host directory contract](network-host-directory.md) owns listing, browsing,
 | Hosting | Player-hosted authoritative session | Dedicated server deployment and host migration |
 | Identity and access | Session-local participant identity; optional host password | Accounts, cloud identity, ranked identity |
 | Lobby cardinality | 1–15 admitted participants and 1–15 roster players; a host-alone lobby is valid | Empty or over-capacity admitted lobby |
-| Match start | 2–15 connected participants and 2–15 roster players; each participant owns at least one player | Starting alone, with a disconnected guest, or with an ownerless participant |
-| Degraded match | One connected host may continue while at least two roster players remain | Continuing after fewer than two roster players remain |
-| Admission | Lobby admission and immediate round-one admission before its outcome | New admission after the first-round outcome; spectators |
+| Match start | 1–15 connected participants and 1–15 roster players; each participant owns at least one player; existing readiness and validity checks | Starting with a disconnected guest or an ownerless participant |
+| Degraded match | One remaining roster player continues under hosted solo-round rules | Replacing an established outcome because of departure |
+| Admission | Lobby, active rounds, and non-final round-end delays; immediate first-round spawn only strictly before its outcome, otherwise next eligible round | New admission during final round-end delay or final summary; spectators |
 | Compatibility | Exact network release ID and canonical gameplay content | Cross-release or cross-content compatibility |
 | Player visuals | Deterministic built-in default network visuals | Selected-profile appearance and remote profile appearance parity |
 | Results | Session-only network results retained until a new match starts or the session ends | Local statistics or Elo writes |
 
-Lobby invariants are `1 <= admitted participants <= roster players <= 15`. Match start invariants are `2 <= connected participants <= roster players <= 15`, with every participant owning at least one player. A started match may degrade to one connected host if reservations or retained roster ownership leave at least two roster players. Fewer than two roster players ends the match without a winner.
+Lobby invariants are `1 <= admitted participants <= roster players <= 15`. Match start invariants are `1 <= connected participants <= roster players <= 15`, with every participant owning at least one player and every participant connected, valid, and ready. A started match continues with one remaining roster player under NET-SOLO-001 through NET-SOLO-006; that reduction alone is not an interruption.
 
 Same-machine support means separate running instances communicating through the production transport. It does not wrap or alter the local-only Play journey.
 
@@ -122,7 +122,7 @@ Preference retention does not change host-only setting permissions or readiness 
 
 ## Lobby, readiness, and admission
 
-- A host-alone lobby with one or more host-owned players is valid, but Start is blocked until the match-start invariants are met.
+- A host-alone lobby with one or more host-owned players is valid and may Start when the existing validity and readiness checks are satisfied; no solo confirmation is required.
 - Every connected participant, including the host, must be ready before Start is enabled.
 - In the lobby, admitting, intentionally removing, or expiring a participant clears every participant's readiness.
 - Changing a person, control, host match setting, or roster order in `NET-04` clears every participant's readiness.
@@ -130,24 +130,37 @@ Preference retention does not change host-only setting permissions or readiness 
 - An admitted guest declared disconnected remains admitted as `Reconnecting`. Its prior Ready value is retained, but Start is blocked with `Waiting for <participant> to reconnect`.
 - A successful reconnect restores the retained Ready value unless another readiness-clearing mutation occurred after disconnect.
 - Reconnect expiry or intentional Leave removes the participant and players and clears every remaining participant's readiness.
-- New admission must follow NET-ADM-001 through NET-ADM-012.
+- New admission must follow NET-ADM-001 through NET-ADM-016.
 
-### Round-one admission
+### Ongoing admission and spawn eligibility
 
-The admission `started` state is distinct from active gameplay. It becomes true at the first-round outcome, not when gameplay begins.
+Match phase and admission availability are independent. A started match may remain Open; a final outcome closes admission before its final delay and summary.
 
-- **NET-ADM-001** The host must permit new admission in the lobby and during the first active round, subject to password, compatibility, capacity, and ownership checks.
-- **NET-ADM-002** The host must close new admission when it establishes the first-round winner or no-winner outcome, before the round-end delay.
-- **NET-ADM-003** The host must reject any admission that has not committed strictly before that outcome. The outcome must take precedence at an equal host-clock instant.
-- **NET-ADM-004** The host must keep admission closed through summaries and subsequent rounds, including the final summary of a one-round match.
-- **NET-ADM-005** The host must reopen admission only on return to the lobby, including return after an interruption.
-- **NET-ADM-006** A round-one admission must append all selected players as one admission without exceeding 15 participants or 15 roster players. It must preserve existing player identities, ownership, roster order, teams, and state.
-- **NET-ADM-007** Each new player must spawn immediately with the normal initial life, air, random enabled weapon, ammo, protection, and spawn indicators. Placement must use the current arena and the applicable Team starting area. Placement does not guarantee safety from existing hazards.
-- **NET-ADM-008** The host must keep the existing Predator for the round. Each new Predator-mode player must enter as a non-predator with the normal non-predator initial ammo. New Team players must use appended roster positions for team assignment.
-- **NET-ADM-009** Admission must not restart the round, reset other players, rewind world state, or restart water or sudden-death timers. New living players must participate in normal combat and winner evaluation. An established sudden-death state must remain active.
-- **NET-ADM-010** New players must receive statistics only for their actual participation. A completed first round must count as one played round for them. Survival time must begin at spawn. Results must retain their stable identities and applicable round roster membership.
-- **NET-ADM-011** A new guest must receive confirmed ownership, valid clock calibration, and a complete current authoritative snapshot within the existing connection deadline. Admission during gameplay must enter `NET-05`, not a waiting lobby or spectator state. Lobby admission must enter `NET-04`. Readiness changes must not pause or restart active gameplay.
-- **NET-ADM-012** Reconnect must preserve the reserved player's current state and must not create a fresh spawn. New admission must not grant control of a reserved or existing player identity. This release does not add accounts or cross-connection person authentication.
+- **NET-ADM-001** The host must permit new admission in the lobby, all active rounds, and non-final round-end delays, subject to existing password, compatibility, capacity, and ownership checks.
+- **NET-ADM-002** The host must close new admission when it establishes the final-round winner or no-winner outcome, before the final round-end delay.
+- **NET-ADM-003** An admission must commit strictly before the final outcome to succeed. At an equal host-clock instant, an outcome or round start takes precedence over admission. At the first non-final outcome, admission remains available but immediate first-round spawn is no longer eligible.
+- **NET-ADM-004** The host must keep admission closed through the final round-end delay and final summary, including a one-round match. Later active rounds and non-final delays remain open.
+- **NET-ADM-005** Returning to the lobby, including after an approved interruption, must reopen admission under the existing lobby checks.
+- **NET-ADM-006** An ongoing admission must append all selected players as one admission without exceeding 15 participants or 15 roster players. It must preserve existing player identities, ownership, roster order, teams, and state.
+- **NET-ADM-007** Admission committed strictly before the first-round outcome must spawn each new player immediately with normal initial life, air, random enabled weapon, ammo, protection, and spawn indicators. Other ongoing admissions must use that normal initialization exactly once at their eligible round start under NET-ADM-013. Placement must use the applicable arena and Team starting area; it does not guarantee safety from hazards.
+- **NET-ADM-008** Immediate first-round arrival must keep the existing Predator; each arriving Predator-mode player enters as a non-predator with normal non-predator initial ammo. New Team players use appended roster positions without changing existing teams. At an eligible new-round start, the normal mode initialization applies to the participating roster.
+- **NET-ADM-009** Admission must not restart the round, reset other players, rewind world state, or restart water or sudden-death timers. Newly spawned players participate in combat and winner evaluation under NET-SOLO-001 through NET-SOLO-006. An established sudden-death state remains active; waiting players must not affect it.
+- **NET-ADM-010** New players receive statistics only for rounds they actually participate in. A completed round counts as played only after that player spawns in it; survival time begins at spawn. Waiting accrues no statistics or results. Never-spawned players must have no match-participation result rows. Results retain stable identities and actual round membership.
+- **NET-ADM-011** A new guest must receive confirmed ownership, valid clock calibration, and a complete current authoritative snapshot within the existing connection deadline. Admission during gameplay enters `NET-05`, either immediately participating or `NET-05-waiting-for-next-round`, not a false lobby or spectator state. Lobby admission enters `NET-04`. No second match-start readiness vote may pause or restart gameplay.
+- **NET-ADM-012** Reconnect preserves current reserved state and spawn eligibility; it must not spawn a waiting player early or duplicate a spawn. New admission must not grant control of reserved or existing identities. This release does not add accounts or cross-connection person authentication.
+- **NET-ADM-013** An admission committed at or after the first-round outcome waits for the first round start strictly after its admission. Admission during a later active round or non-final delay uses the same rule. A round start at the same instant is not eligible.
+- **NET-ADM-014** Waiting players retain admitted identity, ownership, and capacity but have no active body, gameplay input, damage, pickups, winner eligibility, survival time, or results in the current round. Replication must distinguish Waiting from living, dead, and removed players.
+- **NET-ADM-015** At the eligible round start, each nonremoved waiting player must spawn exactly once through normal round initialization with all pending and retained input cleared. A reserved disconnected player spawns under existing no-input reservation rules. Leave or expiry cancels pending spawn; reconnect cannot bypass eligibility.
+- **NET-ADM-016** Admission during a final active round after the immediate first-round window may succeed as waiting, but must not create an extra round. Final outcome closes further admission. Never-spawned players preserve their admitted ownership into the following lobby without match-participation results.
+
+### Hosted solo-round rules
+
+- **NET-SOLO-001** Hosted Start accepts 1–15 connected participants and roster players under the existing ownership, validity, and readiness checks. Local Play's minimum-player rule is unchanged.
+- **NET-SOLO-002** Opposition uses spawned, nonremoved current-round membership, including dead players and disconnected reserved players. Deathmatch requires at least two such players; Predator requires the Predator and at least one non-predator; Team deathmatch requires at least two represented teams. Waiting and removed players are excluded.
+- **NET-SOLO-003** Without opposition, the round stays playable and must not automatically award a victory to the surviving player or team. Normal simulation, hazards, timers, and input continue. When opposition exists, normal mode winner rules apply.
+- **NET-SOLO-004** With no living current-round players, the service establishes a completed `No winner` round without victory, including when Leave or expiry removes the last living player. Waiting players do not prevent that outcome. The normal round-end delay and configured round limit apply.
+- **NET-SOLO-005** Before an outcome is established, removal that eliminates opposition returns the current round to solo rules. Reducing the roster to one does not interrupt the match. An already established outcome is immutable.
+- **NET-SOLO-006** Every new round reevaluates opposition from its spawned nonremoved membership; eligible waiting arrivals can establish opposition. Admission alone must not count as participation before spawn.
 
 ## Compatibility contract
 
@@ -243,8 +256,8 @@ Selected-profile appearance parity between network participants is outside first
 ### Guest connection
 
 - Hostname/address and port validation remains inline in editable `NET-03`; invalid input does not begin the connection clock.
-- A connection attempt has one 10-second total deadline. It covers resolution, transport connection, compatibility, capacity, host admission, clock calibration, and initial lobby snapshot validation.
-- Production success must include the exact final confirmation, valid host-clock calibration, and one complete valid initial lobby snapshot.
+- A connection attempt has one 10-second total deadline. It covers resolution, transport connection, compatibility, capacity, host admission, clock calibration, and current initial snapshot validation.
+- Production success must include exact final confirmation, valid host-clock calibration, and one complete current lobby or match snapshot, including waiting ownership when applicable.
 - The guest must receive all three success inputs strictly before the deadline. It may validate queued predeadline inputs after the deadline without starting or awaiting a new exchange.
 - Missing calibration or another success input at the deadline must produce `Connection timed out.` unless a higher-precedence result was established first.
 - A frame received at or after the deadline cannot replace timeout or a complete valid predeadline result.
@@ -260,7 +273,7 @@ User Cancel and local inline validation take precedence before any host or trans
 3. release mismatch — `Network release mismatch. Use the same supported game release as the host.`;
 4. invalid gameplay-content manifest — `Gameplay content manifest is invalid. Use the host's exact supported gameplay content.`;
 5. gameplay-content mismatch — `Gameplay content mismatch. Use the host's exact supported gameplay content.`;
-6. new admission closed under NET-ADM-002 — `Round-one admission has closed. Join when the host returns to the lobby.`;
+6. new admission closed under NET-ADM-002 — use the fixed final-admission-closed reason owned by [compatibility and admission](network-compatibility-and-admission.md#initial-outcome-identifiers-and-copy), without a first-round cutoff claim;
 7. capacity reached — `Session is full.`;
 8. other host policy rejection — `Host rejected the connection.`;
 9. success.
@@ -317,7 +330,7 @@ The host application's local supervisor may detect that its own hosted service s
 1. `NET-01` → Join → editable `NET-03`.
 2. Inline-invalid endpoint remains in `NET-03`; valid Connect starts the 10-second attempt.
 3. Cancel → editable `NET-03` with endpoint and local-player setup retained.
-4. Confirmed admission → `NET-04`; failure → `NET-08`; Retry repeats, Edit setup returns to `NET-03`, Return to Network → `NET-01`.
+4. Confirmed admission → current authoritative `NET-04` or `NET-05` under NET-ADM-011; failure → `NET-08`; Retry repeats, Edit setup returns to `NET-03`, Return to Network → `NET-01`.
 
 ### Lobby, match, summary, and return
 
@@ -346,7 +359,7 @@ The host application's local supervisor may detect that its own hosted service s
 - Repeated attempts use the original deadline and never extend or restart it.
 - After a successful restore, a later newly declared disconnect creates a new reservation and new 30-second deadline.
 - Successful reconnect restores only the current authoritative lobby, match, or summary state; it never rewinds or makes an older snapshot current.
-- During an active round, simulation, timers, hazards, connected inputs, combat, scoring, winner rules, and round progression continue. Reserved players receive no input, remain valid targets, and count for winner conditions.
+- During an active round, simulation, timers, hazards, connected inputs, combat, scoring, solo/winner rules, and round progression continue. Spawned reserved players receive no input, remain valid targets, and count as current-round membership. Reserved waiting players remain waiting until their eligible start and have no body or current-round winner role.
 - Normal damage, death, score, and winner rules apply during reservation.
 - Retryable resolution, refusal, unreachable, reset, temporary transport, and no-response outcomes remain in `NET-07` for the full remaining reservation. Terminal outcomes follow the fixed precedence above.
 
@@ -355,8 +368,8 @@ The host application's local supervisor may detect that its own hosted service s
 At each host session clock instant, applicable confirmed intentional leaves and authoritative reservation expiries form one atomic removal batch. Removal itself adds no kill, death, assist, penalty, or other combat statistic. Intentional host End session takes precedence over every removal batch and discards session results. A host-local supervised service failure also ends host processing and discards the host's session result without creating a guest-observable host-end signal.
 
 - **Lobby:** Remove the batch, label departed rows in any retained result, and clear every remaining participant's readiness. Do not evaluate a winner. The retained completed result remains until a new match starts or the session ends.
-- **Active round:** Remove the batch, then perform exactly one winner-condition evaluation. With at least two roster players, normal progression continues, including one connected host. With fewer than two, produce the current result `Session only • Interrupted • No winner`, retain it, and return remaining connected participants to `NET-04` with readiness cleared.
-- **Non-final round summary:** Preserve the completed round outcome. After the batch, continue to the next round when at least two roster players remain. Otherwise produce the current result `Session only • Interrupted • No winner`, retain the already completed round, and return remaining connected participants to `NET-04` with readiness cleared.
+- **Active round:** Remove the batch, then perform exactly one evaluation under NET-SOLO-002 through NET-SOLO-005 if no outcome exists. One remaining roster player continues under solo rules; waiting players do not supply opposition. An established outcome remains unchanged.
+- **Non-final round summary:** Preserve the completed round outcome. After the batch, continue to the next round with one or more roster players and reevaluate opposition at its start. A reduction to one does not produce an interrupted result.
 - **Final summary:** Never reevaluate or replace the completed match outcome because of departure. Remove the batch and retain the completed result with affected participant/player rows labeled `Departed`.
 
 An isolated guest reaching its local deadline enters `NET-08`; it does not claim authoritative removal or host end. Only a running host applies authoritative expiry batching on its own session clock.
@@ -392,7 +405,7 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 
 - Guaranteed Internet play, NAT traversal, relays, firewall automation, automatic LAN discovery, or matchmaking.
 - Accounts, cloud identity, ranked networking, network Elo, or persistent network statistics.
-- Dedicated-server operation or packaging, host migration, new admission after the first-round outcome, or spectators.
+- Dedicated-server operation or packaging, host migration, new admission after the final-round outcome, or spectators.
 - A guest-observable unexpected host-termination signal; only intentional End session notice is guest-observable in first release.
 - Cross-release or cross-content compatibility.
 - Compatibility checks for presentation-only assets, local persistence, local controls, or documentation.
@@ -406,19 +419,22 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 - **NET-AC-001 — Platform:** Linux x86-64, Windows x86-64, Raspberry Pi 5 Linux 64-bit under [its contract](raspberry-pi5.md), and Apple Silicon macOS 14+ under [its experimental contract](macos.md) are approved participation targets using the same supported release and gameplay content. This is not a blanket verified-platform claim. Native Mac automated acceptance is required after integration in `Develop - Sanity` and gates `sanity` and nightly publication, not pre-review or merge. Actual Mac GUI and live cross-OS gameplay are deferred to the user after merge/nightly under MAC-NET-AC-006.
 - **NET-AC-002 — Endpoints:** A host can use IPv4 wildcard mode or an explicit selected set of eligible assigned loopback, private, or public unicast IPv4 addresses. Direct and browser joining use concrete connectable endpoints and preserve LAN support without promising Internet reachability. Concrete-address exclusions and no network-infrastructure automation remain enforced.
 - **NET-AC-003 — Host model:** The session is player-hosted and authoritative, with no dedicated-server product path or host migration.
-- **NET-AC-004 — Lifecycle cardinality:** A lobby admits 1–15 participants and players including a valid host-alone lobby; Start requires 2–15 connected participants and players with at least one player each; a degraded match may continue with one connected host while at least two roster players remain; fewer than two ends without winner.
+- **NET-AC-004 — Lifecycle cardinality:** A lobby and hosted Start accept 1–15 participants and roster players, with all participants connected, valid, ready, and owning at least one player at Start. One remaining roster player continues under solo rules without interruption. Local Play is unchanged.
 - **NET-AC-005 — Ownership:** The host controls match settings and roster order. Each participant controls only the persons and controls assigned to its immutable admitted player slots. A person, control, or roster-order change does not change player identity or ownership. Authoritative input and state ownership are enforced.
-- **NET-AC-006 — Readiness:** Every participant must be connected, valid, and ready for the initial match start. Lobby admission or removal and each permitted lobby configuration change clear all readiness. A disconnected admitted guest retains prior readiness as `Reconnecting` but blocks Start by name. Reconnect restores retained readiness only when no later clearing mutation occurred. Round-one admission does not require a second match-start readiness vote.
-- **NET-AC-007 — Admission:** Lobby and active first-round admission succeed when eligible. New admission closes at the first outcome, rejects uncommitted admissions at that boundary, remains closed through all summaries and later rounds, and reopens only in the lobby.
-- **NET-ADM-AC-001 — Live arrival:** Round-one arrival immediately adds the exact selected players with normal initial state and usable owned controls on every client. It does not reset the world, existing players, or timers. Capacity remains bounded.
-- **NET-ADM-AC-002 — Modes and results:** Late arrival preserves Predator identity, appends Team assignments without changing existing teams, applies friendly fire and normal winner rules, and records only actual participation in session-only results.
-- **NET-ADM-AC-003 — Boundary and recovery:** Evidence covers an admission crossing the outcome boundary, an equal-time boundary, one-round completion, interruption, lobby reopening, and reconnect without respawn or identity takeover.
+- **NET-AC-006 — Readiness:** Every participant must be connected, valid, and ready for initial Start, including solo Start without a new confirmation. Lobby admission/removal and permitted configuration changes clear all readiness. A disconnected guest retains prior readiness as `Reconnecting` but blocks Start by name. Reconnect restores it only absent later clearing mutations. Ongoing admission needs no second match-start vote.
+- **NET-AC-007 — Admission:** Lobby, active-round, and non-final-delay admission succeeds when eligible. Immediate spawn is restricted to commit strictly before the first-round outcome; later admission waits for a strictly later round start. Final outcome closes admission through final delay and summary; lobby return reopens it.
+- **NET-ADM-AC-001 — Live and waiting arrival:** Admission committed strictly before the first-round outcome immediately adds exact selected players with normal initial state and usable owned controls on every client, without resetting world, mode, existing players, or timers. At/after that outcome and in later rounds/non-final delays, eligible admission confirms waiting ownership and spawns only at the first strictly later round start. Capacity remains bounded.
+- **NET-ADM-AC-002 — Modes and results:** Immediate arrival preserves Predator identity and existing Team assignments. Waiting players have no body, input, combat, pickup, winner, survival, or result effects; eligible spawn uses normal mode initialization exactly once. Statistics count actual participation only, and never-spawned players have no match-participation result rows.
+- **NET-ADM-AC-003 — Boundary and recovery:** Evidence covers first outcome and round-start equality precedence, later active and non-final-delay admission, final active waiting without an extra round, final-outcome rejection, lobby ownership retention, reserved eligible spawn without input, Leave/expiry cancellation, and reconnect without early or duplicate spawn or identity takeover.
+- **NET-SOLO-AC-001 — Start and opposition:** Solo hosted Start is available with valid ready setup and no extra confirmation. Mode-specific opposition includes dead/reserved spawned membership but excludes waiting/removed players. Normal winner evaluation applies when opposition exists; Local Play remains unchanged.
+- **NET-SOLO-AC-002 — Solo lifecycle:** No-opposition play does not auto-win. No living current-round players completes a no-winner round without victory, including last-living death, Leave, or expiry; waiting does not prevent completion. Normal delay and limit apply. Departures to one continue; each new round reevaluates opposition.
+- **NET-SOLO-AC-003 — Outcome integrity:** Pre-outcome removal can restore solo rules, while established outcomes remain immutable. Waiting admission cannot establish opposition or fabricate participation/results.
 - **NET-AC-008 — Compatibility:** Admission requires an exact case-sensitive non-empty network release ID and exact gameplay-content manifest whose logical paths satisfy every ASCII length, segment, character, separator, uniqueness, and unsigned-order rule; fixed user copy discloses no peer release ID, path, value, or raw payload, and diagnostics name only independently validated canonical paths.
 - **NET-AC-009 — Timing, admission, and host-local failure:** Host startup and complete initial guest connection must satisfy their 10-second boundaries. Production connection success must include predeadline final confirmation, valid clock calibration, and a complete valid initial snapshot. Missing calibration must produce timeout. Late initial-connection frames must not replace timeout or predeadline success. User Cancel and local validation must keep their defined precedence. The host application's local supervisor alone may route the host to `NET-08` with `Hosted session stopped unexpectedly.` This outcome is never guest evidence. Retained data, fixed copy, Retry, Edit setup, and Return destinations must match this specification.
 - **NET-AC-010 — Authority:** Participants control only owned local players while the host owns canonical simulation, rounds, scoring, winner evaluation, and current state in one shared arena.
 - **NET-AC-011 — Reconnect:** A reservation begins at host-declared disconnect, expires at `D + 30s`, accepts only strictly-before-deadline restoration, shows positive ceiling seconds without active zero, retains one deadline across attempts, and restores only current state; silence, refusal, unreachable, reset, timeout, host crash, host-machine/listener loss, temporary failure, and no response remain ambiguous in `NET-07`; only a valid host End notice accepted through the established session, accepted restore, terminal rejection, retryable failure, and expiry follow the fixed precedence.
-- **NET-AC-012 — Active disconnect:** Active simulation, timers, hazards, connected input, combat, scoring, winner rules, and round progression continue while reserved players receive no input, remain targets, and count for winner conditions.
-- **NET-AC-013 — Lifecycle-specific server-side removal:** A running host batches same-clock confirmed leaves and authoritative expiries without removal combat statistics. Lobby removal clears readiness without winner evaluation. Active-round removal performs one winner evaluation. An interruption preserves completed rounds and their last outcome. It discards the incomplete round and creates a `No winner` match outcome. It returns connected participants to `NET-04`, not `NET-06`. Non-final-summary removal preserves the completed round before continuation or interruption. Final-summary removal retains the completed match outcome and adds departed labels. An isolated guest deadline does not claim server-side removal.
+- **NET-AC-012 — Active disconnect:** Simulation and progression continue. Spawned reserved players receive no input; living reserved players remain valid targets. Dead and living spawned membership counts for opposition until removal. Waiting reserved players have no current body or winner role and spawn only at their eligible start under no-input rules.
+- **NET-AC-013 — Lifecycle-specific server-side removal:** Same-clock leaves and expiries are one batch without combat statistics. Lobby removal clears readiness without winner evaluation. Active pre-outcome removal evaluates once under solo/opposition rules; one remaining roster player continues. Established outcomes, including non-final-delay and final-summary outcomes, remain unchanged. Waiting removal cancels pending spawn. An isolated guest deadline does not claim server-side removal.
 - **NET-AC-014 — Intentional host end:** Only a valid intentional host End session notice accepted through the current established session returns the host to `NET-01` and sends guests to host-ended `NET-09`; first release has no guest-observable unexpected termination signal, and host crash, machine/listener loss, silence, reset, refusal, or timeout remains `NET-07` until terminal rejection or expiry.
 - **NET-AC-015 — Local independence:** `Play (F1)` starts and completes unchanged without starting or requiring any network service, while `Network (F2)` remains separate.
 - **NET-AC-016 — Cancellation and leave:** Host startup Cancel, guest connection Cancel, guest lobby/match/summary Leave, reconnect Leave session, host End session, and their confirmations retain or discard data and reach exactly the specified destinations.

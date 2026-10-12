@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-Current functional target: `NET-08-password-rejected` uses `Connection not authorized.` and permits Edit setup to correct the password while retaining non-secret join setup. `NET-08-admission-closed` retains identifier `match-already-started` but replaces its old copy with `Round-one admission has closed. Join when the host returns to the lobby.` Browser-origin failures must also permit return to `NET-10` for refresh. Directory read failures remain in `NET-10`; they must not imply that an active game has ended. Functional acceptance uses [NET-DIR-AC-003 and NET-PASS-AC-001](../network-host-directory.md) and NET-ADM-AC-003. These rules supersede conflicting legacy copy below.
+Current functional target: `NET-08-password-rejected` uses `Connection not authorized.` and permits Edit setup with retained non-secret setup. `NET-08-admission-closed` retains identifier `match-already-started` for final-outcome closure under NET-ADM-002, not a first-round cutoff or blanket join-in-progress rejection. Exact fixed copy remains product-owned in [compatibility and admission](../network-compatibility-and-admission.md#initial-outcome-identifiers-and-copy). Browser failures permit return to `NET-10`; directory read failures stay there and do not imply game end. Successful waiting admission is not a failure. Functional acceptance uses NET-DIR-AC-003, NET-PASS-AC-001, and NET-ADM-AC-003.
 
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It gives an actionable and truthful outcome for startup/initial-connection failures and terminal reconnect outcomes. It implements `NET-AC-002`, `NET-AC-007`, `NET-AC-008`, `NET-AC-009`, `NET-AC-011`, `NET-AC-013`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-019` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 Issue #30 defines the compatibility and admission outcomes for this screen in [`docs/network-compatibility-and-admission.md`](../network-compatibility-and-admission.md).
@@ -79,10 +79,10 @@ The runtime must stop at the first applicable complete host result in the table 
 | 5 | `required-capability-unsupported` | `Network release mismatch. Use the same supported game release as the host.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 6 | `gameplay-content-manifest-invalid` | `Gameplay content manifest is invalid. Use the host's exact supported gameplay content.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 7 | `gameplay-content-mismatch` | `Gameplay content mismatch. Use the host's exact supported gameplay content.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
-| 8 | `match-already-started` | `Match already started. Join-in-progress is not supported.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
+| 8 | `match-already-started` | `Match completed. Join when the host returns to the lobby.` | Retry the retained initial attempt when still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 9 | `session-full` | `Session is full.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
 | 10 | `host-policy-rejected` | `Host rejected the connection.` | Retry the retained initial attempt when it is still valid; Edit setup → retained `NET-03`; Return to Network → `NET-01`. |
-| 11 | `admitted` | No rejection copy. | Enter `NET-04` only after exact final-confirmation validation; do not show `NET-08`. |
+| 11 | `admitted` | No rejection copy. | Enter current `NET-04` or `NET-05`, including waiting, only after complete confirmation/calibration/snapshot validation; do not show `NET-08`. |
 
 Without a complete host response, the runtime must use the first applicable transport result in this order.
 

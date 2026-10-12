@@ -669,7 +669,7 @@ D6R_TEST_CASE("AC-017 admission outcomes retain approved precedence identifiers 
         {Code::RequiredCapabilityUnsupported, "required-capability-unsupported", "Network release mismatch. Use the same supported game release as the host."},
         {Code::GameplayContentManifestInvalid, "gameplay-content-manifest-invalid", "Gameplay content manifest is invalid. Use the host's exact supported gameplay content."},
         {Code::GameplayContentMismatch, "gameplay-content-mismatch", "Gameplay content mismatch. Use the host's exact supported gameplay content."},
-        {Code::MatchAlreadyStarted, "match-already-started", "Round-one admission has closed. Join when the host returns to the lobby."},
+        {Code::MatchAlreadyStarted, "match-already-started", "Match completed. Join when the host returns to the lobby."},
         {Code::SessionFull, "session-full", "Session is full."},
         {Code::HostPolicyRejected, "host-policy-rejected", "Host rejected the connection."},
         {Code::Admitted, "admitted", ""}};
@@ -1048,7 +1048,11 @@ D6R_TEST_CASE("NET-ADM reviewed production admission loop rejects offers crossin
         std::optional<Network::AdmissionOfferPayload> pending;
         bool started = false, outcome = false, rejected = false, confirmed = false, queued = false;
         Network::TransportTimePoint due{};
-        dependencies.hostReadinessChange = [] { return std::optional<bool>(true); };
+        // This boundary fixture needs its original guest in the initial world;
+        // do not accidentally exercise the now-valid host-only auto-start first.
+        dependencies.hostReadinessChange = [&] {
+            return initial->succeeded ? std::optional<bool>(true) : std::optional<bool>{};
+        };
         dependencies.authoritativeRuntimeFactory = [&](const auto &, const auto &players, const auto &) {
             started = true;
             due = fixture->now + std::chrono::duration_cast<Network::TransportTimePoint::duration>(
@@ -1150,7 +1154,10 @@ D6R_TEST_CASE("NET-AC-013 AHM-024 AHM-028 production reserved Leave shares the p
         unsigned waits = 0;
         std::uint64_t ticksWhenQueued = 0;
         Network::TransportTimePoint jumpAt{};
-        dependencies.hostReadinessChange = [] { return std::optional<bool>(true); };
+        dependencies.hostReadinessChange = [&] {
+            return std::all_of(peers.begin(), peers.end(), [](const auto &peer) { return peer->succeeded; })
+                ? std::optional<bool>(true) : std::optional<bool>{};
+        };
         dependencies.authoritativeRuntimeFactory = [&](const auto &config, const auto &players, const auto &) {
             D6R_REQUIRE_EQ(1u, config.roundLimit);
             D6R_REQUIRE_EQ(grants.size() + 1, players.size());
@@ -1271,14 +1278,18 @@ D6R_TEST_CASE("NET-AC-013 AHM-024 AHM-028 production reserved Leave shares the p
             require(result->result.state == "Completed" && observations->hostTicks == 360
                     && removalBatches.empty(), "control really reaches final completion on next tick");
         } else {
-            require(result->phase == Network::Replication::Phase::Lobby && result->result.state == "Interrupted"
-                    && result->score.winner.noWinner && result->score.winner.winnerPlayerIds.empty(),
-                    "pre-completion Leave interrupts without a final winner");
-            require(observations->hostTicks == ticksWhenQueued, "removal batch precedes completion tick");
+            require(result->phase == Network::Replication::Phase::FinalSummary && result->result.state == "Completed"
+                    && !result->score.winner.noWinner
+                    && result->score.winner.winnerPlayerIds == std::vector<std::uint64_t>{snapshot->players.front().playerId},
+                    "Leave during final delay preserves the established final winner");
+            require(ticksWhenQueued == 359 && observations->hostTicks == 360,
+                    "removal batch precedes normal completion tick without replacing outcome");
             require(removalBatches.size() == 1 && removalBatches.front().size() == grants.size(),
                     "admitted and authenticated reserved leaves form one atomic removal batch");
-            require(result->participants.size() == 1 && result->players.size() == 1,
-                    "both departed participants removed from following lobby");
+            require(std::count_if(result->players.begin(), result->players.end(), [](const auto &player) {
+                        return player.lifeState == Network::Replication::LifeState::Departed;
+                    }) == static_cast<std::ptrdiff_t>(grants.size()),
+                    "completed result retains exactly the departed history labels");
         }
         require(fixture->shutdown, "listener cleanup completed");
     }
@@ -2671,7 +2682,7 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
             "no-autostart=true;host-status=0"), evidence);
 }
 
-D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reopens fresh admission and resets the next match") {
+D6R_TEST_CASE("NET-SOLO production expiry continues the same match and accepts a fresh immediate first-round arrival") {
     const auto hostedManifest = manifest({
             {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
     auto content = std::make_shared<Network::FrozenGameplayContent>();
@@ -2696,8 +2707,8 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reop
     std::atomic<Network::Replication::Identity> firstMatchId{0};
     std::atomic<Network::Replication::Identity> firstGuestParticipantId{0};
     std::atomic<bool> reconnectingObserved{false};
-    std::atomic<bool> interruptedResultObserved{false};
-    std::atomic<bool> interruptedReadinessResetObserved{false};
+    std::atomic<bool> soloContinuationObserved{false};
+    std::atomic<bool> noResultObserved{false};
     std::atomic<bool> expiredGuestRemovedObserved{false};
     std::atomic<bool> nextMatchResetObserved{false};
     hostDependencies.cancelled = [&] { return cancelled.load(); };
@@ -2742,6 +2753,16 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reop
             ++snapshot->stateDigest;
             return true;
         };
+        runtime.worldAppendPlayers = [snapshot](const auto &arrivals, auto &) {
+            for (const auto &definition: arrivals) {
+                Server::Authoritative::CanonicalPlayerSnapshot player;
+                player.playerId = definition.playerId; player.rosterSlot = definition.rosterOrder;
+                player.alive = true; player.life = Server::Authoritative::MaximumLife;
+                snapshot->players.push_back(player);
+            }
+            ++snapshot->stateDigest;
+            return true;
+        };
         runtime.worldRemoveBatch = [snapshot](const std::vector<Server::Authoritative::Identity> &removals) {
             if (!std::all_of(removals.begin(), removals.end(), [&](const auto playerId) {
                     return std::any_of(snapshot->players.begin(), snapshot->players.end(),
@@ -2769,21 +2790,30 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reop
                 && std::any_of(state.participants.begin(), state.participants.end(), [](const auto &participant) {
                     return participant.connection == Network::Replication::ConnectionState::Reconnecting;
                 })) reconnectingObserved = true;
-            if (firstMatchId.load() != 0 && state.matchId != firstMatchId.load()
+            if (firstMatchId.load() != 0 && state.matchId == firstMatchId.load()
+                && std::count_if(state.players.begin(), state.players.end(), [](const auto &player) {
+                    return player.lifeState != Network::Replication::LifeState::Departed;
+                }) == 2
+                && std::none_of(state.players.begin(), state.players.end(), [&](const auto &player) {
+                    return player.ownerParticipantId == firstGuestParticipantId.load()
+                        && player.lifeState != Network::Replication::LifeState::Departed;
+                })
                 && !state.result.available && state.completedRounds == 0 && state.currentRoundNumber == 1
                 && std::all_of(state.score.players.begin(), state.score.players.end(), [](const auto &row) {
                     return row.roundPoints == 0 && row.cumulativePoints == 0;
                 })) nextMatchResetObserved = true;
         }
-        if (state.phase == Network::Replication::Phase::Lobby
-            && state.result.available && state.result.state == "Interrupted") {
-            interruptedResultObserved = true;
-            if (std::all_of(state.participants.begin(), state.participants.end(), [](const auto &participant) {
-                    return !participant.ready;
-                })) interruptedReadinessResetObserved = true;
+        if (state.phase == Network::Replication::Phase::ActiveRound
+            && std::count_if(state.players.begin(), state.players.end(), [](const auto &player) {
+                return player.lifeState != Network::Replication::LifeState::Departed;
+            }) == 1
+            && state.matchId == firstMatchId.load() && reconnectingObserved.load()) {
+            soloContinuationObserved = true;
+            noResultObserved = !state.result.available;
             const auto expired = firstGuestParticipantId.load();
-            if (expired != 0 && std::none_of(state.participants.begin(), state.participants.end(),
-                    [expired](const auto &participant) { return participant.participantId == expired; }))
+            if (expired != 0 && std::none_of(state.players.begin(), state.players.end(),
+                    [expired](const auto &player) { return player.ownerParticipantId == expired
+                        && player.lifeState != Network::Replication::LifeState::Departed; }))
                 expiredGuestRemovedObserved = true;
         }
         return true;
@@ -2811,10 +2841,9 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reop
     for (unsigned attempt = 0; attempt < 600 && !reconnectingObserved; ++attempt)
         std::this_thread::sleep_for(5ms);
     accelerateReconnectExpiry = true;
-    for (unsigned attempt = 0; attempt < 1000 && !interruptedResultObserved; ++attempt)
+    for (unsigned attempt = 0; attempt < 1000 && !expiredGuestRemovedObserved; ++attempt)
         std::this_thread::sleep_for(5ms);
     accelerateReconnectExpiry = false;
-    hostClockOffsetMilliseconds = 0;
 
     std::unique_ptr<ProductionAdmissionPeer> newcomer;
     bool newcomerAdmitted = false;
@@ -2822,28 +2851,25 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reop
     bool retainedReadinessReset = false;
     bool priorGuestAbsent = false;
     bool nextMatchActive = false;
-    if (interruptedResultObserved) {
+    if (expiredGuestRemovedObserved) {
         newcomer = connectProductionPeer(hostConfig.listenEndpoint, hostedManifest);
         newcomerAdmitted = pumpUntil(*newcomer, [&] { return newcomer->admitted; }, 2s);
         const auto retained = std::find_if(newcomer->states.rbegin(), newcomer->states.rend(), [](const auto &state) {
-            return state.phase == Network::Replication::Phase::Lobby
-                    && state.result.available && state.result.state == "Interrupted";
+            return state.phase == Network::Replication::Phase::ActiveRound && !state.result.available;
         });
         if (retained != newcomer->states.rend()) {
-            retainedInterruptedResult = !retained->result.serialized.empty();
-            retainedReadinessReset = std::all_of(
-                    retained->participants.begin(), retained->participants.end(),
-                    [](const auto &participant) { return !participant.ready; });
-            priorGuestAbsent = std::none_of(retained->participants.begin(), retained->participants.end(),
-                    [&](const auto &participant) {
-                        return participant.participantId == firstGuestParticipantId.load();
+            retainedInterruptedResult = retained->matchId == firstMatchId.load() && retained->result.serialized.empty();
+            retainedReadinessReset = retained->completedRounds == 0 && retained->currentRoundNumber == 1;
+            priorGuestAbsent = std::none_of(retained->players.begin(), retained->players.end(),
+                    [&](const auto &player) {
+                        return player.ownerParticipantId == firstGuestParticipantId.load()
+                            && player.lifeState != Network::Replication::LifeState::Departed;
                     });
         }
-        hostReadySent = false;
         nextMatchActive = pumpUntil(*newcomer, [&] {
             return std::any_of(newcomer->states.begin(), newcomer->states.end(), [&](const auto &state) {
                 return state.phase == Network::Replication::Phase::ActiveRound
-                        && state.matchId != firstMatchId.load() && !state.result.available
+                        && state.matchId == firstMatchId.load() && !state.result.available
                         && state.completedRounds == 0 && state.currentRoundNumber == 1;
             });
         }, 4s);
@@ -2855,22 +2881,22 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reop
     const std::string evidence = "first-admitted=" + std::string(firstAdmitted ? "true" : "false")
             + ";first-active=" + (firstMatchActive ? "true" : "false")
             + ";reconnecting=" + (reconnectingObserved ? "true" : "false")
-            + ";interrupted-result=" + (interruptedResultObserved ? "true" : "false")
-            + ";interrupted-readiness-reset=" + (interruptedReadinessResetObserved ? "true" : "false")
+            + ";solo-continuation=" + (soloContinuationObserved ? "true" : "false")
+            + ";no-result=" + (noResultObserved ? "true" : "false")
             + ";expired-guest-removed=" + (expiredGuestRemovedObserved ? "true" : "false")
             + ";fresh-admitted=" + (newcomerAdmitted ? "true" : "false")
-            + ";retained-result=" + (retainedInterruptedResult ? "true" : "false")
-            + ";retained-readiness-reset=" + (retainedReadinessReset ? "true" : "false")
+            + ";same-match=" + (retainedInterruptedResult ? "true" : "false")
+            + ";same-round=" + (retainedReadinessReset ? "true" : "false")
             + ";prior-guest-absent=" + (priorGuestAbsent ? "true" : "false")
-            + ";next-active=" + (nextMatchActive ? "true" : "false")
-            + ";next-reset=" + (nextMatchResetObserved ? "true" : "false")
+            + ";ongoing-active=" + (nextMatchActive ? "true" : "false")
+            + ";fresh-roster=" + (nextMatchResetObserved ? "true" : "false")
             + ";match-starts=" + std::to_string(matchStarts.load())
             + ";host-status=" + std::to_string(hostStatus);
     D6R_REQUIRE_EQ(std::string(
-            "first-admitted=true;first-active=true;reconnecting=true;interrupted-result=true;"
-            "interrupted-readiness-reset=true;expired-guest-removed=true;fresh-admitted=true;"
-            "retained-result=true;retained-readiness-reset=true;prior-guest-absent=true;"
-            "next-active=true;next-reset=true;match-starts=2;host-status=0"), evidence);
+            "first-admitted=true;first-active=true;reconnecting=true;solo-continuation=true;"
+            "no-result=true;expired-guest-removed=true;fresh-admitted=true;"
+            "same-match=true;same-round=true;prior-guest-absent=true;"
+            "ongoing-active=true;fresh-roster=true;match-starts=1;host-status=0"), evidence);
 }
 
 D6R_TEST_CASE("NET-AC-011 NET-AC-014 established guest honors queued host end at the close boundary despite failed quality output") {

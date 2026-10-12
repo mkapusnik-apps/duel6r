@@ -107,3 +107,8 @@ The popup ends above the local-player count and validation region. It can cover 
 - **UX-NET-02-AC-006** Overflow and maximum-length descriptions must preserve full addresses, focus bounds, fixed mode help, Close, and the underlying status/footer.
 
 Focused QA must also cover first explicit initialization, later mode restoration, a newly eligible unchecked address, stale-selection clearing, return focus, popup opening-input protection, maximum local slots, long names/control labels, invalid Port, and Cancel/Edit setup retention. Product criteria NET-HOST-IF-AC-001–007 and HSL-AC-019 own bind success, atomic cleanup, and reset behavior; screenshots alone cannot prove them. NET-04 owns publication-unavailable feedback and keeps its existing wireframes.
+
+## Hosted solo capacity
+
+- **UX-NET-02-046** Editable NET-02 and both listening-popup states must show `Match 1–15` in the existing capacity allocation, preserving `Lobby 1–15`, current local-player count, and existing controls. No region or input target changes are required.
+- **UX-NET-02-047** The current NET-02, NET-02-LA, and NET-02-LE representatives use one valid local player with a valid control and real eligible listening addresses. Popup mode/checkbox/focus behavior remains unchanged. NET-02-P and all unrelated wireframes remain byte-for-byte unchanged. Capture is pending in the [hosted solo/ongoing matrix](../screenshots/README.md#hosted-solo-start-and-ongoing-joining).
