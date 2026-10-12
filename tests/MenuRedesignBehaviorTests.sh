@@ -998,6 +998,9 @@ xdotool mouseup 1
 sleep 0.3
 capture "${scenario_dir}/after-elo.png"
 
+# Close after the last live capture so offline image checks do not consume the app budget.
+close_app
+
 assert_row_pairs_preserved() {
   local before="$1" after="$2" label="$3" before_crop after_crop metric status matched
   normalize_menu "$before" "${scenario_dir}/${label}-before-normalized.png"
@@ -1031,7 +1034,6 @@ assert_row_pairs_preserved() {
 assert_row_pairs_preserved "${scenario_dir}/teams-before-shuffle.png" \
   "${scenario_dir}/after-random.png" "random"
 assert_row_pairs_preserved "${scenario_dir}/after-random.png" "${scenario_dir}/after-elo.png" "elo"
-close_app
 python3 - "${scenario_dir}/data/persons.json" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as f: data = json.load(f)
