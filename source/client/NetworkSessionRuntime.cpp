@@ -344,8 +344,8 @@ namespace Duel6::Client {
                 listing.mode = state.settings.mode == "Predator" ? "predator" : state.settings.mode == "Team deathmatch" ? "teams" : "deathmatch";
                 listing.phase = state.phase == Network::Replication::Phase::Lobby ? "lobby"
                     : state.phase == Network::Replication::Phase::ActiveRound
-                        ? state.currentRoundNumber == 1 ? "first-round"
-                            : state.currentRoundNumber == state.settings.roundLimit ? "final-round" : "started"
+                        ? state.currentRoundNumber == state.settings.roundLimit ? "final-round"
+                            : state.currentRoundNumber == 1 ? "first-round" : "started"
                         : state.phase == Network::Replication::Phase::RoundSummary
                             && state.currentRoundNumber < state.settings.roundLimit ? "started" : "closed";
                 if (listing.phase != "lobby" && listing.phase != "closed") listing.capacity = static_cast<unsigned>(

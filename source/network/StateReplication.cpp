@@ -1017,6 +1017,8 @@ namespace Duel6::Network::Replication {
             std::set<std::uint8_t> positions;
             for (const auto &player: result.rows) {
                 if (player.rosterOrder >= MaxReplicatedPlayers || !positions.insert(player.rosterOrder).second) return false;
+                if (!result.rounds.empty() && !player.rounds.empty() && player.rounds.front().roundsPlayed != 0
+                    && player.rosterOrder >= result.rounds.front().rosterOrder.size()) return false;
                 if (result.mode == "Team deathmatch"
                     && player.team != static_cast<std::uint8_t>(
                             player.rosterOrder % result.teamCount + 1u)) return false;
@@ -1042,7 +1044,8 @@ namespace Duel6::Network::Replication {
                 seen.insert(currentRoster.begin(), currentRoster.end());
                 priorRoster = std::move(currentRoster);
             }
-            for (const auto &row: result.rows) if (!seen.count(row.playerId)) return false;
+            for (const auto &row: result.rows)
+                if (!seen.count(row.playerId) && !(result.state == "Interrupted" && result.rounds.empty())) return false;
             return true;
         }
 
@@ -1453,6 +1456,10 @@ namespace Duel6::Network::Replication {
                 });
                 if (owner == state.participants.end()
                     || std::count(owner->ownedPlayerIds.begin(), owner->ownedPlayerIds.end(), player.playerId) != 1) return false;
+                if (player.lifeState == LifeState::Waiting
+                    && (player.life != 0 || player.actionMask != 0 || player.ammunition != 0
+                        || !player.heldWeapon.empty() || !player.activeBonus.empty()
+                        || player.invulnerable || player.bonusRemaining != 0)) return false;
             }
             for (const auto &participant: state.participants) {
                 for (Identity player: participant.ownedPlayerIds) if (!playerIds.count(player)) return false;
@@ -1492,6 +1499,10 @@ namespace Duel6::Network::Replication {
             if (!state.score.players.empty() && state.score.ranking.size() != state.score.players.size()) return false;
             std::set<Identity> scorePlayerIds;
             for (const auto &row: state.score.players) scorePlayerIds.insert(row.playerId);
+            if (state.result.available && state.phase == Phase::FinalSummary)
+                for (const auto &player: state.players)
+                    if (player.lifeState != LifeState::Waiting && player.lifeState != LifeState::Departed
+                        && !scorePlayerIds.count(player.playerId)) return false;
             if (state.phase != Phase::Lobby && !state.result.available) {
                 if (state.score.players.size() != state.players.size()
                     || state.score.ranking.size() != state.players.size()) return false;
@@ -1524,7 +1535,8 @@ namespace Duel6::Network::Replication {
                     const auto player = std::find_if(state.players.begin(), state.players.end(), [&](const auto &value) {
                         return value.playerId == identity;
                     });
-                    if (player == state.players.end() || (!first && player->rosterPosition <= priorPosition)) return false;
+                    if (player == state.players.end() || player->lifeState == LifeState::Waiting
+                        || (!first && player->rosterPosition <= priorPosition)) return false;
                     first = false; priorPosition = player->rosterPosition;
                 }
             }

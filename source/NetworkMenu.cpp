@@ -2073,7 +2073,8 @@ namespace Duel6 {
             drawText(20, 20 + static_cast<Int32>(row) * 16, statusRows[row], Color::YELLOW);
         if (rightFits)
             drawText(width - 20 - static_cast<Int32>(utf8Length(right)) * 8, 20, right, Color::YELLOW);
-        const bool waiting = state.phase == Network::Replication::Phase::ActiveRound
+        const bool waiting = (state.phase == Network::Replication::Phase::ActiveRound
+            || (state.phase == Network::Replication::Phase::RoundSummary && state.currentRoundNumber < state.settings.roundLimit))
             && std::any_of(state.players.begin(), state.players.end(), [&](const auto &player) {
                 return player.ownerParticipantId == snap.localParticipantId
                     && player.lifeState == Network::Replication::LifeState::Waiting;

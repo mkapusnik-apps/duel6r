@@ -1447,6 +1447,71 @@ D6R_TEST_CASE("UX-NET-04 wheel handler reaches every participant in three and fi
     }
 }
 
+D6R_TEST_CASE("NET-SOLO setup capacity and ready one-player lobby retain existing Start controls") {
+    ReviewMenuFixture f;
+    f.menu.setupScreen = NetworkMenu::SetupScreen::Host;
+    f.draw();
+    D6R_REQUIRE(f.text("Local players: 1 • Lobby 1–15 • Match 1–15"));
+    f.lobby();
+    auto &state = *f.menu.runtime.current.canonical;
+    state.participants.pop_back(); state.players.pop_back();
+    std::string reason;
+    D6R_REQUIRE(f.menu.startEligible(f.menu.runtime.snapshot(), reason));
+    D6R_REQUIRE(f.menu.confirmation == NetworkMenu::Confirmation::None);
+    state.participants.front().ready = false;
+    D6R_REQUIRE(!f.menu.startEligible(f.menu.runtime.snapshot(), reason));
+    D6R_REQUIRE(reason.find("to be ready") != std::string::npos);
+}
+
+D6R_TEST_CASE("NET-ADM waiting and final-round feedback stay contained and clear on authoritative transitions") {
+    ReviewMenuFixture f;
+    f.lobby(false);
+    auto &state = *f.menu.runtime.current.canonical;
+    f.video.screen = ScreenParameters(1280, 720, 24, 24, 0, false);
+    f.menu.runtime.current.journey = Client::NetworkJourney::Match;
+    state.phase = Network::Replication::Phase::ActiveRound;
+    state.currentRoundNumber = 2; state.completedRounds = 1; state.settings.roundLimit = 3;
+    state.score.players = {{101}, {102}}; state.score.ranking = {101, 102};
+    state.players[1].lifeState = Network::Replication::LifeState::Waiting;
+    f.draw();
+    D6R_REQUIRE(f.text("Your players join next round."));
+    D6R_REQUIRE(f.text("2. Lin  0 • Waiting"));
+    D6R_REQUIRE(f.text("Guest • LAN session • Connected"));
+    D6R_REQUIRE(f.text("Leave session"));
+    state.phase = Network::Replication::Phase::RoundSummary; state.roundEndCountdown = 300;
+    state.score.winner.noWinner = true;
+    f.draw(); D6R_REQUIRE(f.text("Your players join next round."));
+    state.phase = Network::Replication::Phase::ActiveRound; state.currentRoundNumber = 3;
+    state.score.winner.noWinner = false;
+    f.draw();
+    D6R_REQUIRE(f.text("Waiting for the next match."));
+    D6R_REQUIRE(!f.text("Your players join next round."));
+    state.phase = Network::Replication::Phase::RoundSummary;
+    f.draw();
+    D6R_REQUIRE(!f.text("Waiting for the next match.") && !f.text("Your players join next round."));
+    state.phase = Network::Replication::Phase::ActiveRound;
+    state.players[1].lifeState = Network::Replication::LifeState::Alive;
+    f.draw(); D6R_REQUIRE(!f.text("Waiting for the next match."));
+    D6R_REQUIRE(!f.text("2. Lin  0 • Waiting"));
+}
+
+D6R_TEST_CASE("NET-ADM ongoing and final browser and join contexts do not promise immediate play") {
+    BrowserPresentationFixture f;
+    for (const auto &phase: {"started", "final-round"}) {
+        f.menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+        f.row.phase = phase; f.selected();
+        const std::string expected = std::string(phase) == "started"
+            ? "Match in progress. Your players join next round if admitted."
+            : "Final round in progress. You may not play in this match if admitted.";
+        D6R_REQUIRE(f.row.joinable() && f.text(expected));
+        f.menu.browserSelection = f.row;
+        f.menu.setupScreen = NetworkMenu::SetupScreen::Join;
+        f.draw(); D6R_REQUIRE(f.text(expected));
+        f.menu.browserSelection.reset();
+        f.draw(); D6R_REQUIRE(!f.text("Round 1 in progress. You will play immediately if admitted."));
+    }
+}
+
 D6R_TEST_CASE("UX-NET round progress uses current authoritative round during active and frozen end delay") {
     ReviewMenuFixture f;
     auto &menu = f.menu;
@@ -3518,7 +3583,7 @@ D6R_TEST_CASE("PR83 host emits movement and fire-release masks until exact round
     }
 }
 
-D6R_TEST_CASE("PR83 latest host and guest charged bow releases fire during active round-end second") {
+D6R_TEST_CASE("NET-SOLO host and guest charged bows release while solo team continues after departure") {
     using namespace std::chrono_literals;
     char name[] = "duel6r-pr83-charged-release-tests";
     char *arguments[] = {name};
@@ -3583,14 +3648,15 @@ D6R_TEST_CASE("PR83 latest host and guest charged bow releases fire during activ
     std::map<Network::Replication::Identity, int> ammo;
     for (const auto &slot : before.players) if (slot.team == 1) ammo.emplace(slot.playerId, slot.ammunition);
     D6R_REQUIRE_EQ(2u, ammo.size());
-    // Real intentional removal of the sole opposing team produces a normal
-    // round win while both the host and remote archer remain alive and charged.
+    // Removing the sole opposing team restores solo play, not a victory. Both
+    // archers must retain their charge and remain controllable without a reset.
     opponent.leave();
     D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 3s, [&] {
         for (const auto *runtime : {&host, &ally}) {
             const auto snapshot = runtime->snapshot();
-            if (!snapshot.canonical || snapshot.canonical->phase != Network::Replication::Phase::RoundSummary
-                || snapshot.canonical->roundEndCountdown <= 300 || !chargedArchers(snapshot)) return false;
+            if (!snapshot.canonical || snapshot.canonical->phase != Network::Replication::Phase::ActiveRound
+                || snapshot.canonical->roundEndCountdown != 0 || !chargedArchers(snapshot)
+                || !snapshot.canonical->score.winner.winnerPlayerIds.empty()) return false;
         }
         return true;
     }));
@@ -3598,7 +3664,8 @@ D6R_TEST_CASE("PR83 latest host and guest charged bow releases fire during activ
     const bool firedOnRelease = pumpRuntimes(host, opponent, ally, 500ms, [&] {
         for (const auto *runtime : {&host, &ally}) {
             const auto snapshot = runtime->snapshot();
-            if (!snapshot.canonical || snapshot.canonical->roundEndCountdown <= 300) return false;
+            if (!snapshot.canonical || snapshot.canonical->phase != Network::Replication::Phase::ActiveRound
+                || snapshot.canonical->roundEndCountdown != 0) return false;
             for (const auto &[id, previousAmmo] : ammo) {
                 const auto slot = std::find_if(snapshot.canonical->players.begin(), snapshot.canonical->players.end(),
                         [id](const auto &player) { return player.playerId == id; });
@@ -3629,7 +3696,7 @@ D6R_TEST_CASE("PR83 latest host and guest charged bow releases fire during activ
                 detail << ";event=" << event.type << ":player=" << event.playerId;
             detail << '\n';
         }
-        Test::fail("host and guest fire charged bows before freezing", __FILE__, __LINE__, detail.str());
+        Test::fail("host and guest fire charged bows during continued solo play", __FILE__, __LINE__, detail.str());
     }
     host.endSession();
     D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 5s, [&] {

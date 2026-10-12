@@ -50,6 +50,24 @@ test('registration, ownership, renewal, immediate read expiry, no TTL dependency
   await assert.rejects(directory.mutate(created.id, created.ownerToken, 2, listing()), status(401));
 });
 
+test('ongoing and final active phases remain independently available before completed closure', async () => {
+  const created = await directory.register(listing({ players: 1, passwordRequired: true }));
+  let revision = created.revision;
+  for (const phase of ['first-round', 'started', 'final-round', 'closed']) {
+    const updated = await directory.mutate(created.id, created.ownerToken, revision,
+      listing({ players: 1, passwordRequired: true, phase }));
+    revision = updated.revision;
+    const rows = (await directory.list()).listings;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].phase, phase);
+    assert.equal(rows[0].passwordRequired, true);
+    assert.equal(rows[0].players, 1);
+    assert.equal('ownerToken' in rows[0], false);
+  }
+  await assert.rejects(directory.mutate(created.id, created.ownerToken, revision,
+    listing({ passwordRequired: true, phase: 'unknown' })), status(400));
+});
+
 test('concurrent owners cannot lose updates and shutdown cannot be resurrected', async () => {
   const created = await directory.register(listing());
   const otherInstance = new Directory(db, { collection, now: () => clock });

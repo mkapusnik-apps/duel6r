@@ -544,6 +544,11 @@ namespace Duel6::Server::Authoritative {
             }
             removed->departed = true;
             removed->alive = false;
+            removed->inputMask = 0;
+            if (dependencies.worldSnapshot && !synchronizeCanonicalWorld()) {
+                failRuntime();
+                return ActionResult::RuntimeFailed;
+            }
             interruptIfRosterTooSmall();
             if (terminal.code == OutcomeCode::None && currentPhase == MatchPhase::ActiveRound)
                 evaluateRoundOutcome();
@@ -757,8 +762,22 @@ namespace Duel6::Server::Authoritative {
         CanonicalWorldSnapshot snapshot;
         try { snapshot = dependencies.worldSnapshot(); }
         catch (...) { return false; }
-        if (!snapshot.valid || snapshot.stateDigest == 0 || snapshot.players.size() != players.size()
+        if (!snapshot.valid || snapshot.stateDigest == 0 || snapshot.players.size() > players.size()
             || snapshot.dynamicEntityCount > 100000u) return false;
+        // A world may remove departed bodies immediately. Preserve historical
+        // identity without tolerating missing live/waiting, duplicate or unknown players.
+        std::set<Identity> snapshotIds;
+        for (const auto &player: snapshot.players)
+            if (!findPlayer(player.playerId) || !snapshotIds.insert(player.playerId).second) return false;
+        for (const auto &player: players) if (!snapshotIds.count(player.definition.playerId)) {
+            if (!player.departed) return false;
+            CanonicalPlayerSnapshot removed;
+            removed.playerId = player.definition.playerId;
+            removed.rosterSlot = player.definition.rosterOrder;
+            removed.team = player.team;
+            removed.departed = true;
+            snapshot.players.push_back(std::move(removed));
+        }
         const bool roundEnded = snapshot.roundOver
                                 && (!latestCanonicalSnapshot || !latestCanonicalSnapshot->roundOver);
         latestStateDigest = snapshot.stateDigest;
@@ -773,6 +792,7 @@ namespace Duel6::Server::Authoritative {
             if (!player || canonical.life < 0 || canonical.life > MaximumLife) return false;
             player->alive = canonical.alive && player->spawned && !player->departed;
             player->life = canonical.life;
+            if (player->departed) continue;
             const auto apply = [&player](std::uint64_t &target, std::uint64_t start, std::uint64_t value) {
                 if (value > MaximumCounter || start > MaximumCounter - value) return false;
                 target = start + value;
