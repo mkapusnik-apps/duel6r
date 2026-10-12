@@ -852,7 +852,7 @@ D6R_TEST_CASE("NET-10 manual Refresh retains focus through pending updates and z
         D6R_REQUIRE_EQ(test.populated ? f.row.id : std::string{}, menu.selectedListing);
         D6R_REQUIRE_EQ(test.populated && test.outcome == 1, menu.browserFocusEnabled(1));
         if (test.outcome == 0) D6R_REQUIRE(f.text("No active sessions listed. You can host a session or connect directly."));
-        if (test.outcome == 1) D6R_REQUIRE(f.text("Required") && f.text("Round 1"));
+        if (test.outcome == 1) D6R_REQUIRE(f.text("Password") && f.text("Round 1"));
         if (test.outcome == 2) D6R_REQUIRE(f.text("Directory unavailable. Direct connection and local play are still available."));
     }
 }
@@ -1027,12 +1027,17 @@ D6R_TEST_CASE("NET-10 successful no-selection reason is blank while necessary ex
     const auto reasonLine = [&] {
         std::string result;
         for (const auto &quad: f.recorder.quads) {
-            // Selected details reserve a separate host-confirmation line;
-            // unselected/removed states retain the original reason allocation.
-            if (quad.vertices[0].y != 156 && quad.vertices[0].y != 168) continue;
+            // The mixed detail block wraps full identity and endpoint above the
+            // reason; observe its fixed semantic copy, not private-only y=156.
             const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
                 [&](const auto &item) { return item.texture == quad.material.getTexture(); });
-            if (entry != f.font.fontCache.entryList.end()) result += entry->text;
+            if (entry != f.font.fontCache.entryList.end()
+                && (entry->text.find("Session is ") == 0 || entry->text.find("Admission is closed.") == 0
+                    || entry->text.find("Session listing expired.") == 0
+                    || entry->text.find("Refresh successfully before joining.") == 0)) {
+                D6R_REQUIRE(quad.vertices[0].y >= 130 && quad.vertices[2].y <= 290);
+                result += entry->text;
+            }
         }
         D6R_REQUIRE(!f.text("Select a session."));
         return result;
@@ -1042,7 +1047,7 @@ D6R_TEST_CASE("NET-10 successful no-selection reason is blank while necessary ex
         D6R_REQUIRE(reasonLine().empty()); D6R_REQUIRE(!menu.browserFocusEnabled(1));
     }
     menu.selectedListing = f.row.id;
-    f.deliver({true, {}, {}}); D6R_REQUIRE_EQ(std::string("Session is no longer listed."), reasonLine());
+    f.deliver({true, {}, {}}); D6R_REQUIRE_EQ(std::string("Session is no longer listed. Refresh and reselect."), reasonLine());
     for (const auto &test: {std::pair{"lobby", 15u}, std::pair{"closed", 2u}}) {
         auto row = f.row; row.phase = test.first; row.players = test.second;
         f.deliver({true, {row}, {}});
@@ -1105,7 +1110,7 @@ D6R_TEST_CASE("NET-10 failure hides cached rows and details rejects every browse
     D6R_REQUIRE_EQ(f.row.id, menu.selectedListing); // Retained internally, not rendered or interactive.
     D6R_REQUIRE_EQ(std::size_t(1), menu.browser.result().listings.size());
     D6R_REQUIRE(!menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
-    D6R_REQUIRE(f.text("Session / endpoint") && !f.text("Required") && !f.text("Round 1"));
+    D6R_REQUIRE(f.text("Session / endpoint") && !f.text("Password") && !f.text("Round 1"));
     for (const auto &draw: f.recorder.draws) for (const auto &entry: f.font.fontCache.entryList) {
         if (entry.texture != draw.material.getTexture()) continue;
         D6R_REQUIRE(entry.text.find(f.row.sessionId) == std::string::npos);
@@ -1133,16 +1138,16 @@ D6R_TEST_CASE("NET-10 failure hides cached rows and details rejects every browse
     for (int expected: {3, 6, 2}) { f.key(SDLK_TAB); D6R_REQUIRE_EQ(expected, menu.focus); }
     // Loading a retry must not expose cached identity or enable joining before success.
     std::promise<Client::DirectoryPage> retry; menu.browser.pending = retry.get_future(); f.draw();
-    D6R_REQUIRE(!f.text("Required") && !menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
+    D6R_REQUIRE(!f.text("Password") && !menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
     retry.set_value({true, {f.row}, {}}); menu.update(0); f.draw();
     D6R_REQUIRE_EQ(f.row.id, menu.selectedListing); D6R_REQUIRE(menu.browserFocusEnabled(1));
-    D6R_REQUIRE(f.text("Required") && f.text("Round 1"));
+    D6R_REQUIRE(f.text("Password") && f.text("Round 1"));
     f.deliver({}); auto other = f.row; other.id = std::string(32, 'c'); other.sessionId = other.id;
     f.deliver({true, {other}, {}});
     D6R_REQUIRE_EQ(f.row.id, menu.selectedListing); D6R_REQUIRE(!menu.browserFocusEnabled(1));
-    D6R_REQUIRE(f.text("Session is no longer listed."));
+    D6R_REQUIRE(f.text("Session is no longer listed. Refresh and reselect."));
     f.selected(); menu.browser.received -= std::chrono::seconds(31); f.draw();
-    D6R_REQUIRE(f.text("Required") && f.text("Round 1"));
+    D6R_REQUIRE(f.text("Password") && f.text("Round 1"));
     D6R_REQUIRE(menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
     menu.joinSelected(); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
     f.deliver({}); menu.focus = 3; menu.activate();
@@ -1926,7 +1931,7 @@ D6R_TEST_CASE("NET-ADM ongoing and final browser and join contexts do not promis
 D6R_TEST_CASE("VA-SOLO-01 NET-10 ongoing and final details coexist with upper Refresh and single footer") {
     BrowserPresentationFixture f;
     const std::string confirmation = "The host confirms availability when you connect.";
-    const std::string reachability = "LAN-first. A listing does not guarantee reachability.";
+    const std::string reachability = "A listing does not guarantee reachability.";
     for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1280, 900}, std::pair{1920, 1080}})
     for (const auto &phase: {"started", "final-round"}) for (const bool pagination: {false, true}) {
         f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
@@ -1944,19 +1949,20 @@ D6R_TEST_CASE("VA-SOLO-01 NET-10 ongoing and final details coexist with upper Re
             const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
                 [&](const auto &entry) { return entry.texture == draw.material.getTexture(); });
             if (entry == f.font.fontCache.entryList.end()) continue;
-            if (entry->text.find("Session " + f.row.sessionId) != 0
+            if (entry->text.find("Session: " + f.row.sessionId) != 0
+                && entry->text.find("Endpoint: ") != 0
                 && entry->text != context
                 && entry->text != confirmation && entry->text != reachability) continue;
             const auto &quad = draw;
             D6R_REQUIRE(quad.vertices[0].x >= 24 && quad.vertices[2].x <= 826);
-            D6R_REQUIRE(quad.vertices[0].y >= 136 && quad.vertices[2].y <= 200);
+            D6R_REQUIRE(quad.vertices[0].y >= 130 && quad.vertices[2].y <= 290);
             for (const auto &vertex: quad.vertices) {
                 const auto point = quad.view * vertex;
                 D6R_REQUIRE(point.x >= 0 && point.x <= size.first && point.y >= 0 && point.y <= size.second);
             }
             details.emplace_back(quad.vertices[0].y, quad.vertices[2].y);
         }
-        D6R_REQUIRE_EQ(std::size_t(4), details.size());
+        D6R_REQUIRE_EQ(std::size_t(5), details.size()); // Separate full identity/mode and endpoint.
         std::sort(details.begin(), details.end());
         for (std::size_t index = 1; index < details.size(); ++index)
             D6R_REQUIRE(details[index - 1].second <= details[index].first);
