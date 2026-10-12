@@ -223,6 +223,15 @@ class TlsPeer:
             raw.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             with self.context.wrap_socket(raw, server_side=True) as client:
                 self.handshakes += 1
+                if getattr(self, "observe_latest_binding", False):
+                    pending = self.control_root / f"outer-binding-{connection_id}.tmp"
+                    pending.write_text(str(connection_id))
+                    pending.replace(self.control_root / "outer-latest-binding")
+                if getattr(self, "hold_initial_inner", False):
+                    (self.control_root / f"outer-handshake-{connection_id}").touch()
+                    while not self.stop.is_set():
+                        time.sleep(.01)
+                    return
                 if connection_id > 2:
                     while not self.stop.is_set() and (self.block_reconnect or time.monotonic() < self.reconnect_after):
                         time.sleep(.01)
@@ -470,12 +479,12 @@ def certificates(root):
 
 
 @contextlib.contextmanager
-def service(server, root, invitation, frontend_port=None):
-    backend = port()
+def service(server, root, invitation, frontend_port=None, *, backend_port=None, process_handle=None, readiness_name="ready.sock"):
+    backend = backend_port or port()
     invite = root / "invite"
     invite.write_text(invitation)
     invite.chmod(0o600)
-    ready = root / "ready.sock"
+    ready = root / readiness_name
     with (root / "server.log").open("w+") as log:
         arguments = [str(server), "--dedicated", "--transport", "--host=127.0.0.1",
             f"--port={backend}", f"--resources={root}", "--trusted-proxy-protocol=v2",
@@ -484,6 +493,8 @@ def service(server, root, invitation, frontend_port=None):
             assert os.environ.get("D6R_DIRECTORY_URL", "").startswith("http://127.0.0.1:"), "requires owned local directory fixture"
             arguments += ["--advertise-host=arena.example.test", f"--advertise-port={frontend_port}"]
         process = subprocess.Popen(arguments, stdout=log, stderr=log)
+        if process_handle is not None:
+            process_handle["process"] = process
         try:
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:

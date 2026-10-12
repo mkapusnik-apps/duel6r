@@ -70,9 +70,39 @@ namespace StagingObservation {
         }
     }
 }
+namespace OuterObservation {
+    std::atomic<bool> armed{false}, buffered{false}, nativeEof{false}, requireEof{false};
+    std::atomic<unsigned> authenticatedPayloadReads{0};
+    std::chrono::steady_clock::time_point deadline;
+    void reset(std::chrono::steady_clock::time_point absolute, bool eof) {
+        armed = buffered = nativeEof = false;
+        authenticatedPayloadReads = 0; deadline = absolute; requireEof = eof;
+    }
+}
+extern "C" int __real_SSL_read(SSL *, void *, int);
+extern "C" int __wrap_SSL_read(SSL *ssl, void *data, int size) {
+    const auto result = __real_SSL_read(ssl, data, size);
+    if (OuterObservation::armed && !SSL_is_server(ssl) && result > 0 && SSL_pending(ssl) > 0) {
+        OuterObservation::buffered = true;
+        // The real outer socket BIO borrows this handle. Observe only EOF,
+        // never consume bytes or replace a library return/classification.
+        const auto socket = static_cast<int>(reinterpret_cast<std::intptr_t>(BIO_get_data(SSL_get_rbio(ssl))));
+        unsigned char ignored;
+        do {
+            if (::recv(socket, &ignored, 1, MSG_PEEK | MSG_DONTWAIT) == 0) {
+                OuterObservation::nativeEof = true; break;
+            }
+            if (!OuterObservation::requireEof) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        } while (std::chrono::steady_clock::now() < OuterObservation::deadline);
+    }
+    return result;
+}
 extern "C" int __real_mbedtls_ssl_read(mbedtls_ssl_context *, unsigned char *, std::size_t);
 extern "C" int __wrap_mbedtls_ssl_read(mbedtls_ssl_context *ctx, unsigned char *bytes, std::size_t size) {
     const int result = __real_mbedtls_ssl_read(ctx, bytes, size);
+    if (OuterObservation::armed && StagingObservation::receivingApplication && result > 0)
+        ++OuterObservation::authenticatedPayloadReads;
     if (StagingObservation::receivingApplication && result == static_cast<int>(StagingObservation::readSize.load())
         && std::equal(StagingObservation::expected.begin(), StagingObservation::expected.begin() + result, bytes)) {
         StagingObservation::watched = bytes;
@@ -375,10 +405,12 @@ class TlsPeer {
         return -1;
     }
 public:
-    enum class Exchange { Echo, PartialClose, PartialHold };
+    enum class Exchange { Echo, PartialClose, PartialHold, BufferedClose, CipherPartialClose, CipherPartialHold };
     enum class Stage { Starting, Accept, Handshake, Read, Write };
     struct InnerBytes final : SecureByteStream {
         SSL *ssl;
+        bool coalesce = false;
+        std::vector<unsigned char> encryptedOutput;
         explicit InnerBytes(SSL *ssl) : ssl(ssl) {}
         static int result(SSL *ssl, int count) {
             if (count > 0) return count;
@@ -387,7 +419,15 @@ public:
                  : error == SSL_ERROR_ZERO_RETURN ? 0 : -1;
         }
         std::ptrdiff_t read(unsigned char *data, std::size_t size) override { return result(ssl, SSL_read(ssl, data, static_cast<int>(size))); }
-        std::ptrdiff_t write(const unsigned char *data, std::size_t size) override { return result(ssl, SSL_write(ssl, data, static_cast<int>(size))); }
+        std::ptrdiff_t write(const unsigned char *data, std::size_t size) override {
+            if (coalesce) {
+                // A test-owned byte carrier queues actual SDK ciphertext, then
+                // flushes one real outer record. No crypto result is substituted.
+                encryptedOutput.insert(encryptedOutput.end(), data, data + size);
+                return static_cast<std::ptrdiff_t>(size);
+            }
+            return result(ssl, SSL_write(ssl, data, static_cast<int>(size)));
+        }
         bool pending() const override { return SSL_pending(ssl) != 0; }
     };
     template<typename Operation>
@@ -404,6 +444,7 @@ public:
     std::uint16_t port = 0;
     std::atomic<unsigned> applicationBytes{0};
     std::atomic<bool> finished{false}, validRequest{false};
+    std::atomic<bool> coalescedResponse{false};
     std::atomic<Stage> stage{Stage::Starting};
     std::atomic<Outcome> outcome{Outcome::Pending};
     std::atomic<int> lastSslError{0}, lastSocketError{0};
@@ -469,14 +510,34 @@ public:
                         // Return the framed application data through TLS, never through logs.
                         stage = Stage::Write;
                         offset = 0;
-                        const auto sendSize = exchange == Exchange::Echo ? bytes.size() : bytes.size() - 1;
+                        const bool buffered = exchange == Exchange::BufferedClose || exchange == Exchange::CipherPartialClose
+                            || exchange == Exchange::CipherPartialHold;
+                        carrier->coalesce = buffered;
+                        const auto sendSize = buffered || exchange == Exchange::Echo ? bytes.size() : bytes.size() - 1;
                         while (offset < sendSize) {
                             const int count = innerIO([&] { return inner.send(bytes.data() + offset, sendSize - offset); });
                             if (count <= 0) break;
                             offset += count;
                         }
                         if (offset == sendSize) outcome = Outcome::Complete;
-                        if (exchange == Exchange::PartialHold)
+                        if (buffered && offset == sendSize) {
+                            const auto &wire = carrier->encryptedOutput;
+                            const auto flushSize = wire.size() - (exchange != Exchange::BufferedClose);
+                            check(flushSize > 5 && flushSize < 16384, "real inner ciphertext fits one outer record");
+#ifdef D6R_TEST_OBSERVE_STAGING
+                            OuterObservation::armed = true;
+#endif
+                            check(io(ssl.get(), [&] { return SSL_write(ssl.get(), wire.data(), static_cast<int>(flushSize)); })
+                                  == static_cast<int>(flushSize), "real coalesced outer TLS record flush");
+                            coalescedResponse = true;
+                            if (exchange != Exchange::CipherPartialHold)
+#ifdef D6R_TRANSPORT_WINDOWS
+                                check(::shutdown(peer.value, SD_SEND) == 0, "real outer TCP EOF after flush");
+#else
+                                check(::shutdown(peer.value, SHUT_WR) == 0, "real outer TCP EOF after flush");
+#endif
+                        }
+                        if (exchange == Exchange::PartialHold || exchange == Exchange::CipherPartialHold)
                             while (active()) std::this_thread::sleep_for(1ms);
                     }
                 }
@@ -499,6 +560,59 @@ static bool waitUntil(Predicate predicate, std::chrono::milliseconds budget) {
 }
 
 #ifdef D6R_TEST_OBSERVE_STAGING
+static void checkBufferedOuterInput(X509 *cert, EVP_PKEY *key) {
+    const std::vector<std::uint8_t> payload(48, 0x39); // Non-secret APP fixture.
+    const char *names[]{"complete APP before outer EOF", "partial inner ciphertext at outer EOF",
+                        "partial inner ciphertext cancellation", "partial inner ciphertext key deadline"};
+    for (unsigned scenario = 0; scenario < 4; ++scenario) {
+        const auto absolute = std::chrono::steady_clock::now() + 5s;
+        OuterObservation::reset(absolute, scenario < 2);
+        const auto baseline = Trust::processQueueBudget().used();
+        const auto mode = scenario == 0 ? TlsPeer::Exchange::BufferedClose
+                        : scenario == 1 ? TlsPeer::Exchange::CipherPartialClose : TlsPeer::Exchange::CipherPartialHold;
+        TlsPeer peer(cert, key, payload, 5s, "portable-password", mode);
+        SessionTransportDependencies dependencies;
+        dependencies.publicTls = dependencies.secureSession = true;
+        dependencies.password = std::make_shared<SessionPassword>("portable-password");
+        if (scenario == 3) dependencies.secureLimits.lifetime = 1s; // Restriction only.
+        dependencies.inbound.beforeApplicationRead = [] { StagingObservation::receivingApplication = true; };
+        std::atomic<TransportTimePoint> accepted{};
+        dependencies.inbound.beforeApplicationPublish = [&](TransportTimePoint stamp) { accepted = stamp; };
+        TcpClient client(dependencies);
+        check(client.start({"localhost", peer.port}) && client.waitForConnected(5s), "buffered outer real connection");
+        auto connection = client.connection();
+        check(connection->send(payload) == SendResult::Accepted, "buffered outer fixture request");
+        while ((!OuterObservation::buffered || !peer.coalescedResponse || (scenario < 2 && !OuterObservation::nativeEof))
+               && std::chrono::steady_clock::now() < absolute)
+            std::this_thread::sleep_for(1ms);
+        check(OuterObservation::buffered && peer.coalescedResponse && peer.validRequest,
+              "qualify actual SSL_pending outer input from maintained inner ciphertext");
+        if (scenario < 2) check(OuterObservation::nativeEof, "qualify native EOF while outer SSL still buffers input");
+        if (scenario == 2) { client.cancel(); client.close(); }
+        else {
+            while (connection->state() == ClientState::Connected && std::chrono::steady_clock::now() < absolute)
+                std::this_thread::sleep_for(1ms);
+            check(connection->state() != ClientState::Connected, "buffered outer terminal within original absolute budget");
+        }
+        auto sealed = connection->sealAndDrainInput();
+        if (scenario == 0) {
+            const auto stamp = accepted.load();
+            check(sealed.frames.size() == 1 && sealed.frames.front().payload == payload
+                  && stamp != TransportTimePoint{} && sealed.frames.front().receivedAt == stamp
+                  && sealed.terminalAt >= stamp, "complete authenticated APP retains ordered seal timestamp at outer EOF");
+            check(OuterObservation::authenticatedPayloadReads > 0, "complete APP is a real SDK authenticated read");
+        } else {
+            check(sealed.frames.empty() && accepted.load() == TransportTimePoint{}
+                  && OuterObservation::authenticatedPayloadReads == 0,
+                  "partial inner ciphertext must not create authenticated APP/accepted-frame proof");
+        }
+        client.close(); peer.stop(); OuterObservation::armed = false;
+        check(std::chrono::steady_clock::now() < absolute, "buffered input teardown shares original absolute5s budget");
+        check(Trust::processQueueBudget().used() == baseline, "buffered input queue budget restored exactly once");
+        std::cout << "PASS real buffered OUTER TLS " << names[scenario] << " (bytes withheld)" << std::endl;
+    }
+}
+
 static void checkStagingOwnership(X509 *cert, EVP_PKEY *key) {
     // Transport-only authenticated protocol peer. This fixture grants no
     // participant authority and manufactures no End or crypto result.
@@ -641,6 +755,8 @@ int main(int argc, char **argv) {
 #ifdef D6R_TEST_OBSERVE_STAGING
         stage = "composed staging erasure and ownership";
         checkStagingOwnership(valid.get(), leafKey.get());
+        stage = "real buffered outer TLS boundaries";
+        checkBufferedOuterInput(valid.get(), leafKey.get());
 #endif
         const char *cases[]{"trusted hostname", "trusted IP unlocked", "untrusted chain: zero application bytes", "wrong hostname: zero application bytes",
                             "wrong password: zero application bytes", "explicit password on unlocked: no fallback"};

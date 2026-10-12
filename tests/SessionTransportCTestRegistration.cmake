@@ -32,7 +32,7 @@ if (D6R_PUBLIC_DEDICATED AND (NOT WIN32 OR D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TES
                 ${CMAKE_SOURCE_DIR} ${CMAKE_CXX_COMPILER})
         set_tests_properties(staging-allocation-exception PROPERTIES TIMEOUT 30 LABELS "application;network;security")
         target_compile_definitions(duel6r-portable-tls-tests PRIVATE D6R_TEST_OBSERVE_STAGING)
-        target_link_libraries(duel6r-portable-tls-tests "-Wl,--wrap=mbedtls_ssl_read,--wrap=_ZdlPv,--wrap=_ZdlPvm")
+        target_link_libraries(duel6r-portable-tls-tests "-Wl,--wrap=mbedtls_ssl_read,--wrap=SSL_read,--wrap=_ZdlPv,--wrap=_ZdlPvm")
     endif ()
     if (WIN32)
         target_compile_definitions(duel6r-portable-tls-tests PRIVATE D6R_TLS_DISPOSABLE_WINDOWS_OPT_IN)
@@ -312,6 +312,16 @@ if (NOT D6R_TRANSPORT_ONLY)
         target_include_directories(duel6r-public-dedicated-runtime-tests PRIVATE ${CMAKE_SOURCE_DIR})
         get_target_property(D6R_PUBLIC_TEST_LIBRARIES duel6r-network-session-runtime-tests LINK_LIBRARIES)
         target_link_libraries(duel6r-public-dedicated-runtime-tests ${D6R_PUBLIC_TEST_LIBRARIES})
+        add_executable(duel6r-public-crypto-coverage-tests ${CMAKE_SOURCE_DIR}/tests/PublicCryptoCoverage.cpp)
+        target_include_directories(duel6r-public-crypto-coverage-tests PRIVATE ${CMAKE_SOURCE_DIR})
+        target_link_libraries(duel6r-public-crypto-coverage-tests ${D6R_PUBLIC_TEST_LIBRARIES}
+                "-Wl,--wrap=mbedtls_ssl_read,--wrap=mbedtls_ssl_handshake,--wrap=_ZdlPv,--wrap=_ZdlPvm")
+        add_test(NAME public-crypto-composed-coverage
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicCryptoCoverageTests.py
+                        $<TARGET_FILE:duel6r-public-crypto-coverage-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources)
+        set_tests_properties(public-crypto-composed-coverage PROPERTIES
+                LABELS "application;network;public;tls;security;reconnect" TIMEOUT 180)
         # A legitimate inner-authenticated application peer for observation and
         # protocol-peer notice tests. The ordinary process/PKI path stays opaque.
         add_executable(duel6r-public-authenticated-peer ${CMAKE_SOURCE_DIR}/tests/PublicAuthenticatedPeer.cpp)
