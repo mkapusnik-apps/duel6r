@@ -26,6 +26,11 @@ if (D6R_PUBLIC_DEDICATED AND (NOT WIN32 OR D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TES
     target_include_directories(duel6r-portable-tls-tests PRIVATE ${CMAKE_SOURCE_DIR})
     target_link_libraries(duel6r-portable-tls-tests duel6r-network-scaffold)
     if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        add_test(NAME staging-allocation-exception
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/StagingAllocationTests.py
+                ${CMAKE_SOURCE_DIR} ${CMAKE_CXX_COMPILER})
+        set_tests_properties(staging-allocation-exception PROPERTIES TIMEOUT 30 LABELS "application;network;security")
         target_compile_definitions(duel6r-portable-tls-tests PRIVATE D6R_TEST_OBSERVE_STAGING)
         target_link_libraries(duel6r-portable-tls-tests "-Wl,--wrap=mbedtls_ssl_read,--wrap=_ZdlPv,--wrap=_ZdlPvm")
     endif ()

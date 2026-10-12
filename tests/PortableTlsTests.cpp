@@ -520,6 +520,8 @@ static void checkStagingOwnership(X509 *cert, EVP_PKEY *key) {
         dependencies.password = std::make_shared<SessionPassword>("portable-password");
         if (scenario == 2) dependencies.secureLimits.lifetime = 1s; // Restriction only, not a timer extension.
         dependencies.inbound.beforeApplicationRead = [] { StagingObservation::receivingApplication = true; };
+        std::atomic<TransportTimePoint> originalTimestamp{TransportTimePoint{}};
+        dependencies.inbound.beforeApplicationPublish = [&](TransportTimePoint receivedAt) { originalTimestamp = receivedAt; };
         TcpClient client(dependencies);
         check(client.start({"localhost", peer.port}) && client.waitForConnected(5s), "composed staging connection");
         auto connection = client.connection();
@@ -533,6 +535,9 @@ static void checkStagingOwnership(X509 *cert, EVP_PKEY *key) {
             while (!(received = connection->receive(frame)) && std::chrono::steady_clock::now() < absolute) std::this_thread::sleep_for(1ms);
             check(received && frame.payload == credential && !StagingObservation::released,
                   "local guard must not wipe consumer-owned complete APP");
+            const auto observedTimestamp = originalTimestamp.load();
+            check(observedTimestamp != TransportTimePoint{} && frame.receivedAt == observedTimestamp,
+                  "successful transfer preserves original acceptance timestamp");
             client.close();
             check(frame.payload == credential && !StagingObservation::released, "close must preserve consumer ownership");
             Trust::secureEraseMemory(frame.payload.data(), frame.payload.size());

@@ -60,6 +60,8 @@ new_scenario() {
 start_app() {
   local startup_command="${1:-}"
   local preload="${2:-}"
+  # Observation shares the original process budget; it never starts a new one.
+  app_deadline="$(python3 -c 'import time; print(time.monotonic() + 35)')"
   mkdir -p "${scenario_dir}/home"
   (
     export HOME="${scenario_dir}/home"
@@ -154,14 +156,36 @@ assert_same() {
 }
 
 dump_rounds_setting() {
-  local destination="$1"
+  local destination="$1" expected="$2"
   xdotool key --window "$window_id" grave
   sleep 0.15
   xdotool type --window "$window_id" --delay 5 rounds
   xdotool key --window "$window_id" Return
   xdotool type --window "$window_id" --delay 5 "dump $destination"
   xdotool key --window "$window_id" Return
-  sleep 0.15
+  python3 - "${scenario_dir}/$destination" "$expected" "$app_deadline" <<'PY'
+import pathlib
+import sys
+import time
+
+path, expected, deadline = pathlib.Path(sys.argv[1]), sys.argv[2], float(sys.argv[3])
+marker = f"]dump {path.name}"
+while time.monotonic() < deadline:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        lines = []
+    # A dump may be visible before its last write. Require this query's marker,
+    # not a previous Max rounds line or mere file existence.
+    if lines and lines[-1] == marker:
+        rounds = [line for line in lines if line.startswith("Max rounds:")]
+        if not rounds or rounds[-1] != f"Max rounds: {expected}":
+            raise SystemExit(f"{path.name}: completed query returned {rounds[-1:]}, expected {expected}")
+        break
+    time.sleep(min(0.01, max(0, deadline - time.monotonic())))
+else:
+    raise SystemExit(f"{path.name}: dump acknowledgement missing within original 35-second process budget")
+PY
   xdotool key --window "$window_id" grave
 }
 
@@ -439,6 +463,7 @@ echo "Person-list refinement behavior test passed. Artifacts: $test_root"
 exit 0
 fi
 
+if [[ "${MENU_REDESIGN_SCENARIO:-all}" != "rounds-session" ]]; then
 if [[ "${MENU_REDESIGN_SCENARIO:-all}" != "team-roster-order" ]]; then
 
 echo "[RUN] complete consolidated-person rows for names and signed trends"
@@ -1091,6 +1116,7 @@ assert_same "${scenario_dir}/burnable-default-crop.png" "${scenario_dir}/burnabl
   "Burnable Trees fresh-start enabled state"
 close_app
 
+fi # Non-Rounds scenarios; focused Rounds uses the same setup and assertions.
 echo "[RUN] Rounds focus, apply, session retention, restart, and startup override"
 new_scenario rounds-session
 python3 - "${scenario_dir}/data/persons.json" <<'PY'
@@ -1118,7 +1144,7 @@ crop_rounds_control() {
 start_app "rounds 7"
 capture "${scenario_dir}/startup-override-7.png"
 crop_rounds_control "${scenario_dir}/startup-override-7.png" "${scenario_dir}/startup-override-7-crop.png"
-dump_rounds_setting rounds-startup.txt
+dump_rounds_setting rounds-startup.txt 7
 assert_dumped_rounds "${scenario_dir}/rounds-startup.txt" 7 "startup override"
 
 xdotool mousemove "$(menu_x 1025)" "$(menu_y 376)" click 1
@@ -1130,7 +1156,7 @@ capture "${scenario_dir}/edited-3-blurred.png"
 crop_rounds_control "${scenario_dir}/edited-3-blurred.png" "${scenario_dir}/edited-3-blurred-crop.png"
 assert_changed "${scenario_dir}/startup-override-7-crop.png" "${scenario_dir}/edited-3-blurred-crop.png" \
   "Rounds digit-only edit"
-dump_rounds_setting rounds-before-enter.txt
+dump_rounds_setting rounds-before-enter.txt 7
 assert_dumped_rounds "${scenario_dir}/rounds-before-enter.txt" 7 "non-empty blur"
 
 # Focusing the positive edit keeps it. Enter applies it and removes focus.
@@ -1146,7 +1172,7 @@ capture "${scenario_dir}/applied-3.png"
 crop_rounds_control "${scenario_dir}/applied-3.png" "${scenario_dir}/applied-3-crop.png"
 assert_same "${scenario_dir}/edited-3-blurred-crop.png" "${scenario_dir}/applied-3-crop.png" \
   "Rounds positive value after Enter"
-dump_rounds_setting rounds-after-enter.txt
+dump_rounds_setting rounds-after-enter.txt 3
 assert_dumped_rounds "${scenario_dir}/rounds-after-enter.txt" 3 "Enter apply"
 
 # Enter gameplay and return in the same process. The applied value remains.
@@ -1166,7 +1192,7 @@ capture "${scenario_dir}/restart-0.png"
 crop_rounds_control "${scenario_dir}/restart-0.png" "${scenario_dir}/restart-0-crop.png"
 assert_changed "${scenario_dir}/after-gameplay-3-crop.png" "${scenario_dir}/restart-0-crop.png" \
   "Rounds restart reset"
-dump_rounds_setting rounds-after-restart.txt
+dump_rounds_setting rounds-after-restart.txt 0
 assert_dumped_rounds "${scenario_dir}/rounds-after-restart.txt" 0 "restart reset"
 
 # Focusing exactly zero clears it. Empty focus loss restores zero and applies
@@ -1183,10 +1209,14 @@ capture "${scenario_dir}/empty-blur-0.png"
 crop_rounds_control "${scenario_dir}/empty-blur-0.png" "${scenario_dir}/empty-blur-0-crop.png"
 assert_same "${scenario_dir}/restart-0-crop.png" "${scenario_dir}/empty-blur-0-crop.png" \
   "Rounds empty blur zero restore"
-dump_rounds_setting rounds-after-empty-blur.txt
+dump_rounds_setting rounds-after-empty-blur.txt 0
 assert_dumped_rounds "${scenario_dir}/rounds-after-empty-blur.txt" 0 "empty blur unlimited"
 close_app
 
+if [[ "${MENU_REDESIGN_SCENARIO:-all}" == "rounds-session" ]]; then
+  echo "Rounds focused behavior test passed. Artifacts: $test_root"
+  exit 0
+fi
 echo "[RUN] invalid background load retry and solid-black fallback"
 new_scenario background-fallback
 python3 - "${scenario_dir}/textures/menu-backgrounds" <<'PY'

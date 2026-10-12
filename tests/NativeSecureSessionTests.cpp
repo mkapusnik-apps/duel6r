@@ -15,14 +15,32 @@
 #include <mbedtls/ssl.h>
 // Observe actual SDK entries, not only BIO callbacks (pending may not use BIO).
 static std::atomic<unsigned> sdkReads{0}, sdkWrites{0}, sdkPending{0};
+static std::atomic<unsigned> readWantWrite{0}, writeWantRead{0};
+static thread_local bool observeRetry = false, retryPending = false, stableRetry = true;
+static thread_local const void *retryPointer = nullptr;
+static thread_local std::size_t retrySize = 0;
+static int observeResult(const void *data, std::size_t size, int result) {
+    if (observeRetry) {
+        if (retryPending) stableRetry = stableRetry && data == retryPointer && size == retrySize;
+        retryPending = result == MBEDTLS_ERR_SSL_WANT_READ || result == MBEDTLS_ERR_SSL_WANT_WRITE;
+        retryPointer = data; retrySize = size;
+    }
+    return result;
+}
 extern "C" int __real_mbedtls_ssl_read(mbedtls_ssl_context *, unsigned char *, std::size_t);
 extern "C" int __real_mbedtls_ssl_write(mbedtls_ssl_context *, const unsigned char *, std::size_t);
 extern "C" int __real_mbedtls_ssl_check_pending(const mbedtls_ssl_context *);
 extern "C" int __wrap_mbedtls_ssl_read(mbedtls_ssl_context *ctx, unsigned char *data, std::size_t size) {
-    ++sdkReads; return __real_mbedtls_ssl_read(ctx, data, size);
+    ++sdkReads;
+    const auto result = __real_mbedtls_ssl_read(ctx, data, size);
+    if (result == MBEDTLS_ERR_SSL_WANT_WRITE) ++readWantWrite;
+    return observeResult(data, size, result);
 }
 extern "C" int __wrap_mbedtls_ssl_write(mbedtls_ssl_context *ctx, const unsigned char *data, std::size_t size) {
-    ++sdkWrites; return __real_mbedtls_ssl_write(ctx, data, size);
+    ++sdkWrites;
+    const auto result = __real_mbedtls_ssl_write(ctx, data, size);
+    if (result == MBEDTLS_ERR_SSL_WANT_READ) ++writeWantRead;
+    return observeResult(data, size, result);
 }
 extern "C" int __wrap_mbedtls_ssl_check_pending(const mbedtls_ssl_context *ctx) {
     ++sdkPending; return __real_mbedtls_ssl_check_pending(ctx);
@@ -90,14 +108,19 @@ namespace {
         int socket;
         std::atomic<bool> failWrites{false};
         std::atomic<unsigned> reads{0}, writes{0}, pendingQueries{0};
+        std::atomic<int> forcedReadWant{0}, forcedWriteWant{0};
         std::function<void()> beforeWriteFailure;
         explicit ByteSocket(int socket) : socket(socket) {}
         std::ptrdiff_t read(unsigned char *data, std::size_t size) override {
-            ++reads; const auto count = ::recv(socket, data, std::min<std::size_t>(size, 3), 0);
+            ++reads;
+            if (const auto want = forcedReadWant.exchange(0)) return want;
+            const auto count = ::recv(socket, data, std::min<std::size_t>(size, 3), 0);
             return count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) ? -2 : count;
         }
         std::ptrdiff_t write(const unsigned char *data, std::size_t size) override {
-            ++writes; if (failWrites) {
+            ++writes;
+            if (const auto want = forcedWriteWant.exchange(0)) return want;
+            if (failWrites) {
                 if (beforeWriteFailure) beforeWriteFailure();
                 return -1;
             }
@@ -107,6 +130,37 @@ namespace {
         bool pending() const override { ++const_cast<ByteSocket *>(this)->pendingQueries; return false; }
     };
 }
+
+#ifdef D6R_TEST_WRAP_SECURE_SDK
+D6R_TEST_CASE("Common PAKE actual SDK cross-direction WANT retries preserve buffers and bytes") {
+    Sockets sockets;
+    auto stream = std::make_shared<ByteSocket>(sockets.fd[1]);
+    SecureSession host(sockets.fd[0], true, secret("want-test"));
+    SecureSession guest(sockets.fd[1], false, secret("want-test"), {}, stream);
+    D6R_REQUIRE(handshake(host, guest));
+    const std::array<unsigned char, 3> payload{11, 22, 33};
+    const auto writesBefore = writeWantRead.load(), readsBefore = readWantWrite.load();
+    observeRetry = true; retryPending = false; stableRetry = true;
+    stream->forcedWriteWant = -2; // BIO backpressure, never a substituted SDK result.
+    D6R_REQUIRE_EQ(-2, guest.send(payload.data(), payload.size()));
+    D6R_REQUIRE(guest.usable());
+    D6R_REQUIRE_EQ(3, guest.send(payload.data(), payload.size()));
+    D6R_REQUIRE(stableRetry && !retryPending && writeWantRead == writesBefore + 1);
+    std::array<unsigned char, 32> buffer{};
+    observeRetry = false;
+    D6R_REQUIRE_EQ(3, receive(host, buffer));
+    D6R_REQUIRE(std::equal(payload.begin(), payload.end(), buffer.begin()));
+    D6R_REQUIRE_EQ(3, host.send(payload.data(), payload.size()));
+    observeRetry = true; retryPending = false; stableRetry = true;
+    stream->forcedReadWant = -3;
+    D6R_REQUIRE_EQ(-2, guest.receive(buffer.data(), buffer.size()));
+    D6R_REQUIRE(guest.usable());
+    D6R_REQUIRE_EQ(3, receive(guest, buffer));
+    D6R_REQUIRE(stableRetry && !retryPending && readWantWrite == readsBefore + 1);
+    observeRetry = false;
+    D6R_REQUIRE(std::equal(payload.begin(), payload.end(), buffer.begin()));
+}
+#endif
 
 D6R_TEST_CASE("Common PAKE byte BIO shorts authenticate and fatal write preserves accepted End with zero later context operations") {
     Sockets sockets;

@@ -1412,8 +1412,13 @@ namespace Duel6::Network {
                     // The acceptance boundary excludes seal until this complete
                     // authenticated frame, with its original timestamp, is owned
                     // by the queue. The inner lock excludes a competing fatal.
+                    // Allocate the queue node while local staging is still
+                    // guarded. Default-allocator vector move assignment cannot
+                    // throw; only then publish timestamp and byte accounting.
+                    input.emplace_back();
+                    input.back().payload = std::move(payload);
+                    input.back().receivedAt = receivedAt;
                     inputBytes += payloadSize;
-                    input.push_back({std::move(payload), receivedAt});
                     delivered = true;
                 };
                 if (payloadSize > 0 && !readExact(payload.data(), payload.size(),
