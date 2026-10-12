@@ -2,33 +2,33 @@
 
 ## NET-10 localized browser refinement
 
-The revised fixed NET-10-E and NET-10-U specifications require inline descriptions inside the white table body below the retained five-column heading strip. **Visual gate: satisfied for both replacement 1280 × 900 representatives at evidence checkpoint `b9dafaa2c2ad5cf4621a52fe58a796fae452e76e`, with no findings.** UX assessed the exact supplied bytes against the fixed specifications/wireframes integrated at `5fcbe836fd5229547bac4c83a77349424e86d6ba`, retaining frozen production identity `88f465bbfb0aeb2f70cded8a73c4bc991be1c2c3`. Only these two representatives were replaced after functional closure. The populated NET-10 representative is reused unchanged. All other wireframes and capture requirements remain unchanged.
+The fixed NET-10, NET-10-E, and NET-10-U specifications require a shared compact upper Refresh action and removal of the static no-selection instruction. All three 1280 × 900 representatives require replacement. **Current visual gate: pending for all three representatives.** Existing images and provenance below describe the pre-refinement presentation, not acceptance of this refinement. Retain the inline empty/error descriptions inside the white table body below the five-column heading strip, unchanged table and remaining footer geometry, and hidden unnecessary pagination. All other wireframes and capture requirements remain unchanged.
 
 Common profile: original full-client lossless PNG at 1280 × 900; GL4, Lua enabled, Xvfb, dummy audio, software OpenGL; existing 850 × 700 logical canvas. Native rendering only, no crop, retouching, synthetic listing substitution, or composed pixels. Product authority: [browser contract](../../screens/network-browser.md). UX authority: [NET-10](../screens/NET-10.md).
 
 | Wireframe | Setup and focus | Expected presentation | Canonical destination |
 |---|---|---|---|
-| [NET-10](../wireframes/NET-10/NET-10.svg) | Real owned protected/Open and Started/Closed sessions, single-page successful results; protected row selected and focused | Existing table/details/footer allocation; no successful-load status and no pagination group | `docs/design/screenshots/NET-10/NET-10.png` |
-| [NET-10-E](../wireframes/NET-10/NET-10-E.svg) | Successful zero-row read; Refresh focused | Retained five-column grey heading strip and white body with the complete subdued single-line empty description once; no rows, body dividers, scrollbar, selection, or body focus; body and description noninteractive | `docs/design/screenshots/NET-10/NET-10-E.png` |
-| [NET-10-U](../wireframes/NET-10/NET-10-U.svg) | Actual failed refresh after populated selected results; Refresh focused | Same retained heading strip and white body with the complete subdued single-line error description once; no rows, body dividers, scrollbar, selection, or body focus; body and description noninteractive; previous rows and selected identity/endpoint/mode hidden; browser joins disabled | `docs/design/screenshots/NET-10/NET-10-U.png` |
+| [NET-10](../wireframes/NET-10/NET-10.svg) | Real owned protected/Open and Started/Closed sessions, single-page successful results; protected row selected and focused | Compact upper Refresh with clear focus allocation; unchanged table/details/remaining footer geometry and unused former Refresh slot; no successful-load status or pagination group | `docs/design/screenshots/NET-10/NET-10.png` |
+| [NET-10-E](../wireframes/NET-10/NET-10-E.svg) | Successful zero-row read; Refresh focused | Compact upper Refresh with clear focus; blank no-selection reason; Join selected disabled; unchanged table/remaining footer geometry and hidden unnecessary paging; retained five-column grey heading strip and white body with complete subdued single-line empty description once; no rows, body dividers, scrollbar, selection, or body focus; body and description noninteractive | `docs/design/screenshots/NET-10/NET-10-E.png` |
+| [NET-10-U](../wireframes/NET-10/NET-10-U.svg) | Actual failed refresh after populated selected results; Refresh focused | Compact upper Refresh with clear focus; unavailable explanation retained; unchanged table/remaining footer geometry and hidden unnecessary paging; retained heading strip and white body with complete subdued single-line error description once; no rows, body dividers, scrollbar, selection, or body focus; body and description noninteractive; previous rows and selected identity/endpoint/mode hidden; browser joins disabled | `docs/design/screenshots/NET-10/NET-10-U.png` |
 
-Focused routine checks cover first/middle/last multi-page navigation and single-page hiding, refresh-driven pagination changes, hidden input exclusion, initial failure, failed populated refresh, recovery identity present/absent, age-stale readability, every browser join disabled on failure, independent Direct connect, noninteractive empty/error bodies with retained headings and complete single-line status at 850 × 700 and 1280 × 720, and 1920 × 1080 alignment. These checks do not substitute for the two replacement capture rows or prove live admission behavior.
+Focused routine checks cover first/middle/last multi-page navigation and single-page hiding, refresh-driven pagination changes, hidden input exclusion, initial failure, failed populated refresh, recovery identity present/absent, age-stale readability, every browser join disabled on failure, independent Direct connect, noninteractive empty/error bodies with retained headings, blank reason lines for successful populated unselected and zero-row states, preserved necessary explanations, and keyboard/controller traversal in both directions. Check complete single-line status and caption/status/focus clearance at 850 × 700 and 1280 × 720, plus pointer alignment at 1920 × 1080. These checks do not substitute for the three replacement capture rows or prove live admission behavior.
 
 ### Current NET-10 conformance
 
-**Current conformance: replacement NET-10-E and NET-10-U satisfied; populated NET-10 retains its existing acceptance.** The unchanged populated representative retains frozen production identity `1cbcf01864481118f948e0999b8235f875bea290`. Replacement empty/error byte provenance is recorded separately below. The artifact and image hashes below are developer-supplied; UX assessment does not independently recompute them. This section integrates the exact approved assessment of the supplied bytes without any additional assessment or changes to specifications, wireframes, images, or provenance.
+**Current conformance: NET-10, NET-10-E, and NET-10-U pending replacement capture and UX assessment.** Existing hashes and provenance below are retained for the pre-refinement artifacts only; their previous acceptance does not establish conformance to the compact upper Refresh or blank no-selection reason requirements.
 
 | Representative | Approved UX assessment |
 |---|---|
-| `NET-10` | Conforms: distinct endpoint, Players, Phase, Password, and Admission columns; protected/Open and Started/Closed listings remain distinguishable; protected selection and focus are visible; no successful-load status or unnecessary single-page pagination is shown. |
-| `NET-10-E` | Conforms: all five complete headers, inset white body, and single subdued line are visible; no rows, body dividers, scrollbar, selection, or body focus; Refresh focus is clear. |
-| `NET-10-U` | Conforms: the same retained-heading, white-body frame and complete subdued error line are visible; cached rows and selected details are hidden; Refresh focus and Join-disabled state are clear. The generic `Selected session` label is allowed. No row affordances are present. |
+| `NET-10` | Pending replacement and assessment against the revised fixed specification. |
+| `NET-10-E` | Pending replacement and assessment against the revised fixed specification. |
+| `NET-10-U` | Pending replacement and assessment against the revised fixed specification. |
 
 Acceptance is limited to the supplied still-image states and Linux profile. Stills do not prove input behavior, multi-page navigation, recovery identity handling, age-stale behavior, controller operation, native macOS presentation, or other uncaptured states/platforms. Their existing owning functional, routine-test, and platform scopes remain unchanged.
 
-### Current NET-10 capture provenance
+### Current artifact provenance — pre-refinement presentation
 
-#### Replacement NET-10-E and NET-10-U
+#### NET-10-E and NET-10-U
 
 These original full-client lossless PNGs were rendered from frozen checkpoint `88f465bbfb0aeb2f70cded8a73c4bc991be1c2c3`, using the fixed specifications/wireframes integrated at `5fcbe836fd5229547bac4c83a77349424e86d6ba`, after functional closure. The source worktree was clean before the campaign; no executable, specification, wireframe, or artifact-producing input changed after freeze. Runtime archive SHA-256: `b8a1225f245c87bf15b22fa10a81df72c984fffa41eab6b9b3c843153f145b29`; client SHA-256: `6cab8142a1fbb5170315fa6ee3b331a4f3b070f43e7655aa898afb21b8b3da8b`. Evidence-only successors retain this frozen production identity.
 
@@ -43,7 +43,7 @@ The unchanged task directory used emulator project `demo-duel6r-directory`, back
 
 Failed-refresh setup used owned listing `59186cdd70d05bc74fe2f4465ab3b693`, session `00000000000000000f040595ac63d642`, address `172.24.0.2:26660`, two host-local players, Deathmatch lobby, no password, Open admission. The real browser selected this listing before the failed refresh. The directory was resumed immediately after U capture and returned HTTP 200 with the hosted session still listed. The host then completed its normal native End confirmation, and the directory returned a stable zero-row response before the fresh-browser E capture. The task environment was cleaned up after the last capture consumer; developer retains the unchanged frozen runtime and canonical images through UX assessment. Stills establish rendered setup and focus, not independent input, live admission, timing, or cross-platform verification.
 
-#### Unchanged populated NET-10
+#### Populated NET-10
 
 The unchanged populated full-client PNG was rendered from frozen production checkpoint `1cbcf01864481118f948e0999b8235f875bea290`, using the specifications/wireframes integrated at `e90b991`. The source worktree was clean before the original campaign. The runtime archive SHA-256 is `0db09500d6732628302253c2793207a02ddd705d89f4a2e3e61a3b37195968bf`; the client SHA-256 is `82faaf12ae1162baefb21656aa7db645983aba5e149771889c258b86e5323ccf`. Evidence-only commits retain that production identity rather than relabeling the executable as their successor SHA.
 
