@@ -830,10 +830,12 @@ D6R_TEST_CASE("NET-10 compact upper Refresh keeps caption clearance full scaled 
     }
     menu.focus = 2;
     for (int expected: {0, 1, 3, 6, 2}) {
-        controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_RIGHT); D6R_REQUIRE_EQ(expected, menu.focus);
+        controller.pulse(menu.focus == 0 ? SDL_CONTROLLER_BUTTON_DPAD_RIGHT : SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+        D6R_REQUIRE_EQ(expected, menu.focus);
     }
     for (int expected: {6, 3, 1, 0, 2}) {
-        controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_LEFT); D6R_REQUIRE_EQ(expected, menu.focus);
+        controller.pulse(menu.focus == 0 ? SDL_CONTROLLER_BUTTON_DPAD_LEFT : SDL_CONTROLLER_BUTTON_DPAD_UP);
+        D6R_REQUIRE_EQ(expected, menu.focus);
     }
     std::promise<Client::DirectoryPage> pending;
     menu.browser.pending = pending.get_future(); menu.focus = 3;
@@ -999,7 +1001,7 @@ D6R_TEST_CASE("NET-10 empty and initial error retain headings and subdued inline
             D6R_REQUIRE(f.fill(28,490,794,20,Color(170)));
             for (const auto *heading: {"Session / endpoint", "Players", "Phase", "Password", "Admission"})
                 D6R_REQUIRE(f.text(heading));
-            D6R_REQUIRE_EQ(2, f.menu.focus); D6R_REQUIRE(f.frame(290,66,260,36,2));
+            D6R_REQUIRE_EQ(2, f.menu.focus); D6R_REQUIRE(f.frame(708,516,116,28,2));
             D6R_REQUIRE(!f.text("Page 1") && !f.text("Sessions listed"));
             unsigned count = 0;
             for (const auto &quad: f.recorder.quads) {
