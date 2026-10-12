@@ -2,7 +2,7 @@
 
 ## NET-10 localized browser refinement
 
-The fixed NET-10, NET-10-E, and NET-10-U specifications require the single footer row defined by UX-NET-10-012, retaining the compact upper Refresh action and removal of the static no-selection instruction. **Visual gate: pending UX assessment of all three supplied 1280 × 900 replacement representatives.** Current images and provenance below retain frozen production identity `a9dca87bc5564215f70e8d5ec72a96d125c6a2fe` and fixed specification/wireframe identity `e1368f5fd86b4b7d683ac7cafebfb1abc8bac714`; developer capture does not establish UX acceptance. All other wireframes and capture requirements remain unchanged.
+The fixed NET-10, NET-10-E, and NET-10-U specifications require the single footer row defined by UX-NET-10-012, retaining the compact upper Refresh action and removal of the static no-selection instruction. **Visual gate: satisfied for all three supplied 1280 × 900 representatives at evidence checkpoint `93dd44d84ae97e642597a9b9e4ec1ce382c7164c`, with no findings.** UX assessed the exact supplied bytes against unchanged fixed specifications/wireframes at `e1368f5fd86b4b7d683ac7cafebfb1abc8bac714`, retaining frozen production identity `a9dca87bc5564215f70e8d5ec72a96d125c6a2fe`. All other wireframes and capture requirements remain unchanged.
 
 Common profile: original full-client lossless PNG at 1280 × 900; GL4, Lua enabled, Xvfb, dummy audio, software OpenGL; existing 850 × 700 logical canvas. Native rendering only, no crop, retouching, synthetic listing substitution, or composed pixels. Product authority: [browser contract](../../screens/network-browser.md). UX authority: [NET-10](../screens/NET-10.md).
 
@@ -16,13 +16,13 @@ Focused routine checks cover first/middle/last multi-page navigation and single-
 
 ### Current NET-10 conformance
 
-**Current conformance: NET-10, NET-10-E, and NET-10-U pending UX assessment.** The current source identities and image hashes below are developer-supplied and identify the replacement artifacts, not acceptance.
+**Current conformance: NET-10, NET-10-E, and NET-10-U satisfied, with no findings.** The source identities and image hashes below are developer-supplied; UX assessment does not independently recompute them. This section integrates the approved assessment of the exact bytes at `93dd44d84ae97e642597a9b9e4ec1ce382c7164c` without new capture or changes to images, provenance, specifications, or wireframes.
 
 | Representative | Approved UX assessment |
 |---|---|
-| `NET-10` | Supplied; pending UX assessment against UX-NET-10-012 and the results matrix row above. |
-| `NET-10-E` | Supplied; pending UX assessment against UX-NET-10-012 and the empty matrix row above. |
-| `NET-10-U` | Supplied; pending UX assessment against UX-NET-10-012 and the failed-refresh matrix row above. |
+| `NET-10` | Conforms: aligned equal-size footer with centered complete captions; protected/Open and Started/Closed listings remain distinct, with selected marker/focus, enabled Join selected, and details preserved. Upper Refresh and table allocations are unchanged; unnecessary paging and successful-load status are hidden. |
+| `NET-10-E` | Conforms: aligned footer with disabled Join selected and blank no-selection reason; focused upper Refresh retains clear separation. All five complete headings and the complete subdued empty description remain visible, with no rows or body focus. |
+| `NET-10-U` | Conforms: aligned footer with disabled Join selected and necessary unavailable explanation; focused upper Refresh, all five complete headings, and the complete error description remain visible. Cached rows and selected details are hidden. |
 
 Acceptance is limited to the supplied still-image states and Linux profile. Stills do not prove input behavior, multi-page navigation, recovery identity handling, age-stale behavior, controller operation, native macOS presentation, or other uncaptured states/platforms. Their existing owning functional, routine-test, and platform scopes remain unchanged.
 
