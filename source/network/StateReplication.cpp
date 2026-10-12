@@ -1233,7 +1233,13 @@ namespace Duel6::Network::Replication {
                     }
                     resultTransitions.insert(right.playerId);
                 }
-                return !resultTransitions.empty() && resultTransitions == *playerTransitions;
+                if (resultTransitions.empty()) return false;
+                for (Identity identity: *playerTransitions)
+                    if (!resultTransitions.count(identity)
+                        && std::any_of(prior->rows.begin(), prior->rows.end(), [&](const auto &row) { return row.playerId == identity; }))
+                        return false;
+                return std::includes(playerTransitions->begin(), playerTransitions->end(),
+                                     resultTransitions.begin(), resultTransitions.end());
             } catch (...) { return false; }
         }
 

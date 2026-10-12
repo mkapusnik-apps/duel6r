@@ -1478,9 +1478,12 @@ D6R_TEST_CASE("NET-ADM waiting and final-round feedback stay contained and clear
     D6R_REQUIRE(f.text("2. Lin  0 • Waiting"));
     D6R_REQUIRE(f.text("Guest • LAN session • Connected"));
     D6R_REQUIRE(f.text("Leave session"));
-    state.phase = Network::Replication::Phase::RoundSummary; state.roundEndCountdown = 300;
+    state.phase = Network::Replication::Phase::RoundSummary;
     state.score.winner.noWinner = true;
-    f.draw(); D6R_REQUIRE(f.text("Your players join next round."));
+    for (const unsigned countdown: {360u, 300u}) {
+        state.roundEndCountdown = countdown;
+        f.draw(); D6R_REQUIRE(f.text("Your players join next round."));
+    }
     state.phase = Network::Replication::Phase::ActiveRound; state.currentRoundNumber = 3;
     state.score.winner.noWinner = false;
     f.draw();

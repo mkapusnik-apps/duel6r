@@ -542,6 +542,8 @@ namespace Duel6::Server::Authoritative {
                 player.departed = !player.waiting;
                 result.players.push_back(player);
                 digestValue(digest, definition.playerId);
+                digestValue(digest, player.waiting ? 1u : 0u);
+                digestValue(digest, player.departed ? 1u : 0u);
                 continue;
             }
             const std::size_t index = static_cast<std::size_t>(std::distance(activeRoster.begin(), active));
