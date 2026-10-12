@@ -38,7 +38,7 @@ These values use the existing 850 by 700 logical canvas and bottom-left renderer
 - Each footer action must measure 252 by 32 logical pixels with 16-logical-pixel gaps.
 - Captions must remain centered at the standard 16-logical-pixel text size.
 - Whole button rectangles must remain pointer targets with current pressed, disabled, focus, and canvas-scaling behavior.
-- The former lower Refresh location and second footer row must remain empty without interaction targets.
+- The former lower Refresh action must not remain as a separate affordance or activation target. Direct connect must occupy its approved single-row footer bounds. The former second footer row must remain empty without interaction targets.
 
 Forward traversal must cycle Refresh → table → Previous page → Next page → Join selected → Direct connect → Back → Refresh. Reverse traversal must reverse this cycle. Both must skip hidden or disabled browser controls under existing eligibility.
 
