@@ -45,14 +45,15 @@ namespace Duel6 {
             Int32 x, y, width, height;
             const char *caption;
         };
-        // Shared visual, pointer and traversal order: rows, paging, then footer.
+        // Shared visual/pointer bounds and cyclic traversal: Refresh, rows,
+        // paging, footer, then Refresh (rows are the implicit first anchor).
         constexpr BrowserAction BrowserActions[] = {
             {4, 28, 108, 252, 24, "Previous page"},
             {5, 560, 108, 256, 24, "Next page"},
             {1, 28, 68, 252, 32, "Join selected"},
-            {2, 292, 68, 256, 32, "Refresh"},
             {3, 560, 68, 256, 32, "Direct connect"},
-            {6, 560, 28, 256, 32, "Back"}
+            {6, 560, 28, 256, 32, "Back"},
+            {2, 710, 518, 112, 24, "Refresh"}
         };
 
         Float32 canvasScale(Int32 width, Int32 height) {
@@ -1914,9 +1915,9 @@ namespace Duel6 {
         const bool visibleRows = browser.available();
         const bool replacement = !browser.loading() && (!visibleRows || rows.empty());
         if (browser.loading()) drawClippedText(30, 516,
-            visibleRows && !rows.empty() ? "Refreshing... Previous results may be out of date." : "Loading sessions...", 98);
+            visibleRows && !rows.empty() ? "Refreshing... Previous results may be out of date." : "Loading sessions...", 83);
         else if (visibleRows && browser.stale()) drawClippedText(30, 516,
-            "Directory unavailable. Previous results may be out of date.", 98);
+            "Directory unavailable. Previous results may be out of date.", 83);
         renderer.quadXY(Vector(28, 490), Vector(794, 20), Color(170));
         drawText(30, 494, "Session / endpoint"); drawText(382, 494, "Players");
         drawText(480, 494, "Phase"); drawText(590, 494, "Password"); drawText(704, 494, "Admission");
@@ -1943,7 +1944,9 @@ namespace Duel6 {
             drawText(704, y, browser.stale() || browser.loading() ? "Unknown" : row.phase == "closed" ? "Closed" : row.players >= row.capacity ? "Full" : row.joinable() ? "Open" : "Expired", rowColor);
             drawFocusKeyline(30, y - 4, 790, 22, selection && focus == 0);
         }
-        std::string reason = selected ? "Host validates capacity, compatibility and admission again." : selectedListing.empty() ? "Select a session." : "Session is no longer listed.";
+        std::string reason = selected ? "Host validates capacity, compatibility and admission again."
+            : !visibleRows ? "Refresh successfully before joining. Availability unconfirmed."
+            : selectedListing.empty() ? "" : "Session is no longer listed.";
         if (selected && !selected->joinable()) reason = (selected->players >= selected->capacity ? "Session is full. " : "")
             + std::string(selected->phase == "closed" ? "Admission is closed." : "");
         if (browser.stale() || browser.loading()) reason = "Refresh successfully before joining. Availability unconfirmed.";
