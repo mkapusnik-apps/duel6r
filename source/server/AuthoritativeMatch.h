@@ -2,6 +2,7 @@
 #define DUEL6_SERVER_AUTHORITATIVEMATCH_H
 
 #include <functional>
+#include <chrono>
 #include <map>
 #include <memory>
 #include <optional>
@@ -44,6 +45,7 @@ namespace Duel6::Server::Authoritative {
         std::function<bool()> cleanup;
         std::function<std::vector<AuthoritativeAction>(Tick)> actionSource;
         std::function<Tick()> clock;
+        std::function<std::chrono::steady_clock::time_point()> sessionClock;
     };
 
     enum class ActionResult {
@@ -106,6 +108,7 @@ namespace Duel6::Server::Authoritative {
             bool alive = true;
             bool departed = false;
             bool spawned = true;
+            std::optional<std::chrono::steady_clock::time_point> waitingSince;
             std::int32_t life = MaximumLife;
             PlayerStatistics total;
             PlayerStatistics roundStart;

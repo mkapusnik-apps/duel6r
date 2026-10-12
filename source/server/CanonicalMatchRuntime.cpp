@@ -236,7 +236,7 @@ namespace Duel6::Server::Authoritative {
             canonicalPlayersById.clear();
             heldInputsByPlayerId.clear();
             departedPlayerIds.clear();
-            waitingPlayerIds.clear();
+            for (const Identity playerId: decision.rosterOrder) waitingPlayerIds.erase(playerId);
             auto &canonicalPlayers = game->getPlayers();
             if (canonicalPlayers.size() != activeRoster.size()) return false;
             for (std::size_t index = 0; index < activeRoster.size(); ++index) {

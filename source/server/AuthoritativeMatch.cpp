@@ -136,6 +136,9 @@ namespace Duel6::Server::Authoritative {
             return std::vector<AuthoritativeAction>{};
         };
         if (!this->dependencies.clock) this->dependencies.clock = [this] { return tick; };
+        if (!this->dependencies.sessionClock) this->dependencies.sessionClock = [this] {
+            return std::chrono::steady_clock::time_point{} + std::chrono::nanoseconds(tick);
+        };
     }
 
     AuthoritativeMatch::~AuthoritativeMatch() {
@@ -243,6 +246,11 @@ namespace Duel6::Server::Authoritative {
     bool AuthoritativeMatch::startRound() {
         if (!random || completedRoundCount >= config.roundLimit) return false;
         Math::RandomScope authoritativeScope(*random);
+        std::chrono::steady_clock::time_point startedAt;
+        try { startedAt = dependencies.sessionClock(); } catch (...) { return false; }
+        const auto eligible = [startedAt](const PlayerState &player) {
+            return !player.departed && (!player.waitingSince || startedAt > *player.waitingSince);
+        };
         endWorld();
         currentRoundDecision = {};
         currentRoundDecision.roundNumber = static_cast<std::uint8_t>(completedRoundCount + 1);
@@ -258,18 +266,19 @@ namespace Duel6::Server::Authoritative {
         currentRoundDecision.startingPositionOrder.clear();
         std::vector<std::uint32_t> positions;
         for (std::size_t index = 0; index < players.size(); ++index)
-            if (!players[index].departed) positions.push_back(static_cast<std::uint32_t>(index));
+            if (eligible(players[index])) positions.push_back(static_cast<std::uint32_t>(index));
         random->shuffle(positions, "round-position-order");
         std::vector<Identity> active;
         for (auto &player: players) {
-            player.alive = !player.departed;
-            player.spawned = !player.departed;
+            player.alive = eligible(player);
+            player.spawned = player.alive;
             player.life = MaximumLife;
             player.attackers.clear();
             player.lastInputTick = static_cast<Tick>(-1);
             player.inputMask = 0;
             player.roundStart = player.total;
-            if (!player.departed) {
+            if (player.spawned) {
+                player.waitingSince.reset();
                 if (!checkedAdd(player.total.roundsPlayed, 1)) return false;
                 active.push_back(player.definition.playerId);
                 currentRoundDecision.rosterOrder.push_back(player.definition.playerId);
@@ -282,7 +291,7 @@ namespace Duel6::Server::Authoritative {
             currentRoundDecision.predatorPlayerId = predatorPlayer;
         }
         for (const auto &player: players) {
-            if (player.departed) continue;
+            if (!player.spawned) continue;
             currentRoundDecision.startingWeaponIndices.push_back(
                     static_cast<std::uint32_t>(random->bounded(config.enabledWeapons.size(), "starting-weapon")));
             const std::uint64_t ammoSpan = static_cast<std::uint64_t>(config.startingAmmoMaximum)
@@ -305,7 +314,7 @@ namespace Duel6::Server::Authoritative {
         catch (...) { worldActive = false; }
         if (!worldActive) return false;
         if (dependencies.worldInput) {
-            for (auto &player: players) if (!player.departed) {
+            for (auto &player: players) if (player.spawned) {
                 try {
                     if (!dependencies.worldInput(player.definition.playerId, 0)) return false;
                 } catch (...) { return false; }
@@ -1011,6 +1020,8 @@ namespace Duel6::Server::Authoritative {
         try {
             Math::RandomScope authoritativeScope(*random);
             const bool immediate = currentPhase == MatchPhase::ActiveRound && currentRoundDecision.roundNumber == 1;
+            const auto committedAt = immediate ? std::optional<std::chrono::steady_clock::time_point>{}
+                : std::optional<std::chrono::steady_clock::time_point>{dependencies.sessionClock()};
             if ((immediate && dependencies.worldAppendPlayers && !dependencies.worldAppendPlayers(additions, *random))
                 || (!immediate && dependencies.worldQueuePlayers && !dependencies.worldQueuePlayers(additions))) {
                 failRuntime(); return ActionResult::RuntimeFailed;
@@ -1018,6 +1029,7 @@ namespace Duel6::Server::Authoritative {
             for (const auto &entry: additions) {
                 PlayerState state; state.definition = entry;
                 state.spawned = immediate;
+                state.waitingSince = committedAt;
                 state.alive = immediate;
                 state.total.roundsPlayed = immediate ? 1 : 0;
                 if (config.mode == Mode::TeamDeathmatch) state.team = static_cast<Team>(entry.rosterOrder % config.teamCount + 1);

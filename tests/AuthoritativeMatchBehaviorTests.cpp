@@ -940,6 +940,37 @@ D6R_TEST_CASE("NET-ADM 99-round production history permits fresh snapshot synchr
     D6R_REQUIRE_EQ(std::uint64_t(1), resultPlayer(*controller.currentSessionResult(), 102).statistics.roundsPlayed);
 }
 
+D6R_TEST_CASE("NET-ADM forced start at admission clock instant waits for a strictly later start") {
+    for (const bool production: {false, true}) {
+        ProductionCanonicalResourceRoot resources;
+        const auto content = Duel6::Network::CompatibilityManifestBuilder(resources.path(), {}).build();
+        D6R_REQUIRE(content.valid());
+        auto requested = production ? ProductionCanonicalFixture::canonicalConfig(4, resources.path()) : config();
+        requested.roundLimit = 4;
+        auto now = std::chrono::steady_clock::time_point{};
+        auto dependencies = production ? CanonicalMatchRuntime::createDependencies(requested, roster(1), content)
+            : MatchRuntimeDependencies{};
+        dependencies.sessionClock = [&] { return now; };
+        AuthoritativeMatch match(dependencies);
+        D6R_REQUIRE_EQ(OutcomeCode::None, match.start(requested, roster(1), production ? content.manifest : manifest()).code);
+        establishTestOutcome(match, {}, Team::None, true);
+        D6R_REQUIRE_EQ(ActionResult::Accepted, match.appendPlayers(1, {roster(2)[1]}));
+        D6R_REQUIRE_EQ(ActionResult::Accepted, match.submitHostControl(1, ActionKind::AdvanceRound));
+        D6R_REQUIRE_EQ(std::uint8_t(2), match.roundDecision().roundNumber);
+        D6R_REQUIRE(!match.canAcceptPlayerInput(2, 102));
+        D6R_REQUIRE_EQ(std::uint64_t(0), match.playerStatistics().at(102).roundsPlayed);
+        D6R_REQUIRE_EQ(std::vector<Identity>({101}), match.roundDecision().rosterOrder);
+        if (production) D6R_REQUIRE(match.canonicalWorldSnapshot()->players.back().waiting);
+        now += std::chrono::nanoseconds(1);
+        establishTestOutcome(match, {}, Team::None, true);
+        D6R_REQUIRE_EQ(ActionResult::Accepted, match.submitHostControl(1, ActionKind::AdvanceRound));
+        D6R_REQUIRE_EQ(std::uint8_t(3), match.roundDecision().roundNumber);
+        D6R_REQUIRE(match.canAcceptPlayerInput(2, 102));
+        D6R_REQUIRE_EQ(std::uint64_t(1), match.playerStatistics().at(102).roundsPlayed);
+        if (production) D6R_REQUIRE(!match.canonicalWorldSnapshot()->players.back().waiting);
+    }
+}
+
 D6R_TEST_CASE("NET-ADM real first-round arrival preserves existing world and mode state") {
     const std::vector<std::tuple<Mode, std::uint8_t, bool>> cases{
         {Mode::Deathmatch, 0, false}, {Mode::Predator, 0, false},

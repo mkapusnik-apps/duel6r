@@ -1909,6 +1909,7 @@ namespace Duel6::Server {
             hostPlayerInput->reset();
             auto matchDependencies = runtimeDependencies.authoritativeRuntimeFactory(
                     *hostedSettings, current.players, hostedContent);
+            matchDependencies.sessionClock = runtimeDependencies.now;
             const auto started = hostedMatch->start(
                     *hostedSettings, current.players, hostedContent.manifest, std::move(matchDependencies));
             if (started.code == Authoritative::OutcomeCode::SettingsInvalid
