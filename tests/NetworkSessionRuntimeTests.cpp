@@ -885,7 +885,7 @@ D6R_TEST_CASE("NET-10 compact upper Refresh keeps caption clearance full scaled 
             D6R_REQUIRE_EQ(f.row.id, menu.selectedListing);
         }
         for (const auto &point: {std::pair{707, 530}, std::pair{825, 530}, std::pair{766, 515},
-                                std::pair{766, 545}, std::pair{400, 76}}) {
+                                std::pair{766, 545}, std::pair{288, 76}}) {
             menu.focus = 0; click(point.first, point.second);
             D6R_REQUIRE_EQ(0, menu.focus); D6R_REQUIRE(!menu.browser.loading());
         }
@@ -919,6 +919,77 @@ D6R_TEST_CASE("NET-10 compact upper Refresh keeps caption clearance full scaled 
     statusClear("Refreshing... Previous results may be out of date.");
     f.deliver({true, {f.row}, {}}); menu.browser.received -= std::chrono::seconds(31);
     menu.focus = 2; f.draw(); statusClear("Directory unavailable. Previous results may be out of date.");
+}
+
+D6R_TEST_CASE("NET-10 single footer row keeps equal frames centered captions focus and full scaled targets") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    struct Action { int x, focus; const char *caption; };
+    const Action actions[] = {{28, 1, "Join selected"}, {296, 3, "Direct connect"}, {564, 6, "Back"}};
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        const float scale = std::min(1.35f, std::min(float(size.first) / 850, float(size.second) / 700));
+        const int tx = (size.first - int(850 * scale)) / 2, ty = (size.second - int(700 * scale)) / 2;
+        const auto click = [&](int x, int y) { f.click(tx + int(x * scale), ty + int(y * scale)); };
+        const auto reset = [&] {
+            menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+            menu.browserSelection.reset(); menu.joinFromBrowser = false; menu.pointerHeld = false;
+            f.selected();
+        };
+        for (const auto &action: actions) {
+            reset(); menu.focus = action.focus; f.draw();
+            D6R_REQUIRE(f.fill(action.x, 68, 252, 32, Color(192)));
+            D6R_REQUIRE(f.frame(action.x - 2, 66, 256, 36, 2));
+            D6R_REQUIRE(!f.fill(560, 28, 256, 32, Color(192)));
+            bool caption = false;
+            for (const auto &quad: f.recorder.quads) {
+                const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                    [&](const auto &item) { return item.texture == quad.material.getTexture(); });
+                if (entry == f.font.fontCache.entryList.end() || entry->text != action.caption) continue;
+                caption = true;
+                D6R_REQUIRE_EQ(16.0f, quad.vertices[2].y - quad.vertices[0].y);
+                D6R_REQUIRE_EQ(76.0f, quad.vertices[0].y);
+                D6R_REQUIRE_EQ(float(action.x + (252 - int(entry->text.size()) * 8) / 2), quad.vertices[0].x);
+                D6R_REQUIRE(quad.vertices[2].x < action.x + 252);
+            }
+            D6R_REQUIRE(caption);
+            // Corners outside the caption exercise the entire scaled rectangle.
+            for (int x: {action.x + 1, action.x + 251}) for (int y: {69, 99}) {
+                reset(); click(x, y);
+                D6R_REQUIRE_EQ(action.focus == 1 ? 2 : 0, menu.focus);
+                if (action.focus == 6) D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+                else {
+                    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
+                    D6R_REQUIRE_EQ(action.focus == 1, menu.joinFromBrowser);
+                    D6R_REQUIRE_EQ(action.focus == 1, menu.browserSelection.has_value());
+                }
+            }
+        }
+        // Gaps, exterior edges and the former second row never dispatch actions.
+        for (const auto &point: {std::pair{24, 84}, std::pair{284, 84}, std::pair{292, 84},
+                                std::pair{552, 84}, std::pair{560, 84}, std::pair{820, 84},
+                                std::pair{154, 64}, std::pair{422, 104}, std::pair{690, 44}}) {
+            reset(); click(point.first, point.second);
+            D6R_REQUIRE_EQ(0, menu.focus);
+            D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+            D6R_REQUIRE(!menu.browserSelection && !menu.browser.loading());
+        }
+        // Disabled Join retains its frame and cannot activate at either corner.
+        reset(); f.deliver({true, {}, {}}); menu.focus = 3;
+        for (const auto &point: {std::pair{29, 69}, std::pair{279, 99}}) {
+            click(point.first, point.second);
+            D6R_REQUIRE_EQ(3, menu.focus);
+            D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+            D6R_REQUIRE(!menu.browserSelection);
+        }
+        menu.pointerHeld = false; f.draw(); D6R_REQUIRE(f.frame(28, 68, 252, 32, 1));
+        reset(); menu.focus = 2;
+        for (int expected: {0, 1, 3, 6, 2}) { f.key(SDLK_TAB); D6R_REQUIRE_EQ(expected, menu.focus); }
+        for (int expected: {6, 3, 1, 0, 2}) {
+            menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+            D6R_REQUIRE_EQ(expected, menu.focus);
+        }
+    }
 }
 
 D6R_TEST_CASE("NET-10 successful no-selection reason is blank while necessary explanations remain") {

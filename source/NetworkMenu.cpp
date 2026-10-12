@@ -51,8 +51,8 @@ namespace Duel6 {
             {4, 28, 108, 252, 24, "Previous page"},
             {5, 560, 108, 256, 24, "Next page"},
             {1, 28, 68, 252, 32, "Join selected"},
-            {3, 560, 68, 256, 32, "Direct connect"},
-            {6, 560, 28, 256, 32, "Back"},
+            {3, 296, 68, 252, 32, "Direct connect"},
+            {6, 564, 68, 252, 32, "Back"},
             {2, 710, 518, 112, 24, "Refresh"}
         };
 
