@@ -1956,9 +1956,10 @@ namespace Duel6 {
         if (browser.stale() || browser.loading()) reason = "Refresh successfully before joining. Availability unconfirmed.";
         if (selected && !selected->joinable() && selected->players < selected->capacity && selected->phase != "closed")
             reason = "Session listing expired. Refresh before joining.";
-        drawText(24, 180, selected ? "Session " + selected->sessionId + " • " + selected->endpoint.host + ":"
+        drawText(24, selected ? 184 : 180, selected ? "Session " + selected->sessionId + " • " + selected->endpoint.host + ":"
             + std::to_string(selected->endpoint.port) + " • " + selected->mode : "Selected session");
-        drawClippedText(24, 156, reason, 100);
+        drawClippedText(24, selected ? 168 : 156, reason, 100);
+        if (selected) drawText(24, 152, "The host confirms availability when you connect.");
         drawText(24, 136, selected && Network::Trust::classifyIpv4Literal(selected->endpoint.host)
                 == Network::Trust::EndpointScope::Loopback
                 ? "Same-machine endpoint. Only clients on the host machine can connect."

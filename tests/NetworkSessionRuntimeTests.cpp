@@ -1515,6 +1515,50 @@ D6R_TEST_CASE("NET-ADM ongoing and final browser and join contexts do not promis
     }
 }
 
+D6R_TEST_CASE("VA-SOLO-01 NET-10 selected details retain host confirmation inside allocation at 720 and 900") {
+    BrowserPresentationFixture f;
+    const std::string confirmation = "The host confirms availability when you connect.";
+    const std::string reachability = "LAN-first. A listing does not guarantee reachability.";
+    for (const int height: {720, 900}) for (const bool pagination: {false, true}) {
+        f.video.screen = ScreenParameters(1280, height, 24, 24, 0, false);
+        f.menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+        f.row.phase = "started";
+        f.deliver({true, {f.row}, pagination ? "cursor-next" : ""});
+        f.menu.selectedListing = f.row.id; f.menu.focus = pagination ? 5 : 0; f.draw();
+        D6R_REQUIRE(f.text("Match in progress. Your players join next round if admitted."));
+        D6R_REQUIRE(f.text(confirmation) && f.text(reachability));
+        std::vector<std::pair<float, float>> details;
+        for (const auto &draw: f.recorder.quads) {
+            const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                [&](const auto &entry) { return entry.texture == draw.material.getTexture(); });
+            if (entry == f.font.fontCache.entryList.end()) continue;
+            if (entry->text.find("Session " + f.row.sessionId) != 0
+                && entry->text != "Match in progress. Your players join next round if admitted."
+                && entry->text != confirmation && entry->text != reachability) continue;
+            const auto &quad = draw;
+            D6R_REQUIRE(quad.vertices[0].x >= 24 && quad.vertices[2].x <= 826);
+            D6R_REQUIRE(quad.vertices[0].y >= 136 && quad.vertices[2].y <= 200);
+            for (const auto &vertex: quad.vertices) {
+                const auto point = quad.view * vertex;
+                D6R_REQUIRE(point.x >= 0 && point.x <= 1280 && point.y >= 0 && point.y <= height);
+            }
+            details.emplace_back(quad.vertices[0].y, quad.vertices[2].y);
+        }
+        D6R_REQUIRE_EQ(std::size_t(4), details.size());
+        std::sort(details.begin(), details.end());
+        for (std::size_t index = 1; index < details.size(); ++index)
+            D6R_REQUIRE(details[index - 1].second <= details[index].first);
+        D6R_REQUIRE(f.fill(28, 68, 252, 32, Color(192)));
+        D6R_REQUIRE(f.fill(292, 68, 256, 32, Color(192)));
+        D6R_REQUIRE(f.fill(560, 68, 256, 32, Color(192)));
+        D6R_REQUIRE(f.fill(560, 28, 256, 32, Color(192)));
+        D6R_REQUIRE(f.text("Refresh") && f.text("Direct connect") && f.text("Back"));
+        D6R_REQUIRE(f.menu.browserFocusEnabled(1));
+    }
+    f.menu.selectedListing.clear(); f.menu.focus = 0; f.draw();
+    D6R_REQUIRE(!f.text(confirmation));
+}
+
 D6R_TEST_CASE("UX-NET round progress uses current authoritative round during active and frozen end delay") {
     ReviewMenuFixture f;
     auto &menu = f.menu;
