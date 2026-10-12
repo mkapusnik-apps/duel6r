@@ -16,7 +16,7 @@ IS_WINDOWS = os.name == "nt"
 def start_server(executable, host, port):
     creationflags = subprocess.CREATE_NEW_CONSOLE if IS_WINDOWS else 0
     return subprocess.Popen(
-        [executable, "--transport-echo", f"--host={host}", f"--port={port}", "--max-clients=15"],
+        [executable, "--server", "--transport-echo", f"--host={host}", f"--port={port}", "--max-clients=15"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
         creationflags=creationflags)
 
@@ -155,7 +155,7 @@ def exercise(executable, host):
 
 def ordinary_startup_has_no_listener(executable):
     port = unused_port()
-    completed = subprocess.run([executable, "--host=127.0.0.1", f"--port={port}"], stdout=subprocess.PIPE,
+    completed = subprocess.run([executable, "--server", "--host=127.0.0.1", f"--port={port}"], stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True, timeout=3, check=False)
     assert completed.returncode == 2 and "did not listen" in completed.stdout
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
@@ -167,7 +167,7 @@ def unsupported_listener_addresses_are_rejected_before_listen(executable):
                  "10.0.0.255", "172.16.0.255", "192.168.0.255"):
         port = unused_port()
         completed = subprocess.run(
-            [executable, "--transport-echo", f"--host={host}", f"--port={port}"],
+            [executable, "--server", "--transport-echo", f"--host={host}", f"--port={port}"],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=3, check=False)
         assert completed.returncode == 2, (host, completed.returncode, completed.stdout)
         assert completed.stdout == expected, (host, completed.stdout)

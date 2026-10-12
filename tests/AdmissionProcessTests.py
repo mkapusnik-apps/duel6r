@@ -58,7 +58,7 @@ def wait_line(process, text, timeout=10):
 
 def run_client(executable, root, port):
     return subprocess.run(
-        [executable, "--admission-client", "--host=127.0.0.1", f"--port={port}",
+        [executable, "--server", "--admission-client", "--host=127.0.0.1", f"--port={port}",
          f"--resources={root}", "--local-players=2"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=12, check=False)
 
@@ -76,7 +76,7 @@ def process_smoke(executable, base, client_executable=None):
     (guest_root / "textures" / "cosmetic.png").write_bytes(b"different cosmetic")
     port = unused_port()
     server = subprocess.Popen(
-        [executable, "--transport", "--local-only", "--host=127.0.0.1", f"--port={port}",
+        [executable, "--server", "--transport", "--local-only", "--host=127.0.0.1", f"--port={port}",
          f"--resources={host_root}", "--local-players=1"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
     compatible = None
@@ -96,7 +96,7 @@ def process_smoke(executable, base, client_executable=None):
         assert 2.5 <= pending_elapsed < 4.5, pending_elapsed
 
         compatible = subprocess.Popen(
-            [client_executable, "--admission-client", "--host=127.0.0.1", f"--port={port}",
+            [client_executable, "--server", "--admission-client", "--host=127.0.0.1", f"--port={port}",
              f"--resources={guest_root}", "--local-players=2"],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         admitted_output = wait_line(compatible, "admitted")
@@ -132,7 +132,7 @@ def invalid_host_fails_before_listener(executable, base):
     (invalid / "levels" / "arena.json").write_bytes(b"arena")
     port = unused_port()
     completed = subprocess.run(
-        [executable, "--transport", "--local-only", "--host=127.0.0.1", f"--port={port}",
+        [executable, "--server", "--transport", "--local-only", "--host=127.0.0.1", f"--port={port}",
          f"--resources={invalid}"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, timeout=3, check=False)
     expected = ("host-gameplay-content-manifest-invalid\n"

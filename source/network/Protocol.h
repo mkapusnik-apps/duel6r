@@ -139,7 +139,7 @@ namespace Duel6::Network {
         ConnectionMode mode = ConnectionMode::LocalGame;
         Endpoint remoteEndpoint;
         Endpoint localEndpoint;
-        std::string localServerExecutable = "duel6r-server";
+        std::string localServerExecutable = "duel6r";
         std::string authToken;
     };
 

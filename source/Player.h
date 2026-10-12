@@ -353,6 +353,8 @@ namespace Duel6 {
             return !hasFlag(FlagDead) && !hasFlag(FlagDying);
         }
 
+        bool isHeadless() const { return headless; }
+
         bool isGhost() const {
             return hasFlag(FlagGhost);
         }

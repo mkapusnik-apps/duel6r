@@ -3281,7 +3281,7 @@ D6R_TEST_CASE("NET-DIR NET-PASS setup rosters retain scrolling and pointer remov
 D6R_TEST_CASE("PR83 capture flat bundle menu Host Join Retry and effective level plans start real matches") {
     using namespace std::chrono_literals;
     D6R_REQUIRE(!std::filesystem::exists("resources"));
-    D6R_REQUIRE(std::filesystem::is_regular_file("duel6r-server"));
+    D6R_REQUIRE(std::filesystem::is_regular_file("duel6r"));
     char name[] = "duel6r-flat-menu-tests";
     char *arguments[] = {name};
     Application application(1, arguments);

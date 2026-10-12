@@ -49,7 +49,7 @@ def diagnostics(lines):
 
 def run(root, level, mode, quick_liquid, end_tick, players=PLAYERS, extra_actions="", seed=81081):
     arguments = [
-        SERVER, "--authoritative-match", f"--resources={root}", f"--seed={seed}",
+        SERVER, "--server", "--authoritative-match", f"--resources={root}", f"--seed={seed}",
         "--actions-stdin", "--rounds=1", "--level-plan=fixed",
         f"--fixed-level=levels/{level}", f"--level=levels/{level}",
         f"--quick-liquid={'on' if quick_liquid else 'off'}",
@@ -73,7 +73,7 @@ def run(root, level, mode, quick_liquid, end_tick, players=PLAYERS, extra_action
 
 def run_complete_rounds(root, level, rounds):
     arguments = [
-        SERVER, "--authoritative-match", f"--resources={root}", "--seed=81081",
+        SERVER, "--server", "--authoritative-match", f"--resources={root}", "--seed=81081",
         "--scenario=complete", f"--rounds={rounds}", "--level-plan=fixed",
         f"--fixed-level=levels/{level}", f"--level=levels/{level}",
         "--quick-liquid=on", "--match-mode=deathmatch", *PLAYERS,

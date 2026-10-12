@@ -72,7 +72,7 @@ namespace {
         // Each invocation owns new data/session files; never reset shared data.
         D6R_REQUIRE(fs::create_directory(runDirectory));
         fs::copy(D6R_TEST_RESOURCE_DIR, runDirectory, fs::copy_options::recursive);
-        fs::copy_file(D6R_RUNTIME_TEST_SERVER, runDirectory / "duel6r-server");
+        fs::copy_file(D6R_RUNTIME_TEST_SERVER, runDirectory / "duel6r");
         fs::current_path(runDirectory);
         const Network::Endpoint endpoint{"127.0.0.1", static_cast<std::uint16_t>(port ? port : freePort())};
         std::cout << "[boundary] scenario=" << scenario << ";endpoint=127.0.0.1:" << endpoint.port << std::endl;

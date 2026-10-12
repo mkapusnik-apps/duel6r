@@ -33,6 +33,9 @@ include(CTest)
 # Darwin process/security gates remain independently executable alongside the
 # graphical target; they do not require launching the application UI.
 if (BUILD_TESTING)
+    add_executable(duel6r-application-mode-tests tests/TestMain.cpp tests/ApplicationModeTests.cpp source/ApplicationMode.cpp)
+    target_include_directories(duel6r-application-mode-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    add_test(NAME application-mode COMMAND duel6r-application-mode-tests)
     add_executable(duel6r-darwin-cleanup-state-tests tests/TestMain.cpp tests/DarwinCleanupStateTests.cpp)
     target_include_directories(duel6r-darwin-cleanup-state-tests PRIVATE ${CMAKE_SOURCE_DIR})
     target_compile_features(duel6r-darwin-cleanup-state-tests PRIVATE cxx_std_17)
@@ -621,17 +624,12 @@ list(REMOVE_ITEM D6R_ENGINE_SOURCES source/Main.cpp)
 if (APPLE)
     list(APPEND D6R_ENGINE_SOURCES source/platform/MacLocal.cpp)
 endif ()
-add_library(duel6r-game-engine STATIC ${D6R_ENGINE_SOURCES})
-target_include_directories(duel6r-game-engine PUBLIC ${CMAKE_SOURCE_DIR}/source)
 endif ()
 
 add_library(duel6r-directory-origin STATIC source/client/DirectoryOrigin.cpp)
 target_include_directories(duel6r-directory-origin PUBLIC ${CMAKE_SOURCE_DIR}/source)
 target_compile_definitions(duel6r-directory-origin PRIVATE
         D6R_DIRECTORY_DEFAULT_URL="${D6R_DIRECTORY_DEFAULT_URL}")
-if (NOT D6R_TRANSPORT_ONLY)
-    target_link_libraries(duel6r-game-engine PUBLIC duel6r-directory-origin)
-endif ()
 
 set(D6R_CANONICAL_GAMEPLAY_SOURCES
         source/Block.cpp
@@ -725,12 +723,28 @@ set(D6R_CANONICAL_GAMEPLAY_SOURCES
 
 add_library(duel6r-canonical-gameplay-core STATIC ${D6R_CANONICAL_GAMEPLAY_SOURCES})
 target_include_directories(duel6r-canonical-gameplay-core PUBLIC ${CMAKE_SOURCE_DIR}/source)
-target_compile_definitions(duel6r-canonical-gameplay-core PRIVATE D6R_HEADLESS_CORE NOMINMAX)
+set(D6R_CORE_DEFINITIONS NOMINMAX)
+if (D6R_TRANSPORT_ONLY)
+    list(APPEND D6R_CORE_DEFINITIONS D6R_HEADLESS_CORE)
+endif ()
+target_compile_definitions(duel6r-canonical-gameplay-core PUBLIC ${D6R_CORE_DEFINITIONS})
 if (MSVC)
     target_compile_options(duel6r-canonical-gameplay-core PRIVATE /fp:strict)
 else ()
     target_compile_options(duel6r-canonical-gameplay-core PRIVATE
             -fno-fast-math -ffp-contract=off -frounding-math)
+endif ()
+
+if (NOT D6R_TRANSPORT_ONLY)
+    # Each gameplay translation unit belongs to exactly one library. Full builds
+    # use one class layout for Local Play and runtime-headless canonical matches.
+    list(REMOVE_ITEM D6R_ENGINE_SOURCES ${D6R_CANONICAL_GAMEPLAY_SOURCES} source/math/Math.cpp)
+    add_library(duel6r-game-engine STATIC ${D6R_ENGINE_SOURCES})
+    target_include_directories(duel6r-game-engine PUBLIC ${CMAKE_SOURCE_DIR}/source)
+    target_link_libraries(duel6r-game-engine PUBLIC duel6r-canonical-gameplay-core duel6r-directory-origin)
+    # Canonical full-layout code has presentation symbols even when server mode
+    # never initializes them. Static-library cycles are resolved by CMake.
+    target_link_libraries(duel6r-canonical-gameplay-core PUBLIC duel6r-game-engine)
 endif ()
 
 set(D6R_NETWORK_SCAFFOLD_SOURCES
@@ -881,22 +895,34 @@ if (APPLE)
     target_link_libraries(duel6r-network-scaffold PUBLIC duel6r-darwin-process)
 endif ()
 
-set(D6R_SERVER_APP_NAME "duel6r-server" CACHE STRING "Filename of the experimental server scaffold.")
-set(D6R_SERVER_SOURCES source/server/ServerMain.cpp)
-add_executable(${D6R_SERVER_APP_NAME} ${D6R_SERVER_SOURCES})
-target_link_libraries(${D6R_SERVER_APP_NAME} duel6r-network-scaffold duel6r-canonical-gameplay-core)
-add_custom_command(TARGET ${D6R_SERVER_APP_NAME} POST_BUILD
+set(D6R_APP_NAME "duel6r" CACHE STRING "Filename of the shared application.")
+set(D6R_SERVER_APP_NAME ${D6R_APP_NAME})
+add_executable(${D6R_APP_NAME} source/Main.cpp source/ApplicationMode.cpp source/server/ServerMain.cpp)
+if (D6R_TRANSPORT_ONLY)
+    target_compile_definitions(${D6R_APP_NAME} PRIVATE D6R_TRANSPORT_ONLY)
+else ()
+    target_link_libraries(${D6R_APP_NAME} duel6r-game-engine)
+    target_link_libraries(duel6r-game-engine PUBLIC duel6r-network-scaffold)
+endif ()
+target_link_libraries(${D6R_APP_NAME} duel6r-network-scaffold duel6r-canonical-gameplay-core)
+add_custom_command(TARGET ${D6R_APP_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 ${CMAKE_SOURCE_DIR}/resources/data
-                $<TARGET_FILE_DIR:${D6R_SERVER_APP_NAME}>/data
+                 $<TARGET_FILE_DIR:${D6R_APP_NAME}>/data
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 ${CMAKE_SOURCE_DIR}/resources/levels
-                $<TARGET_FILE_DIR:${D6R_SERVER_APP_NAME}>/levels
+                 $<TARGET_FILE_DIR:${D6R_APP_NAME}>/levels
         COMMENT "Copying canonical headless gameplay resources")
-set_target_properties(${D6R_SERVER_APP_NAME} PROPERTIES VERSION 6.0.0)
-if (MINGW)
-    set_property(TARGET ${D6R_SERVER_APP_NAME} APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
-endif (MINGW)
+set_target_properties(${D6R_APP_NAME} PROPERTIES VERSION 6.0.0)
+if (BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME application-mode-process COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ApplicationModeProcessTests.py $<TARGET_FILE:${D6R_APP_NAME}>)
+    set_tests_properties(application-mode-process PROPERTIES TIMEOUT 60 LABELS "application;headless;cli;security")
+endif ()
+if (MINGW AND D6R_TRANSPORT_ONLY)
+    set_property(TARGET ${D6R_APP_NAME} APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
+endif ()
 
 set(D6R_HOST_SUPERVISOR_APP_NAME "duel6r-host-supervisor" CACHE STRING
         "Filename of the player-hosted service supervisor scaffold.")
@@ -1020,21 +1046,16 @@ endif (WIN32)
 #  Add application
 ########################
 
-set(D6R_APP_NAME "duel6r" CACHE STRING "Filename of the application.")
 set(D6R_APP_DEBUG_NAME "duel6rd" CACHE STRING "Filename of the debug version of the application.")
-add_executable(${D6R_APP_NAME} source/Main.cpp ${D6R_APP_PLATFORM_SOURCES})
-target_link_libraries(${D6R_APP_NAME} duel6r-game-engine)
-target_link_libraries(${D6R_APP_NAME} duel6r-network-scaffold)
+target_sources(${D6R_APP_NAME} PRIVATE ${D6R_APP_PLATFORM_SOURCES})
 set_target_properties(${D6R_APP_NAME} PROPERTIES VERSION 6.0.0 DEBUG_OUTPUT_NAME ${D6R_APP_DEBUG_NAME})
 if (APPLE)
     set_target_properties(${D6R_APP_NAME} PROPERTIES
             MACOSX_BUNDLE TRUE
             OUTPUT_NAME "Duel 6 Reloaded"
             MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/macos/Info.plist.in")
-    add_dependencies(${D6R_APP_NAME} ${D6R_SERVER_APP_NAME} ${D6R_RESOLVER_APP_NAME} duel6r-darwin-guardian)
+    add_dependencies(${D6R_APP_NAME} ${D6R_RESOLVER_APP_NAME} duel6r-darwin-guardian)
     add_custom_command(TARGET ${D6R_APP_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:${D6R_SERVER_APP_NAME}>"
-                    "$<TARGET_BUNDLE_CONTENT_DIR:${D6R_APP_NAME}>/MacOS/duel6r-server"
             COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:${D6R_RESOLVER_APP_NAME}>"
                     "$<TARGET_BUNDLE_CONTENT_DIR:${D6R_APP_NAME}>/MacOS/duel6r-resolver"
             COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:duel6r-darwin-guardian>"
@@ -1116,6 +1137,10 @@ if (D6R_WITH_LUA)
         include_directories(${HEADERS_LUA}/lua5.3)
     endif ()
 endif (D6R_WITH_LUA)
+
+get_target_property(D6R_SHARED_RUNTIME_LIBRARIES ${D6R_APP_NAME} LINK_LIBRARIES)
+list(REMOVE_ITEM D6R_SHARED_RUNTIME_LIBRARIES duel6r-game-engine duel6r-network-scaffold duel6r-canonical-gameplay-core)
+target_link_libraries(duel6r-game-engine PUBLIC ${D6R_SHARED_RUNTIME_LIBRARIES})
 
 if (BUILD_TESTING)
     add_executable(duel6r-mac-pointer-tests tests/TestMain.cpp tests/MacPointerTests.cpp)

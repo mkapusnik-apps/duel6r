@@ -89,7 +89,6 @@ add_executable(duel6r-authoritative-match-behavior-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
         ${CMAKE_SOURCE_DIR}/tests/AuthoritativeMatchBehaviorTests.cpp)
 target_include_directories(duel6r-authoritative-match-behavior-tests PRIVATE ${CMAKE_SOURCE_DIR})
-target_compile_definitions(duel6r-authoritative-match-behavior-tests PRIVATE D6R_HEADLESS_CORE)
 target_link_libraries(duel6r-authoritative-match-behavior-tests
         duel6r-network-scaffold duel6r-canonical-gameplay-core)
 if (MINGW)
@@ -105,7 +104,6 @@ add_executable(duel6r-quick-liquid-sparse-team-tests
         ${CMAKE_SOURCE_DIR}/tests/QuickLiquidSparseTeamTests.cpp)
 target_include_directories(duel6r-quick-liquid-sparse-team-tests PRIVATE ${CMAKE_SOURCE_DIR})
 target_compile_definitions(duel6r-quick-liquid-sparse-team-tests PRIVATE
-        D6R_HEADLESS_CORE
         D6R_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(duel6r-quick-liquid-sparse-team-tests
         duel6r-canonical-gameplay-core duel6r-network-scaffold)

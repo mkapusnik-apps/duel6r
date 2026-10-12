@@ -43,6 +43,7 @@ namespace Duel6::Server {
     };
 
     ServerConfig parseServerConfig(int argc, char **argv);
+    const char *serverUsage();
 }
 
 #endif

@@ -701,15 +701,15 @@ namespace Duel6 {
     std::string NetworkMenu::serverExecutable() const {
 #ifdef __APPLE__
         // SDL_GetBasePath points at Resources in this bundle, not MacOS.
-        return Platform::Darwin::siblingExecutable("duel6r-server");
+        return Platform::Darwin::siblingExecutable("Duel 6 Reloaded");
 #else
         char *base = SDL_GetBasePath();
         std::filesystem::path path = base ? std::filesystem::path(base) : std::filesystem::current_path();
         if (base) SDL_free(base);
 #ifdef D6R_TRANSPORT_WINDOWS
-        return (path / "duel6r-server.exe").lexically_normal().string();
+        return (path / "duel6r.exe").lexically_normal().string();
 #else
-        return (path / "duel6r-server").lexically_normal().string();
+        return (path / "duel6r").lexically_normal().string();
 #endif
 #endif
     }

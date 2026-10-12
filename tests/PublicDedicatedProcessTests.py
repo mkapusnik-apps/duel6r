@@ -486,7 +486,7 @@ def service(server, root, invitation, frontend_port=None, *, backend_port=None, 
     invite.chmod(0o600)
     ready = root / readiness_name
     with (root / "server.log").open("w+") as log:
-        arguments = [str(server), "--dedicated", "--transport", "--host=127.0.0.1",
+        arguments = [str(server), "--server", "--dedicated", "--transport", "--host=127.0.0.1",
             f"--port={backend}", f"--resources={root}", "--trusted-proxy-protocol=v2",
             f"--password-file={invite}", f"--readiness-socket={ready}"]
         if frontend_port is not None:
@@ -499,7 +499,7 @@ def service(server, root, invitation, frontend_port=None, *, backend_port=None, 
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
                 assert process.poll() is None, "dedicated service exited before readiness"
-                check = subprocess.run([str(server), f"--check-ready={ready}"], capture_output=True, timeout=2)
+                check = subprocess.run([str(server), "--server", f"--check-ready={ready}"], capture_output=True, timeout=2)
                 if check.returncode == 0:
                     break
                 time.sleep(.05)
@@ -701,7 +701,7 @@ def main():
                 run(peer, OTHER, "unauthorized")
                 run(peer, INVITE, "flow")
                 assert peer.application_bytes > 0 and peer.handshakes >= 4
-                assert subprocess.run([str(server), f"--check-ready={ready}"], capture_output=True, timeout=2).returncode == 0
+                assert subprocess.run([str(server), "--server", f"--check-ready={ready}"], capture_output=True, timeout=2).returncode == 0
             finally:
                 peer.close()
             peer = TlsPeer(root / "valid.pem", root / "valid.key", backend)

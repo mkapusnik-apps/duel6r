@@ -382,7 +382,8 @@ D6R_TEST_CASE("local connection plans normalize their endpoint and launch argume
     D6R_REQUIRE_EQ("127.0.0.1", plan.endpoint.host);
     D6R_REQUIRE_EQ(27770, plan.endpoint.port);
     D6R_REQUIRE_EQ("127.0.0.1", plan.config.localEndpoint.host);
-    D6R_REQUIRE_EQ("--host=127.0.0.1", plan.localServerArguments[2]);
+    D6R_REQUIRE_EQ("--server", plan.localServerArguments[1]);
+    D6R_REQUIRE_EQ("--host=127.0.0.1", plan.localServerArguments[3]);
 }
 
 D6R_TEST_CASE("loopback only connects to the actual in-process server endpoint") {

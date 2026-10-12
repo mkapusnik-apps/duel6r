@@ -72,7 +72,7 @@ def main(args):
         for save, expected in saves:
             assert save.read_bytes() == expected, "Network helper changed local person data"
         assert not (resources / "data/persons.json").exists()
-        run([sys.executable, source / "tests/AuthoritativeMatchProcessTests.py", macos / "duel6r-server"],
+        run([sys.executable, source / "tests/AuthoritativeMatchProcessTests.py", macos / "Duel 6 Reloaded"],
             resources, environment)
 
         probe = macos / "duel6r-packaged-curl-tests"

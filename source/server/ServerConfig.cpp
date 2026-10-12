@@ -67,6 +67,19 @@ namespace Duel6::Server {
         }
     }
 
+    const char *serverUsage() {
+        return "Usage: duel6r --server [existing server options]\n"
+               "  --host=ADDR --port=PORT --name=NAME --resources=PATH --local-players=N\n"
+               "  --tick-rate=N --max-clients=N --local-only --transport --transport-echo\n"
+               "  --admission-client --gameplay-script=PATH\n"
+               "  --dedicated --transport --host=127.0.0.1 --trusted-proxy-protocol=v2\n"
+               "    --readiness-socket=PATH [--password-file=PATH]\n"
+               "    [--advertise-host=TLS-FRONTEND --advertise-port=TLS-PORT]\n"
+               "  --check-ready=PATH\n"
+               "  --authoritative-match [authoritative match options]\n"
+               "Without transport, server mode validates configuration and exits without listening.";
+    }
+
     ServerConfig parseServerConfig(int argc, char **argv) {
         ServerConfig config;
 
@@ -156,15 +169,7 @@ namespace Duel6::Server {
                         "host service control handle", valueAfter(argument, "--host-service-control-handle="));
 #endif
             } else if (argument == "--help") {
-                throw std::invalid_argument(
-                        "Usage: duel6r-server [--host=ADDR] [--port=PORT] [--name=NAME] "
-                        "[--resources=PATH] [--gameplay-script=PATH] [--local-players=N] "
-                        "[--tick-rate=N] [--max-clients=N] [--local-only] [--transport] "
-                        "[--transport-echo] [--admission-client] OR "
-                        "duel6r-server --dedicated --transport --host=127.0.0.1 --port=26661 "
-                         "--resources=PATH --trusted-proxy-protocol=v2 [--password-file=PATH] --readiness-socket=PATH "
-                         "[--advertise-host=TLS-FRONTEND --advertise-port=TLS-PORT] OR "
-                        "duel6r-server --check-ready=PATH");
+                throw std::invalid_argument(serverUsage());
             } else {
                 throw std::invalid_argument("Unknown server argument");
             }

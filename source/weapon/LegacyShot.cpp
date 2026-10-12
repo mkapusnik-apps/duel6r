@@ -253,7 +253,8 @@ namespace Duel6 {
         world.emitGameplayEvent({"explosion", {}, 0, player.getRosterSlot(),
                                  player.getRosterSlot(), "player", 1});
 #ifndef D6R_HEADLESS_CORE
-        world.getExplosionList().add(player.getCentre(), 0.5f, 1.2f, getPlayerExplosionColor());
+        if (!player.isHeadless())
+            world.getExplosionList().add(player.getCentre(), 0.5f, 1.2f, getPlayerExplosionColor());
 #else
         (void) world;
 #endif
@@ -261,6 +262,7 @@ namespace Duel6 {
 
     void LegacyShot::addPlayerBlood(const Player &player, const Vector &point, World &world) {
 #ifndef D6R_HEADLESS_CORE
+        if (player.isHeadless()) return;
         Rectangle rect = player.getCollisionRect();
         world.getExplosionList().add(
                 Vector(rect.left.x + (0.3f + (Math::random(40, "blood-position")) * 0.01f) * rect.getSize().x,

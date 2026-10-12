@@ -43,10 +43,10 @@ namespace {
         value.resourcePath = D6R_ADAPTER_RESOURCES;
         if (const char *bundle = std::getenv("D6R_TEST_BUNDLE")) {
             const auto root = std::filesystem::canonical(bundle);
-            value.serverExecutable = (root / "Contents/MacOS/duel6r-server").string();
+            value.serverExecutable = (root / "Contents/MacOS/Duel 6 Reloaded").string();
             value.resourcePath = (root / "Contents/Resources").string();
             D6R_REQUIRE(std::filesystem::equivalent(value.serverExecutable,
-                Platform::Darwin::siblingExecutable("duel6r-server")));
+                Platform::Darwin::siblingExecutable("Duel 6 Reloaded")));
         }
         value.endpoint = {"127.0.0.1", port};
         return value;

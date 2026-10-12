@@ -115,7 +115,7 @@ D6R_TEST_CASE("Directory outage does not block actual protected Host direct Join
     std::string server = D6R_DIRECTORY_SERVER, resources = D6R_DIRECTORY_RESOURCES;
     if (const char *bundle = std::getenv("D6R_TEST_BUNDLE")) {
         const auto root = std::filesystem::canonical(bundle);
-        server = (root / "Contents/MacOS/duel6r-server").string();
+        server = (root / "Contents/MacOS/Duel 6 Reloaded").string();
         resources = (root / "Contents/Resources").string();
     }
     Port available; available.release();
