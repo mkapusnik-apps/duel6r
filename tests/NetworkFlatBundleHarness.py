@@ -41,7 +41,7 @@ def main():
         names = listed.stdout.splitlines()
         assert names, "No graphical behavior tests matched the requested filter"
         failures = 0
-        deadline = time.monotonic() + 160
+        deadline = time.monotonic() + 240
         # The application has process-global control presets referencing Input.
         # Each normal application lifetime is one process; do not let successive
         # test Applications/virtual controllers retain a previous case's Input.

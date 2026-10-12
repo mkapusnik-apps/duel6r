@@ -115,6 +115,7 @@ namespace Duel6::Server::Authoritative {
         result.worldAppendPlayers = [self](const std::vector<PlayerDefinition> &players, RandomSource &randomSource) {
             return self->appendPlayers(players, randomSource);
         };
+        result.worldQueuePlayers = [self](const auto &players) { return self->queuePlayers(players); };
         result.worldRemoveBatch = [self](const std::vector<Identity> &playerIds) {
             return self->removePlayers(playerIds);
         };
@@ -235,6 +236,7 @@ namespace Duel6::Server::Authoritative {
             canonicalPlayersById.clear();
             heldInputsByPlayerId.clear();
             departedPlayerIds.clear();
+            for (const Identity playerId: decision.rosterOrder) waitingPlayerIds.erase(playerId);
             auto &canonicalPlayers = game->getPlayers();
             if (canonicalPlayers.size() != activeRoster.size()) return false;
             for (std::size_t index = 0; index < activeRoster.size(); ++index) {
@@ -355,6 +357,18 @@ namespace Duel6::Server::Authoritative {
         if (&game->getRandomSource() != &randomSource) return false;
         worldTick = tick + (simulate ? 1u : 0u);
         if (simulate) {
+            std::set<Team> teams;
+            std::size_t members = 0;
+            bool predatorMember = false, nonPredatorMember = false;
+            const auto *predator = dynamic_cast<const Predator *>(mode.get());
+            for (const auto &definition: activeRoster) if (!departedPlayerIds.count(definition.playerId)) {
+                ++members;
+                teams.insert(static_cast<Team>(definition.rosterOrder % std::max<unsigned>(1, config.teamCount) + 1));
+                if (predator && canonicalPlayersById.at(definition.playerId) == predator->getPredator()) predatorMember = true;
+                else nonPredatorMember = true;
+            }
+            game->getRound().setHeadlessOpposition(config.mode == Mode::Deathmatch ? members >= 2
+                : config.mode == Mode::Predator ? predatorMember && nonPredatorMember : teams.size() >= 2);
             for (const auto &[playerId, player]: canonicalPlayersById) {
                 player->setControllerState(0);
                 if (!departedPlayerIds.count(playerId)) {
@@ -379,6 +393,7 @@ namespace Duel6::Server::Authoritative {
 
     bool CanonicalMatchRuntime::removePlayer(Identity playerId) {
         if (!game) return false;
+        if (waitingPlayerIds.erase(playerId)) return true;
         const auto found = canonicalPlayersById.find(playerId);
         const auto held = heldInputsByPlayerId.find(playerId);
         if (found == canonicalPlayersById.end() || departedPlayerIds.count(playerId)
@@ -423,6 +438,7 @@ namespace Duel6::Server::Authoritative {
         const std::set<Identity> unique(playerIds.begin(), playerIds.end());
         if (unique.size() != playerIds.size() || unique.count(0)) return false;
         for (const auto playerId: unique) {
+            if (waitingPlayerIds.count(playerId)) continue;
             const auto found = canonicalPlayersById.find(playerId);
             if (found == canonicalPlayersById.end() || departedPlayerIds.count(playerId)
                 || heldInputsByPlayerId.count(playerId) == 0) return false;
@@ -430,11 +446,24 @@ namespace Duel6::Server::Authoritative {
         auto nextDeparted = departedPlayerIds;
         nextDeparted.insert(unique.begin(), unique.end());
         for (const auto playerId: unique) {
+            if (waitingPlayerIds.erase(playerId)) continue;
             Player &player = *canonicalPlayersById.at(playerId);
             player.setHeadlessDeparted();
             heldInputsByPlayerId.at(playerId) = 0;
         }
         departedPlayerIds.swap(nextDeparted);
+        return true;
+    }
+
+    bool CanonicalMatchRuntime::queuePlayers(const std::vector<PlayerDefinition> &players) {
+        if (!game || players.empty() || roster.size() + players.size() > MaxPlayerHistory) return false;
+        for (const auto &player: players)
+            if (std::any_of(roster.begin(), roster.end(), [&](const auto &entry) { return entry.playerId == player.playerId; }))
+                return false;
+        for (const auto &player: players) {
+            roster.push_back(player);
+            waitingPlayerIds.insert(player.playerId);
+        }
         return true;
     }
 
@@ -509,9 +538,12 @@ namespace Duel6::Server::Authoritative {
                 player.rosterSlot = definition.rosterOrder;
                 player.team = config.mode == Mode::TeamDeathmatch
                     ? static_cast<Team>(definition.rosterOrder % config.teamCount + 1) : Team::None;
-                player.departed = true;
+                player.waiting = waitingPlayerIds.count(definition.playerId) != 0;
+                player.departed = !player.waiting;
                 result.players.push_back(player);
                 digestValue(digest, definition.playerId);
+                digestValue(digest, player.waiting ? 1u : 0u);
+                digestValue(digest, player.departed ? 1u : 0u);
                 continue;
             }
             const std::size_t index = static_cast<std::size_t>(std::distance(activeRoster.begin(), active));

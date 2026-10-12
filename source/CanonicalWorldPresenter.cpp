@@ -562,7 +562,8 @@ namespace Duel6 {
         levelRenderData->getSprites().render(resources.getBlockTextures(), true);
         for (const auto &entity: state.entities) renderEntity(entity);
         for (const auto &player: state.players) {
-            if (!player.visible || player.lifeState == Network::Replication::LifeState::Departed) continue;
+            if (!player.visible || player.lifeState == Network::Replication::LifeState::Departed
+                || player.lifeState == Network::Replication::LifeState::Waiting) continue;
             const auto pose = std::find_if(presentedPlayers.begin(), presentedPlayers.end(), [&](const auto &value) {
                 return value.playerId == player.playerId;
             });

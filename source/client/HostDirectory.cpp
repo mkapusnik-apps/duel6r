@@ -70,7 +70,7 @@ namespace Duel6::Client {
                     : Network::Trust::classifyIpv4Literal(row.endpoint.host) == Network::Trust::EndpointScope::Unsupported
                         || Network::Trust::classifyIpv4Literal(row.endpoint.host) == Network::Trust::EndpointScope::Invalid)
                 || (row.mode != "deathmatch" && row.mode != "predator" && row.mode != "teams")
-                || (row.phase != "lobby" && row.phase != "first-round" && row.phase != "closed"
+                || (row.phase != "lobby" && row.phase != "first-round" && row.phase != "started" && row.phase != "final-round" && row.phase != "closed"
                     && !(row.dedicated() && (row.phase == "idle" || row.phase == "reserved" || row.phase == "cleanup")))
                 || (mixed && ((row.admission == "open" && players >= capacity)
                     || (row.admission == "full" && players != capacity)
@@ -129,7 +129,7 @@ namespace Duel6::Client {
                     || (row.admissionState() == "full" && row.players != row.capacity)))
                 || (row.dedicated() ? !Network::PublicSession::validDirectoryFrontend(row.endpoint.host)
                     : row.endpoint.host.find_first_not_of("0123456789.") != std::string::npos)
-                || (row.phase != "lobby" && row.phase != "first-round" && row.phase != "closed"
+                || (row.phase != "lobby" && row.phase != "first-round" && row.phase != "started" && row.phase != "final-round" && row.phase != "closed"
                     && !(row.dedicated() && (row.phase == "idle" || row.phase == "reserved" || row.phase == "cleanup")))
                 || (row.mode != "deathmatch" && row.mode != "predator" && row.mode != "teams")) return {};
             return "{\"sessionId\":\"" + row.sessionId + "\",\"address\":\"" + row.endpoint.host

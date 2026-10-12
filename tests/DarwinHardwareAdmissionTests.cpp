@@ -159,7 +159,7 @@ D6R_TEST_CASE("Darwin CLI generated and explicit seeds cannot bypass physical ad
                                   Restriction::QueryFailure, Restriction::ShortResult, Restriction::None}) {
             restriction = denied; initializations = 0; d6rRandomFailureAt(0);
             char name[] = "cli-admission", option[] = "--authoritative-match";
-            char scenario[] = "--scenario=interrupted", seed[] = "--seed=424242";
+            char scenario[] = "--scenario=solo", seed[] = "--seed=424242";
             std::string resource = std::string("--resources=") + D6R_HARDWARE_RESOURCES;
             char *arguments[] = {name, option, resource.data(), scenario, seed};
             unsigned files = 0, hashes = 0, factories = 0, worlds = 0;

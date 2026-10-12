@@ -46,14 +46,15 @@ namespace Duel6 {
             Int32 x, y, width, height;
             const char *caption;
         };
-        // Shared visual, pointer and traversal order: rows, paging, then footer.
+        // Shared visual/pointer bounds and cyclic traversal: Refresh, rows,
+        // paging, footer, then Refresh (rows are the implicit first anchor).
         constexpr BrowserAction BrowserActions[] = {
             {4, 28, 108, 252, 24, "Previous page"},
             {5, 560, 108, 256, 24, "Next page"},
             {1, 28, 68, 252, 32, "Join selected"},
-            {2, 292, 68, 256, 32, "Refresh"},
-            {3, 560, 68, 256, 32, "Direct connect"},
-            {6, 560, 28, 256, 32, "Back"}
+            {3, 296, 68, 252, 32, "Direct connect"},
+            {6, 564, 68, 252, 32, "Back"},
+            {2, 710, 518, 112, 24, "Refresh"}
         };
 
         Float32 canvasScale(Int32 width, Int32 height) {
@@ -202,6 +203,7 @@ namespace Duel6 {
                                          const Network::Replication::PlayerState &player) {
             if (player.lifeState == Network::Replication::LifeState::Departed) return "Departed";
             if (player.lifeState == Network::Replication::LifeState::Dead) return "Dead";
+            if (player.lifeState == Network::Replication::LifeState::Waiting) return "Waiting";
             const auto owner = std::find_if(state.participants.begin(), state.participants.end(), [&](const auto &value) {
                 return value.participantId == player.ownerParticipantId;
             });
@@ -235,7 +237,8 @@ namespace Duel6 {
                         lines.push_back({"  " + utf8Clipped(player->displayName, lifecycle.empty() ? 18 : 12) + "  "
                                 + (score == state.score.players.end() ? "0" : std::to_string(score->cumulativePoints))
                                 + (lifecycle.empty() ? std::string() : " • " + lifecycle),
-                                player->lifeState == Network::Replication::LifeState::Alive ? Color::YELLOW : Color::RED});
+                                player->lifeState == Network::Replication::LifeState::Waiting ? Color::WHITE
+                                    : player->lifeState == Network::Replication::LifeState::Alive ? Color::YELLOW : Color::RED});
                     }
                 }
             } else {
@@ -251,7 +254,8 @@ namespace Duel6 {
                             + utf8Clipped(player->displayName, lifecycle.empty() ? 24 : 16) + "  "
                             + (score == state.score.players.end() ? "0" : std::to_string(score->cumulativePoints))
                             + (lifecycle.empty() ? std::string() : " • " + lifecycle),
-                            player->lifeState == Network::Replication::LifeState::Alive ? Color::YELLOW : Color::RED});
+                            player->lifeState == Network::Replication::LifeState::Waiting ? Color::WHITE
+                                : player->lifeState == Network::Replication::LifeState::Alive ? Color::YELLOW : Color::RED});
                 }
             }
             return lines;
@@ -801,8 +805,8 @@ namespace Duel6 {
         const auto connected = std::count_if(state.participants.begin(), state.participants.end(), [](const auto &p) {
             return p.connection == Network::Replication::ConnectionState::Connected;
         });
-        if (connected < 2 || state.players.size() < 2) {
-            reason = "Waiting for at least 2 connected participants and players."; return false;
+        if (connected < 1 || state.players.empty()) {
+            reason = "Waiting for a connected participant and player."; return false;
         }
         const auto emptyOwner = std::find_if(state.participants.begin(), state.participants.end(), [](const auto &p) {
             return p.ownedPlayerIds.empty();
@@ -957,7 +961,7 @@ namespace Duel6 {
                 }
         } else if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Browser) {
             const auto &rows = browser.result().listings;
-            for (int row = 0; row < 8 && browserScroll + row < static_cast<int>(rows.size()); ++row)
+            for (int row = 0; browser.available() && row < 8 && browserScroll + row < static_cast<int>(rows.size()); ++row)
                 if (pointerInside(x, y, 30, 466 - row * 22, 790, 22)) {
                     selectedListing = rows[browserScroll + row].id;
                     selectedSessionIdentity = rows[browserScroll + row].sessionId; focus = 0; return;
@@ -1183,6 +1187,7 @@ namespace Duel6 {
             return;
         }
         if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Browser) {
+            if (!browser.available()) return;
             browserScroll = std::clamp(browserScroll - event.getAmountY(), 0,
                 std::max(0, static_cast<int>(browser.result().listings.size()) - 8));
             return;
@@ -1784,8 +1789,12 @@ namespace Duel6 {
                 }
             }
             // A missing identity stays as a tombstone for "Session is no longer listed";
-            // never silently select another host. Failed refresh retains inspection-only rows.
-            if (!browserFocusEnabled(focus)) focus = rows.empty() ? 3 : 0;
+            // never silently select another host. Failed refresh hides retained data until recovery.
+            // A manual Refresh keeps its existing focus while temporarily disabled.
+            // Traversal and activation still use browserFocusEnabled; initial reads
+            // and other unavailable focus targets retain the normal fallback.
+            if (!browserFocusEnabled(focus) && !(focus == 2 && browser.loading()))
+                focus = browserFocusEnabled(0) ? 0 : browser.loading() ? 3 : 2;
         }
         runtime.suppressGameplayInput(confirmation != Confirmation::None);
         runtime.update();
@@ -2051,6 +2060,7 @@ namespace Duel6 {
     }
 
     void NetworkMenu::selectBrowserRow(int direction) {
+        if (!browser.available()) return;
         const auto &rows = browser.result().listings;
         if (rows.empty()) return;
         const auto current = std::find_if(rows.begin(), rows.end(), [&](const auto &row) { return row.id == selectedListing; });
@@ -2061,7 +2071,7 @@ namespace Duel6 {
     }
 
     void NetworkMenu::joinSelected() {
-        if (browser.loading() || browser.stale()) return;
+        if (!browser.available() || browser.loading() || browser.stale()) return;
         const auto &rows = browser.result().listings;
         const auto selected = std::find_if(rows.begin(), rows.end(), [&](const auto &row) { return row.id == selectedListing; });
         if (selected == rows.end() || !browserFocusEnabled(1)) return;
@@ -2073,11 +2083,11 @@ namespace Duel6 {
     }
 
     bool NetworkMenu::browserFocusEnabled(int index) const {
-        if (index == 0) return !browser.result().listings.empty();
+        if (index == 0) return browser.available() && !browser.result().listings.empty();
         if (index == 1) {
             const auto &rows = browser.result().listings;
             const auto selected = std::find_if(rows.begin(), rows.end(), [&](const auto &row) { return row.id == selectedListing; });
-            return selected != rows.end() && (selectedSessionIdentity.empty() || selectedSessionIdentity == selected->sessionId)
+            return browser.available() && selected != rows.end() && (selectedSessionIdentity.empty() || selectedSessionIdentity == selected->sessionId)
                 && selected->joinable() && !browser.stale() && !browser.loading();
         }
         if (index == 2) return !browser.loading();
@@ -2089,18 +2099,28 @@ namespace Duel6 {
     void NetworkMenu::drawBrowser() const {
         drawPanel(24, 24, 802, 544, "BROWSE SESSIONS");
         const auto &rows = browser.result().listings;
-        const std::string status = browser.loading() ? (rows.empty() ? "Loading sessions..." : "Refreshing... Previous results may be out of date.")
-            : browser.stale() ? "Directory unavailable. Previous results may be out of date." : "Sessions listed";
-        drawClippedText(30, 516, status, 98);
+        const bool visibleRows = browser.available();
+        const bool replacement = !browser.loading() && (!visibleRows || rows.empty());
+        if (browser.loading()) drawClippedText(30, 516,
+            visibleRows && !rows.empty() ? "Refreshing... Previous results may be out of date." : "Loading sessions...", 83);
+        else if (visibleRows && browser.stale()) drawClippedText(30, 516,
+            "Directory unavailable. Previous results may be out of date.", 83);
         renderer.quadXY(Vector(28, 490), Vector(794, 20), Color(170));
         drawText(30, 494, "Session / endpoint"); drawText(286, 494, "Hosting");
         drawText(398, 494, "Players"); drawText(470, 494, "Phase");
         drawText(574, 494, "Access"); drawText(670, 494, "Admission");
         drawField(28, 292, 794, 198);
+        if (replacement) {
+            drawText(36, 470, !visibleRows
+                ? "Directory unavailable. Direct connection and local play are still available."
+                : browser.result().nextCursor.empty()
+                    ? "No active sessions listed. You can host a session or connect directly."
+                    : "No active sessions on this page. Continue with Next page.", Color(89));
+        }
         const Client::DirectoryListing *selected = nullptr;
-        for (const auto &row: rows) if (row.id == selectedListing
+        if (visibleRows) for (const auto &row: rows) if (row.id == selectedListing
             && (selectedSessionIdentity.empty() || row.sessionId == selectedSessionIdentity)) selected = &row;
-        for (int index = browserScroll; index < static_cast<int>(rows.size()) && index < browserScroll + 8; ++index) {
+        for (int index = browserScroll; visibleRows && index < static_cast<int>(rows.size()) && index < browserScroll + 8; ++index) {
             const auto &row = rows[index]; const Int32 y = 470 - (index - browserScroll) * 22;
             const bool selection = row.id == selectedListing;
             if (selection) renderer.quadXY(Vector(30, y - 4), Vector(790, 22), Color(0, 0, 200));
@@ -2116,12 +2136,13 @@ namespace Duel6 {
                 : admission == "closed" ? "Closed" : row.players >= row.capacity ? "Full" : "Open", rowColor);
             drawFocusKeyline(30, y - 4, 790, 22, selection && focus == 0);
         }
-        if (rows.empty() && !browser.loading()) drawWrappedText(36, 436,
-            browser.available() ? (browser.result().nextCursor.empty()
-                ? "No active sessions listed. You can host a session or connect directly."
-                : "No active sessions on this page. Continue with Next page.")
-                                : "Directory unavailable. Direct connection and local play are still available.", 92, 3);
-        std::string reason = selected ? "The host confirms availability when you connect." : selectedListing.empty() ? "Select a session." : "Session is no longer listed. Refresh and reselect.";
+        std::string reason = selected ? "The host confirms availability when you connect."
+            : !visibleRows ? "Refresh successfully before joining. Availability unconfirmed."
+            : selectedListing.empty() ? "" : "Session is no longer listed. Refresh and reselect.";
+        if (selected && selected->joinable() && selected->phase == "started")
+            reason = "Match in progress. Your players join next round if admitted.";
+        if (selected && selected->joinable() && selected->phase == "final-round")
+            reason = "Final round in progress. You may not play in this match if admitted.";
         if (selected && !selected->joinable()) reason = (selected->players >= selected->capacity ? "Session is full. " : "")
             + std::string(selected->admissionState() == "busy" ? "Cleanup in progress. Admission is temporarily unavailable."
                 : selected->admissionState() == "closed" ? "Admission is closed." : "");
@@ -2139,6 +2160,8 @@ namespace Duel6 {
                 appendWrapped(details, "Ready empty session. Your role is confirmed only after admission.", 98);
         }
         appendWrapped(details, reason, 98);
+        if (selected && (selected->phase == "started" || selected->phase == "final-round"))
+            appendWrapped(details, "The host confirms availability when you connect.", 98);
         if (selected && Network::Trust::classifyIpv4Literal(selected->endpoint.host) == Network::Trust::EndpointScope::Loopback) {
             appendWrapped(details, "Same-machine endpoint. Only clients on the host machine can connect.", 98);
             appendWrapped(details, "Loopback address; not verified as the advertised host on this machine.", 98);
@@ -2146,9 +2169,13 @@ namespace Duel6 {
         appendWrapped(details, "A listing does not guarantee reachability.", 98);
         for (std::size_t index = 0; index < details.size(); ++index)
             drawText(30, 272 - static_cast<Int32>(index) * 18, details[index]);
-        const std::string page = "Page " + std::to_string(browser.pageNumber());
-        drawText(425 - static_cast<Int32>(utf8Length(page)) * 4, 112, page);
+        const bool pagination = browser.hasPrevious() || !browser.result().nextCursor.empty();
+        if (pagination) {
+            const std::string page = "Page " + std::to_string(browser.pageNumber());
+            drawText(425 - static_cast<Int32>(utf8Length(page)) * 4, 112, page);
+        }
         for (const auto &action: BrowserActions) {
+            if (!pagination && (action.focus == 4 || action.focus == 5)) continue;
             const bool enabled = browserFocusEnabled(action.focus);
             drawButton(action.x, action.y, action.width, action.height,
                 action.caption, focus == action.focus, enabled);
@@ -2253,6 +2280,21 @@ namespace Duel6 {
             drawText(20, 20 + static_cast<Int32>(row) * 16, statusRows[row], Color::YELLOW);
         if (rightFits)
             drawText(width - 20 - static_cast<Int32>(utf8Length(right)) * 8, 20, right, Color::YELLOW);
+        const bool waiting = (state.phase == Network::Replication::Phase::ActiveRound
+            || (state.phase == Network::Replication::Phase::RoundSummary && state.currentRoundNumber < state.settings.roundLimit))
+            && std::any_of(state.players.begin(), state.players.end(), [&](const auto &player) {
+                return player.ownerParticipantId == snap.localParticipantId
+                    && player.lifeState == Network::Replication::LifeState::Waiting;
+            });
+        if (waiting) {
+            const Int32 feedbackWidth = width - 400;
+            renderer.setBlendFunc(BlendFunc::SrcAlpha);
+            renderer.quadXY(Vector(16, 24 + statusHeight), Vector(feedbackWidth, 24), Color(0, 0, 255, 179));
+            renderer.setBlendFunc(BlendFunc::None);
+            drawWrappedText(20, 28 + statusHeight, state.currentRoundNumber < state.settings.roundLimit
+                ? "Your players join next round." : "Waiting for the next match.",
+                static_cast<std::size_t>((feedbackWidth - 8) / 8), 2, Color::YELLOW);
+        }
         if (interactive) {
             const bool roundSummary = state.phase == Network::Replication::Phase::RoundSummary;
             if (snap.host && roundSummary) {
@@ -2821,11 +2863,15 @@ namespace Duel6 {
                 drawButton(724, y - 2, 96, 18, "Remove", focus == playerBase + static_cast<int>(index) * 2 + 1);
             }
             std::string reason; const bool valid = setupValid(reason);
-            drawText(50, 182, "Local players: " + std::to_string(localPlayers.size()) + " • Lobby 1–15 • Match 2–15");
+            drawText(50, 182, "Local players: " + std::to_string(localPlayers.size()) + " • Lobby 1–15 • Match 1–15");
             if (boundSelection() && !boundDedicated())
                 drawText(470, 182, "Session: " + browserSelection->sessionId);
             drawText(50, 160, browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "first-round"
                 ? "Round 1 in progress. You will play immediately if admitted."
+                : browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "started"
+                    ? "Match in progress. Your players join next round if admitted."
+                : browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "final-round"
+                    ? "Final round in progress. You may not play in this match if admitted."
                 : setupScreen == SetupScreen::Join && !pilot && !browserSelection && password.empty()
                     && (!browserSelection || !browserSelection->passwordRequired)
                 ? "Endpoint-only first contact does not authenticate host identity."

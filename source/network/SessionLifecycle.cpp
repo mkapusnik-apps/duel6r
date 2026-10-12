@@ -643,7 +643,7 @@ namespace Duel6::Network::Lifecycle {
     }
 
     bool HostSessionLifecycle::allConnectedAndReady() const noexcept {
-        if (sessionEnded || (!remoteHost && !hostReady) || retainedPlayerCount() < 2
+        if (sessionEnded || (!remoteHost && !hostReady) || retainedPlayerCount() < 1
             || retainedPlayerCount() > Trust::MaxParticipants) return false;
         return std::all_of(participants.begin(), participants.end(), [](const auto &entry) {
             return entry.second.connected && entry.second.ready;

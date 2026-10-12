@@ -233,7 +233,8 @@ namespace Duel6::Network::Replication {
         }
 
         bool validLifeState(LifeState value) {
-            return value == LifeState::Alive || value == LifeState::Dead || value == LifeState::Departed;
+            return value == LifeState::Alive || value == LifeState::Dead || value == LifeState::Departed
+                || value == LifeState::Waiting;
         }
 
         bool validEntityKind(EntityKind value) {
@@ -1013,17 +1014,18 @@ namespace Duel6::Network::Replication {
         }
 
         bool validResultRosterSemantics(const CanonicalResultLabels &result) {
-            std::vector<const CanonicalResultRowLabel *> roster(result.rows.size(), nullptr);
+            std::set<std::uint8_t> positions;
             for (const auto &player: result.rows) {
-                if (player.rosterOrder >= roster.size() || roster[player.rosterOrder]) return false;
-                roster[player.rosterOrder] = &player;
+                if (player.rosterOrder >= MaxReplicatedPlayers || !positions.insert(player.rosterOrder).second) return false;
+                if (!result.rounds.empty() && !player.rounds.empty() && player.rounds.front().roundsPlayed != 0
+                    && player.rosterOrder >= result.rounds.front().rosterOrder.size()) return false;
                 if (result.mode == "Team deathmatch"
                     && player.team != static_cast<std::uint8_t>(
                             player.rosterOrder % result.teamCount + 1u)) return false;
             }
 
+            std::set<Identity> seen, removed;
             std::set<Identity> priorRoster;
-            bool firstRound = true;
             for (const auto &round: result.rounds) {
                 std::set<Identity> currentRoster;
                 std::uint8_t priorPosition = 0;
@@ -1034,17 +1036,16 @@ namespace Duel6::Network::Replication {
                     if (player == result.rows.end()
                         || !currentRoster.insert(identity).second
                         || (!first && player->rosterOrder <= priorPosition)
-                        || (!priorRoster.empty() && !priorRoster.count(identity))) return false;
+                        || removed.count(identity)) return false;
                     first = false;
                     priorPosition = player->rosterOrder;
                 }
-                if (firstRound) {
-                    for (const auto *player: roster)
-                        if (!currentRoster.count(player->playerId)) return false;
-                }
+                for (Identity identity: priorRoster) if (!currentRoster.count(identity)) removed.insert(identity);
+                seen.insert(currentRoster.begin(), currentRoster.end());
                 priorRoster = std::move(currentRoster);
-                firstRound = false;
             }
+            for (const auto &row: result.rows)
+                if (!seen.count(row.playerId) && !(result.state == "Interrupted" && result.rounds.empty())) return false;
             return true;
         }
 
@@ -1232,7 +1233,13 @@ namespace Duel6::Network::Replication {
                     }
                     resultTransitions.insert(right.playerId);
                 }
-                return !resultTransitions.empty() && resultTransitions == *playerTransitions;
+                if (resultTransitions.empty()) return false;
+                for (Identity identity: *playerTransitions)
+                    if (!resultTransitions.count(identity)
+                        && std::any_of(prior->rows.begin(), prior->rows.end(), [&](const auto &row) { return row.playerId == identity; }))
+                        return false;
+                return std::includes(playerTransitions->begin(), playerTransitions->end(),
+                                     resultTransitions.begin(), resultTransitions.end());
             } catch (...) { return false; }
         }
 
@@ -1455,6 +1462,10 @@ namespace Duel6::Network::Replication {
                 });
                 if (owner == state.participants.end()
                     || std::count(owner->ownedPlayerIds.begin(), owner->ownedPlayerIds.end(), player.playerId) != 1) return false;
+                if (player.lifeState == LifeState::Waiting
+                    && (player.life != 0 || player.actionMask != 0 || player.ammunition != 0
+                        || !player.heldWeapon.empty() || !player.activeBonus.empty()
+                        || player.invulnerable || player.bonusRemaining != 0)) return false;
             }
             for (const auto &participant: state.participants) {
                 for (Identity player: participant.ownedPlayerIds) if (!playerIds.count(player)) return false;
@@ -1494,7 +1505,11 @@ namespace Duel6::Network::Replication {
             if (!state.score.players.empty() && state.score.ranking.size() != state.score.players.size()) return false;
             std::set<Identity> scorePlayerIds;
             for (const auto &row: state.score.players) scorePlayerIds.insert(row.playerId);
-            if (state.phase != Phase::Lobby) {
+            if (state.result.available && state.phase == Phase::FinalSummary)
+                for (const auto &player: state.players)
+                    if (player.lifeState != LifeState::Waiting && player.lifeState != LifeState::Departed
+                        && !scorePlayerIds.count(player.playerId)) return false;
+            if (state.phase != Phase::Lobby && !state.result.available) {
                 if (state.score.players.size() != state.players.size()
                     || state.score.ranking.size() != state.players.size()) return false;
                 if (scorePlayerIds != playerIds) return false;
@@ -1518,14 +1533,16 @@ namespace Duel6::Network::Replication {
             if (state.round && state.phase != Phase::Lobby) {
                 std::set<Identity> roundPlayers(state.round->rosterOrder.begin(), state.round->rosterOrder.end());
                 for (const auto &player: state.players)
-                    if (player.lifeState != LifeState::Departed && !roundPlayers.count(player.playerId)) return false;
+                    if (player.lifeState != LifeState::Departed && player.lifeState != LifeState::Waiting
+                        && !roundPlayers.count(player.playerId)) return false;
                 std::uint8_t priorPosition = 0;
                 bool first = true;
                 for (Identity identity: state.round->rosterOrder) {
                     const auto player = std::find_if(state.players.begin(), state.players.end(), [&](const auto &value) {
                         return value.playerId == identity;
                     });
-                    if (player == state.players.end() || (!first && player->rosterPosition <= priorPosition)) return false;
+                    if (player == state.players.end() || player->lifeState == LifeState::Waiting
+                        || (!first && player->rosterPosition <= priorPosition)) return false;
                     first = false; priorPosition = player->rosterPosition;
                 }
             }

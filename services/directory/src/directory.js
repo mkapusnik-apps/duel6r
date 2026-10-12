@@ -47,7 +47,7 @@ export function validateListing(value) {
   const protection = old ? (value.passwordRequired ? 'password' : 'none') : value.protection;
   const admission = old ? (value.phase === 'closed' ? 'closed' : value.players === value.capacity ? 'full' : 'open') : value.admission;
   requireValue(protection === (value.passwordRequired ? 'password' : 'none'));
-  requireValue((dedicated ? ['idle', 'lobby', 'first-round', 'closed', 'reserved', 'cleanup'] : ['lobby', 'first-round', 'closed']).includes(value.phase));
+  requireValue((dedicated ? ['idle', 'lobby', 'first-round', 'started', 'final-round', 'closed', 'reserved', 'cleanup'] : ['lobby', 'first-round', 'started', 'final-round', 'closed']).includes(value.phase));
   requireValue(['open', 'full', 'closed', 'busy'].includes(admission));
   requireValue(admission !== 'open' || value.players < value.capacity);
   requireValue(admission !== 'full' || value.players === value.capacity);

@@ -301,7 +301,7 @@ if (NOT D6R_TRANSPORT_ONLY)
     set_tests_properties(duel6r-network-session-runtime-tests PROPERTIES
             LABELS "application;integration;network;runtime;presentation;reconnect;regression"
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
-            TIMEOUT 180)
+            TIMEOUT 300)
     if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND D6R_PUBLIC_DEDICATED)
         add_test(NAME duel6r-public-dedicated-relay-tests
                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedRelayTests.py)

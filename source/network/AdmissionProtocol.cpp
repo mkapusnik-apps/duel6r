@@ -342,7 +342,7 @@ namespace Duel6::Network {
             case AdmissionResultCode::GameplayContentMismatch:
                 return "Gameplay content mismatch. Use the host's exact supported gameplay content.";
             case AdmissionResultCode::MatchAlreadyStarted:
-                return "Round-one admission has closed. Join when the host returns to the lobby.";
+                return "Match completed. Join when the host returns to the lobby.";
             case AdmissionResultCode::SessionFull: return "Session is full.";
             case AdmissionResultCode::HostPolicyRejected: return "Host rejected the connection.";
             case AdmissionResultCode::Admitted: return {};

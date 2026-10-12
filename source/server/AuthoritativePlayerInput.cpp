@@ -19,6 +19,7 @@ namespace Duel6::Server::Authoritative {
         if (hostParticipantId == 0 || roster.empty() || roster.size() > MaxPlayers) return false;
         clear();
         match = &authoritativeMatch;
+        observedRound = match->roundDecision().roundNumber;
         for (const auto &player: roster) {
             if (player.participantId == 0 || player.playerId == 0
                 || !owners.emplace(player.playerId, player.participantId).second) {
@@ -132,6 +133,7 @@ namespace Duel6::Server::Authoritative {
 
     AuthoritativePlayerInput::ReceiveResult AuthoritativePlayerInput::receive(
             Identity connectionParticipantId, const Network::Input::Command &command, bool remote) {
+        synchronizeRound();
         if (connectionParticipantId == 0 || command.participantId == 0 || command.playerId == 0)
             return reject(connectionParticipantId, command, Network::Input::OutcomeCategory::Invalid);
         const auto owner = owners.find(command.playerId);
@@ -199,6 +201,7 @@ namespace Duel6::Server::Authoritative {
 
     bool AuthoritativePlayerInput::processTick() {
         if (!match) return false;
+        synchronizeRound();
         const Tick effective = match->currentTick();
         std::vector<Pending> applying;
         for (auto iterator = pending.begin(); iterator != pending.end() && iterator->first.first <= effective;) {
@@ -235,9 +238,17 @@ namespace Duel6::Server::Authoritative {
         return true;
     }
 
+    void AuthoritativePlayerInput::synchronizeRound() noexcept {
+        if (!match || observedRound == match->roundDecision().roundNumber) return;
+        observedRound = match->roundDecision().roundNumber;
+        pending.clear();
+        for (const auto &owner: owners) (void) match->clearPlayerInput(owner.first);
+    }
+
     void AuthoritativePlayerInput::clear() noexcept {
         if (match) for (const auto &owner: owners) (void) match->clearPlayerInput(owner.first);
         match = nullptr;
+        observedRound = 0;
         owners.clear();
         highestSequences.clear();
         pending.clear();

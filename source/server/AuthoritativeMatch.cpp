@@ -136,6 +136,9 @@ namespace Duel6::Server::Authoritative {
             return std::vector<AuthoritativeAction>{};
         };
         if (!this->dependencies.clock) this->dependencies.clock = [this] { return tick; };
+        if (!this->dependencies.sessionClock) this->dependencies.sessionClock = [this] {
+            return std::chrono::steady_clock::time_point{} + std::chrono::nanoseconds(tick);
+        };
     }
 
     AuthoritativeMatch::~AuthoritativeMatch() {
@@ -243,6 +246,11 @@ namespace Duel6::Server::Authoritative {
     bool AuthoritativeMatch::startRound() {
         if (!random || completedRoundCount >= config.roundLimit) return false;
         Math::RandomScope authoritativeScope(*random);
+        std::chrono::steady_clock::time_point startedAt;
+        try { startedAt = dependencies.sessionClock(); } catch (...) { return false; }
+        const auto eligible = [startedAt](const PlayerState &player) {
+            return !player.departed && (!player.waitingSince || startedAt > *player.waitingSince);
+        };
         endWorld();
         currentRoundDecision = {};
         currentRoundDecision.roundNumber = static_cast<std::uint8_t>(completedRoundCount + 1);
@@ -258,17 +266,19 @@ namespace Duel6::Server::Authoritative {
         currentRoundDecision.startingPositionOrder.clear();
         std::vector<std::uint32_t> positions;
         for (std::size_t index = 0; index < players.size(); ++index)
-            if (!players[index].departed) positions.push_back(static_cast<std::uint32_t>(index));
+            if (eligible(players[index])) positions.push_back(static_cast<std::uint32_t>(index));
         random->shuffle(positions, "round-position-order");
         std::vector<Identity> active;
         for (auto &player: players) {
-            player.alive = !player.departed;
+            player.alive = eligible(player);
+            player.spawned = player.alive;
             player.life = MaximumLife;
             player.attackers.clear();
             player.lastInputTick = static_cast<Tick>(-1);
             player.inputMask = 0;
             player.roundStart = player.total;
-            if (!player.departed) {
+            if (player.spawned) {
+                player.waitingSince.reset();
                 if (!checkedAdd(player.total.roundsPlayed, 1)) return false;
                 active.push_back(player.definition.playerId);
                 currentRoundDecision.rosterOrder.push_back(player.definition.playerId);
@@ -281,7 +291,7 @@ namespace Duel6::Server::Authoritative {
             currentRoundDecision.predatorPlayerId = predatorPlayer;
         }
         for (const auto &player: players) {
-            if (player.departed) continue;
+            if (!player.spawned) continue;
             currentRoundDecision.startingWeaponIndices.push_back(
                     static_cast<std::uint32_t>(random->bounded(config.enabledWeapons.size(), "starting-weapon")));
             const std::uint64_t ammoSpan = static_cast<std::uint64_t>(config.startingAmmoMaximum)
@@ -304,7 +314,7 @@ namespace Duel6::Server::Authoritative {
         catch (...) { worldActive = false; }
         if (!worldActive) return false;
         if (dependencies.worldInput) {
-            for (auto &player: players) if (!player.departed) {
+            for (auto &player: players) if (player.spawned) {
                 try {
                     if (!dependencies.worldInput(player.definition.playerId, 0)) return false;
                 } catch (...) { return false; }
@@ -468,6 +478,10 @@ namespace Duel6::Server::Authoritative {
             player->alive = false;
             player->inputMask = 0;
         }
+        if (dependencies.worldSnapshot && !synchronizeCanonicalWorld()) {
+            failRuntime();
+            return ActionResult::RuntimeFailed;
+        }
         ++totalActions;
         interruptIfRosterTooSmall();
         if (terminal.code == OutcomeCode::None && currentPhase == MatchPhase::ActiveRound)
@@ -539,6 +553,11 @@ namespace Duel6::Server::Authoritative {
             }
             removed->departed = true;
             removed->alive = false;
+            removed->inputMask = 0;
+            if (dependencies.worldSnapshot && !synchronizeCanonicalWorld()) {
+                failRuntime();
+                return ActionResult::RuntimeFailed;
+            }
             interruptIfRosterTooSmall();
             if (terminal.code == OutcomeCode::None && currentPhase == MatchPhase::ActiveRound)
                 evaluateRoundOutcome();
@@ -652,6 +671,18 @@ namespace Duel6::Server::Authoritative {
         std::vector<PlayerState *> alive;
         for (auto &player: players) if (player.alive && !player.departed) alive.push_back(&player);
         if (alive.empty()) { establishRoundOutcome({}, Team::None, true); return; }
+        std::size_t members = 0;
+        std::set<Team> teams;
+        bool predatorMember = false, nonPredatorMember = false;
+        for (const auto &player: players) if (player.spawned && !player.departed) {
+            ++members;
+            teams.insert(player.team);
+            if (player.definition.playerId == predatorPlayer) predatorMember = true;
+            else nonPredatorMember = true;
+        }
+        const bool opposition = config.mode == Mode::Deathmatch ? members >= 2
+            : config.mode == Mode::Predator ? predatorMember && nonPredatorMember : teams.size() >= 2;
+        if (!opposition) return;
         if (config.mode == Mode::Deathmatch && alive.size() == 1) {
             establishRoundOutcome({alive.front()->definition.playerId}, Team::None, false);
         } else if (config.mode == Mode::Predator) {
@@ -740,8 +771,22 @@ namespace Duel6::Server::Authoritative {
         CanonicalWorldSnapshot snapshot;
         try { snapshot = dependencies.worldSnapshot(); }
         catch (...) { return false; }
-        if (!snapshot.valid || snapshot.stateDigest == 0 || snapshot.players.size() != players.size()
+        if (!snapshot.valid || snapshot.stateDigest == 0 || snapshot.players.size() > players.size()
             || snapshot.dynamicEntityCount > 100000u) return false;
+        // A world may remove departed bodies immediately. Preserve historical
+        // identity without tolerating missing live/waiting, duplicate or unknown players.
+        std::set<Identity> snapshotIds;
+        for (const auto &player: snapshot.players)
+            if (!findPlayer(player.playerId) || !snapshotIds.insert(player.playerId).second) return false;
+        for (const auto &player: players) if (!snapshotIds.count(player.definition.playerId)) {
+            if (!player.departed) return false;
+            CanonicalPlayerSnapshot removed;
+            removed.playerId = player.definition.playerId;
+            removed.rosterSlot = player.definition.rosterOrder;
+            removed.team = player.team;
+            removed.departed = true;
+            snapshot.players.push_back(std::move(removed));
+        }
         const bool roundEnded = snapshot.roundOver
                                 && (!latestCanonicalSnapshot || !latestCanonicalSnapshot->roundOver);
         latestStateDigest = snapshot.stateDigest;
@@ -754,8 +799,9 @@ namespace Duel6::Server::Authoritative {
         for (const auto &canonical: snapshot.players) {
             PlayerState *player = findPlayer(canonical.playerId);
             if (!player || canonical.life < 0 || canonical.life > MaximumLife) return false;
-            player->alive = canonical.alive && !player->departed;
+            player->alive = canonical.alive && player->spawned && !player->departed;
             player->life = canonical.life;
+            if (player->departed) continue;
             const auto apply = [&player](std::uint64_t &target, std::uint64_t start, std::uint64_t value) {
                 if (value > MaximumCounter || start > MaximumCounter - value) return false;
                 target = start + value;
@@ -813,7 +859,7 @@ namespace Duel6::Server::Authoritative {
     void AuthoritativeMatch::interruptIfRosterTooSmall() {
         const std::size_t remaining = static_cast<std::size_t>(std::count_if(players.begin(), players.end(),
                 [](const auto &player) { return !player.departed; }));
-        if (remaining >= 2 || terminal.code != OutcomeCode::None) return;
+        if (remaining >= 1 || terminal.code != OutcomeCode::None) return;
         if (currentPhase == MatchPhase::RoundEndActive || currentPhase == MatchPhase::RoundEndFrozen) {
             if (!recordRound()) return;
         } else {
@@ -841,6 +887,7 @@ namespace Duel6::Server::Authoritative {
         candidate.players.reserve(players.size());
         for (std::size_t playerIndex = 0; playerIndex < players.size(); ++playerIndex) {
             const auto &player = players[playerIndex];
+            if (player.total.roundsPlayed == 0) continue;
             PlayerResultRow row;
             row.playerId = player.definition.playerId;
             row.participantId = player.definition.participantId;
@@ -943,8 +990,9 @@ namespace Duel6::Server::Authoritative {
 
     MatchPhase AuthoritativeMatch::phase() const noexcept { return currentPhase; }
     bool AuthoritativeMatch::admissionOpen() const noexcept {
-        return currentPhase == MatchPhase::ActiveRound && currentRoundDecision.roundNumber == 1
-            && completedRoundCount == 0;
+        return terminal.code == OutcomeCode::None && (currentPhase == MatchPhase::ActiveRound
+            || ((currentPhase == MatchPhase::RoundEndActive || currentPhase == MatchPhase::RoundEndFrozen)
+                && currentRoundDecision.roundNumber < config.roundLimit));
     }
 
     std::size_t AuthoritativeMatch::admissionCapacity() const noexcept {
@@ -971,16 +1019,26 @@ namespace Duel6::Server::Authoritative {
         }
         try {
             Math::RandomScope authoritativeScope(*random);
-            if (dependencies.worldAppendPlayers && !dependencies.worldAppendPlayers(additions, *random)) {
+            const bool immediate = currentPhase == MatchPhase::ActiveRound && currentRoundDecision.roundNumber == 1;
+            const auto committedAt = immediate ? std::optional<std::chrono::steady_clock::time_point>{}
+                : std::optional<std::chrono::steady_clock::time_point>{dependencies.sessionClock()};
+            if ((immediate && dependencies.worldAppendPlayers && !dependencies.worldAppendPlayers(additions, *random))
+                || (!immediate && dependencies.worldQueuePlayers && !dependencies.worldQueuePlayers(additions))) {
                 failRuntime(); return ActionResult::RuntimeFailed;
             }
             for (const auto &entry: additions) {
                 PlayerState state; state.definition = entry;
-                state.total.roundsPlayed = 1;
+                state.spawned = immediate;
+                state.waitingSince = committedAt;
+                state.alive = immediate;
+                state.total.roundsPlayed = immediate ? 1 : 0;
                 if (config.mode == Mode::TeamDeathmatch) state.team = static_cast<Team>(entry.rosterOrder % config.teamCount + 1);
                 players.push_back(std::move(state));
                 acceptedSequences.emplace(SequenceDomain{0, entry.participantId, entry.playerId}, 0);
-                currentRoundDecision.rosterOrder.push_back(entry.playerId);
+                if (immediate) currentRoundDecision.rosterOrder.push_back(entry.playerId);
+                // Keep prior completed-round vectors aligned for later arrivals without
+                // fabricating participation or rejecting the final result of a long match.
+                for (auto &round: completedPlayerStatistics) round.emplace_back();
             }
             if (dependencies.worldSnapshot && !synchronizeCanonicalWorld()) {
                 failRuntime(); return ActionResult::RuntimeFailed;
@@ -1050,7 +1108,7 @@ namespace Duel6::Server::Authoritative {
         if (!player || player->departed) return false;
         player->inputMask = 0;
         player->lastInputTick = static_cast<Tick>(-1);
-        if (dependencies.worldInput) {
+        if (player->spawned && dependencies.worldInput) {
             try { if (!dependencies.worldInput(playerId, 0)) return false; }
             catch (...) { return false; }
         }

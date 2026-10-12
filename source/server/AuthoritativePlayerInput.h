@@ -39,6 +39,7 @@ namespace Duel6::Server::Authoritative {
         Identity hostParticipantId;
         std::function<TimePoint()> clock;
         AuthoritativeMatch *match = nullptr;
+        std::uint8_t observedRound = 0;
         std::map<Identity, Identity> owners;
         std::map<Identity, std::uint64_t> highestSequences;
         std::map<std::pair<Tick, Identity>, Pending> pending;
@@ -54,6 +55,7 @@ namespace Duel6::Server::Authoritative {
         bool sendPolicyViolation(Identity participantId) noexcept;
         void observeParticipantWindow(Identity participantId, std::int64_t index) noexcept;
         void clearParticipantInput(Identity participantId) noexcept;
+        void synchronizeRound() noexcept;
         ReceiveResult reject(Identity participantId, const Network::Input::Command &command,
                              Network::Input::OutcomeCategory category, bool closeConnection = false);
     };
