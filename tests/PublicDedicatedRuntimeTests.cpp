@@ -461,7 +461,7 @@ int main(int argc, char **argv) {
             (a.host ? first : second).endSession();
             require(pump([&] { return (a.host ? first : second).snapshot().journey == J::Inactive
                 && (a.host ? second : first).snapshot().journey == J::HostEnded; }, 5s), "concurrent session end");
-        } else if (scenario != "flow" && scenario != "flow-race") {
+        } else if (scenario != "flow" && scenario != "flow-race" && scenario != "flow-fatal-before-end") {
             require(pump([&] { return first.snapshot().journey == J::Failure; }, 12s), "failure deadline");
             const auto state = first.snapshot();
             require(!state.host && !state.localParticipantId && !state.canonical, "rejection granted authority");
@@ -527,14 +527,33 @@ int main(int argc, char **argv) {
             jump->pressed = true;
             require(pump([&] { return controllerY() > beforeJump; }, 3s), "sampled controller jump not replicated over TLS");
             jump->pressed = false;
-            first.endSession();
-            if (scenario == "flow-race") {
-                // Ordinary supported participant traffic supplies the opposite
-                // relay leg; the service still produces the actual End notice.
+            const auto endDeadline = std::chrono::steady_clock::now() + 5s;
+            if (scenario == "flow-race" || scenario == "flow-fatal-before-end") {
+                { std::ofstream arm(std::filesystem::path(argv[2]) / "flow-arm"); }
+                require(pumpUntil([&] { return std::filesystem::exists(std::filesystem::path(argv[2]) / "flow-armed"); }, endDeadline),
+                        "missing bounded reverse-traffic qualification");
                 observer.setReady(true); observer.setReady(false);
+                if (scenario == "flow-fatal-before-end") {
+                    { std::ofstream trigger(std::filesystem::path(argv[2]) / "flow-trigger-fatal"); }
+                    require(pumpUntil([&] { return std::filesystem::exists(std::filesystem::path(argv[2]) / "flow-fatal-before-End"); }, endDeadline),
+                            "fatal-before-End qualification missing");
+                }
             }
-            const bool ended = pump([&] { return first.snapshot().journey == J::Inactive
-                && second.snapshot().journey == J::HostEnded && observer.snapshot().journey == J::HostEnded; }, 5s);
+            first.endSession();
+            if (scenario == "flow-fatal-before-end") {
+                require(pumpUntil([&] { return first.snapshot().journey == J::Inactive
+                    && second.snapshot().journey == J::HostEnded && observer.snapshot().journey == J::Failure; }, endDeadline),
+                        "unreceived End must select scoped reconnect failure, not invented End");
+                require(observer.snapshot().failure == Network::Trust::ReconnectAuthorizationFailureCopy,
+                        "old-scope denial after unreceived End");
+                require(std::filesystem::exists(std::filesystem::path(argv[2]) / "flow-negative-qualified"),
+                        "negative ordering was not qualified");
+                std::cout << "PASS fatal-before-End retains ambiguity and actual scoped denial\n";
+                std::cout << "PASS public dedicated " << scenario << '\n';
+                return 0;
+            }
+            const bool ended = pumpUntil([&] { return first.snapshot().journey == J::Inactive
+                && second.snapshot().journey == J::HostEnded && observer.snapshot().journey == J::HostEnded; }, endDeadline);
             require(ended,
                 "confirmed end outcome: controller journey=" + std::to_string(static_cast<int>(first.snapshot().journey))
                 + " guest journey=" + std::to_string(static_cast<int>(second.snapshot().journey))

@@ -594,7 +594,7 @@ def main():
     if end_eof_regressions:
         # One synchronized forwarding race, distinct unconfirmed loss, then the
         # existing real flow journeys. Original arena, inputs/deadlines remain.
-        cases = ["flow-race", "notice-eof-match"] + ["flow"] * 4
+        cases = ["flow-race", "flow-fatal-before-end", "notice-eof-match"] + ["flow"] * 4
     if cases == ["--review-regressions"]:
         cases = [f"notice-{reason}-{phase}" for phase in ("lobby", "match", "summary")
                  for reason in ("maintenance", "controller", "wrong", "eof")] + ["recovery", "expiry", "summary-return", "summary-return-ordered"]
@@ -604,7 +604,7 @@ def main():
         root = Path(temp)
         shutil.copytree(resources / "data", root / "data")
         (root / "levels").mkdir()
-        width, height = (10, 3) if review and not end_eof_regressions and "flow-race" not in cases else (24, 8)
+        width, height = (10, 3) if review and not end_eof_regressions and not any(c.startswith("flow") for c in cases) else (24, 8)
         blocks = [int(x in (0, width - 1) or y in (0, height - 1))
                   for y in range(height) for x in range(width)]
         (root / "levels" / "arena.json").write_text(json.dumps(
@@ -628,8 +628,10 @@ def main():
             if scenario in ("flow", "flow-race") and not peer.opaque_inner:
                 assert peer.forwarded_ends >= forwarded_before + 2, "End was observed but not forwarded; " + peer.evidence()
             if scenario == "flow-race":
-                assert (root / "race-write-failed").exists() and (root / "end-forwarded-3").exists(), "authenticated peer missed fatal opposite-write and retained End"
+                assert all((root / p).exists() for p in ("flow-service-End-before-fatal", "race-write-failed", "end-forwarded-3")), "authenticated peer missed qualified End-before-fatal"
                 print("PASS authenticated application peer forwarded actual End after fatal opposite inner write", flush=True)
+            if scenario == "flow-fatal-before-end":
+                assert (root / "flow-negative-qualified").exists() and not (root / "end-forwarded-3").exists(), "negative ordering invented End or missed qualification"
             if scenario == "notice-eof-match":
                 observation = peer.eof_observation
                 assert observation and observation["complete"] and observation["connection"] == 2, "EOF observation did not finish before unwind"
@@ -646,9 +648,11 @@ def main():
                 for pattern in ("peer-*", "end-forwarded-*", "summary-controller-held", "summary-guest-seen", "race-write-failed"):
                     for evidence in root.glob(pattern):
                         evidence.unlink()
+                for evidence in root.glob("flow-*"):
+                    evidence.unlink()
                 frontend = port() if scenario in ("directory", "directory-reservation") else None
                 with service(server, root, INVITE, frontend) as (backend, _):
-                    observe_application = (scenario.startswith("attack-") or scenario == "flow-race"
+                    observe_application = (scenario.startswith("attack-") or scenario in ("flow-race", "flow-fatal-before-end")
                         or scenario == "summary-return-ordered" or (scenario.startswith("notice-") and "eof" not in scenario))
                     helper = (authenticated_peer(server.with_name("duel6r-public-authenticated-peer"), backend, root, scenario)
                               if observe_application else contextlib.nullcontext(backend))

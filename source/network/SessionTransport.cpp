@@ -1393,6 +1393,16 @@ namespace Duel6::Network {
                 }
                 if (!aggregateReserved) break;
                 std::vector<std::uint8_t> payload(payloadSize);
+                struct StagingEraseGuard {
+                    std::vector<std::uint8_t> &payload;
+                    ~StagingEraseGuard() {
+                        // Discarded partial/plaintext staging can contain a
+                        // credential before its APP frame is complete. A move
+                        // transfers ownership to the queue; erase only storage
+                        // still owned by this local vector on every exit.
+                        Trust::secureEraseMemory(payload.data(), payload.size());
+                    }
+                } stagingErase{payload};
                 bool delivered = false;
                 const auto deliver = [&] {
                     if (kind != ApplicationFrame) return;

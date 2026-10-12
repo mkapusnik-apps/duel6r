@@ -55,6 +55,10 @@
 #undef private
 #include "tests/RecordingRenderer.h"
 #include "tests/CanonicalMotionTrace.h"
+#include "tests/SecondJumpObservation.h"
+#ifdef D6R_TEST_OBSERVE_PLAYER_INPUT
+#include "tests/ObservedPlayerInput.h"
+#endif
 #include "source/server/AuthoritativeMatchSerialization.h"
 #include "source/math/Camera.h"
 #include <cmath>
@@ -3359,6 +3363,39 @@ D6R_TEST_CASE("NET-PASS key lifetime exhaustion restores reserved protected play
     D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
 }
 
+D6R_TEST_CASE("second jump oracle qualifies one-update observation skew without counting first stale or wrong-scope input") {
+    auto state = canonical(91, Network::Replication::Phase::ActiveRound);
+    state.matchId = 4; state.round = Network::Replication::RoundState{}; state.round->roundId = 7;
+    Network::Replication::PlayerState a, b;
+    a.playerId = 1; b.playerId = 2; a.positionY = b.positionY = 2 * 65536;
+    a.ownerParticipantId = 5; b.ownerParticipantId = 6;
+    auto highA = a, highB = b;
+    highA.actionMask = highB.actionMask = Network::Input::Jump;
+    highA.velocityY = highB.velocityY = 468591; highA.positionY = highB.positionY = 3 * 65536;
+    Test::SecondJumpObservation observation(91, 4, 7, a, b);
+    state.phaseTime = 18;
+    observation.observe(0, state, highA);
+    D6R_REQUIRE(observation.complete(0, true, 15));
+    D6R_REQUIRE(!observation.complete(1, true, 15));
+    // A's next valid canonical update has passed its short high-velocity pulse
+    // before B's tick18 arrives. Old latest(A)&&latest(B) is false at both
+    // observation turns although both produced valid same-edge witnesses.
+    auto lowA = highA; lowA.velocityY = 6 * 65536;
+    D6R_REQUIRE(!(highA.velocityY > 7 * 65536 && b.velocityY > 7 * 65536));
+    D6R_REQUIRE(!(lowA.velocityY > 7 * 65536 && highB.velocityY > 7 * 65536));
+    observation.observe(1, state, highB);
+    D6R_REQUIRE(observation.complete(0, true, 15) && observation.complete(1, true, 15));
+    D6R_REQUIRE(!observation.complete(0, false, 15)); // Rejected/stale/unconfirmed second sequence.
+    D6R_REQUIRE(!observation.complete(0, true, 19)); // Witness preceded the second applied edge.
+    D6R_REQUIRE(!observation.complete(0, true, 1)); // Later first jump cannot use an old edge.
+    Test::SecondJumpObservation wrong(91, 4, 7, a, b);
+    auto wrongOwner = highA; ++wrongOwner.ownerParticipantId;
+    wrong.observe(0, state, wrongOwner);
+    D6R_REQUIRE(!wrong.complete(0, true, 15));
+    ++state.round->roundId; wrong.observe(0, state, highA);
+    D6R_REQUIRE(!wrong.complete(0, true, 15));
+}
+
 D6R_TEST_CASE("network restoration production host and guest jump double jump and land without pose teleport") {
     using namespace std::chrono_literals;
     char name[] = "duel6r-restoration-jump-tests";
@@ -3393,6 +3430,10 @@ D6R_TEST_CASE("network restoration production host and guest jump double jump an
     auto guestControls = PlayerControls::keyboardControls("Guest QA", input,
             SDLK_a, SDLK_d, SDLK_w, SDLK_s, SDLK_f, SDLK_g, SDLK_h);
     Client::NetworkSessionRuntime host, guest, unused;
+#ifdef D6R_TEST_OBSERVE_PLAYER_INPUT
+    Test::ObservedInput::begin();
+    struct EndInputObservation { ~EndInputObservation() { Test::ObservedInput::end(); } } endInputObservation;
+#endif
     Network::HostComposition::Setup setup;
     setup.localPlayerNames = {"Jump host"}; setup.mode = "Deathmatch";
     setup.fixedLevel = "levels/restoration.json"; setup.quickLiquid = false;
@@ -3446,11 +3487,31 @@ D6R_TEST_CASE("network restoration production host and guest jump double jump an
     const auto firstHost = checkedActor(host.snapshot());
     const auto firstGuest = checkedActor(guest.snapshot());
     input.setPressed(SDLK_UP, false); input.setPressed(SDLK_w, false);
+#ifdef D6R_TEST_OBSERVE_PLAYER_INPUT
+    Test::ObservedInput::releaseFirstEdge();
+#endif
     D6R_REQUIRE(waitBoth([](const auto &actor) { return actor.actionMask == 0 && actor.velocityY > 0; }));
     input.setPressed(SDLK_UP, true); input.setPressed(SDLK_w, true);
+#ifdef D6R_TEST_OBSERVE_PLAYER_INPUT
+    Test::ObservedInput::secondEdge();
+    const auto secondContext = host.snapshot();
+    D6R_REQUIRE(secondContext.canonical && secondContext.canonical->round);
+    Test::SecondJumpObservation secondJump(secondContext.canonical->sessionId, secondContext.canonical->matchId,
+                                          secondContext.canonical->round->roundId, firstHost, firstGuest);
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 3s, [&] {
+        const auto hs = host.snapshot(), gs = guest.snapshot();
+        const auto h = checkedActor(hs), g = checkedActor(gs);
+        secondJump.observe(0, *hs.canonical, h); secondJump.observe(1, *gs.canonical, g);
+        const auto hApplied = Test::ObservedInput::appliedSecondJump(h.playerId, h.ownerParticipantId);
+        const auto gApplied = Test::ObservedInput::appliedSecondJump(g.playerId, g.ownerParticipantId);
+        return secondJump.complete(0, hApplied.has_value(), hApplied.value_or(0))
+            && secondJump.complete(1, gApplied.has_value(), gApplied.value_or(0));
+    }));
+#else
     D6R_REQUIRE(waitBoth([](const auto &actor) {
         return actor.actionMask == Network::Input::Jump && actor.velocityY > 7 * 65536;
     }));
+#endif
     D6R_REQUIRE(checkedActor(host.snapshot()).positionY > firstHost.positionY);
     D6R_REQUIRE(checkedActor(guest.snapshot()).positionY > firstGuest.positionY);
     input.setPressed(SDLK_UP, false); input.setPressed(SDLK_w, false);

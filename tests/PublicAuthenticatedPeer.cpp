@@ -26,6 +26,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <deque>
 
 using namespace Duel6::Network;
 using namespace std::chrono_literals;
@@ -122,10 +123,26 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
         require(service.handshake(Clock::now() + 3s, [] { return stopped.load(); }));
         Frame incoming, outgoing;
         bool attackReceived = false, raceCompleted = false;
+        const bool positiveRace = scenario == "flow-race";
+        const bool negativeRace = scenario == "flow-fatal-before-end";
+        bool gated = false;
+        Clock::time_point coordinationDeadline{};
+        std::deque<std::vector<std::uint8_t>> reverseTraffic;
+        std::size_t reverseBytes = 0;
+        struct EraseDeferred {
+            std::deque<std::vector<std::uint8_t>> &frames;
+            ~EraseDeferred() { for (auto &bytes: frames) Trust::secureEraseMemory(bytes.data(), bytes.size()); }
+        } eraseDeferred{reverseTraffic};
         unsigned clientFrames = 0, serviceFrames = 0;
-        std::vector<std::uint8_t> oppositeTraffic;
         while (!stopped) {
             stage = "application-relay";
+            if (id == 3 && (positiveRace || negativeRace) && !gated
+                && std::filesystem::exists(root / "flow-arm")) {
+                gated = true;
+                coordinationDeadline = Clock::now() + 2s; // One original close/drain budget, never restarted.
+                marker(root, "flow-armed");
+            }
+            if (gated) require(Clock::now() < coordinationDeadline);
             if (id == 2) {
                 std::ifstream command(root / "action"); unsigned target = 0; std::string action; std::uint64_t session = 0;
                 if (command >> target >> action >> session && target == id
@@ -146,19 +163,30 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                     attackReceived |= incoming.bytes.size() == TransportEnvelopeBytes + expected.size()
                         && std::equal(expected.begin(), expected.end(), incoming.bytes.begin() + TransportEnvelopeBytes);
                 }
-                // Schedule real client Ready traffic at the End boundary, not
-                // before it. Only these non-secret participant-action frames
-                // are retained; ordinary play and admission pass unchanged.
-                bool hold = false;
-                if (scenario == "flow-race" && id == 3 && incoming.bytes.size() == TransportEnvelopeBytes + 26) {
-                    const auto action = Lifecycle::deserializeParticipantAction(
-                        {incoming.bytes.begin() + TransportEnvelopeBytes, incoming.bytes.end()});
-                    hold = action && (action->kind == Lifecycle::ParticipantActionKind::Ready
-                                      || action->kind == Lifecycle::ParticipantActionKind::NotReady);
+                // All competing reverse traffic is bounded and owned, not only
+                // Ready. No normal write may race ahead of qualified service End.
+                if (gated) {
+                    require(reverseTraffic.size() < MaxQueuedTransportFrames
+                        && reverseBytes + incoming.bytes.size() <= MaxQueuedTransportPayloadBytes);
+                    reverseBytes += incoming.bytes.size(); reverseTraffic.push_back(incoming.bytes);
                 }
-                if (hold) oppositeTraffic = incoming.bytes;
                 else require(write(service, incoming.bytes));
                 incoming.reset();
+            }
+            if (gated && negativeRace && !reverseTraffic.empty()
+                && std::filesystem::exists(root / "flow-trigger-fatal")) {
+                stage = "fatal-before-End";
+                require(::shutdown(back.fd, SHUT_WR) == 0 || errno == ENOTCONN);
+                require(!write(service, reverseTraffic.front()) && !service.usable());
+                marker(root, "flow-fatal-before-End");
+                // Never read/query pending on the failed service context. Keep
+                // the distinct front context usable until actual End on peer2
+                // proves server invalidation, then expose ambiguous loss to3.
+                while (!stopped && Clock::now() < coordinationDeadline
+                    && !std::filesystem::exists(root / "flow-service-End")) std::this_thread::sleep_for(1ms);
+                require(std::filesystem::exists(root / "flow-service-End"));
+                marker(root, "flow-negative-qualified");
+                return;
             }
             const int sent = outgoing.read(service);
             if (sent < 0) { if (attackReceived) marker(root, "attack-rejected"); return; }
@@ -179,20 +207,23 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                                   outgoing.bytes.begin() + TransportEnvelopeBytes + 8, "D6LC\0\1\0\3"))
                     end = Lifecycle::deserializeIntentionalHostEnd({outgoing.bytes.begin() + TransportEnvelopeBytes, outgoing.bytes.end()});
                 const auto endDeadline = Clock::now() + 2s;
-                if (scenario == "flow-race" && id == 3 && end && !raceCompleted) {
+                if (end && id == 2) marker(root, "flow-service-End");
+                if (positiveRace && id == 3 && end && !raceCompleted) {
+                    require(gated && Clock::now() < coordinationDeadline);
+                    marker(root, "flow-service-End-before-fatal");
                     // The service actually sent End. Preserve that authenticated
                     // staging while genuine opposite participant traffic attempts
                     // a write against a closed OS half, then stop the fatal SDK.
                     stage = "race-shutdown";
                     require(::shutdown(back.fd, SHUT_WR) == 0 || errno == ENOTCONN);
                     stage = "race-opposite-read";
-                    int traffic = oppositeTraffic.empty() ? 0 : 1;
-                    while (!stopped && traffic == 0 && Clock::now() < endDeadline) {
+                    int traffic = reverseTraffic.empty() ? 0 : 1;
+                    while (!stopped && traffic == 0 && Clock::now() < coordinationDeadline) {
                         traffic = incoming.read(client);
                         if (traffic == 0) std::this_thread::sleep_for(1ms);
                     }
                     stage = "race-opposite-write";
-                    require(traffic == 1 && !write(service, oppositeTraffic.empty() ? incoming.bytes : oppositeTraffic)
+                    require(traffic == 1 && !write(service, reverseTraffic.empty() ? incoming.bytes : reverseTraffic.front())
                         && !service.usable());
                     marker(root, "race-write-failed"); raceCompleted = true;
                 }
@@ -205,7 +236,8 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                     // accepted ordinary output until it closes, within the same
                     // original two-second boundary. Never touch fatal backend
                     // SDK state or manufacture an application acknowledgement.
-                    while (!stopped && Clock::now() < endDeadline) {
+                    const auto drainDeadline = gated ? coordinationDeadline : endDeadline;
+                    while (!stopped && Clock::now() < drainDeadline) {
                         const int remaining = incoming.read(client);
                         if (remaining < 0) break;
                         if (remaining > 0) incoming.reset();

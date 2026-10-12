@@ -44,6 +44,51 @@ static void closeSocket(Socket s) { if (s != BadSocket) ::close(s); }
 #include <thread>
 #include <vector>
 #include "source/network/SessionTransport.h"
+#include "source/network/SessionLifecycle.h"
+#ifdef D6R_TEST_OBSERVE_STAGING
+#include <mbedtls/ssl.h>
+// Observe live caller-owned plaintext immediately before real deallocation.
+// SDK calls and allocators delegate unchanged; no bytes/addresses are logged.
+namespace StagingObservation {
+    std::array<unsigned char, 48> expected{};
+    std::atomic<void *> watched{nullptr};
+    std::atomic<bool> staged{false}, released{false}, erased{false};
+    std::atomic<std::size_t> readSize{47}, allocationBytes{0};
+    thread_local bool receivingApplication = false;
+    void reset(std::size_t size, const std::vector<std::uint8_t> &value) {
+        std::copy(value.begin(), value.end(), expected.begin());
+        watched = nullptr; staged = false; released = false; erased = false;
+        allocationBytes = 0; readSize = size;
+    }
+    void beforeDelete(void *pointer, std::size_t size) noexcept {
+        void *match = pointer;
+        if (pointer && watched.compare_exchange_strong(match, nullptr)) {
+            const auto *bytes = static_cast<const unsigned char *>(pointer);
+            erased = std::all_of(bytes, bytes + readSize.load(), [](unsigned char byte) { return byte == 0; });
+            allocationBytes = size;
+            released = true;
+        }
+    }
+}
+extern "C" int __real_mbedtls_ssl_read(mbedtls_ssl_context *, unsigned char *, std::size_t);
+extern "C" int __wrap_mbedtls_ssl_read(mbedtls_ssl_context *ctx, unsigned char *bytes, std::size_t size) {
+    const int result = __real_mbedtls_ssl_read(ctx, bytes, size);
+    if (StagingObservation::receivingApplication && result == static_cast<int>(StagingObservation::readSize.load())
+        && std::equal(StagingObservation::expected.begin(), StagingObservation::expected.begin() + result, bytes)) {
+        StagingObservation::watched = bytes;
+        StagingObservation::staged = true;
+    }
+    return result;
+}
+void realDelete(void *) noexcept __asm__("__real__ZdlPv");
+void wrapDelete(void *) noexcept __asm__("__wrap__ZdlPv");
+void wrapDelete(void *pointer) noexcept { StagingObservation::beforeDelete(pointer, 0); realDelete(pointer); }
+void realSizedDelete(void *, std::size_t) noexcept __asm__("__real__ZdlPvm");
+void wrapSizedDelete(void *, std::size_t) noexcept __asm__("__wrap__ZdlPvm");
+void wrapSizedDelete(void *pointer, std::size_t size) noexcept {
+    StagingObservation::beforeDelete(pointer, size); realSizedDelete(pointer, size);
+}
+#endif
 
 using namespace Duel6::Network;
 using namespace std::chrono_literals;
@@ -330,6 +375,7 @@ class TlsPeer {
         return -1;
     }
 public:
+    enum class Exchange { Echo, PartialClose, PartialHold };
     enum class Stage { Starting, Accept, Handshake, Read, Write };
     struct InnerBytes final : SecureByteStream {
         SSL *ssl;
@@ -370,7 +416,7 @@ public:
                   << " application-bytes=" << applicationBytes.load() << std::endl;
     }
     TlsPeer(X509 *cert, EVP_PKEY *key, const std::vector<std::uint8_t> &secret,
-            std::chrono::milliseconds budget = 5s, std::string password = "portable-password") {
+            std::chrono::milliseconds budget = 5s, std::string password = "portable-password", Exchange exchange = Exchange::Echo) {
         check(ctx && SSL_CTX_set_min_proto_version(ctx.get(), TLS1_2_VERSION) == 1, "TLS peer context");
         check(SSL_CTX_use_certificate(ctx.get(), cert) == 1 && SSL_CTX_use_PrivateKey(ctx.get(), key) == 1, "TLS peer identity");
         listener.value = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP); check(listener.value != BadSocket, "TLS listener socket");
@@ -385,7 +431,7 @@ public:
         check(getsockname(listener.value, reinterpret_cast<sockaddr *>(&address), &length) == 0, "TLS listener port");
         port = ntohs(address.sin_port);
         deadline = Time::now() + budget;
-        worker = std::thread([this, secret, password = std::move(password)] {
+        worker = std::thread([this, secret, password = std::move(password), exchange] {
             try {
                 SocketOwner peer;
                 stage = Stage::Accept;
@@ -423,12 +469,15 @@ public:
                         // Return the framed application data through TLS, never through logs.
                         stage = Stage::Write;
                         offset = 0;
-                        while (offset < bytes.size()) {
-                            const int count = innerIO([&] { return inner.send(bytes.data() + offset, bytes.size() - offset); });
+                        const auto sendSize = exchange == Exchange::Echo ? bytes.size() : bytes.size() - 1;
+                        while (offset < sendSize) {
+                            const int count = innerIO([&] { return inner.send(bytes.data() + offset, sendSize - offset); });
                             if (count <= 0) break;
                             offset += count;
                         }
-                        if (offset == bytes.size()) outcome = Outcome::Complete;
+                        if (offset == sendSize) outcome = Outcome::Complete;
+                        if (exchange == Exchange::PartialHold)
+                            while (active()) std::this_thread::sleep_for(1ms);
                     }
                 }
             } catch (...) { outcome = Outcome::InternalFailure; }
@@ -448,6 +497,64 @@ static bool waitUntil(Predicate predicate, std::chrono::milliseconds budget) {
     } while (std::chrono::steady_clock::now() < deadline);
     return predicate();
 }
+
+#ifdef D6R_TEST_OBSERVE_STAGING
+static void checkStagingOwnership(X509 *cert, EVP_PKEY *key) {
+    // Transport-only authenticated protocol peer. This fixture grants no
+    // participant authority and manufactures no End or crypto result.
+    Lifecycle::ReconnectGrant grant;
+    grant.sessionId = 91; grant.participantId = 2; grant.reservationId = 8;
+    check(RAND_bytes(grant.credential.bytes.data(), grant.credential.bytes.size()) == 1, "credential fixture entropy");
+    auto credential = Lifecycle::serializeReconnectGrant(grant);
+    check(credential.size() == 48, "credential fixture framing");
+    for (unsigned scenario = 0; scenario < 5; ++scenario) {
+        const bool complete = scenario >= 3;
+        const char *names[]{"partial EOF", "partial cancellation", "partial key-lifetime timeout", "complete transfer", "queued discard"};
+        StagingObservation::reset(complete ? 48 : 47, credential);
+        const auto budgetBaseline = Trust::processQueueBudget().used();
+        const auto absolute = std::chrono::steady_clock::now() + 5s;
+        TlsPeer peer(cert, key, credential, 5s, "portable-password", complete ? TlsPeer::Exchange::Echo
+                     : scenario == 0 ? TlsPeer::Exchange::PartialClose : TlsPeer::Exchange::PartialHold);
+        SessionTransportDependencies dependencies;
+        dependencies.publicTls = true; dependencies.secureSession = true;
+        dependencies.password = std::make_shared<SessionPassword>("portable-password");
+        if (scenario == 2) dependencies.secureLimits.lifetime = 1s; // Restriction only, not a timer extension.
+        dependencies.inbound.beforeApplicationRead = [] { StagingObservation::receivingApplication = true; };
+        TcpClient client(dependencies);
+        check(client.start({"localhost", peer.port}) && client.waitForConnected(5s), "composed staging connection");
+        auto connection = client.connection();
+        check(connection->sendSensitive(credential) == SendResult::Accepted, "composed credential fixture queued");
+        while (!StagingObservation::staged && std::chrono::steady_clock::now() < absolute) std::this_thread::sleep_for(1ms);
+        check(StagingObservation::staged && peer.validRequest, "staging observation must qualify");
+        TransportFrame frame;
+        if (scenario == 1) { client.cancel(); client.close(); }
+        else if (scenario == 3) {
+            bool received = false;
+            while (!(received = connection->receive(frame)) && std::chrono::steady_clock::now() < absolute) std::this_thread::sleep_for(1ms);
+            check(received && frame.payload == credential && !StagingObservation::released,
+                  "local guard must not wipe consumer-owned complete APP");
+            client.close();
+            check(frame.payload == credential && !StagingObservation::released, "close must preserve consumer ownership");
+            Trust::secureEraseMemory(frame.payload.data(), frame.payload.size());
+            std::vector<std::uint8_t>().swap(frame.payload);
+        } else if (scenario == 4) {
+            (void) connection->sealAndDrainInput(0); // Ordered boundary; retain queued ownership.
+            client.close();
+        } else {
+            while (!StagingObservation::released && std::chrono::steady_clock::now() < absolute) std::this_thread::sleep_for(1ms);
+            check(!connection->receive(frame), "partial authenticated staging is not an APP frame");
+            client.close();
+        }
+        peer.stop();
+        check(StagingObservation::released && StagingObservation::erased, "credential staging must be erased before release");
+        check(StagingObservation::allocationBytes == 48, "observe the actual production staging allocation");
+        check(Trust::processQueueBudget().used() == budgetBaseline, "staging ownership must release queue budget exactly once");
+        std::cout << "PASS composed staging erasure/ownership " << names[scenario] << " (bytes withheld)" << std::endl;
+    }
+    Trust::secureEraseMemory(credential.data(), credential.size());
+    Trust::secureEraseMemory(StagingObservation::expected.data(), StagingObservation::expected.size());
+}
+#endif
 static void connectWithoutTls(SocketOwner &raw, std::uint16_t port) {
     raw.value = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     check(raw.value != BadSocket && nonblocking(raw.value), "stall-probe socket configuration");
@@ -526,6 +633,10 @@ int main(int argc, char **argv) {
         std::cout << "BEGIN " << stage << std::endl;
         TrustFixture trust(ca.get());
         std::cout << "TRUST setup complete" << std::endl;
+#ifdef D6R_TEST_OBSERVE_STAGING
+        stage = "composed staging erasure and ownership";
+        checkStagingOwnership(valid.get(), leafKey.get());
+#endif
         const char *cases[]{"trusted hostname", "trusted IP unlocked", "untrusted chain: zero application bytes", "wrong hostname: zero application bytes",
                             "wrong password: zero application bytes", "explicit password on unlocked: no fallback"};
         for (unsigned scenario = 0; scenario < 6; ++scenario) {
