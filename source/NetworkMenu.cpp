@@ -1917,18 +1917,16 @@ namespace Duel6 {
             visibleRows && !rows.empty() ? "Refreshing... Previous results may be out of date." : "Loading sessions...", 98);
         else if (visibleRows && browser.stale()) drawClippedText(30, 516,
             "Directory unavailable. Previous results may be out of date.", 98);
+        renderer.quadXY(Vector(28, 490), Vector(794, 20), Color(170));
+        drawText(30, 494, "Session / endpoint"); drawText(382, 494, "Players");
+        drawText(480, 494, "Phase"); drawText(590, 494, "Password"); drawText(704, 494, "Admission");
+        drawField(28, 200, 794, 290);
         if (replacement) {
-            renderer.quadXY(Vector(28, 200), Vector(794, 310), Color(192));
             drawText(36, 470, !visibleRows
                 ? "Directory unavailable. Direct connection and local play are still available."
                 : browser.result().nextCursor.empty()
                     ? "No active sessions listed. You can host a session or connect directly."
-                    : "No active sessions on this page. Continue with Next page.");
-        } else {
-            renderer.quadXY(Vector(28, 490), Vector(794, 20), Color(170));
-            drawText(30, 494, "Session / endpoint"); drawText(382, 494, "Players");
-            drawText(480, 494, "Phase"); drawText(590, 494, "Password"); drawText(704, 494, "Admission");
-            drawField(28, 200, 794, 290);
+                    : "No active sessions on this page. Continue with Next page.", Color(89));
         }
         const Client::DirectoryListing *selected = nullptr;
         if (visibleRows) for (const auto &row: rows) if (row.id == selectedListing) selected = &row;

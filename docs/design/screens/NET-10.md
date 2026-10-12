@@ -17,7 +17,7 @@ The [shared visual baseline](../../design.md#unified-network-presentation) appli
 - **UX-NET-10-009** The list must give up visible rows before page controls, selected-session details, or footer captions overlap.
 - **UX-NET-10-010** Empty, loading, stale, and unavailable feedback must remain inside the same list/status allocation without changing footer placement.
 
-- **UX-NET-10-011** Empty and failed reads must replace table headings, dividers, white rows, and scrollbar with a noninteractive menu-surface grey region. Show the applicable description once in standard readable black text, as an entire single line with at least 4 logical px horizontal padding; do not truncate or shrink the font. Keep existing table and footer allocations.
+- **UX-NET-10-011** Empty and failed reads must retain the existing fixed grey heading strip and all five headings above the inset white table body at its existing bounds. Show the applicable description once below the header at its current left alignment with at least 4 logical px horizontal padding, spanning the body as one complete line in standard 16 logical px dark grey `#595959` text on white (contrast at least 4.5:1). Do not wrap, truncate, or shrink the font. Show no session rows, body column dividers, separators, scrollbar, selection marker or fill, hover or focus treatment, or action frame. The empty body and description must have no pointer, keyboard, or controller focus, selection, or activation. Keep table geometry, selected-details, reserved status, paging, and footer allocations unchanged.
 
 The SVG uses approximate allocation. UX-NET-10-005 through UX-NET-10-008 fix the existing selected-details, paging, and two-row footer relationship; their controls retain the current traversal. No new sorting, filtering, total-count query, or row-activation behavior is introduced.
 
@@ -55,9 +55,9 @@ Entry workflow: MENU-01 → Network → Join in the NET-01 popup. Join invokes t
 |---|---|---|
 | `NET-10-loading` | `Loading sessions…` in the status region; no false empty message; use `Refreshing…` when prior rows remain | Direct connect and Back remain available; duplicate Refresh and Join remain disabled |
 | `NET-10-results` | Current table, without `Sessions listed` | Join selected follows the selected admission state; Refresh, Direct connect, and Back remain available |
-| `NET-10-empty` | `No active sessions listed. You can host a session or connect directly.` once inside the grey list replacement, on one complete line | Refresh, Direct connect, and Back remain available |
+| `NET-10-empty` | `No active sessions listed. You can host a session or connect directly.` once in subdued dark grey inside the white table body below the retained headings, on one complete line | Refresh, Direct connect, and Back remain available |
 | `NET-10-stale` | Age-stale feedback in the status allocation | Age-stale rows remain readable and selectable for inspection only; Join selected remains disabled until a successful refresh; Refresh, Direct connect, and Back remain available |
-| `NET-10-unavailable` | `Directory unavailable. Direct connection and local play are still available.` once inside the grey list replacement, on one complete line | Hide cached rows and selected identity, endpoint, and mode details, including after failed refresh; retain identity internally for recovery only if present. Every browser join path remains disabled. Refresh, Direct connect, and Back remain available |
+| `NET-10-unavailable` | `Directory unavailable. Direct connection and local play are still available.` once in subdued dark grey inside the white table body below the retained headings, on one complete line | Hide cached rows and selected identity, endpoint, and mode details, including after failed refresh; retain identity internally for recovery only if present. Every browser join path remains disabled. Refresh, Direct connect, and Back remain available |
 
 - A disabled Join selected must show `Select a session.`, `Session is full.`, or `Admission is closed.` as applicable.
 - A stale selected listing must show `Refresh before joining.` as its primary disabled reason.
@@ -80,7 +80,7 @@ Entry workflow: MENU-01 → Network → Join in the NET-01 popup. Join invokes t
 - Bounded result pages must provide Previous and Next controls below the rows when more pages exist.
 - Page controls must show current position and remain keyboard- and controller-operable.
 - Page controls must precede the footer in reading and focus order.
-- Hidden page controls must have no pointer target or input traversal. Empty and error list replacements must be noninteractive. Retain useful Join-disabled feedback without exposing hidden selected details after failure.
+- Hidden page controls must have no pointer target or input traversal. Empty and error table bodies and status descriptions must be noninteractive, with no pointer, keyboard, or controller focus, selection, or activation. Retain useful Join-disabled feedback without exposing hidden selected details after failure.
 - Paging must expose every active listing under NET-DIR-008 without an implicit first-page limit.
 - The table must keep one fixed-height row per session.
 - Long endpoint text must clip inside its column without covering Players.

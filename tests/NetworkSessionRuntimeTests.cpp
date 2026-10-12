@@ -837,7 +837,7 @@ D6R_TEST_CASE("NET-10 failure hides cached rows and details rejects every browse
     D6R_REQUIRE_EQ(f.row.id, menu.selectedListing); // Retained internally, not rendered or interactive.
     D6R_REQUIRE_EQ(std::size_t(1), menu.browser.result().listings.size());
     D6R_REQUIRE(!menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
-    D6R_REQUIRE(!f.text("Session / endpoint") && !f.text("Required") && !f.text("Round 1"));
+    D6R_REQUIRE(f.text("Session / endpoint") && !f.text("Required") && !f.text("Round 1"));
     for (const auto &draw: f.recorder.draws) for (const auto &entry: f.font.fontCache.entryList) {
         if (entry.texture != draw.material.getTexture()) continue;
         D6R_REQUIRE(entry.text.find(f.row.sessionId) == std::string::npos);
@@ -882,7 +882,7 @@ D6R_TEST_CASE("NET-10 failure hides cached rows and details rejects every browse
     D6R_REQUIRE(!menu.browserSelection.has_value() && !menu.joinFromBrowser);
 }
 
-D6R_TEST_CASE("NET-10 empty and initial error are distinct single-line grey replacements contained at desktop scales") {
+D6R_TEST_CASE("NET-10 empty and initial error retain headings and subdued inline status inside white bodies at desktop scales") {
     BrowserPresentationFixture f;
     const std::string empty = "No active sessions listed. You can host a session or connect directly.";
     const std::string error = "Directory unavailable. Direct connection and local play are still available.";
@@ -892,9 +892,11 @@ D6R_TEST_CASE("NET-10 empty and initial error are distinct single-line grey repl
             f.menu.focus = 0; f.deliver({available, {}, {}});
             const auto &message = available ? empty : error;
             D6R_REQUIRE(f.text(message) && !f.text(available ? error : empty));
-            D6R_REQUIRE(f.fill(28,200,794,310,Color(192)));
-            D6R_REQUIRE(!f.fill(28,200,794,290,Color::WHITE));
-            D6R_REQUIRE(!f.text("Session / endpoint") && !f.text("Players") && !f.text("Admission"));
+            D6R_REQUIRE(!f.fill(28,200,794,310,Color(192)));
+            D6R_REQUIRE(f.fill(28,200,794,290,Color::WHITE));
+            D6R_REQUIRE(f.fill(28,490,794,20,Color(170)));
+            for (const auto *heading: {"Session / endpoint", "Players", "Phase", "Password", "Admission"})
+                D6R_REQUIRE(f.text(heading));
             D6R_REQUIRE_EQ(2, f.menu.focus); D6R_REQUIRE(f.frame(290,66,260,36,2));
             D6R_REQUIRE(!f.text("Page 1") && !f.text("Sessions listed"));
             unsigned count = 0;
@@ -902,11 +904,12 @@ D6R_TEST_CASE("NET-10 empty and initial error are distinct single-line grey repl
                 const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
                     [&](const auto &entry) { return entry.texture == quad.material.getTexture() && entry.text == message; });
                 if (entry == f.font.fontCache.entryList.end()) continue;
-                ++count; D6R_REQUIRE(quad.material.getColor() == Color::BLACK);
-                D6R_REQUIRE(quad.vertices[0].x >= 32 && quad.vertices[2].x <= 818);
+                ++count; D6R_REQUIRE(quad.material.getColor() == Color(89)); // #595959 on white.
+                D6R_REQUIRE(quad.vertices[0].x == 36 && quad.vertices[2].x <= 818);
+                D6R_REQUIRE(quad.vertices[0].y == 470 && quad.vertices[2].y < 490);
                 D6R_REQUIRE(std::abs(quad.vertices[2].y - quad.vertices[0].y) == 16);
                 // View transform places the same complete line inside the physical list at each scale.
-                const auto left = quad.view * Vector(28,200); const auto right = quad.view * Vector(822,510);
+                const auto left = quad.view * Vector(28,200); const auto right = quad.view * Vector(822,490);
                 for (unsigned i: {0u,2u}) {
                     const auto point = quad.view * quad.vertices[i];
                     D6R_REQUIRE(point.x >= left.x && point.x <= right.x);
@@ -915,12 +918,64 @@ D6R_TEST_CASE("NET-10 empty and initial error are distinct single-line grey repl
                 }
             }
             D6R_REQUIRE_EQ(1u, count);
+            // The body has only its inset boundary, white fill, and status text:
+            // no row fill/selection, internal dividers, scrollbar, or action/focus frame.
+            for (const auto &quad: f.recorder.quads) {
+                if (quad.material.getTexture() != Texture{}) continue;
+                if (quad.vertices[0].x >= 28 && quad.vertices[0].y >= 200
+                        && quad.vertices[2].x <= 822 && quad.vertices[2].y <= 490)
+                    D6R_REQUIRE(quad.material.getColor() == Color::WHITE);
+            }
+            for (const auto &frame: f.recorder.frames)
+                D6R_REQUIRE(frame.position.x < 26 || frame.position.x >= 824
+                    || frame.position.y < 198 || frame.position.y >= 492);
+            for (const auto &line: f.recorder.lines) {
+                const auto interior = [](const Vector &point) {
+                    return point.x > 30 && point.x < 819 && point.y > 202 && point.y < 487;
+                };
+                D6R_REQUIRE(!interior(line.start) && !interior(line.end));
+            }
         }
     }
     // Initial loading keeps the existing status allocation and table geometry, without false empty/error.
     std::promise<Client::DirectoryPage> pending; f.menu.browser.pending = pending.get_future(); f.draw();
     D6R_REQUIRE(f.text("Loading sessions...") && f.text("Session / endpoint"));
     D6R_REQUIRE(!f.text(empty) && !f.text(error)); pending.set_value({}); f.menu.update(0);
+}
+
+D6R_TEST_CASE("NET-10 empty and unavailable body status cannot acquire pointer keyboard or controller selection") {
+    BrowserPresentationFixture f;
+    ReviewController controller(f);
+    for (bool available: {true, false}) {
+        f.menu.focus = 0;
+        f.deliver({available, {}, {}});
+        auto &menu = f.menu;
+        D6R_REQUIRE_EQ(2, menu.focus);
+        D6R_REQUIRE(!menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
+        for (const auto &point: {std::pair{40,474}, std::pair{400,474}, std::pair{800,220}, std::pair{100,500}}) {
+            menu.mouseMotionEvent(MouseMotionEvent(point.first, point.second, 0, 0, 0));
+            f.click(point.first, point.second); f.click(point.first, point.second, false);
+            menu.mouseButtonEvent(MouseButtonEvent(point.first, point.second, SysEvent::MouseButton::LEFT,
+                SysEvent::ButtonState::PRESSED, true));
+            f.click(point.first, point.second, false);
+            menu.mouseWheelEvent(MouseWheelEvent(point.first, point.second, 0, -1));
+            D6R_REQUIRE_EQ(2, menu.focus); D6R_REQUIRE(menu.selectedListing.empty());
+            D6R_REQUIRE_EQ(0, menu.browserScroll); D6R_REQUIRE(!menu.browser.loading());
+            D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+            D6R_REQUIRE(!menu.browserSelection && !menu.joinFromBrowser);
+        }
+        for (int expected: {3,6,2}) { f.key(SDLK_TAB); D6R_REQUIRE_EQ(expected, menu.focus); }
+        for (int expected: {6,3,2}) {
+            menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+            D6R_REQUIRE_EQ(expected, menu.focus);
+        }
+        for (int expected: {3,6,2}) {
+            controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN); D6R_REQUIRE_EQ(expected, menu.focus);
+        }
+        menu.selectBrowserRow(1); menu.joinSelected();
+        D6R_REQUIRE(menu.selectedListing.empty()); D6R_REQUIRE(!menu.browserSelection);
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+    }
 }
 
 D6R_TEST_CASE("NET-ENTRY modal geometry navigation controller and runtime-unavailable recovery") {
