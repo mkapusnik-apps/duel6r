@@ -1609,7 +1609,11 @@ namespace Duel6 {
             }
             // A missing identity stays as a tombstone for "Session is no longer listed";
             // never silently select another host. Failed refresh hides retained data until recovery.
-            if (!browserFocusEnabled(focus)) focus = browserFocusEnabled(0) ? 0 : browser.loading() ? 3 : 2;
+            // A manual Refresh keeps its existing focus while temporarily disabled.
+            // Traversal and activation still use browserFocusEnabled; initial reads
+            // and other unavailable focus targets retain the normal fallback.
+            if (!browserFocusEnabled(focus) && !(focus == 2 && browser.loading()))
+                focus = browserFocusEnabled(0) ? 0 : browser.loading() ? 3 : 2;
         }
         runtime.suppressGameplayInput(confirmation != Confirmation::None);
         runtime.update();

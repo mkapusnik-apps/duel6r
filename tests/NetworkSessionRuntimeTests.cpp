@@ -790,6 +790,68 @@ namespace {
     };
 }
 
+D6R_TEST_CASE("NET-10 manual Refresh retains focus through pending updates and zero populated or failed completion") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    struct Case { bool populated; int outcome; };
+    // Empty refresh reproduces F-01; retained rows and failures must not cause
+    // a different focus jump, either during the request or at completion.
+    for (const auto &test: {Case{false, 0}, Case{false, 1}, Case{true, 1}, Case{true, 2}, Case{false, 2}}) {
+        menu.selectedListing.clear();
+        f.deliver({true, test.populated ? std::vector{f.row} : std::vector<Client::DirectoryListing>{}, {}});
+        if (test.populated) menu.selectedListing = f.row.id;
+        menu.focus = 2; f.key(SDLK_RETURN); // Real manual Refresh dispatch.
+        D6R_REQUIRE(menu.browser.loading());
+        std::promise<Client::DirectoryPage> response;
+        menu.browser.pending = response.get_future();
+        for (int update = 0; update < 3; ++update) {
+            menu.update(0); f.draw(); // Response remains genuinely pending.
+            D6R_REQUIRE_EQ(2, menu.focus);
+            D6R_REQUIRE(menu.browser.loading());
+            D6R_REQUIRE(!menu.browserFocusEnabled(2) && !menu.browserFocusEnabled(1));
+            D6R_REQUIRE(f.frame(710, 518, 112, 24, 1));
+            D6R_REQUIRE(f.frame(708, 516, 116, 28, 2));
+            f.key(SDLK_RETURN); f.click(766, 530); // Disabled duplicate activation stays blocked.
+            D6R_REQUIRE(menu.browser.loading() && !menu.browserSelection);
+        }
+        response.set_value({test.outcome != 2,
+            test.outcome == 1 ? std::vector{f.row} : std::vector<Client::DirectoryListing>{}, {}});
+        menu.update(0); f.draw();
+        D6R_REQUIRE_EQ(2, menu.focus);
+        D6R_REQUIRE(!menu.browser.loading() && menu.browserFocusEnabled(2));
+        D6R_REQUIRE(f.frame(708, 516, 116, 28, 2));
+        D6R_REQUIRE_EQ(test.populated ? f.row.id : std::string{}, menu.selectedListing);
+        D6R_REQUIRE_EQ(test.populated && test.outcome == 1, menu.browserFocusEnabled(1));
+        if (test.outcome == 0) D6R_REQUIRE(f.text("No active sessions listed. You can host a session or connect directly."));
+        if (test.outcome == 1) D6R_REQUIRE(f.text("Required") && f.text("Round 1"));
+        if (test.outcome == 2) D6R_REQUIRE(f.text("Directory unavailable. Direct connection and local play are still available."));
+    }
+}
+
+D6R_TEST_CASE("NET-10 pending Refresh focus retention preserves initial focus and disabled traversal") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    menu.browser.requested = std::chrono::steady_clock::now();
+    std::promise<Client::DirectoryPage> initial;
+    menu.browser.pending = initial.get_future(); menu.focus = 0;
+    menu.update(0); D6R_REQUIRE_EQ(3, menu.focus); // Initial pending read still uses Direct connect.
+    initial.set_value({true, {}, {}}); menu.update(0);
+    D6R_REQUIRE_EQ(3, menu.focus); // No unsolicited focus change on completion.
+    menu.focus = 2; f.key(SDLK_RETURN);
+    std::promise<Client::DirectoryPage> manual;
+    menu.browser.pending = manual.get_future(); menu.update(0);
+    D6R_REQUIRE_EQ(2, menu.focus);
+    f.key(SDLK_TAB); D6R_REQUIRE_EQ(3, menu.focus); // User can leave the retained disabled action.
+    menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+    D6R_REQUIRE_EQ(6, menu.focus); // Reverse traversal skips disabled Refresh and Join.
+    f.key(SDLK_TAB); D6R_REQUIRE_EQ(3, menu.focus);
+    menu.update(0); D6R_REQUIRE_EQ(3, menu.focus);
+    manual.set_value({true, {}, {}}); menu.update(0);
+    D6R_REQUIRE_EQ(3, menu.focus); // Completion must not steal focus back after navigation.
+    menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+    D6R_REQUIRE_EQ(2, menu.focus); // Refresh re-enters traversal only once enabled.
+}
+
 D6R_TEST_CASE("NET-10 compact upper Refresh keeps caption clearance full scaled hitbox and cyclic focus") {
     BrowserPresentationFixture f;
     auto &menu = f.menu;
