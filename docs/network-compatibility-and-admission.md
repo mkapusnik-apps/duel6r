@@ -392,13 +392,13 @@ Completion of issue #30 alone must not justify a claim that network play is avai
 The explicit host validates and freezes its manifest, allocates its local host participant, and only then starts the listener:
 
 ```sh
-./build/duel6r-server --transport --local-only --resources=resources --local-players=2
+./build/duel6r --server --transport --local-only --resources=resources --local-players=2
 ```
 
 The explicit guest starts its 10-second attempt when invoked, builds its local claim within that deadline, and starts resolution only after the local claim is valid:
 
 ```sh
-./build/duel6r-server --admission-client --host=127.0.0.1 --port=26660 --resources=resources --local-players=2
+./build/duel6r --server --admission-client --host=127.0.0.1 --port=26660 --resources=resources --local-players=2
 ```
 
 These commands provide process-level protocol evidence only. Successful output reports `admitted` and trusted session-local identities; rejected output reports only the fixed identifier and fixed copy. Neither command starts a lobby or gameplay session.

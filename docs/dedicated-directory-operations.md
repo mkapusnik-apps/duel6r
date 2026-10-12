@@ -4,6 +4,14 @@ This is an implementation reference for the approved [directory contract](networ
 
 ## Server inputs
 
+The shared application executable selects headless operation explicitly under [NET-EXEC](network-deployments.md#application-executable-and-mode-selection). Launch the operator-configured dedicated service with:
+
+```text
+duel6r --server --dedicated --transport --host=127.0.0.1 --port=BACKEND-PORT --resources=PATH --trusted-proxy-protocol=v2 --readiness-socket=PATH [--password-file=PATH] [--advertise-host=TLS-FRONTEND --advertise-port=TLS-PORT]
+```
+
+Use `duel6r --server --check-ready=PATH` for the readiness probe: confirmed readiness prints `ready` and exits `0`; otherwise it exits `1`. `--server` alone does not enable transport or configure a dedicated service. Headless operation does not initialize client presentation or require a display/audio device; the shared file still requires its runtime libraries.
+
 The dedicated runtime keeps its protected same-machine backend and operator-configured TLS frontend. --password-file=PATH optionally selects a protected local password file under NET-PASS-014 through NET-PASS-016. No configured file or a valid empty file selects No password. A supplied missing, unreadable, insecurely protected or invalid file fails startup before readiness or publication. The service loads the exact password once at startup and retains it across fresh sessions; an operator restart applies replacement. Password values never enter process arguments or directory metadata. --invite-file is retired and rejected, not accepted as an alias.
 
 The remaining `--dedicated --transport --host=127.0.0.1 --port=BACKEND-PORT --resources=PATH --trusted-proxy-protocol=v2 --readiness-socket=PATH` inputs retain their meanings. Optional `--advertise-host=TLS-FRONTEND --advertise-port=TLS-PORT` inputs must be paired; no frontend is inferred from the backend listener or directory origin. Omitting advertising leaves direct dedicated admission available without publication. Password files preserve exact valid UTF-8 bytes, case and spaces within 128 bytes under NET-PASS-011/015; controllers cannot manage them. This is approved operating direction, not a claim that the new option or authentication path is implemented.

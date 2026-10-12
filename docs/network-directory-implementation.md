@@ -258,7 +258,7 @@ The Windows bundle passed dependency validation, not interactive Windows QA.
 
 The `duel6r-directory-client-integration-tests` target consumes a real local
 emulator-backed directory. Run it inside the native build container with the test
-executable **beside the runtime's resolver and server executables**. The resolver
+executable **beside the runtime's resolver and shared application executable**. The hosted child uses that application in explicit `--server` mode. The resolver
 is intentionally resolved relative to the executable, not from an arbitrary path.
 The backend container can use `--network none`; the native test container shares
 that container's network namespace. Do not publish emulator ports or mount cloud
@@ -270,7 +270,7 @@ docker exec -w /workspace/build \
   -e D6R_DIRECTORY_ALLOW_HTTP=1 \
   "$NATIVE_TEST_CONTAINER" \
   /workspace/build/duel6r-directory-client-integration-tests \
-  /workspace/build/duel6r-server /workspace/build
+  /workspace/build/duel6r /workspace/build
 ```
 
 This checks native publication and browsing against the real service, then real

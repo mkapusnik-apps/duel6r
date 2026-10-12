@@ -39,6 +39,46 @@ The separately approved directory deployment remains governed by [NET-DIR-DEP](n
 - **Same-release reinstallation:** Offline replacement with a complete package of the same network release and shipped gameplay-content set on the same supported target platform.
 - **Complete rollback:** Offline restoration of a saved previous complete package and that package's own pre-upgrade local data backup.
 
+## Application executable and mode selection
+
+- **NET-EXEC-001** Each application distribution must provide one shared application executable for graphical client operation and its approved headless server operations.
+- **NET-EXEC-002** The application must start the graphical client when the command line contains no application option and no server option.
+- **NET-EXEC-003** The application must select headless operation when the command line contains exactly one standalone `--server` argument, regardless of its position.
+- **NET-EXEC-004** The application must select headless operation before graphical client initialization, window creation, renderer initialization, audio initialization, or local input-device initialization.
+- **NET-EXEC-005** Graphical client operation must preserve valid startup console commands and their order under CFG-003 through CFG-007 in `features.md`.
+- **NET-EXEC-006** Headless operation must preserve existing server options, their validation, and their outcomes after the application removes the `--server` selector.
+- **NET-EXEC-007** The application must reject a server option supplied without `--server` before graphical client initialization.
+- **NET-EXEC-008** `duel6r --help` must describe graphical client launch and the explicit server entry point, then exit with status `0` without starting either mode.
+- **NET-EXEC-009** `duel6r --server --help` must describe existing server operations with the shared executable name, then exit with status `0` without starting a service or reading password configuration.
+- **NET-EXEC-010** The application must reject unknown application options, malformed or repeated `--server` selectors, and invalid server-option combinations with a non-secret standard-error message and exit status `1`.
+- **NET-EXEC-011** A failed headless operation must not start the graphical client or show a graphical error dialog.
+- **NET-EXEC-012** Shared executable availability must preserve the existing platform and hosting limits in `network-play-first-release.md`, `macos.md`, and `raspberry-pi5.md`.
+- **NET-EXEC-013** Player-hosted operation must use the shared executable in explicit server mode while retaining the separate owned service and the lifecycle contract in `network-host-service-lifecycle.md`.
+- **NET-EXEC-014** Dedicated operation must retain NET-PUB, HSL-PUB, NET-PASS, NET-DIR, and TRU-PUB without changing readiness, admission, controller authority, publication, recovery, or secret protection.
+- **NET-EXEC-015** Shared executable operation must preserve existing resource, working-directory, saved-data, and operator-configuration path behavior for each approved mode and platform.
+- **NET-EXEC-016** Application distributions must not provide a separate `duel6r-server` application executable or an executable-name compatibility alias.
+- **NET-EXEC-017** Application distributions must retain required helpers, runtime dependencies, resources, and notices.
+
+`--server` selects the headless entry point. `--dedicated` retains its existing meaning within that entry point. `--server` alone does not enable transport or configure a dedicated service. Existing headless operation exit statuses remain unchanged, except that valid help exits with status `0`. The readiness probe retains its existing `ready` output and status `0` for confirmed readiness, or status `1` otherwise. Authoritative match operations retain the exit meanings in `network-authoritative-headless-match.md`. Headless operation does not require a display or an audio device. This does not require a package without presentation libraries.
+
+Standalone double-hyphen arguments are application/server options, not startup console commands. Valid console-command arguments, including quoted commands and their ordering, remain supported. No `--client`, generic `--mode` interface, or additional compatibility alias is introduced.
+
+### Shared executable acceptance criteria
+
+These criteria supplement existing criteria; they do not replace them.
+
+| Stable criterion | Required outcome | Evidence needed through team |
+|---|---|---|
+| **NET-EXEC-AC-001 — Shared artifact** | The same identified packaged application file starts the graphical client and the applicable headless server path. The package contains no separate server application executable or executable-name alias. Required helpers and dependencies remain available. | Package/inventory review and mode execution tied to the same immutable executable identity. |
+| **NET-EXEC-AC-002 — Headless boundary** | Linux x86-64 dedicated startup and readiness probing work without `DISPLAY` or an available audio device. Neither success nor failure initializes graphical client presentation or shows a dialog. | Behavioral observation of the production executable plus startup-boundary source review. A display-backed launch alone is insufficient. |
+| **NET-EXEC-AC-003 — Dispatch and CLI** | Selector position does not change mode. Both help forms exit `0` without startup. Missing selector, malformed/repeated selector, unknown options, unsupported dedicated mode, and incompatible server options fail without client fallback. Valid server options are applied, not ignored. Existing probe and authoritative exit meanings remain intact. | Focused behavioral cases for each distinct dispatch/parser path, including an unsupported-platform rejection in the applicable platform evidence phase. |
+| **NET-EXEC-AC-004 — Client preservation** | Normal launch and valid ordered startup console commands retain existing behavior. Packaged Local Play starts and completes without a network service. | Relevant client-startup and console-command regression results, plus existing NET-DEP-AC-004 coverage for the candidate. No new screenshot campaign is required solely for this change. |
+| **NET-EXEC-AC-005 — Service lifecycle** | Player-hosted startup uses the shared file in explicit server mode. Readiness, cancellation, startup failure, normal shutdown, parent termination, owned descendants, listener release, and fail-closed cleanup retain the applicable HSL contract. | Relevant existing lifecycle consumer tests and focused production-path QA for changed launch/ownership paths. Shared process names are not proof of ownership or cleanup. |
+| **NET-EXEC-AC-006 — Dedicated security and readiness** | Protected password loading remains fail-closed before readiness/publication. No file and a valid empty file retain No password semantics. Invalid configuration cannot become unlocked operation. Ready-empty identity, first committed controller, directory ownership, secure admission, session reuse, solo/ongoing behavior, and final closure retain their existing criteria. | Focused password/startup negative cases, security review, and the existing dedicated functional QA campaign exercised through the shared executable. |
+| **NET-EXEC-AC-007 — Operational consistency** | Current launch instructions, readiness probes, package inventories, and working-directory/resource guidance use the shared entry point without expanding platform support or changing directory origins. | Documentation-to-runtime review and relevant package/path consumer results. Native platform claims need native artifacts under their existing acceptance phases. |
+
+For multiplayer evidence, retain the isolated environment identity, backend candidate identity, endpoint/transport mapping, device target, and scenario data. Reuse unaffected evidence only with its original provenance and an explicit impact assessment.
+
 ## Package and deployment requirements
 
 - **NET-DEP-001** The release must provide a complete package for Linux x86-64 and Windows x86-64.
