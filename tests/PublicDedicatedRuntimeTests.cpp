@@ -38,6 +38,40 @@ public:
     bool pressed = false;
     bool isPressed() const override { return pressed; }
 };
+static void failureContext(const std::filesystem::path &root, const char *event,
+                           Client::NetworkSessionRuntime &first,
+                           Client::NetworkSessionRuntime &second,
+                           Client::NetworkSessionRuntime &observer) noexcept {
+    try {
+        std::ofstream file(root / "client-failure-context");
+        std::ostringstream receipt;
+        receipt << "client-receipt version=1 event=" << event
+                << " action-present=" << std::filesystem::exists(root / "action")
+                << " ack-present=" << std::filesystem::exists(root / "acted")
+                << " attack-present=" << std::filesystem::exists(root / "attack.bin")
+                << " rejected-present=" << std::filesystem::exists(root / "attack-rejected") << '\n';
+        const auto describe = [&](const char *alias, Client::NetworkSessionRuntime &runtime) {
+            std::lock_guard<std::mutex> lock(runtime.mutex);
+            const auto &state = runtime.current;
+            int connection = -1;
+            if (state.canonical) for (const auto &participant : state.canonical->participants)
+                if (participant.participantId == state.localParticipantId)
+                    connection = static_cast<int>(participant.connection);
+            receipt << "runtime alias=" << alias << " journey=" << static_cast<int>(state.journey)
+                    << " phase=" << (state.canonical ? static_cast<int>(state.canonical->phase) : -1)
+                    << " round=" << (state.canonical ? unsigned(state.canonical->currentRoundNumber) : 0)
+                    << " countdown=" << (state.canonical ? state.canonical->roundEndCountdown : 0)
+                    << " replica-connection=" << connection << " failure-present=" << !state.failure.empty()
+                    << " security-failure=" << state.securityFailure << " cancelled=" << runtime.guestCancelled.load()
+                    << " guest-commands=" << runtime.pendingGuestCommands.size()
+                    << " host-commands=" << runtime.pendingHostCommands.size()
+                    << " host-end-pending=" << runtime.pendingHostEnd << '\n';
+        };
+        describe("controller", first); describe("guest", second); describe("observer", observer);
+        file << receipt.str(); file.flush();
+        std::cerr << receipt.str(); // Before require throws and runtime destructors run.
+    } catch (...) {} // Preserve the original failing assertion even if receipt I/O fails.
+}
 int main(int argc, char **argv) {
     try {
         require(argc == 4, "expected port, resource root, scenario");
@@ -290,8 +324,9 @@ int main(int argc, char **argv) {
                 std::lock_guard<std::mutex> lock(second.mutex);
                 second.pendingGuestCommands.push_back(attack);
             }
-            require(pump([&] { return std::filesystem::exists(root / "attack-rejected"); }, 3s),
-                    "exact malicious TLS frame and server-side close not observed");
+            const bool rejected = pump([&] { return std::filesystem::exists(root / "attack-rejected"); }, 3s);
+            if (!rejected) failureContext(root, "attack-marker", first, second, observer);
+            require(rejected, "exact malicious TLS frame and server-side close not observed");
             const auto after = first.snapshot();
             require(after.host && !second.snapshot().host && !observer.snapshot().host, "attack changed authority");
             require(after.canonical && fingerprint(*after.canonical) == fingerprint(before), "attack mutated settings or ownership/roster");
@@ -384,7 +419,9 @@ int main(int argc, char **argv) {
             auto request = [&](const std::string &action, unsigned target) {
                 { std::ofstream out(root / "action.tmp"); out << target << ' ' << action << ' ' << session; }
                 std::filesystem::rename(root / "action.tmp", root / "action");
-                require(pump([&] { return std::filesystem::exists(root / "acted"); }, 5s), "fixture action acknowledgement");
+                const bool acknowledged = pump([&] { return std::filesystem::exists(root / "acted"); }, 5s);
+                if (!acknowledged) failureContext(root, "action-marker", first, second, observer);
+                require(acknowledged, "fixture action acknowledgement");
                 std::filesystem::remove(root / "acted");
             };
             if (summaryReturn) {

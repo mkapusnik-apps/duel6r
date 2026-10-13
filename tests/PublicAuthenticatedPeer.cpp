@@ -37,7 +37,42 @@ struct Socket {
     int fd;
     ~Socket() { if (fd >= 0) ::close(fd); }
 };
-static void require(bool value) { if (!value) throw std::runtime_error("authenticated peer fixture failed"); }
+struct PeerReceipt {
+    const std::filesystem::path &root;
+    unsigned alias;
+    const char *const &stage;
+    Clock::time_point began = Clock::now(), ioBegan = began;
+    const char *operation = "none";
+    std::ptrdiff_t mapped = -99;
+    std::size_t requested = 0, progress = 0;
+    unsigned clientFrames = 0, serviceFrames = 0, emitted = 0;
+    bool budgetExpired = false, attackSeen = false;
+    void emit(const char *event, unsigned line) noexcept {
+        // Fixed aliases/stages and numeric state only. No bytes, paths, session
+        // identities or credential data; at most three receipts per connection.
+        if (alias > 8 || emitted >= 3) return;
+        ++emitted;
+        try {
+            std::ofstream out(root / ("peer-receipt-" + std::to_string(alias)), std::ios::app);
+            out << "peer-receipt version=1 event=" << event << " line=" << line
+                << " stage=" << stage << " operation=" << operation << " mapped=" << mapped
+                << " requested=" << requested << " progress=" << progress
+                << " elapsed-ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - began).count()
+                << " io-ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - ioBegan).count()
+                << " budget-expired=" << budgetExpired << " stopped=" << stopped.load()
+                << " client-frames=" << clientFrames << " service-frames=" << serviceFrames
+                << " attack-seen=" << attackSeen << '\n';
+        } catch (...) {} // Logging failure must never replace the original failure.
+    }
+};
+static thread_local PeerReceipt *activeReceipt = nullptr;
+static void require(bool value, unsigned line) {
+    if (!value) {
+        if (activeReceipt) activeReceipt->emit("require-failed", line);
+        throw std::runtime_error("authenticated peer fixture failed");
+    }
+}
+#define require(value) require((value), __LINE__)
 static void marker(const std::filesystem::path &root, const char *name) { std::ofstream out(root / name); }
 static bool exactProxy(int fd, unsigned char *bytes, std::size_t size, bool writing) {
     const auto deadline = Clock::now() + 2s;
@@ -58,10 +93,19 @@ struct Frame {
     ~Frame() { Trust::secureEraseMemory(bytes.data(), bytes.size()); }
     // Returns complete application/control frame, retry, or terminal. All SDK
     // calls go through fatal-gated SecureSession. Partial bytes prove nothing.
-    int read(SecureSession &session) {
+    int read(SecureSession &session, const char *operation = "read") {
+        if (activeReceipt) {
+            activeReceipt->operation = operation; activeReceipt->ioBegan = Clock::now();
+            activeReceipt->requested = total - used; activeReceipt->progress = used;
+            activeReceipt->budgetExpired = false;
+        }
         const auto count = session.receive(bytes.data() + used, total - used);
+        if (activeReceipt) activeReceipt->mapped = count;
         if (count == -2) return 0;
-        if (count <= 0) return -1;
+        if (count <= 0) {
+            if (activeReceipt) activeReceipt->emit(count == 0 ? "read-eof" : "read-failed", __LINE__);
+            return -1;
+        }
         used += static_cast<std::size_t>(count);
         if (used == TransportEnvelopeBytes && total == TransportEnvelopeBytes) {
             require(bytes[0] == 'D' && bytes[1] == '6' && bytes[2] == 'R' && bytes[3] == 'T'
@@ -75,14 +119,29 @@ struct Frame {
     }
     void reset() { Trust::secureEraseMemory(bytes.data(), bytes.size()); bytes.assign(TransportEnvelopeBytes, 0); used = 0; total = TransportEnvelopeBytes; }
 };
-static bool write(SecureSession &session, const std::vector<std::uint8_t> &bytes) {
+static bool write(SecureSession &session, const std::vector<std::uint8_t> &bytes,
+                  const char *operation = "write") {
     std::size_t offset = 0;
     const auto deadline = Clock::now() + 2s; // Stable retry arguments; no replenishment.
+    if (activeReceipt) {
+        activeReceipt->operation = operation; activeReceipt->ioBegan = Clock::now();
+        activeReceipt->requested = bytes.size(); activeReceipt->progress = 0;
+        activeReceipt->mapped = -99; activeReceipt->budgetExpired = false;
+    }
     while (offset < bytes.size() && !stopped && Clock::now() < deadline) {
         const auto count = session.send(bytes.data() + offset, bytes.size() - offset);
+        if (activeReceipt) activeReceipt->mapped = count;
         if (count > 0) offset += static_cast<std::size_t>(count);
-        else if (count != -2) return false;
+        else if (count != -2) {
+            if (activeReceipt) activeReceipt->emit("write-failed", __LINE__);
+            return false;
+        }
         else std::this_thread::sleep_for(1ms);
+        if (activeReceipt) activeReceipt->progress = offset;
+    }
+    if (offset != bytes.size() && activeReceipt) {
+        activeReceipt->budgetExpired = Clock::now() >= deadline;
+        activeReceipt->emit("write-incomplete", __LINE__);
     }
     return offset == bytes.size();
 }
@@ -102,6 +161,12 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                    const std::string &scenario, const std::shared_ptr<const SessionPassword> &password) {
     Socket front{accepted}, back{::socket(AF_INET, SOCK_STREAM, 0)};
     const char *stage = "proxy";
+    PeerReceipt receipt{root, id, stage};
+    struct ReceiptScope {
+        PeerReceipt *previous;
+        explicit ReceiptScope(PeerReceipt &current) : previous(activeReceipt) { activeReceipt = &current; }
+        ~ReceiptScope() { activeReceipt = previous; }
+    } receiptScope(receipt);
     try {
         require(back.fd >= 0);
         const int noDelay = 1;
@@ -148,21 +213,23 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                 if (command >> target >> action >> session && target == id
                     && (action == "maintenance" || action == "controller" || action == "wrong")) {
                     std::filesystem::remove(root / "action");
-                    require(write(client, frame(PublicSession::terminalNotice(session + (action == "wrong"), action != "controller"))));
+                    require(write(client, frame(PublicSession::terminalNotice(session + (action == "wrong"), action != "controller")), "notice-write"));
                     marker(root, "acted");
                 }
             }
-            const int received = incoming.read(client);
+            const int received = incoming.read(client, "frontend-read");
             if (received < 0) return;
             if (received > 0) {
                 { std::ofstream out(root / ("peer-client-frame-" + std::to_string(id)));
                   out << ++clientFrames << ':' << incoming.bytes.size() << ':' << unsigned(incoming.bytes[7]); }
+                receipt.clientFrames = clientFrames;
                 if (std::filesystem::exists(root / "attack.bin")) {
                     std::ifstream attack(root / "attack.bin", std::ios::binary);
                     std::vector<std::uint8_t> expected{std::istreambuf_iterator<char>(attack), {}};
                     attackReceived |= incoming.bytes.size() == TransportEnvelopeBytes + expected.size()
                         && std::equal(expected.begin(), expected.end(), incoming.bytes.begin() + TransportEnvelopeBytes);
                 }
+                receipt.attackSeen = attackReceived;
                 // All competing reverse traffic is bounded and owned, not only
                 // Ready. No normal write may race ahead of qualified service End.
                 if (gated) {
@@ -170,7 +237,7 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                         && reverseBytes + incoming.bytes.size() <= MaxQueuedTransportPayloadBytes);
                     reverseBytes += incoming.bytes.size(); reverseTraffic.push_back(incoming.bytes);
                 }
-                else require(write(service, incoming.bytes));
+                else require(write(service, incoming.bytes, "backend-write"));
                 incoming.reset();
             }
             if (gated && negativeRace && !reverseTraffic.empty()
@@ -188,11 +255,12 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                 marker(root, "flow-negative-qualified");
                 return;
             }
-            const int sent = outgoing.read(service);
+            const int sent = outgoing.read(service, "backend-read");
             if (sent < 0) { if (attackReceived) marker(root, "attack-rejected"); return; }
             if (sent > 0) {
                 { std::ofstream out(root / ("peer-service-frame-" + std::to_string(id)));
                   out << ++serviceFrames << ':' << outgoing.bytes.size() << ':' << unsigned(outgoing.bytes[7]); }
+                receipt.serviceFrames = serviceFrames;
                 if (scenario == "summary-return-ordered" && summary(outgoing)) {
                     marker(root, id == 1 ? "summary-controller-held" : "summary-guest-seen");
                     const auto deadline = Clock::now() + 2s;
@@ -228,7 +296,7 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                     marker(root, "race-write-failed"); raceCompleted = true;
                 }
                 stage = "authenticated-forward";
-                require(write(client, outgoing.bytes));
+                require(write(client, outgoing.bytes, "frontend-write"));
                 if (end) {
                     marker(root, ("end-forwarded-" + std::to_string(id)).c_str());
                     // Do not create an unrelated frontend fatal-write race by

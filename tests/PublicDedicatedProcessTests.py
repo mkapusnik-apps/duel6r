@@ -567,7 +567,7 @@ def source_accounting(backend):
 
 
 @contextlib.contextmanager
-def authenticated_peer(executable, backend, root, scenario):
+def authenticated_peer(executable, backend, root, scenario, *, process_handle=None):
     """A genuine maintained-inner application endpoint, not an opaque relay hack.
 
     Only protocol observation/injection cases use this extra authenticated peer.
@@ -578,6 +578,8 @@ def authenticated_peer(executable, backend, root, scenario):
     with (root / "peer.log").open("w+") as log:
         process = subprocess.Popen([str(executable), str(endpoint), str(backend), str(root), scenario],
                                    stdin=subprocess.PIPE, stdout=log, stderr=log, text=True)
+        if process_handle is not None:
+            process_handle["process"] = process
         try:
             process.stdin.write(INVITE + "\n")
             process.stdin.close()
@@ -595,6 +597,59 @@ def authenticated_peer(executable, backend, root, scenario):
             log.seek(0)
             output = log.read()
             assert all(value not in output for value in (INVITE, ROTATED, OTHER)), "peer logged Password"
+
+
+def failure_context(root, handles, peer, *, result=None, timed_out=False):
+    """Bounded receipt before peer/service context managers tear down evidence.
+
+    Do not expose payloads, paths, peer text or session/credential identities.
+    Logging trouble must not replace or turn the original failure into success.
+    """
+    try:
+        def safe_log(text):
+            if isinstance(text, bytes):
+                text = text.decode("utf-8", errors="replace")
+            output = []
+            for line in (text or "").splitlines()[:32]:
+                if any(secret in line for secret in (INVITE, ROTATED, OTHER)):
+                    output.append("withheld-secret-line")
+                elif "participant-id=" in line or "player-ids=" in line:
+                    output.append("admission-identity=withheld")
+                elif line.startswith(("PASS ", "FAIL public dedicated:", "client-receipt ", "runtime alias=",
+                                      "peer-receipt ", "Dedicated trusted-proxy backend;",
+                                      "duel6r-server transport ", "duel6r server error:", "admitted", "Directory:")):
+                    output.append(line[:512])
+                else:
+                    output.append("withheld-unclassified-line")
+            return output
+
+        receipt = {"version": 1, "before_teardown": True, "timeout": timed_out,
+                   "processes": {}, "logs": {}, "markers": {}, "receipts": {}}
+        for alias in ("service", "authenticated-peer"):
+            process = handles.get(alias, {}).get("process")
+            receipt["processes"][alias] = {"observed": process is not None,
+                                          "status": None if process is None else process.poll()}
+        if result is not None:
+            receipt["processes"]["client"] = {"status": result.returncode}
+            receipt["logs"]["client_stdout"] = safe_log(result.stdout)
+            receipt["logs"]["client_stderr"] = safe_log(result.stderr)
+        for name in ("server.log", "peer.log"):
+            path = root / name
+            if path.exists():
+                with path.open() as stream:
+                    receipt["logs"][name] = safe_log(stream.read(8192))
+        for name in ("action", "acted", "attack.bin", "attack-rejected"):
+            receipt["markers"][name] = (root / name).exists()
+        for path in [root / "client-failure-context", *sorted(root.glob("peer-receipt-*"))[:8]]:
+            if path.exists():
+                with path.open() as stream:
+                    receipt["receipts"][path.name] = safe_log(stream.read(4096))
+        receipt["relay"] = peer.evidence()  # Fixed aliases/codes, never bytes.
+        encoded = json.dumps(receipt, sort_keys=True)
+        (root / "failure-context.json").write_text(encoded)
+        print("public-fixture-failure-context=" + encoded, flush=True)
+    except Exception:
+        print("public-fixture-failure-context: receipt unavailable", flush=True)
 
 
 def main():
@@ -625,13 +680,20 @@ def main():
         executable = root / client.name
         shutil.copy2(client, executable)
         shutil.copy2(server.with_name("duel6r-resolver"), root / "duel6r-resolver")
-        def run(peer, invitation, scenario, trusted=True):
+        def run(peer, invitation, scenario, trusted=True, handles=None):
             env = dict(os.environ,
                        SSL_CERT_FILE=str(root / "ca.pem") if trusted else str(root / "missing.pem"),
                        SSL_CERT_DIR=str(root / "no-ca-directory"))
             forwarded_before = peer.forwarded_ends
-            result = subprocess.run([str(executable), str(peer.port), str(root), scenario],
-                                    cwd=root, env=env, input=invitation + "\n", capture_output=True, text=True, timeout=140)
+            try:
+                result = subprocess.run([str(executable), str(peer.port), str(root), scenario],
+                                        cwd=root, env=env, input=invitation + "\n", capture_output=True, text=True, timeout=140)
+            except subprocess.TimeoutExpired:
+                failure_context(root, handles or {}, peer, timed_out=True)
+                raise
+            peer.case_result = result
+            if result.returncode != 0:
+                failure_context(root, handles or {}, peer, result=result)
             assert all(value not in result.stdout + result.stderr for value in (INVITE, ROTATED, OTHER)), "client logged invitation"
             assert result.returncode == 0, result.stdout + result.stderr + peer.evidence()
             if scenario == "summary-return-ordered":
@@ -654,7 +716,8 @@ def main():
             for iteration, scenario in enumerate(cases, 1):
                 # Independent service instances preserve all negative scenarios
                 # after a production failure without carrying stranded sessions.
-                for name in ("action", "acted", "action.tmp", "attack.bin", "attack-rejected", "summary-release"):
+                for name in ("action", "acted", "action.tmp", "attack.bin", "attack-rejected", "summary-release",
+                             "client-failure-context", "failure-context.json"):
                     (root / name).unlink(missing_ok=True)
                 for pattern in ("peer-*", "end-forwarded-*", "summary-controller-held", "summary-guest-seen", "race-write-failed"):
                     for evidence in root.glob(pattern):
@@ -662,18 +725,22 @@ def main():
                 for evidence in root.glob("flow-*"):
                     evidence.unlink()
                 frontend = port() if scenario in ("directory", "directory-reservation") else None
-                with service(server, root, INVITE, frontend) as (backend, _):
+                handles = {"service": {}, "authenticated-peer": {}}
+                with service(server, root, INVITE, frontend, process_handle=handles["service"]) as (backend, _):
                     observe_application = (scenario.startswith("attack-") or scenario in ("flow-race", "flow-fatal-before-end")
                         or scenario == "summary-return-ordered" or (scenario.startswith("notice-") and "eof" not in scenario))
-                    helper = (authenticated_peer(server.with_name("duel6r-public-authenticated-peer"), backend, root, scenario)
+                    helper = (authenticated_peer(server.with_name("duel6r-public-authenticated-peer"), backend, root, scenario,
+                                                 process_handle=handles["authenticated-peer"])
                               if observe_application else contextlib.nullcontext(backend))
                     with helper as relay_backend:
                         peer = TlsPeer(root / "valid.pem", root / "valid.key", relay_backend, root,
                                        False, False, frontend or 0)
                         peer.application_peer = observe_application
                         try:
-                            run(peer, INVITE, scenario)
+                            run(peer, INVITE, scenario, handles=handles)
                         except (AssertionError, subprocess.TimeoutExpired) as error:
+                            if not (root / "failure-context.json").exists():
+                                failure_context(root, handles, peer, result=getattr(peer, "case_result", None))
                             failures.append(scenario)
                             print(f"FAIL iteration {iteration} {scenario}: {str(error)[:1000]}", flush=True)
                             print(peer.evidence(), flush=True)  # Fixed aliases/codes, never application payloads.
