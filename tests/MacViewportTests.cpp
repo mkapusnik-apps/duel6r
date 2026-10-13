@@ -232,6 +232,7 @@ D6R_TEST_CASE("Mac network pointer and F2 share entry setup browser and full dra
         clickLogical(app, 300, 45); // Existing MENU-01 Network pointer region.
         auto &network = *menu.networkMenu;
         D6R_REQUIRE(Context::getCurrent().is(network));
+        D6R_REQUIRE(network.setupScreen == NetworkMenu::SetupScreen::Entry);
         D6R_REQUIRE(menu.usesMenuPointerCoordinates(network));
         viewportWrites.clear(); network.render(); expectFullDrawable();
         Network::Replication::CanonicalState state;
@@ -262,14 +263,18 @@ D6R_TEST_CASE("Mac network pointer and F2 share entry setup browser and full dra
         clickLogical(app, 425, 352); // Entry: Join opens the browser.
         D6R_REQUIRE(network.setupScreen == NetworkMenu::SetupScreen::Browser);
         viewportWrites.clear(); network.render(); expectFullDrawable();
-        clickLogical(app, 688, 84); // Browser: Direct connect opens Join setup.
+        clickLogical(app, 422, 84); // Browser: Direct connect center (x296..548, y68..100).
         D6R_REQUIRE(network.setupScreen == NetworkMenu::SetupScreen::Join);
         viewportWrites.clear(); network.render(); expectFullDrawable();
         network.keyEvent(KeyPressEvent(SDLK_ESCAPE, SysEvent::ButtonState::PRESSED, KMOD_NONE));
         clickLogical(app, 425, 352); // Return to the browser through Entry: Join.
         D6R_REQUIRE(network.setupScreen == NetworkMenu::SetupScreen::Browser);
         viewportWrites.clear(); network.render(); expectFullDrawable();
-        network.back(); network.back(); Context::pop();
+        clickLogical(app, 690, 84); // Browser: distinct Back center (x564..816, y68..100).
+        D6R_REQUIRE(network.setupScreen == NetworkMenu::SetupScreen::Entry);
+        D6R_REQUIRE(Context::getCurrent().is(network));
+        viewportWrites.clear(); network.render(); expectFullDrawable();
+        network.back(); Context::pop();
         D6R_REQUIRE(Context::getCurrent().is(menu));
         menu.keyEvent(KeyPressEvent(SDLK_F2, SysEvent::ButtonState::PRESSED, KMOD_NONE));
         D6R_REQUIRE(Context::getCurrent().is(network));

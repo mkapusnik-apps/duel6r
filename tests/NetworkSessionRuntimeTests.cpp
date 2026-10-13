@@ -3836,7 +3836,21 @@ D6R_TEST_CASE("NET-PASS NET-ADM real protected direct and selected-session joins
         host.setReady(true); guest.setReady(true);
         D6R_REQUIRE(pumpRuntimes(host, guest, arrival, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
         host.startMatch();
-        D6R_REQUIRE(pumpRuntimes(host, guest, arrival, 10s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Match; }));
+        // Match also includes RoundSummary, and each client consumes updates
+        // independently. Capture only after both observe the same live round.
+        D6R_REQUIRE(pumpRuntimes(host, guest, arrival, 10s, [&] {
+            const auto hostState = host.snapshot();
+            const auto guestState = guest.snapshot();
+            return hostState.journey == Client::NetworkJourney::Match
+                    && guestState.journey == Client::NetworkJourney::Match
+                    && hostState.canonical && guestState.canonical
+                    && hostState.canonical->phase == Network::Replication::Phase::ActiveRound
+                    && guestState.canonical->phase == Network::Replication::Phase::ActiveRound
+                    && hostState.canonical->round && guestState.canonical->round
+                    && hostState.canonical->sessionId == guestState.canonical->sessionId
+                    && hostState.canonical->matchId == guestState.canonical->matchId
+                    && hostState.canonical->round->roundId == guestState.canonical->round->roundId;
+        }));
         const auto before = *host.snapshot().canonical;
         D6R_REQUIRE(before.phase == Network::Replication::Phase::ActiveRound && before.round);
         D6R_REQUIRE(arrival.join(endpoint, D6R_TEST_RESOURCE_DIR, {player("Arrival one"), player("Arrival two")},
