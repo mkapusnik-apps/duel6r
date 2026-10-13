@@ -499,9 +499,10 @@ D6R_TEST_CASE("local command planning quotes arguments without exposing authenti
     config.localEndpoint = {"local host", 26660};
     const auto plan = Client::createConnectionPlan(config);
     D6R_REQUIRE(plan.launchesLocalServer);
-    D6R_REQUIRE_EQ(4u, plan.localServerArguments.size());
+    D6R_REQUIRE_EQ(5u, plan.localServerArguments.size());
     D6R_REQUIRE_EQ("127.0.0.1", plan.endpoint.host);
-    D6R_REQUIRE_EQ("--host=127.0.0.1", plan.localServerArguments[2]);
+    D6R_REQUIRE_EQ("--server", plan.localServerArguments[1]);
+    D6R_REQUIRE_EQ("--host=127.0.0.1", plan.localServerArguments[3]);
     for (const auto &argument: plan.localServerArguments) {
         D6R_REQUIRE(argument.find("token") == std::string::npos);
     }
@@ -509,10 +510,10 @@ D6R_TEST_CASE("local command planning quotes arguments without exposing authenti
     Client::LocalServerLauncher launcher;
     D6R_REQUIRE(plan.localServerArguments == launcher.buildCommand(plan));
 #ifdef _WIN32
-    D6R_REQUIRE_EQ("\"duel server's bin\" --local-only --host=127.0.0.1 --port=26660",
+    D6R_REQUIRE_EQ("\"duel server's bin\" --server --local-only --host=127.0.0.1 --port=26660",
                    launcher.buildCommandLine(plan));
 #else
-    D6R_REQUIRE_EQ("'duel server'\\''s bin' --local-only --host=127.0.0.1 --port=26660",
+    D6R_REQUIRE_EQ("'duel server'\\''s bin' --server --local-only --host=127.0.0.1 --port=26660",
                    launcher.buildCommandLine(plan));
 #endif
 

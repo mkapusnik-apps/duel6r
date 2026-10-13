@@ -361,7 +361,8 @@ D6R_TEST_CASE("local play planning stays loopback only while remote endpoint is 
     local.localEndpoint = {"0.0.0.0", 27660};
     const auto localPlan = Client::createConnectionPlan(local);
     D6R_REQUIRE_EQ("127.0.0.1", localPlan.endpoint.host);
-    D6R_REQUIRE_EQ("--host=127.0.0.1", localPlan.localServerArguments.at(2));
+    D6R_REQUIRE_EQ("--server", localPlan.localServerArguments.at(1));
+    D6R_REQUIRE_EQ("--host=127.0.0.1", localPlan.localServerArguments.at(3));
 
     Network::ClientConnectionConfig remote;
     remote.mode = Network::ConnectionMode::RemoteServer;
