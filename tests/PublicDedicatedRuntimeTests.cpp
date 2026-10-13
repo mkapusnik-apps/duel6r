@@ -45,11 +45,16 @@ static void failureContext(const std::filesystem::path &root, const char *event,
     try {
         std::ofstream file(root / "client-failure-context");
         std::ostringstream receipt;
+        // Fixed local peer aliases, not session identities. An absent marker
+        // leaves its boundary unconfirmed; it never establishes End from EOF.
         receipt << "client-receipt version=1 event=" << event
                 << " action-present=" << std::filesystem::exists(root / "action")
                 << " ack-present=" << std::filesystem::exists(root / "acted")
                 << " attack-present=" << std::filesystem::exists(root / "attack.bin")
-                << " rejected-present=" << std::filesystem::exists(root / "attack-rejected") << '\n';
+                << " rejected-present=" << std::filesystem::exists(root / "attack-rejected")
+                << " peer-Leave-forwarded-1-present=" << std::filesystem::exists(root / "peer-Leave-forwarded-1")
+                << " peer-End-received-3-present=" << std::filesystem::exists(root / "peer-End-received-3")
+                << " peer-End-forwarded-3-present=" << std::filesystem::exists(root / "end-forwarded-3") << '\n';
         const auto describe = [&](const char *alias, Client::NetworkSessionRuntime &runtime) {
             std::lock_guard<std::mutex> lock(runtime.mutex);
             const auto &state = runtime.current;
@@ -338,7 +343,9 @@ int main(int argc, char **argv) {
             // Real controller authority and the uninvolved participant's stream
             // remain usable after rejection of the authenticated attacker.
             first.endSession();
-            require(pump([&] { return observer.snapshot().journey == J::HostEnded; }, 5s), "unaffected participant did not receive legitimate end");
+            const bool ended = pump([&] { return observer.snapshot().journey == J::HostEnded; }, 5s);
+            if (!ended) failureContext(root, "attack-end-outcome", first, second, observer);
+            require(ended, "unaffected participant did not receive legitimate end");
             std::cout << "PASS exact malicious frame observed over TLS; server rejected; authority/state retained\n";
         } else if (scenario.compare(0, 7, "notice-") == 0 || scenario == "recovery" || scenario == "expiry"
                    || scenario == "summary-return" || scenario == "summary-return-ordered") {
@@ -591,6 +598,7 @@ int main(int argc, char **argv) {
             }
             const bool ended = pumpUntil([&] { return first.snapshot().journey == J::Inactive
                 && second.snapshot().journey == J::HostEnded && observer.snapshot().journey == J::HostEnded; }, endDeadline);
+            if (!ended) failureContext(std::filesystem::path(argv[2]), "flow-end-outcome", first, second, observer);
             require(ended,
                 "confirmed end outcome: controller journey=" + std::to_string(static_cast<int>(first.snapshot().journey))
                 + " guest journey=" + std::to_string(static_cast<int>(second.snapshot().journey))

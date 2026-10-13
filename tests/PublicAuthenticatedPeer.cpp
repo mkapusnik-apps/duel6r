@@ -237,7 +237,16 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                         && reverseBytes + incoming.bytes.size() <= MaxQueuedTransportPayloadBytes);
                     reverseBytes += incoming.bytes.size(); reverseTraffic.push_back(incoming.bytes);
                 }
-                else require(write(service, incoming.bytes, "backend-write"));
+                else {
+                    require(write(service, incoming.bytes, "backend-write"));
+                    if (incoming.bytes.size() == TransportEnvelopeBytes + 26
+                        && std::equal(incoming.bytes.begin() + TransportEnvelopeBytes,
+                                      incoming.bytes.begin() + TransportEnvelopeBytes + 10, "D6LC\0\1\0\6\0\3")) {
+                        const auto action = Lifecycle::deserializeParticipantAction(
+                            {incoming.bytes.begin() + TransportEnvelopeBytes, incoming.bytes.end()});
+                        if (action) marker(root, ("peer-Leave-forwarded-" + std::to_string(id)).c_str());
+                    }
+                }
                 incoming.reset();
             }
             if (gated && negativeRace && !reverseTraffic.empty()
@@ -275,6 +284,7 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                                   outgoing.bytes.begin() + TransportEnvelopeBytes + 8, "D6LC\0\1\0\3"))
                     end = Lifecycle::deserializeIntentionalHostEnd({outgoing.bytes.begin() + TransportEnvelopeBytes, outgoing.bytes.end()});
                 const auto endDeadline = Clock::now() + 2s;
+                if (end) marker(root, ("peer-End-received-" + std::to_string(id)).c_str());
                 if (end && id == 2) marker(root, "flow-service-End");
                 if (positiveRace && id == 3 && end && !raceCompleted) {
                     require(gated && Clock::now() < coordinationDeadline);
