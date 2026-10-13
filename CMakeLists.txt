@@ -1046,13 +1046,13 @@ endif (WIN32)
 #  Add application
 ########################
 
-set(D6R_APP_DEBUG_NAME "duel6rd" CACHE STRING "Filename of the debug version of the application.")
 target_sources(${D6R_APP_NAME} PRIVATE ${D6R_APP_PLATFORM_SOURCES})
-set_target_properties(${D6R_APP_NAME} PROPERTIES VERSION 6.0.0 DEBUG_OUTPUT_NAME ${D6R_APP_DEBUG_NAME})
+set_target_properties(${D6R_APP_NAME} PROPERTIES VERSION 6.0.0 DEBUG_OUTPUT_NAME ${D6R_APP_NAME})
 if (APPLE)
     set_target_properties(${D6R_APP_NAME} PROPERTIES
             MACOSX_BUNDLE TRUE
             OUTPUT_NAME "Duel 6 Reloaded"
+            DEBUG_OUTPUT_NAME "Duel 6 Reloaded"
             MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/macos/Info.plist.in")
     add_dependencies(${D6R_APP_NAME} ${D6R_RESOLVER_APP_NAME} duel6r-darwin-guardian)
     add_custom_command(TARGET ${D6R_APP_NAME} POST_BUILD
