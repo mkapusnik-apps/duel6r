@@ -194,7 +194,7 @@ Presentation-only choices do not use the authoritative seed. This exclusion incl
 
 ## Approved-platform semantic determinism
 
-Approved hosts must provide semantic determinism: Linux x86-64, Windows x86-64, Raspberry Pi 5 Linux 64-bit under its platform contract, and experimental Apple Silicon macOS 14+ under its platform contract. The retained dedicated service target remains Linux x86-64 under NET-PUB; this does not add dedicated hosts on the other platforms.
+Approved player-hosted services must provide semantic determinism: Linux x86-64, Windows x86-64, Raspberry Pi 5 Linux 64-bit under its platform contract, and experimental Apple Silicon macOS 14+ under its platform contract. Dedicated services on the approved Linux x86-64 and existing Linux ARM64 packaged targets must provide the same semantic determinism. [NET-PUB](network-play-first-release.md#public-dedicated-pilot) owns dedicated platform support and client restrictions.
 
 The comparison inputs are:
 
@@ -565,7 +565,7 @@ It must document the process exit meanings without claiming playable networking 
 - Persistent network statistics or Elo.
 - Optional Lua or profile scripts in a network match.
 - Unlimited network matches.
-- Dedicated-server product support.
+- Dedicated platform and deployment policy, which NET-PUB owns.
 - A playable-network or release-readiness claim.
 
 ## Acceptance criteria

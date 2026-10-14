@@ -8,7 +8,7 @@ GitHub Actions separates pull-request validation, validation of `develop`, night
 | --- | --- | --- |
 | [Feature - Sanity check](workflows/branch.yml) | Pull requests targeting `develop` | Validates the pull-request head with a Linux Docker build and automated tests, and containerized directory backend tests against the Firestore emulator. `Feature Ready` depends only on the Linux job. |
 | [macOS - Apple Silicon build](workflows/macos-build.yml) | Reusable workflow call | Builds, tests, and packages the experimental macOS application at the requested source SHA. Used by develop validation and nightly publication. |
-| [Linux ARM64 - Pi 5 candidate](workflows/arm64.yml) | Reusable call from Develop - Sanity, or manual dispatch | Native ARM64 Docker compilation, hardware-AES known-answer and existing CTests using the default `gl1` renderer. Uploads a separate architecture-labelled candidate. Software-rendered CI does not certify Pi 5 V3D, peripherals, performance or independent crypto review. |
+| [Linux ARM64 - Pi 5 candidate](workflows/arm64.yml) | Reusable call from Develop - Sanity, or manual dispatch | Native ARM64 Docker compilation, hardware-AES known-answer and existing CTests using the default `gl1` renderer. A companion x86 Docker build supplies the client and resolver for cross-architecture verification. Uploads a separate architecture-labelled ARM candidate. Software-rendered CI does not certify Pi 5 V3D, peripherals, performance or independent crypto review. |
 | [Develop - Build Container Image](workflows/develop-build-image.yml) | Reusable workflow call or manual dispatch | Publishes Linux and Windows cross-compilation build images to GHCR. Commit-specific images connect validation and nightly packaging to the same source revision; `develop` image tags support consumers of the current development environment. |
 | [Develop - Sanity](workflows/develop.yml) | Push to `develop` | Publishes build images, runs a Linux build with automated tests and a main-menu smoke check, and performs a Debug compilation as the lint-equivalent check. Also runs native Windows transport CTests, the experimental macOS build/tests/package, and the ARM64 candidate workflow. All checks must pass to advance `sanity` and enable the nightly scheduler. |
 | [Develop - Nightly Scheduler](workflows/develop-nightly-scheduler.yml) | Every four hours while enabled, or manual dispatch | Requests a nightly build from `sanity` and disables itself until a later successful develop validation enables it again. |
@@ -38,11 +38,19 @@ GitHub Actions separates pull-request validation, validation of `develop`, night
 
 ## Dedicated service boundary
 
-- The [dedicated contract](../docs/network-play-first-release.md#public-dedicated-pilot) defines a Linux x86-64 service and Linux/Windows x86-64 clients. macOS and Raspberry Pi retain their current player-hosted contracts; no dedicated support is added for them.
+- The [dedicated contract](../docs/network-play-first-release.md#public-dedicated-pilot) defines Linux x86-64 and existing Linux ARM64 packaged service targets, with Linux/Windows x86-64 clients. Linux ARM64 clients must not join dedicated sessions. macOS dedicated hosting and client participation remain excluded. Current player-hosted contracts remain unchanged.
 - The existing Linux runtime bundle supplies the server component. There is no separate dedicated Docker distribution or gameplay deployment workflow.
 - An external operator supplies the TLS frontend, valid endpoint identity, invitation, and protected same-machine backend handoff under the [trust contract](../docs/network-trust-and-abuse-limits.md#encrypted-invite-only-public-pilot). Plaintext public exposure and insecure fallback remain prohibited.
 - The client uses an operator-supplied gameplay endpoint. Directory domains and compiled directory origins are not gameplay defaults. Repository preparation does not select a provider or domain, provision resources, or authorize billable activation.
 - The isolated TLS relay is verification infrastructure only. Its results do not establish an operational proxy or public service availability.
+
+## ARM dedicated interoperability
+
+- The ARM workflow builds both architectures from its source SHA. Its x86 companion job compiles only the existing client fixture and resolver. A tar artifact preserves their executable permissions and dynamic runtime dependencies. No x86 test campaign or shared image publication runs in that job.
+- QEMU registers only `amd64`, with privileged preparation limited to the disposable GitHub-hosted ARM runner. The verification container is not privileged. It has no published ports, host trust store, user profile or Docker socket mount.
+- Report the result as **native ARM service / QEMU-emulated x86 ELF client**. The production service and readiness probe stay native. The x86 client and its sibling resolver use emulation. Record the source SHA, workflow SHA and executable identities separately in the run logs.
+- The existing public-dedicated process fixture runs its `--cross-architecture` selection. It owns loopback endpoints, temporary certificates, protected passwords, resources and readiness sockets in one isolated container. It checks admission, controller state, Start, authoritative exchange, End, stale-session rejection and fresh reuse. Preserve certificate validation, the protected same-machine PROXYv2 handoff and the inner secure channel. No external directory is needed. This is not a cloud deployment or physical Pi acceptance.
+- Automatic verification still runs after integration and gates `sanity`. Manual candidate verification does not add a branch-protection requirement. The operator must dispatch the authorized checkpoint and compare its run head before accepting evidence.
 
 ## Experimental macOS build and nightly
 

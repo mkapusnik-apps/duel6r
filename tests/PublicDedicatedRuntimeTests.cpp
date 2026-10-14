@@ -505,7 +505,8 @@ int main(int argc, char **argv) {
             (a.host ? first : second).endSession();
             require(pump([&] { return (a.host ? first : second).snapshot().journey == J::Inactive
                 && (a.host ? second : first).snapshot().journey == J::HostEnded; }, 5s), "concurrent session end");
-        } else if (scenario != "flow" && scenario != "flow-race" && scenario != "flow-fatal-before-end") {
+        } else if (scenario != "flow" && scenario != "flow-race" && scenario != "flow-fatal-before-end"
+                   && scenario != "flow-reuse") {
             require(pump([&] { return first.snapshot().journey == J::Failure; }, 12s), "failure deadline");
             const auto state = first.snapshot();
             require(!state.host && !state.localParticipantId && !state.canonical, "rejection granted authority");
@@ -523,6 +524,14 @@ int main(int argc, char **argv) {
             require(first.snapshot().host && first.snapshot().publicSession, "first participant not controller");
             const auto controller = first.snapshot().localParticipantId;
             const auto session = first.snapshot().canonical->sessionId;
+            if (scenario == "flow-reuse") {
+                const auto initial = *first.snapshot().canonical;
+                require(initial.phase == Network::Replication::Phase::Lobby && initial.participants.size() == 1
+                    && initial.players.size() == 1 && initial.hostParticipantId == controller
+                    && !initial.round && initial.currentRoundNumber == 0 && !initial.result.available,
+                    "initial ready-empty service did not admit exactly its first controller/player");
+                std::cout << "PASS actual initial controller and clean authoritative lobby state\n";
+            }
             require(second.join(endpoint, argv[2], {{"Guest"}}, password(), {}, true), "guest join start");
             require(pump([&] { return second.snapshot().journey == J::Lobby
                 && first.snapshot().canonical->participants.size() == 2; }, 12s), "guest admission");
@@ -571,6 +580,8 @@ int main(int argc, char **argv) {
             jump->pressed = true;
             require(pump([&] { return controllerY() > beforeJump; }, 3s), "sampled controller jump not replicated over TLS");
             jump->pressed = false;
+            if (scenario == "flow-reuse")
+                std::cout << "PASS actual Start, advancing authoritative gameplay and sampled input replication\n";
             const auto endDeadline = std::chrono::steady_clock::now() + 5s;
             if (scenario == "flow-race" || scenario == "flow-fatal-before-end") {
                 { std::ofstream arm(std::filesystem::path(argv[2]) / "flow-arm"); }
@@ -606,17 +617,49 @@ int main(int argc, char **argv) {
                 + " guest failure=" + second.snapshot().failure
                 + " arrival failure=" + observer.snapshot().failure);
             first.reset(); second.reset();
+            if (scenario == "flow-reuse") {
+                observer.reset();
+                const auto root = std::filesystem::path(argv[2]);
+                { std::ofstream marker(root / "reuse-ended"); }
+                require(pump([&] { return std::filesystem::exists(root / "reuse-ready"); }, 5s),
+                        "native production readiness probe after End missing");
+            }
             // This proxy intentionally gives every participant one source IPv4.
             // The preceding denial plus three joins exhaust the four-attempt
             // burst. Preserve the production 20/minute refill policy: one new
             // attempt is eligible after three seconds, without resetting it.
             pump([] { return false; }, 3100ms);
+            if (scenario == "flow-reuse") {
+                require(observer.join(endpoint, argv[2], {{"Ended selection"}}, password(),
+                                      Client::directorySessionId(session), true), "old bound selection starts");
+                require(pump([&] { return observer.snapshot().journey == J::Failure; }, 12s),
+                        "old bound selection did not fail");
+                const auto denied = observer.snapshot();
+                require(denied.selectedSessionChanged && !denied.host && denied.localParticipantId == 0
+                    && !denied.canonical, "ended selection allocated or fell back to fresh authority");
+                observer.reset();
+                std::cout << "PASS ended session selection rejects before allocation without fallback\n";
+                // The explicit rejected attempt consumes the same per-source
+                // budget. Wait its normal refill, never reset or bypass it.
+                pump([] { return false; }, 3100ms);
+            }
             require(second.join(endpoint, argv[2], {{"New controller"}}, password(), {}, true), "fresh join");
             const bool fresh = pump([&] { return second.snapshot().journey == J::Lobby; }, 12s);
             require(fresh, "fresh session admission: " + second.snapshot().failure);
             require(second.snapshot().host, "fresh first admission lacks control");
             require(second.snapshot().canonical->sessionId != session, "ended session restored");
             require(!second.snapshot().canonical->participants.front().ready, "fresh session retained readiness");
+            if (scenario == "flow-reuse") {
+                const auto freshState = *second.snapshot().canonical;
+                require(freshState.phase == Network::Replication::Phase::Lobby
+                    && freshState.participants.size() == 1 && freshState.players.size() == 1
+                    && freshState.hostParticipantId == second.snapshot().localParticipantId
+                    && freshState.players.front().ownerParticipantId == second.snapshot().localParticipantId
+                    && !freshState.round && freshState.currentRoundNumber == 0 && freshState.completedRounds == 0
+                    && !freshState.result.available && freshState.result.serialized.empty(),
+                    "fresh ready-empty reuse retained old membership, match or results");
+                std::cout << "PASS fresh ready service admits only new controller/player with no retained round/results\n";
+            }
             second.endSession();
             require(pump([&] { return second.snapshot().journey == J::Inactive; }, 5s), "fresh session end");
         }

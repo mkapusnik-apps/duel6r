@@ -1985,7 +1985,7 @@ namespace Duel6::Network {
 
         void listenLoop() {
             const auto deadline = dependencyNow(dependencies) + StartupDeadline;
-            if (dependencies.trustedProxyV2 && !PublicSession::supported()) {
+            if (dependencies.trustedProxyV2 && !PublicSession::serviceSupported()) {
                 fail(TransportFailure::SecureUnavailable); return;
             }
             if (dependencies.publicTls || (dependencies.trustedProxyV2 && !dependencies.secureSession)) {

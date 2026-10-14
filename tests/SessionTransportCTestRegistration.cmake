@@ -1,5 +1,15 @@
 include_guard(GLOBAL)
 
+if (D6R_DEDICATED_SERVICE)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME duel6r-dedicated-service-process-tests
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                    $<TARGET_FILE:${D6R_SERVER_APP_NAME}> $<TARGET_FILE:${D6R_SERVER_APP_NAME}>
+                    ${CMAKE_SOURCE_DIR}/resources --service-only)
+    set_tests_properties(duel6r-dedicated-service-process-tests PROPERTIES
+            LABELS "application;headless;network;security;process" TIMEOUT 60)
+endif ()
+
 # Windows registration is OFF by default: ordinary native CTest must never
 # alter a developer's trust store. DevOps may opt in ONLY inside an approved
 # disposable Windows Docker container, with no host trust/registry/profile
@@ -332,6 +342,12 @@ if (NOT D6R_TRANSPORT_ONLY)
         set_tests_properties(duel6r-public-dedicated-process-tests PROPERTIES
                 LABELS "application;integration;network;public;tls;security"
                 TIMEOUT 180)
+        add_test(NAME duel6r-public-dedicated-reuse-tests
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                        $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources flow-reuse)
+        set_tests_properties(duel6r-public-dedicated-reuse-tests PROPERTIES
+                LABELS "application;integration;network;public;tls;security;reuse" TIMEOUT 180)
         add_test(NAME duel6r-public-dedicated-end-eof-regressions
                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
                         $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>

@@ -7,13 +7,61 @@ on:
 permissions:
   contents: read
 
+env:
+  D6R_SOURCE_REVISION: ${{ github.sha }}
+  D6R_WORKFLOW_REVISION: ${{ github.workflow_sha }}
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  x86-client:
+    name: Build x86 client for ARM interoperability
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Build x86 tool image
+        run: docker build -t duel6r-build:x86-client .
+      - name: Stage x86 client, resolver and runtime dependencies
+        run: |
+          bash docker/run-with-daemon-workspace.sh \
+            --entrypoint bash -e D6R_SOURCE_REVISION -e D6R_WORKFLOW_REVISION \
+            duel6r-build:x86-client -euo pipefail -c '
+              cmake -S /workspace -B /tmp/x86-build \
+                -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
+                -DD6R_RENDERER=gl4 -DD6R_WITH_LUA=ON
+              cmake --build /tmp/x86-build --parallel 4 \
+                --target duel6r-public-dedicated-runtime-tests duel6r-resolver
+              client=/tmp/x86-runtime/opt/duel6r-x86-client
+              mkdir -p "$client" /workspace/build
+              cp /tmp/x86-build/duel6r-public-dedicated-runtime-tests \
+                /tmp/x86-build/duel6r-resolver "$client/"
+              ldd "$client/duel6r-public-dedicated-runtime-tests" "$client/duel6r-resolver" \
+                | awk '\''$2 == "=>" && $3 ~ /^\// {print $3} $1 ~ /^\// && $1 !~ /:$/ {print $1}'\'' \
+                | sort -u | xargs cp --dereference --parents --target-directory=/tmp/x86-runtime
+              printf "production_source_sha=%s\nworkflow_sha=%s\nconfig=Linux x86-64 Release gl4 Lua ON\n" \
+                "$D6R_SOURCE_REVISION" "$D6R_WORKFLOW_REVISION" | tee "$client/source.txt"
+              c++ --version
+              readelf -h "$client/duel6r-public-dedicated-runtime-tests" "$client/duel6r-resolver"
+              sha256sum "$client/duel6r-public-dedicated-runtime-tests" "$client/duel6r-resolver"
+              tar -czf /workspace/build/x86-client-runtime.tar.gz -C /tmp/x86-runtime .
+              sha256sum /workspace/build/x86-client-runtime.tar.gz
+            '
+      - name: Upload x86 client transport artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: x86-client-runtime-${{ github.sha }}
+          path: build/x86-client-runtime.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
   arm64:
     name: Native ARM64 build and CTests
+    needs: [x86-client]
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 40
     steps:
@@ -32,6 +80,29 @@ jobs:
           docker run --rm --entrypoint bash \
             -v "$PWD/build:/bundle:ro" -w /bundle duel6r-build:arm64 \
             -c 'test "$(uname -m)" = aarch64 && sha256sum -c linux-aarch64.sha256sums && ! test -e linux-x86_64.sha256sums'
+      - name: Download same-run x86 client
+        uses: actions/download-artifact@v8
+        with:
+          name: x86-client-runtime-${{ github.sha }}
+          path: x86-client
+      - name: Enable x86 emulation on disposable hosted ARM runner only
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: amd64
+      - name: Verify native ARM service with QEMU-emulated x86 client
+        run: |
+          docker run --rm --network none --entrypoint bash \
+            -v "$PWD:/workspace" -e QEMU_CPU=max \
+            -e D6R_SOURCE_REVISION -e D6R_WORKFLOW_REVISION \
+            duel6r-build:arm64 -euo pipefail -c '
+              tar --keep-directory-symlink -xzf /workspace/x86-client/x86-client-runtime.tar.gz -C /
+              printf "production_source_sha=%s\nworkflow_sha=%s\nconfig=Linux ARM64 Release gl1 Lua ON; x86 client QEMU_CPU=max\n" \
+                "$D6R_SOURCE_REVISION" "$D6R_WORKFLOW_REVISION"
+              c++ --version
+              python3 tests/PublicDedicatedProcessTests.py \
+                /opt/duel6r-x86-client/duel6r-public-dedicated-runtime-tests \
+                /workspace/build/duel6r /workspace/resources --cross-architecture
+            '
       - name: Smoke the ARM bundle without modifying the candidate
         run: |
           docker run --rm --network none --entrypoint bash \

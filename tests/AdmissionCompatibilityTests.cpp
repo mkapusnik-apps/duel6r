@@ -3188,7 +3188,7 @@ D6R_TEST_CASE("NET-09 production Headless sends one intentional End notice and n
     }
 }
 
-#if defined(__linux__) && defined(D6R_PUBLIC_DEDICATED)
+#if defined(__linux__) && defined(D6R_DEDICATED_SERVICE)
 D6R_TEST_CASE("F02 fresh idle or occupied dedicated service dispatches stale wellformed reconnect as scoped terminal denial") {
     for (bool occupied: {false, true}) for (bool malformed: {false, true}) {
         TemporaryResources files;

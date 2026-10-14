@@ -4,9 +4,13 @@
 
 The approved target is Raspberry Pi 5 running 64-bit Linux, with Mesa V3D,
 an X11/XWayland desktop, audio and keyboard/controllers. Local play, hosted and
-joined network play, the server component and all packaged helper processes are
-in scope. This does not promote experimental standalone server commands into a
-supported deployment. Existing gameplay, screen and network contracts remain unchanged.
+joined player-hosted network play, the server component and all packaged helper
+processes are in scope. The existing Linux AArch64 package must also support
+headless dedicated service operation under [NET-PUB](network-play-first-release.md#public-dedicated-pilot)
+and [NET-EXEC](network-deployments.md#application-executable-and-mode-selection).
+ARM64 client dedicated joining remains excluded under NET-PUB.
+Other experimental standalone server commands do not establish a supported deployment.
+Existing gameplay, screen and player-hosted network contracts remain unchanged.
 This document owns the platform requirements below; the cryptographic policy
 remains in [network-directory-implementation.md](network-directory-implementation.md#password-and-credential-protection).
 
@@ -21,8 +25,9 @@ remains in [network-directory-implementation.md](network-directory-implementatio
   Use upstream hardware AES for both key expansion and block operations. Preserve
   x86 AES-NI, protocol/ciphersuite, authentication, record limits and fail-closed
   behavior. Do not add software AES or plaintext fallback.
-- **PI5-004** ARM peers must exchange authenticated encrypted application data
-  with existing x86-64 peers. Wrong passwords, tampering, replay, missing entropy
+- **PI5-004** ARM player-hosted peers and the ARM64 dedicated service must exchange
+  authenticated encrypted application data with existing x86-64 peers.
+  Wrong passwords, tampering, replay, missing entropy
   and missing CPU capabilities must retain existing rejection behavior.
 - **PI5-005** On a physical Pi 5, the packaged application must complete the
   existing local-player loop and a cross-architecture network match: menu,

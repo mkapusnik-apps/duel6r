@@ -7,6 +7,8 @@ import sys
 import tempfile
 
 application = str(Path(sys.argv[1]).resolve())
+assert len(sys.argv) == 3 and sys.argv[2] in ("0", "1"), "compiled service capability required"
+dedicated_service = sys.argv[2] == "1"
 env = dict(os.environ, SDL_VIDEODRIVER="unavailable-test-driver",
            SDL_AUDIODRIVER="unavailable-test-driver", D6R_DIRECTORY_URL="")
 env.pop("DISPLAY", None)
@@ -26,7 +28,9 @@ with tempfile.TemporaryDirectory(prefix="duel6r shared entry ") as temporary:
         assert "initialization" not in result.stdout.lower()
         assert "application information" not in result.stdout.lower()
         assert "sentinel-secret" not in result.stdout + result.stderr
+        assert len(result.stdout) + len(result.stderr) < 8192, "unbounded CLI output"
         assert not (root / "data").exists(), "headless dispatch wrote client data"
+        assert not (root / "ready.sock").exists(), "CLI validation created readiness socket"
         count += 1
 
     check(["--help"], 0, "--server")
@@ -54,11 +58,12 @@ with tempfile.TemporaryDirectory(prefix="duel6r shared entry ") as temporary:
     dedicated = ["--server", "--dedicated", "--transport", "--host=127.0.0.1",
                  "--trusted-proxy-protocol=v2", f"--readiness-socket={root / 'ready.sock'}",
                  f"--password-file={password}"]
-    if sys.platform.startswith("linux"):
+    if dedicated_service:
         check([*dedicated, "--help"], 0, "--password-file")
         check(dedicated, 1)  # FIFO/missing private permissions fail before readiness.
         assert not (root / "ready.sock").exists()
     else:
+        check([*dedicated, "--help"], 1)
         check(dedicated, 1)  # Dedicated host support was not expanded.
     probe = subprocess.run([application, "--server", f"--check-ready={root / 'absent.sock'}"],
                            cwd=root, env=env, capture_output=True, timeout=5)

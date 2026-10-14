@@ -1,6 +1,6 @@
 # Dedicated directory publication implementation
 
-This is an implementation reference for the approved [directory contract](network-host-directory.md), not an operator provisioning recipe or a claim of deployed service availability. The dedicated service remains Linux x86-64; dedicated admission remains Linux/Windows x86-64. No cloud gameplay endpoint or new deployment is selected here.
+This is an implementation reference for the approved [directory contract](network-host-directory.md), not an operator provisioning recipe or a claim of deployed service availability. The dedicated service supports Linux x86-64 and the existing Linux ARM64 packaged target under [NET-PUB](network-play-first-release.md#public-dedicated-pilot) and PI5-003; dedicated client admission remains Linux/Windows x86-64. ARM64 dedicated clients and macOS dedicated hosting or clients remain excluded. No cloud gameplay endpoint or new deployment is selected here.
 
 ## Server inputs
 
