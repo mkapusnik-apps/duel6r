@@ -22,6 +22,7 @@ namespace Duel6::Client {
             plan.config.localEndpoint = localEndpoint;
             plan.endpoint = localEndpoint;
             plan.localServerArguments.push_back(config.localServerExecutable);
+            plan.localServerArguments.push_back("--server");
             plan.localServerArguments.push_back("--local-only");
             plan.localServerArguments.push_back("--host=" + localEndpoint.host);
             plan.localServerArguments.push_back("--port=" + std::to_string(localEndpoint.port));

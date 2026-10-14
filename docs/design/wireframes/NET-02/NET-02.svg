@@ -19,8 +19,8 @@
     <text x="320" y="180">HOST NETWORK SESSION</text>
     <text x="75" y="225">Port</text><text x="295" y="225">26660</text>
     <text x="75" y="257">Listening interface</text><text x="295" y="257">Listen on all (0.0.0.0) [popup]</text>
-    <text x="75" y="289">Password (optional)</text><text x="295" y="289">********</text>
-    <text x="285" y="316">Leave empty for no password.</text>
+    <text x="75" y="289">Password</text><text x="295" y="289">********</text>
+    <text x="285" y="316">Password optional</text>
     <text x="87" y="349">PERSONS</text><text x="467" y="349">LOCAL PLAYERS AND CONTROLS</text>
     <text x="87" y="382">Ada • Selected</text><text x="467" y="382">Ada • Keyboard 1       Remove</text>
     <text x="87" y="408">Bruno • Add</text>

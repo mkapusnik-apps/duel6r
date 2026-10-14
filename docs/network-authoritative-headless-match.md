@@ -194,7 +194,7 @@ Presentation-only choices do not use the authoritative seed. This exclusion incl
 
 ## Approved-platform semantic determinism
 
-Approved hosts must provide semantic determinism: Linux x86-64, Windows x86-64, Raspberry Pi 5 Linux 64-bit under its platform contract, and experimental Apple Silicon macOS 14+ under its platform contract.
+Approved hosts must provide semantic determinism: Linux x86-64, Windows x86-64, Raspberry Pi 5 Linux 64-bit under its platform contract, and experimental Apple Silicon macOS 14+ under its platform contract. The retained dedicated service target remains Linux x86-64 under NET-PUB; this does not add dedicated hosts on the other platforms.
 
 The comparison inputs are:
 

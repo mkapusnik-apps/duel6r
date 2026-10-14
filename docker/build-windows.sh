@@ -55,11 +55,7 @@ if [[ ! -f "${source_binary}" ]]; then
 fi
 
 cp "${source_binary}" "${workspace_dir}/${output_dir}/duel6r.exe"
-if [[ ! -f "${tmp_build_dir}/duel6r-server.exe" ]]; then
-  echo "Unable to find built Windows server scaffold in ${tmp_build_dir}" >&2
-  exit 1
-fi
-cp "${tmp_build_dir}/duel6r-server.exe" "${workspace_dir}/${output_dir}/duel6r-server.exe"
+rm -f "${workspace_dir}/${output_dir}/duel6r-server" "${workspace_dir}/${output_dir}/duel6r-server.exe"
 if [[ ! -f "${tmp_build_dir}/duel6r-host-supervisor.exe" ]]; then
   echo "Unable to find built Windows host supervisor scaffold in ${tmp_build_dir}" >&2
   exit 1
@@ -73,6 +69,7 @@ cp "${tmp_build_dir}/duel6r-resolver.exe" "${workspace_dir}/${output_dir}/duel6r
 cp -R "${workspace_dir}/resources/." "${workspace_dir}/${output_dir}/"
 cp "${workspace_dir}/README.md" "${workspace_dir}/LICENSE" "${workspace_dir}/${output_dir}/"
 cp /opt/mbedtls-mingw/share/mbedtls/LICENSE "${workspace_dir}/${output_dir}/mbedtls-LICENSE.txt"
+cp /opt/vcpkg/installed/x64-mingw-dynamic/share/openssl/copyright "${workspace_dir}/${output_dir}/openssl-LICENSE.txt"
 # Remove development documentation left by earlier bundle builds.
 rm -rf "${workspace_dir}/${output_dir}/docs"
 
@@ -94,7 +91,7 @@ search_roots.extend(pathlib.Path("/usr/lib/gcc/x86_64-w64-mingw32").glob("*/"))
 
 seen = set()
 queue = [dist_dir / name for name in (
-    "duel6r.exe", "duel6r-server.exe", "duel6r-host-supervisor.exe", "duel6r-resolver.exe"
+    "duel6r.exe", "duel6r-host-supervisor.exe", "duel6r-resolver.exe"
 )]
 copied = []
 
@@ -275,11 +272,13 @@ retained_manifest = root / "linux-x86_64.sha256sums"
 if retained_manifest.exists():
     records = retained_manifest.read_bytes().splitlines(keepends=True)
     retained_manifest.write_bytes(b"".join(
-        record for record in records if not record.partition(b"  ")[2].startswith(b"docs/")
+        record for record in records
+        if not record.partition(b"  ")[2].startswith(b"docs/")
+        and record.partition(b"  ")[2].strip() not in (b"duel6r-server", b"duel6r-server.exe")
     ))
 
 files = list(root.glob("*.exe")) + list(root.glob("*.dll"))
-files += [root / name for name in ("README.md", "LICENSE", "mbedtls-LICENSE.txt", "windows-dependencies.txt")]
+files += [root / name for name in ("README.md", "LICENSE", "mbedtls-LICENSE.txt", "openssl-LICENSE.txt", "windows-dependencies.txt")]
 for directory in ("data", "levels", "profiles", "shaders", "sound", "textures"):
     files.extend(path for path in (root / directory).rglob("*") if path.is_file())
 with (root / "windows-x86_64.sha256sums").open("w") as manifest:

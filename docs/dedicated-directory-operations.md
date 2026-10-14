@@ -1,0 +1,32 @@
+# Dedicated directory publication implementation
+
+This is an implementation reference for the approved [directory contract](network-host-directory.md), not an operator provisioning recipe or a claim of deployed service availability. The dedicated service remains Linux x86-64; dedicated admission remains Linux/Windows x86-64. No cloud gameplay endpoint or new deployment is selected here.
+
+## Server inputs
+
+The shared application executable selects headless operation explicitly under [NET-EXEC](network-deployments.md#application-executable-and-mode-selection). Launch the operator-configured dedicated service with:
+
+```text
+duel6r --server --dedicated --transport --host=127.0.0.1 --port=BACKEND-PORT --resources=PATH --trusted-proxy-protocol=v2 --readiness-socket=PATH [--password-file=PATH] [--advertise-host=TLS-FRONTEND --advertise-port=TLS-PORT]
+```
+
+Use `duel6r --server --check-ready=PATH` for the readiness probe: confirmed readiness prints `ready` and exits `0`; otherwise it exits `1`. `--server` alone does not enable transport or configure a dedicated service. Headless operation does not initialize client presentation or require a display/audio device; the shared file still requires its runtime libraries.
+
+The dedicated runtime keeps its protected same-machine backend and operator-configured TLS frontend. --password-file=PATH optionally selects a protected local password file under NET-PASS-014 through NET-PASS-016. No configured file or a valid empty file selects No password. A supplied missing, unreadable, insecurely protected or invalid file fails startup before readiness or publication. The service loads the exact password once at startup and retains it across fresh sessions; an operator restart applies replacement. Password values never enter process arguments or directory metadata. --invite-file is retired and rejected, not accepted as an alias.
+
+The remaining `--dedicated --transport --host=127.0.0.1 --port=BACKEND-PORT --resources=PATH --trusted-proxy-protocol=v2 --readiness-socket=PATH` inputs retain their meanings. Optional `--advertise-host=TLS-FRONTEND --advertise-port=TLS-PORT` inputs must be paired; no frontend is inferred from the backend listener or directory origin. Omitting advertising leaves direct dedicated admission available without publication. Password files preserve exact valid UTF-8 bytes, case and spaces within 128 bytes under NET-PASS-011/015; controllers cannot manage them. This is approved operating direction, not a claim that the new option or authentication path is implemented.
+
+The advertised host must be a valid DNS hostname or concrete non-loopback unicast IPv4 address, and the port must be in 1–65535. Wildcard, loopback, link-local, multicast, URLs and malformed names are rejected. The configured directory origin cannot also be the advertised gameplay origin. This validation does not provision or verify the external TLS frontend; actual clients must validate its certificate before the common inner password exchange, including No password operation.
+
+`D6R_DIRECTORY_URL`, its existing explicit loopback-HTTP development exception, and the compiled distribution-channel default retain their existing meaning. Publication uses the shared non-GUI publisher with bounded HTTP requests, coalesced updates, renewal/retry and memory-only owner authority. Transition-only `Directory: Registering`, `Directory: Listed` and `Directory: Unavailable` output reports operator publication state without secrets or new controller actions.
+
+## API and wire choices
+
+- `/v1/listings` is the legacy player-hosted-only read contract. Dedicated registrations and mutations are not accepted through v1. Reads filter dedicated records inside bounded pages and preserve continuation over those pages, including an empty filtered page with a next cursor.
+- `/v2/listings` explicitly opts into the mixed contract. Its response identifies `contract: mixed-v2`; every row carries `hosting`, `protection` and `admission`. The v2 cursor has an `m2_` prefix and cannot be used in v1, or vice versa. Neither endpoint changes owner Bearer/If-Match enforcement, ordering or lease expiry.
+- Hosting values are `player-hosted` and `dedicated`; protection is `none` or `password`, consistent with `passwordRequired` in both modes. Retired `invite` records are safely excluded or fail closed, never reinterpreted as password admission. The atomic unreleased-v2 update uses existing 60-second lease expiry without a running database migration or new v3 adapter. Admission remains `open`, `full`, `closed` or `busy`, independently of occupancy and phase. Dedicated phases retain `idle`, `reserved` and `cleanup`; zero occupancy is allowed only for a ready idle dedicated session.
+- Existing private admission request/version/release defaults remain unchanged. Dedicated offers carry a nonzero session identity suffix, echoed by acceptance and confirmation. Selected dedicated clients validate that identity before accepting an offer and verify it again in the reconnect grant and initial snapshot. The fixed selected-session-change outcome requires browser refresh/reselection; it does not authorize a replacement or fallback.
+
+The authority prepares a nonzero empty identity before readiness and publication, without a controller, players or a playable match. First committed admission creates the controller in that same identity. Same-session Return preserves it. End/expiry invalidates it before asynchronous directory removal; cleanup precedes fresh distinct empty preparation. Lost removal may leave historical rows until their lease expires, but those selections cannot allocate authority in the fresh session.
+
+Local emulator and TLS-fixture verification establishes only its recorded routine-test scope. It does not establish independent QA, live directory deployment, external frontend operation, native Windows graphical acceptance, or deferred Mac/Pi GUI evidence.

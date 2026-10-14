@@ -18,12 +18,66 @@ Requirement and acceptance criterion identifiers in this document are stable ref
 
 ## Terms
 
+The player-hosted package and replacement requirements below remain authoritative for player-hosted packages. Current address, directory, password, and round-one admission behavior follows network play, NET-DIR, and NET-PASS. The retained operator-configured dedicated extension follows NET-PUB, TRU-PUB, and HSL-PUB. It does not turn a diagnostic transport command into a supported public service.
+
+### Dedicated extension and directory boundary
+
+NET-PUB-DEP-001 through NET-PUB-DEP-018 and NET-PUB-DEP-AC-001 through NET-PUB-DEP-AC-004 are retired. The former VM, Terraform, proxy deployment packet, cloud staging/production automation, fixed gameplay domains, sizing, costs, rollback campaign, and activation requirements are not part of the retained extension. Retired identifiers must not be reused.
+
+The retained service uses an operator-configured endpoint under NET-PUB-017. Repository acceptance covers real secure admission, dedicated sessions, controller authority, recovery, cleanup, and current-design client integration. It requires no new domain, cloud deployment, provisioning, or billable activation. TRU-PUB still prohibits insecure exposure; no retired deployment requirement weakens that contract. HSL-PUB still distinguishes confirmed maintenance from ambiguous loss, and a restarted service does not restore an old session.
+
+The operator supplies the secure service endpoint, server-identity configuration and optional protected password file externally under NET-PASS-014–018. No file or a valid empty file selects No password without waiving dedicated certificate verification; a supplied invalid file fails before readiness/publication. Configuration is loaded once and persists across fresh service sessions; operator restart applies replacement, and controllers cannot manage it. The client does not provision these inputs. This scope requires no new generic deployment recipe or dedicated distribution package. Controlled verification must still exercise the retained real service and client contracts; an external prerequisite is not a waiver of their acceptance criteria.
+
+Approved dedicated directory integration uses this externally supplied TLS frontend, not the private loopback backend or a directory origin. Service-owned publication follows NET-DIR-021–033, retaining mandatory certificate verification, common optional EC-JPAKE Password, consistent `none`/`password` metadata and immediate identity invalidation. The unreleased v2 update safely excludes or rejects retired Invite records, never reinterprets them, and uses existing lease expiry without a running database migration. It does not reactivate any retired gameplay cloud packet, fixed gameplay domain, provider, provisioning, account or billable operation. No live deployment is authorized by this password change. Existing directory deployment, channel selection, player-hosted packages and other platform contracts remain unchanged; approval is not an implementation, execution, live-availability or release-readiness claim.
+
+The separately approved directory deployment remains governed by [NET-DIR-DEP](network-host-directory.md#directory-deployment) and its operations documentation. `https://duel.netusite.cz` and `https://staging.duel.netusite.cz` remain the approved directory origins, not dedicated gameplay defaults. This extension must not replace their domain mappings, deployment paths, channel selection, or authorization boundaries. No public gameplay service availability is claimed.
+
 - **Complete package:** One target-platform package with the client, required player-hosted service components, runtime dependencies, and shipped resources.
 - **Matching package set:** Complete Linux x86-64 and Windows x86-64 packages that satisfy the authoritative compatibility contract for one network release and gameplay-content set.
 - **Local data backup:** A recoverable copy of the user's local people, statistics, profiles, and configuration taken before replacement.
 - **Clean installation:** Installation into a location with no previous package files or restored user data.
 - **Same-release reinstallation:** Offline replacement with a complete package of the same network release and shipped gameplay-content set on the same supported target platform.
 - **Complete rollback:** Offline restoration of a saved previous complete package and that package's own pre-upgrade local data backup.
+
+## Application executable and mode selection
+
+- **NET-EXEC-001** Each application distribution must provide one shared application executable for graphical client operation and its approved headless server operations.
+- **NET-EXEC-002** The application must start the graphical client when the command line contains no application option and no server option.
+- **NET-EXEC-003** The application must select headless operation when the command line contains exactly one standalone `--server` argument, regardless of its position.
+- **NET-EXEC-004** The application must select headless operation before graphical client initialization, window creation, renderer initialization, audio initialization, or local input-device initialization.
+- **NET-EXEC-005** Graphical client operation must preserve valid startup console commands and their order under CFG-003 through CFG-007 in `features.md`.
+- **NET-EXEC-006** Headless operation must preserve existing server options, their validation, and their outcomes after the application removes the `--server` selector.
+- **NET-EXEC-007** The application must reject a server option supplied without `--server` before graphical client initialization.
+- **NET-EXEC-008** `duel6r --help` must describe graphical client launch and the explicit server entry point, then exit with status `0` without starting either mode.
+- **NET-EXEC-009** `duel6r --server --help` must describe existing server operations with the shared executable name, then exit with status `0` without starting a service or reading password configuration.
+- **NET-EXEC-010** The application must reject unknown application options, malformed or repeated `--server` selectors, and invalid server-option combinations with a non-secret standard-error message and exit status `1`.
+- **NET-EXEC-011** A failed headless operation must not start the graphical client or show a graphical error dialog.
+- **NET-EXEC-012** Shared executable availability must preserve the existing platform and hosting limits in `network-play-first-release.md`, `macos.md`, and `raspberry-pi5.md`.
+- **NET-EXEC-013** Player-hosted operation must use the shared executable in explicit server mode while retaining the separate owned service and the lifecycle contract in `network-host-service-lifecycle.md`.
+- **NET-EXEC-014** Dedicated operation must retain NET-PUB, HSL-PUB, NET-PASS, NET-DIR, and TRU-PUB without changing readiness, admission, controller authority, publication, recovery, or secret protection.
+- **NET-EXEC-015** Shared executable operation must preserve existing resource, working-directory, saved-data, and operator-configuration path behavior for each approved mode and platform.
+- **NET-EXEC-016** Application distributions must not provide a separate `duel6r-server` application executable or an executable-name compatibility alias.
+- **NET-EXEC-017** Application distributions must retain required helpers, runtime dependencies, resources, and notices.
+
+`--server` selects the headless entry point. `--dedicated` retains its existing meaning within that entry point. `--server` alone does not enable transport or configure a dedicated service. Existing headless operation exit statuses remain unchanged, except that valid help exits with status `0`. The readiness probe retains its existing `ready` output and status `0` for confirmed readiness, or status `1` otherwise. Authoritative match operations retain the exit meanings in `network-authoritative-headless-match.md`. Headless operation does not require a display or an audio device. This does not require a package without presentation libraries.
+
+Standalone double-hyphen arguments are application/server options, not startup console commands. Valid console-command arguments, including quoted commands and their ordering, remain supported. No `--client`, generic `--mode` interface, or additional compatibility alias is introduced.
+
+### Shared executable acceptance criteria
+
+These criteria supplement existing criteria; they do not replace them.
+
+| Stable criterion | Required outcome | Evidence needed through team |
+|---|---|---|
+| **NET-EXEC-AC-001 — Shared artifact** | The same identified packaged application file starts the graphical client and the applicable headless server path. The package contains no separate server application executable or executable-name alias. Required helpers and dependencies remain available. | Package/inventory review and mode execution tied to the same immutable executable identity. |
+| **NET-EXEC-AC-002 — Headless boundary** | Linux x86-64 dedicated startup and readiness probing work without `DISPLAY` or an available audio device. Neither success nor failure initializes graphical client presentation or shows a dialog. | Behavioral observation of the production executable plus startup-boundary source review. A display-backed launch alone is insufficient. |
+| **NET-EXEC-AC-003 — Dispatch and CLI** | Selector position does not change mode. Both help forms exit `0` without startup. Missing selector, malformed/repeated selector, unknown options, unsupported dedicated mode, and incompatible server options fail without client fallback. Valid server options are applied, not ignored. Existing probe and authoritative exit meanings remain intact. | Focused behavioral cases for each distinct dispatch/parser path, including an unsupported-platform rejection in the applicable platform evidence phase. |
+| **NET-EXEC-AC-004 — Client preservation** | Normal launch and valid ordered startup console commands retain existing behavior. Packaged Local Play starts and completes without a network service. | Relevant client-startup and console-command regression results, plus existing NET-DEP-AC-004 coverage for the candidate. No new screenshot campaign is required solely for this change. |
+| **NET-EXEC-AC-005 — Service lifecycle** | Player-hosted startup uses the shared file in explicit server mode. Readiness, cancellation, startup failure, normal shutdown, parent termination, owned descendants, listener release, and fail-closed cleanup retain the applicable HSL contract. | Relevant existing lifecycle consumer tests and focused production-path QA for changed launch/ownership paths. Shared process names are not proof of ownership or cleanup. |
+| **NET-EXEC-AC-006 — Dedicated security and readiness** | Protected password loading remains fail-closed before readiness/publication. No file and a valid empty file retain No password semantics. Invalid configuration cannot become unlocked operation. Ready-empty identity, first committed controller, directory ownership, secure admission, session reuse, solo/ongoing behavior, and final closure retain their existing criteria. | Focused password/startup negative cases, security review, and the existing dedicated functional QA campaign exercised through the shared executable. |
+| **NET-EXEC-AC-007 — Operational consistency** | Current launch instructions, readiness probes, package inventories, and working-directory/resource guidance use the shared entry point without expanding platform support or changing directory origins. | Documentation-to-runtime review and relevant package/path consumer results. Native platform claims need native artifacts under their existing acceptance phases. |
+
+For multiplayer evidence, retain the isolated environment identity, backend candidate identity, endpoint/transport mapping, device target, and scenario data. Reuse unaffected evidence only with its original provenance and an explicit impact assessment.
 
 ## Package and deployment requirements
 
@@ -32,15 +86,15 @@ Requirement and acceptance criterion identifiers in this document are stable ref
 - **NET-DEP-003** Published instructions must identify each package's target platform, runtime prerequisites, and installation procedure.
 - **NET-DEP-004** Published instructions must support separate instances on one trusted machine and direct connection on a trusted private LAN.
 - **NET-DEP-005** Published instructions must cover Linux and Windows participants in the same session.
-- **NET-DEP-006** Published instructions must identify server components as parts of player-hosted operation, not as a supported dedicated-server deployment.
+- **NET-DEP-006** Published player-hosted package instructions must identify their server components as parts of player-hosted operation, not as the dedicated-pilot deployment.
 - **NET-DEP-007** Published instructions must state the transport ports, default port, permitted configuration, and manual firewall requirements.
-- **NET-DEP-008** Published instructions must state the trust policy's lack of authentication and encryption and its prohibited network exposures.
+- **NET-DEP-008** Published instructions must state the current trust policy's secret-protection guarantees, first-contact limitations, and prohibited network exposures for the selected hosting mode.
 - **NET-DEP-009** Published instructions must explain host startup, guest connection, confirmed readiness, cancellation, shutdown, and cleanup under the service lifecycle contract.
 - **NET-DEP-010** Published instructions must identify available logs and diagnostics and their safe use under the trust policy.
 - **NET-DEP-011** Published instructions must distinguish transport connection, participant admission, and playable-session evidence.
 - **NET-DEP-012** A packaged Local Play session must start and complete without requiring or starting a network service.
 
-The supported deployment boundary is player-hosted operation between trusted instances on IPv4 loopback or a trusted private RFC1918 IPv4 LAN. The existing trust policy defines eligible listening addresses and explicit private-interface selection. Packaging must not weaken that boundary.
+The supported player-hosted environment is same-machine or LAN operation. Valid public-unicast IPv4 endpoints remain permitted without an Internet reachability or performance guarantee. The current trust policy defines wildcard or explicit selected listening coverage and protected admission. The retained operator-endpoint dedicated extension uses NET-PUB, HSL-PUB, and TRU-PUB. Packaging must not weaken either mode's security contract. The macOS and Raspberry Pi player-hosted platform contracts remain unchanged.
 
 ## Replacement and local data
 
@@ -105,7 +159,7 @@ The approved rollback rule does not approve cross-release compatibility or data 
 
 ## Client/server compatibility coverage
 
-The compatibility contract remains the sole authority for compatibility values and checks. Its first-release constants specify admission protocol `1`, network release ID `duel6r-network-r1`, and these required capabilities:
+The compatibility contract remains the sole authority for compatibility values and checks. Its current constants specify admission protocol `2`, network release ID `duel6r-network-r1`, and these required capabilities:
 
 - `d6r.compatibility-admission.v1`
 - `d6r.gameplay-manifest.v1`
@@ -138,7 +192,7 @@ Published instructions must map observable protocol, release, required-capabilit
 
 The approved target support matrix and the demonstrated evidence matrix are distinct. Missing execution evidence does not remove an approved target from scope. It prevents an acceptance or release claim for the unverified behavior.
 
-Internet support, NAT traversal, port-forwarded exposure, relays, public hosting, dedicated deployment, and changes to Local Play remain excluded. This specification defines no screen, functional state, or visual-design change.
+Guaranteed Internet support, NAT traversal, relays, dedicated deployment outside the approved pilot, and changes to Local Play remain excluded. Deployment preparation does not authorize live activation. This specification defines no visual-design change.
 
 ## Acceptance criteria
 
@@ -146,7 +200,7 @@ Internet support, NAT traversal, port-forwarded exposure, relays, public hosting
 |---|---|---|
 | **NET-DEP-AC-001** | Each approved target has an identifiable complete package. A clean machine can install and start it with only the published prerequisites and instructions. | NET-DEP-001–003 |
 | **NET-DEP-AC-002** | Published instructions produce confirmed player-hosted readiness, guest admission, and clean shutdown on each target over same-machine loopback and private LAN. Cross-platform LAN coverage includes each operating system as host. | NET-DEP-004–006, NET-DEP-009, NET-DEP-011 |
-| **NET-DEP-AC-003** | Operational documentation matches actual ports, defaults, configuration, diagnostics, exposure restrictions, readiness, cancellation, shutdown, and cleanup. Server-component descriptions do not imply dedicated deployment. | NET-DEP-006–011 |
+| **NET-DEP-AC-003** | Operational documentation matches actual ports, defaults, configuration, diagnostics, exposure restrictions, readiness, cancellation, shutdown, and cleanup for its hosting mode. Player-hosted package descriptions do not imply that they are the dedicated-pilot deployment. | NET-DEP-006–011 |
 | **NET-DEP-AC-004** | Packaged Local Play starts and completes with network availability removed and no network service started. | NET-DEP-012 |
 | **NET-UPG-AC-001** | On each target, same-release offline reinstallation preserves backed-up local people, statistics, profiles, and configuration after restoration. The group can establish a new session with matching gameplay content and stop cleanly. | NET-UPG-001–011 |
 | **NET-UPG-AC-002** | On each target, complete rollback after same-release reinstallation restores the saved prior package and its own prior data backup. Verification confirms the restored data, readiness, admission, and cleanup. | NET-UPG-010–014 |

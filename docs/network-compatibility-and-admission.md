@@ -2,6 +2,8 @@
 
 ## Status and authority
 
+The public dedicated pilot in [network-play-first-release.md](network-play-first-release.md) retains this document's compatibility checks, stable rejection outcomes, selected-session binding and atomic admission contract. Its direct/browser security prerequisites are current [TRU-PUB](network-trust-and-abuse-limits.md) and common NET-PASS-001–018; certificate verification precedes inner EC-JPAKE even without a password, and no raw password or reusable proof enters an application admission frame. The pre-listener local-host admission sequence below applies only to player-hosted mode. Dedicated readiness follows HSL-PUB-002: a ready empty nonzero session is prepared before listing/first admission, without participants, controller or round. Exactly the first authorized compatible committed admission becomes controller in that same advertised session under NET-PUB-002 through NET-PUB-004/024–025; concurrent later commits are guests. No listing, client selection or provisional offer grants controller authority. Failed public security or configured-password checks cannot allocate authority. Exact release/content checks remain unchanged; the retired D6PI invitation envelope is neither password admission nor a fallback.
+
 This document is the authoritative product target for GitHub issue #30. It defines first-release network compatibility and admission behavior.
 
 The compatibility and admission contract is implemented in the explicit command-line networking scaffold. It does not provide a lobby, gameplay, graphical network UI, or playable networking. The current networking status remains documented in [`networking.md`](networking.md).
@@ -71,10 +73,12 @@ The executable owns the protocol version and supported capability set. The suppo
 Issue #98 advances the admission wire version to `2` for selected-session binding.
 The `D6RA` request ends with an unsigned big-endian 64-bit expected session identity,
 after the manifest entries. Explicit direct joining uses zero; browser-selected
-joining uses the advertised nonzero identity. This field travels inside the secure
-channel. A mismatch is an authorization rejection before any reservation or
-commit. The confirmed snapshot and reconnect grant must identify the same session.
+joining, including dedicated selection, uses the advertised nonzero identity. This field travels inside the secure
+channel. Hosting/security mode and frontend endpoint are also bound to selected setup. A mismatch, ended identity or restarted/fresh replacement is an authorization rejection before any reservation,
+authority allocation or commit. The offer must remain associated with the selected session; final confirmation, initial snapshot and reconnect grant must identify that same session.
 Session-ID equality is not cryptographic host authentication for unlocked first contact.
+
+The prepared dedicated identity is unchanged by first admission, idle-to-lobby/first-round transitions, results, reservations or same-session Return to lobby. End/expiry/restart invalidates it immediately before listing removal, and a fresh distinct identity follows cleanup. An old selection must never be redirected to the fresh session. During open setup, phase may change while the bound identity remains the same; actual authority decides current capacity, role and lobby/live-round destination. Credential correction and eligible Retry retain selected mode/endpoint/identity. An endpoint/selection change requires browser refresh; explicit unbound Direct transition clears binding and secrets. No new admission protocol constant or directory capability spelling is selected by this specification integration.
 
 The host owns the required capability set and authoritative gameplay-content baseline. Each guest owns its compatibility claim.
 
@@ -180,7 +184,7 @@ Return to Network must enter `NET-01`. A confirmed invalid-manifest result befor
 3. A pending connection may send exactly one admission request.
 4. The host must receive that request within three seconds of transport connection.
 5. The host must validate bounds before allocation, comparison, logging, or authority changes.
-6. The host must apply the trust and authorization decision from the trust policy.
+6. The host/service must apply the trust and authorization decision from the trust policy. A browser-selected attempt must validate its bound hosting/security mode, frontend endpoint and expected nonzero session identity before provisional reservation or authority allocation, including a first-controller dedicated attempt. Direct admission remains explicitly unbound.
 7. The host must check protocol, release, required capabilities, manifest validity, and manifest equality.
 8. The host must then check admission state and capacity.
 9. On success, the host must atomically reserve provisional participant and player identities and return one complete `admission-offer` containing the nonzero participant identity, the requested player count, and the exact ordered player identities.
@@ -302,7 +306,7 @@ Missing the three-second request deadline must close the connection without admi
 
 ## Timing, cancellation, and incomplete admission
 
-The admission window is defined by `NET-ADM-001` through `NET-ADM-016` in [network play](network-play-first-release.md). Lobby, active rounds, and non-final round-end delays permit eligible admission. Commit strictly before the first-round outcome spawns immediately; other ongoing commits wait for the first round start strictly after admission. Outcome and round-start decisions take precedence at the same host-clock instant. Final outcome closes admission before final delay and summary. Initial snapshots mean current authoritative lobby or match state, including explicit waiting ownership without an actor. All ownership, calibration, compatibility, password, capacity, and connection-deadline checks remain required. The `match-already-started` identifier remains stable for final admission closure and must not imply a first-round cutoff. Password authorization follows [NET-PASS-001 through NET-PASS-007](network-host-directory.md) at the existing stage.
+The admission window is defined by `NET-ADM-001` through `NET-ADM-016` in [network play](network-play-first-release.md). Lobby, active rounds, and non-final round-end delays permit eligible admission. Commit strictly before the first-round outcome spawns immediately; other ongoing commits wait for the first round start strictly after admission. Outcome and round-start decisions take precedence at the same host-clock instant. Final outcome closes admission before final delay and summary. Initial snapshots mean current authoritative lobby or match state, including explicit waiting ownership without an actor. All ownership, calibration, compatibility, password, capacity, and connection-deadline checks remain required. The `match-already-started` identifier remains stable for final admission closure and must not imply a first-round cutoff. Both hosting modes use NET-PASS-001–018 before initial commitment; dedicated TRU-PUB verification additionally precedes inner EC-JPAKE. Outer/inner/PROXYv2 retain the one absolute 10-second deadline. Zeroizable channel Password cannot replace the scoped reconnect credential, its original 30-second reservation, or become fresh admission/migration.
 
 The guest's 10-second deadline includes resolution, connection, compatibility, capacity, host admission, clock calibration, and current initial snapshot validation. Waiting for an eligible spawn after complete admission is not an extension of that connection attempt or a connection failure.
 
@@ -379,7 +383,7 @@ Local Play must keep the local profile and scripting behavior in [`features.md`]
 - Issue #40 owns supported artifact and deployment documentation.
 - Issue #41 owns complete release-candidate validation.
 
-This issue does not implement lobby UX, simulation, replication, readiness, scoring, or persistence. It consumes ongoing admission from the network-play contract without adding spectators or host migration.
+This compatibility contract does not own lobby UX, simulation, replication, readiness, scoring, or persistence. It consumes ongoing admission from the network-play contract without adding spectators or host migration.
 
 Completion of issue #30 alone must not justify a claim that network play is available. It must not remove the experimental scaffold warning.
 
@@ -388,13 +392,13 @@ Completion of issue #30 alone must not justify a claim that network play is avai
 The explicit host validates and freezes its manifest, allocates its local host participant, and only then starts the listener:
 
 ```sh
-./build/duel6r-server --transport --local-only --resources=resources --local-players=2
+./build/duel6r --server --transport --local-only --resources=resources --local-players=2
 ```
 
 The explicit guest starts its 10-second attempt when invoked, builds its local claim within that deadline, and starts resolution only after the local claim is valid:
 
 ```sh
-./build/duel6r-server --admission-client --host=127.0.0.1 --port=26660 --resources=resources --local-players=2
+./build/duel6r --server --admission-client --host=127.0.0.1 --port=26660 --resources=resources --local-players=2
 ```
 
 These commands provide process-level protocol evidence only. Successful output reports `admitted` and trusted session-local identities; rejected output reports only the fixed identifier and fixed copy. Neither command starts a lobby or gameplay session.

@@ -2,6 +2,53 @@
 
 ## Status and authority
 
+The product supports the current player-hosted network journey and an operator-configured encrypted dedicated extension with the same optional Password procedure. NET-PASS-001–018 own common input, operator configuration and secret handling; dedicated X.509 endpoint verification remains mandatory even without a password. NET-PUB replaces dedicated-hosting exclusions only for this extension. Player-hosted service ownership does not apply to dedicated participants. Both modes apply hosted solo and ongoing admission under NET-SOLO-001–006 and NET-ADM-001–016 while retaining compatibility, gameplay, ownership, readiness, results and recovery except for the explicit controller/service-lifecycle differences below. Local Play, platform contracts, directory channel origins and unrelated current-design structure remain unchanged. Target support does not establish implementation, live availability or release acceptance.
+
+## Public dedicated pilot
+
+A **session controller** is the first successfully admitted participant in a dedicated session. This participant has the existing host's match-control permissions but does not own the server process. A **pilot environment** is one independently configured operator service environment; it is not a required cloud staging or production deployment. The service clock supplies the existing host-session clock for dedicated sessions.
+
+The retained dedicated target is a Linux x86-64 service with Linux x86-64 and Windows x86-64 clients. This extension does not add dedicated macOS or Raspberry Pi participation. Their current player-hosted platform behavior and acceptance boundaries remain unchanged. The service is a headless publishing variant of a hosted session: it prepares one ready empty session before first admission and publishes that session under the [directory contract](network-host-directory.md). The client uses an operator-supplied endpoint through Direct connect or the selected dedicated listing's operator TLS frontend. No gameplay domain, compiled gameplay endpoint, cloud provider, provisioning, or billable activation is selected by this contract. Current directory origins remain directory endpoints, not dedicated-gameplay defaults.
+
+- **NET-PUB-001** Each pilot environment must provide at most one active session.
+- **NET-PUB-002** Before first admission or directory publication, the service must prepare exactly one ready empty session with a nonzero session identity. The first authorized, compatible committed admission must use that same prepared and advertised identity.
+- **NET-PUB-003** The service must assign session-controller authority to exactly that first admitted participant.
+- **NET-PUB-004** Concurrent admission attempts must not create multiple sessions or multiple controllers.
+- **NET-PUB-005** Later admitted participants must join the existing session as guests in its current authoritative lobby, immediate-play or Connected-waiting match state under NET-ADM-001–016.
+- **NET-PUB-006** The controller must have the existing host permissions for match settings, roster order, match start, return to lobby, and session end.
+- **NET-PUB-007** A guest must not acquire controller authority through a request, reconnect, controller departure, or service restart.
+- **NET-PUB-008** After first committed controller admission, dedicated sessions must apply the same hosted 1–15 connected/valid/ready participant and owned-player Start conditions, NET-SOLO-001–006 and NET-ADM-001–016 as player-hosted sessions, retaining exact compatibility, authoritative gameplay and session-only results. Dedicated controller End/Leave/expiry remains session-ending under NET-PUB/HSL-PUB and takes precedence over ordinary roster-reduction solo rules.
+- **NET-PUB-009** A confirmed controller Leave or End session must end the session for every participant.
+- **NET-PUB-010** An unintentional controller disconnect must use the existing fixed 30-second reconnect reservation without transferring controller authority.
+- **NET-PUB-011** Controller reservation expiry must end the dedicated session instead of transferring control or continuing without a controller.
+- **NET-PUB-012** Guest departure and reconnect must retain the existing guest lifecycle behavior.
+- **NET-PUB-013** Session end must discard session-only results and invalidate all session identities and reconnect credentials.
+- **NET-PUB-014** After session cleanup, the service must prepare a fresh distinct ready empty session and its listing for a new first authorized participant. The ended identity must be invalid immediately, without waiting for directory removal or expiry.
+- **NET-PUB-015** A service restart must not restore an ended session or its controller authority.
+- **NET-PUB-017** Dedicated Join setup must support an operator-supplied hostname or IPv4 endpoint and separate port through unbound Direct connect or a selected dedicated listing. Browser-selected setup must retain its hosting/security mode, operator frontend endpoint and expected nonzero session identity; it must not replace a selected endpoint or silently become a direct attempt.
+- **NET-PUB-018** The application must not connect until the user requests Connect.
+- **NET-PUB-019** The application must not fall back from an unavailable dedicated endpoint to another endpoint, player-hosted mode, or an unencrypted connection.
+- **NET-PUB-020** Public connection, security checks, admission, clock calibration, and initial-state validation must share the existing single 10-second connection deadline.
+- **NET-PUB-021** Dedicated session behavior must preserve offline Local Play and the current player-hosted journey, platform contracts, listening modes, directory origins, and host settings.
+- **NET-PUB-023** Normal controller application shutdown must request session end; when the service cannot receive that request, the existing controller reservation expiry must end the session.
+- **NET-PUB-024** A prepared empty dedicated session must have zero participants, zero players, no controller and no round. Its nonzero identity must remain the same through first committed admission, lobby, gameplay, results, reservations and same-session Return to lobby. Offers, listing metadata and client selection must grant no authority; exactly the first committed admission becomes controller and concurrent later committed admissions become guests.
+- **NET-PUB-025** A prepared empty dedicated session with zero participants/players and no controller must not start a match. Only after committed controller admission may the service accept Start under the hosted connected, valid, ready and owned-player conditions in NET-SOLO-001. No extra solo confirmation is required.
+
+End, controller expiry and restart must invalidate the old identity immediately. Cleanup precedes preparation/publication of a fresh distinct identity. Old and new directory rows may coexist after lost removal, but an old selected identity must be rejected before authority allocation, never redirected to the fresh session. An idle selected session may become lobby or first-round while setup is open; actual authority determines the admitted role and destination while the selected identity remains fixed. The service owns publication and its memory-only owner credential independently of the controller. Directory failure must not stop gameplay, direct joining or Local Play. The TLS frontend must be operator-configured valid DNS or concrete non-loopback unicast IPv4 with a valid separate port, never the private backend, wildcard, directory origin or fictional local interface. X.509 identity verification precedes common EC-JPAKE Password/No password operation without fallback. Outer TLS, protected PROXYv2 handoff and inner exchange share the single absolute 10-second attempt; no stage restarts the deadline and application framing always uses the inner channel. The controller cannot manage the operator password.
+
+NET-PUB-016 and NET-PUB-022 are retired; no hard-coded gameplay hostname or production prefill is required. Retired identifiers must not be reused. The public security policy remains authoritative in [network-trust-and-abuse-limits.md](network-trust-and-abuse-limits.md). Dedicated service and confirmed interruption behavior remains authoritative in [network-host-service-lifecycle.md](network-host-service-lifecycle.md). [Network deployments](network-deployments.md) distinguishes this repository extension from live operation and the separately approved directory deployment.
+
+### Public pilot acceptance criteria
+
+| Criterion | Required outcome | Requirements |
+|---|---|---|
+| **NET-PUB-AC-001** | A ready empty session has one advertised nonzero identity and zero participants/players, no controller and no round. Concurrent authorized first joins preserve that identity and produce exactly one controller at first committed admission; later joins enter the current lobby, immediate-play or Connected-waiting match as guests under NET-ADM-001–016. Offers, selection, rejected and cancelled admission grant no authority. The empty session cannot start a match. | NET-PUB-001–005, NET-PUB-024–025 |
+| **NET-PUB-AC-002** | Only the controller can change host-owned settings, order the roster, start, return to lobby, or end the session. Hosted 1–15 validity/ownership/readiness, NET-SOLO opposition/outcome and NET-ADM ongoing/waiting/final-closure rules apply after committed controller admission; dedicated End/Leave/expiry retains precedence. | NET-PUB-006–008, NET-SOLO-001–006, NET-ADM-001–016 |
+| **NET-PUB-AC-003** | Controller Leave ends the session. Normal controller application shutdown requests session end. Controller contact loss permits the existing 30-second restore to the same authority; expiry ends the session without migration. Guest departure retains existing behavior. | NET-PUB-009–012, NET-PUB-023 |
+| **NET-PUB-AC-004** | Ending, controller expiry or restart immediately invalidates the old session/result/authority before directory removal completes. After cleanup, a fresh distinct empty session/listing is prepared. Stale old selections reject before authority allocation without redirection. First admission, completed summary and same-session Return preserve the current session identity. | NET-PUB-013–015, NET-PUB-024 |
+| **NET-PUB-AC-005** | Direct dedicated setup remains unbound and accepts the operator endpoint. Selected dedicated setup binds hosting/security mode, frontend endpoint and expected nonzero identity through offer, confirmation, snapshot and reconnect grant. Credential correction or eligible Retry preserves that binding; endpoint changes require refreshed selection rather than overwriting it. Explicit Direct transition clears binding and secrets. No implicit connection, fallback or change to directory origin occurs; complete admission retains the single 10-second boundary. | NET-PUB-017–020, NET-PUB-024 |
+| **NET-PUB-AC-006** | Linux x86-64 and Windows x86-64 clients Browse to the Linux x86-64 dedicated service's ready empty session, complete first-controller admission, and exercise eligible solo Start, ongoing immediate/waiting admission, strict eligible spawn and final closure through lobby/match/completed summary, same-session Return and fresh reuse after End/cleanup. Current Local Play and player-hosted behavior remain available under their platform contracts. Updated Mac/Pi clients inspect dedicated rows but cannot join; no dedicated participation there is claimed. | NET-PUB-008, NET-PUB-021, NET-PUB-024–025, NET-ADM-001–016, NET-SOLO-001–006 |
+
 This document is the authoritative product target for issue [#28](https://github.com/mkapusnik-apps/duel6r/issues/28), a subtask of [#27](https://github.com/mkapusnik-apps/duel6r/issues/27). It defines approved first-release network-play scope and journeys, not implemented behavior. The current code remains an experimental scaffold with no playable network support, as documented in [`docs/networking.md`](networking.md). The enforced trusted-loopback/private-LAN deployment boundary and abuse limits are defined in [`docs/network-trust-and-abuse-limits.md`](network-trust-and-abuse-limits.md).
 
 The target network screens in [`docs/screens`](screens/README.md) implement this product specification. Existing local behavior remains governed by [`docs/features.md`](features.md), which intentionally makes no network-support claim.
@@ -39,18 +86,18 @@ All normative deadlines and precedence rules in this document are evaluated on t
 
 ## Directory and admission authority
 
-The [host directory contract](network-host-directory.md) owns listing, browsing, and optional password behavior. The ongoing admission and hosted solo-round requirements below own admission and participation during gameplay. These requirements supersede earlier first-round-only admission and two-player hosted-start restrictions in downstream documents. All other exclusions remain in force. LAN is the supported network environment; other valid IPv4 connections are permitted without an Internet reachability or performance guarantee. Local Play remains unchanged.
+The [host directory contract](network-host-directory.md) owns listing and browsing for both hosting modes, their consistent Password/No password metadata and common optional password procedure. NET-ADM-001–016 below own ongoing admission and spawn eligibility in both modes; phase and admission availability remain independent. These requirements replace earlier blanket exclusions of browsing, passwords, public IPv4 endpoints and join-in-progress in downstream documents. LAN is the supported player-hosted environment; other valid IPv4 connections are permitted without an Internet reachability or performance guarantee. Dedicated trusted server-identity verification remains mandatory, including No password. The invitation concept, option and wire envelope are retired under NET-PASS-018. Directory metadata and listing-owner authorization grant neither gameplay endpoint trust nor controller/operator authority.
 
 ## First-release scope matrix
 
 | Dimension | Supported target | Explicitly unsupported |
 |---|---|---|
-| Platforms | Linux x86-64, Windows x86-64, Raspberry Pi 5 Linux 64-bit under its platform contract, and experimental Apple Silicon macOS 14+ under its platform contract | Other operating systems and architectures |
+| Platforms | Current player-hosted platforms under their contracts; dedicated Linux x86-64 service with Linux x86-64 and Windows x86-64 clients | Other dedicated targets; blanket verified-platform claims |
 | Cross-platform play | Approved platforms using the same supported release and gameplay content; platform-specific acceptance boundaries apply | Other targets; blanket claims of verified interoperability |
-| Network environments | Same-machine and LAN support; other valid IPv4 connections permitted | Guaranteed Internet reachability or performance, NAT traversal, relays, public-service safety claims |
-| Connection method | IPv4 wildcard or explicit listening addresses; direct join; central host browser | Automatic LAN discovery, matchmaking |
-| Hosting | Player-hosted authoritative session | Dedicated server deployment and host migration |
-| Identity and access | Session-local participant identity; optional host password | Accounts, cloud identity, ranked identity |
+| Network environments | Same-machine and LAN support; other valid IPv4 connections permitted; encrypted dedicated pilot | Guaranteed Internet reachability or performance, NAT traversal, relays, public-service safety claims |
+| Connection method | IPv4 wildcard or explicit listening addresses; direct join; central mixed player-hosted/dedicated browser; operator-endpoint dedicated direct or bound join | Automatic LAN discovery, matchmaking |
+| Hosting | Player-hosted authoritative session; public dedicated pilot under NET-PUB | Other dedicated deployment and host migration |
+| Identity and access | Session-local participant identity; common optional Password in both hosting modes; mandatory dedicated X.509 endpoint verification | Accounts, cloud identity, ranked identity; retired invitation admission |
 | Lobby cardinality | 1–15 admitted participants and 1–15 roster players; a host-alone lobby is valid | Empty or over-capacity admitted lobby |
 | Match start | 1–15 connected participants and 1–15 roster players; each participant owns at least one player; existing readiness and validity checks | Starting with a disconnected guest or an ownerless participant |
 | Degraded match | One remaining roster player continues under hosted solo-round rules | Replacing an established outcome because of departure |
@@ -60,6 +107,8 @@ The [host directory contract](network-host-directory.md) owns listing, browsing,
 | Results | Session-only network results retained until a new match starts or the session ends | Local statistics or Elo writes |
 
 Lobby invariants are `1 <= admitted participants <= roster players <= 15`. Match start invariants are `1 <= connected participants <= roster players <= 15`, with every participant owning at least one player and every participant connected, valid, and ready. A started match continues with one remaining roster player under NET-SOLO-001 through NET-SOLO-006; that reduction alone is not an interruption.
+
+These hosted rules apply to player-hosted sessions and dedicated sessions after committed controller admission. Prepared dedicated idle remains zero-player/controllerless with no Start. Dedicated controller End, Leave and expiry override ordinary solo continuation. Local Play SET-006/SET-007 and its two-player minimum remain unchanged.
 
 Same-machine support means separate running instances communicating through the production transport. It does not wrap or alter the local-only Play journey.
 
@@ -255,6 +304,8 @@ Selected-profile appearance parity between network participants is outside first
 
 ### Guest connection
 
+Initial snapshot references mean the current authoritative lobby or match state under NET-ADM-011. Dedicated certificate verification, PROXYv2 and common inner password exchange share the same absolute connection deadline under NET-PUB-020; no stage restarts it.
+
 - Hostname/address and port validation remains inline in editable `NET-03`; invalid input does not begin the connection clock.
 - A connection attempt has one 10-second total deadline. It covers resolution, transport connection, compatibility, capacity, host admission, clock calibration, and current initial snapshot validation.
 - Production success must include exact final confirmation, valid host-clock calibration, and one complete current lobby or match snapshot, including waiting ownership when applicable.
@@ -293,7 +344,7 @@ All copy is fixed and non-disclosing. It never interpolates a peer-supplied rele
 
 ### Reconnect outcome precedence
 
-First release has no guest-observable unexpected host-termination signal. Loss of contact, silence, connection refusal, unreachable host, reset, timeout, host crash, host-machine loss, listener loss, temporary transport failure, or no response is ambiguous. None proves host end. Every such outcome keeps the guest in `NET-07` and permits retries against the original fixed 30-second deadline.
+Player-hosted sessions have no guest-observable unexpected host-termination signal. Dedicated terminal notices follow HSL-PUB. In either mode, loss of contact, silence, connection refusal, unreachable host, reset, timeout, host crash, host-machine loss, listener loss, temporary transport failure, or no response is ambiguous. None proves session end. Every such outcome keeps the participant in `NET-07` and permits retries against the original fixed 30-second deadline.
 
 When reconnect outcomes compete, apply this fixed precedence:
 
@@ -405,8 +456,8 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 
 - Guaranteed Internet play, NAT traversal, relays, firewall automation, automatic LAN discovery, or matchmaking.
 - Accounts, cloud identity, ranked networking, network Elo, or persistent network statistics.
-- Dedicated-server operation or packaging, host migration, new admission after the final-round outcome, or spectators.
-- A guest-observable unexpected host-termination signal; only intentional End session notice is guest-observable in first release.
+- Dedicated-server operation outside the approved pilot, host migration, new admission after the final-round outcome, or spectators.
+- A guest-observable unexpected player-host termination signal. Dedicated terminal notices follow HSL-PUB; transport loss alone remains ambiguous in both modes.
 - Cross-release or cross-content compatibility.
 - Compatibility checks for presentation-only assets, local persistence, local controls, or documentation.
 - Selected-profile appearance in a network match or remote profile appearance parity.
@@ -416,9 +467,9 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 
 - **NET-SET-AC-001 — Mode changes:** Switching from Team deathmatch with Friendly Fire on to Deathmatch and then Predator must apply valid non-team settings on host and guests. A subsequent setting edit must apply normally. Each configuration change must clear readiness. Returning to Team deathmatch must restore both Team preferences.
 - **NET-RES-AC-001 — Complete retained winners:** After Leave or reservation expiry during final summary, each completed outcome must preserve its complete winner identities. Affected result rows must show `Departed`. Returning directly to the lobby must exclude removed participants and their players from membership and readiness. Participants must be able to read every winner's complete display name and identity in the summary and retained lobby result, including multiwinner outcomes with supported maximum-length names.
-- **NET-AC-001 — Platform:** Linux x86-64, Windows x86-64, Raspberry Pi 5 Linux 64-bit under [its contract](raspberry-pi5.md), and Apple Silicon macOS 14+ under [its experimental contract](macos.md) are approved participation targets using the same supported release and gameplay content. This is not a blanket verified-platform claim. Native Mac automated acceptance is required after integration in `Develop - Sanity` and gates `sanity` and nightly publication, not pre-review or merge. Actual Mac GUI and live cross-OS gameplay are deferred to the user after merge/nightly under MAC-NET-AC-006.
+- **NET-AC-001 — Platform:** Linux x86-64, Windows x86-64, Raspberry Pi 5 Linux 64-bit under [its contract](raspberry-pi5.md), and Apple Silicon macOS 14+ under [its experimental contract](macos.md) are approved participation targets using the same supported release and gameplay content. This is not a blanket verified-platform claim. Native Mac automated acceptance is required after integration in `Develop - Sanity` and gates `sanity` and nightly publication, not pre-review or merge. Actual Mac GUI and live cross-OS gameplay are deferred to the user after merge/nightly under MAC-NET-AC-006. Dedicated participation remains limited to NET-PUB-AC-006.
 - **NET-AC-002 — Endpoints:** A host can use IPv4 wildcard mode or an explicit selected set of eligible assigned loopback, private, or public unicast IPv4 addresses. Direct and browser joining use concrete connectable endpoints and preserve LAN support without promising Internet reachability. Concrete-address exclusions and no network-infrastructure automation remain enforced.
-- **NET-AC-003 — Host model:** The session is player-hosted and authoritative, with no dedicated-server product path or host migration.
+- **NET-AC-003 — Host model:** A player-hosted session remains authoritative and has no host migration. The separate dedicated-pilot controller and service model must follow NET-PUB and HSL-PUB.
 - **NET-AC-004 — Lifecycle cardinality:** A lobby and hosted Start accept 1–15 participants and roster players, with all participants connected, valid, ready, and owning at least one player at Start. One remaining roster player continues under solo rules without interruption. Local Play is unchanged.
 - **NET-AC-005 — Ownership:** The host controls match settings and roster order. Each participant controls only the persons and controls assigned to its immutable admitted player slots. A person, control, or roster-order change does not change player identity or ownership. Authoritative input and state ownership are enforced.
 - **NET-AC-006 — Readiness:** Every participant must be connected, valid, and ready for initial Start, including solo Start without a new confirmation. Lobby admission/removal and permitted configuration changes clear all readiness. A disconnected guest retains prior readiness as `Reconnecting` but blocks Start by name. Reconnect restores it only absent later clearing mutations. Ongoing admission needs no second match-start vote.

@@ -66,9 +66,9 @@ namespace {
         const auto self = executablePath();
         if (self.empty() || !self.is_absolute()) return {};
 #ifdef D6R_TRANSPORT_WINDOWS
-        return (self.parent_path() / "duel6r-server.exe").u8string();
+        return (self.parent_path() / "duel6r.exe").u8string();
 #else
-        return (self.parent_path() / "duel6r-server").string();
+        return (self.parent_path() / "duel6r").string();
 #endif
     }
 }

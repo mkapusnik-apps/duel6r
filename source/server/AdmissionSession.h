@@ -42,7 +42,7 @@ namespace Duel6::Server {
 
     class SessionAllocation {
     public:
-        explicit SessionAllocation(std::uint8_t hostLocalPlayers, IdentitySource identities = {});
+        explicit SessionAllocation(std::uint8_t hostLocalPlayers, IdentitySource identities = {}, bool dedicated = false);
 
         AdmissionOffer reserveGuest(std::uint8_t localPlayers);
         bool commit(std::uint64_t transactionId);
@@ -72,6 +72,7 @@ namespace Duel6::Server {
         std::size_t players = 0;
         std::size_t pendingPlayers = 0;
         std::uint64_t hostId = 0;
+        bool dedicated = false;
     };
 
     class AdmissionPolicy {
@@ -79,7 +80,7 @@ namespace Duel6::Server {
         AdmissionPolicy(Network::GameplayManifest frozenHostManifest, std::uint8_t hostLocalPlayers,
                         IdentitySource identities = {},
                         std::shared_ptr<Network::Trust::ConcurrentWorkLimiter> workLimiter = {},
-                        ValidationWorkGate validationWorkGate = {});
+                        ValidationWorkGate validationWorkGate = {}, bool dedicated = false);
 
         Network::AdmissionResult evaluate(const Network::AdmissionRequest &request,
                                           AdmissionContext context = {});
@@ -87,7 +88,7 @@ namespace Duel6::Server {
                                                   AdmissionContext context = {});
         AdmissionOffer offer(const Network::AdmissionRequest &request, AdmissionContext context = {});
         AdmissionOffer offerPayload(const std::vector<std::uint8_t> &payload, AdmissionContext context = {});
-        bool commit(std::uint64_t transactionId, Network::Trust::ConnectionId connection);
+        bool commit(std::uint64_t transactionId, Network::Trust::ConnectionId connection, AdmissionContext context = {});
         bool rollback(std::uint64_t transactionId);
         void disconnect(Network::Trust::ConnectionId connection);
         bool reconnect(Network::Trust::ConnectionId connection, std::uint64_t participantId);
@@ -112,6 +113,8 @@ namespace Duel6::Server {
         ValidationWorkGate validationWorkGate;
         Network::Trust::AuthorizationPolicy authorization;
         bool matchStarted = false;
+        bool dedicated = false;
+        Network::Trust::ConnectionId dedicatedControllerConnection = 0;
         mutable std::mutex policyMutex;
     };
 }

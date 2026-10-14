@@ -27,7 +27,9 @@ namespace Duel6::Client {
                 return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
             });
         }
-        bool validCursor(const std::string &value) {
+        bool validCursor(const std::string &input, bool mixed = false) {
+            if (mixed && input.rfind("m2_", 0) != 0) return false;
+            const auto value = mixed ? input.substr(3) : input;
             const auto dash = value.find('-');
             return dash >= 1 && dash <= 16 && value.size() <= 49
                 && std::all_of(value.begin(), value.begin() + static_cast<std::ptrdiff_t>(dash),
@@ -39,11 +41,21 @@ namespace Duel6::Client {
             if (size != 1 || count > 65536 - body.size()) return 0;
             try { body.append(data, count); return count; } catch (...) { return 0; }
         }
-        DirectoryListing decode(const Json::Value &value) {
+        DirectoryListing decode(const Json::Value &value, bool mixed = false) {
             DirectoryListing row;
             row.id = value.get("id").asString(); row.sessionId = value.get("sessionId").asString();
             row.mode = value.get("mode").asString(); row.phase = value.get("phase").asString();
             row.endpoint.host = value.get("address").asString();
+            row.passwordRequired = value.get("passwordRequired").asBoolean();
+            if (mixed) {
+                row.hosting = value.get("hosting").asString();
+                row.protection = value.get("protection").asString();
+                row.admission = value.get("admission").asString();
+                if ((row.hosting != "player-hosted" && row.hosting != "dedicated")
+                    || row.protection != (row.passwordRequired ? "password" : "none")
+                    || (row.admission != "open" && row.admission != "closed" && row.admission != "full" && row.admission != "busy"))
+                    throw std::invalid_argument("Invalid directory classification.");
+            } else row.protection = row.passwordRequired ? "password" : "none";
             const auto integer = [&](const char *key) {
                 const double number = value.get(key).asDouble();
                 if (!std::isfinite(number) || std::floor(number) != number || number < 0 || number > 2147483647)
@@ -53,15 +65,20 @@ namespace Duel6::Client {
             const int port = integer("port");
             const int players = integer("players"), capacity = integer("capacity");
             if (!hex(row.id) || !hex(row.sessionId) || row.sessionId == std::string(32, '0') || port < 1 || port > 65535
-                || players < 1 || capacity < players || capacity > 15
-                || Network::Trust::classifyIpv4Literal(row.endpoint.host) == Network::Trust::EndpointScope::Unsupported
-                || Network::Trust::classifyIpv4Literal(row.endpoint.host) == Network::Trust::EndpointScope::Invalid
+                || players < (row.dedicated() && row.phase == "idle" ? 0 : 1) || capacity < 1 || capacity < players || capacity > 15
+                || (row.dedicated() ? !Network::PublicSession::validDirectoryFrontend(row.endpoint.host)
+                    : Network::Trust::classifyIpv4Literal(row.endpoint.host) == Network::Trust::EndpointScope::Unsupported
+                        || Network::Trust::classifyIpv4Literal(row.endpoint.host) == Network::Trust::EndpointScope::Invalid)
                 || (row.mode != "deathmatch" && row.mode != "predator" && row.mode != "teams")
-                || (row.phase != "lobby" && row.phase != "first-round" && row.phase != "started"
-                    && row.phase != "final-round" && row.phase != "closed"))
+                || (row.phase != "lobby" && row.phase != "first-round" && row.phase != "started" && row.phase != "final-round" && row.phase != "closed"
+                    && !(row.dedicated() && (row.phase == "idle" || row.phase == "reserved" || row.phase == "cleanup")))
+                || (mixed && ((row.admission == "open" && players >= capacity)
+                    || (row.admission == "full" && players != capacity)
+                    || (row.phase == "idle" && (players != 0 || row.admission != "open"))
+                    || ((row.phase == "closed" || row.phase == "reserved") && row.admission != "closed")
+                    || ((row.phase == "cleanup") != (row.admission == "busy")))))
                 throw std::invalid_argument("Invalid directory response.");
             row.endpoint.port = static_cast<std::uint16_t>(port); row.players = players; row.capacity = capacity;
-            row.passwordRequired = value.get("passwordRequired").asBoolean();
             row.expiresAt = value.get("expiresAt").asDouble();
             if (!std::isfinite(row.expiresAt) || row.expiresAt < 0 || row.expiresAt > 253402300799999.0)
                 throw std::invalid_argument("Invalid directory response.");
@@ -98,19 +115,55 @@ namespace Duel6::Client {
         }
         std::string encode(const DirectoryListing &row) {
             // Only validated local fields and fixed enumerations enter this serializer.
-            if (!hex(row.sessionId) || row.endpoint.host.find_first_not_of("0123456789.") != std::string::npos
-                || (row.phase != "lobby" && row.phase != "first-round" && row.phase != "started"
-                    && row.phase != "final-round" && row.phase != "closed")
+            if (!hex(row.sessionId) || row.sessionId == std::string(32, '0')
+                || (row.hosting != "player-hosted" && row.hosting != "dedicated")
+                || row.endpoint.port == 0 || row.capacity < 1 || row.capacity > 15 || row.players > row.capacity
+                || row.players < (row.dedicated() && row.phase == "idle" ? 0u : 1u)
+                || row.protection != (row.passwordRequired ? "password" : "none")
+                || (row.dedicated() && ((row.admissionState() != "open" && row.admissionState() != "full"
+                        && row.admissionState() != "closed" && row.admissionState() != "busy")
+                    || (row.phase == "idle" && (row.players != 0 || row.admissionState() != "open"))
+                    || ((row.phase == "reserved" || row.phase == "closed") && row.admissionState() != "closed")
+                    || ((row.phase == "cleanup") != (row.admissionState() == "busy"))
+                    || (row.admissionState() == "open" && row.players >= row.capacity)
+                    || (row.admissionState() == "full" && row.players != row.capacity)))
+                || (row.dedicated() ? !Network::PublicSession::validDirectoryFrontend(row.endpoint.host)
+                    : row.endpoint.host.find_first_not_of("0123456789.") != std::string::npos)
+                || (row.phase != "lobby" && row.phase != "first-round" && row.phase != "started" && row.phase != "final-round" && row.phase != "closed"
+                    && !(row.dedicated() && (row.phase == "idle" || row.phase == "reserved" || row.phase == "cleanup")))
                 || (row.mode != "deathmatch" && row.mode != "predator" && row.mode != "teams")) return {};
             return "{\"sessionId\":\"" + row.sessionId + "\",\"address\":\"" + row.endpoint.host
                 + "\",\"port\":" + std::to_string(row.endpoint.port) + ",\"mode\":\"" + row.mode
                 + "\",\"players\":" + std::to_string(row.players) + ",\"capacity\":" + std::to_string(row.capacity)
                 + ",\"passwordRequired\":" + (row.passwordRequired ? "true" : "false")
-                + ",\"phase\":\"" + row.phase + "\"}";
+                + ",\"phase\":\"" + row.phase + "\""
+                + (row.dedicated() ? ",\"hosting\":\"dedicated\",\"protection\":\"" + row.protection
+                    + "\",\"admission\":\"" + row.admissionState() + "\"" : "") + "}";
         }
     }
     std::string directorySessionId(std::uint64_t id) {
         std::ostringstream out; out << std::hex << std::setfill('0') << std::setw(32) << id; return out.str();
+    }
+    bool directoryOriginMatchesFrontend(const std::string &origin, const Network::Endpoint &frontend) {
+        // Use the same maintained URL parser as HTTP, not a second URL grammar or
+        // textual port comparison. No transfer, resolution or trust lookup occurs.
+        std::unique_ptr<CURLU, decltype(&curl_url_cleanup)> url(curl_url(), curl_url_cleanup);
+        if (!url || curl_url_set(url.get(), CURLUPART_URL, origin.c_str(), 0) != CURLUE_OK) return false;
+        char *rawHost = nullptr, *rawPort = nullptr;
+        const auto hostStatus = curl_url_get(url.get(), CURLUPART_HOST, &rawHost, 0);
+        const auto portStatus = curl_url_get(url.get(), CURLUPART_PORT, &rawPort, CURLU_DEFAULT_PORT);
+        std::unique_ptr<char, decltype(&curl_free)> host(rawHost, curl_free), port(rawPort, curl_free);
+        if (hostStatus != CURLUE_OK || portStatus != CURLUE_OK || !host || !port) return false;
+        std::string originHost(host.get()), frontendHost(frontend.host);
+        const auto lower = [](unsigned char c) { return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c; };
+        std::transform(originHost.begin(), originHost.end(), originHost.begin(), lower);
+        std::transform(frontendHost.begin(), frontendHost.end(), frontendHost.begin(), lower);
+        try {
+            std::size_t consumed = 0;
+            const std::string numericPort(port.get());
+            const auto effectivePort = std::stoul(numericPort, &consumed, 10);
+            return consumed == numericPort.size() && effectivePort == frontend.port && originHost == frontendHost;
+        } catch (...) { return false; }
     }
     DirectoryResponse directoryRequest(const std::string &method, const std::string &path,
                                        const std::string &body, const std::string &owner, unsigned revision,
@@ -169,30 +222,32 @@ namespace Duel6::Client {
     }
     DirectoryPage directoryPage(const std::string &cursor) {
         DirectoryPage page;
-        if (!cursor.empty() && !validCursor(cursor)) return page;
-        const auto response = directoryRequest("GET", "/v1/listings" + (cursor.empty() ? "" : "?cursor=" + cursor));
+        if (!cursor.empty() && !validCursor(cursor, true)) return page;
+        const auto response = directoryRequest("GET", "/v2/listings" + (cursor.empty() ? "" : "?cursor=" + cursor));
         if (response.status != 200) return page;
-        return decodeDirectoryPage(response.body, cursor);
+        return decodeDirectoryPage(response.body, cursor, true);
     }
-    DirectoryPage decodeDirectoryPage(const std::string &body, const std::string &cursor) {
+    DirectoryPage decodeDirectoryPage(const std::string &body, const std::string &cursor, bool mixed) {
         DirectoryPage page;
         try {
             const auto value = parse(body), rows = value.get("listings");
+            if (mixed && value.get("contract").asString() != "mixed-v2") return page;
+            if (!cursor.empty() && !validCursor(cursor, mixed)) return page;
             if (rows.getLength() > 25) return page;
             std::set<std::string> identifiers;
             for (Size index = 0; index < rows.getLength(); ++index) {
-                auto row = decode(rows.get(index));
+                auto row = decode(rows.get(index), mixed);
                 if (!identifiers.insert(row.id).second) return {};
                 page.listings.push_back(std::move(row));
             }
             const auto next = value.get("nextCursor");
             if (next.getType() != Json::Value::Type::Null) {
                 page.nextCursor = next.asString();
-                if (!validCursor(page.nextCursor)) return {};
+                if (!validCursor(page.nextCursor, mixed)) return {};
                 if (!cursor.empty()) {
-                    if (!validCursor(cursor)) return {};
-                    const auto priorExpiry = std::stoull(cursor.substr(0, cursor.find('-')));
-                    const auto nextExpiry = std::stoull(page.nextCursor.substr(0, page.nextCursor.find('-')));
+                    const auto offset = mixed ? 3 : 0;
+                    const auto priorExpiry = std::stoull(cursor.substr(offset, cursor.find('-') - offset));
+                    const auto nextExpiry = std::stoull(page.nextCursor.substr(offset, page.nextCursor.find('-') - offset));
                     if (nextExpiry < priorExpiry || (nextExpiry == priorExpiry
                         && page.nextCursor.substr(page.nextCursor.find('-') + 1) <= cursor.substr(cursor.find('-') + 1))) return {};
                 }
@@ -240,7 +295,7 @@ namespace Duel6::Client {
         Impl(std::atomic<bool> &published, std::atomic<bool> &pending, std::atomic<Clock::time_point> &validUntil)
             : published(published), pending(pending), validUntil(validUntil) {}
         void run() {
-            std::string id, owner, previous;
+            std::string id, owner, session, collection;
             unsigned revision = 0;
             auto next = Clock::now();
             for (;;) {
@@ -251,15 +306,23 @@ namespace Duel6::Client {
                     if (stopping) break;
                     listing = desired; dirty = false;
                 }
-                const auto candidate = Network::publicationAddress(
+                const auto candidate = listing.dedicated() ? std::optional<std::string>(listing.endpoint.host) : Network::publicationAddress(
                         coverage.empty() ? std::vector<std::string>{listing.endpoint.host} : coverage,
                         dependencies.listeningAddresses());
                 if (candidate) listing.endpoint.host = *candidate;
                 const auto body = candidate ? encode(listing) : std::string();
+                if (!id.empty() && session != listing.sessionId) {
+                    // Old admission identity is already invalid in the authority.
+                    // Lost removal expires normally; never reuse its owner on a new session.
+                    (void) dependencies.request("DELETE", collection + "/" + id, {}, owner, revision, &stopping);
+                    id.clear(); Network::Trust::secureEraseMemory(owner.data(), owner.size()); owner.clear();
+                    published.store(false);
+                }
+                collection = listing.dedicated() ? "/v2/listings" : "/v1/listings";
                 if (body.empty()) {
                     published.store(false);
                     if (!id.empty()) {
-                        const auto removal = dependencies.request("DELETE", "/v1/listings/" + id, {}, owner, revision, &stopping);
+                        const auto removal = dependencies.request("DELETE", collection + "/" + id, {}, owner, revision, &stopping);
                         if (removal.status == 200 || removal.status == 204 || removal.status == 404) {
                             id.clear(); Network::Trust::secureEraseMemory(owner.data(), owner.size()); owner.clear();
                         }
@@ -270,18 +333,25 @@ namespace Duel6::Client {
                 const auto attempted = Clock::now();
                 pending.store(true);
                 auto response = dependencies.request(id.empty() ? "POST" : "PUT",
-                    id.empty() ? "/v1/listings" : "/v1/listings/" + id, body, owner, revision, &stopping);
+                    id.empty() ? collection : collection + "/" + id, body, owner, revision, &stopping);
                 bool success = false;
                 try {
                     if (response.status == 200 || response.status == 201) {
                         const auto value = parse(response.body);
-                        const auto row = decode(value);
-                        if (row.sessionId != listing.sessionId) throw std::invalid_argument("Invalid listing.");
+                        const auto row = decode(value, listing.dedicated());
+                        if (row.sessionId != listing.sessionId || row.endpoint.host != listing.endpoint.host
+                            || (!id.empty() && (row.id != id || row.revision != revision + 1))
+                            || (id.empty() && row.revision != 1)
+                            || row.endpoint.port != listing.endpoint.port || row.hosting != listing.hosting
+                            || row.passwordRequired != listing.passwordRequired || row.phase != listing.phase
+                            || row.players != listing.players || row.capacity != listing.capacity || row.mode != listing.mode
+                            || (listing.dedicated() && row.admission != listing.admissionState()))
+                            throw std::invalid_argument("Invalid listing.");
                         if (id.empty()) {
                             owner = value.get("ownerToken").asString();
                             if (!hex(owner, 64)) throw std::invalid_argument("Invalid listing.");
                         }
-                        id = row.id; revision = row.revision; success = true;
+                        id = row.id; session = row.sessionId; revision = row.revision; success = true;
                     }
                 } catch (...) {}
                 Network::Trust::secureEraseMemory(response.body.data(), response.body.size());
@@ -299,7 +369,7 @@ namespace Duel6::Client {
                 pending.store(dirty);
                 changed.wait_for(lock, std::chrono::seconds(1), [&] { return stopping.load(); });
             }
-            if (!id.empty()) (void) dependencies.request("DELETE", "/v1/listings/" + id, {}, owner, revision, nullptr);
+            if (!id.empty()) (void) dependencies.request("DELETE", collection + "/" + id, {}, owner, revision, nullptr);
             Network::Trust::secureEraseMemory(owner.data(), owner.size());
             published.store(false);
             pending.store(false);
@@ -310,6 +380,12 @@ namespace Duel6::Client {
         impl->coverage = std::move(listeningCoverage);
         if (!dependencies.listeningAddresses) dependencies.listeningAddresses = Network::Trust::localListenerAddresses;
         if (!dependencies.request) dependencies.request = directoryRequest;
+        auto request = std::move(dependencies.request);
+        dependencies.request = [request = std::move(request)](const auto &method, const auto &path, const auto &body,
+                const auto &owner, unsigned revision, const std::atomic<bool> *cancelled) {
+            try { return request(method, path, body, owner, revision, cancelled); }
+            catch (...) { return DirectoryResponse{}; }
+        };
         impl->dependencies = std::move(dependencies);
     }
     DirectoryPublisher::~DirectoryPublisher() { stop(); }

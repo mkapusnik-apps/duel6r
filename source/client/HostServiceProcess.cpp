@@ -120,6 +120,7 @@ namespace Duel6::Client {
         std::vector<std::string> serverArguments(const HostServiceStartConfig &config) {
             std::vector<std::string> arguments{
                     config.serverExecutable,
+                    "--server",
                     "--transport",
                     "--host=" + config.endpoint.host,
                     "--port=" + std::to_string(config.endpoint.port),

@@ -27,9 +27,9 @@ NET-02-P preserves the current separate progress presentation. It does not intro
 - The screen must retain Port, Listening interface, Persons, Local players and controls, and its existing footer.
 - Listening interface must present the eligible loopback, assigned private, and assigned public unicast IPv4 choices defined by NET-HOST-IF-002–003.
 - Public address scope must not imply guaranteed Internet reachability.
-- A field labeled `Password (optional)` must follow Listening interface.
+- A field labeled `Password` must follow Listening interface.
 - The password field must use the full endpoint-field width.
-- Help below the field must say `Leave empty for no password.`
+- Help below the field must say `Password optional`.
 - The field must mask entered characters.
 - The initial password field must be empty.
 - The UI must not place a password in a heading, status line, directory row, or endpoint.
@@ -108,7 +108,13 @@ The popup ends above the local-player count and validation region. It can cover 
 
 Focused QA must also cover first explicit initialization, later mode restoration, a newly eligible unchecked address, stale-selection clearing, return focus, popup opening-input protection, maximum local slots, long names/control labels, invalid Port, and Cancel/Edit setup retention. Product criteria NET-HOST-IF-AC-001–007 and HSL-AC-019 own bind success, atomic cleanup, and reset behavior; screenshots alone cannot prove them. NET-04 owns publication-unavailable feedback and keeps its existing wireframes.
 
-## Hosted solo capacity
+## Hosted solo capacity and common Password
 
-- **UX-NET-02-046** Editable NET-02 and both listening-popup states must show `Match 1–15` in the existing capacity allocation, preserving `Lobby 1–15`, current local-player count, and existing controls. No region or input target changes are required.
-- **UX-NET-02-047** The current NET-02, NET-02-LA, and NET-02-LE representatives use one valid local player with a valid control and real eligible listening addresses. Popup mode/checkbox/focus behavior remains unchanged. NET-02-P and all unrelated wireframes remain byte-for-byte unchanged. Capture is pending in the [hosted solo/ongoing matrix](../screenshots/README.md#hosted-solo-start-and-ongoing-joining).
+Product-owned NET-SOLO and NET-PASS determine available startup and secret behavior. These requirements compose the current develop capacity presentation without changing listening, startup, or Local Play rules.
+
+- **UX-NET-02-046** Editable NET-02 and both listening-popup states must show `Match 1–15` in the existing capacity allocation while preserving Lobby 1–15 and the current local-player count.
+- **UX-NET-02-047** The representatives must use one valid local player/control and real eligible listening addresses without changing popup behavior or input targets.
+- Common Password entry must retain product-owned UTF-8, byte-limit, whole-event rejection, masking, and context-erasure behavior.
+- Password rejection feedback must remain secret-free in the existing validation region.
+
+NET-02, NET-02-LA, and NET-02-LE change only the required capacity/Password text. NET-02-P and every unrelated diagram remain unchanged. The coordinated matrix replaces the old capacity representatives without a separate host-setup campaign.

@@ -14,7 +14,75 @@
 #include "source/client/ConnectionPlan.h"
 #include "source/network/NetworkTrustPolicy.h"
 #include "source/network/SessionTransport.h"
+#include "source/network/PublicSession.h"
 #include "source/network/ListeningSelection.h"
+#include "source/server/DedicatedService.h"
+#include "source/server/ServerConfig.h"
+#include "source/network/HostCompositionProtocol.h"
+#include <filesystem>
+#include <fstream>
+#if defined(__linux__)
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
+D6R_TEST_CASE("common Password replaces retired Invite input with exact UTF8 space and byte bounds") {
+    using Duel6::Network::SessionPassword;
+    D6R_REQUIRE(SessionPassword::valid(""));
+    D6R_REQUIRE(SessionPassword::valid(" leading and trailing "));
+    D6R_REQUIRE(SessionPassword::valid(u8"é雪"));
+    D6R_REQUIRE(SessionPassword::valid(std::string(128, 'x')));
+    for (const auto &invalid : {std::string(129, 'x'), std::string("a\nb"), std::string("a\0b", 3),
+                               std::string("\xc2\x85"), std::string("\xed\xa0\x80")})
+        D6R_REQUIRE(!SessionPassword::valid(invalid));
+}
+
+D6R_TEST_CASE("common Password settings updates contain no password while initial owned startup IPC retains it") {
+    namespace H = Duel6::Network::HostComposition;
+    H::Setup setup; setup.localPlayerNames = {"Host"};
+    const std::string value = u8" private-é-only ";
+    const std::vector<std::uint8_t> needle(value.begin(), value.end());
+    setup.password = std::make_shared<Duel6::Network::SessionPassword>(value);
+    const auto startup = H::serializeSetup(setup), update = H::serializeSetupUpdate(setup);
+    D6R_REQUIRE(std::search(startup.begin(), startup.end(), needle.begin(), needle.end()) != startup.end());
+    D6R_REQUIRE(std::search(update.begin(), update.end(), needle.begin(), needle.end()) == update.end());
+    const auto decoded = H::deserialize(update);
+    D6R_REQUIRE(decoded && decoded->setup && !decoded->setup->password);
+    auto illegal = startup; illegal[6] = 0; illegal[7] = static_cast<std::uint8_t>(H::Kind::UpdateSetup);
+    D6R_REQUIRE(!H::deserialize(illegal));
+}
+
+D6R_TEST_CASE("dedicated Password protected file validates empty exact data and rejects unsafe malformed retired configuration") {
+#if defined(__linux__) && defined(D6R_PUBLIC_DEDICATED)
+    using namespace Duel6;
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() / ("d6r-password-" + std::to_string(getpid()));
+    fs::create_directories(root);
+    struct Cleanup { fs::path root; ~Cleanup() { fs::remove_all(root); } } cleanup{root};
+    D6R_REQUIRE(!Server::loadPassword("")->required());
+    const auto path = root / "password";
+    const auto write = [&](const std::string &value) {
+        { std::ofstream file(path, std::ios::binary); file.write(value.data(), value.size()); }
+        D6R_REQUIRE(chmod(path.c_str(), 0600) == 0);
+    };
+    for (const std::string &value : {std::string(), std::string(u8" leading-é trailing "), std::string(128, 'x')}) {
+        write(value); auto stored = Server::loadPassword(path.string());
+        D6R_REQUIRE(std::string(stored->value()) == value);
+    }
+    for (const std::string &value : {std::string(129, 'x'), std::string("\n"), std::string("a\0b", 3),
+                                    std::string("\xc3"), std::string("\xc2\x85")}) {
+        write(value); D6R_REQUIRE_THROW(Server::loadPassword(path.string()), std::runtime_error);
+    }
+    write("valid"); D6R_REQUIRE(chmod(path.c_str(), 0644) == 0);
+    D6R_REQUIRE_THROW(Server::loadPassword(path.string()), std::runtime_error);
+    D6R_REQUIRE_THROW(Server::loadPassword((root / "missing").string()), std::runtime_error);
+    fs::create_symlink(path, root / "link");
+    D6R_REQUIRE_THROW(Server::loadPassword((root / "link").string()), std::runtime_error);
+    std::string program = "server", retired = "--invite-file=retired";
+    char *args[]{program.data(), retired.data()};
+    D6R_REQUIRE_THROW(Server::parseServerConfig(2, args), std::invalid_argument);
+#endif
+}
 
 namespace {
     using namespace Duel6;
@@ -293,7 +361,8 @@ D6R_TEST_CASE("local play planning stays loopback only while remote endpoint is 
     local.localEndpoint = {"0.0.0.0", 27660};
     const auto localPlan = Client::createConnectionPlan(local);
     D6R_REQUIRE_EQ("127.0.0.1", localPlan.endpoint.host);
-    D6R_REQUIRE_EQ("--host=127.0.0.1", localPlan.localServerArguments.at(2));
+    D6R_REQUIRE_EQ("--server", localPlan.localServerArguments.at(1));
+    D6R_REQUIRE_EQ("--host=127.0.0.1", localPlan.localServerArguments.at(3));
 
     Network::ClientConnectionConfig remote;
     remote.mode = Network::ConnectionMode::RemoteServer;

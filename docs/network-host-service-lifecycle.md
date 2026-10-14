@@ -16,6 +16,33 @@ Local Play remains subject to [`features.md`](features.md). This document does n
 
 ## Terms
 
+The ownership, supervision, and orphan-prevention rules in the player-hosted sections below apply only to player-hosted operation. For the public pilot, the operator owns the service and the first admitted participant controls the session under NET-PUB. A dedicated participant must not launch, adopt, stop, or supervise the remote service process. Both modes retain the current round-one admission, service-authoritative clock and recovery contracts unless HSL-PUB states a difference. The common optional Password and protected-secret contract is NET-PASS-001–018 in [network-host-directory.md](network-host-directory.md).
+
+### Dedicated service lifecycle
+
+- **HSL-PUB-001** While its environment is running, a dedicated service must remain available for a new session after an ended session completes cleanup.
+- **HSL-PUB-002** Public readiness must require validated secure admission availability, operator password configuration under NET-PASS-014–016 and gameplay content plus one prepared empty session with a nonzero identity, zero participants/players, no controller and no round. No file or a valid empty file permits No password; a supplied invalid file must fail before readiness/publication without fallback. Readiness and directory publication must precede first admission without requiring a controller. Failed startup must not publish or admit participants.
+- **HSL-PUB-003** A controller's confirmed End session must end only the current session, not the environment's service.
+- **HSL-PUB-004** The service must reject admission while session cleanup or deployment shutdown is in progress.
+- **HSL-PUB-005** An accepted intentional controller End notice must use the existing `NET-09` outcome for other participants.
+- **HSL-PUB-012** A service-confirmed session end requested by normal controller application shutdown must use the intentional controller-end outcome; unconfirmed shutdown must remain ambiguous to other participants.
+- **HSL-PUB-006** A confirmed service notice of controller reservation expiry must enter `NET-08` with `Session ended because the controller did not reconnect.`
+- **HSL-PUB-007** A confirmed service notice of deployment or rollback interruption must enter `NET-08` with `Session ended for service maintenance. Connect again to start or join a new session.`
+- **HSL-PUB-008** Outcomes in HSL-PUB-006 and HSL-PUB-007 must disable reconnect Retry and permit Edit setup and Return to Network.
+- **HSL-PUB-009** A client without a confirmed terminal notice must use the existing ambiguous-loss reconnect behavior and fixed deadline.
+- **HSL-PUB-010** A client must not describe a fresh admission after maintenance as restoration of the previous session.
+- **HSL-PUB-011** A failed or incomplete dedicated startup must not report readiness or accept session admission.
+- **HSL-PUB-013** A shutdown signal or transport closure alone must not establish deployment, rollback, controller departure, or another terminal reason for a client.
+
+SIGTERM interruption is permitted. Delivery of a maintenance notice is not required for shutdown completion. HSL-PUB-007 applies only when an authenticated service notice explicitly establishes maintenance; absent that notice, HSL-PUB-009 applies. Neither the endpoint name nor a recent deployment attempt proves a termination reason to the client.
+
+| Criterion | Required outcome | Requirements |
+|---|---|---|
+| **HSL-PUB-AC-001** | An empty secure service reports readiness and publishes only after its validated nonzero empty session is prepared, without a controller or round. Failed startup publishes nothing and admits nobody. First committed admission preserves that identity. End/expiry/restart immediately invalidates old identity; cleanup precedes a fresh distinct empty session/listing, independently of old listing removal. Existing confirmed terminal causes and the fixed 30-second controller reservation remain unchanged; participants never own process supervision or publication actions. | HSL-PUB-001–004, HSL-PUB-011; NET-PUB-002/014/024–025; NET-DIR-025–031 |
+
+The service owns its directory publisher and memory-only listing-owner credential independently of controller presence. An orderly session end/service shutdown attempts listing removal; failed removal uses directory lease expiry without keeping the ended identity admissible. Cleanup must complete before preparing/publishing the next distinct empty session. Publication failure is observable to the operator and uses bounded service retries without ending gameplay, blocking direct/Local Play or requiring session restart. It grants no controller Retry publication right. A selected old identity must reject before authority allocation even while its old unexpired row coexists with the fresh listing. Directory outcomes do not replace the confirmed-cause/ambiguous-loss rules below.
+| **HSL-PUB-AC-002** | Confirmed controller end, including a received normal-shutdown request, and controller expiry produce their distinct destinations and copy. An authenticated maintenance notice, when supplied, uses the maintenance outcome. SIGTERM or abrupt interruption without a terminal notice retains ambiguous reconnect until a terminal response or the original deadline. Fresh admission is not presented as restoration. | HSL-PUB-005–010, HSL-PUB-012–013 |
+
 - **Host application:** The game instance in which the host starts and controls a player-hosted session.
 - **Hosted service:** The separate service that owns the authoritative session and its listening endpoint.
 - **Owned service:** A hosted service that the host application started and must supervise until final cleanup.
@@ -241,7 +268,7 @@ These requirements assume the operating system honors termination. The existing 
 
 ## Secret and configuration handling
 
-First release introduces no startup password, authentication token, certificate, or reconnect credential.
+Both hosting modes must follow NET-PASS-001–018 for common Password handling; dedicated operation additionally retains TRU-PUB certificate verification and protected handoff. The earlier no-startup-password exclusion does not apply to this approved procedure. Dedicated configuration is loaded once before readiness/publication, remains static across fresh service sessions and changes only through operator restart; controllers cannot manage it. Restart invalidates old identities and reconnect credentials. Password values never enter process arguments, environment variables or diagnostics; only the protected operator file is the limited configuration persistence exception. Channel state retained for reserved reconnect is erased at final disposal and never substitutes for the scoped reconnect credential.
 
 The host application may provide only validated, non-secret startup configuration to the hosted service. It must not place a secret in startup arguments.
 
@@ -249,7 +276,7 @@ The product must not place a secret in an environment value, generated command, 
 
 Future issue #36 reconnect credentials must not become startup configuration. The hosted service must create and manage them under the trust policy.
 
-If a later approved feature requires a host-service secret, that feature must define a separate safe transfer contract before implementation.
+The approved player-host password path uses its protected transfer contract. This document does not authorize another host-service secret transfer mechanism.
 
 ## Local Play independence
 
@@ -283,12 +310,12 @@ The affected target states are `NET-02` and `NET-08`. This document does not cha
 ## Non-goals
 
 - Graphical implementation of `NET-02`, `NET-04`, or `NET-08`.
-- Dedicated-server startup, packaging, operation, or adoption.
+- Dedicated-server process adoption or supervision by a participant. HSL-PUB owns the operator-run pilot lifecycle.
 - Automatic service restart or restoration of an ended session.
 - Host migration.
 - Guest reconnect implementation or reconnect credential exchange.
 - Gameplay simulation, replication, remote input, scoring, or persistence implementation.
-- Internet, NAT traversal, discovery, matchmaking, accounts, authentication, encryption, or public hosting.
+- NAT traversal, automatic LAN discovery, matchmaking, accounts, and general Internet-safety claims. NET-DIR, NET-PASS, and TRU-PUB own approved browsing and secret protection.
 - Changes to Local Play.
 - A playable-networking or release-readiness claim.
 

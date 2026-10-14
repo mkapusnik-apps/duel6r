@@ -31,22 +31,46 @@ function validAddress(address) {
 }
 
 export function validateListing(value) {
-  requireValue(exactKeys(value, ['sessionId', 'address', 'port', 'mode', 'players', 'capacity', 'passwordRequired', 'phase']));
-  requireValue(typeof value.sessionId === 'string' && idPattern.test(value.sessionId));
-  requireValue(validAddress(value.address));
+  const legacy = ['sessionId', 'address', 'port', 'mode', 'players', 'capacity', 'passwordRequired', 'phase'];
+  const old = exactKeys(value, legacy);
+  requireValue(old || exactKeys(value, [...legacy, 'hosting', 'protection', 'admission']));
+  requireValue(typeof value.sessionId === 'string' && idPattern.test(value.sessionId) && value.sessionId !== '0'.repeat(32));
+  const hosting = old ? 'player-hosted' : value.hosting;
+  requireValue(['player-hosted', 'dedicated'].includes(hosting));
+  const dedicated = hosting === 'dedicated';
+  requireValue(dedicated ? validFrontend(value.address) : validAddress(value.address));
   requireValue(Number.isInteger(value.port) && value.port >= 1 && value.port <= 65535);
   requireValue(['deathmatch', 'predator', 'teams'].includes(value.mode));
   requireValue(Number.isInteger(value.capacity) && value.capacity >= 1 && value.capacity <= 15);
-  requireValue(Number.isInteger(value.players) && value.players >= 1 && value.players <= value.capacity);
+  requireValue(Number.isInteger(value.players) && value.players >= (dedicated && value.phase === 'idle' ? 0 : 1) && value.players <= value.capacity);
   requireValue(typeof value.passwordRequired === 'boolean');
-  requireValue(['lobby', 'first-round', 'started', 'final-round', 'closed'].includes(value.phase));
-  return { ...value };
+  const protection = old ? (value.passwordRequired ? 'password' : 'none') : value.protection;
+  const admission = old ? (value.phase === 'closed' ? 'closed' : value.players === value.capacity ? 'full' : 'open') : value.admission;
+  requireValue(protection === (value.passwordRequired ? 'password' : 'none'));
+  requireValue((dedicated ? ['idle', 'lobby', 'first-round', 'started', 'final-round', 'closed', 'reserved', 'cleanup'] : ['lobby', 'first-round', 'started', 'final-round', 'closed']).includes(value.phase));
+  requireValue(['open', 'full', 'closed', 'busy'].includes(admission));
+  requireValue(admission !== 'open' || value.players < value.capacity);
+  requireValue(admission !== 'full' || value.players === value.capacity);
+  requireValue(value.phase !== 'idle' || (value.players === 0 && admission === 'open'));
+  requireValue(value.phase !== 'reserved' || admission === 'closed');
+  requireValue(value.phase !== 'closed' || admission === 'closed');
+  requireValue((value.phase === 'cleanup') === (admission === 'busy'));
+  return { ...value, hosting, protection, admission };
+}
+
+export function validFrontend(address) {
+  if (typeof address !== 'string' || address.length > 253 || !address.length || address.toLowerCase() === 'localhost') return false;
+  if (/^[0-9.]+$/.test(address)) return validAddress(address) && Number(address.split('.')[0]) !== 127;
+  return address.split('.').every(label => label.length >= 1 && label.length <= 63
+    && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label));
 }
 
 function digest(value) { return createHash('sha256').update(value).digest('hex'); }
 
-function publicListing(id, data) {
-  return { id, ...validateListing(data.listing), expiresAt: data.expiresAt, revision: data.revision };
+function publicListing(id, data, mixed = true) {
+  const listing = validateListing(data.listing);
+  if (!mixed) { delete listing.hosting; delete listing.protection; delete listing.admission; }
+  return { id, ...listing, expiresAt: data.expiresAt, revision: data.revision };
 }
 
 export class Directory {
@@ -75,8 +99,9 @@ export class Directory {
     }, { maxAttempts: 3 });
   }
 
-  async register(input) {
+  async register(input, mixed = false) {
     const listing = validateListing(input);
+    requireValue(mixed || listing.hosting === 'player-hosted');
     await this.quota('register');
     const id = randomBytes(16).toString('hex');
     const ownerToken = randomBytes(32).toString('hex');
@@ -87,7 +112,7 @@ export class Directory {
     return { ...publicListing(id, data), ownerToken };
   }
 
-  async mutate(id, ownerToken, revision, input) {
+  async mutate(id, ownerToken, revision, input, mixed = false) {
     requireValue(typeof id === 'string' && idPattern.test(id));
     requireValue(typeof ownerToken === 'string' && tokenPattern.test(ownerToken), 401);
     requireValue(Number.isSafeInteger(revision) && revision >= 1);
@@ -101,10 +126,13 @@ export class Directory {
       requireValue(doc.exists && data.expiresAt > this.now()
         && timingSafeEqual(Buffer.from(data.ownerHash, 'hex'), Buffer.from(digest(ownerToken), 'hex')), 401);
       requireValue(data.revision === revision, 409);
+      const original = validateListing(data.listing);
+      requireValue(mixed || original.hosting === 'player-hosted');
       if (listing === null) { tx.delete(ref); return null; }
       requireValue(listing.sessionId === data.listing.sessionId);
       // A session password is fixed until session end, including lobby return.
       requireValue(listing.passwordRequired === data.listing.passwordRequired);
+      requireValue(listing.hosting === original.hosting && listing.protection === original.protection);
       const expiresAt = this.now() + LEASE_MS;
       const replacement = { ...data, listing, revision: revision + 1, expiresAt,
         leaseExpiry: Timestamp.fromMillis(expiresAt) };
@@ -113,11 +141,12 @@ export class Directory {
     }, { maxAttempts: 3 });
   }
 
-  async list(cursor) {
+  async list(cursor, mixed = false) {
     let position;
     if (cursor !== undefined) {
       requireValue(typeof cursor === 'string' && cursor.length <= 64);
-      const match = /^([0-9]{1,16})-([a-f0-9]{32})$/.exec(cursor);
+      requireValue(mixed === cursor.startsWith('m2_'));
+      const match = /^([0-9]{1,16})-([a-f0-9]{32})$/.exec(mixed ? cursor.slice(3) : cursor);
       requireValue(match !== null && Number.isSafeInteger(Number(match[1])));
       position = { expiry: Number(match[1]), id: match[2] };
     }
@@ -133,8 +162,14 @@ export class Directory {
     const page = snapshot.docs.slice(0, PAGE_SIZE);
     const readTime = this.now();
     return {
-      listings: page.filter(doc => doc.data().expiresAt > readTime).map(doc => publicListing(doc.id, doc.data())),
-      nextCursor: snapshot.size > PAGE_SIZE ? `${page.at(-1).data().expiresAt}-${page.at(-1).id}` : null
+      ...(mixed ? { contract: 'mixed-v2' } : {}),
+      // Filter within each bounded page, preserving the cursor over all records.
+      // Legacy readers can continue empty pages but never receive dedicated rows.
+      listings: page.filter(doc => doc.data().expiresAt > readTime
+        && doc.data().listing.protection !== 'invite' // Retired records expire; never reinterpret them.
+        && (mixed || validateListing(doc.data().listing).hosting === 'player-hosted'))
+        .map(doc => publicListing(doc.id, doc.data(), mixed)),
+      nextCursor: snapshot.size > PAGE_SIZE ? `${mixed ? 'm2_' : ''}${page.at(-1).data().expiresAt}-${page.at(-1).id}` : null
     };
   }
 }

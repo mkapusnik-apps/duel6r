@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import tarfile
 
-HELPERS = ("duel6r-server", "duel6r-darwin-guardian", "duel6r-resolver")
+HELPERS = ("duel6r-darwin-guardian", "duel6r-resolver")
 CURL_VERSION = "8.21.0"
 CURL_ARCHIVE_SHA256 = "ad6f2f94934b38e31e48272833c99b891d045b4565fe942a53fbd27bd3910e16"
 
@@ -195,6 +195,7 @@ def require_relocatable_links(app):
 
 
 def stage_helpers(build, app):
+    (app / "Contents/MacOS/duel6r-server").unlink(missing_ok=True)
     for name in HELPERS:
         source = build / name
         if not source.is_file() or not source.resolve().is_relative_to(build.resolve()):

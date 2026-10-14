@@ -1,119 +1,134 @@
-# NET-10 — Session browser
+# NET-10 — Mixed session browser
 
-Functional contract: [network-browser](../../screens/network-browser.md), implementing [NET-DIR-001–016 and NET-DIR-AC-001–004](../../network-host-directory.md). Wireframes: [results NET-10](../wireframes/NET-10/NET-10.svg), [empty NET-10-E](../wireframes/NET-10/NET-10-E.svg), [failed refresh NET-10-U](../wireframes/NET-10/NET-10-U.svg).
+Functional authority: [network-browser](../../screens/network-browser.md), [host-directory](../../network-host-directory.md), and product-owned NET-ADM/NET-SOLO. Presentation composes develop `f21a9c1889ff4382bd20e2654b758783be49d07d` with mixed Hosting, common Password, and bound selection in both hosting modes. Product owns phase decoding, eligibility, waiting admission, and final closure.
 
-## Presentation requirements
+Structural sources: [NET-10 results](../wireframes/NET-10/NET-10.svg), [NET-10-E empty](../wireframes/NET-10/NET-10-E.svg), and [NET-10-U failed refresh](../wireframes/NET-10/NET-10-U.svg).
 
-The [shared visual baseline](../../design.md#unified-network-presentation) applies.
+States retain NET-10-loading, NET-10-results, NET-10-empty, NET-10-stale, NET-10-unavailable, NET-10-dedicated-idle, NET-10-dedicated-reserved, and NET-10-dedicated-unsupported. No product screen is added.
 
-- **UX-NET-10-001** BROWSE SESSIONS must occupy a blue title strip above the reserved directory-status allocation. Successful results must not show `Sessions listed`; removing that copy must not shift the table upward.
-- **UX-NET-10-002** The session table must use an inset white body with a separate fixed grey heading strip.
-- **UX-NET-10-003** The selected row must use the standard selection fill and text while retaining its textual marker and separate focused-row outline.
-- **UX-NET-10-004** The endpoint column must retain the largest width without reducing the complete Players, Phase, Password, or Admission headings.
-- **UX-NET-10-005** The selected-session region must remain below the list and above page navigation with enough height for endpoint, eligibility, and reachability text.
-- **UX-NET-10-006** Previous page and Next page must use visible button boundaries on either side of the current page label when either page direction exists. Hide the entire pagination group when neither direction exists; retain an unavailable opposite direction as disabled when the group is visible.
-- **UX-NET-10-007** The visible page label must show the available current page number without inventing a total page count. Hide it with unnecessary pagination buttons.
-- **UX-NET-10-008** Refresh must be a compact 112 × 24 logical px upper action at bottom-left renderer position (710, 518). Its right edge at 822 aligns with the table header, and its bottom sits 8 logical px above the header top at 510. The 2 logical px outer focus keyline must retain 6 logical px clearance above the header and below the title strip at 550. Center the standard 16 logical px caption in the square frame; the entire button rectangle remains the pointer target, with existing pressed and disabled treatment. Loading and age-stale status must retain their existing left origin and have at least 8 logical px clearance from the Refresh focus keyline, without overlap or font shrinkage.
-- **UX-NET-10-009** The list must give up visible rows before page controls, selected-session details, or footer captions overlap.
-- **UX-NET-10-010** Empty, loading, stale, and unavailable feedback must remain inside the same list/status allocation without changing footer placement.
+## Presentation and allocation
 
-- **UX-NET-10-011** Empty and failed reads must retain the existing fixed grey heading strip and all five headings above the inset white table body at its existing bounds. Show the applicable description once below the header at its current left alignment with at least 4 logical px horizontal padding, spanning the body as one complete line in standard 16 logical px dark grey `#595959` text on white (contrast at least 4.5:1). Do not wrap, truncate, or shrink the font. Show no session rows, body column dividers, separators, scrollbar, selection marker or fill, hover or focus treatment, or action frame. The empty body and description must have no pointer, keyboard, or controller focus, selection, or activation. Keep table geometry, selected-details, reserved status, paging, and footer allocations unchanged.
+The [unified presentation](../../design.md#unified-network-presentation) applies. Inline empty/error presentation, upper Refresh, and the single-row footer supersede the grey list replacement and lower Refresh/two-row footer. Six columns, selected details, reserved paging, and bound setup remain.
 
-- **UX-NET-10-012** The footer must use one row in left-to-right order `Join selected`, `Direct connect`, `Back`, each 252 × 32 logical px at bottom-left renderer positions (28, 68), (296, 68), and (564, 68), respectively, with 16 logical px gaps. Center the standard 16 logical px captions in their frames. Preserve existing frame, pressed, disabled, and 2 logical px outer focus treatment, full-rectangle pointer targets, and canvas scaling. The former second row stays empty; no other allocation moves. Refresh geometry, focus cycle, initial focus, eligibility, and feedback remain unchanged.
+- **UX-NET-10-001** BROWSE SESSIONS must remain above the reserved directory-feedback allocation without `Sessions listed` on successful results.
+- **UX-NET-10-002** The table must retain its inset white body and fixed grey heading strip.
+- **UX-NET-10-003** Row selection must retain its selection fill/text, textual marker, and separate focus outline.
+- **UX-NET-10-004** The six headings must be Session / endpoint, Hosting, Players, Phase, Access, and Admission.
+- **UX-NET-10-005** Selected details must remain below the table and above paging with room for full endpoint/identity, eligibility, and reachability guidance.
+- **UX-NET-10-006** Pagination must show both framed directions when either direction exists and hide both when neither exists.
+- **UX-NET-10-007** The current page label must not invent a total and must hide with unnecessary pagination.
+- **UX-NET-10-008** The footer must use the single-row geometry and action order defined below.
+- **UX-NET-10-009** The table must lose visible rows before details, paging, or footer overlap.
+- **UX-NET-10-010** Loading, empty, stale, and unavailable feedback must retain their owning allocation.
+- **UX-NET-10-011** Session / endpoint must retain the largest column allocation.
+- **UX-NET-10-012** Long row endpoints must clip inside that column while selected details expose their complete validated value through wrapping or existing scrolling.
+- **UX-NET-10-013** Full selected session identity and mode must remain separately labeled and accessible without smaller text or split UTF-8 characters.
 
-The SVG uses approximate top-left allocation outside the exact footer; UX-NET-10-008 and UX-NET-10-012 define authoritative production geometry in bottom-left renderer coordinates. The SVG footer translates the exact production bounds to canvas origin (25, 20). Selected-details, paging, and table geometry stay unchanged. Forward focus cycles Refresh → table → Previous page → Next page → Join selected → Direct connect → Back → Refresh; reverse traversal reverses this cycle, skipping hidden or disabled controls under existing eligibility. No new sorting, filtering, total-count query, or row-activation behavior is introduced.
+Approximate column widths remain 256, 112, 72, 104, 96, and 144 logical pixels. Preserve standard metrics, fixed-height rows, full-row pointer targets, and the table/details relationship. A row count must not take precedence over required detail readability.
 
-## Task and structure
+## Upper Refresh and single-row footer
 
-Entry workflow: MENU-01 → Network → Join in the NET-01 popup. Join invokes the existing Browse sessions action. This is a native workflow, not a URL. Join selected continues to NET-03 for local-player setup and password entry. Direct connect continues to NET-03 without a directory selection. Back returns to the NET-01 popup. This entry-label change does not change browser layout, controls, or behavior.
+These values use the existing 850 by 700 logical canvas and bottom-left renderer origin. SVG coordinates are top-left structural allocation.
 
-- The screen must use the existing centered 850 × 700 logical desktop canvas.
-- The content must keep a 24 logical px inner margin.
-- The fixed header must show `BROWSE SESSIONS`; directory status is reserved for loading and age-stale feedback, not successful-load copy.
-- The main body must contain one selectable table with fixed headings.
-- The columns must be `Session / endpoint`, `Players`, `Phase`, `Password`, and `Admission`.
-- The endpoint column must receive the largest share of table width.
-- The table must show every active listing returned by the directory, including full, protected, and started sessions.
-- The UI must not provide a default joinable-only filter.
-- The UI must show player occupancy as a count and limit rather than an unlabeled number.
-- Phase, password protection, and admission must occupy separate columns.
-- The Password column must use `Required` or `None` instead of a lock icon alone.
-- An unknown protection value must use `Unknown`, not `None`.
-- An active first round may use `Round 1` with `Open`; later ongoing match context uses `Started` with `Open` when admission is advertised open. Phase does not decide admission.
-- A phase after admission closes must show `Closed` in Admission even if its player count is below capacity.
-- A full session must show `Full` without hiding its phase or password value.
-- A locked listing must use `Required` in Password, not a closed-admission label.
-- Password protection alone must not disable Join selected.
-- The footer must contain `Join selected`, `Direct connect`, and `Back`.
-- `Refresh` must use the compact upper action defined by UX-NET-10-008.
-- A fixed selected-session region above the footer must show the full endpoint and the admission explanation.
-- The selected-session region must also show the advertised session identity and mode under NET-DIR-003.
-- A loopback endpoint must show `Loopback address; not verified as the advertised host on this machine.` in the selected-session region.
-- The same region must say `LAN-first. A listing does not guarantee reachability.`
-- The UI must not claim that non-LAN addresses are prohibited or that NAT traversal exists.
+- **UX-NET-10-042** Refresh must occupy (710, 518), 112 by 24 logical pixels.
+- Refresh must retain right edge 822 and an 8-logical-pixel gap above header top 510.
+- Its 2-logical-pixel outer focus keyline must retain 6 logical pixels of clearance from the header and title strip at 550.
+- Loading and age-stale feedback must retain their left origin and at least 8 logical pixels of clearance from the Refresh focus keyline.
+- The footer under UX-NET-10-008 must show Join selected, Direct connect, and Back at (28, 68), (296, 68), and (564, 68), respectively.
+- Each footer action must measure 252 by 32 logical pixels with 16-logical-pixel gaps.
+- Captions must remain centered at the standard 16-logical-pixel text size.
+- Whole button rectangles must remain pointer targets with current pressed, disabled, focus, and canvas-scaling behavior.
+- The former lower Refresh action must not remain as a separate affordance or activation target. Direct connect must occupy its approved single-row footer bounds. The former second footer row must remain empty without interaction targets.
 
-## State presentation
+Forward traversal must cycle Refresh → table → Previous page → Next page → Join selected → Direct connect → Back → Refresh. Reverse traversal must reverse this cycle. Both must skip hidden or disabled browser controls under existing eligibility.
 
-| Functional state ID | Persistent feedback | Actions |
-|---|---|---|
-| `NET-10-loading` | `Loading sessions…` in the status region; no false empty message; use `Refreshing…` when prior rows remain | Direct connect and Back remain available; duplicate Refresh and Join remain disabled |
-| `NET-10-results` | Current table, without `Sessions listed` | Join selected follows the selected admission state; Refresh, Direct connect, and Back remain available |
-| `NET-10-empty` | `No active sessions listed. You can host a session or connect directly.` once in subdued dark grey inside the white table body below the retained headings, on one complete line | Refresh, Direct connect, and Back remain available |
-| `NET-10-stale` | Age-stale feedback in the status allocation | Age-stale rows remain readable and selectable for inspection only; Join selected remains disabled until a successful refresh; Refresh, Direct connect, and Back remain available |
-| `NET-10-unavailable` | `Directory unavailable. Direct connection and local play are still available.` once in subdued dark grey inside the white table body below the retained headings, on one complete line | Hide cached rows and selected identity, endpoint, and mode details, including after failed refresh; retain identity internally for recovery only if present. Every browser join path remains disabled. Refresh, Direct connect, and Back remain available |
+Initial results focus remains on the table. Completed empty/error focus remains on Refresh when enabled. Pending initial-read focus remains on Direct connect. This browser-specific cycle must not change focused-disabled retention on other screens.
 
-- Successful current results with no selection, including a successful zero-row read, must leave the reason line blank without a replacement instruction; Join selected remains disabled. Retain loading, unavailable, full, closed, stale, expired, and removed-selection explanations as applicable, including `Session is full.` and `Admission is closed.`.
-- A stale selected listing must show `Refresh before joining.` as its primary disabled reason.
-- Stale rows must show `Unconfirmed` instead of a current Open admission claim.
-- The freshness transitions must follow NET-DIR-010–011 without a separate UX timer policy.
-- When a selected row is both full and closed, the detail region must show both conditions.
-- Unknown admission must not be labeled Open.
-- An unknown admission value must keep Join selected disabled with `Availability unconfirmed. Refresh before joining.`
-- No row activation, shortcut, or controller action may bypass the stale-result join restriction in NET-DIR-012.
-- Direct connect must open independent direct setup without transferring a stale selected listing or treating it as join authorization.
-- When a successful refresh removes an expired selected listing, the detail region must show `Session is no longer listed.`
-- Removal must not move selection to another session automatically.
-- Refresh must preserve selection by session identity rather than row position.
-- Refresh must not move keyboard focus to another action.
-- A rejected connection must use NET-08 rather than silently return to the table.
+## Mixed row content
 
-## Allocation, overflow, and input
+- **UX-NET-10-014** Hosting must show Player-hosted or Dedicated from validated classification rather than infer it from an address or password flag.
+- **UX-NET-10-015** Access must show No password or Password from validated none/password metadata consistent with passwordRequired for either hosting mode.
+- **UX-NET-10-016** Access must not disclose passwords, owner tokens, or reconnect credentials.
+- **UX-NET-10-017** Hosting and Access must not imply verified endpoint identity, certificate validation, or universal reachability.
+- **UX-NET-10-018** Players must show authoritative advertised count and effective capacity as count / limit, including reserved slots.
+- **UX-NET-10-019** A prepared empty dedicated session must show Idle and 0 / limit without inventing participants, a controller, or a round.
+- **UX-NET-10-020** Dedicated idle details must say `Ready empty session. Your role is confirmed only after admission.`
+- **UX-NET-10-021** Controller reservation must show Reserved and truthful occupancy while Admission follows separately advertised eligibility.
+- **UX-NET-10-022** Phase must show the product-decoded Lobby, Round 1, Started, Idle, Reserved, or Cleanup context independently from Admission.
+- **UX-NET-10-023** Admission must show Open, Full, Closed, Busy, or Unconfirmed from approved availability.
+- **UX-NET-10-024** Cleanup/busy details must explain the temporary block without service-administration or controller-election actions.
+- **UX-NET-10-025** Unknown or unvalidated metadata must not default to Player-hosted, No password, or Open or open a credential task.
 
-- The table body must scroll vertically without scrolling its headings or footer.
-- Bounded result pages must provide Previous and Next controls below the rows when more pages exist.
-- Page controls must show current position and remain keyboard- and controller-operable.
-- Page controls must precede the footer in reading and focus order, with the upper Refresh action in the cycle defined by UX-NET-10-008.
-- Hidden page controls must have no pointer target or input traversal. Empty and error table bodies and status descriptions must be noninteractive, with no pointer, keyboard, or controller focus, selection, or activation. Retain useful Join-disabled feedback without exposing hidden selected details after failure.
-- Paging must expose every active listing under NET-DIR-008 without an implicit first-page limit.
-- The table must keep one fixed-height row per session.
-- Long endpoint text must clip inside its column without covering Players.
-- The selected-session region must wrap the full endpoint at character boundaries when needed.
-- The selected-session region must scroll if its full content exceeds its reserved height.
-- The body must not expand when loading, empty, or failure feedback replaces rows.
-- Each visible row must have one complete pointer selection target.
-- Row selection must not immediately connect.
-- Initial focus must enter the table when rows exist and Refresh when no rows exist and Refresh is enabled.
-- A pending initial read must place focus on Direct connect rather than a disabled Refresh action.
-- Tab and Shift+Tab, and controller traversal in both directions, must follow the UX-NET-10-008 cycle while skipping hidden or disabled actions.
-- Directional input must move row selection within the table.
-- Enter or controller Confirm on a row must use the same eligibility checks as Join selected.
-- Escape or controller Back must return to NET-01.
-- Selection and focus must have distinct non-color cues.
-- The canvas and pointer regions must scale together using the existing desktop transform.
-- No mobile reflow, search, sorting controls, favorites, matchmaking, accounts, or service configuration panel is required.
+Retired Invite metadata must not be relabeled Password or No password. Product owns safe exclusion, fail-closed page handling, and legacy capability isolation. Action-layout changes authorize no protocol adapter or security fallback.
 
-## Visual acceptance
+## Selection and recovery
 
-The changed representative shows two actual owned listings: a protected ongoing later-match Started/Open session selected and focused, and a genuinely completed Closed session. The selected protected row offers Join selected and next-round details, not an immediate-play promise. Endpoint, occupancy, phase, protection, and admission remain independent columns. Open-lobby, open-first-round, full, and stale variants remain focused checks. A still does not prove heartbeat expiry, password enforcement, or exact final closure timing.
+- **UX-NET-10-026** Join selected must open the applicable bound NET-03 task without connecting or reserving authority.
+- **UX-NET-10-027** Selected dedicated rows must enter NET-03-B with bound hosting/protection, endpoint, and session identity.
+- **UX-NET-10-028** Selected player-hosted rows must enter NET-03-E with the same read-only target/binding requirements.
+- **UX-NET-10-029** Updated Mac/Pi clients must keep dedicated rows readable without enabling joining or dedicated Password entry, including No password rows.
+- **UX-NET-10-030** Unsupported details must say `Dedicated joining requires Linux x86-64 or Windows x86-64.`
+- **UX-NET-10-031** Stale or expired selection must require successful refresh and must not transfer binding to Direct connect.
+- **UX-NET-10-032** Refresh must retain selection by the approved immutable listing/session identity rather than row position.
+- **UX-NET-10-033** Same-identity phase changes must update details without claiming replacement or role assignment.
+- **UX-NET-10-034** A removed or replaced selection must not select or join a substitute automatically.
+- **UX-NET-10-035** Back from selected setup or failure must restore the browser without changing to another selected row.
+- **UX-NET-10-036** Independent Direct connect must clear selection binding and secrets before unbound setup.
 
-The selected and focused row must remain distinguishable without color, and every footer and page action must remain identifiable when unfocused. Focused QA must cover all five functional states, both page directions, no-selection and removed-selection states, disabled joining reasons, retained selection on refresh, long endpoints, and independent direct setup. The [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix) defines the representative and evidence limits.
+Protected selection initially focuses Password under UX-NET-03-063. No password selection initially focuses local setup under UX-NET-03-064 while Password remains optional and reachable. Certificate verification for dedicated admission remains mandatory; browser labels do not establish identity. Password correction must preserve bound setup in both modes.
 
-The localized browser refinement uses the [NET-10 refinement matrix](../screenshots/README.md#net-10-localized-browser-refinement). Focused checks cover single-page and multiple first/middle/last pages, pagination after refresh, hidden input exclusion, empty/initial failure/failed populated refresh, recovery with identity present or absent, age-stale readability, all browser join paths disabled after failure, and independent Direct connect. Check blank reason lines for successful populated unselected and zero-row states while preserving necessary explanations. Verify both traversal directions with keyboard and controller, caption/status/focus clearance and single-line containment at 850 × 700 and 1280 × 720, plus pointer alignment at 1920 × 1080.
+Full, closed, busy, unsupported, and age-stale successful results remain inspectable. Failed reads hide cached rows/details. Necessary disabled explanations remain; a password requirement alone must not disable otherwise eligible joining.
 
-## Ongoing-session availability
+## Inline states and hidden input
 
-Requirement reference compatibility: UX-NET-10-012 identifies the single-row footer. References to the ongoing-admission UX-NET-10-012 in the hosted-solo specification baseline identify UX-NET-10-015 below. UX-NET-10-013 and UX-NET-10-014 retain their ongoing-session meanings.
+- **UX-NET-10-037** Completed empty/error reads must retain all six headings over the existing inset white body and show one complete noninteractive description in standard 16-logical-pixel dark-grey #595959 text with at least 4 logical pixels of horizontal padding and contrast of at least 4.5:1.
+- **UX-NET-10-038** Failed reads must hide cached rows and selected identity, endpoint, mode, hosting, and protection details without exposing a browser join target.
+- **UX-NET-10-039** Hidden pagination and noninteractive empty/error bodies must have no pointer, wheel, keyboard, or controller input target.
+- **UX-NET-10-040** If browser focus becomes unavailable or hidden, it must move to inspectable results, otherwise enabled Refresh, otherwise Direct connect.
 
-- **UX-NET-10-015** Phase and Admission must remain separate. A protected later session may show `Started` / `Required` / `Open`. Protection and Started must not imply Closed or disable eligible joining.
-- **UX-NET-10-013** Later selected-session details must use `Match in progress. Your players join next round if admitted.` Known final-round context must use `Final round in progress. You may not play in this match if admitted.` Unknown context must not promise immediate spawn. The selected-session region must retain password, endpoint, identity/mode, `The host confirms availability when you connect.`, and reachability details. Content must wrap or scroll within its fixed bounds without covering paging or the footer.
-- **UX-NET-10-014** The NET-10 SVG and representative must pair ongoing protected Open with genuinely completed Closed. The representative must use the upper Refresh action in UX-NET-10-008 and the single footer row in UX-NET-10-012. Columns, selection, paging, and selected-details allocations must remain unchanged. NET-10-E and NET-10-U must retain their approved empty and failed-read presentations. The [NET-10 refinement matrix](../screenshots/README.md#net-10-localized-browser-refinement) owns the representative.
+Empty/error bodies must show no session rows, body dividers, separators, scrollbar, selection fill/marker, hover, focus, or action frame. Header dividers remain confined to the heading strip. The description must not wrap, truncate, or shrink. Status and paging spaces remain reserved.
+
+| Existing state | Presentation |
+|---|---|
+| NET-10-results | Six-column table/details; no successful-load status; conditional pagination |
+| NET-10-empty | `No active sessions listed. You can host a session or connect directly.` once in the white body; successful no-selection reason blank |
+| NET-10-unavailable | `Directory unavailable. Direct connection and local play are still available.` once in the white body; cached rows/details hidden; necessary unavailable explanation retained |
+| NET-10-stale | Age-stale successful rows inspectable; Admission Unconfirmed; successful refresh required |
+| NET-10-loading | Loading or refreshing in the reserved status region; no false empty/error outcome; joining disabled |
+
+An empty intermediate page may use `No active sessions on this page. Continue with Next page.` Successful current populated results without selection and successful zero-row results must leave the reason line blank without a replacement instruction. Join selected remains disabled. Loading, unavailable, full, closed, stale, expired, and removed-selection explanations remain when applicable.
+
+A generic Selected session label is permitted without retained metadata. A retry after failure must not expose cached selected details before success. Recovery presents retained selection only when its validated identity/session remains present; product owns that decision.
+
+## Ongoing context
+
+- **UX-NET-10-043** Known later-match details must show `Match in progress. Your players join next round if admitted.`; known final-round details must show `Final round in progress. You may not play in this match if admitted.`; unknown context must not promise immediate spawn.
+- Selected details must retain full endpoint, identity/mode, protection meaning, host confirmation, and reachability guidance.
+- Context must wrap or use existing scrolling before it covers paging or the footer.
+- **UX-NET-10-044** The results representative must pair a selected protected ongoing Open session with a genuinely completed Closed session and mixed-hosting context.
+- **UX-NET-10-045** Started or Password must not imply Closed; joining must follow product-authorized Admission and existing freshness/capability checks.
+
+Product determines eligibility and the confirmed lobby, immediate-play, Connected-waiting, or rejection destination. The UI must not infer that decision from Phase, capacity, a listing label, or a local timer.
+
+## Requirement reference compatibility
+
+Each identifier has one canonical meaning in this file.
+
+| Imported develop reference | Canonical composed requirement |
+|---|---|
+| UX-NET-10-011 inline states | UX-NET-10-037 |
+| UX-NET-10-008 upper Refresh | UX-NET-10-042 |
+| UX-NET-10-012 single-row footer | UX-NET-10-008 |
+| UX-NET-10-013 ongoing details | UX-NET-10-043 |
+| UX-NET-10-014 representative | UX-NET-10-044 |
+| UX-NET-10-015 phase/admission | UX-NET-10-045 |
+
+## Acceptance
+
+Check both browser traversal directions with keyboard/controller and scaled pointer targets at 850 by 700, 1280 by 720, and 1920 by 1080. Check Refresh caption/status/focus clearance, equal footer sizes/gaps, the empty former second row, and complete inline descriptions.
+
+Check single/multiple pages, refresh-driven pagination changes, hidden input exclusion, blank successful no-selection reasons, failed populated refresh, recovery identity present/absent, and age-stale inspection. Check mixed Password/No password, dedicated Idle/Reserved/Cleanup, full/closed/unsupported states, long context, and independent Direct.
+
+Both selected hosting modes must retain immutable targets and protection-aware Password focus. All joining paths must use the same validated availability, freshness, identity, capability, and admission checks. Stills do not establish those behaviors, security, leases, or lifecycle authority.
+
+The [coordinated matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) owns NET-10/E/U and focused supplements; no separate browser campaign is required.

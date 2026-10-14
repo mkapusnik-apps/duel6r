@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="850" viewBox="0 0 900 850">
-  <title>NET-04 — Host lobby game-settings structure</title>
-  <desc>Fixed 850 by 700 logical desktop canvas. Existing participant and roster regions remain left of the vertical host-settings stack. Each setting has one whole-row target. Cycle values have no directional buttons or text-entry caret. Checkbox squares are state indicators within existing toggle rows. Diagram values are examples, not capture data.</desc>
+  <title>NET-04 — Current host settings with dedicated header variant</title>
+  <desc>Fixed 850 by 700 logical desktop canvas. Ordinary Participants and Players And Controls share width 526. Player-hosted participant top is 482; this dedicated variant retains top 476 for endpoint/consequence clearance. Ordinary settings bottom aligns with roster bottom at 196. Setting rows and targets remain unchanged. Two participant rows and six roster rows scroll under fixed headings. Retained NET-04-R remains unchanged; Guest values stay read-only.</desc>
   <rect width="900" height="850" fill="white"/>
   <g fill="none" stroke="black" stroke-width="1">
     <rect x="25" y="20" width="850" height="700"/>
     <rect x="350" y="35" width="200" height="95"/>
-    <rect x="65" y="240" width="358" height="84"/>
-    <path d="M65 264H423 M65 286H423"/>
-    <rect x="65" y="332" width="526" height="188"/>
-    <path d="M65 356H591 M65 380H591"/>
-    <rect x="603" y="240" width="238" height="250"/>
-    <path d="M603 264H841"/>
+    <rect x="65" y="244" width="526" height="84"/>
+    <path d="M65 268H591 M65 290H591"/>
+    <rect x="65" y="336" width="526" height="188"/>
+    <path d="M65 360H591 M65 384H591"/>
+    <rect x="603" y="238" width="238" height="286"/>
+    <path d="M603 262H841"/>
     <rect x="609" y="274" width="226" height="19"/>
     <rect x="609" y="298" width="226" height="19"/>
     <rect x="609" y="322" width="226" height="19"/>
@@ -42,13 +42,14 @@
   <g font-family="sans-serif" font-size="13" fill="black">
     <text x="390" y="85">Existing banner</text>
     <text x="395" y="153">Runtime version</text>
-    <text x="65" y="188">Host • Network session • endpoint • 2 participants • 2 players</text>
-    <text x="65" y="211">Directory status / existing publication recovery</text>
-    <text x="73" y="258">PARTICIPANTS</text>
-    <text x="73" y="282">Role       Connection       Readiness       Owned</text>
-    <text x="73" y="307">Host       Connected        Not ready       1</text>
-    <text x="73" y="320">Guest      Connected        Not ready       1</text>
-    <text x="73" y="350">PLAYERS AND CONTROLS</text>
+    <text x="65" y="188">Host • Dedicated session • 2 participants • 2 players</text>
+    <text x="65" y="211">Endpoint: actual operator hostname or IPv4 and port</text>
+    <text x="65" y="232">You control this session. Leaving ends it for everyone.</text>
+    <text x="73" y="262">PARTICIPANTS</text>
+    <text x="73" y="286">Role       Connection       Readiness       Owned</text>
+    <text x="73" y="311">Host       Connected        Not ready       1</text>
+    <text x="73" y="324">Guest      Connected        Not ready       1</text>
+    <text x="73" y="354">PLAYERS AND CONTROLS</text>
     <text x="73" y="375">Pos    Owner               Person                   Control             Order</text>
     <text x="73" y="403">1        Host</text><text x="231" y="403">Ada [owned]</text><text x="411" y="403">Keyboard</text><text x="561" y="403">↕</text>
     <text x="73" y="427">2        Guest</text><text x="231" y="427">Cora [read-only]</text><text x="411" y="427">Read-only</text><text x="561" y="427">↕</text>
@@ -67,9 +68,9 @@
     <text x="65" y="583">Waiting for Guest to be ready</text>
     <text x="65" y="611">Optional scripts are disabled for network play.</text>
     <text x="92" y="672">Ready / Not ready</text><text x="447" y="672">Start match — disabled</text><text x="716" y="672">End session</text>
-    <text x="25" y="764">ANNOTATIONS — not interface copy; structure only, not production appearance</text>
-    <text x="25" y="789">↻ identifies one forward-cycle row. Square + On/Off identifies one toggle row. Whole row activates.</text>
-    <text x="25" y="814">Guest: read-only values, no cycle markers or enabled squares. Hidden Team rows collapse without targets.</text>
-    <text x="25" y="839">UX-NET-04-006/019–031. Preserve focus traversal, pointer press timing, host permissions and readiness.</text>
+    <text x="25" y="764">ANNOTATIONS — structure only. Equal participant/roster widths; settings/roster bottoms align.</text>
+    <text x="25" y="789">Player-hosted header retains directory feedback. Dedicated header has no publication target.</text>
+    <text x="25" y="814">Guest: its consequence note, owned-slot editing, plain read-only settings and Leave.</text>
+    <text x="25" y="839">UX-NET-04-032–042: dedicated top 476; player-hosted top 482. Retained NET-04-R is unchanged.</text>
   </g>
 </svg>

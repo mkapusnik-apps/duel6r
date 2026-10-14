@@ -7,6 +7,8 @@
 #include "AuthoritativeMatch.h"
 
 namespace Duel6::Server::Authoritative {
+    void validateAuthoritativeMatchArguments(int argc, char **argv);
+    bool recognizedAuthoritativeMatchArguments(int argc, char **argv);
     struct AuthoritativeMatchCliDependencies {
         std::function<bool()> stopRequested;
         std::function<bool()> reportReady;

@@ -95,7 +95,7 @@ def verify_gameplay_root(root):
 
 def authoritative_base(root, seed=None):
     verify_gameplay_root(root)
-    command = [SERVER, "--authoritative-match", f"--resources={root}"]
+    command = [SERVER, "--server", "--authoritative-match", f"--resources={root}"]
     if seed is not None:
         command.append(f"--seed={seed}")
     return command
@@ -117,7 +117,7 @@ if os.name == "nt":
     BASE = authoritative_base(RESOURCE_ROOT, 424242)
 else:
     verify_gameplay_root(RESOURCE_ROOT)
-    BASE = [SERVER, "--authoritative-match", "--resources=.", "--seed=424242"]
+    BASE = [SERVER, "--server", "--authoritative-match", "--resources=.", "--seed=424242"]
 
 
 def run(*arguments, stdin="", base=None):

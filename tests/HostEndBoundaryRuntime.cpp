@@ -68,8 +68,11 @@ namespace Duel6::Test {
                 }
                 return false;
             }
-            Network::TransportInputSnapshot sealAndDrainInput() override {
-                auto snapshot = connection->sealAndDrainInput();
+            Network::TransportInputSnapshot sealAndDrainInput(
+                    std::size_t maximumFrames = Network::MaxQueuedTransportFrames) override {
+                maximumFrames = std::min(maximumFrames, Network::MaxQueuedTransportFrames);
+                auto snapshot = connection->sealAndDrainInput(
+                        maximumFrames > held.size() ? maximumFrames - held.size() : 0);
                 std::size_t bytes = heldBytes;
                 for (const auto &frame: snapshot.frames) bytes += frame.payload.size();
                 if (held.size() + snapshot.frames.size() > Network::MaxQueuedTransportFrames
@@ -80,8 +83,13 @@ namespace Duel6::Test {
                 }
                 held.insert(held.end(), std::make_move_iterator(snapshot.frames.begin()),
                             std::make_move_iterator(snapshot.frames.end()));
-                snapshot.frames = std::move(held);
+                snapshot.frames.clear();
+                const auto count = std::min(maximumFrames, held.size());
+                snapshot.frames.insert(snapshot.frames.end(), std::make_move_iterator(held.begin()),
+                                       std::make_move_iterator(held.begin() + count));
+                held.erase(held.begin(), held.begin() + count);
                 heldBytes = 0;
+                for (const auto &frame: held) heldBytes += frame.payload.size();
                 for (const auto &frame: snapshot.frames) {
                     if (Network::Lifecycle::deserializeIntentionalHostEnd(frame.payload)) {
                         ++control->sealedNotices;

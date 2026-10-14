@@ -71,11 +71,7 @@ if [[ ! -f "${source_binary}" ]]; then
 fi
 
 cp "${source_binary}" "${workspace_dir}/${output_dir}/duel6r"
-if [[ ! -f "${tmp_build_dir}/duel6r-server" ]]; then
-  echo "Unable to find built server scaffold in ${tmp_build_dir}" >&2
-  exit 1
-fi
-cp "${tmp_build_dir}/duel6r-server" "${workspace_dir}/${output_dir}/duel6r-server"
+rm -f "${workspace_dir}/${output_dir}/duel6r-server" "${workspace_dir}/${output_dir}/duel6r-server.exe"
 if [[ ! -f "${tmp_build_dir}/duel6r-host-supervisor" ]]; then
   echo "Unable to find built host supervisor scaffold in ${tmp_build_dir}" >&2
   exit 1
@@ -104,11 +100,13 @@ retained_manifest = root / "windows-x86_64.sha256sums"
 if retained_manifest.exists():
     records = retained_manifest.read_bytes().splitlines(keepends=True)
     retained_manifest.write_bytes(b"".join(
-        record for record in records if not record.partition(b"  ")[2].startswith(b"docs/")
+        record for record in records
+        if not record.partition(b"  ")[2].startswith(b"docs/")
+        and record.partition(b"  ")[2].strip() not in (b"duel6r-server", b"duel6r-server.exe")
     ))
 
 files = [root / name for name in (
-    "duel6r", "duel6r-server", "duel6r-host-supervisor", "duel6r-resolver", "README.md", "LICENSE", "mbedtls-LICENSE.txt"
+    "duel6r", "duel6r-host-supervisor", "duel6r-resolver", "README.md", "LICENSE", "mbedtls-LICENSE.txt"
 )]
 for directory in ("data", "levels", "profiles", "shaders", "sound", "textures"):
     files.extend(path for path in (root / directory).rglob("*") if path.is_file())

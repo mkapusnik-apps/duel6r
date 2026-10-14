@@ -1,5 +1,6 @@
 #include <exception>
 #include <iostream>
+#include <stdexcept>
 #include <utility>
 
 #include "AuthoritativeMatchCli.h"
@@ -7,11 +8,33 @@
 #include "HeadlessServer.h"
 #include "HostedServiceChannel.h"
 #include "ServerConfig.h"
+#include "DedicatedService.h"
+#include "ServerMain.h"
 
-int main(int argc, char **argv) {
+int Duel6::Server::runServer(int argc, char **argv, bool help) {
+    if (help) {
+        try {
+            if (Authoritative::authoritativeMatchRequested(argc, argv))
+                Authoritative::validateAuthoritativeMatchArguments(argc, argv);
+            else if (!(argc == 2 && std::string(argv[1]).compare(0, 14, "--check-ready=") == 0))
+                (void) parseServerConfig(argc, argv);
+            std::cout << serverUsage() << '\n';
+            return 0;
+        } catch (...) {
+            std::cerr << "duel6r server error: invalid configuration or operation\n";
+            return 1;
+        }
+    }
+    if (argc == 2 && std::string(argv[1]).compare(0, 14, "--check-ready=") == 0) {
+        const bool ready = Duel6::Server::DedicatedReadiness::check(std::string(argv[1]).substr(14));
+        if (ready) std::cout << "ready\n";
+        return ready ? 0 : 1;
+    }
     const auto hostedChannel = Duel6::Server::HostedServiceChannel::fromCommandLine(argc, argv);
     try {
         if (Duel6::Server::Authoritative::authoritativeMatchRequested(argc, argv)) {
+            if (!Duel6::Server::Authoritative::recognizedAuthoritativeMatchArguments(argc, argv))
+                throw std::invalid_argument("Unknown server argument");
             Duel6::Server::Authoritative::AuthoritativeMatchCliDependencies dependencies;
             dependencies.runtimeFactory = [](const auto &config, const auto &roster, const auto &content) {
                 return Duel6::Server::Authoritative::CanonicalMatchRuntime::createDependencies(
@@ -56,11 +79,12 @@ int main(int argc, char **argv) {
         return server.run(std::cout);
     } catch (const std::exception &exception) {
         if (hostedChannel) hostedChannel->send(Duel6::Network::HostServiceStatusCode::StartFailed);
-        std::cerr << "duel6r-server error: " << exception.what() << '\n';
+        (void) exception;
+        std::cerr << "duel6r server error: invalid configuration or operation\n";
         return 1;
     } catch (...) {
         if (hostedChannel) hostedChannel->send(Duel6::Network::HostServiceStatusCode::StartFailed);
-        std::cerr << "duel6r-server error: unexpected failure\n";
+        std::cerr << "duel6r server error: unexpected failure\n";
         return 1;
     }
 }
