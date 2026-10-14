@@ -8,9 +8,11 @@ an application protocol peer, not a deployment or proxy configuration test.
 import contextlib
 from collections import deque
 import errno
+import hashlib
 import json
 import os
 from pathlib import Path
+import platform
 import select
 import shutil
 import socket
@@ -662,10 +664,56 @@ def failure_context(root, handles, peer, *, result=None, timed_out=False):
         print("public-fixture-failure-context: receipt unavailable", flush=True)
 
 
+def cross_architecture_provenance(client, server):
+    """Enforce native ARM service and disclose the approved emulated client."""
+    assert platform.machine().lower() in ("aarch64", "arm64"), "native ARM host required"
+    for name, path, machine in (("service", server, 183), ("client", client, 62),
+                                ("client-resolver", client.with_name("duel6r-resolver"), 62)):
+        with path.open("rb") as stream:
+            header = stream.read(20)
+        assert header[:6] == b"\x7fELF\x02\x01" and int.from_bytes(header[18:20], "little") == machine, \
+            f"wrong {name} ELF architecture"
+        print(f"cross-architecture {name} ELF-machine={machine} sha256={hashlib.sha256(path.read_bytes()).hexdigest()}", flush=True)
+    print("cross-architecture native-aarch64-service / emulated-x86_64-client", flush=True)
+
+
+def reuse_client(arguments, environment, password, server, ready, root):
+    """Coordinate the real native probe without changing protocol/deadlines."""
+    process = subprocess.Popen(arguments, cwd=root, env=environment, stdin=subprocess.PIPE,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    absolute = time.monotonic() + 140  # Existing fixture process failsafe.
+    try:
+        process.stdin.write(password + "\n")
+        process.stdin.close()
+        process.stdin = None
+        acknowledged = False
+        while process.poll() is None:
+            if time.monotonic() >= absolute:
+                raise subprocess.TimeoutExpired(arguments, 140)
+            if not acknowledged and (root / "reuse-ended").exists():
+                probe = subprocess.run([str(server), "--server", f"--check-ready={ready}"],
+                                       cwd=root, env=environment, capture_output=True, timeout=2)
+                if probe.returncode == 0:
+                    assert probe.stdout == b"ready\n" and not probe.stderr, "fresh native readiness output"
+                    (root / "reuse-ready").touch()
+                    acknowledged = True
+                    print("PASS production service readiness after confirmed End, before fresh admission", flush=True)
+            time.sleep(.01)
+        output, errors = process.communicate(timeout=max(.01, absolute - time.monotonic()))
+        return subprocess.CompletedProcess(arguments, process.returncode, output, errors)
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.communicate()
+
+
 def main():
     client, server, resources = map(lambda value: Path(value).resolve(), sys.argv[1:4])
     review = len(sys.argv) > 4
     cases = sys.argv[4:]
+    if cases == ["--cross-architecture"]:
+        cross_architecture_provenance(client, server)
+        cases = ["flow-reuse"]
     end_eof_regressions = cases == ["--end-eof-regressions"]
     if end_eof_regressions:
         # One synchronized forwarding race, distinct unconfirmed loss, then the
@@ -712,15 +760,20 @@ def main():
         # Resolver uses executable-relative lookup. Stage a separate test copy.
         executable = root / client.name
         shutil.copy2(client, executable)
-        shutil.copy2(server.with_name("duel6r-resolver"), root / "duel6r-resolver")
-        def run(peer, invitation, scenario, trusted=True, handles=None):
+        shutil.copy2(client.with_name("duel6r-resolver"), root / "duel6r-resolver")
+        def run(peer, invitation, scenario, trusted=True, handles=None, readiness=None):
             env = dict(os.environ,
                        SSL_CERT_FILE=str(root / "ca.pem") if trusted else str(root / "missing.pem"),
                        SSL_CERT_DIR=str(root / "no-ca-directory"))
             forwarded_before = peer.forwarded_ends
             try:
-                result = subprocess.run([str(executable), str(peer.port), str(root), scenario],
-                                        cwd=root, env=env, input=invitation + "\n", capture_output=True, text=True, timeout=140)
+                arguments = [str(executable), str(peer.port), str(root), scenario]
+                if scenario == "flow-reuse":
+                    assert readiness is not None, "owned native readiness path required"
+                    result = reuse_client(arguments, env, invitation, server, readiness, root)
+                else:
+                    result = subprocess.run(arguments, cwd=root, env=env, input=invitation + "\n",
+                                            capture_output=True, text=True, timeout=140)
             except subprocess.TimeoutExpired:
                 failure_context(root, handles or {}, peer, timed_out=True)
                 raise
@@ -759,7 +812,7 @@ def main():
                     evidence.unlink()
                 frontend = port() if scenario in ("directory", "directory-reservation") else None
                 handles = {"service": {}, "authenticated-peer": {}}
-                with service(server, root, INVITE, frontend, process_handle=handles["service"]) as (backend, _):
+                with service(server, root, INVITE, frontend, process_handle=handles["service"]) as (backend, ready):
                     observe_application = (scenario.startswith("attack-") or scenario in ("flow-race", "flow-fatal-before-end")
                         or scenario == "summary-return-ordered" or (scenario.startswith("notice-") and "eof" not in scenario))
                     helper = (authenticated_peer(server.with_name("duel6r-public-authenticated-peer"), backend, root, scenario,
@@ -770,7 +823,7 @@ def main():
                                        False, False, frontend or 0)
                         peer.application_peer = observe_application
                         try:
-                            run(peer, INVITE, scenario, handles=handles)
+                            run(peer, INVITE, scenario, handles=handles, readiness=ready)
                         except (AssertionError, subprocess.TimeoutExpired) as error:
                             if not (root / "failure-context.json").exists():
                                 failure_context(root, handles, peer, result=getattr(peer, "case_result", None))
