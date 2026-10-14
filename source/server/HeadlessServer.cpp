@@ -1477,7 +1477,7 @@ namespace Duel6::Server {
     int HeadlessServer::run(std::ostream &output) {
         std::unique_ptr<DedicatedReadiness> readiness;
         if (config.dedicated) {
-            if (!Network::PublicSession::supported() || !config.trustedProxyV2 || config.listenEndpoint.host != "127.0.0.1"
+            if (!Network::PublicSession::serviceSupported() || !config.trustedProxyV2 || config.listenEndpoint.host != "127.0.0.1"
                 || !config.additionalListenHosts.empty()
                 || !config.transportEnabled || config.transportEcho || config.admissionClient
                 || config.hostedServiceIpc || config.graphicalHostComposition || config.localPlayers != 0)

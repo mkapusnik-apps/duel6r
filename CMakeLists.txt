@@ -183,10 +183,15 @@ set_property (CACHE D6R_RENDERER PROPERTY STRINGS ${D6R_RENDERERS})
 set(D6R_WITH_LUA ON)     # Enable/disable lua scripting
 option(D6R_TRANSPORT_ONLY "Build only the native session transport and its tests" OFF)
 set(D6R_DIRECTORY_DEFAULT_URL "" CACHE STRING "Compiled directory origin selected by the distribution channel, not build type")
-# Dedicated participation is scoped to the approved Linux/Windows x86-64 targets.
+# Dedicated clients remain Linux/Windows x86-64. Service support is independent:
+# the protected Linux backend also runs in the existing AArch64 package.
 set(D6R_PUBLIC_DEDICATED OFF)
 if ((WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux") AND D6R_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
     set(D6R_PUBLIC_DEDICATED ON)
+endif ()
+set(D6R_DEDICATED_SERVICE OFF)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND D6R_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|aarch64|arm64)$")
+    set(D6R_DEDICATED_SERVICE ON)
 endif ()
 
 if (D6R_TRANSPORT_ONLY)
@@ -842,7 +847,7 @@ if (D6R_PUBLIC_DEDICATED)
     list(APPEND D6R_NETWORK_SCAFFOLD_SOURCES source/network/TlsStream.cpp source/network/TlsStream.h)
 endif ()
 add_library(duel6r-network-scaffold STATIC ${D6R_NETWORK_SCAFFOLD_SOURCES})
-# Operator-configured dedicated participation is not a Mac/Pi transport path.
+# Outer public TLS belongs to dedicated clients, not the protected service backend.
 if (D6R_PUBLIC_DEDICATED)
     find_package(OpenSSL 1.1.1 REQUIRED)
     target_link_libraries(duel6r-network-scaffold PUBLIC OpenSSL::SSL OpenSSL::Crypto)
@@ -851,6 +856,9 @@ if (D6R_PUBLIC_DEDICATED)
         target_compile_definitions(duel6r-game-engine PUBLIC D6R_PUBLIC_DEDICATED)
     endif ()
 endif ()
+if (D6R_DEDICATED_SERVICE)
+    target_compile_definitions(duel6r-network-scaffold PUBLIC D6R_DEDICATED_SERVICE)
+endif ()
 find_package(MbedTLS 3.6.7 EXACT CONFIG REQUIRED)
 if (UNIX AND NOT APPLE)
     set(CMAKE_BUILD_RPATH "$ORIGIN/lib")
@@ -858,7 +866,7 @@ if (UNIX AND NOT APPLE)
 endif ()
 target_sources(duel6r-network-scaffold PRIVATE source/network/SecureSession.cpp)
 target_link_libraries(duel6r-network-scaffold PUBLIC MbedTLS::mbedtls MbedTLS::mbedx509 MbedTLS::mbedcrypto)
-if (NOT D6R_TRANSPORT_ONLY OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND D6R_PUBLIC_DEDICATED))
+if (NOT D6R_TRANSPORT_ONLY OR D6R_DEDICATED_SERVICE)
     find_package(CURL 7.85 REQUIRED)
     # The existing publisher/HTTP/origin code has no SDL or renderer dependency.
     # Keep native transport-only Mac/Windows verification's dependency set unchanged.
@@ -918,7 +926,8 @@ set_target_properties(${D6R_APP_NAME} PROPERTIES VERSION 6.0.0)
 if (BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(NAME application-mode-process COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tests/ApplicationModeProcessTests.py $<TARGET_FILE:${D6R_APP_NAME}>)
+            ${CMAKE_SOURCE_DIR}/tests/ApplicationModeProcessTests.py $<TARGET_FILE:${D6R_APP_NAME}>
+            $<BOOL:${D6R_DEDICATED_SERVICE}>)
     set_tests_properties(application-mode-process PROPERTIES TIMEOUT 60 LABELS "application;headless;cli;security")
 endif ()
 if (MINGW AND D6R_TRANSPORT_ONLY)

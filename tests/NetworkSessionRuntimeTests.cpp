@@ -2141,6 +2141,8 @@ D6R_TEST_CASE("NET-DIR mixed selected dedicated setup locks endpoint and common 
     D6R_REQUIRE(f.text("Ready empty session. Your role is confirmed only after admission."));
     menu.joinSelected();
     if (!Network::PublicSession::supported()) {
+        D6R_REQUIRE(!menu.runtime.join(row.endpoint, "unused-resources", {{"Unadmitted"}}, {}, {}, true));
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
         D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
         D6R_REQUIRE(!menu.browserFocusEnabled(1));
         f.draw(); D6R_REQUIRE(f.text("Dedicated joining requires Linux x86-64 or Windows x86-64."));

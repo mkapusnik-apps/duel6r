@@ -177,8 +177,8 @@ namespace Duel6::Server {
 
         requireText("server host", config.listenEndpoint.host);
         if (config.dedicated) {
-#if !defined(__linux__) || !defined(D6R_PUBLIC_DEDICATED)
-            throw std::invalid_argument("Dedicated service requires Linux x86-64");
+#if !defined(__linux__) || !defined(D6R_DEDICATED_SERVICE)
+            throw std::invalid_argument("Dedicated service requires Linux x86-64 or ARM64");
 #endif
             if (!config.transportEnabled || config.transportEcho || config.admissionClient
                 || config.hostedServiceIpc || config.graphicalHostComposition || config.hostedServiceParent

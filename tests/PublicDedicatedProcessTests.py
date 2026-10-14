@@ -482,25 +482,34 @@ def certificates(root):
 def service(server, root, invitation, frontend_port=None, *, backend_port=None, process_handle=None, readiness_name="ready.sock"):
     backend = backend_port or port()
     invite = root / "invite"
-    invite.write_text(invitation)
-    invite.chmod(0o600)
+    if invitation is not None:
+        invite.write_text(invitation)
+        invite.chmod(0o600)
     ready = root / readiness_name
     with (root / "server.log").open("w+") as log:
         arguments = [str(server), "--server", "--dedicated", "--transport", "--host=127.0.0.1",
             f"--port={backend}", f"--resources={root}", "--trusted-proxy-protocol=v2",
-            f"--password-file={invite}", f"--readiness-socket={ready}"]
+            f"--readiness-socket={ready}"]
+        if invitation is not None:
+            arguments += [f"--password-file={invite}"]
         if frontend_port is not None:
             assert os.environ.get("D6R_DIRECTORY_URL", "").startswith("http://127.0.0.1:"), "requires owned local directory fixture"
             arguments += ["--advertise-host=arena.example.test", f"--advertise-port={frontend_port}"]
-        process = subprocess.Popen(arguments, stdout=log, stderr=log)
+        env = dict(os.environ, SDL_VIDEODRIVER="unavailable-test-driver",
+                   SDL_AUDIODRIVER="unavailable-test-driver")
+        env.pop("DISPLAY", None)
+        env.pop("WAYLAND_DISPLAY", None)
+        process = subprocess.Popen(arguments, cwd=root, env=env, stdout=log, stderr=log)
         if process_handle is not None:
             process_handle["process"] = process
         try:
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
                 assert process.poll() is None, "dedicated service exited before readiness"
-                check = subprocess.run([str(server), "--server", f"--check-ready={ready}"], capture_output=True, timeout=2)
+                check = subprocess.run([str(server), "--server", f"--check-ready={ready}"], cwd=root, env=env,
+                                       capture_output=True, timeout=2)
                 if check.returncode == 0:
+                    assert check.stdout == b"ready\n" and not check.stderr, "readiness probe output"
                     break
                 time.sleep(.05)
             else:
@@ -516,6 +525,7 @@ def service(server, root, invitation, frontend_port=None, *, backend_port=None, 
             log.seek(0)
             output = log.read()
             assert all(value not in output for value in (INVITE, ROTATED, OTHER)), "server logged invitation"
+            assert "initialization" not in output.lower() and "application information" not in output.lower(), "client initialization"
 
 
 def malformed_proxy(backend):
@@ -675,6 +685,29 @@ def main():
                   for y in range(height) for x in range(width)]
         (root / "levels" / "arena.json").write_text(json.dumps(
             dict(width=width, height=height, blocks=blocks, elevators=[])))
+        if cases == ["--service-only"]:
+            # Real packaged service/probe on both Linux service architectures,
+            # without enabling a dedicated client on ARM64. Reuse this fixture's
+            # protected backend and negative PROXY/source-accounting scenarios.
+            initial = {p.relative_to(root): p.read_bytes() for directory in ("data", "levels")
+                       for p in (root / directory).rglob("*") if p.is_file()}
+            for password in (None, "", INVITE):
+                with service(server, root, password) as (backend, ready):
+                    malformed_proxy(backend)
+                    source_accounting(backend)
+                assert not ready.exists(), "readiness socket leaked after shutdown"
+                probe = subprocess.run([str(server), "--server", f"--check-ready={ready}"],
+                                       cwd=root, capture_output=True, timeout=2)
+                assert probe.returncode == 1 and not probe.stdout, "stopped service reported ready"
+                with socket.socket() as released:
+                    released.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    released.bind(("127.0.0.1", backend))
+                current = {p.relative_to(root): p.read_bytes() for directory in ("data", "levels")
+                           for p in (root / directory).rglob("*") if p.is_file()}
+                assert current == initial, "headless service changed client/gameplay data"
+            print("PASS actual headless dedicated startup/readiness, absent/empty/protected Password, "
+                  "strict PROXY/source accounting, shutdown/socket release and no client data writes", flush=True)
+            return
         certificates(root)
         # Resolver uses executable-relative lookup. Stage a separate test copy.
         executable = root / client.name

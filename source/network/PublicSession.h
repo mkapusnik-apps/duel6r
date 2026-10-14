@@ -7,6 +7,14 @@
 #include <vector>
 
 namespace Duel6::Network::PublicSession {
+    inline constexpr bool serviceSupported() {
+#if defined(D6R_DEDICATED_SERVICE) && defined(__linux__)
+        return true;
+#else
+        return false;
+#endif
+    }
+    // Client capability must not be inferred from service availability.
     inline constexpr bool supported() {
 #if defined(D6R_PUBLIC_DEDICATED) && !defined(D6_MACOS_PLATFORM)
         return true;

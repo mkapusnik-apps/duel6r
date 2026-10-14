@@ -37,6 +37,24 @@ D6R_TEST_CASE("common Password replaces retired Invite input with exact UTF8 spa
         D6R_REQUIRE(!SessionPassword::valid(invalid));
 }
 
+D6R_TEST_CASE("dedicated service capability does not grant ARM64 dedicated client transport") {
+    using namespace Duel6::Network;
+#if defined(__linux__) && defined(__aarch64__)
+    D6R_REQUIRE(PublicSession::serviceSupported());
+    D6R_REQUIRE(!PublicSession::supported());
+#endif
+    if (!PublicSession::supported()) {
+        SessionTransportDependencies dependencies;
+        dependencies.publicTls = true;
+        dependencies.secureSession = true;
+        TcpClient client(dependencies);
+        D6R_REQUIRE(client.start({"127.0.0.1", 26660}));
+        D6R_REQUIRE(!client.waitForConnected(std::chrono::seconds(2)));
+        D6R_REQUIRE(client.failure() == TransportFailure::SecureUnavailable);
+        client.close();
+    }
+}
+
 D6R_TEST_CASE("common Password settings updates contain no password while initial owned startup IPC retains it") {
     namespace H = Duel6::Network::HostComposition;
     H::Setup setup; setup.localPlayerNames = {"Host"};
@@ -53,7 +71,7 @@ D6R_TEST_CASE("common Password settings updates contain no password while initia
 }
 
 D6R_TEST_CASE("dedicated Password protected file validates empty exact data and rejects unsafe malformed retired configuration") {
-#if defined(__linux__) && defined(D6R_PUBLIC_DEDICATED)
+#if defined(__linux__) && defined(D6R_DEDICATED_SERVICE)
     using namespace Duel6;
     namespace fs = std::filesystem;
     const auto root = fs::temp_directory_path() / ("d6r-password-" + std::to_string(getpid()));
