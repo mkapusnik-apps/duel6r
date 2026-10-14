@@ -34,6 +34,7 @@ include(CTest)
 # graphical target; they do not require launching the application UI.
 if (BUILD_TESTING)
     add_executable(duel6r-application-mode-tests tests/TestMain.cpp tests/ApplicationModeTests.cpp source/ApplicationMode.cpp)
+    target_compile_features(duel6r-application-mode-tests PRIVATE cxx_std_17)
     target_include_directories(duel6r-application-mode-tests PRIVATE ${CMAKE_SOURCE_DIR})
     add_test(NAME application-mode COMMAND duel6r-application-mode-tests)
     add_executable(duel6r-darwin-cleanup-state-tests tests/TestMain.cpp tests/DarwinCleanupStateTests.cpp)
