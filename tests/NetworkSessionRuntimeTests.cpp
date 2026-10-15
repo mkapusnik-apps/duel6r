@@ -5042,15 +5042,40 @@ D6R_TEST_CASE("NET-SOLO host and guest charged bows release while solo team cont
     std::map<Network::Replication::Identity, int> ammo;
     for (const auto &slot : before.players) if (slot.team == 1) ammo.emplace(slot.playerId, slot.ammunition);
     D6R_REQUIRE_EQ(2u, ammo.size());
+    const auto opposingPlayer = std::find_if(before.players.begin(), before.players.end(),
+            [](const auto &slot) { return slot.team == 2; });
+    D6R_REQUIRE(opposingPlayer != before.players.end());
+    const auto opposingId = opposingPlayer->playerId;
+    D6R_REQUIRE_EQ(opponent.snapshot().localParticipantId, opposingPlayer->ownerParticipantId);
+    std::map<const Client::NetworkSessionRuntime *, std::uint64_t> departureTicks;
     // Removing the sole opposing team restores solo play, not a victory. Both
     // archers must retain their charge and remain controllable without a reset.
     opponent.leave();
     D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 3s, [&] {
         for (const auto *runtime : {&host, &ally}) {
             const auto snapshot = runtime->snapshot();
-            if (!snapshot.canonical || snapshot.canonical->phase != Network::Replication::Phase::ActiveRound
+            if (snapshot.journey != Client::NetworkJourney::Match || !snapshot.failure.empty()
+                || !snapshot.canonical || snapshot.canonical->phase != Network::Replication::Phase::ActiveRound
                 || snapshot.canonical->roundEndCountdown != 0 || !chargedArchers(snapshot)
-                || !snapshot.canonical->score.winner.winnerPlayerIds.empty()) return false;
+                || snapshot.canonical->matchId != before.matchId
+                || !snapshot.canonical->round || !before.round
+                || snapshot.canonical->round->roundId != before.round->roundId
+                || !snapshot.canonical->score.winner.winnerPlayerIds.empty()
+                || snapshot.canonical->score.winner.winningTeam != 0
+                || snapshot.canonical->score.winner.noWinner) return false;
+            const auto removed = std::find_if(snapshot.canonical->players.begin(), snapshot.canonical->players.end(),
+                    [opposingId](const auto &slot) { return slot.playerId == opposingId; });
+            if (removed == snapshot.canonical->players.end()
+                || removed->lifeState != Network::Replication::LifeState::Departed) return false;
+            for (const auto &[id, previousAmmo] : ammo) {
+                const auto archer = std::find_if(snapshot.canonical->players.begin(), snapshot.canonical->players.end(),
+                        [id](const auto &slot) { return slot.playerId == id; });
+                if (archer == snapshot.canonical->players.end() || archer->ammunition != previousAmmo) return false;
+            }
+            // Require a later live tick after this peer first confirms removal,
+            // not merely a stale charged snapshot from before Leave was applied.
+            const auto observed = departureTicks.emplace(runtime, snapshot.canonical->phaseTime).first->second;
+            if (snapshot.canonical->phaseTime <= observed) return false;
         }
         return true;
     }));
@@ -5058,7 +5083,8 @@ D6R_TEST_CASE("NET-SOLO host and guest charged bows release while solo team cont
     const bool firedOnRelease = pumpRuntimes(host, opponent, ally, 500ms, [&] {
         for (const auto *runtime : {&host, &ally}) {
             const auto snapshot = runtime->snapshot();
-            if (!snapshot.canonical || snapshot.canonical->phase != Network::Replication::Phase::ActiveRound
+            if (snapshot.journey != Client::NetworkJourney::Match || !snapshot.failure.empty()
+                || !snapshot.canonical || snapshot.canonical->phase != Network::Replication::Phase::ActiveRound
                 || snapshot.canonical->roundEndCountdown != 0) return false;
             for (const auto &[id, previousAmmo] : ammo) {
                 const auto slot = std::find_if(snapshot.canonical->players.begin(), snapshot.canonical->players.end(),
@@ -5092,11 +5118,19 @@ D6R_TEST_CASE("NET-SOLO host and guest charged bows release while solo team cont
         }
         Test::fail("host and guest fire charged bows during continued solo play", __FILE__, __LINE__, detail.str());
     }
+    const auto endBegan = std::chrono::steady_clock::now();
+    std::optional<std::chrono::steady_clock::time_point> cleanedAt;
     host.endSession();
     D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 5s, [&] {
+        if (!cleanedAt && host.supervisor && host.snapshot().journey == Client::NetworkJourney::Inactive) {
+            const auto service = host.supervisor->snapshot();
+            if (service.cleanupComplete && service.state == Client::HostServiceState::NoService)
+                cleanedAt = std::chrono::steady_clock::now();
+        }
         return host.snapshot().journey == Client::NetworkJourney::Inactive
                && ally.snapshot().journey == Client::NetworkJourney::HostEnded;
     }));
+    D6R_REQUIRE(cleanedAt && *cleanedAt - endBegan < 3s);
 }
 
 D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and guest sustain release edges") {
