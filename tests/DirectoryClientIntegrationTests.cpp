@@ -73,6 +73,7 @@ int main(int argc, char **argv) {
         listing.endpoint = {*publishAddress, 25660}; listing.mode = "predator";
         listing.phase = "lobby"; listing.players = 2; listing.capacity = 15;
         listing.passwordRequired = true;
+        listing.protection = "password";
         DirectoryPublisher publisher;
         publisher.update(listing);
         std::string id;
@@ -148,7 +149,7 @@ int main(int argc, char **argv) {
         eventually([&] { return findListing("lobby"); });
         std::cout << "[STEP] Protected directory-selected lobby join\n" << std::flush;
         require(advertised.passwordRequired && advertised.joinable(), "Live protected lobby was not advertised.");
-        require(guest.join(advertised.endpoint, argv[2], {{"Directory guest", nullptr, {}}}, setup.password, advertised.sessionId), "Selected-session connection did not start.");
+        require(guest.join(advertised.endpoint, argv[2], {{"Directory guest", nullptr, {}}}, setup.password, advertised.sessionId, false), "Selected-session connection did not start.");
         try { eventually([&] { pump(); return guest.snapshot().journey == NetworkJourney::Lobby; }, 10s); }
         catch (...) {
             std::cerr << "Guest journey=" << static_cast<unsigned>(guest.snapshot().journey)
@@ -164,7 +165,7 @@ int main(int argc, char **argv) {
         std::cout << "[STEP] First-round publication and selected live arrival\n" << std::flush;
         eventually([&] { return findListing("first-round"); });
         const auto before = *host.snapshot().canonical;
-        require(arrival.join(advertised.endpoint, argv[2], {{"Directory arrival", nullptr, {}}}, setup.password, advertised.sessionId), "Live selected-session connection did not start.");
+        require(arrival.join(advertised.endpoint, argv[2], {{"Directory arrival", nullptr, {}}}, setup.password, advertised.sessionId, false), "Live selected-session connection did not start.");
         eventually([&] { pump(); return arrival.snapshot().journey == NetworkJourney::Match; }, 10s);
         const auto after = *arrival.snapshot().canonical;
         require(after.players.size() == 3 && before.round && after.round && before.round->roundId == after.round->roundId,
