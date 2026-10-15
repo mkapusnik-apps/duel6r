@@ -30,8 +30,6 @@ namespace Duel6::Server {
         bool graphicalHostComposition = false;
         bool dedicated = false;
         Network::Endpoint advertisedFrontend{"", 0};
-        bool publicConnection = false;
-        bool trustedProxyV2 = false;
         std::string passwordFile;
         bool passwordFileProvided = false;
         std::string readinessSocket;

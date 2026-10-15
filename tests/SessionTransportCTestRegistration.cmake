@@ -10,51 +10,14 @@ if (D6R_DEDICATED_SERVICE)
             LABELS "application;headless;network;security;process" TIMEOUT 60)
 endif ()
 
-# Windows registration is OFF by default: ordinary native CTest must never
-# alter a developer's trust store. DevOps may opt in ONLY inside an approved
-# disposable Windows Docker container, with no host trust/registry/profile
-# mounts, no persistent user profile, and existing permission to write that
-# container's LocalMachine ROOT. Access denial fails; there is no elevation,
-# CurrentUser write fallback, or protected-root policy change. Inside it:
-#   set D6R_DISPOSABLE_WINDOWS_CONTAINER=1
-#   cmake ... -DD6R_TRANSPORT_ONLY=ON -DBUILD_TESTING=ON
-#             -DD6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS=ON
-#   cmake --build <build> --target duel6r-portable-tls-tests
-#   ctest --test-dir <build> -R "^duel6r-portable-tls-tests$" --output-on-failure
-# The executable also requires a Windows container marker before trust access.
-# Missing/unsupported isolation markers fail closed; do not bypass the guard.
-# Provisioning uses the documented physical LocalMachine ROOT provider; the
-# unchanged production CurrentUser ROOT reader sees its LocalMachine sibling.
-# RAII removes only the generated root on normal/error exits and verifies its
-# absence through both readers. Mandatory container destruction removes its
-# writable registry layer even after timeout/forced kill. Never use a host store.
-# No OpenSSL CLI, Python TLS fixture, GUI, or fake platform macros are needed.
-option(D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS
-        "Opt into temporary container LocalMachine ROOT TLS tests ONLY in disposable Windows Docker containers" OFF)
-if (D6R_PUBLIC_DEDICATED AND (NOT WIN32 OR D6R_ENABLE_DISPOSABLE_WINDOWS_TLS_TESTS))
-    add_executable(duel6r-portable-tls-tests ${CMAKE_SOURCE_DIR}/tests/PortableTlsTests.cpp)
-    target_include_directories(duel6r-portable-tls-tests PRIVATE ${CMAKE_SOURCE_DIR})
-    target_link_libraries(duel6r-portable-tls-tests duel6r-network-scaffold)
-    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        find_package(Python3 COMPONENTS Interpreter REQUIRED)
-        add_test(NAME staging-allocation-exception
-                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/StagingAllocationTests.py
-                ${CMAKE_SOURCE_DIR} ${CMAKE_CXX_COMPILER})
-        set_tests_properties(staging-allocation-exception PROPERTIES TIMEOUT 30 LABELS "application;network;security")
-        target_compile_definitions(duel6r-portable-tls-tests PRIVATE D6R_TEST_OBSERVE_STAGING)
-        target_link_libraries(duel6r-portable-tls-tests "-Wl,--wrap=mbedtls_ssl_read,--wrap=SSL_read,--wrap=_ZdlPv,--wrap=_ZdlPvm")
-    endif ()
-    if (WIN32)
-        target_compile_definitions(duel6r-portable-tls-tests PRIVATE D6R_TLS_DISPOSABLE_WINDOWS_OPT_IN)
-        target_link_libraries(duel6r-portable-tls-tests advapi32)
-        add_test(NAME duel6r-portable-tls-tests COMMAND duel6r-portable-tls-tests --allow-disposable-windows-container-test-root)
-    else ()
-        add_test(NAME duel6r-portable-tls-tests COMMAND duel6r-portable-tls-tests)
-    endif ()
-    if (MINGW)
-        set_property(TARGET duel6r-portable-tls-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
-    endif ()
-    set_tests_properties(duel6r-portable-tls-tests PROPERTIES LABELS "application;network;tls;security;native" TIMEOUT 90)
+# Portable real common-channel handshakes, wrong-password, tamper, key-budget and
+# cancellation checks run in duel6r-session-transport-tests on Windows too.
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME staging-allocation-exception
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/StagingAllocationTests.py
+            ${CMAKE_SOURCE_DIR} ${CMAKE_CXX_COMPILER})
+    set_tests_properties(staging-allocation-exception PROPERTIES TIMEOUT 30 LABELS "application;network;security")
 endif ()
 if (UNIX)
     add_executable(duel6r-native-secure-session-tests
@@ -86,7 +49,12 @@ set_tests_properties(duel6r-hardware-crypto-tests PROPERTIES LABELS "application
 add_executable(duel6r-session-transport-tests
         ${CMAKE_SOURCE_DIR}/tests/SessionTransportTests.cpp)
 target_include_directories(duel6r-session-transport-tests PRIVATE ${CMAKE_SOURCE_DIR})
-target_link_libraries(duel6r-session-transport-tests duel6r-network-scaffold)
+target_link_libraries(duel6r-session-transport-tests PRIVATE duel6r-network-scaffold)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_definitions(duel6r-session-transport-tests PRIVATE D6R_TEST_OBSERVE_STAGING)
+    target_link_libraries(duel6r-session-transport-tests PRIVATE
+            "-Wl,--wrap=mbedtls_ssl_read,--wrap=_ZdlPv,--wrap=_ZdlPvm")
+endif ()
 if (MINGW)
     set_property(TARGET duel6r-session-transport-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
 endif ()
@@ -310,11 +278,7 @@ if (NOT D6R_TRANSPORT_ONLY)
             LABELS "application;integration;network;runtime;presentation;reconnect;regression"
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
             TIMEOUT 300)
-    if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND D6R_PUBLIC_DEDICATED)
-        add_test(NAME duel6r-public-dedicated-relay-tests
-                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedRelayTests.py)
-        set_tests_properties(duel6r-public-dedicated-relay-tests PROPERTIES
-                LABELS "application;network;public;tls;regression" TIMEOUT 30)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_executable(duel6r-public-dedicated-runtime-tests
                 ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedRuntimeTests.cpp)
         target_include_directories(duel6r-public-dedicated-runtime-tests PRIVATE ${CMAKE_SOURCE_DIR})
@@ -412,6 +376,7 @@ if (NOT D6R_TRANSPORT_ONLY)
 endif ()
 
 add_executable(duel6r-admission-compatibility-tests
+        ${CMAKE_SOURCE_DIR}/tests/CommonChannelTests.cpp
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
         ${CMAKE_SOURCE_DIR}/tests/AdmissionCompatibilityTests.cpp)
 target_include_directories(duel6r-admission-compatibility-tests PRIVATE ${CMAKE_SOURCE_DIR})

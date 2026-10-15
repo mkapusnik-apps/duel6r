@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from PublicDedicatedProcessTests import INVITE, ROTATED, OTHER, TlsPeer, certificates, service
+from PublicDedicatedProcessTests import INVITE, ROTATED, OTHER, ChannelPeer, service
 
 
 def wait_marker(root, name, process, absolute):
@@ -36,11 +36,10 @@ def main():
         width, height = 10, 3
         (root / "levels/arena.json").write_text(json.dumps(dict(width=width, height=height,
             blocks=[int(x in (0, width - 1) or y in (0, height - 1)) for y in range(height) for x in range(width)], elevators=[])))
-        certificates(root)
         executable = root / client.name
         shutil.copy2(client, executable)
         shutil.copy2(server.with_name("duel6r-resolver"), root / "duel6r-resolver")
-        environment = dict(os.environ, SSL_CERT_FILE=str(root / "ca.pem"), SSL_CERT_DIR=str(root / "no-ca-directory"))
+        environment = dict(os.environ)
         for scenario in cases:
             for name in ("action", "action.tmp", "acted", "outer-handshake-1", "restart-ready",
                          "restart-reconnecting", "shutdown-ready", "outer-latest-binding"):
@@ -50,13 +49,13 @@ def main():
                 handle = {}
                 backend, ready = stack.enter_context(service(server, root, INVITE, process_handle=handle,
                                                               readiness_name=f"{scenario}-ready.sock"))
-                peer = TlsPeer(root / "valid.pem", root / "valid.key", backend, root)
+                peer = ChannelPeer(backend, root)
                 stack.callback(peer.close)
                 peer.hold_initial_inner = scenario == "pw-cancel"
                 peer.observe_latest_binding = scenario == "scoped-resume"
                 scoped_port = 0
                 if scenario == "scoped-resume":
-                    scoped = TlsPeer(root / "valid.pem", root / "valid.key", backend)
+                    scoped = ChannelPeer(backend)
                     stack.callback(scoped.close)
                     scoped_port = scoped.port
                 process = subprocess.Popen([str(executable), str(peer.port), str(root), scenario, str(scoped_port)],
@@ -91,7 +90,7 @@ def main():
                     assert all(value not in output for value in (INVITE, ROTATED, OTHER, "incorrect-private-fixture")), "private Password disclosed in crypto fixture output"
                     print(output.strip(), flush=True)
                 assert process.returncode == 0, f"crypto coverage {scenario} failed; no production correction/retry"
-                assert peer.handshakes > 0, "crypto profile never performed real verified outer handshake"
+                assert peer.handshakes > 0, "common-channel fixture was never connected"
 
 
 if __name__ == "__main__":

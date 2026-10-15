@@ -194,13 +194,11 @@ namespace {
     public:
         ProductionAdmissionListener(std::size_t maxConnections, bool preAdmission,
                                     Duel6::Network::Trust::Clock now,
-                                    std::shared_ptr<const Duel6::Network::SessionPassword> password = {},
-                                    bool trustedProxyV2 = false) {
+                                    std::shared_ptr<const Duel6::Network::SessionPassword> password = {}) {
             Duel6::Network::SessionTransportDependencies dependencies;
             dependencies.now = std::move(now);
             dependencies.enforceNetworkSessionPolicy = true;
             dependencies.enforcePreAdmissionPolicy = preAdmission;
-            dependencies.trustedProxyV2 = trustedProxyV2;
             dependencies.secureSession = preAdmission;
             dependencies.password = std::move(password);
             listener = std::make_unique<Duel6::Network::TcpListener>(maxConnections, std::move(dependencies));
@@ -464,6 +462,7 @@ namespace {
         auto request = Duel6::Network::makeLocalAdmissionRequest(
                 config.localPlayers, std::move(manifest), config.localPlayerNames);
         request.expectedSessionId = runtimeDependencies.expectedSessionId;
+        request.expectedHostingKind = runtimeDependencies.expectedHostingKind;
         if (runtimeNow(runtimeDependencies) >= deadline) {
             if (cancelAttempt()) return 2;
             output << "Connection timed out.\n";
@@ -509,6 +508,7 @@ namespace {
                     catch (...) { return Duel6::Network::SendResult::NotConnected; }
                 }, environment, true);
         bool sessionAdmitted = false;
+        auto confirmedHostingKind = Duel6::Network::HostingKind::Unbound;
         std::uint64_t admittedSessionId = 0;
         Duel6::Network::Lifecycle::ParticipantId admittedParticipantId = 0;
         std::unique_ptr<Duel6::Network::Input::ClientCommandSession> playerInput;
@@ -540,7 +540,9 @@ namespace {
             const auto *initial = replicatedConnection.initialAdmissionState();
             if (!initial)
                 return GuestFrameDecision();
-            if (initial->sessionId != reconnectGrant->sessionId)
+            if (initial->sessionId != reconnectGrant->sessionId || !acceptedOffer
+                || (acceptedOffer->sessionId != 0 && initial->sessionId != acceptedOffer->sessionId)
+                || reconnectGrant->hostingKind != acceptedOffer->hostingKind)
                 return GuestFrameDecision(GuestDecision::InvalidHost);
             // Admission may have committed in round one. The calibrated snapshot
             // must reflect the current state, even if an outcome followed commit.
@@ -568,9 +570,12 @@ namespace {
                                 Duel6::Network::deserializeAdmissionOffer(frame.payload);
                         if (!Duel6::Network::validAdmissionIdentitySet(offer, request.localPlayerCount))
                             throw std::invalid_argument("Admission offer does not match the request");
-                        if (config.publicConnection && runtimeDependencies.expectedSessionId != 0
+                        if (runtimeDependencies.expectedSessionId != 0
                             && offer.sessionId != runtimeDependencies.expectedSessionId)
                             throw std::invalid_argument("Bound offer does not match selected session");
+                        if (request.expectedHostingKind != Duel6::Network::HostingKind::Unbound
+                            && offer.hostingKind != request.expectedHostingKind)
+                            throw std::invalid_argument("Bound hosting kind changed");
                         if (!allowOutboundExchange) return GuestFrameDecision();
                         Duel6::Network::AdmissionAcceptanceEnqueueResult queued =
                                 Duel6::Network::AdmissionAcceptanceEnqueueResult::NotQueued;
@@ -696,6 +701,8 @@ namespace {
                     closeClient();
                     return 2;
                 case GuestDecision::Admitted: {
+                    confirmedHostingKind = acceptedOffer->hostingKind;
+                    request.expectedHostingKind = confirmedHostingKind;
                     if (runtimeDependencies.observations) ++runtimeDependencies.observations->admissions;
                     printAdmissionResult(output, decision.result);
                     if (!runtimeDependencies.productionReplicationProtocol) {
@@ -709,6 +716,8 @@ namespace {
                                 catch (...) { return Duel6::Network::SendResult::NotConnected; }
                             });
                     if (runtimeDependencies.guestAdmission) {
+                        if (runtimeDependencies.guestHostingKind)
+                            runtimeDependencies.guestHostingKind(confirmedHostingKind);
                         try { runtimeDependencies.guestAdmission(decision.result.participantId,
                                                                  decision.result.playerIds); }
                         catch (...) { closeClient(); return 2; }
@@ -880,7 +889,7 @@ namespace {
                                                Duel6::Network::TransportTimePoint closeBoundary) {
             if (cancelled() || !sessionAdmitted || !sessionRecovery
                 || (closeBoundary != Duel6::Network::TransportTimePoint{} && frame.receivedAt > closeBoundary)) return false;
-            const auto terminal = config.publicConnection
+            const auto terminal = confirmedHostingKind == Duel6::Network::HostingKind::Dedicated
                     ? Duel6::Network::PublicSession::terminalReason(frame.payload, admittedSessionId)
                     : std::string_view{};
             if (!terminal.empty()) {
@@ -1273,7 +1282,8 @@ namespace {
                     LifecycleCredentialPayloadGuard credentialPayload(frame.payload);
                     if (auto parsed = Duel6::Network::Lifecycle::deserializeReconnectResponse(frame.payload)) {
                         if (parsed->sessionId != retryRequest->sessionId
-                            || parsed->participantId != retryRequest->participantId) break;
+                            || parsed->participantId != retryRequest->participantId
+                            || (parsed->nextGrant && parsed->nextGrant->hostingKind != confirmedHostingKind)) break;
                         response = std::move(parsed);
                     } else if (const auto replication =
                             Duel6::Network::Replication::deserializeReplicationFrame(frame.payload)) {
@@ -1375,7 +1385,6 @@ namespace Duel6::Server {
                 Network::SessionTransportDependencies dependencies;
                 dependencies.now = safeClock;
                 dependencies.enforceNetworkSessionPolicy = true;
-                dependencies.publicTls = this->config.publicConnection;
                 dependencies.secureSession = true;
                 dependencies.password = this->runtimeDependencies.sessionPassword;
                 dependencies.secureLimits = this->runtimeDependencies.secureLimits;
@@ -1385,7 +1394,7 @@ namespace Duel6::Server {
         if (!this->runtimeDependencies.listenerFactory) {
             this->runtimeDependencies.listenerFactory = [this, safeClock](std::size_t maximum, bool preAdmission) {
                 return std::make_unique<ProductionAdmissionListener>(maximum, preAdmission, safeClock,
-                        this->runtimeDependencies.sessionPassword, this->config.dedicated);
+                        this->runtimeDependencies.sessionPassword);
             };
         }
         if (!this->runtimeDependencies.outboundWriter) {
@@ -1477,7 +1486,7 @@ namespace Duel6::Server {
     int HeadlessServer::run(std::ostream &output) {
         std::unique_ptr<DedicatedReadiness> readiness;
         if (config.dedicated) {
-            if (!Network::PublicSession::serviceSupported() || !config.trustedProxyV2 || config.listenEndpoint.host != "127.0.0.1"
+            if (!Network::PublicSession::serviceSupported()
                 || !config.additionalListenHosts.empty()
                 || !config.transportEnabled || config.transportEcho || config.admissionClient
                 || config.hostedServiceIpc || config.graphicalHostComposition || config.localPlayers != 0)
@@ -1587,7 +1596,7 @@ namespace Duel6::Server {
             coverageLoopback = coverageLoopback && scope == Network::Trust::EndpointScope::Loopback;
         }
 
-        output << (config.dedicated ? "Dedicated trusted-proxy backend; never publish this listener."
+        output << (config.dedicated ? "Dedicated common encrypted channel; endpoint-only first contact does not authenticate server identity."
                    : coverageLoopback
                    ? Network::Trust::LoopbackExposureCopy : Network::Trust::PrivateLanExposureCopy) << '\n';
         output.flush();
@@ -2463,7 +2472,10 @@ namespace Duel6::Server {
                                         return value.participantId == reconnectAttempt->request.participantId
                                                && (!value.localHost || config.dedicated);
                                     });
-                            if (participant == admitted.end()
+                            if ((reconnectAttempt->compatibility.expectedHostingKind != Network::HostingKind::Unbound
+                                && reconnectAttempt->compatibility.expectedHostingKind
+                                    != (config.dedicated ? Network::HostingKind::Dedicated : Network::HostingKind::PlayerHosted))
+                                || participant == admitted.end()
                                 || reconnectAttempt->compatibility.localPlayerCount
                                    != participant->playerIds.size())
                                 compatibility = Network::Lifecycle::ReconnectCompatibility::TrustRejected;
@@ -2531,7 +2543,9 @@ namespace Duel6::Server {
                             if (offer.pending()) {
                                 runtime.transactionId = offer.transactionId;
                                 runtime.offer = {offer.result.participantId, offer.result.playerIds};
-                                if (config.dedicated) runtime.offer.sessionId = lifecycleSessionId;
+                                runtime.offer.sessionId = lifecycleSessionId;
+                                runtime.offer.hostingKind = config.dedicated ? Network::HostingKind::Dedicated
+                                                                           : Network::HostingKind::PlayerHosted;
                                 if (!observe(AdmissionLifecycleStage::OfferPrepared, runtime.connectionId,
                                              runtime.transactionId)
                                     || !connection->permitAdmissionAcceptance()) {

@@ -99,8 +99,6 @@ Write-Host "Windows SDK version: $sdkVersion"
 $dockerArguments = @(
     'run'
     '--rm'
-    '--env'
-    'D6R_DISPOSABLE_WINDOWS_CONTAINER=1'
     '--mount'
     "type=bind,source=$workspace,target=C:\workspace"
     '--mount'

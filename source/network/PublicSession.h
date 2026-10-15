@@ -14,14 +14,6 @@ namespace Duel6::Network::PublicSession {
         return false;
 #endif
     }
-    // Client capability must not be inferred from service availability.
-    inline constexpr bool supported() {
-#if defined(D6R_PUBLIC_DEDICATED) && !defined(D6_MACOS_PLATFORM)
-        return true;
-#else
-        return false;
-#endif
-    }
     inline constexpr const char *SecurityFailure =
             "Secure connection could not be established. Check the endpoint and try again.";
     inline constexpr const char *ControllerExpired =

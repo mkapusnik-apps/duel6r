@@ -128,7 +128,8 @@ namespace Duel6::Network {
             writer.uint64(identities.participantId);
             writer.byte(static_cast<std::uint8_t>(identities.playerIds.size()));
             for (std::uint64_t playerId: identities.playerIds) writer.uint64(playerId);
-            if (identities.sessionId != 0) writer.uint64(identities.sessionId);
+            writer.uint64(identities.sessionId);
+            writer.byte(static_cast<std::uint8_t>(identities.hostingKind));
             return writer.finish();
         }
 
@@ -144,10 +145,8 @@ namespace Duel6::Network {
             identities.playerIds.reserve(playerCount);
             for (std::size_t index = 0; index < playerCount; ++index)
                 identities.playerIds.push_back(reader.uint64());
-            if (!reader.finished()) {
-                identities.sessionId = reader.uint64();
-                if (identities.sessionId == 0) throw std::invalid_argument("Invalid bound admission identity");
-            }
+            identities.sessionId = reader.uint64();
+            identities.hostingKind = static_cast<HostingKind>(reader.byte());
             reader.expectFinished();
             if (!validAdmissionIdentitySet(identities))
                 throw std::invalid_argument("Admission identity set is invalid");
@@ -157,7 +156,7 @@ namespace Duel6::Network {
 
     bool validAdmissionIdentitySet(const AdmissionIdentitySet &identities,
                                    std::optional<std::size_t> expectedPlayerCount) {
-        if (identities.participantId == 0 || identities.playerIds.empty()
+        if (!validHostingKind(identities.hostingKind) || identities.participantId == 0 || identities.playerIds.empty()
             || identities.playerIds.size() > Trust::MaxParticipants
             || (expectedPlayerCount && identities.playerIds.size() != *expectedPlayerCount)
             || std::find(identities.playerIds.begin(), identities.playerIds.end(), identities.participantId)
@@ -170,11 +169,12 @@ namespace Duel6::Network {
 
     bool sameAdmissionIdentitySet(const AdmissionIdentitySet &left, const AdmissionIdentitySet &right) {
         return left.participantId == right.participantId && left.playerIds == right.playerIds
-               && left.sessionId == right.sessionId;
+               && left.sessionId == right.sessionId && left.hostingKind == right.hostingKind;
     }
 
     std::vector<std::uint8_t> serializeAdmissionRequest(const AdmissionRequest &request) {
-        if (request.networkReleaseId.empty() || !Trust::validGeneralString(request.networkReleaseId)
+        if ((request.expectedHostingKind != HostingKind::Unbound && !validHostingKind(request.expectedHostingKind))
+            || request.networkReleaseId.empty() || !Trust::validGeneralString(request.networkReleaseId)
             || request.localPlayerCount == 0 || request.localPlayerCount > Trust::MaxParticipants
             || (!request.localPlayerNames.empty()
                 && request.localPlayerNames.size() != request.localPlayerCount)
@@ -206,6 +206,7 @@ namespace Duel6::Network {
             writer.raw(entry.contentIdentity);
         }
         writer.uint64(request.expectedSessionId);
+        writer.byte(static_cast<std::uint8_t>(request.expectedHostingKind));
         return writer.finish();
     }
 
@@ -249,6 +250,9 @@ namespace Duel6::Network {
             request.gameplayManifest.push_back(std::move(entry));
         }
         request.expectedSessionId = reader.uint64();
+        request.expectedHostingKind = static_cast<HostingKind>(reader.byte());
+        if (request.expectedHostingKind != HostingKind::Unbound && !validHostingKind(request.expectedHostingKind))
+            throw std::invalid_argument("Invalid expected hosting kind");
         reader.expectFinished();
         return request;
     }

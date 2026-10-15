@@ -1,5 +1,4 @@
-// Test-only maintained-PAKE application endpoint. Python still supplies the real
-// verified outer TLS frontend. Both inner legs authenticate with SecureSession;
+// Test-only maintained-PAKE application endpoint. Both encrypted legs use SecureSession;
 // no plaintext application bytes are injected below encryption or logged.
 #include "source/network/SecureSession.h"
 #include "source/network/SessionTransport.h"
@@ -74,18 +73,6 @@ static void require(bool value, unsigned line) {
 }
 #define require(value) require((value), __LINE__)
 static void marker(const std::filesystem::path &root, const char *name) { std::ofstream out(root / name); }
-static bool exactProxy(int fd, unsigned char *bytes, std::size_t size, bool writing) {
-    const auto deadline = Clock::now() + 2s;
-    std::size_t offset = 0;
-    while (offset < size && !stopped && Clock::now() < deadline) {
-        auto count = writing ? ::send(fd, bytes + offset, size - offset, MSG_NOSIGNAL)
-                             : ::recv(fd, bytes + offset, size - offset, 0);
-        if (count > 0) offset += static_cast<std::size_t>(count);
-        else if (count == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) return false;
-        else std::this_thread::sleep_for(1ms);
-    }
-    return offset == size;
-}
 struct Frame {
     std::vector<std::uint8_t> bytes;
     std::size_t used = 0, total = TransportEnvelopeBytes;
@@ -173,17 +160,17 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
         require(setsockopt(front.fd, IPPROTO_TCP, TCP_NODELAY, &noDelay, sizeof(noDelay)) == 0);
         require(setsockopt(back.fd, IPPROTO_TCP, TCP_NODELAY, &noDelay, sizeof(noDelay)) == 0);
         require(fcntl(front.fd, F_SETFL, O_NONBLOCK) == 0);
-        std::array<unsigned char, 28> proxy{};
-        require(exactProxy(front.fd, proxy.data(), proxy.size(), false));
         stage = "frontend-auth";
         SecureSession client(front.fd, true, password);
         require(client.handshake(Clock::now() + 3s, [] { return stopped.load(); }));
         stage = "backend-auth";
         sockaddr_in endpoint{}; endpoint.sin_family = AF_INET;
         endpoint.sin_addr.s_addr = htonl(INADDR_LOOPBACK); endpoint.sin_port = htons(backendPort);
+        sockaddr_in source{}; source.sin_family = AF_INET;
+        source.sin_addr.s_addr = htonl(0x7f0000b0u + id);
+        require(::bind(back.fd, reinterpret_cast<sockaddr *>(&source), sizeof(source)) == 0);
         require(::connect(back.fd, reinterpret_cast<sockaddr *>(&endpoint), sizeof(endpoint)) == 0);
         require(fcntl(back.fd, F_SETFL, O_NONBLOCK) == 0);
-        require(exactProxy(back.fd, proxy.data(), proxy.size(), true));
         SecureSession service(back.fd, false, password);
         require(service.handshake(Clock::now() + 3s, [] { return stopped.load(); }));
         Frame incoming, outgoing;
@@ -241,7 +228,7 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                     require(write(service, incoming.bytes, "backend-write"));
                     if (incoming.bytes.size() == TransportEnvelopeBytes + 26
                         && std::equal(incoming.bytes.begin() + TransportEnvelopeBytes,
-                                      incoming.bytes.begin() + TransportEnvelopeBytes + 10, "D6LC\0\1\0\6\0\3")) {
+                                       incoming.bytes.begin() + TransportEnvelopeBytes + 10, "D6LC\0\2\0\6\0\3")) {
                         const auto action = Lifecycle::deserializeParticipantAction(
                             {incoming.bytes.begin() + TransportEnvelopeBytes, incoming.bytes.end()});
                         if (action) marker(root, ("peer-Leave-forwarded-" + std::to_string(id)).c_str());
@@ -281,7 +268,7 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                 std::optional<Lifecycle::IntentionalHostEndNotice> end;
                 if (outgoing.bytes.size() == TransportEnvelopeBytes + 16
                     && std::equal(outgoing.bytes.begin() + TransportEnvelopeBytes,
-                                  outgoing.bytes.begin() + TransportEnvelopeBytes + 8, "D6LC\0\1\0\3"))
+                                   outgoing.bytes.begin() + TransportEnvelopeBytes + 8, "D6LC\0\2\0\3"))
                     end = Lifecycle::deserializeIntentionalHostEnd({outgoing.bytes.begin() + TransportEnvelopeBytes, outgoing.bytes.end()});
                 const auto endDeadline = Clock::now() + 2s;
                 if (end) marker(root, ("peer-End-received-" + std::to_string(id)).c_str());

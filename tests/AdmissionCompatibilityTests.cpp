@@ -622,8 +622,8 @@ namespace {
 }
 
 D6R_TEST_CASE("AC-001 AC-002 compatibility constants capabilities and wire format are exact") {
-    D6R_REQUIRE_EQ(2u, Network::AdmissionProtocolVersion);
-    D6R_REQUIRE_EQ("duel6r-network-r1", std::string(Network::NetworkReleaseId));
+    D6R_REQUIRE_EQ(3u, Network::AdmissionProtocolVersion);
+    D6R_REQUIRE_EQ("duel6r-network-r2", std::string(Network::NetworkReleaseId));
     const std::vector<std::string> exact{
         "d6r.compatibility-admission.v1", "d6r.gameplay-manifest.v1", "d6r.session-identity.v1"};
     D6R_REQUIRE(std::equal(exact.begin(), exact.end(), Network::RequiredAdmissionCapabilities.begin()));
@@ -742,14 +742,14 @@ D6R_TEST_CASE("NET-DIR prepared dedicated identity rejects wrong selection befor
         != policy.authorize(2, Network::Trust::AuthorityAction::HostOnly));
 }
 
-D6R_TEST_CASE("NET-DIR bound offer acceptance and confirmation carry identity without changing private wire bytes") {
+D6R_TEST_CASE("NET-DIR common identity transaction always encodes session and hosting kind") {
     Network::AdmissionIdentitySet privateSet{1, {2}};
     const auto old = Network::serializeAdmissionOffer(privateSet);
-    D6R_REQUIRE_EQ(std::size_t(21), old.size());
+    D6R_REQUIRE_EQ(std::size_t(30), old.size());
     auto bound = privateSet; bound.sessionId = 42;
     const auto bytes = Network::serializeAdmissionOffer(bound);
-    D6R_REQUIRE_EQ(old.size() + 8, bytes.size());
-    D6R_REQUIRE(std::equal(old.begin(), old.end(), bytes.begin()));
+    D6R_REQUIRE_EQ(old.size(), bytes.size());
+    D6R_REQUIRE(std::equal(old.begin(), old.begin() + 21, bytes.begin()));
     const auto offer = Network::deserializeAdmissionOffer(bytes);
     D6R_REQUIRE_EQ(UINT64_C(42), offer.sessionId);
     const auto acceptance = Network::deserializeAdmissionAcceptance(Network::serializeAdmissionAcceptance(offer));
@@ -3239,7 +3239,7 @@ D6R_TEST_CASE("F02 fresh idle or occupied dedicated service dispatches stale wel
             if (stale->closeRequested || fixture->now > Network::Trust::TimePoint{} + 1s) fixture->cancelled = true;
         };
         auto config = runtimeServerConfig();
-        config.dedicated = true; config.trustedProxyV2 = true; config.localPlayers = 0;
+        config.dedicated = true; config.localPlayers = 0;
         config.passwordFile = (files.root / "invite").string(); config.readinessSocket = (files.root / "ready.sock").string();
         std::ostringstream output;
         Server::HeadlessServer server(config, dependencies); server.runtimeDependencies.productionReplicationProtocol = true;
@@ -3284,7 +3284,7 @@ D6R_TEST_CASE("R2 dedicated startup compares directory numeric effective port wi
             return true;
         };
         auto config = runtimeServerConfig();
-        config.dedicated = true; config.trustedProxyV2 = true; config.localPlayers = 0;
+        config.dedicated = true; config.localPlayers = 0;
         config.passwordFile = (files.root / "invite").string();
         config.readinessSocket = (files.root / "ready.sock").string();
         config.advertisedFrontend = {"arena.example.test", 443};
@@ -3372,7 +3372,7 @@ D6R_TEST_CASE("R1 offered guest acceptance after controller reservation rolls ba
             if (restored || guest->succeeded || fixture->now > Network::Trust::TimePoint{} + 32s) fixture->cancelled = true;
         };
         auto config = runtimeServerConfig();
-        config.dedicated = true; config.trustedProxyV2 = true; config.localPlayers = 0;
+        config.dedicated = true; config.localPlayers = 0;
         config.passwordFile = (files.root / "invite").string(); config.readinessSocket = (files.root / "ready.sock").string();
         std::ostringstream output;
         Server::HeadlessServer server(config, dependencies);
@@ -3497,7 +3497,7 @@ namespace {
             return true;
         };
         auto config = runtimeServerConfig();
-        config.dedicated = true; config.trustedProxyV2 = true; config.localPlayers = 0;
+        config.dedicated = true; config.localPlayers = 0;
         config.passwordFile = (files.root / "invite").string();
         config.readinessSocket = (files.root / "ready.sock").string();
         std::ostringstream output;
@@ -4926,7 +4926,7 @@ D6R_TEST_CASE("four-message identity wire sets are exact ordered endian-stable a
     const auto expected = [&](char kind) {
         return std::vector<std::uint8_t>{'D','6','R', static_cast<std::uint8_t>(kind),
                 1,2,3,4,5,6,7,8, 2,
-                17,18,19,20,21,22,23,24, 33,34,35,36,37,38,39,40};
+                 17,18,19,20,21,22,23,24, 33,34,35,36,37,38,39,40, 0,0,0,0,0,0,0,0,1};
     };
     D6R_REQUIRE(expected('O') == Network::serializeAdmissionOffer(identities));
     D6R_REQUIRE(expected('K') == Network::serializeAdmissionAcceptance(identities));

@@ -183,11 +183,12 @@ int main(int argc, char **argv) {
                     require(current.reservationId != old.reservationId && current.credential.bytes != old.credential.bytes,
                             "real restoration must rotate reservation credential");
                     Network::SessionTransportDependencies dependencies;
-                    dependencies.publicTls = dependencies.secureSession = dependencies.enforceNetworkSessionPolicy = true;
+                    dependencies.secureSession = dependencies.enforceNetworkSessionPolicy = true;
                     dependencies.password = fixture;
                     const auto content = Network::CompatibilityManifestBuilder(root.string()).build();
                     require(content.valid(), "actual scoped reconnect compatibility");
                     auto compatibility = Network::makeLocalAdmissionRequest(1, content.manifest, {"Scoped fixture"});
+                    compatibility.expectedHostingKind = Network::HostingKind::Dedicated;
                     for (unsigned caseId = 0; caseId < 4; ++caseId) {
                         auto selected = caseId == 0 ? old : current;
                         if (caseId == 1) ++selected.sessionId;

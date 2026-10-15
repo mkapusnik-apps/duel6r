@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-The public dedicated pilot in [network-play-first-release.md](network-play-first-release.md) retains this document's compatibility checks, stable rejection outcomes, selected-session binding and atomic admission contract. Its direct/browser security prerequisites are current [TRU-PUB](network-trust-and-abuse-limits.md) and common NET-PASS-001–018; certificate verification precedes inner EC-JPAKE even without a password, and no raw password or reusable proof enters an application admission frame. The pre-listener local-host admission sequence below applies only to player-hosted mode. Dedicated readiness follows HSL-PUB-002: a ready empty nonzero session is prepared before listing/first admission, without participants, controller or round. Exactly the first authorized compatible committed admission becomes controller in that same advertised session under NET-PUB-002 through NET-PUB-004/024–025; concurrent later commits are guests. No listing, client selection or provisional offer grants controller authority. Failed public security or configured-password checks cannot allocate authority. Exact release/content checks remain unchanged; the retired D6PI invitation envelope is neither password admission nor a fallback.
+The dedicated extension in [network-play-first-release.md](network-play-first-release.md) retains this document's compatibility checks, stable rejection outcomes, selected-session binding and atomic admission contract. Both hosting kinds use the common current player-hosted EC-JPAKE profile under [TRU-PUB](network-trust-and-abuse-limits.md) and NET-PASS-001–018 without mandatory gameplay certificate verification. No raw password or reusable proof enters an application admission frame. The pre-listener local-host admission sequence below applies only to player-hosted mode. Dedicated readiness follows HSL-PUB-002: a ready empty nonzero session is prepared before listing/first admission, without participants, controller or round. Exactly the first authorized compatible committed admission becomes controller in that same advertised session under NET-PUB-002 through NET-PUB-004/024–025; concurrent later commits are guests. No listing, client selection or provisional offer grants controller authority. Failed security or configured-password checks cannot allocate authority. Exact release/content checks remain required; the retired D6PI invitation envelope is neither password admission nor a fallback.
 
 This document is the authoritative product target for GitHub issue #30. It defines first-release network compatibility and admission behavior.
 
@@ -28,22 +28,49 @@ The admission protocol version is separate from transport framing version `1`. E
 
 Admission success has no `D6RS` result encoding. `D6RS` carries only rejection codes `malformed-request` through `host-policy-rejected`, with zero participant identity and no player identities. Serializing or parsing `AdmissionResultCode::Admitted` as `D6RS` is invalid. The only network success stages are the provisional `D6RO` offer and the final `D6RC` confirmation; `D6RK` is the guest's exact acceptance echo.
 
-## First-release constants
+## Admission version and release contract
 
-First release must use these exact values:
+The current admission schema includes explicit hosting kind in the encrypted identity transaction. It must use a strict admission-version advance from version `2`; version `2` and earlier schemas are not compatible with this transaction. Developer owns the exact version constant and encoding and must align the published protocol reference with the implementation. This does not change transport framing version `1` unless its own format changes.
 
-| Field | Exact value |
+| Field | Required value policy |
 |---|---|
-| Admission protocol version | unsigned integer `2` |
-| Network release ID | `duel6r-network-r1` |
+| Admission protocol version | One exact current version that includes the mandatory hosting-kind transaction; no version range or missing-field default |
+| Network release ID | One exact non-empty value shared by the coordinated matching client/service package set |
 
 The network release ID is the only build-compatibility value. The admission request must not use a separate build-version compatibility field.
 
-Supported Linux and Windows artifacts must use the same network release ID. The value must be non-empty.
+Developer owns the necessary release-ID transition and must record its exact value in the distribution/protocol reference. A version or release change must not enable cross-release admission, a legacy schema adapter, or a second secure-channel profile.
+
+All supported client and service artifacts in a matching package set must use the same network release ID. The value must be non-empty.
 
 Network release ID equality must be exact and case-sensitive. Whitespace is content and must not be trimmed or normalized.
 
 First release supports no protocol range, release range, or cross-release compatibility.
+
+### Common secure-channel compatibility
+
+- **CMP-CHANNEL-001** Clients and services must use only the configured common EC-JPAKE profile for either hosting kind.
+- **CMP-CHANNEL-002** A failed or incompatible channel must close without probing or retrying the legacy dedicated outer-TLS profile, plaintext, or an unlocked password value.
+- **CMP-CHANNEL-003** A channel mismatch must not allocate participant authority or report successful admission.
+- **CMP-CHANNEL-004** Published package and endpoint instructions must identify the matching client/service channel expectation before users replace packages or change the listening endpoint.
+- **CMP-CHANNEL-005** A client must not claim a confirmed release or admission-version mismatch unless it received and validated that result through the established secure channel.
+
+The former dedicated outer-certificate handshake is not a supported alternate connection profile. Its mismatch can occur before admission, so an admission version or release-ID check alone cannot establish secure-channel compatibility. Channel separation and any required release transition must preserve exact equality and fail-closed behavior; no compatibility adapter or automatic fallback is required. Hosting kind must not select a weaker or legacy profile. An unauthenticated discriminator may reject incompatible input but must not establish server trust or authorize another profile.
+
+**CMP-CHANNEL-AC-001:** Matching current clients and services establish the common encrypted channel in both hosting kinds. Tests with common clients against legacy dedicated endpoints and legacy dedicated clients against common endpoints fail closed before authority allocation, without a second-profile or unlocked retry. Pre-admission failure uses the applicable fixed security, transport-close, or timeout outcome, not an invented confirmed release mismatch. Package/endpoint guidance identifies coordinated replacement without claiming old-profile interoperability. Evidence includes immutable client/service identities, observed channel behavior, and reviewer assessment. This criterion covers CMP-CHANNEL-001–005; developer owns the necessary wire/version mechanisms.
+
+### Hosting kind and lifecycle binding
+
+- **CMP-HOSTING-001** The service must provide exactly one bounded hosting kind, `player-hosted` or `dedicated`, from its own configuration through the encrypted admission transaction.
+- **CMP-HOSTING-002** The offer, exact guest acceptance, and final confirmation must agree on hosting kind as well as the existing offered identities and session binding.
+- **CMP-HOSTING-003** Missing, unknown, trailing, or inconsistent hosting-kind data must reject admission without a default or committed participant authority.
+- **CMP-HOSTING-004** A browser-selected attempt must verify its immutable expected hosting kind, endpoint, and session identity before provisional reservation or authority allocation.
+- **CMP-HOSTING-005** An unbound Direct client must publish hosting-kind lifecycle behavior only after complete validated admission, including the existing final confirmation, clock calibration, and current snapshot.
+- **CMP-HOSTING-006** An admitted client must retain the confirmed hosting kind with its session and scoped reconnect identity and reject a changed kind during restoration.
+
+Direct setup has no hosting-kind expectation and must not infer kind from an address, port, first-controller status, or failed handshake. An offer may supply provisional kind for validation and exact acceptance, but it must not activate session/controller behavior. Hosting kind alone grants no authority; the service assigns controller or guest permissions only at admission commit under NET-PUB. A reconnect grant, when issued, must remain consistent with the confirmed kind and session; it is not a new initial admission or a new fourth success input. These checks bind lifecycle semantics, not cryptographically authenticated server identity. NET-PASS-010's unlocked first-contact limitation remains applicable.
+
+**CMP-HOSTING-AC-001:** Direct joins to both hosting kinds, including first and later dedicated admissions, publish the correct lifecycle and committed role only after complete admission. Offers, client kind claims, rejected attempts, and cancelled attempts grant no authority. Missing/unknown/inconsistent kind and old admission schemas fail closed without a default. Browser hosting-kind, endpoint, and session mismatch rejects before provisional authority allocation; exact offer/acceptance/confirmation equality is retained. Reconnect preserves kind and scoped identity without role migration. Existing controller End/Leave/expiry and player-hosted ownership outcomes remain distinct. Relevant transaction/runtime behavioral evidence and source review establish these outcomes within the existing single QA campaign. This criterion covers CMP-HOSTING-001–006.
 
 ## Required capabilities
 
@@ -70,15 +97,13 @@ Each participant compatibility claim must contain:
 
 The executable owns the protocol version and supported capability set. The supported release artifact owns the network release ID.
 
-Issue #98 advances the admission wire version to `2` for selected-session binding.
-The `D6RA` request ends with an unsigned big-endian 64-bit expected session identity,
-after the manifest entries. Explicit direct joining uses zero; browser-selected
-joining, including dedicated selection, uses the advertised nonzero identity. This field travels inside the secure
-channel. Hosting/security mode and frontend endpoint are also bound to selected setup. A mismatch, ended identity or restarted/fresh replacement is an authorization rejection before any reservation,
+Selected-session binding uses an expected session identity inside the encrypted admission request. Explicit Direct joining uses zero; browser-selected
+joining, including dedicated selection, uses the advertised nonzero identity. This value travels inside the secure
+channel. Hosting kind and gameplay endpoint are also bound to selected setup. A mismatch, ended identity or restarted/fresh replacement is an authorization rejection before any reservation,
 authority allocation or commit. The offer must remain associated with the selected session; final confirmation, initial snapshot and reconnect grant must identify that same session.
-Session-ID equality is not cryptographic host authentication for unlocked first contact.
+Session-ID equality is not cryptographic host authentication for unlocked first contact in either hosting kind.
 
-The prepared dedicated identity is unchanged by first admission, idle-to-lobby/first-round transitions, results, reservations or same-session Return to lobby. End/expiry/restart invalidates it immediately before listing removal, and a fresh distinct identity follows cleanup. An old selection must never be redirected to the fresh session. During open setup, phase may change while the bound identity remains the same; actual authority decides current capacity, role and lobby/live-round destination. Credential correction and eligible Retry retain selected mode/endpoint/identity. An endpoint/selection change requires browser refresh; explicit unbound Direct transition clears binding and secrets. No new admission protocol constant or directory capability spelling is selected by this specification integration.
+The prepared dedicated identity is unchanged by first admission, idle-to-lobby/first-round transitions, results, reservations or same-session Return to lobby. End/expiry/restart invalidates it immediately before listing removal, and a fresh distinct identity follows cleanup. An old selection must never be redirected to the fresh session. During open setup, phase may change while the bound identity remains the same; actual authority decides current capacity, role and lobby/live-round destination. Credential correction and eligible Retry retain selected hosting kind/endpoint/identity. An endpoint/selection change requires browser refresh; explicit unbound Direct transition clears binding and secrets. Hosting-kind schema/version changes follow the contract above; this does not require a new directory capability spelling.
 
 The host owns the required capability set and authoritative gameplay-content baseline. Each guest owns its compatibility claim.
 
@@ -184,7 +209,7 @@ Return to Network must enter `NET-01`. A confirmed invalid-manifest result befor
 3. A pending connection may send exactly one admission request.
 4. The host must receive that request within three seconds of transport connection.
 5. The host must validate bounds before allocation, comparison, logging, or authority changes.
-6. The host/service must apply the trust and authorization decision from the trust policy. A browser-selected attempt must validate its bound hosting/security mode, frontend endpoint and expected nonzero session identity before provisional reservation or authority allocation, including a first-controller dedicated attempt. Direct admission remains explicitly unbound.
+6. The host/service must apply the trust and authorization decision from the trust policy. A browser-selected attempt must validate its bound hosting kind, endpoint and expected nonzero session identity before provisional reservation or authority allocation, including a first-controller dedicated attempt. Direct admission remains explicitly unbound and requires no hosting-kind selection. The common channel must not determine controller authority; actual admission must confirm the role.
 7. The host must check protocol, release, required capabilities, manifest validity, and manifest equality.
 8. The host must then check admission state and capacity.
 9. On success, the host must atomically reserve provisional participant and player identities and return one complete `admission-offer` containing the nonzero participant identity, the requested player count, and the exact ordered player identities.
@@ -306,7 +331,7 @@ Missing the three-second request deadline must close the connection without admi
 
 ## Timing, cancellation, and incomplete admission
 
-The admission window is defined by `NET-ADM-001` through `NET-ADM-016` in [network play](network-play-first-release.md). Lobby, active rounds, and non-final round-end delays permit eligible admission. Commit strictly before the first-round outcome spawns immediately; other ongoing commits wait for the first round start strictly after admission. Outcome and round-start decisions take precedence at the same host-clock instant. Final outcome closes admission before final delay and summary. Initial snapshots mean current authoritative lobby or match state, including explicit waiting ownership without an actor. All ownership, calibration, compatibility, password, capacity, and connection-deadline checks remain required. The `match-already-started` identifier remains stable for final admission closure and must not imply a first-round cutoff. Both hosting modes use NET-PASS-001–018 before initial commitment; dedicated TRU-PUB verification additionally precedes inner EC-JPAKE. Outer/inner/PROXYv2 retain the one absolute 10-second deadline. Zeroizable channel Password cannot replace the scoped reconnect credential, its original 30-second reservation, or become fresh admission/migration.
+The admission window is defined by `NET-ADM-001` through `NET-ADM-016` in [network play](network-play-first-release.md). Lobby, active rounds, and non-final round-end delays permit eligible admission. Commit strictly before the first-round outcome spawns immediately; other ongoing commits wait for the first round start strictly after admission. Outcome and round-start decisions take precedence at the same host-clock instant. Final outcome closes admission before final delay and summary. Initial snapshots mean current authoritative lobby or match state, including explicit waiting ownership without an actor. All ownership, calibration, compatibility, password, capacity, and connection-deadline checks remain required. The `match-already-started` identifier remains stable for final admission closure and must not imply a first-round cutoff. Both hosting kinds use NET-PASS-001–018 and the common TRU-PUB channel before initial commitment within the one absolute 10-second deadline. Zeroizable channel Password cannot replace the scoped reconnect credential, its original 30-second reservation, or become fresh admission/migration.
 
 The guest's 10-second deadline includes resolution, connection, compatibility, capacity, host admission, clock calibration, and current initial snapshot validation. Waiting for an eligible spawn after complete admission is not an extension of that connection attempt or a connection failure.
 

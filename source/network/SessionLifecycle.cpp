@@ -4,11 +4,12 @@
 #include <algorithm>
 #include <limits>
 #include <utility>
+#include <type_traits>
 
 namespace Duel6::Network::Lifecycle {
     namespace {
         constexpr std::uint32_t Magic = 0x44364c43; // D6LC
-        constexpr std::uint16_t Version = 1;
+        constexpr std::uint16_t Version = 2;
         constexpr std::uint16_t GrantKind = 1;
         constexpr std::uint16_t RequestKind = 2;
         constexpr std::uint16_t HostEndKind = 3;
@@ -56,7 +57,8 @@ namespace Duel6::Network::Lifecycle {
             bool nonzero = false; for (auto byte: credential.bytes) nonzero = nonzero || byte != 0;
             if (session == 0 || participant == 0 || reservation == 0 || !nonzero) return {};
             std::vector<std::uint8_t> out;
-            out.reserve(48); append32(out, Magic); append16(out, Version); append16(out, kind);
+            // Grant appends its hosting byte without reallocating credential bytes.
+            out.reserve(49); append32(out, Magic); append16(out, Version); append16(out, kind);
             append64(out, session); append64(out, participant); append64(out, reservation);
             out.insert(out.end(), credential.bytes.begin(), credential.bytes.end());
             return out;
@@ -66,7 +68,8 @@ namespace Duel6::Network::Lifecycle {
         }
         template<typename T>
         std::optional<T> deserializeCredential(const std::vector<std::uint8_t> &payload, std::uint16_t expected) {
-            if (payload.size() != 48) return std::nullopt;
+            constexpr bool grant = std::is_same_v<T, ReconnectGrant>;
+            if (payload.size() != (grant ? 49 : 48)) return std::nullopt;
             std::size_t at = 0; std::uint32_t magic = 0; std::uint16_t version = 0, kind = 0;
             T value;
             if (!read32(payload, at, magic) || !read16(payload, at, version) || !read16(payload, at, kind)
@@ -74,7 +77,11 @@ namespace Duel6::Network::Lifecycle {
                 || !read64(payload, at, value.reservationId) || magic != Magic || version != Version
                 || kind != expected || value.sessionId == 0 || value.participantId == 0
                 || value.reservationId == 0) return std::nullopt;
-            std::copy(payload.begin() + static_cast<std::ptrdiff_t>(at), payload.end(), value.credential.bytes.begin());
+            std::copy_n(payload.begin() + static_cast<std::ptrdiff_t>(at), 16, value.credential.bytes.begin());
+            if constexpr (grant) {
+                value.hostingKind = static_cast<HostingKind>(payload.back());
+                if (!validHostingKind(value.hostingKind)) return std::nullopt;
+            }
             bool nonzero = false; for (auto byte: value.credential.bytes) nonzero = nonzero || byte != 0;
             if (!nonzero) return std::nullopt;
             return value;
@@ -121,8 +128,11 @@ namespace Duel6::Network::Lifecycle {
     }
 
     std::vector<std::uint8_t> serializeReconnectGrant(const ReconnectGrant &grant) {
-        return serializeCredential(GrantKind, grant.sessionId, grant.participantId,
-                                   grant.reservationId, grant.credential);
+        if (!validHostingKind(grant.hostingKind)) return {};
+        auto out = serializeCredential(GrantKind, grant.sessionId, grant.participantId,
+                                      grant.reservationId, grant.credential);
+        if (!out.empty()) out.push_back(static_cast<std::uint8_t>(grant.hostingKind));
+        return out;
     }
     std::vector<std::uint8_t> serializeReconnectRequest(const ReconnectRequest &request) {
         return serializeCredential(RequestKind, request.sessionId, request.participantId,
@@ -157,16 +167,18 @@ namespace Duel6::Network::Lifecycle {
             || response.sessionId == 0 || response.participantId == 0
             || (response.outcome == ReconnectOutcome::Accepted) != response.nextGrant.has_value()
             || (response.nextGrant && (response.nextGrant->sessionId != response.sessionId
-                || response.nextGrant->participantId != response.participantId))) return {};
+                || response.nextGrant->participantId != response.participantId
+                || !validHostingKind(response.nextGrant->hostingKind)))) return {};
         std::vector<std::uint8_t> out;
-        out.reserve(response.nextGrant ? 52 : 28);
+        out.reserve(response.nextGrant ? 53 : 28);
         append32(out, Magic); append16(out, Version); append16(out, ResponseKind);
         append16(out, static_cast<std::uint16_t>(response.outcome)); append16(out, 0);
         append64(out, response.sessionId); append64(out, response.participantId);
         if (response.nextGrant) {
             append64(out, response.nextGrant->reservationId);
             out.insert(out.end(), response.nextGrant->credential.bytes.begin(),
-                       response.nextGrant->credential.bytes.end());
+                        response.nextGrant->credential.bytes.end());
+            out.push_back(static_cast<std::uint8_t>(response.nextGrant->hostingKind));
         }
         return out;
     }
@@ -226,7 +238,7 @@ namespace Duel6::Network::Lifecycle {
     std::optional<ReconnectResponse> deserializeReconnectResponse(
             const std::vector<std::uint8_t> &payload) noexcept {
         try {
-            if (payload.size() != 28 && payload.size() != 52) return std::nullopt;
+            if (payload.size() != 28 && payload.size() != 53) return std::nullopt;
             std::size_t at = 0; std::uint32_t magic = 0; std::uint16_t version = 0, kind = 0, outcome = 0, reserved = 0;
             ReconnectResponse result;
             if (!read32(payload, at, magic) || !read16(payload, at, version) || !read16(payload, at, kind)
@@ -236,11 +248,13 @@ namespace Duel6::Network::Lifecycle {
                 || !validOutcome(outcome) || result.sessionId == 0 || result.participantId == 0)
                 return std::nullopt;
             result.outcome = static_cast<ReconnectOutcome>(outcome);
-            if (payload.size() == 52) {
+            if (payload.size() == 53) {
                 ReconnectGrant grant;
                 grant.sessionId = result.sessionId; grant.participantId = result.participantId;
                 if (!read64(payload, at, grant.reservationId) || grant.reservationId == 0) return std::nullopt;
-                std::copy(payload.begin() + static_cast<std::ptrdiff_t>(at), payload.end(), grant.credential.bytes.begin());
+                std::copy_n(payload.begin() + static_cast<std::ptrdiff_t>(at), 16, grant.credential.bytes.begin());
+                grant.hostingKind = static_cast<HostingKind>(payload.back());
+                if (!validHostingKind(grant.hostingKind)) return std::nullopt;
                 bool nonzero = false; for (auto byte: grant.credential.bytes) nonzero = nonzero || byte != 0;
                 if (!nonzero) return std::nullopt;
                 result.nextGrant = std::move(grant);
@@ -270,12 +284,12 @@ namespace Duel6::Network::Lifecycle {
     void eraseLifecycleCredentialPayload(std::vector<std::uint8_t> &payload) noexcept {
         if (payload.size() < 8 || payload[0] != 0x44 || payload[1] != 0x36
             || payload[2] != 0x4c || payload[3] != 0x43) return;
-        if (payload.size() == 48 && payload[6] == 0
+        if (payload.size() >= 48 && payload[6] == 0
             && (payload[7] == GrantKind || payload[7] == RequestKind))
             Trust::secureEraseMemory(payload.data() + 32, 16);
         else if (payload.size() >= 52 && payload[6] == 0 && payload[7] == AttemptKind)
             Trust::secureEraseMemory(payload.data() + 36, 16);
-        else if (payload.size() == 52 && payload[6] == 0 && payload[7] == ResponseKind)
+        else if (payload.size() >= 52 && payload[6] == 0 && payload[7] == ResponseKind)
             Trust::secureEraseMemory(payload.data() + 36, 16);
     }
 
@@ -322,6 +336,7 @@ namespace Duel6::Network::Lifecycle {
         auto reservation = makeDormantReservation(participantId, reservationId);
         if (!reservation) return std::nullopt;
         ReconnectGrant grant{sessionId, participantId, reservationId, reservation->credential()};
+        grant.hostingKind = remoteHost ? HostingKind::Dedicated : HostingKind::PlayerHosted;
         (void) readyValue;
         if (lobby) {
             hostReady = false;
@@ -428,7 +443,8 @@ namespace Duel6::Network::Lifecycle {
         current->second.reservationId = replacementId; current->second.reservation = std::move(replacement);
         result.outcome = ReconnectOutcome::Accepted; result.closeOffendingConnection = false;
         result.nextGrant = ReconnectGrant{sessionId, request.participantId, replacementId,
-                                          current->second.reservation->credential()};
+                                           current->second.reservation->credential()};
+        result.nextGrant->hostingKind = remoteHost ? HostingKind::Dedicated : HostingKind::PlayerHosted;
         return result;
     }
 
@@ -867,7 +883,8 @@ namespace Duel6::Network::Lifecycle {
     }
     bool GuestSessionRecovery::acceptGrant(ReconnectGrant value) {
         if (currentJourney != GuestJourney::Established || value.sessionId != sessionId
-            || value.participantId != participantId || value.reservationId == 0) return false;
+            || value.participantId != participantId || value.reservationId == 0
+            || !validHostingKind(value.hostingKind)) return false;
         bool nonzero = false; for (auto byte: value.credential.bytes) nonzero = nonzero || byte != 0;
         if (!nonzero) return false;
         grant = std::move(value); return true;
@@ -897,7 +914,8 @@ namespace Duel6::Network::Lifecycle {
             if (!currentFullStateAccepted || newEstablishedConnectionId == 0 || !nextGrant
                 || nextGrant->sessionId != sessionId
                 || nextGrant->participantId != participantId || nextGrant->reservationId == 0
-                || !nonzeroCredential || hostClockNow >= *deadline) return false;
+                || !nonzeroCredential || !validHostingKind(nextGrant->hostingKind) || hostClockNow >= *deadline) return false;
+            if (grant && nextGrant->hostingKind != grant->hostingKind) return false;
             grant = std::move(nextGrant); disconnectedAt.reset(); deadline.reset();
             establishedConnectionId = newEstablishedConnectionId;
             retainedCompleteState = true; currentJourney = GuestJourney::Established; return true;

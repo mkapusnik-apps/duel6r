@@ -1,7 +1,7 @@
 """Execute the exact production staging/publication block under allocation failure.
 
 This is a scoped exception-safety probe, not thread recovery or crypto evidence.
-Real composed SDK ownership cases live in PortableTlsTests.cpp. No production
+Live common-channel SDK ownership cases live in SessionTransportTests.cpp. No production
 seam, replacement container allocator, or copied publication algorithm is used.
 """
 import pathlib

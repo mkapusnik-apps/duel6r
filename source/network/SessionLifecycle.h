@@ -94,6 +94,7 @@ namespace Duel6::Network::Lifecycle {
         ParticipantId participantId = 0;
         std::uint64_t reservationId = 0;
         Trust::ReconnectCredential credential;
+        HostingKind hostingKind = HostingKind::PlayerHosted;
     };
 
     struct ReconnectRequest {

@@ -56,7 +56,7 @@ with tempfile.TemporaryDirectory(prefix="duel6r shared entry ") as temporary:
     else:
         password.write_text("sentinel-secret")
     dedicated = ["--server", "--dedicated", "--transport", "--host=127.0.0.1",
-                 "--trusted-proxy-protocol=v2", f"--readiness-socket={root / 'ready.sock'}",
+                 f"--readiness-socket={root / 'ready.sock'}",
                  f"--password-file={password}"]
     if dedicated_service:
         check([*dedicated, "--help"], 0, "--password-file")

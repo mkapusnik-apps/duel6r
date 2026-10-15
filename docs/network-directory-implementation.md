@@ -66,9 +66,9 @@ requirements, not guarantees supplied by these application quotas.
 
 ## Password and credential protection
 
-Team selected the maintained common EC-JPAKE procedure for dedicated Password and No-password operation over a byte-stream adapter carried by the verified public TLS connection. The dedicated outer certificate/endpoint validation completes before the inner password exchange. Empty password uses the existing public unlocked PAKE input; dedicated endpoint verification remains mandatory. The raw-socket player-hosted path is unchanged. No raw password or reusable password proof is serialized in gameplay application frames, and no password-bearing application admission protocol, custom proof, insecure fallback or retired invitation envelope is introduced. Outer and inner exchanges share the existing absolute connection deadline; completing one stage does not restart it. This paragraph records the approved technical direction, not an implementation, execution or deployment claim.
+Both hosting kinds use the same maintained raw-socket EC-JPAKE channel for Password and No password. The user approved the existing player-hosted trust level for dedicated operation: no mandatory gameplay certificate frontend or endpoint verification remains. This is a fixed common profile, not fallback after certificate failure. No raw password or reusable proof enters application frames. The existing absolute connection deadline covers resolution, channel, admission and initial state without restarting between stages.
 
-The dedicated backend validates protected PROXYv2 before the same maintained raw-socket Mbed TLS profile. Application framing always traverses the inner channel; no outer-stream application bypass is permitted. Current bounds, cancellation, source accounting, key budgets and serialized record operations remain required. NET-PASS-011–018 own exact UTF-8/C0/C1/128-byte validation, optional protected startup file, context erasure and reserved reconnect storage. The protected player-host initial setup IPC is a startup-configuration exception, not a remote controller settings frame. Controllers cannot manage the dedicated operator password.
+The dedicated listener accepts this channel directly and rejects the retired PROXY option; source accounting uses the accepted TCP peer. All gameplay framing traverses PAKE protection. Current bounds, cancellation, key budgets and serialized record operations remain required. NET-PASS-011–018 retain password validation, protected operator file, erasure and reserved reconnect storage. Owned player-host startup IPC remains the configuration exception, not a remote settings frame; controllers cannot manage the dedicated password. Directory HTTPS/native certificate trust is separate and unchanged.
 
 The native channel uses Mbed TLS 3.6.7 LTS's built-in TLS EC-JPAKE implementation:
 TLS 1.2, P-256/SHA-256 PAKE and `TLS_ECJPAKE_WITH_AES_128_CCM_8`. Upstream labels
@@ -122,7 +122,7 @@ only an in-memory PAKE input, never a transmitted challenge response, stored
 verifier, or TLS PSK. No player account or username is created.
 The no-password path instead uses a distinct, public protocol value. Knowledge
 of that public value does not remove ephemeral key exchange or record encryption,
-but it does not authenticate an unlocked player-hosted host against an active intermediary. This limitation never waives the dedicated outer certificate/endpoint verification.
+but it does not authenticate a server in either hosting kind against an active intermediary. This is the explicitly approved common first-contact limitation.
 Fresh library-generated ephemeral scalars and zero-knowledge-proof randomness are
 created for every connection from the operating-system-seeded DRBG. Knowing the
 public unlocked PAKE input does not reveal those scalars or the derived ephemeral
@@ -144,13 +144,15 @@ consume-once reconnect credential; it does not allocate new players.
 
 ## Live admission and bounds
 
-The canonical network release identifier remains `duel6r-network-r1`; the encrypted
+The canonical network release identifier is `duel6r-network-r2`; the encrypted
 session transport does not provide a legacy plaintext fallback. The approved ongoing-admission target orders outcome and round-start decisions before admission at an equal host-clock instant. Active rounds and non-final delays remain open; only final outcome closes admission before final delay/summary. Lobby return reopens it. An offer alone reserves no participant authority. These target changes require implementation verification and do not inherit earlier acceptance below.
 
-Admission wire version 2 binds a browser-selected nonzero session ID inside the
+Admission wire version **3** binds a browser-selected nonzero session ID and expected hosting kind inside the
 encrypted `D6RA` request before reservation or commitment. The guest additionally
 checks the confirmed snapshot and reconnect grant agree on session identity and
 checks the exact ordered offered/accepted/confirmed participant/player identities.
+
+Offers, acceptance and confirmation encode session ID followed by one hosting-kind byte (`1` player-hosted, `2` dedicated). The request appends expected kind (`0` unbound Direct, `1` or `2` selected) after expected session ID. Missing/unknown/trailing data rejects without a version-2 adapter. Direct publishes kind only after complete admission. Lifecycle envelope **2** includes confirmed kind in grants and accepted reconnect responses; changed kind cannot restore the session. Framing remains **1** and the required capability names remain unchanged. Replace matching clients/services together. Legacy dedicated outer-TLS frontends and PROXY backends are unsupported, never probed; pre-admission mismatch does not prove a release mismatch.
 
 Under NET-ADM-001 through NET-ADM-016, commit strictly before the first-round outcome initializes only appended players in the current world with normal loadout, retaining Team starting-area rotation and the existing Predator. Other ongoing commits retain waiting ownership without bodies until the first strictly later round start, then use normal initialization exactly once with cleared input. Leave/expiry cancels pending spawn; reconnect does not accelerate or duplicate it. Final active waiting creates no extra round. Existing players, world state, and timers remain intact. Initial snapshots carry current calibrated authoritative state, including Waiting where applicable, not an artificial lobby.
 
