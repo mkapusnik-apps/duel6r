@@ -160,7 +160,7 @@ On two distinct LAN endpoints, testing must cover Linux host to Windows guest an
 - Round-one arrival with the new player controllable and visible on both endpoints, without resetting existing gameplay.
 - Direct joining through the secure admission path.
 
-These checks complete the deferred platform evidence for NET-DIR-AC-003, NET-PASS-AC-001, and NET-ADM-AC-001. Existing invariant mode, timing, hazard, paging, and failure evidence need not be repeated unless the nightly implementation materially changes the relevant behavior. The deferred checks must remain recorded as not executed until results are supplied. Directory deployment authorization is separate and limited to the directory deployment section above. This deferral does not defer the retained dedicated Windows journey in NET-PUB-AC-006.
+These checks complete the deferred platform evidence for NET-DIR-AC-003, NET-PASS-AC-001, and NET-ADM-AC-001. Existing invariant mode, timing, hazard, paging, and failure evidence need not be repeated unless the nightly implementation materially changes the relevant behavior. The deferred checks must remain recorded as not executed until results are supplied. Directory deployment authorization is separate and limited to the directory deployment section above. The affected unified-connection Windows dedicated graphical journey under NET-PUB-AC-006 has its own user-owned post-merge/nightly deferral in [network play](network-play-first-release.md#deferred-windows-graphical-verification). That bounded deferral records missing graphical evidence, not passed functionality, and does not change mandatory post-integration native automation.
 
 ### Historical feature acceptance
 
