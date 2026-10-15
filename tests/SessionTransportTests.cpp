@@ -2338,9 +2338,92 @@ void secureSessionPasswordAdmission() {
     }
 }
 
+struct PlaintextProbeWrite {
+    std::ptrdiff_t count;
+    int error;
+};
+
+#ifdef D6R_TRANSPORT_WINDOWS
+constexpr int ProbeReset = WSAECONNRESET, ProbeAborted = WSAECONNABORTED, ProbeShutdown = WSAESHUTDOWN;
+constexpr int ProbeInterrupted = WSAEINTR, ProbeWouldBlock = WSAEWOULDBLOCK;
+#else
+constexpr int ProbeReset = ECONNRESET, ProbeAborted = ECONNABORTED, ProbeShutdown = EPIPE;
+constexpr int ProbeInterrupted = EINTR, ProbeWouldBlock = EWOULDBLOCK;
+#endif
+
+// Only the malformed plaintext probe permits peer rejection during a write.
+// A completed write is not acceptance; the caller must still prove fail-closed.
+template<typename Send>
+bool writePlaintextProbe(const std::uint8_t *bytes, std::size_t size, Send send,
+                        TransportTimePoint deadline = std::chrono::steady_clock::now() + 4s) {
+    while (size != 0) {
+        CHECK(std::chrono::steady_clock::now() < deadline);
+        const auto result = send(bytes, size);
+        if (result.count > 0) {
+            CHECK(static_cast<std::size_t>(result.count) <= size);
+            bytes += result.count;
+            size -= static_cast<std::size_t>(result.count);
+        } else {
+            CHECK(result.count < 0); // A zero write is not evidence of rejection.
+            if (result.error == ProbeReset || result.error == ProbeAborted || result.error == ProbeShutdown)
+                return false;
+            if (result.error != ProbeInterrupted && result.error != ProbeWouldBlock)
+                throw Failure("unexpected plaintext probe send error: " + std::to_string(result.error));
+            std::this_thread::yield();
+        }
+    }
+    return true;
+}
+
+void plaintextProbeWriterRegression() {
+    const std::array<std::uint8_t, 3> bytes{1, 2, 3};
+    // Deterministically cover complete/partial writes and rejection both before
+    // and after progress, rather than relying on the native close race to occur.
+    for (const auto error: {ProbeReset, ProbeAborted, ProbeShutdown}) {
+        for (const bool partial: {false, true}) {
+            unsigned calls = 0;
+            CHECK(!writePlaintextProbe(bytes.data(), bytes.size(), [&](const auto *data, auto size) {
+                ++calls;
+                if (partial && calls == 1) return PlaintextProbeWrite{1, 0};
+                CHECK(data == bytes.data() + (partial ? 1 : 0));
+                CHECK(size == bytes.size() - (partial ? 1 : 0));
+                return PlaintextProbeWrite{-1, error};
+            }));
+            CHECK(calls == (partial ? 2u : 1u));
+        }
+    }
+    unsigned calls = 0;
+    CHECK(writePlaintextProbe(bytes.data(), bytes.size(), [&](const auto *data, auto size) {
+        ++calls;
+        if (calls == 1) return PlaintextProbeWrite{-1, ProbeInterrupted};
+        if (calls == 2) return PlaintextProbeWrite{-1, ProbeWouldBlock};
+        CHECK(data == bytes.data() + (calls - 3));
+        CHECK(size == bytes.size() - (calls - 3));
+        return PlaintextProbeWrite{1, 0};
+    }));
+    CHECK(calls == 5);
+    for (const auto outcome: {PlaintextProbeWrite{-1, -12345}, PlaintextProbeWrite{0, 0}}) {
+        bool failed = false;
+        try { writePlaintextProbe(bytes.data(), bytes.size(), [&](const auto *, auto) { return outcome; }); }
+        catch (const Failure &) { failed = true; }
+        CHECK(failed);
+    }
+    bool expired = false, attempted = false;
+    try {
+        writePlaintextProbe(bytes.data(), bytes.size(), [&](const auto *, auto) {
+            attempted = true;
+            return PlaintextProbeWrite{1, 0};
+        }, std::chrono::steady_clock::now() - 1s);
+    } catch (const Failure &) { expired = true; }
+    CHECK(expired && !attempted);
+}
+
 void secureTamperAndDowngradeFailClosed() {
+    plaintextProbeWriterRegression();
     SessionTransportDependencies secure; secure.secureSession = true;
     secure.password = std::make_shared<SessionPassword>("tamper-fixture");
+    std::atomic<unsigned> publications{0};
+    secure.inbound.beforeApplicationPublish = [&](auto) { ++publications; };
     const auto port = unusedPort(); TcpListener listener(4, secure); startListener(listener, port);
     const auto relayPort = unusedPort(); EncryptedWireRelay relay(relayPort, port, true);
     TcpClient client(secure); CHECK(client.start({"127.0.0.1", relayPort}));
@@ -2352,10 +2435,41 @@ void secureTamperAndDowngradeFailClosed() {
     TransportFrame frame; CHECK(!host->receive(frame));
     client.close(); host->close();
     RawSocketOwner plain(connectRaw(port)); auto rejected = awaitAccept(listener);
-    sendFrame(plain.get(), {1, 2, 3});
+#ifdef D6R_TRANSPORT_WINDOWS
+    u_long nonblocking = 1;
+    CHECK(ioctlsocket(plain.get(), FIONBIO, &nonblocking) == 0);
+#else
+    const int flags = fcntl(plain.get(), F_GETFL, 0);
+    CHECK(flags >= 0 && fcntl(plain.get(), F_SETFL, flags | O_NONBLOCK) == 0);
+#ifdef __APPLE__
+    const int enabled = 1;
+    CHECK(setsockopt(plain.get(), SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled)) == 0);
+#endif
+#endif
+    const auto sendPlain = [&](const std::uint8_t *data, std::size_t size) -> PlaintextProbeWrite {
+#ifdef D6R_TRANSPORT_WINDOWS
+        const int count = ::send(plain.get(), reinterpret_cast<const char *>(data), static_cast<int>(size), 0);
+        return {count, count < 0 ? WSAGetLastError() : 0};
+#else
+#ifdef __APPLE__
+        const auto count = ::send(plain.get(), data, size, 0);
+#else
+        const auto count = ::send(plain.get(), data, size, MSG_NOSIGNAL);
+#endif
+        return {count, count < 0 ? errno : 0};
+#endif
+    };
+    const auto deadline = std::chrono::steady_clock::now() + 4s;
+    const auto header = envelope(TransportFramingIdentifier, TransportFramingVersion, 0, 3);
+    const std::array<std::uint8_t, 3> payload{1, 2, 3};
+    if (writePlaintextProbe(header.data(), header.size(), sendPlain, deadline))
+        (void) writePlaintextProbe(payload.data(), payload.size(), sendPlain, deadline);
     CHECK(waitUntil([&] { return rejected->state() == ClientState::Failed; }, 4s));
+    CHECK(rejected->failure() == TransportFailure::NotAuthorized);
     CHECK(!rejected->receive(frame));
+    CHECK(rejected->sealAndDrainInput().frames.empty());
     listener.shutdown();
+    CHECK(publications == 0);
 }
 
 void secureSessionKeyBudgets() {
