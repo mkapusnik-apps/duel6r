@@ -52,7 +52,10 @@ static void failureContext(const std::filesystem::path &root, const char *event,
                 << " ack-present=" << std::filesystem::exists(root / "acted")
                 << " attack-present=" << std::filesystem::exists(root / "attack.bin")
                 << " rejected-present=" << std::filesystem::exists(root / "attack-rejected")
-                << " peer-Leave-forwarded-1-present=" << std::filesystem::exists(root / "peer-Leave-forwarded-1")
+                 << " peer-Leave-forwarded-1-present=" << std::filesystem::exists(root / "peer-Leave-forwarded-1")
+                 << " peer-End-received-2-present=" << std::filesystem::exists(root / "peer-End-received-2")
+                 << " peer-End-forwarded-2-present=" << std::filesystem::exists(root / "end-forwarded-2")
+                 << " summary-write-failed-present=" << std::filesystem::exists(root / "summary-write-failed")
                 << " peer-End-received-3-present=" << std::filesystem::exists(root / "peer-End-received-3")
                 << " peer-End-forwarded-3-present=" << std::filesystem::exists(root / "end-forwarded-3") << '\n';
         const auto describe = [&](const char *alias, Client::NetworkSessionRuntime &runtime) {
@@ -450,9 +453,20 @@ int main(int argc, char **argv) {
                     require(std::none_of(state.canonical->participants.begin(), state.canonical->participants.end(),
                                          [](const auto &p) { return p.ready; }), "dedicated return retained readiness");
                 }
+                // Keep the original total End observation budget, including relay
+                // coordination. Only the ordered fixture has an authenticated
+                // intermediary that could discard End on a competing write-fatal.
+                const auto endDeadline = std::chrono::steady_clock::now() + 5s;
+                if (orderedSummary) {
+                    { std::ofstream arm(root / "summary-end-arm"); }
+                    require(pumpUntil([&] { return std::filesystem::exists(root / "summary-end-armed"); },
+                                      endDeadline), "ordered summary terminal relay armed");
+                }
                 first.endSession();
-                require(pump([&] { return first.snapshot().journey == J::Inactive
-                    && second.snapshot().journey == J::HostEnded; }, 5s), "dedicated summary return end");
+                const bool ended = pumpUntil([&] { return first.snapshot().journey == J::Inactive
+                    && second.snapshot().journey == J::HostEnded; }, endDeadline);
+                if (!ended) failureContext(root, "summary-return-end", first, second, observer);
+                require(ended, "dedicated summary return end");
             } else if (scenario == "recovery") {
                 request("recovery", 1);
                 require(pump([&] { return first.snapshot().journey == J::Reconnecting; }, 5s), "controller did not enter recovery");
