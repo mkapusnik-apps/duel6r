@@ -892,14 +892,18 @@ else ()
     target_link_libraries(duel6r-game-engine PUBLIC duel6r-network-scaffold)
 endif ()
 target_link_libraries(${D6R_APP_NAME} duel6r-network-scaffold duel6r-canonical-gameplay-core)
-add_custom_command(TARGET ${D6R_APP_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-                ${CMAKE_SOURCE_DIR}/resources/data
-                 $<TARGET_FILE_DIR:${D6R_APP_NAME}>/data
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-                ${CMAKE_SOURCE_DIR}/resources/levels
-                 $<TARGET_FILE_DIR:${D6R_APP_NAME}>/levels
-        COMMENT "Copying canonical headless gameplay resources")
+# Graphical Apple bundles stage the complete resource tree in Contents/Resources
+# below. Nonbundle builds (including Apple transport-only) need these beside the executable.
+if (NOT APPLE OR D6R_TRANSPORT_ONLY)
+    add_custom_command(TARGET ${D6R_APP_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    ${CMAKE_SOURCE_DIR}/resources/data
+                     $<TARGET_FILE_DIR:${D6R_APP_NAME}>/data
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    ${CMAKE_SOURCE_DIR}/resources/levels
+                     $<TARGET_FILE_DIR:${D6R_APP_NAME}>/levels
+            COMMENT "Copying canonical headless gameplay resources")
+endif ()
 set_target_properties(${D6R_APP_NAME} PROPERTIES VERSION 6.0.0)
 if (BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
