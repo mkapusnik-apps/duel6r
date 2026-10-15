@@ -10,7 +10,7 @@ GitHub Actions separates pull-request validation, validation of `develop`, night
 | [macOS - Apple Silicon build](workflows/macos-build.yml) | Reusable workflow call | Builds, tests, and packages the experimental macOS application at the requested source SHA. Used by develop validation and nightly publication. |
 | [Linux ARM64 - Pi 5 candidate](workflows/arm64.yml) | Reusable call from Develop - Sanity, or manual dispatch | Native ARM64 Docker compilation, hardware-AES known-answer and existing CTests using the default `gl1` renderer. A companion x86 Docker build supplies the client and resolver for cross-architecture verification. Uploads a separate architecture-labelled ARM candidate. Software-rendered CI does not certify Pi 5 V3D, peripherals, performance or independent crypto review. |
 | [Develop - Build Container Image](workflows/develop-build-image.yml) | Reusable workflow call or manual dispatch | Publishes Linux and Windows cross-compilation build images to GHCR. Commit-specific images connect validation and nightly packaging to the same source revision; `develop` image tags support consumers of the current development environment. |
-| [Develop - Sanity](workflows/develop.yml) | Push to `develop`, or manual dispatch | Publishes build images, runs a Linux build with automated tests and a main-menu smoke check, and performs a Debug compilation as the lint-equivalent check. Also runs native Windows transport CTests, the experimental macOS build/tests/package, and the ARM64 candidate workflow. Only a successful `develop` push advances `sanity` and enables the nightly scheduler. |
+| [Develop - Sanity](workflows/develop.yml) | Push to `develop` | Publishes build images, runs a Linux build with automated tests and a main-menu smoke check, and performs a Debug compilation as the lint-equivalent check. Also runs native Windows transport CTests, the experimental macOS build/tests/package, and the ARM64 candidate workflow. All checks must pass to advance `sanity` and enable the nightly scheduler. |
 | [Develop - Nightly Scheduler](workflows/develop-nightly-scheduler.yml) | Every four hours while enabled, or manual dispatch | Requests a nightly build from `sanity` and disables itself until a later successful develop validation enables it again. |
 | [Develop - Nightly](workflows/develop-nightly.yml) | Dispatch from the `sanity` tag | Packages Linux and Windows runtime files from the captured validated commit using its matching build images, without rerunning their application tests. Builds the macOS package at the same SHA. Publishes the existing combined ZIP and separate macOS assets as the current `nightly` release. Then builds and deploys the directory image from that SHA to staging. |
 | [Directory - Production promotion](workflows/directory-production.yml) | Push to `master` | Deploys the last successfully verified staging directory image by digest, without rebuilding it. Does not change game packaging. |
@@ -25,20 +25,6 @@ GitHub Actions separates pull-request validation, validation of `develop`, night
 - The `master` release-artifact path is separate from nightly publication. It produces a downloadable workflow artifact; a branch push does not itself publish a GitHub release.
 - Directory deployment is separate from game hosting. Nightly staging and master promotion use one deployment queue and separate database/runtime identities. See [directory deployment operations](../docs/directory-cloud-run.md).
 - Distribution builds select the directory through `D6R_DIRECTORY_DEFAULT_URL`. Nightly uses `https://staging.duel.netusite.cz` on Linux, Windows, and macOS. The existing Linux/Windows release workflow uses `https://duel.netusite.cz`, including manual release runs. There is no macOS caller in that release workflow. Channel selection is independent of build optimization. Other builds have no compiled default. Candidate directory checks use `run.app`; serving checks use the corresponding custom domain before staging eligibility or production success.
-
-## Manual candidate validation
-
-Use an authorized, frozen work branch that contains the manual trigger. Replace `candidate-branch` with that branch name:
-
-```sh
-gh workflow run develop.yml --repo mkapusnik-apps/duel6r --ref candidate-branch
-```
-
-The workflow is registered on the default branch. The selected ref supplies the workflow version and source SHA. Keep the branch unchanged during validation. Compare the run's `head_sha` with the approved checkpoint before accepting results.
-
-Manual runs use the full validation graph but skip `Tag - sanity`. They do not advance `sanity` or enable the nightly scheduler. A work-branch run publishes exact-SHA build images, not the mutable `develop` image tags. Runs have separate concurrency groups for each event and ref, so a manual candidate does not cancel develop-push validation.
-
-The operator needs permission to dispatch Actions workflows. The existing job tokens supply the declared contents and package permissions; no new secret is required. Native Windows and macOS runners, ARM64 runners, and self-hosted Linux Docker capacity must be available. Manual validation does not add a branch-protection requirement or prove GUI or physical-device behavior.
 
 ## Basic elements and workspace context
 
