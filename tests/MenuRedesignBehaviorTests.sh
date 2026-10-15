@@ -476,11 +476,11 @@ new_scenario saved-config
 printf '\nrounds 4\n' >>"${scenario_dir}/data/config.script"
 start_app "rounds 7"
 dump_rounds_setting config-cli-override.txt 7
-assert_dumped_rounds config-cli-override.txt 7 "command-line override of saved config"
+assert_dumped_rounds "${scenario_dir}/config-cli-override.txt" 7 "command-line override of saved config"
 close_app
 start_app
 dump_rounds_setting config-reloaded.txt 4
-assert_dumped_rounds config-reloaded.txt 4 "saved config reloaded in fresh application"
+assert_dumped_rounds "${scenario_dir}/config-reloaded.txt" 4 "saved config reloaded in fresh application"
 close_app
 
 echo "[RUN] complete consolidated-person rows for names and signed trends"
