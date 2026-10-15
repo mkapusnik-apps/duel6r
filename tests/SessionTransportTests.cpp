@@ -19,6 +19,57 @@
 #include "source/network/SessionTransport.h"
 #include "source/network/SessionLifecycle.h"
 
+#ifdef D6R_TEST_OBSERVE_STAGING
+#include <mbedtls/ssl.h>
+// Observe actual production staging and deallocation. Every SDK/allocator
+// operation delegates unchanged; no plaintext bytes or addresses are logged.
+namespace CommonStagingObservation {
+    std::array<unsigned char, 128> expected{};
+    std::atomic<void *> watched{nullptr};
+    std::atomic<bool> armed{false}, staged{false}, released{false}, erased{false};
+    std::atomic<std::size_t> readBytes{0}, allocationBytes{0};
+    std::size_t payloadBytes = 0;
+    thread_local bool receivingApplication = false;
+    void reset(const std::vector<std::uint8_t> &value, bool complete) {
+        std::fill(expected.begin(), expected.end(), 0);
+        std::copy(value.begin(), value.end(), expected.begin());
+        payloadBytes = value.size(); readBytes = value.size() - !complete;
+        watched = nullptr; staged = released = erased = false; allocationBytes = 0;
+        armed = true;
+    }
+    void beforeDelete(void *pointer, std::size_t size) noexcept {
+        if (!armed.load()) return;
+        void *match = pointer;
+        if (pointer && watched.compare_exchange_strong(match, nullptr)) {
+            const auto *bytes = static_cast<const unsigned char *>(pointer);
+            erased = std::all_of(bytes, bytes + payloadBytes, [](unsigned char byte) { return byte == 0; });
+            allocationBytes = size; released = true;
+        }
+    }
+}
+extern "C" int __real_mbedtls_ssl_read(mbedtls_ssl_context *, unsigned char *, std::size_t);
+extern "C" int __wrap_mbedtls_ssl_read(mbedtls_ssl_context *ctx, unsigned char *bytes, std::size_t size) {
+    const int result = __real_mbedtls_ssl_read(ctx, bytes, size);
+    if (CommonStagingObservation::armed && CommonStagingObservation::receivingApplication
+        && result > 0 && result == static_cast<int>(CommonStagingObservation::readBytes.load())
+        && std::equal(CommonStagingObservation::expected.begin(), CommonStagingObservation::expected.begin() + result, bytes)) {
+        CommonStagingObservation::watched = bytes;
+        CommonStagingObservation::staged = true;
+    }
+    return result;
+}
+void stagingRealDelete(void *) noexcept __asm__("__real__ZdlPv");
+void stagingWrapDelete(void *) noexcept __asm__("__wrap__ZdlPv");
+void stagingWrapDelete(void *pointer) noexcept {
+    CommonStagingObservation::beforeDelete(pointer, 0); stagingRealDelete(pointer);
+}
+void stagingRealSizedDelete(void *, std::size_t) noexcept __asm__("__real__ZdlPvm");
+void stagingWrapSizedDelete(void *, std::size_t) noexcept __asm__("__wrap__ZdlPvm");
+void stagingWrapSizedDelete(void *pointer, std::size_t size) noexcept {
+    CommonStagingObservation::beforeDelete(pointer, size); stagingRealSizedDelete(pointer, size);
+}
+#endif
+
 #ifdef D6R_TRANSPORT_WINDOWS
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
@@ -2156,6 +2207,105 @@ void securePartialStagingCannotBecomeSealedTerminalProof() {
     CHECK(Trust::processQueueBudget().used() == baseline);
 }
 
+#ifdef D6R_TEST_OBSERVE_STAGING
+void commonEncryptedStagingErasureAndOwnership() {
+    Trust::ReconnectReservation reservation(91, 2, 8);
+    CHECK(reservation.valid());
+    Lifecycle::ReconnectGrant grant{91, 2, 8, reservation.credential(), HostingKind::Dedicated};
+    auto credential = Lifecycle::serializeReconnectGrant(grant);
+    CHECK(Lifecycle::deserializeReconnectGrant(credential).has_value());
+    CHECK(credential.size() <= CommonStagingObservation::expected.size());
+    struct EraseFixture {
+        std::vector<std::uint8_t> &credential;
+        ~EraseFixture() {
+            CommonStagingObservation::armed = false;
+            Trust::secureEraseMemory(CommonStagingObservation::expected.data(), CommonStagingObservation::expected.size());
+            Lifecycle::eraseLifecycleCredentialPayload(credential);
+        }
+    } eraseFixture{credential};
+    const char *names[]{"partial EOF", "partial cancellation", "partial key expiry", "full ownership", "queued discard"};
+    for (unsigned scenario = 0; scenario < 5; ++scenario) {
+        const bool complete = scenario >= 3;
+        const auto baseline = Trust::processQueueBudget().used();
+        const auto absolute = std::chrono::steady_clock::now() + 5s;
+        CommonStagingObservation::reset(credential, complete);
+        RawSocketOwner listener(::socket(AF_INET, SOCK_STREAM, 0));
+        CHECK(listener.get() != InvalidRawSocket);
+        CHECK(fcntl(listener.get(), F_SETFL, O_NONBLOCK) == 0);
+        sockaddr_in address{}; address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        CHECK(::bind(listener.get(), reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0);
+        CHECK(::listen(listener.get(), 1) == 0);
+        socklen_t length = sizeof(address);
+        CHECK(getsockname(listener.get(), reinterpret_cast<sockaddr *>(&address), &length) == 0);
+        SessionTransportDependencies receiving; receiving.secureSession = true;
+        receiving.password = std::make_shared<SessionPassword>("common-staging-fixture");
+        if (scenario == 2) receiving.secureLimits.lifetime = 1s; // Restriction only.
+        receiving.inbound.beforeApplicationRead = [] { CommonStagingObservation::receivingApplication = true; };
+        std::atomic<TransportTimePoint> originalReceipt{};
+        receiving.inbound.beforeApplicationPublish = [&](auto stamp) { originalReceipt = stamp; };
+        TcpClient client(receiving);
+        CHECK(client.start({"127.0.0.1", ntohs(address.sin_port)}));
+        RawSocket accepted = InvalidRawSocket;
+        CHECK(waitUntil([&] { accepted = ::accept(listener.get(), nullptr, nullptr); return accepted != InvalidRawSocket; }, 2s));
+        RawSocketOwner socket(accepted);
+        CHECK(fcntl(socket.get(), F_SETFL, O_NONBLOCK) == 0);
+        SecureSession peer(static_cast<std::intptr_t>(socket.get()), true, receiving.password);
+        CHECK(peer.handshake(absolute, [] { return false; }));
+        requireConnected(client, "common staging TCP connection");
+        auto connection = client.connection(); CHECK(connection);
+        const auto send = [&](const auto &bytes, std::size_t size) {
+            std::size_t offset = 0;
+            while (offset < size && std::chrono::steady_clock::now() < absolute) {
+                const auto count = peer.send(bytes.data() + offset, size - offset);
+                if (count > 0) offset += static_cast<std::size_t>(count);
+                else { CHECK(count == -2); std::this_thread::sleep_for(1ms); }
+            }
+            CHECK(offset == size);
+        };
+        const auto header = envelope(TransportFramingIdentifier, TransportFramingVersion, 0, credential.size());
+        send(header, header.size());
+        send(credential, credential.size() - !complete);
+        CHECK(waitUntil([&] { return CommonStagingObservation::staged.load(); }, 2s));
+        TransportFrame frame;
+        if (!complete) {
+            CHECK(!connection->receive(frame));
+            CHECK(originalReceipt.load() == TransportTimePoint{});
+        }
+        if (scenario == 0) shutdownRaw(socket.get()); // Genuine EOF, not a substituted SDK result.
+        else if (scenario == 1) { client.cancel(); client.close(); }
+        else if (scenario == 3) {
+            CHECK(waitUntil([&] { return connection->receive(frame); }, 2s));
+            CHECK(frame.payload == credential && frame.payload.data() == CommonStagingObservation::watched.load());
+            CHECK(!CommonStagingObservation::released);
+            CHECK(originalReceipt.load() != TransportTimePoint{} && frame.receivedAt == originalReceipt.load());
+            client.close();
+            CHECK(frame.payload == credential && !CommonStagingObservation::released);
+            Trust::secureEraseMemory(frame.payload.data(), frame.payload.size());
+            std::vector<std::uint8_t>().swap(frame.payload);
+        } else if (scenario == 4) {
+            CHECK(waitUntil([&] { return originalReceipt.load() != TransportTimePoint{}; }, 2s));
+            CHECK(connection->sealAndDrainInput(0).frames.empty()); // Queue retains ownership.
+            CHECK(!CommonStagingObservation::released);
+            client.close();
+        }
+        CHECK(waitUntil([&] { return CommonStagingObservation::released.load(); }, 2s));
+        CHECK(CommonStagingObservation::erased);
+        CHECK(CommonStagingObservation::allocationBytes == credential.size());
+        if (!complete) {
+            CHECK(!connection->receive(frame));
+            CHECK(originalReceipt.load() == TransportTimePoint{});
+        }
+        client.close();
+        CHECK(Trust::processQueueBudget().used() == baseline);
+        CHECK(std::chrono::steady_clock::now() < absolute);
+        CommonStagingObservation::armed = false;
+        std::cout << "[PASS] live common-channel staging " << names[scenario]
+                  << "; current grant framing; zero-before-free and exact queue accounting (bytes withheld)\n";
+    }
+}
+#endif
+
 void secureSessionPasswordAdmission() {
     for (const auto &passwords: std::vector<std::pair<std::string, std::string>>{
             {"", ""}, {"session-test", "session-test"}, {"session-test", "wrong"}, {"session-test", ""}, {"", "explicit-nonempty"}}) {
@@ -2307,6 +2457,9 @@ int main() {
     }
 #endif
     const std::vector<std::pair<const char *, void (*)()>> tests = {
+#ifdef D6R_TEST_OBSERVE_STAGING
+        {"common encrypted staging erasure and ownership", commonEncryptedStagingErasureAndOwnership},
+#endif
         {"transactional listening coverage and wildcard policy", transactionalListeningCoverage},
         {"transactional partial bind cancellation", transactionalPartialBindCancellation},
         {"secure encrypted wire hides credentials and rejects cross-connection replay", secureWireRejectsReplay},

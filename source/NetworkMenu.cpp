@@ -2913,7 +2913,7 @@ namespace Duel6 {
                 && snap.retryBlockReason != Client::NetworkRetryBlockReason::TerminalReconnect
                 && snap.retryBlockReason != Client::NetworkRetryBlockReason::EndedSession) drawClippedText(130, 404,
                     "Endpoint: " + snap.endpoint.host + ':' + std::to_string(snap.endpoint.port), 72);
-            if (!snap.host && !snap.publicSession) drawWrappedText(130, 374,
+            if (!snap.host && !snap.publicSession && !boundDedicated() && !publicSecurityFailure(snap)) drawWrappedText(130, 374,
                     "Check that the host session is running and the endpoint is correct.", 72, 2);
             std::string retryReason;
             const bool canRetry = retryEligible(snap, retryReason);

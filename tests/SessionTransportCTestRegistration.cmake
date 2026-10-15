@@ -49,7 +49,12 @@ set_tests_properties(duel6r-hardware-crypto-tests PROPERTIES LABELS "application
 add_executable(duel6r-session-transport-tests
         ${CMAKE_SOURCE_DIR}/tests/SessionTransportTests.cpp)
 target_include_directories(duel6r-session-transport-tests PRIVATE ${CMAKE_SOURCE_DIR})
-target_link_libraries(duel6r-session-transport-tests duel6r-network-scaffold)
+target_link_libraries(duel6r-session-transport-tests PRIVATE duel6r-network-scaffold)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_definitions(duel6r-session-transport-tests PRIVATE D6R_TEST_OBSERVE_STAGING)
+    target_link_libraries(duel6r-session-transport-tests PRIVATE
+            "-Wl,--wrap=mbedtls_ssl_read,--wrap=_ZdlPv,--wrap=_ZdlPvm")
+endif ()
 if (MINGW)
     set_property(TARGET duel6r-session-transport-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
 endif ()

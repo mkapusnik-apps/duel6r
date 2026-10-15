@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -60,6 +61,10 @@
 #include "tests/ObservedPlayerInput.h"
 #endif
 #include "source/server/AuthoritativeMatchSerialization.h"
+#if defined(__linux__) && defined(D6R_DEDICATED_SERVICE)
+#include "source/server/HeadlessServer.h"
+#include "source/server/DedicatedService.h"
+#endif
 #include "source/math/Camera.h"
 #include <cmath>
 
@@ -2322,6 +2327,96 @@ D6R_TEST_CASE("NET-DIR bound metadata overflow reduces body rows and changed sel
     f.draw(); D6R_REQUIRE(f.text("Return to browser") && !f.text("Retry"));
     menu.activate(); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
 }
+
+#if defined(__linux__) && defined(D6R_DEDICATED_SERVICE)
+D6R_TEST_CASE("NET-08 actual selected dedicated password rejection retains unknown role and omits startup advice") {
+    using namespace std::chrono_literals;
+    namespace fs = std::filesystem;
+    ReviewMenuFixture fixture;
+    auto &menu = fixture.menu;
+    const auto port = unusedLoopbackPort();
+    const auto root = fs::temp_directory_path() / ("d6r-net08-password-" + std::to_string(::getpid()) + "-" + std::to_string(port));
+    D6R_REQUIRE(fs::create_directory(root));
+    struct RemoveRoot {
+        fs::path path;
+        ~RemoveRoot() { std::error_code ignored; fs::remove_all(path, ignored); }
+    } removeRoot{root};
+    fs::permissions(root, fs::perms::owner_all);
+    const auto passwordFile = root / "password";
+    { std::ofstream output(passwordFile); output << "correct-disposable-fixture"; D6R_REQUIRE(output.good()); }
+    fs::permissions(passwordFile, fs::perms::owner_read | fs::perms::owner_write);
+    Server::ServerConfig config;
+    config.dedicated = config.transportEnabled = config.passwordFileProvided = true;
+    config.localPlayers = 0; config.listenEndpoint = {"127.0.0.1", port};
+    config.resourcePath = D6R_TEST_RESOURCE_DIR;
+    config.passwordFile = passwordFile.string(); config.readinessSocket = (root / "ready.sock").string();
+    std::atomic<bool> stop{false}, listenerReady{false};
+    std::atomic<unsigned> commits{0};
+    Server::AdmissionRuntimeDependencies dependencies;
+    dependencies.cancelled = [&] { return stop.load(); };
+    dependencies.lifecycleObserver = [&](const auto &event) {
+        if (event.stage == Server::AdmissionLifecycleStage::ListenerReady) listenerReady = true;
+        if (event.stage == Server::AdmissionLifecycleStage::TransactionCommitted) ++commits;
+        return true;
+    };
+    std::ostringstream serverOutput;
+    auto service = std::async(std::launch::async, [&] { return Server::HeadlessServer(config, dependencies).run(serverOutput); });
+    struct StopService {
+        std::atomic<bool> &stop; std::future<int> &service;
+        ~StopService() { stop = true; if (service.valid()) service.wait(); }
+    } stopService{stop, service};
+    const auto readyDeadline = std::chrono::steady_clock::now() + 10s;
+    bool ready = false;
+    while (!ready && std::chrono::steady_clock::now() < readyDeadline) {
+        ready = listenerReady && Server::DedicatedReadiness::check(config.readinessSocket);
+        if (!ready) std::this_thread::sleep_for(5ms);
+    }
+    D6R_REQUIRE(ready);
+    // Selected-listing UI fixture; the service, PAKE exchange and password
+    // rejection are real. No failure, admission, hosting role or crypto result
+    // is injected. This is routine behavioral evidence, not a capture route.
+    Client::DirectoryListing row;
+    row.id = std::string(32, 'a'); row.sessionId = Client::directorySessionId(42);
+    row.endpoint = config.listenEndpoint; row.hosting = "dedicated"; row.phase = "idle";
+    row.passwordRequired = true; row.protection = "password"; row.admission = "open";
+    row.capacity = 15; row.expiresAt = 2000000000000;
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
+    menu.browser.received = menu.browser.requested = std::chrono::steady_clock::now();
+    menu.joinSelected();
+    menu.enterText("incorrect-disposable-fixture");
+    menu.focus = menu.setupFields() + static_cast<int>(menu.availablePersons.size())
+        + static_cast<int>(menu.localPlayers.size()) * 2;
+    menu.activate();
+    const auto failureDeadline = std::chrono::steady_clock::now() + 10s;
+    while (menu.runtime.snapshot().journey != Client::NetworkJourney::Failure
+           && std::chrono::steady_clock::now() < failureDeadline) {
+        menu.update(.005f); std::this_thread::sleep_for(5ms);
+    }
+    menu.update(0);
+    const auto failure = menu.runtime.snapshot();
+    D6R_REQUIRE(failure.journey == Client::NetworkJourney::Failure);
+    D6R_REQUIRE_EQ(std::string("Connection not authorized."), failure.failure);
+    D6R_REQUIRE(!failure.publicSession && !failure.host && !failure.localParticipantId && !failure.canonical);
+    D6R_REQUIRE_EQ(0u, commits.load());
+    fixture.draw();
+    D6R_REQUIRE(fixture.text("Connection not authorized."));
+    D6R_REQUIRE(!fixture.text("Check that the host session is running and the endpoint is correct."));
+    D6R_REQUIRE(!fixture.text("Retry") && !fixture.text("Retry unavailable"));
+    D6R_REQUIRE(fixture.text("Edit setup") && fixture.text("Return to browser"));
+    D6R_REQUIRE_EQ(0, menu.focus);
+    D6R_REQUIRE(fixture.frame(313, 268, 224, 38, 2));
+    menu.activate();
+    D6R_REQUIRE(menu.boundDedicated() && menu.focus == 2);
+    D6R_REQUIRE_EQ(row.endpoint.host, menu.address);
+    D6R_REQUIRE_EQ(std::to_string(port), menu.port);
+    D6R_REQUIRE_EQ(row.sessionId, menu.browserSelection->sessionId);
+    D6R_REQUIRE(!menu.runtime.snapshot().publicSession && !menu.runtime.snapshot().host);
+    stop = true;
+    D6R_REQUIRE(service.wait_for(5s) == std::future_status::ready);
+    D6R_REQUIRE_EQ(0, service.get());
+}
+#endif
 
 D6R_TEST_CASE("DIRUX01 bound four five six context lines contain full row focus and pointer extents") {
     ReviewMenuFixture f;
