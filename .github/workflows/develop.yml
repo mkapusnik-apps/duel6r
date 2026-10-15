@@ -3,9 +3,10 @@ name: Develop - Sanity
 on:
   push:
     branches: [ develop ]
+  workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -143,6 +144,7 @@ jobs:
 
   tag:
     name: Tag - sanity
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     permissions:
       contents: 'write'
     runs-on: ubuntu-latest
