@@ -1144,6 +1144,14 @@ if (BUILD_TESTING)
             ${LIB_SDL2} ${LIB_SDL2_TTF} ${LIB_SDL2_IMAGE})
     add_test(NAME mac-pointer-behavior COMMAND duel6r-mac-pointer-tests)
     set_tests_properties(mac-pointer-behavior PROPERTIES LABELS "application;input;regression")
+
+    # Exercise the real console file format without initializing SDL or a game.
+    add_executable(duel6r-console-configuration-tests tests/TestMain.cpp tests/ConsoleConfigurationTests.cpp)
+    target_include_directories(duel6r-console-configuration-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_compile_definitions(duel6r-console-configuration-tests PRIVATE SDL_MAIN_HANDLED)
+    target_link_libraries(duel6r-console-configuration-tests PRIVATE duel6r-game-engine)
+    add_test(NAME console-configuration COMMAND duel6r-console-configuration-tests)
+    set_tests_properties(console-configuration PROPERTIES LABELS "application;configuration;regression" TIMEOUT 30)
 endif ()
 
 if (UNIX AND BUILD_TESTING)
@@ -1204,4 +1212,8 @@ if (BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND D6R_RENDERER STREQU
             ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1;SDL_AUDIODRIVER=dummy"
             LABELS "application;rendering;regression" TIMEOUT 120)
 endif ()
+endif ()
+
+if (BUILD_TESTING)
+    include(${CMAKE_SOURCE_DIR}/tests/SanityCTestGroups.cmake)
 endif ()

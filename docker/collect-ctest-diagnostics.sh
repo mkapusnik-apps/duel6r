@@ -42,6 +42,7 @@ for test_output in \
     shared-arena-behavior:shared-arena-behavior \
     async-menu-background-behavior:async-menu-background-behavior \
     menu-redesign-behavior:menu-redesign-behavior \
+    menu-local-session-behavior:menu-local-session-behavior \
     round-summary-progress-behavior:round-summary-progress \
     safe-empty-match-start:safe-empty-match-start \
     safe-empty-match-start:safe-empty-test-failure \

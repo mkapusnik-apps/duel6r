@@ -768,6 +768,11 @@ def main():
             assert result.returncode == 0, result.stdout + result.stderr + peer.evidence()
             if scenario == "summary-return-ordered":
                 assert (root / "summary-controller-held").exists() and (root / "summary-guest-seen").exists(), "authenticated peer did not hold real summary records"
+                assert all((root / name).exists() for name in (
+                    "summary-end-armed", "summary-service-End-before-fatal", "summary-write-failed",
+                    "peer-End-received-2", "end-forwarded-2",
+                )), "ordered summary relay did not preserve actual End across a failed reverse write"
+                print("PASS authenticated summary End forwarded after failed reverse write", flush=True)
             if scenario in ("flow", "flow-race") and not peer.opaque_inner:
                 assert peer.forwarded_ends >= forwarded_before + 2, "End was observed but not forwarded; " + peer.evidence()
             if scenario == "flow-race":
@@ -787,6 +792,7 @@ def main():
                 # Independent service instances preserve all negative scenarios
                 # after a production failure without carrying stranded sessions.
                 for name in ("action", "acted", "action.tmp", "attack.bin", "attack-rejected", "summary-release",
+                             "summary-end-arm", "summary-end-armed", "summary-service-End-before-fatal", "summary-write-failed",
                              "client-failure-context", "failure-context.json"):
                     (root / name).unlink(missing_ok=True)
                 for pattern in ("peer-*", "end-forwarded-*", "summary-controller-held", "summary-guest-seen", "race-write-failed"):

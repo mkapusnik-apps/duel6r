@@ -17,9 +17,19 @@ jobs:
     uses: ./.github/workflows/develop-build-image.yml
 
   sanity:
-    name: Sanity Build
+    name: ${{ matrix.name }}
     needs: [build-images]
     runs-on: self-hosted
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: unit
+            name: Unit / basic checks (Linux)
+          - group: common
+            name: Common / local game (Linux)
+          - group: network
+            name: Network / server-client (Linux)
     permissions:
       contents: read
       packages: read
@@ -36,11 +46,12 @@ jobs:
       - name: Pull exact Linux build image
         run: docker pull ghcr.io/${{ github.repository }}/build:sha-${{ github.sha }}
 
-      - name: Build runtime bundle inside container
+      - name: Build and run selected CTests inside container
         run: |
           bash docker/run-with-daemon-workspace.sh \
             -e BUILD_TESTING=ON \
             -e RUN_TESTS=ON \
+            -e CTEST_LABEL_REGEX='^sanity-${{ matrix.group }}$' \
             ghcr.io/${{ github.repository }}/build:sha-${{ github.sha }}
 
       - name: Upload CTest diagnostics
@@ -48,7 +59,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
-          name: ctest-diagnostics-sanity
+          name: ctest-diagnostics-sanity-${{ matrix.group }}
           path: build/ci-diagnostics/
           if-no-files-found: ignore
           retention-days: 7
@@ -56,14 +67,15 @@ jobs:
       - name: Verify build output
         run: test -x build/duel6r
 
-      - name: Run main menu smoke test
+      - name: Unit / basic - main menu smoke (full runtime)
+        if: matrix.group == 'unit'
         run: |
           bash docker/run-with-daemon-workspace.sh \
             --entrypoint /usr/local/bin/duel6r-main-menu-smoke \
             ghcr.io/${{ github.repository }}/build:sha-${{ github.sha }}
 
       - name: Upload main menu smoke artifacts
-        if: always()
+        if: always() && matrix.group == 'unit'
         uses: actions/upload-artifact@v7
         with:
           name: main-menu-smoke
@@ -101,7 +113,7 @@ jobs:
         run: test -x build/duel6r
 
   native-windows-transport:
-    name: MSVC x64 transport CTests
+    name: Platform / Windows MSVC x64 transport
     runs-on: windows-2025
     permissions:
       contents: read
@@ -128,7 +140,7 @@ jobs:
         run: .\docker\run-windows-native-transport.ps1
 
   macos:
-    name: macOS Apple Silicon
+    name: Platform / macOS Apple Silicon
     permissions:
       contents: read
     uses: ./.github/workflows/macos-build.yml
@@ -136,7 +148,7 @@ jobs:
       source_sha: ${{ github.sha }}
 
   arm64:
-    name: Linux ARM64
+    name: Platform / Linux ARM64
     permissions:
       contents: read
     uses: ./.github/workflows/arm64.yml

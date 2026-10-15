@@ -100,11 +100,28 @@ set_tests_properties(
     menu-redesign-behavior
     PROPERTIES
     ENVIRONMENT
-        "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/menu-redesign-behavior;DISPLAY=:96"
+        "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/menu-redesign-behavior;DISPLAY=:96;MENU_REDESIGN_GROUP=basic"
     LABELS "application;regression;e2e;menu"
     RUN_SERIAL TRUE
     TIMEOUT 300
 )
+
+add_test(NAME menu-local-session-behavior
+    COMMAND ${D6R_BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/MenuRedesignBehaviorTests.sh)
+set_tests_properties(menu-local-session-behavior PROPERTIES
+    ENVIRONMENT "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/menu-local-session-behavior;DISPLAY=:96;MENU_REDESIGN_GROUP=local"
+    LABELS "application;regression;e2e;menu"
+    RUN_SERIAL TRUE TIMEOUT 300)
+
+# This existing fixture uses profile Lua callbacks to complete real rounds.
+if (D6R_WITH_LUA)
+    add_test(NAME final-team-summary-behavior
+        COMMAND ${D6R_BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/FinalTeamSummaryBehaviorTests.sh)
+    set_tests_properties(final-team-summary-behavior PROPERTIES
+        ENVIRONMENT "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/final-team-summary;DISPLAY=:93"
+        LABELS "application;regression;e2e;round-summary"
+        RUN_SERIAL TRUE TIMEOUT 300)
+endif ()
 
 add_test(
     NAME round-summary-progress-behavior
