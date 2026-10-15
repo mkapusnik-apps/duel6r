@@ -40,5 +40,5 @@ set_tests_properties(darwin-system-random PROPERTIES TIMEOUT 30 LABELS "applicat
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_test(NAME darwin-authoritative-fixtures COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_SOURCE_DIR}/tests/AuthoritativeMatchProcessTests.py $<TARGET_FILE:${D6R_SERVER_APP_NAME}>)
-set_tests_properties(darwin-authoritative-fixtures PROPERTIES WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+set_tests_properties(darwin-authoritative-fixtures PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/resources"
     TIMEOUT 180 LABELS "application;network;darwin;native-semantics")
