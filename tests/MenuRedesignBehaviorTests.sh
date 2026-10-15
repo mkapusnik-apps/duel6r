@@ -16,6 +16,11 @@ fail() {
   exit 1
 }
 
+case "${MENU_REDESIGN_GROUP:-all}" in
+  all|basic|local) ;;
+  *) fail "unknown MENU_REDESIGN_GROUP: $MENU_REDESIGN_GROUP" ;;
+esac
+
 for command in Xvfb xdotool import compare convert timeout python3 cc; do
   command -v "$command" >/dev/null 2>&1 || fail "required command not found: $command"
 done
@@ -464,7 +469,19 @@ exit 0
 fi
 
 if [[ "${MENU_REDESIGN_SCENARIO:-all}" != "rounds-session" ]]; then
-if [[ "${MENU_REDESIGN_SCENARIO:-all}" != "team-roster-order" ]]; then
+if [[ "${MENU_REDESIGN_SCENARIO:-all}" != "team-roster-order" && "${MENU_REDESIGN_GROUP:-all}" != "local" ]]; then
+
+echo "[RUN] saved config script loads on restart and command-line setting takes precedence"
+new_scenario saved-config
+printf '\nrounds 4\n' >>"${scenario_dir}/data/config.script"
+start_app "rounds 7"
+dump_rounds_setting config-cli-override.txt 7
+assert_dumped_rounds config-cli-override.txt 7 "command-line override of saved config"
+close_app
+start_app
+dump_rounds_setting config-reloaded.txt 4
+assert_dumped_rounds config-reloaded.txt 4 "saved config reloaded in fresh application"
+close_app
 
 echo "[RUN] complete consolidated-person rows for names and signed trends"
 new_scenario elo-name-widths
@@ -857,6 +874,7 @@ PY
 
 fi
 
+if [[ "${MENU_REDESIGN_GROUP:-all}" != "basic" ]]; then
 echo "[RUN] Teams-only Equalize and Shuffle visibility, interaction, grouping, and controls"
 new_scenario shuffle-controls
 write_overflow_fixture
@@ -1118,7 +1136,9 @@ assert_same "${scenario_dir}/burnable-default-crop.png" "${scenario_dir}/burnabl
   "Burnable Trees fresh-start enabled state"
 close_app
 
+fi # Local roster and match-setting journeys.
 fi # Non-Rounds scenarios; focused Rounds uses the same setup and assertions.
+if [[ "${MENU_REDESIGN_GROUP:-all}" != "basic" ]]; then
 echo "[RUN] Rounds focus, apply, session retention, restart, and startup override"
 new_scenario rounds-session
 python3 - "${scenario_dir}/data/persons.json" <<'PY'
@@ -1219,6 +1239,8 @@ if [[ "${MENU_REDESIGN_SCENARIO:-all}" == "rounds-session" ]]; then
   echo "Rounds focused behavior test passed. Artifacts: $test_root"
   exit 0
 fi
+fi # Local Rounds journey.
+if [[ "${MENU_REDESIGN_GROUP:-all}" != "local" ]]; then
 echo "[RUN] invalid background load retry and solid-black fallback"
 new_scenario background-fallback
 python3 - "${scenario_dir}/textures/menu-backgrounds" <<'PY'
@@ -1241,5 +1263,6 @@ capture "${scenario_dir}/fallback.png"
 corner="$(identify -format '%[pixel:p{0,0}]' "${scenario_dir}/fallback.png")"
 [[ "$corner" == *"(0,0,0"* ]] || fail "background fallback is not solid black at viewport edge"
 close_app
+fi
 
 echo "Menu redesign behavior test passed. Artifacts: $test_root"

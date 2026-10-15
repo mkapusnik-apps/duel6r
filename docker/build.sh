@@ -9,6 +9,7 @@ with_lua="${D6R_WITH_LUA:-ON}"
 directory_default_url="${D6R_DIRECTORY_DEFAULT_URL:-}"
 build_testing="${BUILD_TESTING:-ON}"
 run_tests="${RUN_TESTS:-OFF}"
+ctest_label_regex="${CTEST_LABEL_REGEX:-}"
 clean_output_dir="${CLEAN_OUTPUT_DIR:-OFF}"
 
 tmp_build_dir="$(mktemp -d /tmp/duel6r-build-XXXXXX)"
@@ -32,8 +33,12 @@ cmake --build "${tmp_build_dir}" -j"$(nproc)"
 
 if [[ "${run_tests}" == "ON" ]]; then
   diagnostics_dir="${workspace_dir}/${output_dir}/ci-diagnostics"
+  ctest_options=()
+  if [[ -n "${ctest_label_regex}" ]]; then
+    ctest_options+=(--label-regex "${ctest_label_regex}" --no-tests=error)
+  fi
   test_status=0
-  ctest --test-dir "${tmp_build_dir}" --output-on-failure || test_status=$?
+  ctest --test-dir "${tmp_build_dir}" --output-on-failure "${ctest_options[@]}" || test_status=$?
   if [[ "${test_status}" -ne 0 ]]; then
     diagnostics_ready=true
     if ! rm -rf "${diagnostics_dir}" || ! mkdir -p "${diagnostics_dir}"; then
