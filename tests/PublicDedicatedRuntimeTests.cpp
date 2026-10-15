@@ -113,7 +113,7 @@ int main(int argc, char **argv) {
         };
         const std::string scenario = argv[3];
         if (scenario != "directory" && scenario != "directory-reservation")
-            require(first.join(endpoint, argv[2], {{"Controller", &controls}}, password(), {}, true), "join start");
+            require(first.join(endpoint, argv[2], {{"Controller", &controls}}, password()), "unbound common Direct join start");
         if (scenario == "directory") {
             require(std::getenv("D6R_DIRECTORY_URL") != nullptr, "owned directory fixture required");
             Client::DirectoryPage page;
@@ -207,7 +207,7 @@ int main(int argc, char **argv) {
             const auto content = Network::CompatibilityManifestBuilder(argv[2]).build();
             require(content.valid(), "R1 guest content");
             Network::SessionTransportDependencies transport;
-            transport.publicTls = true; transport.secureSession = true; transport.password = password(); transport.enforceNetworkSessionPolicy = true;
+            transport.secureSession = true; transport.password = password(); transport.enforceNetworkSessionPolicy = true;
             Network::TcpClient offeredGuest(transport);
             require(offeredGuest.start(endpoint) && offeredGuest.waitForConnected(5s), "R1 actual guest TLS");
             auto connection = offeredGuest.connection(); require(connection != nullptr, "R1 actual guest connection");
@@ -510,9 +510,11 @@ int main(int argc, char **argv) {
             require(pump([&] { return first.snapshot().journey == J::Failure; }, 12s), "failure deadline");
             const auto state = first.snapshot();
             require(!state.host && !state.localParticipantId && !state.canonical, "rejection granted authority");
-            if (scenario == "security") {
-                require(state.securityFailure, "missing security failure classification");
-                require(state.failure == Network::PublicSession::SecurityFailure, "security failure copy");
+            if (scenario == "legacy-profile") {
+                require(state.failure == "Connection not authorized."
+                        || state.failure == "Connection ended before admission completed."
+                        || state.failure == "Connection timed out."
+                        || state.failure == Network::PublicSession::SecurityFailure, "unconfirmed legacy profile outcome");
             } else {
                 require(state.failure == "Connection not authorized.", "missing authorization classification");
                 require(state.failure == "Connection not authorized.", "authorization failure copy");

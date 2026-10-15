@@ -28,7 +28,6 @@ namespace Duel6::Client {
             const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
             return expiresAt > now && players < capacity && admissionState() == "open"
-                && (!dedicated() || Network::PublicSession::supported())
                 && (phase == "lobby" || phase == "first-round" || phase == "started" || phase == "final-round"
                     || (dedicated() && phase == "idle"));
         }

@@ -72,9 +72,9 @@ namespace Duel6::Server {
                "  --host=ADDR --port=PORT --name=NAME --resources=PATH --local-players=N\n"
                "  --tick-rate=N --max-clients=N --local-only --transport --transport-echo\n"
                "  --admission-client --gameplay-script=PATH\n"
-               "  --dedicated --transport --host=127.0.0.1 --trusted-proxy-protocol=v2\n"
+               "  --dedicated --transport [--host=ADDR (default 0.0.0.0)]\n"
                "    --readiness-socket=PATH [--password-file=PATH]\n"
-               "    [--advertise-host=TLS-FRONTEND --advertise-port=TLS-PORT]\n"
+               "    [--advertise-host=GAMEPLAY-HOST --advertise-port=PORT]\n"
                "  --check-ready=PATH\n"
                "  --authoritative-match [authoritative match options]\n"
                "Without transport, server mode validates configuration and exits without listening.";
@@ -82,6 +82,7 @@ namespace Duel6::Server {
 
     ServerConfig parseServerConfig(int argc, char **argv) {
         ServerConfig config;
+        bool hostProvided = false;
 
         for (int i = 1; i < argc; ++i) {
             std::string argument = argv[i];
@@ -91,8 +92,6 @@ namespace Duel6::Server {
                 config.advertisedFrontend.host = valueAfter(argument, "--advertise-host=");
             } else if (startsWith(argument, "--advertise-port=")) {
                 config.advertisedFrontend.port = parsePort(valueAfter(argument, "--advertise-port="));
-            } else if (argument == "--trusted-proxy-protocol=v2") {
-                config.trustedProxyV2 = true;
             } else if (startsWith(argument, "--invite-file=")) {
                 throw std::invalid_argument("Invitation configuration is retired");
             } else if (startsWith(argument, "--password-file=")) {
@@ -102,6 +101,7 @@ namespace Duel6::Server {
             } else if (startsWith(argument, "--readiness-socket=")) {
                 config.readinessSocket = valueAfter(argument, "--readiness-socket=");
             } else if (startsWith(argument, "--host=")) {
+                hostProvided = true;
                 config.listenEndpoint.host = valueAfter(argument, "--host=");
             } else if (startsWith(argument, "--port=")) {
                 config.listenEndpoint.port = parsePort(valueAfter(argument, "--port="));
@@ -140,6 +140,7 @@ namespace Duel6::Server {
                     throw std::invalid_argument("local players must not exceed 15");
                 config.localPlayers = static_cast<std::uint8_t>(count);
             } else if (argument == "--local-only") {
+                hostProvided = true;
                 config.localOnly = true;
                 config.listenEndpoint.host = "127.0.0.1";
             } else if (argument == "--transport-echo") {
@@ -177,22 +178,22 @@ namespace Duel6::Server {
 
         requireText("server host", config.listenEndpoint.host);
         if (config.dedicated) {
+            if (!hostProvided) config.listenEndpoint.host = "0.0.0.0";
 #if !defined(__linux__) || !defined(D6R_DEDICATED_SERVICE)
             throw std::invalid_argument("Dedicated service requires Linux x86-64 or ARM64");
 #endif
             if (!config.transportEnabled || config.transportEcho || config.admissionClient
                 || config.hostedServiceIpc || config.graphicalHostComposition || config.hostedServiceParent
-                || !config.trustedProxyV2 || config.listenEndpoint.host != "127.0.0.1"
                 || !config.additionalListenHosts.empty()
                 || config.readinessSocket.empty() || (config.passwordFileProvided && config.passwordFile.empty())
                 || !config.enabledGameplayScripts.empty())
-                throw std::invalid_argument("Dedicated mode requires isolated loopback proxy and readiness socket");
+                throw std::invalid_argument("Dedicated mode requires direct transport and readiness socket");
             config.localPlayers = 0;
             if ((!config.advertisedFrontend.host.empty() || config.advertisedFrontend.port != 0)
                 && (!Network::PublicSession::validDirectoryFrontend(config.advertisedFrontend.host)
                     || config.advertisedFrontend.port == 0))
-                throw std::invalid_argument("Publication requires a concrete non-loopback TLS frontend and port");
-        } else if (config.trustedProxyV2 || config.passwordFileProvided || !config.passwordFile.empty() || !config.readinessSocket.empty()
+                throw std::invalid_argument("Publication requires a concrete non-loopback gameplay endpoint and port");
+        } else if (config.passwordFileProvided || !config.passwordFile.empty() || !config.readinessSocket.empty()
                    || !config.advertisedFrontend.host.empty() || config.advertisedFrontend.port != 0) {
             throw std::invalid_argument("Dedicated options require dedicated mode");
         }

@@ -1,10 +1,10 @@
 # NET-10 — Mixed session browser
 
-Functional authority: [network-browser](../../screens/network-browser.md), [host-directory](../../network-host-directory.md), and product-owned NET-ADM/NET-SOLO. Presentation composes develop `f21a9c1889ff4382bd20e2654b758783be49d07d` with mixed Hosting, common Password, and bound selection in both hosting modes. Product owns phase decoding, eligibility, waiting admission, and final closure.
+Functional authority: [network-browser](../../screens/network-browser.md), [host-directory](../../network-host-directory.md), especially NET-DIR-013/014/027/032 and NET-PASS-001–018, and product-owned NET-ADM/NET-SOLO. Presentation retains mixed Hosting, common Password, and bound selection in both hosting modes. Product owns phase decoding, eligibility, the common encrypted channel, supported clients, waiting admission, and final closure.
 
 Structural sources: [NET-10 results](../wireframes/NET-10/NET-10.svg), [NET-10-E empty](../wireframes/NET-10/NET-10-E.svg), and [NET-10-U failed refresh](../wireframes/NET-10/NET-10-U.svg).
 
-States retain NET-10-loading, NET-10-results, NET-10-empty, NET-10-stale, NET-10-unavailable, NET-10-dedicated-idle, NET-10-dedicated-reserved, and NET-10-dedicated-unsupported. No product screen is added.
+States retain NET-10-loading, NET-10-results, NET-10-empty, NET-10-stale, NET-10-unavailable, NET-10-dedicated-idle, and NET-10-dedicated-reserved. NET-10-dedicated-unsupported is retired for the four approved baseline clients; do not reuse it for ordinary full, stale, busy, closed, or security failure. Product owns its retirement in the functional inventory. No product screen is added. Visual impact is localized to dedicated eligibility and supporting copy; NET-10, NET-10-E, and NET-10-U SVGs remain byte-for-byte unchanged because they contain no platform warning or selector.
 
 ## Presentation and allocation
 
@@ -66,8 +66,8 @@ Retired Invite metadata must not be relabeled Password or No password. Product o
 - **UX-NET-10-026** Join selected must open the applicable bound NET-03 task without connecting or reserving authority.
 - **UX-NET-10-027** Selected dedicated rows must enter NET-03-B with bound hosting/protection, endpoint, and session identity.
 - **UX-NET-10-028** Selected player-hosted rows must enter NET-03-E with the same read-only target/binding requirements.
-- **UX-NET-10-029** Updated Mac/Pi clients must keep dedicated rows readable without enabling joining or dedicated Password entry, including No password rows.
-- **UX-NET-10-030** Unsupported details must say `Dedicated joining requires Linux x86-64 or Windows x86-64.`
+- **UX-NET-10-029** Linux x86-64, Windows x86-64, Linux AArch64/Pi 5, and experimental Apple Silicon macOS 14+ clients must show the same eligible Join selected action for both hosting types.
+- **UX-NET-10-030** Dedicated details must omit the former Mac/Pi unsupported reason and any replacement platform-warning step.
 - **UX-NET-10-031** Stale or expired selection must require successful refresh and must not transfer binding to Direct connect.
 - **UX-NET-10-032** Refresh must retain selection by the approved immutable listing/session identity rather than row position.
 - **UX-NET-10-033** Same-identity phase changes must update details without claiming replacement or role assignment.
@@ -75,9 +75,9 @@ Retired Invite metadata must not be relabeled Password or No password. Product o
 - **UX-NET-10-035** Back from selected setup or failure must restore the browser without changing to another selected row.
 - **UX-NET-10-036** Independent Direct connect must clear selection binding and secrets before unbound setup.
 
-Protected selection initially focuses Password under UX-NET-03-063. No password selection initially focuses local setup under UX-NET-03-064 while Password remains optional and reachable. Certificate verification for dedicated admission remains mandatory; browser labels do not establish identity. Password correction must preserve bound setup in both modes.
+Protected selection initially focuses Password under UX-NET-03-063. No password selection initially focuses local setup under UX-NET-03-064 while Password remains optional and reachable. Both hosting types use the same encrypted connection; browser labels do not establish authenticated host identity. Hosting remains visible for lifecycle and role comprehension, not as a crypto choice. Password correction must preserve bound setup in both modes.
 
-Full, closed, busy, unsupported, and age-stale successful results remain inspectable. Failed reads hide cached rows/details. Necessary disabled explanations remain; a password requirement alone must not disable otherwise eligible joining.
+Full, closed, busy, and age-stale successful results remain inspectable. Failed reads hide cached rows/details. Necessary disabled explanations remain; a password requirement or the former dedicated platform exclusion must not disable otherwise eligible joining on an approved client. This client parity does not add Intel macOS or expand dedicated hosting platforms.
 
 ## Inline states and hidden input
 
@@ -127,8 +127,8 @@ Each identifier has one canonical meaning in this file.
 
 Check both browser traversal directions with keyboard/controller and scaled pointer targets at 850 by 700, 1280 by 720, and 1920 by 1080. Check Refresh caption/status/focus clearance, equal footer sizes/gaps, the empty former second row, and complete inline descriptions.
 
-Check single/multiple pages, refresh-driven pagination changes, hidden input exclusion, blank successful no-selection reasons, failed populated refresh, recovery identity present/absent, and age-stale inspection. Check mixed Password/No password, dedicated Idle/Reserved/Cleanup, full/closed/unsupported states, long context, and independent Direct.
+Check single/multiple pages, refresh-driven pagination changes, hidden input exclusion, blank successful no-selection reasons, failed populated refresh, recovery identity present/absent, and age-stale inspection. Check mixed Password/No password, dedicated Idle/Reserved/Cleanup, full/closed states, long context, and independent Direct. On each approved client, check pointer, keyboard Confirm, and controller Confirm entry to eligible dedicated setup without the retired platform block.
 
 Both selected hosting modes must retain immutable targets and protection-aware Password focus. All joining paths must use the same validated availability, freshness, identity, capability, and admission checks. Stills do not establish those behaviors, security, leases, or lifecycle authority.
 
-The [coordinated matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) owns NET-10/E/U and focused supplements; no separate browser campaign is required.
+The [current coordinated matrix](../screenshots/README.md#unified-connection-current-capture-matrix) owns the affected results representative. Reuse NET-10-E/U at their original scope if presentation source is unchanged. Do not refresh empty/error, gameplay, or historical unsupported-platform images solely for client parity.

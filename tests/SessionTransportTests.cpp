@@ -2158,7 +2158,7 @@ void securePartialStagingCannotBecomeSealedTerminalProof() {
 
 void secureSessionPasswordAdmission() {
     for (const auto &passwords: std::vector<std::pair<std::string, std::string>>{
-            {"", ""}, {"session-test", "session-test"}, {"session-test", "wrong"}, {"session-test", ""}}) {
+            {"", ""}, {"session-test", "session-test"}, {"session-test", "wrong"}, {"session-test", ""}, {"", "explicit-nonempty"}}) {
         SessionTransportDependencies hostDependencies, guestDependencies;
         hostDependencies.secureSession = guestDependencies.secureSession = true;
         hostDependencies.password = std::make_shared<SessionPassword>(passwords.first);

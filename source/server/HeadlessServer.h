@@ -146,6 +146,8 @@ namespace Duel6::Server {
         std::shared_ptr<const Network::SessionPassword> sessionPassword;
         Network::SecureSessionLimits secureLimits;
         std::uint64_t expectedSessionId = 0;
+        Network::HostingKind expectedHostingKind = Network::HostingKind::Unbound;
+        std::function<void(Network::HostingKind)> guestHostingKind;
         Network::Trust::Clock now;
         std::function<bool()> cancelled;
         std::function<void(std::chrono::milliseconds)> wait;

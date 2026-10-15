@@ -243,7 +243,7 @@ def invalid_and_partial_host_messages(executable, base):
     assert partial.stdout == "Connection ended before admission completed.\n", partial.stdout
 
     # A valid offer accepted by the guest is not success without the fourth confirmation.
-    valid_offer = b"D6RO" + struct.pack("!QBQQ", 10, 2, 11, 12)
+    valid_offer = b"D6RO" + struct.pack("!QBQQQB", 10, 2, 11, 12, 42, 1)
     port, thread = serve(valid_offer)
     lost_confirmation = run_client(executable, guest, port); thread.join(timeout=2)
     assert lost_confirmation.returncode == 2

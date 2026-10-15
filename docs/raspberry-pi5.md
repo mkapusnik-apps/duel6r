@@ -4,11 +4,11 @@
 
 The approved target is Raspberry Pi 5 running 64-bit Linux, with Mesa V3D,
 an X11/XWayland desktop, audio and keyboard/controllers. Local play, hosted and
-joined player-hosted network play, the server component and all packaged helper
+joined player-hosted and dedicated network play, the server component and all packaged helper
 processes are in scope. The existing Linux AArch64 package must also support
 headless dedicated service operation under [NET-PUB](network-play-first-release.md#public-dedicated-pilot)
 and [NET-EXEC](network-deployments.md#application-executable-and-mode-selection).
-ARM64 client dedicated joining remains excluded under NET-PUB.
+ARM64 clients must join either hosting kind through the common EC-JPAKE channel under NET-PUB without a service-type selector or mandatory gameplay certificate frontend.
 Other experimental standalone server commands do not establish a supported deployment.
 Existing gameplay, screen and player-hosted network contracts remain unchanged.
 This document owns the platform requirements below; the cryptographic policy
@@ -25,10 +25,14 @@ remains in [network-directory-implementation.md](network-directory-implementatio
   Use upstream hardware AES for both key expansion and block operations. Preserve
   x86 AES-NI, protocol/ciphersuite, authentication, record limits and fail-closed
   behavior. Do not add software AES or plaintext fallback.
-- **PI5-004** ARM player-hosted peers and the ARM64 dedicated service must exchange
-  authenticated encrypted application data with existing x86-64 peers.
+- **PI5-004** ARM clients must exchange encrypted application data with approved
+  player-hosted and dedicated services through the common profile. ARM player-hosted
+  peers and the ARM64 dedicated service must interoperate with approved x86-64 peers.
   Wrong passwords, tampering, replay, missing entropy
   and missing CPU capabilities must retain existing rejection behavior.
+  A failed channel must not trigger a legacy-profile or unlocked retry.
+  NET-PASS-010 owns the unlocked first-contact limitation in both hosting kinds;
+  encryption alone must not be described as authenticated server identity.
 - **PI5-005** On a physical Pi 5, the packaged application must complete the
   existing local-player loop and a cross-architecture network match: menu,
   profiles/Lua, controller discovery, movement/combat, water/elevators, round and
@@ -38,7 +42,7 @@ remains in [network-directory-implementation.md](network-directory-implementatio
   OS/Mesa versions, frame timing and thermal conditions; no unmeasured FPS promise.
 
 Non-goals: Raspberry Pi 4, 32-bit ARM, ARM Windows/macOS, new graphics backends,
-repairing experimental ES2/ES3, UI redesign, security-protocol changes, cloud
+repairing experimental ES2/ES3, UI redesign, changes to the common EC-JPAKE profile, cloud
 deployment and automatic publication into the existing mixed x86 nightly ZIP.
 
 Specification status: ready. Full platform acceptance requires PI5-001–005;

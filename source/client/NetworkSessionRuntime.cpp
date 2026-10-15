@@ -89,8 +89,7 @@ namespace Duel6::Client {
     bool NetworkSessionRuntime::join(const Network::Endpoint &endpoint, const std::string &resourcePath,
                                      std::vector<NetworkLocalPlayer> localPlayers,
                                      std::shared_ptr<const Network::SessionPassword> password,
-                                      std::string expectedSessionId, bool publicSession) {
-        if (publicSession && !Network::PublicSession::supported()) return false;
+                                      std::string expectedSessionId, std::optional<bool> expectedDedicated) {
         if (localPlayers.empty() || localPlayers.size() > Network::MaxNetworkPlayers
             || !std::all_of(localPlayers.begin(), localPlayers.end(), [](const auto &player) {
                 return Network::Trust::validParticipantName(player.name);
@@ -99,21 +98,26 @@ namespace Duel6::Client {
         {
             std::lock_guard<std::mutex> lock(mutex);
             players = std::move(localPlayers); current = {}; current.endpoint = endpoint;
-            current.publicSession = publicSession;
             sampledActions.assign(players.size(), 0);
             current.status = "Connecting to " + endpoint.host + ':' + std::to_string(endpoint.port) + "…";
             current.journey = NetworkJourney::Starting;
         }
         guestCancelled = false;
-        guestWorker = std::thread([this, endpoint, resourcePath, publicSession,
+        guestWorker = std::thread([this, endpoint, resourcePath, expectedDedicated,
                                   password = std::move(password), expectedSessionId = std::move(expectedSessionId)] {
             Server::ServerConfig config; config.admissionClient = true; config.listenEndpoint = endpoint;
-            config.publicConnection = publicSession;
             config.resourcePath = resourcePath; config.localPlayers = static_cast<std::uint8_t>(players.size());
             for (const auto &player: players) config.localPlayerNames.push_back(player.name);
             Server::AdmissionRuntimeDependencies dependencies;
             dependencies.sessionPassword = password;
             dependencies.secureLimits = sessionLimits;
+            dependencies.expectedHostingKind = expectedDedicated
+                ? (*expectedDedicated ? Network::HostingKind::Dedicated : Network::HostingKind::PlayerHosted)
+                : Network::HostingKind::Unbound;
+            dependencies.guestHostingKind = [this](Network::HostingKind kind) {
+                std::lock_guard<std::mutex> lock(mutex);
+                current.publicSession = kind == Network::HostingKind::Dedicated;
+            };
             if (!expectedSessionId.empty()) {
                 try {
                     if (expectedSessionId.size() != 32 || expectedSessionId.substr(0, 16) != std::string(16, '0'))
@@ -204,7 +208,7 @@ namespace Duel6::Client {
                 current.journey = NetworkJourney::Failure;
                 if (current.failure.empty()) current.failure = finalLine(output.str());
                 if (current.failure.empty()) current.failure = result == 0 ? "Connection ended." : "Connection timed out.";
-                current.securityFailure = current.publicSession && current.failure == Network::PublicSession::SecurityFailure;
+                current.securityFailure = current.failure == Network::PublicSession::SecurityFailure;
                 if (current.securityFailure) {
                     current.retryAllowed = false;
                     current.retryBlockReason = NetworkRetryBlockReason::InvalidSetup;

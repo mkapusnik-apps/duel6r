@@ -25,7 +25,7 @@
     <text x="245" y="341">Password required</text>
     <text x="75" y="363">Session: 0123456789abcdef0123456789abcdef</text>
     <text x="75" y="385">Listed idle session • 0 / 15 players</text>
-    <text x="75" y="407">The service confirms identity, availability, and your role when you connect.</text>
+    <text x="75" y="407">The service confirms availability and your role when you connect.</text>
     <text x="87" y="441">PERSONS</text><text x="467" y="441">LOCAL PLAYERS AND CONTROLS</text>
     <text x="87" y="476">Ada • Selected</text><text x="467" y="476">Ada • Keyboard 1       Remove</text>
     <text x="87" y="503">Bruno • Add</text>

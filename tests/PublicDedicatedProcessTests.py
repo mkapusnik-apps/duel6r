@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Local trusted-CA integration of the real public client and dedicated service.
+"""Owned common-channel client/service journeys and bounded TCP fault relay.
 
-TRU-PUB-AC-001/002, NET-PUB-AC-001/002 and HSL-PUB-002/003.
-The fixture owns temporary certificates, content, sockets and processes. It is
-an application protocol peer, not a deployment or proxy configuration test.
+The relay forwards encrypted PAKE records unchanged; it has no certificate,
+password, PROXY header or authority. Protocol-peer scenarios use an explicit
+maintained-PAKE application peer with disposable credentials instead.
 """
 import contextlib
 from collections import deque
@@ -44,17 +44,14 @@ def proxy_header(source="198.51.100.7"):
             + struct.pack("!HH", 40000, 26661))
 
 
-class TlsPeer:
+class ChannelPeer:
     next_source = 100
 
-    def __init__(self, cert, key, backend, control_root=None, end_write_race=False, summary_order=False, frontend_port=0, opaque_inner=True):
+    def __init__(self, backend, control_root=None, end_write_race=False, summary_order=False, frontend_port=0, opaque_inner=True):
         self.opaque_inner = opaque_inner
         self.backend = backend
-        self.source = f"198.51.100.{TlsPeer.next_source}"
-        TlsPeer.next_source += 1
-        self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        self.context.minimum_version = ssl.TLSVersion.TLSv1_2
-        self.context.load_cert_chain(cert, key)
+        self.source = f"127.0.0.{ChannelPeer.next_source}"
+        ChannelPeer.next_source += 1
         self.listener = socket.socket()
         self.listener.bind(("127.0.0.1", frontend_port))
         self.port = self.listener.getsockname()[1]
@@ -118,7 +115,7 @@ class TlsPeer:
 
     @staticmethod
     def is_end(payload):
-        return len(payload) == 16 and payload[:8] == b"D6LC\0\1\0\3"
+        return len(payload) == 16 and payload[:8] == b"D6LC\0\2\0\3"
 
     @staticmethod
     def replication_phase(payload):
@@ -223,7 +220,7 @@ class TlsPeer:
         try:
             raw.settimeout(RELAY_TIMEOUT)
             raw.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            with self.context.wrap_socket(raw, server_side=True) as client:
+            with raw as client:
                 self.handshakes += 1
                 if getattr(self, "observe_latest_binding", False):
                     pending = self.control_root / f"outer-binding-{connection_id}.tmp"
@@ -239,9 +236,9 @@ class TlsPeer:
                         time.sleep(.01)
                     if self.stop.is_set():
                         return
-                with socket.create_connection(("127.0.0.1", self.backend), timeout=2) as backend:
+                with socket.create_connection(("127.0.0.1", self.backend), timeout=2,
+                                              source_address=(self.source, 0)) as backend:
                     backend.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                    backend.sendall(proxy_header(self.source))
                     self.relay_streams(client, backend, connection_id)
         except (OSError, ssl.SSLError) as error:
             self.record(connection_id, "connection-error", code=error.errno or 0)
@@ -349,10 +346,7 @@ class TlsPeer:
                 if write_open[source] and outgoing[source]:
                     if source is not client or not self.summary_output_blocked(connection_id):
                         (reads if write_want[source] == "read" else writes).add(source)
-            pending_tls = read_open[client] and read_want[client] == "read" and client.pending() > 0
-            readable, writable, _ = select.select(list(reads), list(writes), [], 0 if pending_tls else .01)
-            if pending_tls:
-                readable.append(client)
+            readable, writable, _ = select.select(list(reads), list(writes), [], .01)
 
             for source in streams:
                 destination = client if source is backend else backend
@@ -381,8 +375,8 @@ class TlsPeer:
                 if source is client:
                     self.application_bytes += len(data)
                 if getattr(self, "opaque_inner", False):
-                    # Verified outer TLS carries inner TLS records, not readable
-                    # gameplay frames. Never decode credentials or bypass PAKE.
+                    # Common PAKE records remain opaque to this TCP fault relay.
+                    # Never decode credentials or bypass the maintained channel.
                     enqueue(destination, data)
                     continue
                 buffer = incoming[source]
@@ -465,21 +459,6 @@ class TlsPeer:
             assert not worker.is_alive(), "TLS fixture worker leaked"
 
 
-def certificates(root):
-    def openssl(*args):
-        subprocess.run(["openssl", *args], cwd=root, capture_output=True, check=True, timeout=15)
-    openssl("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
-            "-subj", "/CN=Duel6 test CA", "-keyout", "ca.key", "-out", "ca.pem")
-    for name, san in (("valid", "IP:127.0.0.1,DNS:arena.example.test"), ("wrong", "DNS:wrong.example"),
-                      ("expired", "IP:127.0.0.1")):
-        openssl("req", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=fixture",
-                "-keyout", name + ".key", "-out", name + ".csr")
-        (root / (name + ".ext")).write_text("subjectAltName=" + san + "\nextendedKeyUsage=serverAuth\n")
-        openssl("x509", "-req", "-in", name + ".csr", "-CA", "ca.pem", "-CAkey", "ca.key",
-                "-CAcreateserial", "-days", "-1" if name == "expired" else "2",
-                "-extfile", name + ".ext", "-out", name + ".pem")
-
-
 @contextlib.contextmanager
 def service(server, root, invitation, frontend_port=None, *, backend_port=None, process_handle=None, readiness_name="ready.sock"):
     backend = backend_port or port()
@@ -490,7 +469,7 @@ def service(server, root, invitation, frontend_port=None, *, backend_port=None, 
     ready = root / readiness_name
     with (root / "server.log").open("w+") as log:
         arguments = [str(server), "--server", "--dedicated", "--transport", "--host=127.0.0.1",
-            f"--port={backend}", f"--resources={root}", "--trusted-proxy-protocol=v2",
+            f"--port={backend}", f"--resources={root}",
             f"--readiness-socket={ready}"]
         if invitation is not None:
             arguments += [f"--password-file={invite}"]
@@ -537,7 +516,16 @@ def malformed_proxy(backend):
              valid[:13] + b"\x12" + valid[14:],  # UDP
              valid[:13] + b"\x21" + valid[14:],  # IPv6
              valid[:14] + b"\xff\xff" + valid[16:],
-             valid[:24] + b"\0\0" + valid[26:], valid[:15]]
+              valid[:24] + b"\0\0" + valid[26:], valid[:15]]
+    # A real maintained legacy certificate-TLS ClientHello, not PAKE. No roots,
+    # certificate bypass or application bytes are involved in this direction.
+    incoming, outgoing = ssl.MemoryBIO(), ssl.MemoryBIO()
+    legacy = ssl.create_default_context().wrap_bio(incoming, outgoing, server_hostname="legacy.invalid")
+    try:
+        legacy.do_handshake()
+    except ssl.SSLWantReadError:
+        pass
+    cases.append(outgoing.read())
     for payload in cases:
         with socket.create_connection(("127.0.0.1", backend), timeout=2) as sock:
             sock.settimeout(2)
@@ -549,28 +537,27 @@ def malformed_proxy(backend):
 
 
 def source_accounting(backend):
-    # Distinct original peers share the same loopback proxy. Saturating one
-    # source must not classify all public clients as one loopback participant.
+    # Quotas use actual accepted TCP peers, never a forwarded source claim.
     with contextlib.ExitStack() as stack:
         def connect(source):
-            sock = stack.enter_context(socket.create_connection(("127.0.0.1", backend), timeout=2))
+            sock = stack.enter_context(socket.create_connection(("127.0.0.1", backend), timeout=2,
+                                                               source_address=(source, 0)))
             sock.settimeout(.15)
-            sock.sendall(proxy_header(source))
             return sock
-        held = [connect("198.51.100.40") for _ in range(4)]
+        held = [connect("127.0.0.40") for _ in range(4)]
         for sock in held:
             try:
                 sock.recv(1)
                 raise AssertionError("per-source allowance closed too early")
             except socket.timeout:
                 pass
-        excess = connect("198.51.100.40")
+        excess = connect("127.0.0.40")
         excess.settimeout(1)
         try:
             assert excess.recv(1) == b"", "fifth pending source admission accepted"
         except ConnectionResetError:
             pass
-        other = connect("198.51.100.41")
+        other = connect("127.0.0.41")
         try:
             other.recv(1)
             raise AssertionError("independent source was rejected")
@@ -754,17 +741,14 @@ def main():
                            for p in (root / directory).rglob("*") if p.is_file()}
                 assert current == initial, "headless service changed client/gameplay data"
             print("PASS actual headless dedicated startup/readiness, absent/empty/protected Password, "
-                  "strict PROXY/source accounting, shutdown/socket release and no client data writes", flush=True)
+                    "legacy-input rejection/actual-peer accounting, shutdown/socket release and no client data writes", flush=True)
             return
-        certificates(root)
         # Resolver uses executable-relative lookup. Stage a separate test copy.
         executable = root / client.name
         shutil.copy2(client, executable)
         shutil.copy2(client.with_name("duel6r-resolver"), root / "duel6r-resolver")
         def run(peer, invitation, scenario, trusted=True, handles=None, readiness=None):
-            env = dict(os.environ,
-                       SSL_CERT_FILE=str(root / "ca.pem") if trusted else str(root / "missing.pem"),
-                       SSL_CERT_DIR=str(root / "no-ca-directory"))
+            env = dict(os.environ)
             forwarded_before = peer.forwarded_ends
             try:
                 arguments = [str(executable), str(peer.port), str(root), scenario]
@@ -819,7 +803,7 @@ def main():
                                                  process_handle=handles["authenticated-peer"])
                               if observe_application else contextlib.nullcontext(backend))
                     with helper as relay_backend:
-                        peer = TlsPeer(root / "valid.pem", root / "valid.key", relay_backend, root,
+                        peer = ChannelPeer(relay_backend, root,
                                        False, False, frontend or 0)
                         peer.application_peer = observe_application
                         try:
@@ -839,17 +823,10 @@ def main():
             return
         with service(server, root, INVITE) as (backend, ready):
             malformed_proxy(backend)
-            print("PASS strict malformed PROXY framing", flush=True)
+            print("PASS legacy PROXY and certificate-TLS input rejected by common channel", flush=True)
             source_accounting(backend)
-            print("PASS original-source pending accounting", flush=True)
-            for cert, trusted in (("wrong", True), ("valid", False), ("expired", True)):
-                peer = TlsPeer(root / (cert + ".pem"), root / (cert + ".key"), backend)
-                try:
-                    run(peer, INVITE, "security", trusted)
-                    assert peer.application_bytes == 0, "credentials/application bytes disclosed before verification"
-                finally:
-                    peer.close()
-            peer = TlsPeer(root / "valid.pem", root / "valid.key", backend)
+            print("PASS actual TCP-peer pending accounting", flush=True)
+            peer = ChannelPeer(backend)
             try:
                 run(peer, OTHER, "unauthorized")
                 run(peer, INVITE, "flow")
@@ -857,19 +834,44 @@ def main():
                 assert subprocess.run([str(server), "--server", f"--check-ready={ready}"], capture_output=True, timeout=2).returncode == 0
             finally:
                 peer.close()
-            peer = TlsPeer(root / "valid.pem", root / "valid.key", backend)
+            peer = ChannelPeer(backend)
             try:
                 run(peer, INVITE, "concurrent")
             finally:
                 peer.close()
         with service(server, root, ROTATED) as (backend, _):
-            peer = TlsPeer(root / "valid.pem", root / "valid.key", backend)
+            peer = ChannelPeer(backend)
             try:
                 run(peer, INVITE, "unauthorized")
                 run(peer, ROTATED, "flow")
             finally:
                 peer.close()
         print("PASS invitation rotation, non-disclosing logs, readiness after reset", flush=True)
+        # The opposite profile mismatch uses a real ordinary TLS endpoint.
+        # This fixture is rejection evidence only, never a supported frontend.
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                        "-subj", "/CN=legacy.invalid", "-keyout", str(root / "legacy.key"),
+                        "-out", str(root / "legacy.pem")], check=True, capture_output=True, timeout=15)
+        class LegacyPeer(ChannelPeer):
+            def __init__(self):
+                self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                self.context.load_cert_chain(root / "legacy.pem", root / "legacy.key")
+                super().__init__(0)
+            def relay(self, raw, connection_id):
+                raw.settimeout(3)
+                try:
+                    with self.context.wrap_socket(raw, server_side=True) as secure:
+                        self.application_bytes += len(secure.recv(1))
+                except (OSError, ssl.SSLError):
+                    pass
+                finally:
+                    raw.close()
+        legacy = LegacyPeer()
+        try:
+            run(legacy, INVITE, "legacy-profile")
+            assert legacy.connection_count == 1 and legacy.application_bytes == 0, "legacy profile probing/disclosure"
+        finally:
+            legacy.close()
 
 
 if __name__ == "__main__":

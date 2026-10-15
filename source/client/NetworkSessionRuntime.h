@@ -74,7 +74,7 @@ namespace Duel6::Client {
         bool join(const Network::Endpoint &endpoint, const std::string &resourcePath,
                   std::vector<NetworkLocalPlayer> players,
                   std::shared_ptr<const Network::SessionPassword> password = {},
-                  std::string expectedSessionId = {}, bool publicSession = false);
+                  std::string expectedSessionId = {}, std::optional<bool> expectedDedicated = {});
         void cancel();
         void leave();
         void endSession();

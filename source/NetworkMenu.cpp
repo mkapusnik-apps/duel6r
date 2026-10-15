@@ -78,8 +78,8 @@ namespace Duel6 {
         }
 
         bool publicSecurityFailure(const Client::NetworkRuntimeSnapshot &snapshot) {
-            return (snapshot.publicSession && (snapshot.securityFailure
-                || snapshot.failure == Network::PublicSession::SecurityFailure))
+            return snapshot.securityFailure
+                || snapshot.failure == Network::PublicSession::SecurityFailure
                 || snapshot.failure == "Connection not authorized.";
         }
 
@@ -652,27 +652,26 @@ namespace Duel6 {
         appendWrapped(lines, "Session: " + row.sessionId, 94);
         appendWrapped(lines, "Listed " + directoryPhase(row) + " session • " + std::to_string(row.players)
             + " / " + std::to_string(row.capacity) + " players", 94);
-        appendWrapped(lines, "The service confirms identity, availability, and your role when you connect.", 94);
+        appendWrapped(lines, "The service confirms availability and your role when you connect.", 94);
         return lines;
     }
 
     int NetworkMenu::setupFirstRow() const {
         if (boundDedicated()) return 292 - std::max(0, static_cast<int>(boundContextLines().size()) - 3) * 20;
-        return setupScreen == SetupScreen::Join && publicConnection ? 292 : 364;
+        return 364;
     }
 
     int NetworkMenu::setupVisibleRows() const {
         // Control/pointer bottom is baseline - 2; its outer focus extends another
         // two pixels. Count only rows whose complete extent stays in the inset.
         if (boundDedicated()) return std::max(1, (setupFirstRow() - 206 - 4) / 22 + 1);
-        return setupScreen == SetupScreen::Join && publicConnection ? 4 : 8;
+        return 8;
     }
 
     void NetworkMenu::enterDirectSetup() {
         clearPassword();
         browserSelection.reset();
         if (joinFromBrowser) {
-            publicConnection = false;
             address = playerHostedAddress; port = playerHostedPort;
         }
         joinFromBrowser = false;
@@ -682,7 +681,8 @@ namespace Duel6 {
     void NetworkMenu::joinEndpoint(const Network::Endpoint &target) {
         (void) runtime.join(target, networkResources(), localPlayers,
                 std::make_shared<Network::SessionPassword>(password),
-                 browserSelection ? browserSelection->sessionId : "", publicConnection);
+                 browserSelection ? browserSelection->sessionId : "",
+                 browserSelection ? std::optional<bool>(browserSelection->dedicated()) : std::nullopt);
     }
 
     bool NetworkMenu::endpoint(Network::Endpoint &result) const {
@@ -715,9 +715,7 @@ namespace Duel6 {
     }
 
     bool NetworkMenu::setupValid(std::string &reason) const {
-        const bool pilot = setupScreen == SetupScreen::Join && publicConnection;
-        if (pilot && !Network::PublicSession::supported()) { reason = Network::SecureNetworkingUnavailableCopy; return false; }
-        if (!pilot && !Network::SecureSession::supported()) { reason = Network::SecureNetworkingUnavailableCopy; return false; }
+        if (!Network::SecureSession::supported()) { reason = Network::SecureNetworkingUnavailableCopy; return false; }
         Network::Endpoint ignored;
         if (setupScreen == SetupScreen::Host) {
             reason = listening.validation();
@@ -749,10 +747,9 @@ namespace Duel6 {
         if (invalid != localPlayers.end()) {
             reason = "Assign a valid control to every local player."; return false;
         }
-        reason = pilot ? "Ready to connect. Server identity and password will be checked."
-                       : boundSelection() && !browserSelection->passwordRequired && password.empty()
-                       ? "The host confirms availability when you connect."
-                        : "Ready to start a player-hosted session.";
+        reason = setupScreen == SetupScreen::Host ? "Ready to start a player-hosted session."
+            : boundSelection() && !browserSelection->passwordRequired && password.empty()
+                ? "The host confirms availability when you connect." : "Ready to connect.";
         return true;
     }
 
@@ -993,9 +990,6 @@ namespace Duel6 {
                 return;
             }
             if (!boundSelection() && pointerInside(x, y, 224, EndpointFirstBottom, 586, EndpointHeight)) { focus = 0; return; }
-            if (serviceTypeAvailable() && pointerInside(x, y, 224, 526, 586, 24)) {
-                focus = 3; activate(); return;
-            }
             if (pointerInside(x, y, 224, EndpointFirstBottom - 2 * EndpointPitch, 586, EndpointHeight)) { focus = 2; return; }
             if (!boundSelection() && pointerInside(x, y, 224, EndpointFirstBottom - EndpointPitch, 586, EndpointHeight)) {
                 focus = 1;
@@ -1254,11 +1248,7 @@ namespace Duel6 {
             std::string reason;
             count = snap.selectedSessionChanged ? 1 : retryEligible(snap, reason) ? 3 : 2;
         }
-        if (confirmation == Confirmation::None && snap.journey == Client::NetworkJourney::Inactive && serviceTypeAvailable()) {
-            const int position = focus == 3 ? 0 : focus < 3 ? focus + 1 : focus;
-            const int next = (position + direction + count) % count;
-            focus = next == 0 ? 3 : next < 4 ? next - 1 : next;
-        } else focus = (focus + direction + count) % count;
+        focus = (focus + direction + count) % count;
         if (snap.journey == Client::NetworkJourney::Inactive && boundSelection())
             while (focus < 2) focus = (focus + direction + count) % count;
         if (snap.host && snap.journey == Client::NetworkJourney::Lobby
@@ -1347,11 +1337,6 @@ namespace Duel6 {
                 clearPassword();
                 joinFromBrowser = false; browserSelection.reset();
                 if (focus == 0) {
-                    if (publicConnection) {
-                        dedicatedAddress = address; dedicatedPort = port;
-                        address = playerHostedAddress; port = playerHostedPort;
-                    }
-                    publicConnection = false;
                     setupScreen = SetupScreen::Host;
                 }
                 else if (focus == 1) {
@@ -1375,19 +1360,6 @@ namespace Duel6 {
                 return;
             }
             const int fields = setupFields();
-            if (serviceTypeAvailable() && focus == 3) {
-                clearPassword();
-                if (publicConnection) {
-                    dedicatedAddress = address; dedicatedPort = port;
-                    address = playerHostedAddress; port = playerHostedPort;
-                } else {
-                    playerHostedAddress = address; playerHostedPort = port;
-                    address = dedicatedAddress; port = dedicatedPort;
-                }
-                publicConnection = !publicConnection;
-                syncSetupScroll();
-                return;
-            }
             if (setupScreen == SetupScreen::Host && focus == 1) {
                 if (hostAddressSelectorOpen) {
                     activateListeningChoice();
@@ -2076,9 +2048,10 @@ namespace Duel6 {
         const auto selected = std::find_if(rows.begin(), rows.end(), [&](const auto &row) { return row.id == selectedListing; });
         if (selected == rows.end() || !browserFocusEnabled(1)) return;
         browserSelection = *selected;
+        if (!joinFromBrowser) { playerHostedAddress = address; playerHostedPort = port; }
         joinFromBrowser = true;
         address = selected->endpoint.host; port = std::to_string(selected->endpoint.port);
-        clearPassword(); publicConnection = selected->dedicated();
+        clearPassword();
         setupScreen = SetupScreen::Join; focus = selected->passwordRequired ? 2 : setupFields();
     }
 
@@ -2146,8 +2119,6 @@ namespace Duel6 {
         if (selected && !selected->joinable()) reason = (selected->players >= selected->capacity ? "Session is full. " : "")
             + std::string(selected->admissionState() == "busy" ? "Cleanup in progress. Admission is temporarily unavailable."
                 : selected->admissionState() == "closed" ? "Admission is closed." : "");
-        if (selected && selected->dedicated() && !Network::PublicSession::supported())
-            reason = "Dedicated joining requires Linux x86-64 or Windows x86-64.";
         if (selected && selected->expiresAt <= std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count())
             reason = "Session listing expired. Refresh before joining.";
@@ -2791,18 +2762,11 @@ namespace Duel6 {
 
         if (snap.journey == Client::NetworkJourney::Inactive) {
             const int fields = setupFields();
-            const bool pilot = setupScreen == SetupScreen::Join && publicConnection;
-            if (serviceTypeAvailable()) {
-                drawText(50, 530, "Service type:");
-                drawButton(224, 526, 586, 24, "", focus == 3);
-                drawField(228, 530, 546, 16);
-                drawText(232, 530, publicConnection ? "Dedicated service" : "Player-hosted session");
-                drawText(786, 530, "↻");
-            } else if (boundSelection()) drawText(50, 524, boundDedicated()
+            if (boundSelection()) drawText(50, 524, boundDedicated()
                 ? "Dedicated service • Selected from browser" : "Player-hosted session • Selected from browser");
             else drawClippedText(50, 524, browserSelection && setupScreen == SetupScreen::Join
                 ? "Selected session: " + browserSelection->endpoint.host + ":" + std::to_string(browserSelection->endpoint.port)
-                : SetupScope, 94);
+                 : setupScreen == SetupScreen::Join ? "Direct connection" : SetupScope, 94);
             for (int field = 0; field < 3; ++field) {
                 if (boundSelection() && field < 2)
                     drawButton(224, EndpointFirstBottom - field * EndpointPitch, 586, EndpointHeight, "", false, false);
@@ -2834,11 +2798,8 @@ namespace Duel6 {
                 const auto context = boundContextLines();
                 for (std::size_t line = 0; line < context.size(); ++line)
                     drawText(50, 382 - static_cast<Int32>(line) * 20, context[line]);
-            } else if (pilot) {
-                drawText(50, 378, "The first admitted participant controls the session.");
-                drawText(50, 354, "Leaving as host ends the session.");
             }
-            const int panelHeight = boundDedicated() ? setupFirstRow() + 40 - 202 : pilot ? 130 : 202;
+            const int panelHeight = boundDedicated() ? setupFirstRow() + 40 - 202 : 202;
             drawPanel(46, 202, 358, panelHeight, "PERSONS");
             drawPanel(426, 202, 398, panelHeight, "LOCAL PLAYERS AND CONTROLS");
             drawField(48, 206, 354, panelHeight - 26);
@@ -2872,13 +2833,12 @@ namespace Duel6 {
                     ? "Match in progress. Your players join next round if admitted."
                 : browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "final-round"
                     ? "Final round in progress. You may not play in this match if admitted."
-                : setupScreen == SetupScreen::Join && !pilot && !browserSelection && password.empty()
+                 : setupScreen == SetupScreen::Join && !browserSelection && password.empty()
                     && (!browserSelection || !browserSelection->passwordRequired)
                 ? "Endpoint-only first contact does not authenticate host identity."
-                 : pilot ? "Dedicated service • Session only • Optional scripts disabled"
-                : "Listing does not guarantee reachability. Direct play remains available.");
+                 : "Listing does not guarantee reachability. Direct play remains available.");
             drawText(50, 138, passwordFeedback.empty() ? reason : passwordFeedback);
-            if (browserSelection && setupScreen == SetupScreen::Join && !boundDedicated())
+            if (browserSelection && setupScreen == SetupScreen::Join)
                 drawText(50, 118, !browserSelection->passwordRequired && password.empty()
                     ? "Endpoint-only first contact does not authenticate host identity."
                     : "The host confirms availability when you connect.");

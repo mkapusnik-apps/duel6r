@@ -223,6 +223,9 @@ namespace Duel6::Server {
     AdmissionOffer AdmissionPolicy::evaluateForOffer(const Network::AdmissionRequest &request,
                                                       AdmissionContext context) {
         if (!context.authorized) return rejectedOffer(Network::AdmissionResultCode::NotAuthorized);
+        const auto hostingKind = dedicated ? Network::HostingKind::Dedicated : Network::HostingKind::PlayerHosted;
+        if (request.expectedHostingKind != Network::HostingKind::Unbound && request.expectedHostingKind != hostingKind)
+            return rejectedOffer(Network::AdmissionResultCode::SelectedSessionChanged);
         if (request.expectedSessionId != 0 && request.expectedSessionId != context.sessionId)
             return rejectedOffer(dedicated ? Network::AdmissionResultCode::SelectedSessionChanged
                                           : Network::AdmissionResultCode::NotAuthorized);

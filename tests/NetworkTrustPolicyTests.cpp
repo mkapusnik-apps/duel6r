@@ -37,22 +37,10 @@ D6R_TEST_CASE("common Password replaces retired Invite input with exact UTF8 spa
         D6R_REQUIRE(!SessionPassword::valid(invalid));
 }
 
-D6R_TEST_CASE("dedicated service capability does not grant ARM64 dedicated client transport") {
-    using namespace Duel6::Network;
-#if defined(__linux__) && defined(__aarch64__)
-    D6R_REQUIRE(PublicSession::serviceSupported());
-    D6R_REQUIRE(!PublicSession::supported());
-#endif
-    if (!PublicSession::supported()) {
-        SessionTransportDependencies dependencies;
-        dependencies.publicTls = true;
-        dependencies.secureSession = true;
-        TcpClient client(dependencies);
-        D6R_REQUIRE(client.start({"127.0.0.1", 26660}));
-        D6R_REQUIRE(!client.waitForConnected(std::chrono::seconds(2)));
-        D6R_REQUIRE(client.failure() == TransportFailure::SecureUnavailable);
-        client.close();
-    }
+D6R_TEST_CASE("retired proxy option cannot enable an alternate dedicated channel") {
+    std::string program = "server", option = "--trusted-proxy-protocol=v2";
+    char *args[]{program.data(), option.data()};
+    D6R_REQUIRE_THROW(Duel6::Server::parseServerConfig(2, args), std::invalid_argument);
 }
 
 D6R_TEST_CASE("common Password settings updates contain no password while initial owned startup IPC retains it") {

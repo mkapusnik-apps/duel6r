@@ -34,7 +34,7 @@
   </g>
   <g font-family="sans-serif" font-size="14">
     <text x="25" y="755">Selected: flat read-only endpoint, no input targets; traverse Password → local setup → Connect → Back.</text>
-    <text x="25" y="777">No password: optional field, local focus. Direct only: editable endpoint, Address focus; supported type row.</text>
+    <text x="25" y="777">No password: optional field, local focus. Direct: NET-03-P, editable endpoint, Address focus, no type row.</text>
     <text x="25" y="799">Correction retains binding. Back → NET-10 → Direct unlocks target. No PKI claim; connecting stays NET-03.</text>
   </g>
 </svg>

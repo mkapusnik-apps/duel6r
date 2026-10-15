@@ -521,7 +521,7 @@ D6R_TEST_CASE("lifecycle protocol rejects malformed zero and cross-kind credenti
 
     const auto grantBytes = serializeReconnectGrant(grant);
     const auto requestBytes = serializeReconnectRequest(request);
-    D6R_REQUIRE_EQ(48u, grantBytes.size());
+    D6R_REQUIRE_EQ(49u, grantBytes.size());
     D6R_REQUIRE_EQ(48u, requestBytes.size());
     D6R_REQUIRE(deserializeReconnectGrant(grantBytes).has_value());
     D6R_REQUIRE(deserializeReconnectRequest(requestBytes).has_value());

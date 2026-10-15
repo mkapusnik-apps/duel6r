@@ -2,7 +2,7 @@
 
 Functional authority: [NET-08](../../screens/network-failure.md), NET-PASS-003/004/011–018, NET-DIR-014, NET-ADM-002–005, current trust and lifecycle contracts. Structural source: existing NET-08. No geometry, screen/state ID or failure wireframe changes.
 
-Visual impact: preserve current develop's unified failure panel and browser recovery. Add dedicated outcomes without new controls, styles, or disclosure.
+Visual impact: preserve the unified failure panel and browser recovery. Common Password rejection replaces the certificate-specific capture prerequisite. No controls, geometry, styles, or disclosure are added. Product owns exact failure causes, fixed copy, recovery eligibility, and retirement of unreachable certificate-specific outcomes.
 
 ## Presentation and allocation
 
@@ -27,11 +27,11 @@ Visual impact: preserve current develop's unified failure panel and browser reco
 - Return to Network must retain its NET-01 destination.
 - Retry must follow the confirmed outcome and input eligibility.
 
-## Dedicated pilot outcomes
+## Common security and dedicated lifecycle outcomes
 
 | Functional state | Heading | Recovery presentation |
 |---|---|---|
-| `NET-08-PUBLIC-SECURITY` | CONNECTION FAILED | Edit setup first and focused; Return to browser for selected origin, Return to Network for direct origin; no Retry or bypass |
+| `NET-08-PUBLIC-SECURITY` | CONNECTION FAILED | Product-confirmed common-channel encryption or secure-channel incompatibility failure: Edit setup first and focused; Return to browser for selected origin, Return to Network for direct origin; no Retry or bypass; no certificate prerequisite |
 | `NET-08-PUBLIC-MAINTENANCE` | SESSION ENDED | Ended-session Retry treatment; Edit setup focused; Return to Network |
 | `NET-08-PUBLIC-CONTROLLER-EXPIRED` | SESSION ENDED | Ended-session Retry treatment; Edit setup focused; Return to Network |
 
@@ -45,10 +45,10 @@ Visual impact: preserve current develop's unified failure panel and browser reco
 - Fixed outcome copy must retain `controller` where product uses that term.
 - Any baseline-focused disabled Retry must keep its focus outline without activation.
 - Maintenance and controller-expiry outcomes must use SESSION ENDED for either participant role.
-- Certificate/identity/encryption outcomes must have no Retry frame, focus stop, pointer target or bypass. Common Password correction follows NET-PASS in the same permitted context without unlocked fallback.
+- Confirmed secure-channel establishment failure must have no Retry frame, focus stop, pointer target or bypass. Common Password correction follows NET-PASS in the same permitted context without unlocked fallback.
 - Endpoint context must remain absent from confirmed session-end and terminal reconnect outcomes.
 
-Do not offer an insecure fallback for any connection type. Service type does not prove a failure cause. The scoped matrix keeps one certificate-security representative and focused real-path common Password rejection and confirmed expiry/maintenance coverage, without new rows. Password rejection is separate from certificate failure; it preserves correction under NET-PASS-013, not the retired invitation-clearing rule. No screenshot may substitute silence/SIGTERM for an authenticated terminal cause or imply deployment evidence.
+Do not offer an insecure fallback for any connection type. Hosting lifecycle does not prove a failure cause. TRU-PUB-016 owns fixed security copy where applicable; the UI must not add certificate-installation or fingerprint instructions. The [current matrix](../screenshots/README.md#unified-connection-current-capture-matrix) keeps one representative reached through actual common Password rejection, not a wrong-certificate fixture. It uses `Connection not authorized.` with correction under NET-PASS-013. Do not relabel a password mismatch as certificate or identity failure. Do not invent a new failure mapping to make a retired capture route reachable. No screenshot may substitute silence/SIGTERM for an authenticated terminal cause or imply deployment evidence.
 
 ## Selected recovery in both hosting modes
 
@@ -57,7 +57,7 @@ Do not offer an insecure fallback for any connection type. Service type does not
 - **UX-NET-08-011** Selected recovery in either hosting mode must show `Return to browser` after Edit setup in reading/focus order and return to NET-10 for refresh.
 - **UX-NET-08-012** Escape or controller Back from a selected failure in either hosting mode must use that browser recovery rather than bypass selection binding through direct setup.
 - **UX-NET-08-013** A confirmed changed endpoint/session must focus Return to browser and must not offer Retry or Edit setup as a way to adopt the replacement.
-- **UX-NET-08-014** The fixed failure reason must follow the product contract and keep capacity, closed admission, certificate failure and common password rejection distinct.
+- **UX-NET-08-014** The fixed failure reason must follow the product contract and keep capacity, closed admission, secure-channel establishment failure and common password rejection distinct.
 - **UX-NET-08-015** A new independent Direct connect from the browser must clear binding/secrets in either hosting mode without transferring a stale selection or silently downgrading security.
 - **UX-NET-08-016** Edit setup after password rejection in either hosting mode must focus masked Password with permitted local choices and selected binding retained under NET-PASS correction and clearing rules.
 
@@ -67,4 +67,4 @@ Retain the current complete, wrapped failure layout and action order. Ineligible
 
 - **UX-NET-08-017** Started phase alone or successful Connected-waiting admission must not show failure; actual final-closure rejection must retain the existing failure layout and recovery with product-confirmed fixed copy.
 
-Imported develop ongoing reference UX-NET-08-008 maps to UX-NET-08-017. Existing UX-NET-08-008 retains its selected-origin meaning. NET-08 wireframes and its security representative remain unchanged.
+Imported develop ongoing reference UX-NET-08-008 maps to UX-NET-08-017. Existing UX-NET-08-008 retains its selected-origin meaning. The existing [NET-08 structural source](../../screens/wireframes/network-failure.md) remains read-only and unchanged; the common Password rejection representative retains the established no-Retry treatment, focused Edit setup, and contextual browser return. Replace the current certificate-derived representative only after functional closure confirms the actual common Password outcome and capture route.
