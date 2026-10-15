@@ -2397,7 +2397,7 @@ void plaintextProbeWriterRegression() {
         ++calls;
         if (calls == 1) return PlaintextProbeWrite{-1, ProbeInterrupted};
         if (calls == 2) return PlaintextProbeWrite{-1, ProbeWouldBlock};
-        CHECK(data == bytes.data() + calls - 3);
+        CHECK(data == bytes.data() + (calls - 3));
         CHECK(size == bytes.size() - (calls - 3));
         return PlaintextProbeWrite{1, 0};
     }));
