@@ -5122,12 +5122,13 @@ D6R_TEST_CASE("NET-SOLO host and guest charged bows release while solo team cont
     std::optional<std::chrono::steady_clock::time_point> cleanedAt;
     host.endSession();
     D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 5s, [&] {
-        if (!cleanedAt && host.supervisor && host.snapshot().journey == Client::NetworkJourney::Inactive) {
+        const auto hostSnapshot = host.snapshot();
+        if (!cleanedAt && host.supervisor && hostSnapshot.journey == Client::NetworkJourney::Inactive) {
             const auto service = host.supervisor->snapshot();
             if (service.cleanupComplete && service.state == Client::HostServiceState::NoService)
                 cleanedAt = std::chrono::steady_clock::now();
         }
-        return host.snapshot().journey == Client::NetworkJourney::Inactive
+        return cleanedAt && hostSnapshot.journey == Client::NetworkJourney::Inactive
                && ally.snapshot().journey == Client::NetworkJourney::HostEnded;
     }));
     D6R_REQUIRE(cleanedAt && *cleanedAt - endBegan < 3s);
