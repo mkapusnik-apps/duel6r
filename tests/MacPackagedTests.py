@@ -99,15 +99,19 @@ def main(args):
         current = inventory(relocated)
         assert all(current[name] == digest for name, digest in original.items()), "Probe mutated packaged production files"
     assert inventory(app) == original
-    report = {"source_revision": args.revision, "checks": "passed", "gui_executed": False,
-              "archive_sha256": hashlib.sha256((app.parent / "duel6r-macos-arm64.zip").read_bytes()).hexdigest(),
+    publication = args.report.parent / "build-info.json"
+    metadata = json.loads(publication.read_text())
+    architecture = metadata["architecture"]
+    assert architecture in ("arm64", "x86_64")
+    report = {"source_revision": args.revision, "architecture": architecture, "checks": "passed", "gui_executed": False,
+              "archive_sha256": hashlib.sha256((app.parent / f"duel6r-macos-{architecture}.zip").read_bytes()).hexdigest(),
               "relocated_space_path": True, "unrelated_cwd": True, "isolated_home_instances": 2,
               "packaged_file_sha256": original}
     args.report.write_text(json.dumps(report, indent=2) + "\n")
-    publication = args.report.parent / "build-info.json"
-    metadata = json.loads(publication.read_text())
     metadata["native_packaged_checks"] = report
     publication.write_text(json.dumps(metadata, indent=2) + "\n")
+    if architecture == "x86_64":
+        (publication.parent / "build-info-x86_64.json").write_text(publication.read_text())
 
 
 if __name__ == "__main__":

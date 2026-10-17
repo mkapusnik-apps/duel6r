@@ -1,6 +1,6 @@
 # Dedicated directory publication implementation
 
-This is an implementation reference, not a provisioning or deployment claim. Linux x86-64 and Linux AArch64 packaged services accept the same common encrypted channel from Linux x86-64, Windows x86-64, Linux AArch64/Pi 5 and experimental Apple Silicon macOS 14+ clients. Dedicated hosting platforms are unchanged; no Intel Mac target or cloud endpoint is added.
+This is an implementation reference, not a provisioning or deployment claim. Linux x86-64 and Linux AArch64 packaged services accept the same common encrypted channel from Linux x86-64, Windows x86-64, Linux AArch64/Pi 5 and experimental Apple Silicon macOS 14+ and Intel x86_64 macOS 13 Ventura+ clients under their platform contracts. Dedicated hosting platforms are unchanged; no cloud endpoint is added.
 
 ## Server inputs
 

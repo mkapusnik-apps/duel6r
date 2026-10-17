@@ -10,16 +10,23 @@ cmake_minimum_required(VERSION 3.5)
 
 # project name
 if (CMAKE_HOST_APPLE)
-    set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Experimental macOS architecture")
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Experimental macOS minimum version")
+    execute_process(COMMAND uname -m OUTPUT_VARIABLE D6R_MACOS_HOST_ARCH OUTPUT_STRIP_TRAILING_WHITESPACE)
+    set(CMAKE_OSX_ARCHITECTURES "${D6R_MACOS_HOST_ARCH}" CACHE STRING "Experimental native macOS architecture")
+    if (CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+        set(D6R_MACOS_MINIMUM "13.0")
+    else ()
+        set(D6R_MACOS_MINIMUM "14.0")
+    endif ()
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "${D6R_MACOS_MINIMUM}" CACHE STRING "Experimental macOS minimum version")
 endif ()
 project(Duel6r)
 
 if (APPLE)
     if (NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR
-        NOT CMAKE_OSX_ARCHITECTURES STREQUAL "arm64" OR
-        NOT CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL "14.0")
-        message(FATAL_ERROR "The experimental macOS target requires arm64 and macOS 14.0")
+        NOT CMAKE_OSX_ARCHITECTURES MATCHES "^(arm64|x86_64)$" OR
+        NOT CMAKE_OSX_ARCHITECTURES STREQUAL CMAKE_HOST_SYSTEM_PROCESSOR OR
+        NOT CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL D6R_MACOS_MINIMUM)
+        message(FATAL_ERROR "The experimental macOS target requires native arm64/macOS 14.0 or x86_64/macOS 13.0")
     endif ()
     add_compile_definitions(D6_MACOS_PLATFORM)
 endif ()

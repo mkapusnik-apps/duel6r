@@ -194,7 +194,7 @@ Presentation-only choices do not use the authoritative seed. This exclusion incl
 
 ## Approved-platform semantic determinism
 
-Approved player-hosted services must provide semantic determinism: Linux x86-64, Windows x86-64, Raspberry Pi 5 Linux 64-bit under its platform contract, and experimental Apple Silicon macOS 14+ under its platform contract. Dedicated services on the approved Linux x86-64 and existing Linux ARM64 packaged targets must provide the same semantic determinism. [NET-PUB](network-play-first-release.md#public-dedicated-pilot) owns dedicated platform support and client restrictions.
+Approved player-hosted services must provide semantic determinism: Linux x86-64, Windows x86-64, Raspberry Pi 5 Linux 64-bit under its platform contract, and experimental Apple Silicon macOS 14+ and Intel x86_64 macOS 13 Ventura+ under [the macOS platform contract](macos.md). Dedicated services on the approved Linux x86-64 and existing Linux ARM64 packaged targets must provide the same semantic determinism. [NET-PUB](network-play-first-release.md#public-dedicated-pilot) owns dedicated platform support and client restrictions.
 
 The comparison inputs are:
 

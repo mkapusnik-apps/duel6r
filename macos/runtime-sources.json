@@ -1,0 +1,65 @@
+{
+  "projects": [
+    {
+      "name": "openssl", "version": "3.5.9", "root": "openssl-3.5.9",
+      "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz",
+      "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a",
+      "required_notices": ["LICENSE.txt"], "builder": "openssl"
+    },
+    {
+      "name": "sdl3", "version": "3.4.14", "root": "SDL3-3.4.14",
+      "url": "https://github.com/libsdl-org/SDL/releases/download/release-3.4.14/SDL3-3.4.14.tar.gz",
+      "sha256": "30d4aa2b3037718142b32dffd4e72f917ebb6cc5227150e7bb9c45efb2153aeb",
+      "required_notices": ["LICENSE.txt"],
+      "options": ["SDL_SHARED=ON", "SDL_STATIC=OFF", "SDL_TESTS=OFF", "SDL_TEST_LIBRARY=OFF", "SDL_FRAMEWORK=OFF"]
+    },
+    {
+      "name": "sdl2-compat", "version": "2.32.70", "root": "sdl2-compat-2.32.70",
+      "url": "https://github.com/libsdl-org/sdl2-compat/releases/download/release-2.32.70/sdl2-compat-2.32.70.tar.gz",
+      "sha256": "998fa62557eb46ffe7e5c3e2c123bc332f7df9d9f593b3ceed88ed1158428a44",
+      "required_notices": ["LICENSE.txt"], "options": ["SDL2COMPAT_TESTS=OFF"]
+    },
+    {
+      "name": "sdl2_image", "version": "2.8.12", "root": "SDL2_image-2.8.12",
+      "url": "https://github.com/libsdl-org/SDL_image/releases/download/release-2.8.12/SDL2_image-2.8.12.tar.gz",
+      "sha256": "393f5efb50536ec13ca4f4affb69cc9966d3c3f969e6c5e701faddf9f9785381",
+      "required_notices": ["LICENSE.txt", "src/miniz.h", "src/nanosvg.h", "src/nanosvgrast.h", "src/qoi.h", "src/stb_image.h", "src/tiny_jpeg.h"],
+      "options": ["SDL2IMAGE_VENDORED=ON", "SDL2IMAGE_DEPS_SHARED=OFF", "SDL2IMAGE_STRICT=ON", "SDL2IMAGE_SAMPLES=OFF", "SDL2IMAGE_TESTS=OFF", "DAV1D_ASM=OFF"],
+      "vendored": [
+        {"name": "dav1d", "root": "dav1d-527d4cb4442b6fafdbd92b60b0dc09647c4f4dfe", "url": "https://codeload.github.com/libsdl-org/dav1d/tar.gz/527d4cb4442b6fafdbd92b60b0dc09647c4f4dfe", "sha256": "58d0ac345c6759fdf07a6d0ddfa6f491a8c8cd70cb7e4fb0a176a6506ee371bf", "required_notices": ["COPYING"]},
+        {"name": "libavif", "root": "libavif-5bcd7d031e058b171364916a4dbef5fc5d6a28e2", "url": "https://codeload.github.com/libsdl-org/libavif/tar.gz/5bcd7d031e058b171364916a4dbef5fc5d6a28e2", "sha256": "4a479f4322cd6c36520d29147b5bf826ed198ec76e0fbf7faec82ac2592a581d", "required_notices": ["LICENSE"]},
+        {"name": "libtiff", "root": "libtiff-17461f1659d6b7cf38318aca30b607f5a6948759", "url": "https://codeload.github.com/libsdl-org/libtiff/tar.gz/17461f1659d6b7cf38318aca30b607f5a6948759", "sha256": "1f2ed83acca7b4096dea574f4d244a1c1355aa071a50a72bc5336a553863c919", "required_notices": ["COPYRIGHT"]},
+        {"name": "libwebp", "root": "libwebp-3bd82ea4782080c6500b786cf557f2debfe0ca1d", "url": "https://codeload.github.com/libsdl-org/libwebp/tar.gz/3bd82ea4782080c6500b786cf557f2debfe0ca1d", "sha256": "6d8d6c2f2338f7117a32795f9ac9101e62be5eb177f4e700c17a41017ec33d60", "required_notices": ["COPYING", "PATENTS"]}
+      ]
+    },
+    {
+      "name": "sdl2_mixer", "version": "2.8.2", "root": "SDL2_mixer-2.8.2",
+      "url": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.2/SDL2_mixer-2.8.2.tar.gz",
+      "sha256": "938dff531d00ace2296557a6599abe6f34599e2f34f0a4a08a397e2ccac8b8f7",
+      "required_notices": ["LICENSE.txt", "src/codecs/dr_libs/dr_flac.h", "src/codecs/minimp3/minimp3.h", "src/codecs/stb_vorbis/stb_vorbis.h"],
+      "options": ["SDL2MIXER_VENDORED=ON", "SDL2MIXER_DEPS_SHARED=OFF", "SDL2MIXER_SAMPLES=OFF"],
+      "vendored": [
+        {"name": "libxmp", "root": "libxmp-1e4b00d677c217ba303ffaa4f5d4a0e6a0cbf22c", "url": "https://codeload.github.com/libsdl-org/libxmp/tar.gz/1e4b00d677c217ba303ffaa4f5d4a0e6a0cbf22c", "sha256": "c9600a2f8f6bbf1d17488eb689ca99d9e49b40fa3ca4115f1ac9c57ba9219b36", "required_notices": ["README", "docs/CREDITS", "docs/COPYING"]},
+        {"name": "ogg", "root": "ogg-936fdd822a4e4fc963197b3eda931b89b52859a0", "url": "https://codeload.github.com/libsdl-org/ogg/tar.gz/936fdd822a4e4fc963197b3eda931b89b52859a0", "sha256": "30e1012c1a1909f61e1ef27dc72fe072da51641ea826ba32e1f4ebfd3fc24419", "required_notices": ["COPYING"]},
+        {"name": "opus", "root": "opus-ac9f053e1db9cc1c7608b74e029c25ded0254e3e", "url": "https://codeload.github.com/libsdl-org/opus/tar.gz/ac9f053e1db9cc1c7608b74e029c25ded0254e3e", "sha256": "5e3d4e850b5dc517f0215be8f96fc345cdb66ac4ded5871d36c20ffbeba62c0e", "required_notices": ["COPYING"]},
+        {"name": "opusfile", "root": "opusfile-9e5322c62de32d2b2ad88324b3ad311174cec41d", "url": "https://codeload.github.com/libsdl-org/opusfile/tar.gz/9e5322c62de32d2b2ad88324b3ad311174cec41d", "sha256": "80cbf6b0c83abc0ac5382d30828703047b08bc9ff7efbc48e0fc397f9839710b", "required_notices": ["COPYING"]},
+        {"name": "wavpack", "root": "WavPack-112a56419d45dd4bf0f80f6ca89989c574262580", "url": "https://codeload.github.com/libsdl-org/wavpack/tar.gz/112a56419d45dd4bf0f80f6ca89989c574262580", "sha256": "69f477fc2d9407125b28bea705b5be79159400a020165a99bc4b742901d92e1a", "required_notices": ["COPYING", "license.txt"]}
+      ]
+    },
+    {
+      "name": "sdl2_ttf", "version": "2.24.0", "root": "SDL2_ttf-2.24.0",
+      "url": "https://github.com/libsdl-org/SDL_ttf/releases/download/release-2.24.0/SDL2_ttf-2.24.0.tar.gz",
+      "sha256": "0b2bf1e7b6568adbdbc9bb924643f79d9dedafe061fa1ed687d1d9ac4e453bfd",
+      "required_notices": ["LICENSE.txt", "external/freetype/LICENSE.TXT", "external/freetype/docs/FTL.TXT", "external/harfbuzz/COPYING"],
+      "options": ["SDL2TTF_VENDORED=ON", "SDL2TTF_HARFBUZZ=ON", "SDL2TTF_SAMPLES=OFF"]
+    },
+    {
+      "name": "glew", "version": "2.3.1", "root": "glew-2.3.1",
+      "url": "https://downloads.sourceforge.net/project/glew/glew/2.3.1/glew-2.3.1.tgz",
+      "sha256": "b64790f94b926acd7e8f84c5d6000a86cb43967bd1e688b03089079799c9e889",
+      "required_notices": ["LICENSE.txt"], "cmake_subdir": "build/cmake",
+      "options": ["BUILD_UTILS=OFF"],
+      "patches": [{"name": "extensions.patch", "url": "https://github.com/nigels-com/glew/commit/a7c9cc7c01fa9d59322edf702b6d59e10fe427cb.patch?full_index=1", "sha256": "d177dc99fb81d310d2b78b051cdddb4432843904806952794040f8201d702c0c"}]
+    }
+  ]
+}

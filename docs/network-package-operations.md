@@ -4,7 +4,7 @@
 
 **Experimental/prototype networking: packaging is not accepted end-to-end network support.** This guide describes the production-path procedures to validate against the [deployment requirements](network-deployments.md). It does not remove the prototype warning or approve release readiness. Issue #41 remains the final network release gate.
 
-The common encrypted IPv4 journey includes optional Password, Direct and directory browsing. Linux x86-64, Windows x86-64, Linux AArch64/Pi 5 and experimental Apple Silicon macOS 14+ clients join either hosting kind; dedicated services remain Linux x86-64/AArch64. No Intel Mac or other dedicated hosting target is added. Platform evidence boundaries remain in their contracts. This guide authorizes no cloud gameplay activation, domains or billable resources. Package availability is not completed acceptance.
+The common encrypted IPv4 journey includes optional Password, Direct and directory browsing. Linux x86-64, Windows x86-64, Linux AArch64/Pi 5 and experimental Apple Silicon macOS 14+ and Intel x86_64 macOS 13 Ventura+ clients join either hosting kind; dedicated services remain Linux x86-64/AArch64. No other dedicated hosting target is added. Platform evidence boundaries remain in their contracts, including [the macOS platform contract](macos.md). This guide authorizes no cloud gameplay activation, domains or billable resources. Package availability is not completed acceptance.
 
 ### Evidence boundary
 

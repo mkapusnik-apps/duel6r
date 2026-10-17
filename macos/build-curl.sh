@@ -4,7 +4,7 @@ set -euo pipefail
 sdk="${1:?macOS SDK required}"
 deps="${2:?private dependency directory required}"
 openssl="${3:?OpenSSL prefix required}"
-[[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || exit 1
+source "$(dirname "$0")/native-architecture.sh"
 version=8.21.0
 checksum=ad6f2f94934b38e31e48272833c99b891d045b4565fe942a53fbd27bd3910e16
 url="https://curl.se/download/curl-$version.tar.bz2"
@@ -23,7 +23,7 @@ printf '%s  %s\n' "$checksum" "$archive" | shasum -a 256 -c -
 rm -rf "$source" "$build" "$prefix"
 tar -xjf "$archive" -C "$deps"
 mkdir -p "$build"
-flags="-arch arm64 -mmacosx-version-min=14.0"
+flags="-arch $D6R_MACOS_ARCH -mmacosx-version-min=$D6R_MACOS_MINIMUM"
 (
   cd "$build"
   # xcrun selects the SDK for compiler/configure probes as well as make.
@@ -39,9 +39,9 @@ flags="-arch arm64 -mmacosx-version-min=14.0"
   make -j"$(sysctl -n hw.ncpu)"
   make install
 )
-python3 - "$build/lib/curl_config.h" "$prefix" "$version" "$checksum" <<'PY'
+python3 - "$build/lib/curl_config.h" "$prefix" "$version" "$checksum" "$D6R_MACOS_ARCH" "$D6R_MACOS_MINIMUM" <<'PY'
 import hashlib, json, pathlib, re, subprocess, sys
-config, prefix, version, checksum = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), *sys.argv[3:]
+config, prefix, version, checksum, architecture, minimum = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), *sys.argv[3:]
 defines = set(re.findall(r'^\s*#define\s+(\w+)\b', config.read_text(), re.M))
 required = {'USE_APPLE_SECTRUST', 'USE_OPENSSL', 'HAVE_THREADS_POSIX', 'USE_RESOLV_THREADED'}
 forbidden = {'CURL_CA_FALLBACK', 'CURL_CA_BUNDLE', 'CURL_CA_PATH'}
@@ -53,7 +53,7 @@ features = inspect('--features').splitlines()
 if not {'AsynchDNS', 'SSL'} <= set(features) or inspect('--ssl-backends') != 'OpenSSL':
     raise SystemExit('Private curl runtime features/backend are invalid')
 library = (prefix / 'lib/libcurl.4.dylib').resolve(strict=True)
-metadata = dict(version=version, archive_sha256=checksum, architecture='arm64', minimum_macos='14.0',
+metadata = dict(version=version, archive_sha256=checksum, architecture=architecture, minimum_macos=minimum,
                 native_trust='Apple SecTrust', ca_fallback=False, configure=inspect('--configure'),
                 features=features, library_sha256=hashlib.sha256(library.read_bytes()).hexdigest())
 (prefix / 'build-info.json').write_text(json.dumps(metadata, indent=2) + '\n')
