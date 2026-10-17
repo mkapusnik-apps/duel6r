@@ -1670,11 +1670,9 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
         const char *name;
         R::CanonicalState state;
         bool valid;
-        bool forceCalibrationRetry = false;
     };
     std::vector<Scenario> scenarios;
     scenarios.push_back({"valid", admissionLobby({11, 12}), true});
-    scenarios.push_back({"valid-retry", admissionLobby({11, 12}), true, true});
     scenarios.push_back({"missing", admissionLobby({11}), false});
     scenarios.push_back({"extra", admissionLobby({11, 12, 13}), false});
     scenarios.push_back({"substituted", admissionLobby({11, 13}), false});
@@ -1768,7 +1766,6 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
                     if (!probe || probe->kind != R::ReplicationFrameKind::QualityProbe || !probe->qualitySequence)
                         throw std::runtime_error("guest sent an unexpected calibration retry frame");
                     if (++hostProbesSeen > 64) throw std::runtime_error("calibration fixture work bound exceeded");
-                    if (scenario.forceCalibrationRetry && hostProbesSeen == 1) std::this_thread::sleep_for(25ms);
                     const auto hostNow = static_cast<std::uint64_t>(
                         std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now().time_since_epoch()).count());
@@ -1827,11 +1824,6 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
                            std::string("scenario=") + scenario.name + ";status=" + std::to_string(status)
                            + ";presentations=" + std::to_string(presentations.load()) + ";output=" + output.str());
             D6R_REQUIRE(presentations.load() >= 1);
-            if (scenario.forceCalibrationRetry) {
-                D6R_REQUIRE(hostProbesSeen >= 2);
-                D6R_REQUIRE(receipt.data->responsesOverBudget >= 1);
-                D6R_REQUIRE(receipt.data->calibrated);
-            }
         } else {
             D6R_REQUIRE_EQ(2, status);
             D6R_REQUIRE_EQ(std::string(Network::InvalidHostAdmissionMessageIdentifier) + "\n"
@@ -4425,6 +4417,106 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 admitted sealed result precedes a later term
     D6R_REQUIRE_EQ("admitted\nparticipant-id=10 player-ids=11,12\n", output.str());
     D6R_REQUIRE(client->connection->succeeded);
     D6R_REQUIRE(client->closed && !client->cancelled);
+}
+
+D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission retries over-budget and expired calibration probes deterministically") {
+    namespace R = Network::Replication;
+    const auto host = manifest({{"levels/a", 1}});
+    const Network::AdmissionIdentitySet identities{10, {11, 12}};
+    const auto at = [](std::chrono::milliseconds time) { return Network::Trust::TimePoint{} + time; };
+
+    // A wall-clock sleep cannot force an observed over-budget sample: application
+    // scheduling may replace the 250 ms probe before its delayed response is read.
+    // Exercise both outcomes with the existing injected clock and production gate.
+    for (const bool expireFirstProbe: {false, true}) {
+        Test::RuntimeObservationReceipt receipt{expireFirstProbe ? "admission-expired-retry"
+                                                                : "admission-over-budget-retry"};
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto client = std::make_shared<FakeClientState>();
+        client->connection = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        auto &connection = *client->connection;
+        connection.queue(Network::serializeAdmissionOffer(identities), at(1ms));
+        Network::Trust::ReconnectCredential credential;
+        credential.bytes.fill(1);
+        connection.queue(Network::Lifecycle::serializeReconnectGrant(
+                {100, identities.participantId, 1, credential}), at(2ms));
+        R::FullSnapshot snapshot{1, admissionLobby({11, 12})};
+        snapshot.authoritativeProducedAt = 100;
+        connection.queue(R::serializeReplicationSnapshot(snapshot), at(2ms));
+        connection.queue(Network::serializeAdmissionConfirmation(identities), at(3ms));
+
+        unsigned probes = 0;
+        unsigned presentations = 0;
+        std::uint64_t firstSequence = 0;
+        std::ostringstream output;
+        const auto requireGateHeld = [&] {
+            D6R_REQUIRE(!connection.succeeded);
+            D6R_REQUIRE(!receipt.data->calibrated);
+            D6R_REQUIRE_EQ(0u, receipt.data->admissions.load());
+            D6R_REQUIRE_EQ(0u, presentations);
+            D6R_REQUIRE(output.str().empty());
+        };
+        connection.onReceive = [&](const Network::TransportFrame &frame) {
+            fixture->now = std::max(fixture->now, frame.receivedAt);
+            const auto response = R::deserializeReplicationFrame(frame.payload);
+            if (!response || response->kind != R::ReplicationFrameKind::QualityResponse) return;
+            requireGateHeld();
+            if (probes == 2 && response->qualitySequence == firstSequence + 1) {
+                // Before the valid response, the first response has been processed
+                // without calibrating or admitting, even when it was stale.
+                D6R_REQUIRE_EQ(1u, receipt.data->responses.load());
+                D6R_REQUIRE_EQ(expireFirstProbe ? 0u : 1u,
+                               receipt.data->responsesOverBudget.load());
+                D6R_REQUIRE(receipt.data->probeOutstanding);
+            }
+        };
+        connection.onSend = [&](const auto &payload) {
+            const auto probe = R::deserializeReplicationFrame(payload);
+            if (!probe || probe->kind != R::ReplicationFrameKind::QualityProbe) return;
+            D6R_REQUIRE(probe->qualitySequence);
+            D6R_REQUIRE(++probes <= 2);
+            requireGateHeld();
+            if (probes == 1) {
+                firstSequence = *probe->qualitySequence;
+                if (!expireFirstProbe)
+                    connection.queue(R::serializeQualityResponse(firstSequence, 100), at(26ms));
+                return; // Otherwise withhold until production expires and replaces it.
+            }
+            D6R_REQUIRE_EQ(firstSequence + 1, *probe->qualitySequence);
+            D6R_REQUIRE(fixture->now >= at(251ms));
+            if (expireFirstProbe)
+                connection.queue(R::serializeQualityResponse(firstSequence, 100), fixture->now + 1ms);
+            const auto hostNow = static_cast<std::uint64_t>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                            fixture->now.time_since_epoch()).count()) + 100;
+            connection.queue(R::serializeQualityResponse(*probe->qualitySequence, hostNow),
+                             fixture->now + 10ms);
+        };
+
+        auto dependencies = guestRuntimeDependencies(fixture, client, host);
+        dependencies.productionReplicationProtocol = true;
+        dependencies.observations = receipt.data;
+        dependencies.guestPresentation = [&](const R::CanonicalState &state, const auto &presentation,
+                                             const auto &, const auto &events) {
+            if (!presentation.canonicalStateCurrent) return;
+            D6R_REQUIRE(connection.succeeded);
+            D6R_REQUIRE(state.participants[1].ownedPlayerIds == identities.playerIds);
+            D6R_REQUIRE(events.empty());
+            ++presentations;
+            fixture->cancelled = true;
+        };
+        Server::HeadlessServer guest(runtimeGuestConfig(), std::move(dependencies));
+        D6R_REQUIRE_EQ(2, guest.run(output));
+        D6R_REQUIRE_EQ("admitted\nparticipant-id=10 player-ids=11,12\n", output.str());
+        D6R_REQUIRE_EQ(2u, probes);
+        D6R_REQUIRE_EQ(2u, receipt.data->responses.load());
+        D6R_REQUIRE_EQ(expireFirstProbe ? 0u : 1u, receipt.data->responsesOverBudget.load());
+        D6R_REQUIRE_EQ(expireFirstProbe ? 10000u : 25000u, receipt.data->maxResponseRttUs.load());
+        D6R_REQUIRE_EQ(20, receipt.data->calibrationBudgetMs.load());
+        D6R_REQUIRE(receipt.data->calibrated);
+        D6R_REQUIRE_EQ(1u, receipt.data->admissions.load());
+        D6R_REQUIRE_EQ(1u, presentations);
+    }
 }
 
 D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission preserves the initial lobby across confirmation active update and calibration") {
